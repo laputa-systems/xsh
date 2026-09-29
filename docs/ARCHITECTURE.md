@@ -569,3 +569,11 @@ sites call `require_label_binding_name` before creating lexical captures. Labels
 remain ordinary field Names in schemas, literals, accessors, constructor calls,
 and patterns, so checking and indexed execution preserve their existing type
 and key contracts. Tooling reads the same label vocabulary for safe unquoting.
+
+Nested functional record updates retain `ArenaRecordFieldKind::Path` selectors
+separately from their replacement expressions. Checked updates preserve the
+base schema and lower to `BuildExprRow::RecordUpdate`; its indexed payload
+verifies nonempty, disjoint static paths. Both execution routes evaluate the
+base and replacements before `lowered_record_update_batch` rebuilds a private
+snapshot. A path trie groups shared ancestors and uses
+`lowered_record_field_mut` for copy on write, preserving untouched storage.

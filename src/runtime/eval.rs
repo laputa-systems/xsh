@@ -959,6 +959,10 @@ enum LoweredRecordEntry {
     Spread(BuildExprId),
 }
 
+/// Static replacement paths retain RHS expressions in source order.
+#[derive(Clone, Debug)]
+struct LoweredRecordUpdates(Vec<(Vec<Name>, BuildExprId, Span)>);
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug)]
 enum LoweredProcessCommandBuilderEntry {
@@ -1390,6 +1394,7 @@ enum BuildExprRow {
     Record(Vec<LoweredRecordEntry>),
     // A missing key identifies a Map spread; keyed entries evaluate key before value.
     MapLiteral(Vec<(Option<BuildExprId>, BuildExprId, Span)>),
+    RecordUpdate { base: BuildExprId, updates: LoweredRecordUpdates, span: Span },
     List(Vec<BuildExprId>),
     // Each element records whether it splices, its value, and its source span.
     ListBuild(Vec<(bool, BuildExprId, Span)>),

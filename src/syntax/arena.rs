@@ -5390,6 +5390,7 @@ pub struct ArenaRecordField {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaRecordFieldInput {
     Computed { key: ExprId, value: ExprId, span: Span },
+    Path { path: Vec<Name>, value: ExprId, span: Span },
     Named {
         name: Name,
         value: ExprId,
@@ -5408,6 +5409,7 @@ pub enum ArenaRecordFieldInput {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaRecordFieldKind {
     Computed { key: ExprId, value: ExprId, span: SpanId },
+    Path { path: ArenaRange, value: ExprId, span: SpanId },
     Named {
         name: Name,
         value: ExprId,
@@ -6428,6 +6430,9 @@ impl ArenaLowerer<'_> {
             kind: match field {
                 ArenaRecordFieldInput::Computed { key, value, span } => ArenaRecordFieldKind::Computed {
                     key: *key, value: *value, span: self.span(*span),
+                },
+                ArenaRecordFieldInput::Path { path, value, span } => ArenaRecordFieldKind::Path {
+                    path: self.lower_name_range(path), value: *value, span: self.span(*span),
                 },
                 ArenaRecordFieldInput::Named { name, value, span } => ArenaRecordFieldKind::Named {
                     name: *name,

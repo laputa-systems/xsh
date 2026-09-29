@@ -3464,3 +3464,43 @@ fn formatter_list_element_assignment_preserves_nested_selectors_and_comments() {
     assert_parse_check_standalone("formatted nested assignment", &formatted.formatted);
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
 }
+
+#[test]
+fn linter_nested_record_update_fix_rechecks_and_converges() {
+    let source = "let base = {a: {b: 1, c: 2}}\nlet after = {...base, a: {...base.a, b: 3}}\nprint $after.a.b\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-nested-record-update")).expect("safe nested spread fix");
+    let hint = &diagnostic.fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
+    assert!(fixed.contains("{...base, a.b: 3}"));
+    assert_parse_check_standalone("nested record update", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty());
+    let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(again.formatted, formatted.formatted);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let output = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-nested-record-update")));
+}
+
+#[test]
+fn linter_nested_record_update_retains_unstable_reads_comments_and_new_fields() {
+    for source in [
+        "pure change(value: Any) -> Unit { let base = {a: {b: 1}}; let after = {...base, a: {...base.a, b: value}} }\n",
+        "var base = {a: {b: 1}}\nlet after = {...base, a: {...base.a, b: 3}}\n",
+        "let base = {a: {b: 1}}\nlet after = {...base, a: {...base.a, b: 3 # worker count\n}}\n",
+        "let base = {a: {b: 1}}\nlet after = {...base, a: {...base.a, new: 3}}\n",
+        "let base = {a: {b: 1}}\nlet after = {...base, a: {...base.a, b: 3}, ...base}\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-nested-record-update")), "{source}");
+    }
+}

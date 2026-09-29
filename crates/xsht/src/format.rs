@@ -1978,6 +1978,15 @@ impl<'a> Writer<'a> {
             ArenaRecordFieldKind::Computed { key, value, .. } => {
                 output.push('['); self.write_expr_safe(*key, output); output.push_str("]: "); self.write_expr_safe(*value, output);
             }
+            ArenaRecordFieldKind::Path { path, value, span } => {
+                let names = self.arena.names(*path).collect::<Vec<_>>();
+                for (index, name) in names.iter().enumerate() {
+                    if index == 0 { self.write_record_key(name, *span, output); }
+                    else { output.push('.'); output.push_str(name.as_str().as_str()); }
+                }
+                output.push_str(": ");
+                self.write_expr_safe(*value, output);
+            }
             ArenaRecordFieldKind::Named { name, value, span } => {
                 self.write_record_key(name, *span, output);
                 output.push_str(": ");
@@ -3307,7 +3316,8 @@ fn record_field_span(arena: &AstArena, field: &ArenaRecordFieldKind) -> Option<S
         ArenaRecordFieldKind::Computed { span, .. }
         | ArenaRecordFieldKind::Named { span, .. }
         | ArenaRecordFieldKind::Shorthand { span, .. }
-        | ArenaRecordFieldKind::Spread { span, .. } => Some(arena.span(*span)),
+        | ArenaRecordFieldKind::Spread { span, .. }
+        | ArenaRecordFieldKind::Path { span, .. } => Some(arena.span(*span)),
     }
 }
 

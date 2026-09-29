@@ -74,6 +74,7 @@ impl LiteralConstant {
                 let mut values = BTreeMap::new();
                 for field in arena.record_fields(fields) {
                     let (key, value) = match field.kind {
+                        ArenaRecordFieldKind::Path { .. } => return None,
                         ArenaRecordFieldKind::Computed { key, value, .. } => {
                             let Self::Str(key) = Self::analyze(arena, key, bindings)? else { return None; };
                             (key, Self::analyze(arena, value, bindings)?)
@@ -101,7 +102,7 @@ impl LiteralConstant {
                     let (name, value) = match field.kind {
                         ArenaRecordFieldKind::Named { name, value, .. } => (name, Self::analyze(arena, value, bindings)?),
                         ArenaRecordFieldKind::Shorthand { name, .. } => (name, bindings.get(&name)?.clone()),
-                        ArenaRecordFieldKind::Spread { .. } | ArenaRecordFieldKind::Computed { .. } => return None,
+                        ArenaRecordFieldKind::Spread { .. } | ArenaRecordFieldKind::Computed { .. } | ArenaRecordFieldKind::Path { .. } => return None,
                     };
                     if values.insert(name, value).is_some() {
                         return None;

@@ -12,7 +12,7 @@ use crate::runtime::eval::{
     LoweredAssignPath, LoweredAssignStep, LoweredCompQualifier, LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields, LoweredFmtPart,
     LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, LoweredModuleExport,
     LoweredModuleExportKind, LoweredPipelineStage, LoweredProcessCommandArgv,
-    LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredReturnKind, LoweredRunArg,
+    LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates, LoweredReturnKind, LoweredRunArg,
     LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunRedirection, LoweredSpawnRun, LoweredStatsValue, LoweredStrPredicate,
     LoweredTagValue, LoweredTopLevelSlot, LoweredTopLevelSlots, LoweredType, LoweredTypeCheck,
@@ -135,6 +135,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprLastStatus,
     ExprRecord,
     ExprMapLiteral,
+    ExprRecordUpdate,
     ExprList,
     ExprListBuild,
     ExprEmptyMap,
@@ -5449,6 +5450,23 @@ impl_vec_codec!(LoweredModuleExport, BLOCK_LIST);
 impl_vec_codec!(LoweredTopLevelSlot, BLOCK_LIST);
 impl_vec_codec!(String, BLOCK_LIST);
 impl_vec_codec!(Name, BLOCK_LIST);
+impl_vec_codec!((Vec<Name>, BuildExprId, Span), BLOCK_LIST);
+
+impl FullCodec for LoweredRecordUpdates {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        self.0.encode(builder, output)
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        let updates = Vec::<(Vec<Name>, BuildExprId, Span)>::decode(decoder, input)?;
+        for (index, (path, _, _)) in updates.iter().enumerate() {
+            if path.is_empty() || updates[..index].iter().any(|(other, _, _)| path.starts_with(other) || other.starts_with(path)) {
+                return Err(IrVerifyError::new("record update paths must be nonempty and disjoint"));
+            }
+        }
+        Ok(Self(updates))
+    }
+}
+
 impl_vec_codec!((Name, usize), BLOCK_LIST);
 impl_vec_codec!((Name, BuildPatternId), BLOCK_LIST);
 impl_vec_codec!((Name, LoweredValue), BLOCK_LIST);
@@ -6775,6 +6793,9 @@ impl_node_codec! {
         BuildExprRow::MapLiteral(entries) => ExprMapLiteral {
             entries: Vec<(Option<BuildExprId>, BuildExprId, Span)>,
         } => BuildExprRow::MapLiteral(entries),
+        BuildExprRow::RecordUpdate { base, updates, span } => ExprRecordUpdate {
+            base: BuildExprId, updates: LoweredRecordUpdates, span: Span,
+        } => BuildExprRow::RecordUpdate { base, updates, span },
         BuildExprRow::Record(entries) => ExprRecord {
             entries: Vec<LoweredRecordEntry>,
         } => BuildExprRow::Record(entries),
@@ -8241,6 +8262,44 @@ proc main() [error] {
         )
         .unwrap_err();
         assert_eq!(error.construct, "top_level_boundary_blocker");
+    }
+
+    #[test]
+    fn verifier_rejects_empty_record_update_path_and_bad_replacement_reference() {
+        run_with_large_stack(|| {
+            let program = fixture("record-update.xsh", "pure value() -> Int { let base = {a: {b: 1, c: 0}}; return {...base, a.b: 2, a.c: 3}.a.b }\n");
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprRecordUpdate).unwrap();
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let updates = IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
+            let entries = program.store.blocks[updates.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let path = IrBlockId::from_raw(program.store.extra[entries.start + 1]).unwrap();
+            let names = program.store.blocks[path.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let mut empty = program.clone();
+            empty.store.extra[names.start] = 0;
+            empty.store.blocks[path.index()].instructions.len = 1;
+            let error = FullVerifier::verify(&empty).unwrap_err();
+            assert!(error.message.contains("nonempty and disjoint"), "{}", error.message);
+            let mut bad_child = program.clone();
+            bad_child.store.extra[entries.start + 2] = u32::MAX;
+            assert!(FullVerifier::verify(&bad_child).is_err());
+            let mut overlapping = program.clone();
+            let second_path = IrBlockId::from_raw(program.store.extra[entries.start + 4]).unwrap();
+            let second_names = program.store.blocks[second_path.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            overlapping.store.extra[second_names.start + 2] = program.store.extra[names.start + 2];
+            let error = FullVerifier::verify(&overlapping).unwrap_err();
+            assert!(error.message.contains("nonempty and disjoint"), "{}", error.message);
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "value")),
+                    LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("update function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(2));
+            }
+        });
     }
 
     #[test]

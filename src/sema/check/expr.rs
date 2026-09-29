@@ -367,6 +367,11 @@ impl Checker {
                     }
                     (self.check_expr_arena(arena, source, value, expected_item), arena.arena.span(span))
                 }
+                ArenaRecordFieldKind::Path { value, span, .. } => {
+                    self.check_expr_arena(arena, source, value, expected_item);
+                    self.error(arena.arena.span(span), "map literals do not permit static record update paths", "check.map-update-path");
+                    continue;
+                }
                 ArenaRecordFieldKind::Named { value, span, .. } => (self.check_expr_arena(arena, source, value, expected_item), arena.arena.span(span)),
                 ArenaRecordFieldKind::Shorthand { name, span } => (self.lookup_expr_ident(name, arena.arena.span(span)), arena.arena.span(span)),
                 ArenaRecordFieldKind::Spread { expr, span } => {
@@ -386,6 +391,77 @@ impl Checker {
         Type::Map(Box::new(inferred))
     }
 
+    fn check_record_update_arena(&mut self, arena: &ArenaProgram, source: &str, range: ArenaRange, span: Span) -> Type {
+        fn requires_validation(actual: &Type, expected: &Type) -> bool {
+            if actual.any_flows_to_concrete(expected) { return true; }
+            match (actual, expected) {
+                (Type::Record(actual), Type::Record(expected)) if !expected.is_empty() => actual.is_empty() || expected.iter().any(|(name, expected)| actual.get(name).is_some_and(|actual| requires_validation(actual, expected))),
+                (Type::List(actual), Type::List(expected)) | (Type::Map(actual), Type::Map(expected)) | (Type::Optional(actual), Type::Optional(expected)) => requires_validation(actual, expected),
+                (Type::Result(actual, error), Type::Result(expected, expected_error)) => requires_validation(actual, expected) || requires_validation(error, expected_error),
+                _ => false,
+            }
+        }
+        let fields = arena.arena.record_fields(range);
+        let base_ty = match fields.first().map(|field| &field.kind) {
+            Some(ArenaRecordFieldKind::Spread { expr, .. }) => self.check_expr_arena(arena, source, *expr, None),
+            _ => {
+                self.error(span, "nested record updates require one leading record spread", "check.record-update-base");
+                Type::Unknown
+            }
+        };
+        if !matches!(&base_ty, Type::Record(fields) if !fields.is_empty()) {
+            self.error(span, "nested record updates require a statically known record shape", "check.record-update-shape");
+        }
+        let mut targets: Vec<Vec<Name>> = Vec::new();
+        for (index, field) in fields.iter().enumerate() {
+            let (path, value, field_span) = match &field.kind {
+                ArenaRecordFieldKind::Spread { expr, span } => {
+                    if index != 0 {
+                        self.error(arena.arena.span(*span), "nested record updates permit only the leading spread", "check.record-update-base");
+                        self.check_expr_arena(arena, source, *expr, None);
+                    }
+                    continue;
+                }
+                ArenaRecordFieldKind::Computed { key, value, span } => {
+                    self.check_expr_arena(arena, source, *key, Some(&Type::Str));
+                    self.check_expr_arena(arena, source, *value, None);
+                    self.error(arena.arena.span(*span), "nested record updates do not permit computed map keys", "check.map-update-path");
+                    continue;
+                }
+                ArenaRecordFieldKind::Path { path, value, span } => (arena.arena.names(*path).collect::<Vec<_>>(), Some(*value), arena.arena.span(*span)),
+                ArenaRecordFieldKind::Named { name, value, span } => (vec![*name], Some(*value), arena.arena.span(*span)),
+                ArenaRecordFieldKind::Shorthand { name, span } => (vec![*name], None, arena.arena.span(*span)),
+            };
+            if targets.iter().any(|prior| prior.starts_with(&path) || path.starts_with(prior)) {
+                self.error(field_span, "record update targets must be disjoint", "check.record-update-overlap");
+            }
+            targets.push(path.clone());
+            let mut selected = Some(&base_ty);
+            for name in &path {
+                selected = match selected {
+                    Some(Type::Record(fields)) if !fields.is_empty() => fields.get(name),
+                    _ => None,
+                };
+                if selected.is_none() { break; }
+            }
+            if selected.is_none() {
+                self.error(field_span, "every update target must select an existing field through known records", "check.record-update-field");
+            }
+            let actual = match value {
+                Some(value) => self.check_expr_arena(arena, source, value, selected),
+                None => self.lookup_expr_ident(path[0], field_span),
+            };
+            if let Some(selected) = selected {
+                if requires_validation(&actual, selected) {
+                    self.error(field_span, "record update replacements require a checked field type", "check.record-update-value");
+                } else {
+                    self.expect_type(selected, &actual, field_span);
+                }
+            }
+        }
+        base_ty
+    }
+
     fn check_record_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -395,6 +471,9 @@ impl Checker {
         span: Span,
     ) -> Type {
         let fields = arena.arena.record_fields(range);
+        if fields.iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. })) {
+            return self.check_record_update_arena(arena, source, range, span);
+        }
         if matches!(expected, Some(Type::Map(_))) || fields.iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })) {
             return self.check_map_literal_arena(arena, source, range, expected);
         }
@@ -406,7 +485,8 @@ impl Checker {
                 match &field.kind {
                 ArenaRecordFieldKind::Computed { .. } => unreachable!("computed fields select Map checking"),
                     ArenaRecordFieldKind::Spread { expr, .. }
-                    | ArenaRecordFieldKind::Named { value: expr, .. } => {
+                    | ArenaRecordFieldKind::Named { value: expr, .. }
+                    | ArenaRecordFieldKind::Path { value: expr, .. } => {
                         self.check_expr_arena(arena, source, *expr, None);
                     }
                     ArenaRecordFieldKind::Shorthand { name, span } => {
@@ -469,6 +549,7 @@ impl Checker {
                         }
                     }
                 }
+                ArenaRecordFieldKind::Path { .. } => unreachable!("record updates use their own checker"),
                 ArenaRecordFieldKind::Named { name, value, span } => {
                     let field_span = arena.arena.span(*span);
                     last_span = field_span;

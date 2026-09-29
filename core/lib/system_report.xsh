@@ -3650,7 +3650,7 @@ pure sanitize_report_mount_options(report: SystemReport) -> SystemReport {
     }
     for mount in report.storage.mounts
   ]
-  return {...report, storage: {...report.storage, mounts: mounts}}
+  return {...report, storage.mounts: mounts}
 }
 
 pure redact_mount_options(options: List[Str]) -> List[Str] {

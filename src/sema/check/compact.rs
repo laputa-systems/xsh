@@ -1214,6 +1214,9 @@ impl CompactBodyProbe<'_> {
         let expected = expected.result_ok().unwrap_or(expected);
         match self.program.arena.expr(expr).kind {
             ArenaExprKind::Record(fields) => {
+                if self.program.arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. })) {
+                    return;
+                }
                 match expected {
                     Type::Map(item) => {
                         self.output.expr_types.insert(expr, expected.clone());
@@ -1221,7 +1224,7 @@ impl CompactBodyProbe<'_> {
                             match field.kind {
                                 ArenaRecordFieldKind::Computed { value, .. } | ArenaRecordFieldKind::Named { value, .. } => self.apply_compact_expected(value, item),
                                 ArenaRecordFieldKind::Spread { expr, .. } => self.apply_compact_expected(expr, expected),
-                                ArenaRecordFieldKind::Shorthand { .. } => {}
+                                ArenaRecordFieldKind::Shorthand { .. } | ArenaRecordFieldKind::Path { .. } => {}
                             }
                         }
                     }
@@ -1271,12 +1274,13 @@ impl CompactBodyProbe<'_> {
     }
 
     fn check_compact_record(&mut self, range: crate::syntax::arena::ArenaRange) -> Type {
-        if self.program.arena.record_fields(range).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })) {
+        let updating = self.program.arena.record_fields(range).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. }));
+        if !updating && self.program.arena.record_fields(range).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })) {
             let mut item = None;
             for field in self.program.arena.record_fields(range).to_vec() {
                 let ty = match field.kind {
                     ArenaRecordFieldKind::Computed { key, value, .. } => { self.check_compact_expr(key); self.check_compact_expr(value) }
-                    ArenaRecordFieldKind::Named { value, .. } => self.check_compact_expr(value),
+                    ArenaRecordFieldKind::Path { value, .. } | ArenaRecordFieldKind::Named { value, .. } => self.check_compact_expr(value),
                     ArenaRecordFieldKind::Shorthand { name, .. } => self.lookup_name(name),
                     ArenaRecordFieldKind::Spread { expr, .. } => match self.check_compact_expr(expr) { Type::Map(item) => *item, _ => Type::Unknown },
                 };
@@ -1287,12 +1291,15 @@ impl CompactBodyProbe<'_> {
         let mut fields = BTreeMap::new();
         for field in self.program.arena.record_fields(range) {
             match &field.kind {
-                ArenaRecordFieldKind::Computed { .. } => unreachable!("computed entry selects Map probe"),
+                ArenaRecordFieldKind::Computed { key, value, .. } => { self.check_compact_expr(*key); self.check_compact_expr(*value); }
+                ArenaRecordFieldKind::Path { value, .. } => { self.check_compact_expr(*value); }
                 ArenaRecordFieldKind::Named { name, value, .. } => {
-                    fields.insert(*name, self.check_compact_expr(*value));
+                    let value_ty = self.check_compact_expr(*value);
+                    if !updating { fields.insert(*name, value_ty); }
                 }
                 ArenaRecordFieldKind::Shorthand { name, .. } => {
-                    fields.insert(*name, self.lookup_name(*name));
+                    let value_ty = self.lookup_name(*name);
+                    if !updating { fields.insert(*name, value_ty); }
                 }
                 ArenaRecordFieldKind::Spread { expr, .. } => {
                     if let Type::Record(spread) = self.check_compact_expr(*expr) {

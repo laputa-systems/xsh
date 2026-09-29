@@ -129,6 +129,10 @@ impl Checker {
         // Named record keys may have speculative Ident rows in the arena.
         // Their spelling selects a field and does not read a binding.
         let record_keys = program.arena.record_fields.iter().filter_map(|field| match field.kind {
+            ArenaRecordFieldKind::Path { path, span, .. } => {
+                let span = program.arena.span(span);
+                program.arena.names(path).next().map(|name| (span.source_id, span.start(), name))
+            }
             ArenaRecordFieldKind::Named { name, span, .. } => {
                 let span = program.arena.span(span);
                 Some((span.source_id, span.start(), name))

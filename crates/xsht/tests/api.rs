@@ -793,6 +793,8 @@ fn api_core_records_demonstrates_schema_owned_defaults_and_constructor_puns() {
     assert!(stdout.contains("bounded literal constants"), "{stdout}");
     assert!(stdout.contains("enabled: Bool = true"), "{stdout}");
     assert!(stdout.contains("Config(name:)"), "{stdout}");
+    assert!(stdout.contains("disjoint existing field paths"), "{stdout}");
+    assert!(stdout.contains("{...settings, build.jobs: 4}"), "{stdout}");
 }
 
 #[test]

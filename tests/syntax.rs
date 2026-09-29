@@ -3,7 +3,7 @@ use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCommand,
     ArenaCommandArgKind, ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
-    ArenaPatternKind, ArenaPipeStageKind, ArenaSpawnTarget, ArenaStmtKind, ArenaTypeDefBody,
+    ArenaPatternKind, ArenaRecordFieldKind, ArenaPipeStageKind, ArenaSpawnTarget, ArenaStmtKind, ArenaTypeDefBody,
     ArenaWordPart, ExprId, StmtId,
 };
 use xsh::frontend::syntax::cst::{SyntaxElement, SyntaxGroupKind, SyntaxKind, TriviaKind};
@@ -3694,4 +3694,25 @@ fn computed_map_keys_retain_expression_nodes_and_original_spans() {
     assert!(formatted.formatted.contains("[key.trim()]: amount"));
     assert!(formatted.formatted.contains("\"literal.dot\""));
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+}
+
+#[test]
+fn parser_nested_record_update_paths_keep_labels_spans_and_comments() {
+    let source = "let base = {build: {jobs: 1, if: false}}\nlet after = {\n  ...base,\n  build.jobs: 2, # é worker count\n  build.if: true,\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let arena = &parsed.arena.arena;
+    let statement = parsed.arena.statement_ids().nth(1).unwrap();
+    let ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(value), .. } = arena.stmt(statement).kind else { panic!("binding"); };
+    let ArenaExprKind::Record(fields) = arena.expr(value).kind else { panic!("update"); };
+    let ArenaRecordFieldKind::Path { path, value, span } = arena.record_fields(fields)[1].kind else { panic!("path"); };
+    assert_eq!(arena.names(path).map(|name| name.to_string()).collect::<Vec<_>>(), ["build", "jobs"]);
+    assert_eq!(&source[arena.span(span).range()], "build.jobs: 2");
+    assert_eq!(&source[arena.expr(value).span.range()], "2");
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert!(first.formatted.contains("# é worker count"));
+    assert_parse_and_check(SourceId::new(0), &first.formatted);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(first.formatted, second.formatted);
 }

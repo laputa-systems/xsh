@@ -1112,6 +1112,7 @@ impl Checker {
                     }
                     ArenaRecordFieldKind::Shorthand { span, .. }
                     | ArenaRecordFieldKind::Computed { span, .. }
+                    | ArenaRecordFieldKind::Path { span, .. }
                     | ArenaRecordFieldKind::Spread { span, .. } => {
                         let field_span = arena.arena.span(*span);
                         self.warning(

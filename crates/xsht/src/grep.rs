@@ -3,7 +3,7 @@
 use rustc_hash::FxHashMap;
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
-    ArenaCallArgKind, ArenaExprKind, ArenaPatternKind, ArenaProgram, AstArena, ExprId, PatternId,
+    ArenaCallArgKind, ArenaExprKind, ArenaRecordFieldKind, ArenaPatternKind, ArenaProgram, AstArena, ExprId, PatternId,
 };
 
 /// A structural grep match from `xsht::grep::find_matches_in_program`: the
@@ -200,6 +200,7 @@ fn match_expr_structural(
             for (pf, tf) in pfields.iter().zip(tfields) {
                 let matched = match (&pf.kind, &tf.kind) {
                     (Field::Computed { key: pk, value: pv, .. }, Field::Computed { key: tk, value: tv, .. }) => match_expr(p, *pk, t, *tk, source, &mut local) && match_expr(p, *pv, t, *tv, source, &mut local),
+                    (Field::Path { path: pp, value: pv, .. }, Field::Path { path: tp, value: tv, .. }) => p.names(*pp).eq(t.names(*tp)) && match_expr(p, *pv, t, *tv, source, &mut local),
                     (Field::Named { name: pn, value: pv, .. }, Field::Named { name: tn, value: tv, .. }) => pn == tn && match_expr(p, *pv, t, *tv, source, &mut local),
                     (Field::Shorthand { name: pn, .. }, Field::Shorthand { name: tn, .. }) => pn == tn,
                     (Field::Spread { expr: pe, .. }, Field::Spread { expr: te, .. }) => match_expr(p, *pe, t, *te, source, &mut local),
@@ -371,6 +372,26 @@ fn build_replacement_text(
                 )?);
             }
             Some(format!("{callee_text}({})", arg_parts.join(", ")))
+        }
+        ArenaExprKind::Record(fields) => {
+            let mut text = pattern_source.get(expr.span.range())?.to_string();
+            let mut replacements = Vec::new();
+            for field in arena.record_fields(*fields) {
+                let values = match field.kind {
+                    ArenaRecordFieldKind::Computed { key, value, .. } => vec![key, value],
+                    ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Path { value, .. } => vec![value],
+                    ArenaRecordFieldKind::Spread { expr, .. } => vec![expr],
+                    ArenaRecordFieldKind::Shorthand { .. } => continue,
+                };
+                for value in values {
+                    let span = arena.expr(value).span;
+                    replacements.push((span, build_replacement_text(arena, value, m, target_source, pattern_source)?));
+                }
+            }
+            for (span, replacement) in replacements.into_iter().rev() {
+                text.replace_range(span.start() - expr.span.start()..span.end() - expr.span.start(), &replacement);
+            }
+            Some(text)
         }
         ArenaExprKind::Ident(name) => Some(name.to_string()),
         // For non-metavar, non-structural nodes: fall back to pattern source text.

@@ -1,9 +1,10 @@
+use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use super::LoweredMapCursor;
 use super::serial_pipeline::{
     IndexedLiveSerialStage, IndexedSerialPipeline, indexed_for_pipeline_input,
 };
 use super::{
-    IndexedAssignStep, ResolvedAssignStep, decode_assign_path, apply_indexed_path_assignment, resolve_assign_index, IndexedCompQualifier, decode_comp_qualifiers, lowered_comp_iterable, Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
+    IndexedAssignStep, ResolvedAssignStep, decode_assign_path, apply_indexed_path_assignment, resolve_assign_index, IndexedCompQualifier, decode_comp_qualifiers, decode_record_updates, lowered_comp_iterable, Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
     FormatSpec, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader,
     LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
     LoweredTypeCheck, LoweredValue, Name, PathValue, RuntimeError, Span, StmtFlow, StreamValue,
@@ -247,6 +248,13 @@ enum FrameContinuation {
         key: Option<String>,
         reading_key: bool,
         next: Box<FrameContinuation>,
+    },
+    RecordUpdateBase {
+        updates: Vec<(Vec<Name>, u32, Span)>, span: Span, next: Box<FrameContinuation>,
+    },
+    RecordUpdateItems {
+        base: LoweredValue, updates: Vec<(Vec<Name>, u32, Span)>, index: usize,
+        values: Vec<(Vec<Name>, LoweredValue, Span)>, span: Span, next: Box<FrameContinuation>,
     },
     RecordItems {
         entries: Vec<FrameRecordEntry>,
@@ -1619,6 +1627,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     });
                 } else { self.push_value(index, FrameValue::Value(LoweredValue::Map(Arc::new(BTreeMap::new()))), next); }
             }
+            FullTag::ExprRecordUpdate => {
+                let base = indexed_raw(&mut payload, span)?;
+                let updates = decode_record_updates(&self.calls[index].execution, &mut payload, span)?;
+                let update_span = indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, base, update_span, FrameContinuation::RecordUpdateBase { updates, span: update_span, next: Box::new(next) });
+            }
             FullTag::ExprRecord => {
                 let (_, mut entries) = self.calls[index]
                     .execution
@@ -2568,6 +2583,30 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                                 entries, index: entry_index + 1, fields, key: None, reading_key: key.is_some(), next,
                             });
                         } else { self.push_value(index, FrameValue::Value(LoweredValue::Map(Arc::new(fields))), *next); }
+                    }
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+            },
+            FrameContinuation::RecordUpdateBase { updates, span, next } => match value {
+                FrameValue::Value(base) => {
+                    if let Some((_, instruction, field_span)) = updates.first() {
+                        self.push_expr(index, *instruction, *field_span, FrameContinuation::RecordUpdateItems {
+                            base, updates, index: 0, values: Vec::new(), span, next,
+                        });
+                    } else { self.push_value(index, FrameValue::Value(base), *next); }
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+            },
+            FrameContinuation::RecordUpdateItems { base, updates, index: item_index, mut values, span, next } => match value {
+                FrameValue::Value(value) => {
+                    let (path, _, field_span) = &updates[item_index];
+                    values.push((path.clone(), value, *field_span));
+                    if let Some((_, instruction, field_span)) = updates.get(item_index + 1) {
+                        self.push_expr(index, *instruction, *field_span, FrameContinuation::RecordUpdateItems {
+                            base, updates, index: item_index + 1, values, span, next,
+                        });
+                    } else {
+                        self.push_value(index, FrameValue::Value(lowered_record_update_batch(base, values, span)?), *next);
                     }
                 }
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),

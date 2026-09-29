@@ -3520,3 +3520,31 @@ fn computed_map_literals_locate_key_errors_without_weakening_values() {
         assert!(!checked.diagnostics.is_empty(), "accepted {source}");
     }
 }
+
+#[test]
+fn checker_rejects_nested_record_update_contract_violations() {
+    for (source, code) in [
+        ("let value = {a.b: 1}\n", "check.record-update-base"),
+        ("pure update(value: Record) -> Unit { let base = {a: {b: {c: 1}}}; let result = {...base, a.b: value} }\n", "check.record-update-value"),
+        ("pure update(base: Map[Int]) -> Unit { let result = {...base, a.b: 2} }\n", "check.record-update-shape"),
+        ("pure update(value: Any) -> Unit { let base = {a: {b: 1}}; let result = {...base, a.b: value} }\n", "check.record-update-value"),
+        ("let base = {a: {b: 1}}\nlet value = {...base, a.b: 2, ...base}\n", "check.record-update-base"),
+        ("pure update(base: Any) -> Any { return {...base, a.b: 1} }\n", "check.record-update-shape"),
+        ("let base = {a: {b: 1}}\nlet value = {...base, a.missing: 2}\n", "check.record-update-field"),
+        ("let base = {a: [1]}\nlet value = {...base, a.b: 2}\n", "check.record-update-field"),
+        ("let base = {a: {b: 1}}\nlet value = {...base, a: {b: 2}, a.b: 3}\n", "check.record-update-overlap"),
+        ("let base = {a: {b: 1}}\nlet value = {...base, a.b: 3, a: {b: 2}}\n", "check.record-update-overlap"),
+        ("let base = {a: {b: 1}}\nlet value = {...base, a.b: 2, a.b: 3}\n", "check.record-update-overlap"),
+        ("let base = {a: {b: 1}}\nlet value = {...base, a.b: true}\n", "check.type-mismatch"),
+        ("let base = {a: {b: 1}}\nlet value = {...base, a.b: 2, added: 3}\n", "check.record-update-field"),
+    ] {
+        let diagnostics = check(source);
+        assert!(has_code(&diagnostics, code), "expected {code} for {source}: {diagnostics:?}");
+    }
+}
+
+#[test]
+fn checker_preserves_nested_record_update_schema_and_context() {
+    let diagnostics = check("type Inner = {values: List[Int], if: Bool}\ntype Outer = {inner: Inner}\nlet base = Outer(inner: Inner(values: [1], if: false))\nlet updated: Outer = {...base, inner.values: [], inner.if: true}\nlet selected: List[Int] = updated.inner.values\n");
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}

@@ -346,3 +346,19 @@ fn grep_and_refactor_list_element_assignment_selectors_and_rhs() {
     let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
 }
+
+#[test]
+fn grep_and_refactor_match_static_record_update_paths() {
+    let source = "let base = {build: {jobs: 1}}\nlet next = {...base, build.jobs: 2}\nlet literal = {\"build.jobs\": 2}\n";
+    let root = TempDir::new().expect("temp directory");
+    let file = root.path().join("update.xsh");
+    fs::write(&file, source).unwrap();
+    let output = grep_scripts("{...BASE, build.jobs: VALUE}", &paths(&file));
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    assert!(output_text(&output.stdout).contains("1 match"));
+    let output = refactor_scripts("{...BASE, build.jobs: VALUE}", "{...BASE, build.jobs: changed(VALUE)}", &paths(&file), false);
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    let updated = fs::read_to_string(&file).unwrap();
+    assert!(updated.contains("{...base, build.jobs: changed(2)}"), "{updated}");
+    assert!(updated.contains("{\"build.jobs\": 2}"));
+}

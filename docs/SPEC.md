@@ -899,7 +899,7 @@ list_lit     = "[" list_body "]" ;
 list_body    = (expr ("," expr)* ","?)?
              | expr comp_qualifiers ;
 record_lit   = "{" (record_field ("," record_field)* ","?)? "}" ;
-record_field = FIELD_LABEL ":" expr | STRING ":" expr | IDENT ;
+record_field = FIELD_LABEL ":" expr | STRING ":" expr | IDENT | field_path ":" expr | "..." expr ;
 
 Explicit field labels may use keyword spellings such as `type`, `in`, and
 `match`. This applies to record/error schemas and constructors, literal keys,
@@ -960,6 +960,28 @@ aliases and snapshot iteration; iteration remains in canonical key order.
 `lint.prefer-map-literal` recognizes checked fresh initialization and compatible
 set chains. Observed or escaping intermediate maps, uncertain conversions,
 and comments prevent unsafe fixes.
+
+A record literal containing a dotted replacement is a functional update:
+`{...config, build.jobs: jobs, build.flags.debug: true}`. It requires exactly
+one leading spread of a statically known record. All replacements, including
+single field entries and shorthands, must select existing fields through known
+records and retain their checked types. New fields, further spreads, computed
+keys, Map or indexed paths, and duplicate or ancestor-overlapping targets are
+rejected. Sibling targets may share ancestors. Quoted keys containing dots
+remain singular literal keys; ordinary record construction and spreads retain
+their existing behavior.
+
+The base evaluates once and provides an immutable snapshot. Replacement
+expressions run once in source order in the surrounding scope, then the
+successful replacements rebuild that snapshot. A replacement may read or
+mutate the original binding without changing the captured base. Failure stops
+later replacements and publishes no partial record; effects already performed
+remain visible. Schema defaults do not run again. Reconstruction groups shared
+ancestors and preserves value semantics through copy on write.
+`lint.prefer-nested-record-update` collapses equivalent nested spreads only
+when repeated reads use an immutable, checked record binding and all selected
+fields exist. Comments, unstable reads, extra spreads, and newly added fields
+prevent the fix.
 
 Ordinary list literals admit explicit spliced elements: `["cc", @flags,
 "-o", output_name, @source_names]`. A splice requires `List[T]` and inserts

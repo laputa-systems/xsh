@@ -29,7 +29,7 @@ use super::lowered_ops::{
     lowered_binary_op, lowered_value_from_runtime_any, lowered_value_matches,
 };
 use super::{
-    LoweredProcessCommandArgv, LoweredProcessCommandBuilderEntry, LoweredRecordEntry,
+    LoweredProcessCommandArgv, LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredRecordUpdates,
     LoweredRunCapture, LoweredSpawnRun, lowered_record_vec_get, lowered_record_vec_get_mut,
     lowered_record_vec_insert,
 };
@@ -2204,7 +2204,8 @@ fn compact_collect_expr_call_edges(
                         compact_collect_expr_call_edges(program, key, namespace, index_of, edges);
                         compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
                     }
-                    ArenaRecordFieldKind::Named { value, .. }
+                    ArenaRecordFieldKind::Path { value, .. }
+                    | ArenaRecordFieldKind::Named { value, .. }
                     | ArenaRecordFieldKind::Spread { expr: value, .. } => {
                         compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
                     }
@@ -3101,7 +3102,7 @@ fn lower_const_param_default(
                             _ => return None,
                         }
                     }
-                    ArenaRecordFieldKind::Shorthand { .. } => return None,
+                    ArenaRecordFieldKind::Shorthand { .. } | ArenaRecordFieldKind::Path { .. } => return None,
                 }
             }
             LoweredValue::Record(Arc::new(values))
@@ -4775,6 +4776,10 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaExprKind::ListComp { expr: value_expr, .. } => Some(Type::List(Box::new(self.infer_checked_expr_type(value_expr, &self.top_level_known).or_else(|| self.infer_checked_expr_type_with_slots(value_expr, slots)).unwrap_or(Type::Any)))),
             ArenaExprKind::MapComp { .. } => Some(Type::Map(Box::new(Type::Any))),
             ArenaExprKind::Record(fields) => {
+                if self.program.arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. })) {
+                    let ArenaRecordFieldKind::Spread { expr, .. } = self.program.arena.record_fields(fields).first()?.kind else { return None; };
+                    return self.infer_checked_expr_type_with_slots(expr, slots).or_else(|| self.infer_checked_expr_type(expr, &self.top_level_known));
+                }
                 if self.program.arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })) {
                     return self.bodies.expr_types.get(&value).cloned();
                 }
@@ -4794,7 +4799,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         ArenaRecordFieldKind::Shorthand { name, .. } => {
                             (name, slots.binding_type(name).cloned().unwrap_or(Type::Any))
                         }
-                        ArenaRecordFieldKind::Spread { .. } => continue,
+                        ArenaRecordFieldKind::Spread { .. } | ArenaRecordFieldKind::Path { .. } => continue,
                     };
                     record.insert(name, value_ty);
                 }
@@ -7811,6 +7816,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
             )),
             ArenaExprKind::Record(fields) => {
+                if self.program.arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. })) {
+                    return self.lower_record(fields, slots, current_function, item_slot);
+                }
                 if self.bodies.expr_types.get(&id).is_some_and(|ty| matches!(ty, Type::Map(_)))
                     || self.program.arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })) {
                     return self.lower_map_literal(fields, slots, current_function, item_slot);
@@ -8545,6 +8553,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     push_build_row!(self, expr, BuildExprRow::Param(slots.resolve(name)?)), self.program.arena.span(span),
                 ),
                 ArenaRecordFieldKind::Spread { expr, span } => (None, self.lower_expr(expr, slots, current_function, item_slot)?, self.program.arena.span(span)),
+                ArenaRecordFieldKind::Path { .. } => return None,
             };
             entries.push((key, value, span));
         }
@@ -8559,10 +8568,27 @@ impl CompactLowerConstructProbe<'_, '_> {
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
         let fields = self.program.arena.record_fields(fields).to_vec();
+        if fields.iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. })) {
+            let ArenaRecordFieldKind::Spread { expr, span } = fields.first()?.kind else { return None; };
+            let span = self.program.arena.span(span);
+            let base = self.lower_expr(expr, slots, current_function, item_slot)?;
+            let mut updates = Vec::new();
+            for field in fields.into_iter().skip(1) {
+                let (path, value, span) = match field.kind {
+                    ArenaRecordFieldKind::Path { path, value, span } => (self.program.arena.names(path).collect(), self.lower_expr(value, slots, current_function, item_slot)?, self.program.arena.span(span)),
+                    ArenaRecordFieldKind::Named { name, value, span } => (vec![name], self.lower_expr(value, slots, current_function, item_slot)?, self.program.arena.span(span)),
+                    ArenaRecordFieldKind::Shorthand { name, span } => (vec![name], self.lower_bare_ident(name, slots)?, self.program.arena.span(span)),
+                    ArenaRecordFieldKind::Spread { .. } | ArenaRecordFieldKind::Computed { .. } => return None,
+                };
+                updates.push((path, value, span));
+            }
+            return Some(push_build_row!(self, expr, BuildExprRow::RecordUpdate { base, updates: LoweredRecordUpdates(updates), span }));
+        }
         let mut lowered = Vec::with_capacity(fields.len());
         for field in fields {
             match field.kind {
                 ArenaRecordFieldKind::Computed { .. } => return None,
+                ArenaRecordFieldKind::Path { .. } => return None,
                 ArenaRecordFieldKind::Named { name, value, .. } => {
                     lowered.push(LoweredRecordEntry::Field(
                         name,

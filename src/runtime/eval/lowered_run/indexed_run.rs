@@ -1,3 +1,4 @@
+use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, Binding, CommandPlan, ControlFlow, Duration, DurationValue,
     Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
@@ -186,6 +187,20 @@ fn indexed_optional_raw(
         1 => indexed_raw(payload, span).map(Some),
         _ => Err(RuntimeError::new("indexed-ir", "invalid optional value tag").with_span(span)),
     }
+}
+
+fn decode_record_updates<'a>(execution: &FullExecution<'a>, payload: &mut FullPayload<'a>, span: Span) -> Result<Vec<(Vec<Name>, u32, Span)>, RuntimeError> {
+    let (_, mut entries) = execution.block(payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
+    let count = indexed_raw(&mut entries, span)? as usize;
+    let mut updates = Vec::with_capacity(count);
+    for _ in 0..count {
+        let path = indexed_decode::<Vec<Name>>(&mut entries, execution, span)?;
+        let value = indexed_raw(&mut entries, span)?;
+        let field_span = indexed_decode::<Span>(&mut entries, execution, span)?;
+        updates.push((path, value, field_span));
+    }
+    indexed_finish(entries, span)?;
+    Ok(updates)
 }
 
 #[derive(Clone)]
@@ -2942,6 +2957,25 @@ impl Evaluator {
                 }
                 indexed_finish(entries, call_span)?;
                 ControlFlow::Continue(LoweredValue::Map(Arc::new(map)))
+            }
+            FullTag::ExprRecordUpdate => {
+                let base = indexed_raw(&mut payload, call_span)?;
+                let updates = decode_record_updates(execution, &mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let base = match self.eval_indexed_expr(execution, base, slots, span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let mut replacements = Vec::with_capacity(updates.len());
+                for (path, value, field_span) in updates {
+                    let value = match self.eval_indexed_expr(execution, value, slots, field_span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                    replacements.push((path, value, field_span));
+                }
+                ControlFlow::Continue(lowered_record_update_batch(base, replacements, span)?)
             }
             FullTag::ExprRecord => {
                 let (_, mut entries) = execution

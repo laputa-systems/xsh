@@ -1210,12 +1210,14 @@ impl<'a> Parser<'a> {
             let mut key_id =
                 arena.push_ident_expr(name, self.span(field_start, self.previous_end()));
             let mut dotted_key = false;
+            let mut path = vec![name];
             while self.consume(TokenKindMatch::Dot).is_some() {
                 dotted_key = true;
                 let Some(field_name) = self.expect_label_name("expected field name") else {
                     break;
                 };
                 let end = self.previous_end();
+                path.push(field_name);
                 key_id = arena.push_field_expr(key_id, field_name, self.span(field_start, end));
             }
             if self.consume(TokenKindMatch::Colon).is_some() {
@@ -1229,22 +1231,19 @@ impl<'a> Parser<'a> {
                     return self.parse_map_comp_tail_arena_only(arena, start, key_id, value.id);
                 }
                 if dotted_key {
-                    self.diagnostic_here(
-                        "dotted record fields are only valid in map comprehensions",
-                        "parse.expected-map-comprehension",
-                    );
-                    break;
+                    arena.push_record_field_input(ArenaRecordFieldInput::Path {
+                        path, value: value.id, span: self.span(field_start, value.span.end()),
+                    });
+                } else {
+                    arena.push_record_field_input(ArenaRecordFieldInput::Named {
+                        name, value: value.id, span: self.span(field_start, value.span.end()),
+                    });
                 }
-                arena.push_record_field_input(ArenaRecordFieldInput::Named {
-                    name,
-                    value: value.id,
-                    span: self.span(field_start, value.span.end()),
-                });
             } else {
                 if dotted_key {
                     self.diagnostic_here(
-                        "dotted record fields are only valid in map comprehensions",
-                        "parse.expected-map-comprehension",
+                        "dotted update paths require `:` and a replacement value",
+                        "parse.expected-record-update-value",
                     );
                     break;
                 }

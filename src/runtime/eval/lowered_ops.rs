@@ -1986,6 +1986,44 @@ fn lowered_inline_stats_method_value(
     })
 }
 
+// All replacements are evaluated and checked before this private snapshot is
+// rebuilt. Grouping siblings makes each shared ancestor detach only once.
+pub(super) fn lowered_record_update_batch(
+    mut base: LoweredValue,
+    updates: Vec<(Vec<Name>, LoweredValue, Span)>,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    #[derive(Default)]
+    struct UpdateBranch {
+        replacement: Option<LoweredValue>,
+        fields: BTreeMap<Name, UpdateBranch>,
+    }
+    fn apply(value: &mut LoweredValue, branch: UpdateBranch, span: Span) -> Result<(), RuntimeError> {
+        if let Some(replacement) = branch.replacement {
+            *value = replacement;
+        } else {
+            for (field, child) in branch.fields {
+                apply(lowered_record_field_mut(value, field, span)?, child, span)?;
+            }
+        }
+        Ok(())
+    }
+    let mut root = UpdateBranch::default();
+    for (path, replacement, field_span) in updates {
+        let mut selected = &base;
+        let mut branch = &mut root;
+        for field in path {
+            selected = super::lower::lowered_record_field(selected, &field.as_str()).ok_or_else(|| {
+                RuntimeError::new("missing-field", format!("record update field `{field}` is absent")).with_span(field_span)
+            })?;
+            branch = branch.fields.entry(field).or_default();
+        }
+        branch.replacement = Some(replacement);
+    }
+    apply(&mut base, root, span)?;
+    Ok(base)
+}
+
 /// Selects an existing record field while retaining value semantics.
 /// Shared storage is copied only when another value still owns it.
 pub(super) fn lowered_record_field_mut<'a>(
@@ -2569,5 +2607,40 @@ mod slice_tests {
         let (backing, start, end) = lowered_bytes_parts(&selected).unwrap();
         assert!(Arc::ptr_eq(&bytes, &backing));
         assert_eq!(&backing[start..end], b"\xffb");
+    }
+}
+
+#[cfg(test)]
+mod record_update_tests {
+    use super::{LoweredValue, lowered_record_update_batch};
+    use crate::source::{SourceId, Span};
+    use crate::symbol::Name;
+    use std::sync::Arc;
+
+    #[test]
+    fn record_update_detaches_shared_ancestors_and_retains_untouched_storage() {
+        let symbols = crate::symbol::SymbolOwner::new();
+        let _symbols = symbols.enter();
+        let span = Span::new(SourceId::new(0), 0, 1);
+        let a = Name::intern("a");
+        let b = Name::intern("b");
+        let c = Name::intern("c");
+        let untouched = Name::intern("untouched");
+        let inner = Arc::new(vec![(b, LoweredValue::Int(1)), (c, LoweredValue::Int(2))]);
+        let retained = Arc::new(vec![(b, LoweredValue::Int(5))]);
+        let base = Arc::new(vec![(a, LoweredValue::RecordVec(inner.clone())), (untouched, LoweredValue::RecordVec(retained.clone()))]);
+        let updated = lowered_record_update_batch(LoweredValue::RecordVec(base.clone()), vec![
+            (vec![a, b], LoweredValue::Int(3), span),
+            (vec![a, c], LoweredValue::Int(4), span),
+        ], span).unwrap();
+        let LoweredValue::RecordVec(updated) = updated else { panic!("record representation"); };
+        assert!(!Arc::ptr_eq(&base, &updated));
+        let LoweredValue::RecordVec(changed) = &updated[0].1 else { panic!("changed ancestor"); };
+        assert!(!Arc::ptr_eq(&inner, changed));
+        assert!(matches!(changed[0].1, LoweredValue::Int(3)));
+        assert!(matches!(changed[1].1, LoweredValue::Int(4)));
+        assert!(matches!(inner[0].1, LoweredValue::Int(1)));
+        let LoweredValue::RecordVec(shared) = &updated[1].1 else { panic!("untouched sibling"); };
+        assert!(Arc::ptr_eq(&retained, shared));
     }
 }

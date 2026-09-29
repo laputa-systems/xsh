@@ -814,7 +814,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "records" => (
             "Defines structural and named record values.",
-            "Named record schemas have static named-field constructors, including aliases and qualified imports. Schema-owned defaults are bounded literal constants from the defining module; they apply only to constructors. Supplied arguments run once in source order, and each constructed value has independent value semantics. Named records are checked at their boundary; dynamic record access must be narrowed before typed field use.",
+            "Named record schemas have static named-field constructors, including aliases and qualified imports. Schema-owned defaults are bounded literal constants from the defining module; they apply only to constructors. Supplied arguments run once in source order, and each constructed value has independent value semantics. Named records are checked at their boundary; dynamic record access must be narrowed before typed field use. Functional updates use one leading record snapshot and disjoint existing field paths, such as `{...config, build.jobs: jobs}`. Replacements run once in source order before publishing the rebuilt value, retain the schema, and do not reapply defaults.",
         ),
         "results" => (
             "Defines Result values and error families.",
