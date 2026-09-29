@@ -914,3 +914,15 @@ fn api_core_procs_demonstrates_static_named_argument_spreading() {
     assert!(stdout.contains("greet(...options)"), "{stdout}");
     assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn api_lexical_error_context_retains_contract_and_executable_example() {
+    let output = xsht(&["api", "language:core.error-context"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: exact"), "{stdout}");
+    assert!(stdout.contains("api: language.core.error-context"), "{stdout}");
+    assert!(stdout.contains("Stored or directly returned Err data stays unchanged"), "{stdout}");
+    assert!(stdout.contains("let count = ctx"), "{stdout}");
+    assert!(output.stderr.is_empty());
+}
