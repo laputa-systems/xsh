@@ -1449,11 +1449,12 @@ impl Evaluator {
             else {
                 return Ok(None);
             };
-            slots[slot.slot] = value;
+            slots[slot.slot] = Self::share_indexed_root_value(value);
         }
         let header = Self::indexed_block_header(view.slot_count());
         let previous_root_slots = self.indexed_root_slots.replace(super::super::IndexedRootSlots {
             address: slots.as_ptr() as usize,
+            scope_revision: self.scope_write_revision,
             bindings: top_level_slots.iter().filter(|slot| slot.mutable)
                 .map(|slot| (slot.clone(), slots[slot.slot].clone())).collect(),
         });
@@ -1701,19 +1702,8 @@ impl Evaluator {
                 let statement = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let flow =
-                    self.eval_indexed_stmt(&execution, statement, &header, &mut slots, call_span);
-                // Operand effects already changed these bindings even if the
-                // enclosing statement failed before committing its own update.
-                for slot in &top_level_slots {
-                    if slot.mutable {
-                        self.assign(
-                            &slot.name.as_str(),
-                            slots[slot.slot].clone().into_value(),
-                            call_span,
-                        )?;
-                    }
-                }
-                match flow? {
+                    self.eval_indexed_stmt(&execution, statement, &header, &mut slots, call_span)?;
+                match flow {
                     StmtFlow::Propagate(value) => self.indexed_driver_expression_escape(value, call_span),
                     flow => lowered_stmt_flow_to_flow(flow),
                 }
@@ -1739,11 +1729,6 @@ impl Evaluator {
                 let span = indexed_decode::<Span>(&mut payload, &execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 self.eval_indexed_deferred_expr(&execution, value, &mut slots, span)?;
-                for slot in &top_level_slots {
-                    if slot.mutable {
-                        self.assign(&slot.name.as_str(), slots[slot.slot].clone().into_value(), span)?;
-                    }
-                }
                 Flow::Continue(Value::Unit)
             }
             FullDriverTag::SignalHook => {
@@ -1788,6 +1773,23 @@ impl Evaluator {
         }
     }
 
+    fn share_indexed_root_value(value: LoweredValue) -> LoweredValue {
+        match value {
+            LoweredValue::List(values) => LoweredValue::SharedList(Arc::new(values)),
+            value => value,
+        }
+    }
+
+    fn indexed_root_value_unchanged(value: &LoweredValue, previous: &LoweredValue) -> bool {
+        match (value, previous) {
+            (LoweredValue::SharedList(value), LoweredValue::SharedList(previous)) => Arc::ptr_eq(value, previous),
+            (LoweredValue::Map(value), LoweredValue::Map(previous)) => Arc::ptr_eq(value, previous),
+            (LoweredValue::Record(value), LoweredValue::Record(previous)) => Arc::ptr_eq(value, previous),
+            (LoweredValue::RecordVec(value), LoweredValue::RecordVec(previous)) => Arc::ptr_eq(value, previous),
+            _ => value == previous,
+        }
+    }
+
     fn sync_indexed_root_slots(&mut self, slots: &mut [LoweredValue], span: Span) -> Result<(), RuntimeError> {
         let Some(mut root) = self.indexed_root_slots.take() else { return Ok(()); };
         if root.address != slots.as_ptr() as usize {
@@ -1795,15 +1797,18 @@ impl Evaluator {
             return Ok(());
         }
         let result = (|| {
+            let scope_changed = root.scope_revision != self.scope_write_revision;
             for (binding, previous) in &mut root.bindings {
                 let slot = &mut slots[binding.slot];
-                if slot != previous {
+                if !Self::indexed_root_value_unchanged(slot, previous) {
+                    *slot = Self::share_indexed_root_value(std::mem::replace(slot, LoweredValue::Unit));
                     self.assign(&binding.name.as_str(), slot.clone().into_value(), span)?;
-                } else if let Some(value) = self.lookup(binding.name).and_then(|binding| lowered_value_from_runtime_any(&binding.value)) {
-                    *slot = value;
+                } else if scope_changed && let Some(value) = self.lookup(binding.name).and_then(|binding| lowered_value_from_runtime_any(&binding.value)) {
+                    *slot = Self::share_indexed_root_value(value);
                 }
                 *previous = slot.clone();
             }
+            root.scope_revision = self.scope_write_revision;
             Ok(())
         })();
         self.indexed_root_slots = Some(root);

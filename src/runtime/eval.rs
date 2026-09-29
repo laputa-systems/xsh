@@ -881,6 +881,7 @@ struct LoweredTopLevelSlot {
 // so their writes and direct slot writes must meet at each evaluation boundary.
 struct IndexedRootSlots {
     address: usize,
+    scope_revision: u64,
     bindings: Vec<(LoweredTopLevelSlot, LoweredValue)>,
 }
 
@@ -2788,6 +2789,8 @@ pub struct Evaluator {
     module_export_signatures:
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
     indexed_program: Option<Arc<FullProgram>>,
+    indexed_root_slots: Option<IndexedRootSlots>,
+    scope_write_revision: u64,
     // Resolved indices are keyed with the program they were resolved in and
     // hold it alive, because one evaluator resolves the same qualified key
     // against more than one program: a dynamically loaded module links its
@@ -2795,7 +2798,6 @@ pub struct Evaluator {
     // `<xsh-stdlib:hash> verify_file` names a function in both. Comparing the
     // program by pointer identity, and keeping that program alive for as long
     // as the entry exists, is what makes the cached index valid.
-    indexed_root_slots: Option<IndexedRootSlots>,
     indexed_function_cache:
         FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), (Arc<FullProgram>, usize)>,
     indexed_dynamic_functions: Arc<FxHashMap<QualifiedName, DynamicFunction>>,
@@ -3029,6 +3031,7 @@ impl Evaluator {
             module_export_signatures: Arc::new(FxHashMap::default()),
             indexed_program: None,
             indexed_root_slots: None,
+            scope_write_revision: 0,
             indexed_function_cache: FxHashMap::default(),
             indexed_dynamic_functions: Arc::new(FxHashMap::default()),
             lowered_slot_pool: Vec::new(),
@@ -3195,6 +3198,7 @@ impl Evaluator {
             module_export_signatures: shared.module_export_signatures.clone(),
             indexed_program: shared.indexed_program.clone(),
             indexed_root_slots: None,
+            scope_write_revision: 0,
             indexed_function_cache: FxHashMap::default(),
             indexed_dynamic_functions: shared.indexed_dynamic_functions.clone(),
             lowered_slot_pool: Vec::new(),
@@ -5187,6 +5191,7 @@ impl Evaluator {
                     .with_span(span));
                 }
                 binding.value = value;
+                self.scope_write_revision = self.scope_write_revision.wrapping_add(1);
                 return Ok(());
             }
         }
