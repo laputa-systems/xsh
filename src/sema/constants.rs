@@ -71,7 +71,7 @@ impl LiteralConstant {
                     let (name, value) = match field.kind {
                         ArenaRecordFieldKind::Named { name, value, .. } => (name, Self::analyze(arena, value, bindings)?),
                         ArenaRecordFieldKind::Shorthand { name, .. } => (name, bindings.get(&name)?.clone()),
-                        ArenaRecordFieldKind::Spread { .. } => return None,
+                        ArenaRecordFieldKind::Spread { .. } | ArenaRecordFieldKind::Computed { .. } => return None,
                     };
                     if values.insert(name, value).is_some() {
                         return None;

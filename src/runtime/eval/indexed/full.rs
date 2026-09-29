@@ -133,6 +133,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprGlob,
     ExprLastStatus,
     ExprRecord,
+    ExprMapLiteral,
     ExprList,
     ExprListBuild,
     ExprEmptyMap,
@@ -5435,6 +5436,7 @@ impl_vec_codec!(LoweredPipelineStage, BLOCK_LIST);
 impl_vec_codec!(LoweredValue, BLOCK_LIST);
 impl_vec_codec!(LoweredFmtPart, BLOCK_LIST);
 impl_vec_codec!(LoweredRecordEntry, BLOCK_LIST);
+impl_vec_codec!((Option<BuildExprId>, BuildExprId, Span), BLOCK_LIST);
 impl_vec_codec!(LoweredCallArg, BLOCK_LIST);
 impl_vec_codec!(LoweredRunArg, BLOCK_LIST);
 impl_vec_codec!(LoweredRunEnv, BLOCK_LIST);
@@ -6739,6 +6741,9 @@ impl_node_codec! {
         BuildExprRow::LastStatus { span } => ExprLastStatus {
             span: Span,
         } => BuildExprRow::LastStatus { span },
+        BuildExprRow::MapLiteral(entries) => ExprMapLiteral {
+            entries: Vec<(Option<BuildExprId>, BuildExprId, Span)>,
+        } => BuildExprRow::MapLiteral(entries),
         BuildExprRow::Record(entries) => ExprRecord {
             entries: Vec<LoweredRecordEntry>,
         } => BuildExprRow::Record(entries),
@@ -8421,6 +8426,35 @@ proc main() [error] {
         let mut bad_location = program;
         bad_location.store.locations[0].start = u32::MAX;
         assert!(FullVerifier::verify(&bad_location).is_err());
+    }
+
+    #[test]
+    fn map_literals_verify_entry_flags_and_execute_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = "pure counts() -> Int {\n  let source: Map[Int] = {beta: 3}\n  let values: Map[Int] = {[\"alpha\"]: 1, alpha: 2, ...source}\n  return values.get(\"alpha\", 0) + values.get(\"beta\", 0)\n}\n";
+            let program = fixture("computed-map.xsh", source);
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprMapLiteral).expect("Map literal instruction");
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let block = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
+            let entries = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let mut bad_flag = program.clone();
+            bad_flag.store.extra[entries.start + 1] = 2;
+            assert!(FullVerifier::verify(&bad_flag).is_err());
+            let mut bad_key = program.clone();
+            bad_key.store.extra[entries.start + 2] = u32::MAX;
+            assert!(FullVerifier::verify(&bad_key).is_err());
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("Map function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(5));
+            }
+        });
     }
 
     #[test]

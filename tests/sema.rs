@@ -3483,3 +3483,18 @@ fn private_pure_inference_imported_module_predeclares_tag_variants() {
     let diagnostics = check_with_module("use helper\nlet selected: Bool = helper.enabled()\n", "##! Inferred tag helper module.\ntype Selection = Included | Excluded\npure private_enabled(value: Selection) { value == Included }\n## Checks the selected tag.\nexport pure enabled() -> Bool { private_enabled(Included) }\n");
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
+
+#[test]
+fn computed_map_literals_locate_key_errors_without_weakening_values() {
+    let source = "let values = {[1]: 2}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty());
+    let checked = Checker::check_arena(&parsed.arena, source);
+    let diagnostic = checked.diagnostics.iter().find(|d| d.code.as_deref() == Some("check.map-key-type")).expect("Str key diagnostic");
+    assert!(diagnostic.labels.iter().any(|label| &source[label.span.range()] == "1"));
+    for source in ["let values = {[\"one\"]: 1, two: \"bad\"}\n", "let key: Any = \"one\"\nlet values = {[key]: 1}\n"] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(!checked.diagnostics.is_empty(), "accepted {source}");
+    }
+}

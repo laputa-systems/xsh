@@ -1381,6 +1381,8 @@ enum BuildExprRow {
         span: Span,
     },
     Record(Vec<LoweredRecordEntry>),
+    // A missing key identifies a Map spread; keyed entries evaluate key before value.
+    MapLiteral(Vec<(Option<BuildExprId>, BuildExprId, Span)>),
     List(Vec<BuildExprId>),
     // Each element records whether it splices, its value, and its source span.
     ListBuild(Vec<(bool, BuildExprId, Span)>),

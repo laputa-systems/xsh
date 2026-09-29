@@ -171,3 +171,100 @@ match gather() {
   test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "source\nalpha=1\nbeta=2\nclosed\ncaught=7\n")?
 }
+
+proc test_map_literals_computed_constant_keys_spreads_and_aliases() [error] {
+  let name = "beta"
+  let inferred = {[name]: 2, alpha: 1, "literal.dot": 3}
+  test.eq(inferred.keys(), ["alpha", "beta", "literal.dot"])?
+  let constants: Map[Int] = {alpha: 1, "beta": 2}
+  var combined = {...constants, [name]: 4, alpha: 5, ["alpha"]: 6}
+  let alias = combined
+  combined["alpha"] = 99
+  test.eq(alias.get("alpha")?, 6)?
+  test.eq(constants.get("alpha")?, 1)?
+  test.eq(combined.get("beta")?, 4)?
+  let spread_only: Map[Int] = {...constants}
+  test.eq(spread_only, constants)?
+  let nested: Map[List[Str]] = {empty: [], [name]: ["value"]}
+  test.eq(nested.get("empty")?, [])?
+  let source_row = {alpha: 1, beta: "two"}
+  test.eq(source_row.beta, "two")?
+  let ordinary = {...source_row}
+  test.eq(ordinary.alpha, 1)?
+  var values = inferred
+  var seen: List[Str] = []
+  for {key, value} in values {
+    seen += [key]
+    values = values.set("later", 9)
+  }
+  test.eq(seen, ["alpha", "beta", "literal.dot"])?
+}
+
+proc test_map_literals_evaluate_keys_values_spreads_and_overwrites_once(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, r"""proc key(value: Str) [io] -> Str {
+  print f"key $value"
+  return value
+}
+proc value(amount: Int) [io] -> Int {
+  print f"value $amount"
+  return amount
+}
+proc spread() [io] -> Map[Int] {
+  print "spread"
+  return {["same"]: 3}
+}
+let values = {[key("same")]: value(1), same: value(2), ...spread(), [key("last")]: value(4)}
+print values.get("same", 0) values.get("last", 0)
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "key same\nvalue 1\nvalue 2\nspread\nkey last\nvalue 4\n3 4\n")?
+}
+
+proc test_map_literals_failure_stops_before_value_and_later_entries(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, r"""error BuildError = Stopped(message: Str)
+proc key() [io] -> Result[Str, BuildError] {
+  print "key"
+  return Err(BuildError.Stopped(message: "stop map"))
+}
+proc value() [io] -> Int { print "value"; return 1 }
+let values = {["first"]: value(), [(key()?)]: value(), later: value()}
+print values.len()
+""")?
+  test.ok(! output.success, output.stderr)?
+  test.contains(output.stderr, "stop map")?
+  test.eq(output.stdout, "value\nkey\n")?
+}
+
+proc test_map_literals_reject_non_string_keys_bad_spreads_and_incompatible_values(ctx: TestContext) [error] {
+  for source in [
+    "let value = {[1]: 2}\n",
+    "let key: Any = \"name\"\nlet value = {[key]: 2}\n",
+    "let value = {[\"name\"]: 2, other: \"wrong\"}\n",
+    "let value: Map[Int] = {one: \"wrong\"}\n",
+    "let source_row = {one: 1}\nlet value = {[\"name\"]: 2, ...source_row}\n",
+    "let dynamic: Any = {one: 1}\nlet value: Map[Int] = {...dynamic}\n",
+    "let base = map.empty().set(\"one\", 1)\nlet value = {...base}\n",
+  ] {
+    let result = test.run_script(ctx, source)?
+    test.ok(! result.success, result.stderr)?
+    test.contains(result.stderr, "check.")?
+  }
+}
+
+pure map_literal_return() -> Map[Int] { return {answer: 42} }
+pure map_literal_tail() -> Map[Int] { {answer: 43} }
+pure map_literal_parameter(input: Map[Int]) -> Int { return input.get("answer", 0) }
+type MapLiteralEnvelope = {values: Map[Int]}
+
+proc test_map_literals_expected_context_reaches_returns_arguments_and_nested_values() [error] {
+  test.eq(map_literal_return().get("answer")?, 42)?
+  test.eq(map_literal_tail().get("answer")?, 43)?
+  test.eq(map_literal_parameter({answer: 44}), 44)?
+  let nested: List[Map[Int]] = [{answer: 45}, {answer: 46}]
+  test.eq(nested[1].get("answer")?, 46)?
+  let envelope: MapLiteralEnvelope = {values: {answer: 47}}
+  test.eq(envelope.values.get("answer")?, 47)?
+  var replaced: Map[Int] = {answer: 48}
+  replaced = {answer: 49}
+  test.eq(replaced.get("answer")?, 49)?
+}

@@ -1496,8 +1496,9 @@ impl Checker {
         if value.is_none() && expected.is_result_unit() {
             return;
         }
+        let context = match value { Some(ArenaExprOrRun::Expr(expr)) => tail_expr_context_arena(arena, expr, Some(&expected)), _ => None };
         let actual = value
-            .map(|value| self.check_expr_or_run_arena(arena, source, value, None))
+            .map(|value| self.check_expr_or_run_arena(arena, source, value, context.as_ref()))
             .unwrap_or(Type::Unit);
         if self.inference_reachable && let Some(returns) = &mut self.inferred_returns {
             returns.push((actual.clone(), span));
@@ -2009,6 +2010,19 @@ fn tail_expr_context_arena(
     expr_id: ExprId,
     expected: Option<&Type>,
 ) -> Option<Type> {
+    fn contains_map(ty: &Type) -> bool {
+        match ty {
+            Type::Map(_) => true,
+            Type::List(item) | Type::Optional(item) => contains_map(item),
+            Type::Record(fields) => fields.values().any(contains_map),
+            Type::Result(ok, _) => contains_map(ok),
+            _ => false,
+        }
+    }
+    if let Some(expected) = expected && contains_map(expected) {
+        let explicit_result = matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::Call { callee, .. } if matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Ok" || name == "Err"));
+        return Some(if explicit_result { expected.clone() } else { expected.result_ok().unwrap_or(expected).clone() });
+    }
     let is_empty_list = matches!(
         arena.arena.expr(expr_id).kind,
         ArenaExprKind::List(range) if range.is_empty()

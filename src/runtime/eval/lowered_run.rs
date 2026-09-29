@@ -61,7 +61,7 @@ use super::lower::{
     lowered_sum_records, lowered_sum_values, lowered_tag_key, take_shared,
 };
 use super::lowered_ops::{
-    append_lowered_list_element, checked_int_binary, compare_lowered_sort_keys, lowered_assign_value, lowered_binary_value,
+    append_lowered_list_element, append_lowered_map_literal, lowered_map_literal_key, checked_int_binary, compare_lowered_sort_keys, lowered_assign_value, lowered_binary_value,
     lowered_bytes_arg, lowered_bytes_parts, lowered_bytes_value, lowered_contains_value,
     lowered_index_value, lowered_method_value, lowered_nonnegative_count,
     lowered_path_method_value, lowered_return_value, lowered_slice_value,

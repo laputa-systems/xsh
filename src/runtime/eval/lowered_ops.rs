@@ -43,6 +43,21 @@ pub(super) fn append_lowered_list_element(output: &mut Vec<LoweredValue>, value:
     Ok(())
 }
 
+pub(super) fn lowered_map_literal_key(value: &LoweredValue, span: Span) -> Result<String, RuntimeError> {
+    lowered_str_value(value).map(str::to_string).ok_or_else(|| RuntimeError::new("type-error", "computed map keys require Str").with_span(span))
+}
+
+pub(super) fn append_lowered_map_literal(output: &mut BTreeMap<String, LoweredValue>, key: Option<String>, value: LoweredValue, span: Span) -> Result<(), RuntimeError> {
+    if let Some(key) = key { output.insert(key, value); }
+    else {
+        let LoweredValue::Map(values) = value else {
+            return Err(RuntimeError::new("type-error", "map literal spreads require Map").with_span(span));
+        };
+        output.extend(take_shared(values));
+    }
+    Ok(())
+}
+
 pub(super) fn lowered_binary_op(op: BinaryOp) -> bool {
     matches!(
         op,

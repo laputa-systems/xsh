@@ -373,18 +373,17 @@ fn parser_and_formatter_accept_map_comprehensions() {
 }
 
 #[test]
-fn parser_rejects_bracketed_map_comprehension_keys() {
-    let source = "let by_name = {[item.name]: item.version for item in items}\n";
+fn parser_accepts_bracketed_computed_map_literal_keys() {
+    use xsh::frontend::syntax::arena::ArenaRecordFieldKind;
+    let source = "let by_name = {[item.name]: item.version}\n";
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-
-    assert!(
-        output
-            .diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic.code.as_deref() == Some("parse.expected-label")),
-        "{:?}",
-        output.diagnostics
-    );
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let arena = &output.arena.arena;
+    let ArenaExprKind::Record(fields) = arena.expr(root_let_init_expr(&output, 0)).kind else { panic!("map literal"); };
+    assert!(matches!(arena.record_fields(fields)[0].kind, ArenaRecordFieldKind::Computed { .. }));
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, source);
 }
 
 #[test]
@@ -3643,4 +3642,23 @@ fn field_label_keywords_cannot_be_shorthand_puns_or_lexical_bindings() {
     for source in ["let type = 1\n", "pure value(match: Int) -> Int { 1 }\n", "use fs as type\n"] {
         assert!(!Parser::parse_source_arena_only(SourceId::new(0), source).diagnostics.is_empty(), "{source}");
     }
+}
+
+#[test]
+fn computed_map_keys_retain_expression_nodes_and_original_spans() {
+    use xsh::frontend::syntax::arena::ArenaRecordFieldKind;
+    let source = "let values = {[key.trim()]: amount, \"literal.dot\": 2, ...more,}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let arena = &parsed.arena.arena;
+    let ArenaExprKind::Record(fields) = arena.expr(root_let_init_expr(&parsed, 0)).kind else { panic!("brace literal"); };
+    let ArenaRecordFieldKind::Computed { key, value, span } = arena.record_fields(fields)[0].kind else { panic!("computed entry"); };
+    assert_eq!(&source[arena.expr(key).span.range()], "key.trim()");
+    assert_eq!(&source[arena.expr(value).span.range()], "amount");
+    assert_eq!(&source[arena.span(span).range()], "[key.trim()]: amount");
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty());
+    assert!(formatted.formatted.contains("[key.trim()]: amount"));
+    assert!(formatted.formatted.contains("\"literal.dot\""));
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
 }

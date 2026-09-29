@@ -2196,6 +2196,10 @@ fn compact_collect_expr_call_edges(
         ArenaExprKind::Record(fields) => {
             for field in program.arena.record_fields(fields) {
                 match field.kind {
+                    ArenaRecordFieldKind::Computed { key, value, .. } => {
+                        compact_collect_expr_call_edges(program, key, namespace, index_of, edges);
+                        compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
+                    }
                     ArenaRecordFieldKind::Named { value, .. }
                     | ArenaRecordFieldKind::Spread { expr: value, .. } => {
                         compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
@@ -3064,6 +3068,7 @@ fn lower_const_param_default(
             let mut values = BTreeMap::new();
             for field in arena.record_fields(fields) {
                 match field.kind {
+                    ArenaRecordFieldKind::Computed { .. } => return None,
                     ArenaRecordFieldKind::Named { name, value, .. } => {
                         values.insert(
                             Arc::<str>::from(name.as_str().as_str()),
@@ -4761,9 +4766,13 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaExprKind::ListComp { expr: value_expr, .. } => Some(Type::List(Box::new(self.infer_checked_expr_type(value_expr, &self.top_level_known).or_else(|| self.infer_checked_expr_type_with_slots(value_expr, slots)).unwrap_or(Type::Any)))),
             ArenaExprKind::MapComp { .. } => Some(Type::Map(Box::new(Type::Any))),
             ArenaExprKind::Record(fields) => {
+                if self.program.arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })) {
+                    return self.bodies.expr_types.get(&value).cloned();
+                }
                 let mut record = BTreeMap::new();
                 for field in self.program.arena.record_fields(fields) {
                     let (name, value_ty) = match field.kind {
+                        ArenaRecordFieldKind::Computed { .. } => continue,
                         ArenaRecordFieldKind::Named { name, value, .. } => {
                             let value_ty = self
                                 .infer_checked_expr_type_with_slots(value, slots)
@@ -5320,7 +5329,9 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaExprKind::Bytes(_) => Some(LoweredType::Bytes),
             ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. } => Some(LoweredType::List),
             ArenaExprKind::MapComp { .. } => Some(LoweredType::Map),
-            ArenaExprKind::Record(_) => Some(LoweredType::Record),
+            ArenaExprKind::Record(fields) => Some(if self.bodies.expr_types.get(&value).is_some_and(|ty| matches!(ty, Type::Map(_)))
+                || self.program.arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. }))
+                { LoweredType::Map } else { LoweredType::Record }),
             ArenaExprKind::EnvGet { .. } | ArenaExprKind::EnvPathList => Some(LoweredType::Result),
             ArenaExprKind::Require { .. } => Some(LoweredType::Result),
             ArenaExprKind::Spawn(_) | ArenaExprKind::Wait(_) => Some(LoweredType::Result),
@@ -7799,6 +7810,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
             )),
             ArenaExprKind::Record(fields) => {
+                if self.bodies.expr_types.get(&id).is_some_and(|ty| matches!(ty, Type::Map(_)))
+                    || self.program.arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })) {
+                    return self.lower_map_literal(fields, slots, current_function, item_slot);
+                }
                 self.lower_record(fields, slots, current_function, item_slot)
             }
             ArenaExprKind::List(items) => {
@@ -8512,6 +8527,29 @@ impl CompactLowerConstructProbe<'_, '_> {
         Some(lowered)
     }
 
+    fn lower_map_literal(&mut self, fields: crate::syntax::arena::ArenaRange, slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>) -> Option<BuildExprId> {
+        let mut entries = Vec::new();
+        for field in self.program.arena.record_fields(fields).to_vec() {
+            let (key, value, span) = match field.kind {
+                ArenaRecordFieldKind::Computed { key, value, span } => (
+                    Some(self.lower_expr(key, slots, current_function, item_slot)?),
+                    self.lower_expr(value, slots, current_function, item_slot)?, self.program.arena.span(span),
+                ),
+                ArenaRecordFieldKind::Named { name, value, span } => (
+                    Some(push_build_row!(self, expr, BuildExprRow::Str(Arc::from(name.as_str().as_str())))),
+                    self.lower_expr(value, slots, current_function, item_slot)?, self.program.arena.span(span),
+                ),
+                ArenaRecordFieldKind::Shorthand { name, span } => (
+                    Some(push_build_row!(self, expr, BuildExprRow::Str(Arc::from(name.as_str().as_str())))),
+                    push_build_row!(self, expr, BuildExprRow::Param(slots.resolve(name)?)), self.program.arena.span(span),
+                ),
+                ArenaRecordFieldKind::Spread { expr, span } => (None, self.lower_expr(expr, slots, current_function, item_slot)?, self.program.arena.span(span)),
+            };
+            entries.push((key, value, span));
+        }
+        Some(push_build_row!(self, expr, BuildExprRow::MapLiteral(entries)))
+    }
+
     fn lower_record(
         &mut self,
         fields: crate::syntax::arena::ArenaRange,
@@ -8523,6 +8561,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         let mut lowered = Vec::with_capacity(fields.len());
         for field in fields {
             match field.kind {
+                ArenaRecordFieldKind::Computed { .. } => return None,
                 ArenaRecordFieldKind::Named { name, value, .. } => {
                     lowered.push(LoweredRecordEntry::Field(
                         name,

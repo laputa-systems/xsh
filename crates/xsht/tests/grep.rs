@@ -300,3 +300,20 @@ fn field_label_grep_and_refactor_preserve_keyword_key_identity() {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     assert!(xsh::frontend::check::Checker::check_arena(&parsed.arena, &source).diagnostics.is_empty());
 }
+
+#[test]
+fn grep_and_refactor_computed_map_entries_keep_static_labels_distinct() {
+    let root = TempDir::new().expect("temporary workspace");
+    let path = root.path().join("computed-map.xsh");
+    fs::write(&path, "let key = \"one\"\nlet dynamic = {[key]: 1}\nlet fixed = {key: 1}\n").unwrap();
+    let output = grep_scripts("{[KEY]: VALUE}", &paths(&path));
+    let stdout = output_text(&output.stdout);
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    assert!(stdout.contains("{[key]: 1}"));
+    assert!(!stdout.contains("{key: 1}"));
+    let output = refactor_scripts("{[KEY]: VALUE}", "{[KEY]: VALUE, [\"two\"]: 2}", &paths(&path), false);
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    let updated = fs::read_to_string(&path).unwrap();
+    assert!(updated.contains("{[key]: 1, [\"two\"]: 2}"));
+    assert!(updated.contains("let fixed = {key: 1}"));
+}

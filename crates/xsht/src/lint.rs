@@ -2762,6 +2762,7 @@ impl<'a> Linter<'a> {
 
     fn lint_statement_sequence(&mut self, stmts: &[StmtId]) {
         self.lint_record_destructuring(stmts);
+        self.lint_fresh_map_initializations(stmts);
         let mut flow = FlowSummary::fallthrough();
         let mut reported_dead_region = false;
         for &stmt in stmts {
@@ -3524,7 +3525,7 @@ impl<'a> Linter<'a> {
                         arguments.push(format!("{name}: {text}"));
                     }
                 }
-                ArenaRecordFieldKind::Spread { .. } => safe = false,
+                ArenaRecordFieldKind::Spread { .. } | ArenaRecordFieldKind::Computed { .. } => safe = false,
             }
         }
         if safe {
@@ -3904,6 +3905,104 @@ impl<'a> Linter<'a> {
             _ => parts.push((true, expr)),
         }
         Some(())
+    }
+
+    fn map_set_parts(&self, expr: ExprId, element: &Type) -> Option<(ExprId, ExprId, ExprId)> {
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(expr).kind else { return None; };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return None; };
+        if name != "set" || args.len() != 2 || !matches!(self.expr_types.get(&self.arena.expr(base).span), Some(Type::Map(_))) { return None; }
+        let arguments = self.arena.call_args(args);
+        let (ArenaCallArgKind::Positional(key), ArenaCallArgKind::Positional(value)) = (arguments[0].kind.clone(), arguments[1].kind.clone()) else { return None; };
+        if self.expr_types.get(&self.arena.expr(key).span) != Some(&Type::Str) || self.expr_types.get(&self.arena.expr(value).span) != Some(element) { return None; }
+        Some((base, key, value))
+    }
+
+    fn is_empty_map_literal_source(&self, expr: ExprId) -> bool {
+        match self.arena.expr(expr).kind {
+            ArenaExprKind::Record(fields) => fields.is_empty() && matches!(self.expr_types.get(&self.arena.expr(expr).span), Some(Type::Map(_))),
+            ArenaExprKind::Call { callee, args } if args.is_empty() => matches!(self.arena.expr(callee).kind,
+                ArenaExprKind::Field { base, name } if name == "empty" && matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "map")),
+            _ => false,
+        }
+    }
+
+    fn map_literal_replacement(&self, entries: &[(ExprId, ExprId)]) -> Option<String> {
+        let mut fields = Vec::with_capacity(entries.len());
+        for &(key, value) in entries {
+            let key = self.source.get(self.arena.expr(key).span.range())?;
+            let value = self.source.get(self.arena.expr(value).span.range())?;
+            fields.push(format!("[{key}]: {value}"));
+        }
+        Some(format!("{{{}}}", fields.join(", ")))
+    }
+
+    fn map_literal_diagnostic(&mut self, span: Span, replacement: String) {
+        let Some(source) = self.source.get(span.range()) else { return; };
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "prefer a Map literal for fresh Map construction")
+            .with_code("lint.prefer-map-literal").with_label(Label::secondary(span, "construct the entries in one Map"));
+        if source.contains('#') { diagnostic = diagnostic.with_note("comments in the initialization require a manual rewrite"); }
+        else { diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "construct one Map literal", replacement)); }
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn lint_map_literal_chain(&mut self, expr: ExprId) {
+        let Some(Type::Map(element)) = self.expr_types.get(&self.arena.expr(expr).span).cloned() else { return; };
+        if !list_splice_element_type_is_precise(&element) { return; }
+        let mut base = expr;
+        let mut entries = Vec::new();
+        while let Some((receiver, key, value)) = self.map_set_parts(base, &element) { entries.push((key, value)); base = receiver; }
+        if entries.is_empty() { return; }
+        entries.reverse();
+        let Some(mut replacement) = self.map_literal_replacement(&entries) else { return; };
+        if !self.is_empty_map_literal_source(base) {
+            let ArenaExprKind::Record(fields) = self.arena.expr(base).kind else { return; };
+            if self.expr_types.get(&self.arena.expr(base).span) != Some(&Type::Map(element.clone())) { return; }
+            let mut originals = Vec::new();
+            for field in self.arena.record_fields(fields) {
+                let (value, span) = match field.kind {
+                    ArenaRecordFieldKind::Computed { key, value, span } => {
+                        if self.expr_types.get(&self.arena.expr(key).span) != Some(&Type::Str) { return; }
+                        (value, span)
+                    }
+                    ArenaRecordFieldKind::Named { value, span, .. } => (value, span),
+                    _ => return,
+                };
+                if self.expr_types.get(&self.arena.expr(value).span) != Some(element.as_ref()) { return; }
+                let Some(text) = self.source.get(self.arena.span(span).range()) else { return; };
+                originals.push(text);
+            }
+            if !originals.is_empty() { replacement = format!("{{{}, {}}}", originals.join(", "), &replacement[1..replacement.len() - 1]); }
+        }
+        self.map_literal_diagnostic(self.arena.expr(expr).span, replacement);
+    }
+
+    fn lint_fresh_map_initializations(&mut self, statements: &[StmtId]) {
+        for (index, &statement) in statements.iter().enumerate() {
+            let initializer_stmt = self.arena.stmt(statement);
+            let ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(initializer), .. } = initializer_stmt.kind else { continue; };
+            let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind else { continue; };
+            let Some(Type::Map(element)) = self.expr_types.get(&self.arena.expr(initializer).span).cloned() else { continue; };
+            if !list_splice_element_type_is_precise(&element) || !self.is_empty_map_literal_source(initializer) { continue; }
+            let mut entries = Vec::new();
+            let mut end = initializer_stmt.span.end();
+            for &next in &statements[index + 1..] {
+                let stmt = self.arena.stmt(next);
+                let ArenaStmtKind::Assign { target, op: AssignOp::Set, value: ArenaExprOrRun::Expr(value) } = stmt.kind else { break; };
+                if !matches!(self.arena.assign_target(target).kind, ArenaAssignTargetKind::Name(target) if target == name) { break; }
+                let Some((base, key, value)) = self.map_set_parts(value, &element) else { break; };
+                if !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(base) if base == name)
+                    || expr_references_name(self.arena, key, name) || expr_references_name(self.arena, value, name)
+                    || expr_may_have_effects(self.arena, key) || expr_may_have_effects(self.arena, value) { break; }
+                entries.push((key, value)); end = stmt.span.end();
+            }
+            if entries.is_empty() { continue; }
+            let Some(literal) = self.map_literal_replacement(&entries) else { continue; };
+            let span = Span::new(initializer_stmt.span.source_id, initializer_stmt.span.start(), end);
+            let prefix = &self.source[initializer_stmt.span.start()..self.arena.expr(initializer).span.start()];
+            let original = &self.source[span.range()];
+            let trailing_layout = &original[original.trim_end().len()..];
+            self.map_literal_diagnostic(span, format!("{prefix}{literal}{trailing_layout}"));
+        }
     }
 
     fn lint_list_splicing(&mut self, expr: ExprId) {
@@ -4874,6 +4973,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         ArenaExprKind::Record(fields) => {
             for field in arena.record_fields(fields) {
                 match field.kind {
+                    ArenaRecordFieldKind::Computed { key, value, .. } => { out.push(key); out.push(value); }
                     ArenaRecordFieldKind::Named { value, .. } => out.push(value),
                     ArenaRecordFieldKind::Spread { expr, .. } => out.push(expr),
                     ArenaRecordFieldKind::Shorthand { .. } => {}
@@ -5289,6 +5389,7 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
                 .record_fields(fields)
                 .iter()
                 .any(|field| match field.kind {
+                    ArenaRecordFieldKind::Computed { key, value, .. } => refs(key) || refs(value),
                     ArenaRecordFieldKind::Named { value, .. } => refs(value),
                     ArenaRecordFieldKind::Spread { expr, .. } => refs(expr),
                     ArenaRecordFieldKind::Shorthand { name: field, .. } => field == name,
@@ -5657,6 +5758,7 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
                 .record_fields(fields)
                 .iter()
                 .any(|field| match field.kind {
+                    ArenaRecordFieldKind::Computed { key, value, .. } => rec(key) || rec(value),
                     ArenaRecordFieldKind::Named { value, .. } => rec(value),
                     ArenaRecordFieldKind::Spread { expr, .. } => rec(expr),
                     ArenaRecordFieldKind::Shorthand { .. } => false,
@@ -5893,6 +5995,7 @@ impl LintExprVisitor<'_, '_> {
     fn visit_expr(&mut self, expr: ExprId) {
         if !self.suppress_expr_autofixes {
             self.linter.lint_list_splicing(expr);
+            self.linter.lint_map_literal_chain(expr);
             self.linter.lint_prepared_regex(expr);
             self.linter.lint_comparison_chain(expr);
 
@@ -6088,6 +6191,7 @@ impl LintExprVisitor<'_, '_> {
             ArenaRecordFieldKind::Shorthand { name, .. } => {
                 self.linter.mark_used(name.as_str().as_str())
             }
+            ArenaRecordFieldKind::Computed { key, value, .. } => { self.visit_expr(key); self.visit_expr(value); }
             ArenaRecordFieldKind::Named { value, .. } => self.visit_expr(value),
             ArenaRecordFieldKind::Spread { expr, .. } => self.visit_expr(expr),
         }
@@ -6686,6 +6790,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
                 .record_fields(fields)
                 .iter()
                 .all(|field| match field.kind {
+                    ArenaRecordFieldKind::Computed { .. } => false,
                     ArenaRecordFieldKind::Named { value, .. } => is_safe_const_expr(arena, value),
                     ArenaRecordFieldKind::Shorthand { .. }
                     | ArenaRecordFieldKind::Spread { .. } => false,
@@ -6761,6 +6866,7 @@ fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
             .any(|part| matches!(part, ArenaFmtPart::Expr(expr, _) if expr_may_have_effects(arena, expr))),
         ArenaExprKind::List(items) => arena.list_element_exprs(items).any(|item| expr_may_have_effects(arena, item)),
         ArenaExprKind::Record(fields) => arena.record_fields(fields).iter().any(|field| match field.kind {
+            ArenaRecordFieldKind::Computed { key, value, .. } => expr_may_have_effects(arena, key) || expr_may_have_effects(arena, value),
             ArenaRecordFieldKind::Named { value, .. } => expr_may_have_effects(arena, value),
             ArenaRecordFieldKind::Spread { expr, .. } => expr_may_have_effects(arena, expr),
             ArenaRecordFieldKind::Shorthand { .. } => false,
@@ -7121,8 +7227,10 @@ fn collect_expr_effects(
         }
         ArenaExprKind::Record(fields) => {
             for field in arena.record_fields(fields).to_vec() {
-                if let ArenaRecordFieldKind::Named { value, .. } = field.kind {
-                    collect_expr_effects(arena, value, effects, proc_effects);
+                match field.kind {
+                    ArenaRecordFieldKind::Computed { key, value, .. } => { collect_expr_effects(arena, key, effects, proc_effects); collect_expr_effects(arena, value, effects, proc_effects); }
+                    ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Spread { expr: value, .. } => collect_expr_effects(arena, value, effects, proc_effects),
+                    ArenaRecordFieldKind::Shorthand { .. } => {}
                 }
             }
         }
@@ -7896,6 +8004,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             ArenaExprKind::Record(fields) => {
                 for field in self.arena().record_fields(fields).to_vec() {
                     match field.kind {
+                        ArenaRecordFieldKind::Computed { key, value, .. } => { self.scan_expr(key); self.scan_expr(value); }
                         ArenaRecordFieldKind::Named { value, .. }
                         | ArenaRecordFieldKind::Spread { expr: value, .. } => self.scan_expr(value),
                         ArenaRecordFieldKind::Shorthand { name, .. } => {
@@ -8593,6 +8702,7 @@ fn expr_flow(
                 .record_fields(fields)
                 .iter()
                 .fold(FlowSummary::fallthrough(), |flow, field| match field.kind {
+                    ArenaRecordFieldKind::Computed { key, value, .. } => flow.then(expr_flow(arena, key, terminating_call_spans)).then(expr_flow(arena, value, terminating_call_spans)),
                     ArenaRecordFieldKind::Named { value, .. } => {
                         flow.then(expr_flow(arena, value, terminating_call_spans))
                     }

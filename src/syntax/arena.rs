@@ -5374,6 +5374,7 @@ pub struct ArenaRecordField {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaRecordFieldInput {
+    Computed { key: ExprId, value: ExprId, span: Span },
     Named {
         name: Name,
         value: ExprId,
@@ -5391,6 +5392,7 @@ pub enum ArenaRecordFieldInput {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaRecordFieldKind {
+    Computed { key: ExprId, value: ExprId, span: SpanId },
     Named {
         name: Name,
         value: ExprId,
@@ -6405,6 +6407,9 @@ impl ArenaLowerer<'_> {
     fn lower_record_field_input(&mut self, field: &ArenaRecordFieldInput) -> ArenaRecordField {
         ArenaRecordField {
             kind: match field {
+                ArenaRecordFieldInput::Computed { key, value, span } => ArenaRecordFieldKind::Computed {
+                    key: *key, value: *value, span: self.span(*span),
+                },
                 ArenaRecordFieldInput::Named { name, value, span } => ArenaRecordFieldKind::Named {
                     name: *name,
                     value: *value,

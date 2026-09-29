@@ -1945,6 +1945,9 @@ impl<'a> Writer<'a> {
 
     fn write_record_field(&mut self, field: &ArenaRecordFieldKind, output: &mut String) {
         match field {
+            ArenaRecordFieldKind::Computed { key, value, .. } => {
+                output.push('['); self.write_expr_safe(*key, output); output.push_str("]: "); self.write_expr_safe(*value, output);
+            }
             ArenaRecordFieldKind::Named { name, value, span } => {
                 self.write_record_key(name, *span, output);
                 output.push_str(": ");
@@ -3270,7 +3273,8 @@ fn record_fields_original_multiline(
 
 fn record_field_span(arena: &AstArena, field: &ArenaRecordFieldKind) -> Option<Span> {
     match field {
-        ArenaRecordFieldKind::Named { span, .. }
+        ArenaRecordFieldKind::Computed { span, .. }
+        | ArenaRecordFieldKind::Named { span, .. }
         | ArenaRecordFieldKind::Shorthand { span, .. }
         | ArenaRecordFieldKind::Spread { span, .. } => Some(arena.span(*span)),
     }

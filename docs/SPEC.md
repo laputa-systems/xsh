@@ -931,6 +931,23 @@ accumulators, extra statements, transfers, and comments prevent an autofix.
 Empty `{}` remains an empty record unless it appears in a context that expects
 `Map[T]`; in a map-typed context, `{}` is sugar for an empty map.
 
+A computed entry `[key_expression]: value_expression` selects Map literal mode.
+A nonempty constant-key literal also constructs a Map in an expected `Map[T]`
+context; otherwise ordinary brace literals remain records. Map entries may mix
+computed keys, constant labels, and `...Map` spreads. A spread-only literal
+requires Map context; a bound record or dynamic object is not a Map spread.
+Computed keys require Str with no display conversion. Quoted dots remain part
+of one key. Values use ordinary homogeneous inference and contextual typing;
+incompatible concrete values are not weakened to Any.
+
+Entries evaluate once from left to right, each computed key before its value.
+Overwritten values still evaluate, later entries and spreads replace duplicates,
+and failure stops before subsequent expressions. One Map builder preserves
+aliases and snapshot iteration; iteration remains in canonical key order.
+`lint.prefer-map-literal` recognizes checked fresh initialization and compatible
+set chains. Observed or escaping intermediate maps, uncertain conversions,
+and comments prevent unsafe fixes.
+
 Ordinary list literals admit explicit spliced elements: `["cc", @flags,
 "-o", output_name, @source_names]`. A splice requires `List[T]` and inserts
 its elements in place; a list-valued element without `@` remains one nested

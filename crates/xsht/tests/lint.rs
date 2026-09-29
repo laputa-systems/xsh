@@ -3279,3 +3279,65 @@ fn field_label_access_fixes_retain_dynamic_results_context_recovery_and_consumer
     assert!(fields.iter().all(|d| d.fix_hints.is_empty() && !d.notes.is_empty()));
     assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-known-field-access")));
 }
+
+#[test]
+fn linter_map_literal_chains_recheck_and_preserve_unicode_order() {
+    let source = "# café\nlet key = \"β\"\nlet counts = {[key]: 1}.set(\"alpha\", 2).set(key, 3)\nprint counts.len()\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let hint = output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.prefer-map-literal")).flat_map(|d| &d.fix_hints).max_by_key(|h| h.span.unwrap().range().len()).expect("Map construction fix");
+    let mut fixed = source.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
+    assert!(fixed.contains("{[key]: 1, [\"alpha\"]: 2, [key]: 3}"));
+    assert_parse_check_standalone("computed Map chain", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty());
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+    let parsed = parse_lint_source(&formatted.formatted);
+    let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
+    let second = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-map-literal")));
+}
+
+#[test]
+fn linter_fresh_map_initialization_retains_annotations_and_refuses_observations() {
+    let source = "let name = \"entry\"\nvar counts: Map[Int] = {}\ncounts = counts.set(name, 1)\ncounts = counts.set(\"total\", 2)\nprint counts.len()\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let hint = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-map-literal")).expect("fresh initialization fix").fix_hints.first().unwrap();
+    let mut fixed = source.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
+    assert!(fixed.contains("var counts: Map[Int] = {[name]: 1, [\"total\"]: 2}"));
+    assert_parse_check_standalone("fresh Map", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+    for source in [
+        "var counts: Map[Int] = {}\nprint counts.len()\ncounts = counts.set(\"one\", 1)\n",
+        "var counts: Map[Int] = {}\ncounts = counts.set(\"one\", counts.len())\n",
+        "var counts: Map[Int] = {}\nlet alias = counts\ncounts = counts.set(\"one\", 1)\n",
+        "type Row = {value: Int}\nlet values = map.empty().set(\"one\", Row(value: 1))\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-map-literal")), "{source}");
+    }
+    let unchecked = Linter::lint(&parsed.arena, source, LintOptions::default());
+    assert!(!unchecked.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-map-literal")));
+}
+
+#[test]
+fn linter_map_literal_comment_spans_have_guidance_without_fixes() {
+    let source = "var counts: Map[Int] = {}\n# retain initialization note\ncounts = counts.set(\"one\", 1)\nprint counts.len()\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty());
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-map-literal")).expect("commented initialization warning");
+    assert!(diagnostic.fix_hints.is_empty());
+}

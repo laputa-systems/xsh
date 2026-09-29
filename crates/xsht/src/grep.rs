@@ -191,6 +191,24 @@ fn match_expr_structural(
         (ArenaExprKind::Try(pe), ArenaExprKind::Try(te)) => {
             match_expr(p, *pe, t, *te, source, bindings)
         }
+        (ArenaExprKind::Record(pfields), ArenaExprKind::Record(tfields)) => {
+            use xsh::frontend::syntax::arena::ArenaRecordFieldKind as Field;
+            let pfields = p.record_fields(*pfields);
+            let tfields = t.record_fields(*tfields);
+            if pfields.len() != tfields.len() { return false; }
+            let mut local = bindings.clone();
+            for (pf, tf) in pfields.iter().zip(tfields) {
+                let matched = match (&pf.kind, &tf.kind) {
+                    (Field::Computed { key: pk, value: pv, .. }, Field::Computed { key: tk, value: tv, .. }) => match_expr(p, *pk, t, *tk, source, &mut local) && match_expr(p, *pv, t, *tv, source, &mut local),
+                    (Field::Named { name: pn, value: pv, .. }, Field::Named { name: tn, value: tv, .. }) => pn == tn && match_expr(p, *pv, t, *tv, source, &mut local),
+                    (Field::Shorthand { name: pn, .. }, Field::Shorthand { name: tn, .. }) => pn == tn,
+                    (Field::Spread { expr: pe, .. }, Field::Spread { expr: te, .. }) => match_expr(p, *pe, t, *te, source, &mut local),
+                    _ => false,
+                };
+                if !matched { return false; }
+            }
+            *bindings = local; true
+        }
         (ArenaExprKind::List(pi), ArenaExprKind::List(ti)) => {
             let pitems: Vec<_> = p.list_elements(*pi).collect();
             let titems: Vec<_> = t.list_elements(*ti).collect();

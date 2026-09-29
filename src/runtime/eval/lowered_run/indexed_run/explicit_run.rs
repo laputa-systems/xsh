@@ -10,7 +10,7 @@ use super::{
     TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, indexed_decode, indexed_error,
     comparison_chain_assertion_failure, indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
-    append_lowered_list_element, apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
+    append_lowered_list_element, append_lowered_map_literal, lowered_map_literal_key, apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
     lowered_freeze_large_slot_list, lowered_match_no_arm,
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
     lowered_result_err_value, lowered_result_ok, lowered_return_value, lowered_splice_arg_items,
@@ -225,6 +225,14 @@ enum FrameContinuation {
         items: Vec<(u32, bool, Span)>,
         index: usize,
         values: Vec<LoweredValue>,
+        next: Box<FrameContinuation>,
+    },
+    MapLiteralItems {
+        entries: Vec<(Option<u32>, u32, Span)>,
+        index: usize,
+        fields: BTreeMap<String, LoweredValue>,
+        key: Option<String>,
+        reading_key: bool,
         next: Box<FrameContinuation>,
     },
     RecordItems {
@@ -1569,6 +1577,24 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.push_value(index, FrameValue::Value(LoweredValue::List(Vec::new())), next);
                 }
             }
+            FullTag::ExprMapLiteral => {
+                let (_, mut input) = self.calls[index].execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
+                let len = indexed_raw(&mut input, span)? as usize;
+                let mut entries = Vec::with_capacity(len);
+                for _ in 0..len {
+                    let key = indexed_optional_raw(&mut input, span)?;
+                    let value = indexed_raw(&mut input, span)?;
+                    let entry_span = indexed_decode::<Span>(&mut input, &self.calls[index].execution, span)?;
+                    entries.push((key, value, entry_span));
+                }
+                indexed_finish(input, span)?;
+                indexed_finish(payload, span)?;
+                if let Some(&(key, value, entry_span)) = entries.first() {
+                    self.push_expr(index, key.unwrap_or(value), entry_span, FrameContinuation::MapLiteralItems {
+                        entries, index: 0, fields: BTreeMap::new(), key: None, reading_key: key.is_some(), next: Box::new(next),
+                    });
+                } else { self.push_value(index, FrameValue::Value(LoweredValue::Map(Arc::new(BTreeMap::new()))), next); }
+            }
             FullTag::ExprRecord => {
                 let (_, mut entries) = self.calls[index]
                     .execution
@@ -1604,7 +1630,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         index,
                         instruction,
                         span,
-                        FrameContinuation::RecordItems {
+                                    FrameContinuation::RecordItems {
                             entries: decoded_entries,
                             index: 0,
                             fields: Vec::new(),
@@ -2486,6 +2512,25 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Return(value));
                 }
+            },
+            FrameContinuation::MapLiteralItems { entries, index: entry_index, mut fields, key, reading_key, next } => match value {
+                FrameValue::Value(value) => {
+                    let (_, value_instruction, span) = entries[entry_index];
+                    if reading_key {
+                        let key = Some(lowered_map_literal_key(&value, span)?);
+                        self.push_expr(index, value_instruction, span, FrameContinuation::MapLiteralItems {
+                            entries, index: entry_index, fields, key, reading_key: false, next,
+                        });
+                    } else {
+                        append_lowered_map_literal(&mut fields, key, value, span)?;
+                        if let Some(&(key, value, span)) = entries.get(entry_index + 1) {
+                            self.push_expr(index, key.unwrap_or(value), span, FrameContinuation::MapLiteralItems {
+                                entries, index: entry_index + 1, fields, key: None, reading_key: key.is_some(), next,
+                            });
+                        } else { self.push_value(index, FrameValue::Value(LoweredValue::Map(Arc::new(fields))), *next); }
+                    }
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::RecordItems {
                 entries,

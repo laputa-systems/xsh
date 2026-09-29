@@ -1155,6 +1155,25 @@ impl<'a> Parser<'a> {
                 self.skip_comp_layout();
                 continue;
             }
+            if self.consume(TokenKindMatch::LBracket).is_some() {
+                self.skip_comp_layout();
+                let Some(key) = self.parse_precedence_arena_only(0, arena) else {
+                    arena.discard_record_fields(); return None;
+                };
+                self.skip_comp_layout();
+                self.expect(TokenKindMatch::RBracket, "expected `]` after computed map key");
+                self.expect(TokenKindMatch::Colon, "expected `:` after computed map key");
+                let Some(value) = self.parse_precedence_arena_only(0, arena) else {
+                    arena.discard_record_fields(); return None;
+                };
+                arena.push_record_field_input(ArenaRecordFieldInput::Computed {
+                    key: key.id, value: value.id, span: self.span(field_start, value.span.end()),
+                });
+                self.skip_comp_layout();
+                if self.consume(TokenKindMatch::Comma).is_none() { break; }
+                self.skip_comp_layout();
+                continue;
+            }
             let label_tag = self.current_tag();
             let label_span = self.current_span();
             let name = if label_tag == TokenTag::String {
