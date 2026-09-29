@@ -149,7 +149,7 @@ type SystemReportLiveCollector = module {
   export pure link_usb_parents(devices: List[report_model.UsbDevice]) -> List[report_model.UsbDevice]
 }
 
-proc test_system_report_checker_keeps_cpu_policy_members_typed(ctx: TestContext) [error] {
+test test_system_report_checker_keeps_cpu_policy_members_typed [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""use core.lib.system_report as model
@@ -164,7 +164,7 @@ pure cpu_policy_members(policy: model.CpuFreqPolicy) -> Str {
   test.contains(output.stderr, "expected Str, found List[Int]")?
 }
 
-proc test_system_report_checker_rejects_live_collection_in_pure_code(ctx: TestContext) [error] {
+test test_system_report_checker_rejects_live_collection_in_pure_code [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""use core.lib.system_report_live as collector
@@ -180,7 +180,7 @@ pure forbidden_live_collection() -> Result[Unit] {
   test.contains(output.stderr, "effectful proc is not allowed in pure functions")?
 }
 
-proc test_system_report_class_parent_retains_independent_fallback_and_link_failure() [fs, error] {
+test test_system_report_class_parent_retains_independent_fallback_and_link_failure [fs, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let root = fs.tempdir()?
   defer fs.close_root(root)?
@@ -204,7 +204,7 @@ proc test_system_report_class_parent_retains_independent_fallback_and_link_failu
   test.ok(disappeared.state == report_model.Disappeared)?
 }
 
-proc test_system_report_device_classes_reject_truncated_names_and_attributes() [fs, time, error] {
+test test_system_report_device_classes_reject_truncated_names_and_attributes [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/input/input0", parents: true)?
@@ -264,7 +264,7 @@ ${padding}""",
   test.eq(value.devices.status.state, report_model.Partial)?
 }
 
-proc test_system_report_device_classes_keep_sound_and_input_without_drm() [fs, time, error] {
+test test_system_report_device_classes_keep_sound_and_input_without_drm [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/sound/card0", parents: true)?
@@ -308,7 +308,7 @@ proc test_system_report_device_classes_keep_sound_and_input_without_drm() [fs, t
   test.ok(! (value.devices.devices |> any .class == "drm"))?
 }
 
-proc test_system_report_device_class_entry_identity_survives_duplicate_labels_and_replay() [fs, time, error] {
+test test_system_report_device_class_entry_identity_survives_duplicate_labels_and_replay [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   for entry in ["card0", "card1"] {
@@ -345,7 +345,7 @@ proc test_system_report_device_class_entry_identity_survives_duplicate_labels_an
   test.error_kind(model.decode_report_json(json.encode(repeated)?), "SystemReportError.InvalidJson")?
 }
 
-proc test_system_report_usb_controller_link_distinguishes_directories_disappearance_and_failures() [fs, error] {
+test test_system_report_usb_controller_link_distinguishes_directories_disappearance_and_failures [fs, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let root = fs.tempdir()?
   defer fs.close_root(root)?
@@ -369,7 +369,7 @@ proc test_system_report_usb_controller_link_distinguishes_directories_disappeara
   test.ok(failed.errno != null)?
 }
 
-proc test_system_report_driver_link_distinguishes_unbound_and_unreadable_devices() [fs, error] {
+test test_system_report_driver_link_distinguishes_unbound_and_unreadable_devices [fs, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let root = fs.tempdir()?
   defer fs.close_root(root)?
@@ -392,7 +392,7 @@ proc test_system_report_driver_link_distinguishes_unbound_and_unreadable_devices
   test.ok(failed.errno != null)?
 }
 
-proc test_system_report_network_device_links_keep_absence_separate_from_failures() [fs, error] {
+test test_system_report_network_device_links_keep_absence_separate_from_failures [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let snapshot = model.decode_report_json(json.encode(json_report_fixture())?)?.require(report_model.SystemReport)?
   let source: NetworkCollection = {
@@ -434,7 +434,7 @@ proc test_system_report_network_device_links_keep_absence_separate_from_failures
   test.ok(parent_issues[0].errno != null)?
 }
 
-proc test_system_report_usb_descriptors_keep_configuration_and_endpoint_ownership() [fs, error] {
+test test_system_report_usb_descriptors_keep_configuration_and_endpoint_ownership [fs, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let descriptors = b"\t\x02\x19\0\x01\x01\0\x802\t\x04\0\0\x01\xff\0\0\0\x07\x05\x81\x02@\0\0\t\x02\x19\0\x01\x02\0\x802\t\x04\0\0\x01\x08\x06P\0\x07\x05\x82\x02\0\x02\0"
   let alternates = collector.parse_usb_alternates(descriptors)?
@@ -447,7 +447,7 @@ proc test_system_report_usb_descriptors_keep_configuration_and_endpoint_ownershi
   test.eq(alternates[1].endpoints[0].address, 130)?
 }
 
-proc test_system_report_usb_descriptor_parser_rejects_truncated_and_orphan_records() [fs, error] {
+test test_system_report_usb_descriptor_parser_rejects_truncated_and_orphan_records [fs, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   test.error_kind(collector.parse_usb_alternates(b"\x02\x01"), "SystemReportUsbDescriptorError.Invalid")?
   test.error_kind(
@@ -462,7 +462,7 @@ proc test_system_report_usb_descriptor_parser_rejects_truncated_and_orphan_recor
   test.error_kind(collector.parse_usb_alternates(b"\x07\x05\x81\x02@\0\0"), "SystemReportUsbDescriptorError.Invalid")?
 }
 
-proc test_system_report_usb_descriptor_parser_enforces_configuration_total_length() [fs, error] {
+test test_system_report_usb_descriptor_parser_enforces_configuration_total_length [fs, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   test.error_kind(
     collector.parse_usb_alternates(b"\t\x02\t\0\x01\x01\0\x802\t\x04\0\0\0\xff\0\0\0"),
@@ -474,7 +474,7 @@ proc test_system_report_usb_descriptor_parser_enforces_configuration_total_lengt
   )?
 }
 
-proc test_system_report_identity_uses_vendor_os_release_only_when_local_file_is_absent() [fs, time, error] {
+test test_system_report_identity_uses_vendor_os_release_only_when_local_file_is_absent [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"usr/lib", parents: true)?
@@ -514,7 +514,7 @@ VERSION="v\\$token"
   test.eq(local_os.pretty_name, null)?
 }
 
-proc test_system_report_identity_withholds_malformed_os_release_values_without_vendor_fallback() [fs, time, error] {
+test test_system_report_identity_withholds_malformed_os_release_values_without_vendor_fallback [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"etc", parents: true)?
@@ -577,7 +577,7 @@ VERSION_ID=2
   test.ok(malformed_duplicate.issues |> any .field == "os_release.ID" and .state == report_model.Malformed)?
 }
 
-proc test_system_report_identity_marks_os_release_without_id_partial() [fs, time, error] {
+test test_system_report_identity_marks_os_release_without_id_partial [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/sys/kernel/random", parents: true)?
@@ -668,7 +668,7 @@ ID="Not A Distro"
   )?
 }
 
-proc test_system_report_os_release_value_parser_rejects_malformed_assignments() [fs, error] {
+test test_system_report_os_release_value_parser_rejects_malformed_assignments [fs, error] {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   test.eq(collectors.decode_os_release_value("\"Local \\\"System\\\"\""), "Local \"System\"")?
   test.eq(collectors.decode_os_release_value("\"v\\$token\""), "v$token")?
@@ -711,7 +711,7 @@ proc test_system_report_os_release_value_parser_rejects_malformed_assignments() 
   }
 }
 
-proc test_system_report_device_tree_strings_require_complete_terminated_values() [fs, error] {
+test test_system_report_device_tree_strings_require_complete_terminated_values [fs, error] {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   test.eq(collectors.decode_device_tree_strings("ARM Test Board\0"), ["ARM Test Board"])?
   test.eq(collectors.decode_device_tree_strings("vendor,board\0vendor,soc\0"), ["vendor,board", "vendor,soc"])?
@@ -720,7 +720,7 @@ proc test_system_report_device_tree_strings_require_complete_terminated_values()
   }
 }
 
-proc test_system_report_arm_identity_preserves_heterogeneous_cpus_without_dmi() [fs, time, error] {
+test test_system_report_arm_identity_preserves_heterogeneous_cpus_without_dmi [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -804,7 +804,7 @@ Features: fp asimd crc32
   test.ok(invalid_firmware.issues |> any .field == "device_tree_compatible" and .state == report_model.Malformed)?
 }
 
-proc test_system_report_identity_rejects_truncated_source_prefixes() [fs, time, error] {
+test test_system_report_identity_rejects_truncated_source_prefixes [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/sys/kernel", parents: true)?
@@ -877,7 +877,7 @@ ${padding}""",
   test.eq(observed.device_tree_compatible[0].value, "acme,board")?
 }
 
-proc test_system_report_identity_retains_dmi_placeholder_text_as_raw_values() [fs, time, error] {
+test test_system_report_identity_retains_dmi_placeholder_text_as_raw_values [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/dmi/id", parents: true)?
@@ -918,7 +918,7 @@ proc test_system_report_identity_retains_dmi_placeholder_text_as_raw_values() [f
   test.ok(! (collected.issues |> any .field.starts_with("firmware.")))?
 }
 
-proc test_system_report_scope_keeps_all_process_visible_namespace_identities() [fs, time, error] {
+test test_system_report_scope_keeps_all_process_visible_namespace_identities [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self/ns", parents: true)?
@@ -981,7 +981,7 @@ proc test_system_report_scope_keeps_all_process_visible_namespace_identities() [
   test.ok(! (collected.issues |> any .section == "scope"))?
 }
 
-proc test_system_report_identity_preserves_namespace_link_failures() [fs, time, error] {
+test test_system_report_identity_preserves_namespace_link_failures [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self/ns", parents: true)?
@@ -1561,7 +1561,7 @@ pure json_report_fixture() -> Record {
   }
 }
 
-proc test_system_report_model_relationships() [fs, error] {
+test test_system_report_model_relationships [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let policies = [
     cpu_policy("policy0", [0, 2], [0]),
@@ -1594,7 +1594,7 @@ proc test_system_report_model_relationships() [fs, error] {
   test.eq(model.pci_parent_function(functions, unresolved_child), null)?
 }
 
-proc test_system_report_cpu_list_parser_handles_sparse_and_large_ids() [fs, error] {
+test test_system_report_cpu_list_parser_handles_sparse_and_large_ids [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let sparse = model.parse_cpu_list("2-4,66,129-130")?
   test.eq(sparse, [2, 3, 4, 66, 129, 130])?
@@ -1611,7 +1611,7 @@ proc test_system_report_cpu_list_parser_handles_sparse_and_large_ids() [fs, erro
   test.error_kind(model.parse_cpu_list("0-65536"), "SystemReportError.InvalidCpuList")?
 }
 
-proc test_system_report_cpu_collection_preserves_128_present_ids() [fs, time, error] {
+test test_system_report_cpu_collection_preserves_128_present_ids [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/devices/system/cpu", parents: true)?
@@ -1648,7 +1648,7 @@ proc test_system_report_cpu_collection_preserves_128_present_ids() [fs, time, er
   test.eq(value.cpu.online.len(), 128)?
 }
 
-proc test_system_report_cpu_collection_keeps_absent_cpufreq_unavailable() [fs, time, error] {
+test test_system_report_cpu_collection_keeps_absent_cpufreq_unavailable [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0", parents: true)?
@@ -1689,7 +1689,7 @@ proc test_system_report_cpu_collection_keeps_absent_cpufreq_unavailable() [fs, t
   test.eq(value.identity.kernel_release, "fixture-vm-release")?
 }
 
-proc test_system_report_uptime_parser_requires_complete_two_column_decimal() [fs, error] {
+test test_system_report_uptime_parser_requires_complete_two_column_decimal [fs, error] {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   let observed: SourceRead = {
     observation: {
@@ -1732,7 +1732,7 @@ proc test_system_report_uptime_parser_requires_complete_two_column_decimal() [fs
   test.ok(absent.state == report_model.Absent)?
 }
 
-proc test_system_report_bounded_number_respects_source_state_and_json_range() [fs, error] {
+test test_system_report_bounded_number_respects_source_state_and_json_range [fs, error] {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   let observed: SourceRead = {
     observation: {
@@ -1810,7 +1810,7 @@ proc test_system_report_bounded_number_respects_source_state_and_json_range() [f
   test.eq(denied.errno, 13)?
 }
 
-proc test_system_report_bounded_size_bytes_checks_scaled_json_range() [fs, error] {
+test test_system_report_bounded_size_bytes_checks_scaled_json_range [fs, error] {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   let observed: SourceRead = {
     observation: {
@@ -1864,7 +1864,7 @@ proc test_system_report_bounded_size_bytes_checks_scaled_json_range() [fs, error
   test.ok(truncated.state == report_model.Truncated)?
 }
 
-proc test_system_report_psi_average_parser_rejects_invalid_percentages() [fs, error] {
+test test_system_report_psi_average_parser_rejects_invalid_percentages [fs, error] {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   for value in ["0.00", "1.50", "99.99", "100.00"] {
     test.ok(collectors.valid_psi_average(value))?
@@ -1885,7 +1885,7 @@ proc test_system_report_psi_average_parser_rejects_invalid_percentages() [fs, er
   }
 }
 
-proc test_system_report_thp_policy_parser_keeps_unknown_selected_value() [fs, error] {
+test test_system_report_thp_policy_parser_keeps_unknown_selected_value [fs, error] {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   let policy = collectors.parse_thp_policy("always [future_policy] never")?
   test.eq(policy.selected, "future_policy")?
@@ -1902,7 +1902,7 @@ extra""",
   }
 }
 
-proc test_system_report_pci_and_usb_source_parsers() [fs, error] {
+test test_system_report_pci_and_usb_source_parsers [fs, error] {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
 
   let address: PciAddress = collectors.parse_pci_address("0001:af:1f.7")?
@@ -1932,7 +1932,7 @@ proc test_system_report_pci_and_usb_source_parsers() [fs, error] {
   test.error_kind(collectors.parse_usb_descriptor_stream(b"\t"), "SystemReportSourceError.InvalidUsbDescriptor")?
 }
 
-proc test_system_report_pci_collection_links_a_child_to_its_bridge() [fs, error] {
+test test_system_report_pci_collection_links_a_child_to_its_bridge [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let parent_path = p"sys/devices/pci0001:02/0001:02:01.0"
@@ -1993,7 +1993,7 @@ proc test_system_report_pci_collection_links_a_child_to_its_bridge() [fs, error]
   test.eq(collection.functions[1].parent_function_index, 0)?
 }
 
-proc test_system_report_pci_collection_reports_non_utf8_names_without_losing_valid_functions() [fs, env, error] {
+test test_system_report_pci_collection_reports_non_utf8_names_without_losing_valid_functions [fs, env, error] {
   if system.uname()?.sysname == "Darwin" {
     test.skip("macOS filesystems reject non-UTF-8 filenames")
     return
@@ -2025,7 +2025,7 @@ proc test_system_report_pci_collection_reports_non_utf8_names_without_losing_val
   test.ok(collected.status.state == report_model.Partial)?
 }
 
-proc test_system_report_pci_multifunction_keeps_optional_link_sources_distinct() [fs, error] {
+test test_system_report_pci_multifunction_keeps_optional_link_sources_distinct [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/bus/pci/devices", parents: true)?
@@ -2182,13 +2182,13 @@ ${padding}""",
   )?
 }
 
-proc test_system_report_usb_controller_path_handles_pci_and_platform_roots() [fs, error] {
+test test_system_report_usb_controller_path_handles_pci_and_platform_roots [fs, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   test.eq(collector.usb_parent_address(../../../devices/pci0000:00/0000:00:08.1/0000:04:00.4/usb4/4-2), "0000:04:00.4")?
   test.ok(collector.usb_parent_address(../../../devices/platform/soc/usb1/1-2) == null)?
 }
 
-proc test_system_report_usb_parent_join_handles_root_hubs_sorted_last() [fs, error] {
+test test_system_report_usb_parent_join_handles_root_hubs_sorted_last [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let decoded = model.decode_report_json(json.encode(json_report_fixture())?)?
@@ -2205,7 +2205,7 @@ proc test_system_report_usb_parent_join_handles_root_hubs_sorted_last() [fs, err
   test.ok(linked[2].parent_device_index == null)?
 }
 
-proc test_system_report_usb_keeps_a_device_with_missing_numeric_identity() [fs, time, error] {
+test test_system_report_usb_keeps_a_device_with_missing_numeric_identity [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/bus/usb/devices/1-2", parents: true)?
@@ -2274,7 +2274,7 @@ proc test_system_report_usb_keeps_a_device_with_missing_numeric_identity() [fs, 
   test.eq(malformed_vendor[0].state, report_model.Malformed)?
 }
 
-proc test_system_report_usb_power_read_failures_make_section_partial() [fs, time, error] {
+test test_system_report_usb_power_read_failures_make_section_partial [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/bus/usb/devices/1-2/power/control", parents: true)?
@@ -2306,7 +2306,7 @@ proc test_system_report_usb_power_read_failures_make_section_partial() [fs, time
   }
 }
 
-proc test_system_report_usb_identity_read_failures_keep_field_issues() [fs, time, error] {
+test test_system_report_usb_identity_read_failures_keep_field_issues [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/bus/usb/devices/1-2/bDeviceClass", parents: true)?
@@ -2371,7 +2371,7 @@ proc test_system_report_usb_identity_read_failures_keep_field_issues() [fs, time
   )?
 }
 
-proc test_system_report_usb_truncated_scalar_sources_do_not_publish_prefixes() [fs, time, error] {
+test test_system_report_usb_truncated_scalar_sources_do_not_publish_prefixes [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let device = p"sys/bus/usb/devices/1-2"
@@ -2436,7 +2436,7 @@ ${padding}""",
   }
 }
 
-proc test_system_report_block_class_path_identifies_its_pci_controller() [fs, error] {
+test test_system_report_block_class_path_identifies_its_pci_controller [fs, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   test.eq(
     collector.pci_address_in_target(../../devices/pci0000:00/0000:00:01.2/0000:01:00.0/nvme/nvme0/nvme0n1),
@@ -2445,7 +2445,7 @@ proc test_system_report_block_class_path_identifies_its_pci_controller() [fs, er
   test.ok(collector.pci_address_in_target(../../devices/virtual/block/loop0) == null)?
 }
 
-proc test_system_report_assembles_network_links_addresses_routes_and_rules() [fs, error] {
+test test_system_report_assembles_network_links_addresses_routes_and_rules [fs, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let dump: LinuxNetworkDump = {
     state: "partial",
@@ -2729,7 +2729,7 @@ proc test_system_report_assembles_network_links_addresses_routes_and_rules() [fs
   test.eq(denied.issues[0].errno, 13)?
 }
 
-proc test_system_report_section_selection_marks_excluded_domains() [fs, error] {
+test test_system_report_section_selection_marks_excluded_domains [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let source = json_report_fixture()
   let report = model.decode_report_json(json.encode(source)?)?
@@ -2776,7 +2776,7 @@ proc test_system_report_section_selection_marks_excluded_domains() [fs, error] {
   test.error_kind(model.select_report_section(report, "hardware"), "SystemReportError.InvalidSection")?
 }
 
-proc test_system_report_json_round_trip_and_redaction() [fs, error] {
+test test_system_report_json_round_trip_and_redaction [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let source = json_report_fixture()
   let encoded_source = json.encode(source)?
@@ -2984,7 +2984,7 @@ proc test_system_report_json_round_trip_and_redaction() [fs, error] {
   test.error_kind(model.decode_report_json(json.encode(invalid_section)?), "SystemReportError.InvalidJson")?
 }
 
-proc test_system_report_thermal_trip_indexes_round_trip_and_legacy_unknown() [fs, error] {
+test test_system_report_thermal_trip_indexes_round_trip_and_legacy_unknown [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let encoded_fixture = json.encode(json_report_fixture())?
   let source = json.decode(encoded_fixture)?
@@ -3037,7 +3037,7 @@ proc test_system_report_thermal_trip_indexes_round_trip_and_legacy_unknown() [fs
   test.error_kind(model.decode_report_json(json.encode(negative)?), "SystemReportError.InvalidJson")?
 }
 
-proc test_system_report_cpufreq_scaling_current_replays_legacy_requested_name() [fs, error] {
+test test_system_report_cpufreq_scaling_current_replays_legacy_requested_name [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let encoded_fixture = json.encode(json_report_fixture())?
   let source = json.decode(encoded_fixture)?
@@ -3061,7 +3061,7 @@ proc test_system_report_cpufreq_scaling_current_replays_legacy_requested_name() 
   test.error_kind(model.decode_report_json(json.encode(conflicting)?), "SystemReportError.InvalidJson")?
 }
 
-proc test_system_report_usb_runtime_status_replays_legacy_absence() [fs, error] {
+test test_system_report_usb_runtime_status_replays_legacy_absence [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let encoded_fixture = json.encode(json_report_fixture())?
   let source = json.decode(encoded_fixture)?
@@ -3073,7 +3073,7 @@ proc test_system_report_usb_runtime_status_replays_legacy_absence() [fs, error] 
   test.error_kind(model.decode_report_json(json.encode(malformed)?), "SystemReportError.InvalidJson")?
 }
 
-proc test_system_report_v1_replay_marks_unrecorded_namespaces_unsupported() [fs, error] {
+test test_system_report_v1_replay_marks_unrecorded_namespaces_unsupported [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let encoded_fixture = json.encode(json_report_fixture())?
   var old = json.decode(encoded_fixture)?
@@ -3091,7 +3091,7 @@ proc test_system_report_v1_replay_marks_unrecorded_namespaces_unsupported() [fs,
   test.error_kind(model.decode_report_json(json.encode(malformed)?), "SystemReportError.InvalidJson")?
 }
 
-proc test_system_report_v1_replay_keeps_unrecorded_idle_state_index_unknown() [fs, error] {
+test test_system_report_v1_replay_keeps_unrecorded_idle_state_index_unknown [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let legacy_state = {
     cpu_id: 0,
@@ -3117,7 +3117,7 @@ proc test_system_report_v1_replay_keeps_unrecorded_idle_state_index_unknown() [f
   test.error_kind(model.decode_report_json(json.encode(duplicate)?), "SystemReportError.InvalidJson")?
 }
 
-proc test_system_report_v1_replay_restores_legacy_powercap_constraint() [fs, error] {
+test test_system_report_v1_replay_restores_legacy_powercap_constraint [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let legacy_zone = {
     name: "package-0",
@@ -3144,7 +3144,7 @@ proc test_system_report_v1_replay_restores_legacy_powercap_constraint() [fs, err
   test.error_kind(model.decode_report_json(json.encode(invalid)?), "SystemReportError.InvalidJson")?
 }
 
-proc test_system_report_powercap_constraints_round_trip_and_render() [fs, error] {
+test test_system_report_powercap_constraints_round_trip_and_render [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let zone = {
     entry_name: "intel-rapl:0",
@@ -3182,7 +3182,7 @@ proc test_system_report_powercap_constraints_round_trip_and_render() [fs, error]
   test.error_kind(model.decode_report_json(json.encode(duplicate)?), "SystemReportError.InvalidJson")?
 }
 
-proc test_system_report_replay_withholds_mount_credentials_in_sensitive_json() [fs, error] {
+test test_system_report_replay_withholds_mount_credentials_in_sensitive_json [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let raw = json.set(
     json_report_fixture(),
@@ -3196,7 +3196,7 @@ proc test_system_report_replay_withholds_mount_credentials_in_sensitive_json() [
   test.eq(json.decode(sensitive_json)?.storage.mounts[0].source.state, "redacted")?
 }
 
-proc test_system_report_text_output_escapes_untrusted_controls() [fs, error] {
+test test_system_report_text_output_escapes_untrusted_controls [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let source = json_report_fixture()
   let hostile_scope = {
@@ -3225,7 +3225,7 @@ attack""" not in rendered,
   test.contains(rendered, "Uptime: unknown seconds")?
 }
 
-proc test_system_report_full_text_renders_numeric_relationship_lists() [fs, error] {
+test test_system_report_full_text_renders_numeric_relationship_lists [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let source = json_report_fixture()
   let cache = {
@@ -3275,7 +3275,7 @@ proc test_system_report_full_text_renders_numeric_relationship_lists() [fs, erro
   test.contains(rendered, "holders= slaves=0")?
 }
 
-proc test_system_report_command_replays_saved_json_offline(ctx: TestContext) [fs, process, error] {
+test test_system_report_command_replays_saved_json_offline [fs, process, error] { |ctx|
   let report_path = test.temp_path(ctx, name: "system-report-v1.json")
   report_path.write(json.encode(json_report_fixture())?)?
 
@@ -3314,7 +3314,7 @@ proc test_system_report_command_replays_saved_json_offline(ctx: TestContext) [fs
   test.contains(help, "--section NAME")?
 }
 
-proc test_system_report_command_rejects_malformed_replay(ctx: TestContext) [fs, process, error] {
+test test_system_report_command_rejects_malformed_replay [fs, process, error] { |ctx|
   let report_path = test.temp_file(ctx, name: "system-report-invalid.json", contents: b"{invalid")?
   let stderr = test.temp_path(ctx, name: "system-report-invalid.stderr")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path 2> $stderr
@@ -3340,7 +3340,7 @@ proc test_system_report_command_rejects_malformed_replay(ctx: TestContext) [fs, 
   test.ok(section_stderr.read_text()?.trim() != "")?
 }
 
-proc test_system_report_live_collection_uses_explicit_root_and_redacts_by_default() [fs, time, error] {
+test test_system_report_live_collection_uses_explicit_root_and_redacts_by_default [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/sys/kernel", parents: true)?
@@ -3402,7 +3402,7 @@ VERSION_ID=1
   test.eq(sensitive.identity.hostname.state, report_model.Observed)?
 }
 
-proc test_system_report_cpu_collection_does_not_invent_absent_cpu_zero() [fs, time, error] {
+test test_system_report_cpu_collection_does_not_invent_absent_cpu_zero [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/cpu2", parents: true)?
@@ -3423,7 +3423,7 @@ proc test_system_report_cpu_collection_does_not_invent_absent_cpu_zero() [fs, ti
   test.ok(snapshot.cpu.cpus[1].online == false)?
 }
 
-proc test_system_report_cpu_enumeration_requires_a_valid_present_list() [fs, time, error] {
+test test_system_report_cpu_enumeration_requires_a_valid_present_list [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/devices/system/cpu", parents: true)?
@@ -3461,7 +3461,7 @@ proc test_system_report_cpu_enumeration_requires_a_valid_present_list() [fs, tim
   test.ok(present_issues[0].state == report_model.Truncated)?
 }
 
-proc test_system_report_cpu_present_symlinks_cannot_cycle_or_escape_the_source_root() [fs, time, error] {
+test test_system_report_cpu_present_symlinks_cannot_cycle_or_escape_the_source_root [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let outside = fs.tempdir()?
@@ -3486,7 +3486,7 @@ proc test_system_report_cpu_present_symlinks_cannot_cycle_or_escape_the_source_r
   test.eq((escaped.issues |> where .section == "cpu" and .field == "present").len(), 1)?
 }
 
-proc test_system_report_cpu_directory_failures_keep_source_issues() [fs, time, error] {
+test test_system_report_cpu_directory_failures_keep_source_issues [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0", parents: true)?
@@ -3531,7 +3531,7 @@ proc test_system_report_cpu_directory_failures_keep_source_issues() [fs, time, e
   test.ok(enumeration_issues[0].state == report_model.Absent)?
 }
 
-proc test_system_report_cpu_vulnerability_read_failures_keep_named_issues() [fs, time, error] {
+test test_system_report_cpu_vulnerability_read_failures_keep_named_issues [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0", parents: true)?
@@ -3590,7 +3590,7 @@ proc test_system_report_cpu_vulnerability_read_failures_keep_named_issues() [fs,
   test.ok(value.cpu.status.state == report_model.Partial)?
 }
 
-proc test_system_report_effective_cpuset_rejects_a_truncated_source() [fs, time, error] {
+test test_system_report_effective_cpuset_rejects_a_truncated_source [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -3700,7 +3700,7 @@ proc test_system_report_effective_cpuset_rejects_a_truncated_source() [fs, time,
   )?
 }
 
-proc test_system_report_cpu_collection_keeps_sparse_models_policies_and_cpuset() [fs, time, error] {
+test test_system_report_cpu_collection_keeps_sparse_models_policies_and_cpuset [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/sys/kernel/random", parents: true)?
@@ -4068,7 +4068,7 @@ Features: fp asimd
   )?
 }
 
-proc test_system_report_cpufreq_policy_rejects_truncated_field_prefixes() [fs, time, error] {
+test test_system_report_cpufreq_policy_rejects_truncated_field_prefixes [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let policy_path = p"sys/devices/system/cpu/cpufreq/policy0"
@@ -4186,7 +4186,7 @@ ${padding}""",
   test.eq(failed_minimum[0].state, report_model.ReadFailure)?
 }
 
-proc test_system_report_affinity_rejects_duplicate_status_field() [fs, time, error] {
+test test_system_report_affinity_rejects_duplicate_status_field [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/devices/system/cpu", parents: true)?
@@ -4226,7 +4226,7 @@ Cpus_allowed_list:	1
   )?
 }
 
-proc test_system_report_idle_governor_uses_read_only_source_when_writable_source_is_absent() [fs, time, error] {
+test test_system_report_idle_governor_uses_read_only_source_when_writable_source_is_absent [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/cpuidle", parents: true)?
@@ -4276,7 +4276,7 @@ proc test_system_report_idle_governor_uses_read_only_source_when_writable_source
   test.eq(writable.cpu.global_idle_governor, "teo")?
 }
 
-proc test_system_report_idle_and_affinity_reject_truncated_prefixes() [fs, time, error] {
+test test_system_report_idle_and_affinity_reject_truncated_prefixes [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -4432,7 +4432,7 @@ ${padding}""",
   test.eq(failed_latency[0].state, report_model.ReadFailure)?
 }
 
-proc test_system_report_cpuinfo_rejects_a_truncated_complete_looking_prefix() [fs, time, error] {
+test test_system_report_cpuinfo_rejects_a_truncated_complete_looking_prefix [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -4477,7 +4477,7 @@ ${padding}""",
   test.ok(matches[0].state == report_model.Truncated)?
 }
 
-proc test_system_report_cpu_topology_rejects_truncated_scalar_prefixes() [fs, time, error] {
+test test_system_report_cpu_topology_rejects_truncated_scalar_prefixes [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let topology = p"sys/devices/system/cpu/cpu0/topology"
@@ -4557,7 +4557,7 @@ ${padding}""",
   test.ok(unsafe_core.issues |> any .field == "cpu0.topology.core_id" and .state == report_model.RangeFailure)?
 }
 
-proc test_system_report_cpu_cache_sizes_reject_scaled_overflow_and_truncation() [fs, time, error] {
+test test_system_report_cpu_cache_sizes_reject_scaled_overflow_and_truncation [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0/cache/index7", parents: true)?
@@ -4690,7 +4690,7 @@ ${padding}""",
   test.ok(incomplete_kind.issues |> any .field == "cpu0.cache.index9.type" and .state == report_model.Truncated)?
 }
 
-proc test_system_report_cpu_cache_rejects_ambiguous_shared_cpu_list() [fs, time, error] {
+test test_system_report_cpu_cache_rejects_ambiguous_shared_cpu_list [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let cache_path = p"sys/devices/system/cpu/cpu0/cache/index7"
@@ -4752,7 +4752,7 @@ proc test_system_report_cpu_cache_rejects_ambiguous_shared_cpu_list() [fs, time,
   test.ok(matching[0].state == report_model.Malformed)?
 }
 
-proc test_system_report_cpu_cache_keeps_distinct_kernel_ids_with_same_sharing() [fs, time, error] {
+test test_system_report_cpu_cache_keeps_distinct_kernel_ids_with_same_sharing [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/cpu0/cache", parents: true)?
@@ -4818,7 +4818,7 @@ proc test_system_report_cpu_cache_keeps_distinct_kernel_ids_with_same_sharing() 
   test.eq(value.cpu.cpus[0].cache_ids, [0, 1])?
 }
 
-proc test_system_report_live_collection_rejects_linux_dry_run() [fs, process, env, time, error] {
+test test_system_report_live_collection_rejects_linux_dry_run [fs, process, env, time, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   env XSH_LINUX_DRY_RUN=1 {
     match collector.collect_live() {
@@ -4828,7 +4828,7 @@ proc test_system_report_live_collection_rejects_linux_dry_run() [fs, process, en
   }
 }
 
-proc test_system_report_storage_parses_mountinfo_escapes_and_stacked_mounts() [fs, time, error] {
+test test_system_report_storage_parses_mountinfo_escapes_and_stacked_mounts [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -4860,7 +4860,7 @@ proc test_system_report_storage_parses_mountinfo_escapes_and_stacked_mounts() [f
   test.eq(fixture_only.storage.mounts[0].usage_state, report_model.NotRequested)?
 }
 
-proc test_system_report_storage_mounts_reject_truncated_complete_looking_prefix() [fs, time, error] {
+test test_system_report_storage_mounts_reject_truncated_complete_looking_prefix [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -4878,7 +4878,7 @@ proc test_system_report_storage_mounts_reject_truncated_complete_looking_prefix(
   test.ok(value.issues |> any .section == "storage" and .field == "mounts" and .state == report_model.Truncated)?
 }
 
-proc test_system_report_storage_usage_skips_shadowed_and_automount_descendants() [fs, time, error] {
+test test_system_report_storage_usage_skips_shadowed_and_automount_descendants [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -4905,7 +4905,7 @@ proc test_system_report_storage_usage_skips_shadowed_and_automount_descendants()
   test.ok(value.storage.mounts[5].usage_state == report_model.Disappeared)?
 }
 
-proc test_system_report_storage_mount_rejects_json_unsafe_identity() [fs, time, error] {
+test test_system_report_storage_mount_rejects_json_unsafe_identity [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -4926,7 +4926,7 @@ proc test_system_report_storage_mount_rejects_json_unsafe_identity() [fs, time, 
   test.ok(value.issues |> any .field == "mounts.line.1" and .state == report_model.RangeFailure)?
 }
 
-proc test_system_report_storage_links_block_devices_to_pci_controllers() [fs, time, error] {
+test test_system_report_storage_links_block_devices_to_pci_controllers [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/sys/kernel/random", parents: true)?
@@ -5123,7 +5123,7 @@ proc test_system_report_storage_links_block_devices_to_pci_controllers() [fs, ti
   test.eq(value.storage.mounts[0].block_device_index, 0)?
 }
 
-proc test_system_report_block_scheduler_requires_one_selected_choice() [fs, error] {
+test test_system_report_block_scheduler_requires_one_selected_choice [fs, error] {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
   let selected = collectors.parse_block_scheduler("none [mq-deadline] kyber").require(BlockScheduler)?
   test.eq(selected.active, "mq-deadline")?
@@ -5144,7 +5144,7 @@ kyber""",
   }
 }
 
-proc test_system_report_storage_rejects_invalid_block_source_fields() [fs, time, error] {
+test test_system_report_storage_rejects_invalid_block_source_fields [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/block/loop0/queue", parents: true)?
@@ -5469,7 +5469,7 @@ ${padding}""",
   test.eq(failed_read_ahead[0].state, report_model.ReadFailure)?
 }
 
-proc test_system_report_storage_keeps_a_device_with_missing_numbers() [fs, time, error] {
+test test_system_report_storage_keeps_a_device_with_missing_numbers [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/block/mystery0", parents: true)?
@@ -5490,7 +5490,7 @@ proc test_system_report_storage_keeps_a_device_with_missing_numbers() [fs, time,
   test.eq(missing_numbers[0].state, report_model.Absent)?
 }
 
-proc test_system_report_storage_links_layered_block_devices_by_identity() [fs, time, error] {
+test test_system_report_storage_links_layered_block_devices_by_identity [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   for name in ["sda", "dm-0"] {
@@ -5537,7 +5537,7 @@ proc test_system_report_storage_links_layered_block_devices_by_identity() [fs, t
   test.eq(stacked.holder_indices, [])?
 }
 
-proc test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links() [fs, time, error] {
+test test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/block", parents: true)?
@@ -5601,7 +5601,7 @@ proc test_system_report_storage_keeps_sparse_partition_numbers_and_parent_links(
   }
 }
 
-proc test_system_report_storage_keeps_holder_and_slave_enumeration_failures() [fs, time, error] {
+test test_system_report_storage_keeps_holder_and_slave_enumeration_failures [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/block/fixture", parents: true)?
@@ -5633,7 +5633,7 @@ proc test_system_report_storage_keeps_holder_and_slave_enumeration_failures() [f
   test.ok(link_issues[0].errno != null)?
 }
 
-proc test_system_report_process_stat_parser_preserves_start_identity() [fs, error] {
+test test_system_report_process_stat_parser_preserves_start_identity [fs, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let stat = collector.parse_proc_stat("123 (worker (pool)) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2")?
   test.eq(stat.pid, 123)?
@@ -5665,7 +5665,7 @@ proc test_system_report_process_stat_parser_preserves_start_identity() [fs, erro
   test.ok(oversized_optional.field_issues |> any .field == "resident_pages" and .state == report_model.RangeFailure)?
 }
 
-proc test_system_report_process_statm_overflow_does_not_publish_stat_fallback() [fs, time, error] {
+test test_system_report_process_statm_overflow_does_not_publish_stat_fallback [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/123", parents: true)?
@@ -5704,7 +5704,7 @@ proc test_system_report_process_statm_overflow_does_not_publish_stat_fallback() 
   test.ok(value.issues |> any .field == "9007199254740992.pid" and .state == report_model.RangeFailure)?
 }
 
-proc test_system_report_process_statm_requires_all_kernel_fields() [fs, time, error] {
+test test_system_report_process_statm_requires_all_kernel_fields [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/123", parents: true)?
@@ -5761,7 +5761,7 @@ proc test_system_report_process_statm_requires_all_kernel_fields() [fs, time, er
   test.eq(unused_large.processes.processes[0].resident_bytes, 65536)?
 }
 
-proc test_system_report_process_cgroup_requires_one_absolute_v2_path() [fs, time, error] {
+test test_system_report_process_cgroup_requires_one_absolute_v2_path [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/123", parents: true)?
@@ -5829,7 +5829,7 @@ proc test_system_report_process_cgroup_requires_one_absolute_v2_path() [fs, time
   test.eq(valid.processes.processes[0].cgroup.state, report_model.Observed)?
 }
 
-proc test_system_report_process_uid_requires_one_complete_numeric_status_row() [fs, time, error] {
+test test_system_report_process_uid_requires_one_complete_numeric_status_row [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/123", parents: true)?
@@ -5886,7 +5886,7 @@ Uid:	2000	2000	2000	2000
   test.ok(short.issues |> any .field == "123.uid" and .state == report_model.Malformed)?
 }
 
-proc test_system_report_process_collection_scales_pages_and_omits_private_sources() [fs, time, error] {
+test test_system_report_process_collection_scales_pages_and_omits_private_sources [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/123", parents: true)?
@@ -5949,7 +5949,7 @@ Uid:	1234	1234	1234	1234
   test.ok("\"cmdline\"" not in sensitive_json)?
 }
 
-proc test_system_report_process_collection_rejects_truncated_stat_and_field_prefixes() [fs, time, error] {
+test test_system_report_process_collection_rejects_truncated_stat_and_field_prefixes [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/123", parents: true)?
@@ -6000,7 +6000,7 @@ ${padding}""",
   test.ok(truncated_fields.issues |> any .field == "123.cgroup" and .state == report_model.Truncated)?
 }
 
-proc test_system_report_joins_visible_process_cgroups_to_resource_records() [fs, time, error] {
+test test_system_report_joins_visible_process_cgroups_to_resource_records [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/123", parents: true)?
@@ -6083,7 +6083,7 @@ VendorCounter: 12 widgets
   test.eq(resource.path.value, process_item.cgroup.value)?
 }
 
-proc test_system_report_memory_collects_cgroup_v2_limits_and_visible_ancestors() [fs, time, error] {
+test test_system_report_memory_collects_cgroup_v2_limits_and_visible_ancestors [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -6265,7 +6265,7 @@ throttled_usec 450
   test.ok(invalid.issues |> any .field == "meminfo.MemTotal" and .state == report_model.Malformed)?
 }
 
-proc test_system_report_memory_preserves_colons_in_cgroup_membership_path() [fs, time, error] {
+test test_system_report_memory_preserves_colons_in_cgroup_membership_path [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -6386,7 +6386,7 @@ proc test_system_report_memory_preserves_colons_in_cgroup_membership_path() [fs,
   )?
 }
 
-proc test_system_report_memory_directory_failures_keep_source_issues() [fs, time, error] {
+test test_system_report_memory_directory_failures_keep_source_issues [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -6428,7 +6428,7 @@ MemFree: 8 kB
   test.ok(invalid_node[0].state == report_model.Malformed)?
 }
 
-proc test_system_report_huge_page_pools_reject_unsafe_sizes_and_partial_counts() [fs, time, error] {
+test test_system_report_huge_page_pools_reject_unsafe_sizes_and_partial_counts [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -6523,7 +6523,7 @@ ${padding}""",
   test.ok(! (empty.issues |> any .field == "huge_pages.enumeration"))?
 }
 
-proc test_system_report_numa_meminfo_requires_complete_rows_and_exact_bytes() [fs, time, error] {
+test test_system_report_numa_meminfo_requires_complete_rows_and_exact_bytes [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -6569,7 +6569,7 @@ ${padding}""",
   test.ok(value.issues |> any .field == "numa.node1.meminfo" and .state == report_model.Truncated)?
 }
 
-proc test_system_report_pressure_keeps_complete_rows_and_unavailable_sources_distinct() [fs, time, error] {
+test test_system_report_pressure_keeps_complete_rows_and_unavailable_sources_distinct [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/pressure", parents: true)?
@@ -6640,7 +6640,7 @@ ${padding}""",
   }
 }
 
-proc test_system_report_empty_pressure_file_is_malformed_beside_valid_memory_rows() [fs, time, error] {
+test test_system_report_empty_pressure_file_is_malformed_beside_valid_memory_rows [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/pressure", parents: true)?
@@ -6668,7 +6668,7 @@ full avg10=0.00 avg60=0.00 avg300=0.00 total=0
   )?
 }
 
-proc test_system_report_transparent_huge_page_policy_preserves_unknown_selection() [fs, time, error] {
+test test_system_report_transparent_huge_page_policy_preserves_unknown_selection [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -6721,7 +6721,7 @@ ${padding}""",
   test.ok(incomplete.issues |> any .field == "transparent_huge_pages.defrag" and .state == report_model.Malformed)?
 }
 
-proc test_system_report_hwmon_identity_separates_duplicate_chip_names() [fs, time, error] {
+test test_system_report_hwmon_identity_separates_duplicate_chip_names [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   for entry in ["hwmon0", "hwmon1"] {
@@ -6812,7 +6812,7 @@ proc test_system_report_hwmon_identity_separates_duplicate_chip_names() [fs, tim
   test.eq(unfamiliar.unit, "raw")?
 }
 
-proc test_system_report_sensor_and_power_sources_keep_raw_units_and_partial_attributes() [fs, time, error] {
+test test_system_report_sensor_and_power_sources_keep_raw_units_and_partial_attributes [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/hwmon/hwmon0", parents: true)?
@@ -7095,7 +7095,7 @@ proc test_system_report_sensor_and_power_sources_keep_raw_units_and_partial_attr
   test.eq(core_zone.parent, "intel-rapl:0")?
 }
 
-proc test_system_report_sensor_units_and_powercap_ranges_are_bounded() [fs, time, error] {
+test test_system_report_sensor_units_and_powercap_ranges_are_bounded [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/hwmon/hwmon0", parents: true)?
@@ -7190,7 +7190,7 @@ proc test_system_report_sensor_units_and_powercap_ranges_are_bounded() [fs, time
   test.eq(invalid_index[0].error_kind, "invalid_constraint_index")?
 }
 
-proc test_system_report_thermal_and_battery_reads_reject_truncated_prefixes() [fs, time, error] {
+test test_system_report_thermal_and_battery_reads_reject_truncated_prefixes [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/hwmon/hwmon0", parents: true)?
@@ -7246,7 +7246,7 @@ proc test_system_report_thermal_and_battery_reads_reject_truncated_prefixes() [f
   test.ok(battery_issues[0].state == report_model.Truncated)?
 }
 
-proc test_system_report_nested_sensor_and_power_directories_keep_issues() [fs, time, error] {
+test test_system_report_nested_sensor_and_power_directories_keep_issues [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/hwmon", parents: true)?
@@ -7275,7 +7275,7 @@ proc test_system_report_nested_sensor_and_power_directories_keep_issues() [fs, t
   test.eq(power.power.status.state, report_model.Partial)?
 }
 
-proc test_system_report_powercap_enumeration_failure_is_partial() [fs, time, error] {
+test test_system_report_powercap_enumeration_failure_is_partial [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class", parents: true)?
@@ -7289,7 +7289,7 @@ proc test_system_report_powercap_enumeration_failure_is_partial() [fs, time, err
   test.eq(value.power.status.enumeration_succeeded, false)?
 }
 
-proc test_system_report_powercap_rejects_truncated_names() [fs, time, error] {
+test test_system_report_powercap_rejects_truncated_names [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/powercap/intel-rapl:0", parents: true)?
@@ -7320,7 +7320,7 @@ proc test_system_report_powercap_rejects_truncated_names() [fs, time, error] {
   test.eq(value.power.status.state, report_model.Partial)?
 }
 
-proc test_system_report_power_supply_rejects_truncated_text_attributes() [fs, time, error] {
+test test_system_report_power_supply_rejects_truncated_text_attributes [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/power_supply/BAT0", parents: true)?
@@ -7347,7 +7347,7 @@ proc test_system_report_power_supply_rejects_truncated_text_attributes() [fs, ti
   test.eq(value.power.status.state, report_model.Partial)?
 }
 
-proc test_system_report_memory_reports_malformed_and_oversized_meminfo_fields() [fs, time, error] {
+test test_system_report_memory_reports_malformed_and_oversized_meminfo_fields [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -7392,7 +7392,7 @@ VendorHuge: 9007199254740992 widgets
   test.eq(vendor[0].unit, "widgets")?
 }
 
-proc test_system_report_memory_accepts_tabbed_values_and_withholds_duplicate_fields() [fs, time, error] {
+test test_system_report_memory_accepts_tabbed_values_and_withholds_duplicate_fields [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -7423,7 +7423,7 @@ VendorCounter:	12	widgets
   test.eq(duplicates.len(), 1)?
 }
 
-proc test_system_report_cgroup_inventory_rejects_partial_membership_and_mounts() [fs, time, error] {
+test test_system_report_cgroup_inventory_rejects_partial_membership_and_mounts [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -7494,7 +7494,7 @@ ${mount_padding}""",
   )?
 }
 
-proc test_system_report_cgroup_limits_keep_source_and_numeric_failures() [fs, time, error] {
+test test_system_report_cgroup_limits_keep_source_and_numeric_failures [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -7583,7 +7583,7 @@ ${padding}""",
   test.ok(value.issues |> any .field == "cgroup.0.pids.max" and .state == report_model.RangeFailure)?
 }
 
-proc test_system_report_cgroup_cpu_and_io_counters_reject_partial_and_unsafe_values() [fs, time, error] {
+test test_system_report_cgroup_cpu_and_io_counters_reject_partial_and_unsafe_values [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -7743,7 +7743,7 @@ ${io_padding}""",
   test.ok(incomplete_counters.issues |> any .field == "cgroup.0.io.stat" and .state == report_model.Truncated)?
 }
 
-proc test_system_report_cgroup_hybrid_keeps_v2_values_and_v1_limitation() [fs, time, error] {
+test test_system_report_cgroup_hybrid_keeps_v2_values_and_v1_limitation [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -7800,7 +7800,7 @@ proc test_system_report_cgroup_hybrid_keeps_v2_values_and_v1_limitation() [fs, t
   test.ok(hidden_v1_mount.issues |> any .field == "cgroup.v1" and .state == report_model.Unsupported)?
 }
 
-proc test_system_report_memory_marks_an_empty_meminfo_file_malformed() [fs, time, error] {
+test test_system_report_memory_marks_an_empty_meminfo_file_malformed [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -7813,7 +7813,7 @@ proc test_system_report_memory_marks_an_empty_meminfo_file_malformed() [fs, time
   test.eq(empty_file[0].state, report_model.Malformed)?
 }
 
-proc test_system_report_memory_does_not_parse_truncated_meminfo_prefix() [fs, time, error] {
+test test_system_report_memory_does_not_parse_truncated_meminfo_prefix [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -7836,7 +7836,7 @@ ${padding}""",
   test.ok(matches[0].state == report_model.Truncated)?
 }
 
-proc test_system_report_swap_devices_keep_exact_bytes_and_reject_partial_sources() [fs, time, error] {
+test test_system_report_swap_devices_keep_exact_bytes_and_reject_partial_sources [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -7906,7 +7906,7 @@ ${padding}""",
   test.ok(headerless.issues |> any .field == "swaps" and .error_kind == "invalid_swap_header")?
 }
 
-proc test_system_report_swap_devices_reject_duplicate_identity_and_impossible_usage() [fs, time, error] {
+test test_system_report_swap_devices_reject_duplicate_identity_and_impossible_usage [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -7938,7 +7938,7 @@ proc test_system_report_swap_devices_reject_duplicate_identity_and_impossible_us
   test.ok(value.memory.status.state == report_model.Partial)?
 }
 
-proc test_system_report_kernel_modules_reject_truncated_source_prefix() [fs, time, error] {
+test test_system_report_kernel_modules_reject_truncated_source_prefix [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -7968,7 +7968,7 @@ ${padding}""",
   test.ok(matches[0].state == report_model.Truncated)?
 }
 
-proc test_system_report_kernel_modules_keep_valid_rows_with_malformed_neighbor() [fs, time, error] {
+test test_system_report_kernel_modules_keep_valid_rows_with_malformed_neighbor [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -8003,7 +8003,7 @@ busy 4096 9007199254740992 - Live 0x0
   test.ok(oversized |> any .field == "modules.line.3")?
 }
 
-proc test_system_report_kernel_modules_accept_taint_flags_and_reject_extra_columns() [fs, time, error] {
+test test_system_report_kernel_modules_accept_taint_flags_and_reject_extra_columns [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -8031,7 +8031,7 @@ extra 2048 0 - Live 0x1 (OE) unknown
   test.ok(malformed[0].state == report_model.Malformed)?
 }
 
-proc test_system_report_kernel_modules_preserve_unavailable_use_count() [fs, time, error] {
+test test_system_report_kernel_modules_preserve_unavailable_use_count [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -8058,7 +8058,7 @@ proc test_system_report_kernel_modules_preserve_unavailable_use_count() [fs, tim
   test.contains(model.render_text(value, true, true)?, "\"permanent\" size=4096 bytes users=unknown state=\"Live\"")?
 }
 
-proc test_system_report_kernel_modules_reject_duplicate_identity_with_valid_neighbor() [fs, time, error] {
+test test_system_report_kernel_modules_reject_duplicate_identity_with_valid_neighbor [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -8088,7 +8088,7 @@ beta 8192 0 - Live 0x2
   test.eq(duplicates[0].error_kind, "duplicate_module_name")?
 }
 
-proc test_system_report_kernel_command_line_preserves_source_whitespace() [fs, time, error] {
+test test_system_report_kernel_command_line_preserves_source_whitespace [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc", parents: true)?
@@ -8105,7 +8105,7 @@ proc test_system_report_kernel_command_line_preserves_source_whitespace() [fs, t
   test.eq(redacted.kernel.command_line.raw_bytes_base64, null)?
 }
 
-proc test_system_report_source_text_preserves_exact_whitespace_when_requested() [fs, error] {
+test test_system_report_source_text_preserves_exact_whitespace_when_requested [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_write(
@@ -8123,7 +8123,7 @@ proc test_system_report_source_text_preserves_exact_whitespace_when_requested() 
   )?
 }
 
-proc test_system_report_kernel_parameter_allowlist_keeps_values_and_absence() [fs, time, error] {
+test test_system_report_kernel_parameter_allowlist_keeps_values_and_absence [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/sys/kernel", parents: true)?
@@ -8159,7 +8159,7 @@ proc test_system_report_kernel_parameter_allowlist_keeps_values_and_absence() [f
   test.eq(value.kernel.parameters[1].value.state, report_model.Absent)?
 }
 
-proc test_system_report_collects_swap_limit_without_memory_limit_files() [fs, time, error] {
+test test_system_report_collects_swap_limit_without_memory_limit_files [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -8209,7 +8209,7 @@ proc test_system_report_collects_swap_limit_without_memory_limit_files() [fs, ti
   test.eq(swap_limit.current_value, 65536)?
 }
 
-proc test_system_report_smbios_parser_preserves_records_and_reports_bad_string_indexes() [fs, time, error] {
+test test_system_report_smbios_parser_preserves_records_and_reports_bad_string_indexes [fs, time, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let table = b"\x01\x084\x12\x01\x02\x03\0Vendor\0Model\0Version\0\0\x7f\x04\0\0\0\0"
   let parsed = collector.parse_smbios_table(table)?
@@ -8244,7 +8244,7 @@ proc test_system_report_smbios_parser_preserves_records_and_reports_bad_string_i
   test.ok(parser_issue.detail.value != null)?
 }
 
-proc test_system_report_smbios_unknown_type_keeps_record_identity() [fs, error] {
+test test_system_report_smbios_unknown_type_keeps_record_identity [fs, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let table = b"\x90\x06E#\xaa\xbb\0\0\x7f\x04\0\0\0\0"
   let parsed = collector.parse_smbios_table(table)?
@@ -8256,7 +8256,7 @@ proc test_system_report_smbios_unknown_type_keeps_record_identity() [fs, error] 
   test.eq(parsed.records[0].fields.len(), 0)?
 }
 
-proc test_system_report_smbios_type16_reads_device_count_from_short_form() [fs, error] {
+test test_system_report_smbios_type16_reads_device_count_from_short_form [fs, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let table = bytes.concat(
     [
@@ -8277,7 +8277,7 @@ proc test_system_report_smbios_type16_reads_device_count_from_short_form() [fs, 
   test.eq(count.unit, "count")?
 }
 
-proc test_system_report_smbios_sentinel_size_requires_complete_formatted_field() [fs, error] {
+test test_system_report_smbios_sentinel_size_requires_complete_formatted_field [fs, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let short_table = bytes.concat(
     [

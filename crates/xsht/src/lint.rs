@@ -76,6 +76,7 @@ pub struct LintOptions {
     pub terminating_call_spans: BTreeSet<Span>,
     pub definitely_exiting_block_spans: BTreeSet<Span>,
     pub dead_code: bool,
+    pub native_test_file: bool,
 }
 
 impl Default for LintOptions {
@@ -92,6 +93,7 @@ impl Default for LintOptions {
             terminating_call_spans: BTreeSet::default(),
             definitely_exiting_block_spans: BTreeSet::default(),
             dead_code: true,
+            native_test_file: false,
         }
     }
 }
@@ -205,6 +207,7 @@ impl<'a> Linter<'a> {
         options: LintOptions,
         include_reachability: bool,
     ) -> LintOutput {
+        let native_test_file = options.native_test_file;
         let mut linter = Self {
             record_constructors: xsh::frontend::check::RecordConstructors::collect(program),
             arena: &program.arena,
@@ -246,6 +249,7 @@ impl<'a> Linter<'a> {
             false,
         );
         let statements: Vec<StmtId> = program.statement_ids().collect();
+        if native_test_file { linter.lint_legacy_test_declarations(&statements); }
         linter.lint_program(&statements);
         linter.lint_defer_block_helpers(&statements);
         if include_reachability {
@@ -253,6 +257,48 @@ impl<'a> Linter<'a> {
         }
         LintOutput {
             diagnostics: linter.diagnostics,
+        }
+    }
+
+    fn lint_legacy_test_declarations(&mut self, statements: &[StmtId]) {
+        let tokens = xsh::frontend::syntax::lexer::Lexer::new(
+            xsh::frontend::source::SourceId::new(0), self.source,
+        ).lex_compact();
+        for &statement in statements {
+            let stmt = self.arena.stmt(statement);
+            let ArenaStmtKind::ProcDef(id) = stmt.kind else { continue };
+            let def = self.arena.function_def(id);
+            if def.test_declaration || !def.name.as_str().starts_with("test_") { continue; }
+            let body_span = self.arena.span(self.arena.block(def.body).span);
+            let Some(return_ty) = self.checked_function_returns.get(&body_span) else { continue };
+            if return_ty != &Type::Result(Box::new(Type::Unit), Box::new(Type::Error)) { continue; }
+            let params = self.arena.params(def.params);
+            if params.len() > 1 || params.iter().any(|param|
+                param.rest || param.default.is_some() || !self.arena.type_expr_named(param.ty, "TestContext")
+            ) { continue; }
+            let signature = Span::new(stmt.span.source_id, stmt.span.start(), body_span.start());
+            let mut diagnostic = Diagnostic::warning("legacy native test proc requires an explicit test declaration")
+                .with_code("lint.legacy-test-proc")
+                .with_label(Label::primary(signature, "preserve the exact name to retain the test ID"));
+            let references = (0..tokens.token_table.len()).filter(|&index|
+                tokens.token_table.name_at(index).is_some_and(|name| name.as_str() == def.name.as_str())
+            ).count();
+            let raw = self.source.get(signature.range()).unwrap_or_default();
+            if references == 1 && !raw.contains('#') {
+                let effects = def.effects.map(|effects| format!(" [{}]", self.arena.effects(effects)
+                    .map(|effect| effect.as_str().to_owned()).collect::<Vec<_>>().join(", "))).unwrap_or_default();
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(signature,
+                    "register the checked harness entrypoint", format!("test {}{} ", def.name, effects)));
+                if let Some(param) = params.first() {
+                    let insertion = Span::new(stmt.span.source_id, body_span.start() + 1, body_span.start() + 1);
+                    diagnostic = diagnostic.with_fix_hint(FixHint::replacement(insertion,
+                        "bind the immutable TestContext header", format!(" |{}|", param.name)));
+                }
+            } else {
+                diagnostic = diagnostic.with_label(Label::secondary(stmt.span,
+                    "extract callable shared work into an ordinary helper; signature comments require manual migration"));
+            }
+            self.diagnostics.push(diagnostic);
         }
     }
 
@@ -8162,7 +8208,7 @@ impl<'a> CallableReachability<'a> {
             if callable.exported
                 || (callable.namespace == 0
                     && callable.proc_entry
-                    && (callable.name == "main" || callable.name.as_str().starts_with("test_")))
+                    && (callable.name == "main" || self.arena.function_def(callable.definition).test_declaration))
             {
                 root_targets.insert(index);
             }

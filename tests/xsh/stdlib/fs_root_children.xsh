@@ -1,4 +1,4 @@
-proc test_fs_root_children_reads_newly_created_directory(ctx: TestContext) [fs, error] {
+test test_fs_root_children_reads_newly_created_directory [fs, error] { |ctx|
   let root_path = test.temp_dir(ctx, name: "root-children")?
   let root = fs.open_root(root_path)?
   defer fs.close_root(root)?
@@ -10,7 +10,7 @@ proc test_fs_root_children_reads_newly_created_directory(ctx: TestContext) [fs, 
   test.eq(result.children, [p"nested/child"])?
 }
 
-proc test_fs_root_children_rejects_regular_file_as_directory(ctx: TestContext) [fs, error] {
+test test_fs_root_children_rejects_regular_file_as_directory [fs, error] { |ctx|
   let root_path = test.temp_dir(ctx, name: "root-children-file")?
   let root = fs.open_root(root_path)?
   defer fs.close_root(root)?

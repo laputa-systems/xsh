@@ -1,4 +1,4 @@
-proc test_bytes_construction_encoding_and_copy(ctx: TestContext) [fs, error] {
+test test_bytes_construction_encoding_and_copy [fs, error] { |ctx|
   let data = bytes.concat([bytes.from_text("A"), bytes.from_ints([66, 67])?, bytes.zero(2)?])
   test.eq(data, b"ABC\0\0")?
   test.eq(bytes.human(-1), "-")?
@@ -40,7 +40,7 @@ proc test_bytes_construction_encoding_and_copy(ctx: TestContext) [fs, error] {
   test.error_kind(bytes.copy(data_path, copy), "bytes-copy")?
 }
 
-proc test_bytes_methods_and_decode_errors() [error] {
+test test_bytes_methods_and_decode_errors [error] {
   let encoded = b"\0hello\xff".base64()
   test.eq(encoded, "AGhlbGxv/w==")?
   test.eq(encoded.base64_decode()?, b"\0hello\xff")?

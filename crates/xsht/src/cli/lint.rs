@@ -1142,7 +1142,14 @@ fn lint_config_for_file(
     let configured_return_annotations = tool_config.config.check.annotate.as_ref()
         .and_then(|classes| super::check::AnnotationPolicy::from_names(classes.iter().map(String::as_str)).ok())
         .is_some_and(super::check::AnnotationPolicy::annotates_returns);
+    let native_test_file = Path::new(file).canonicalize().ok().is_some_and(|file| {
+        let roots = if tool_config.config.test_roots.is_empty() { vec!["tests".to_owned()] }
+            else { tool_config.config.test_roots.clone() };
+        roots.iter().any(|root| tool_config.config_dir.join(root).canonicalize().ok()
+            .is_some_and(|root| file.starts_with(root)))
+    });
     let lint_options = LintOptions {
+        native_test_file,
         prefer_inferred_pure_returns: tool_config.config.lint.prefer_inferred_pure_returns && !configured_return_annotations,
         runless,
         runless_except: tool_config.config.lint.runless_except,

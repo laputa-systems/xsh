@@ -1,4 +1,4 @@
-proc test_user_lookup_and_mutation_contracts(ctx: TestContext) [fs, process, error] {
+test test_user_lookup_and_mutation_contracts [fs, process, error] { |ctx|
   let passwd_file = test.temp_path(ctx, name: "passwd")
   let shadow_file = test.temp_path(ctx, name: "shadow")
   let group_file = test.temp_path(ctx, name: "group")

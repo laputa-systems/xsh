@@ -1,9 +1,9 @@
-proc test_combined_coverage_report_includes_standard_api_hits(ctx: TestContext) [fs, process, env, error] {
+test test_combined_coverage_report_includes_standard_api_hits [fs, process, env, error] { |ctx|
   let repo = fs.cwd()?
   let root = test.temp_dir(ctx, name: "combined-coverage")?.resolve()?
   let tests = fp"${root}/tests/xsh"
   tests.mkdir()?
-  fp"${tests}/smoke.xsh".write("""proc test_cpu_count() [error] { test.ok(cpu.count() > 0)? }
+  fp"${tests}/smoke.xsh".write("""test test_cpu_count [error] { test.ok(cpu.count() > 0)? }
 """)?
 
   let out_dir = fp"${root}/coverage"

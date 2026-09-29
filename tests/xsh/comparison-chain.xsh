@@ -1,4 +1,4 @@
-proc test_comparison_chain_adjacent_types_and_order() [error] {
+test test_comparison_chain_adjacent_types_and_order [error] {
   test.eq(0 <= 1 < 2 <= 2, true)?
   test.eq(4 > 3 >= 3 > 1, true)?
   test.eq(1 < 3 > 2, true)?
@@ -12,7 +12,7 @@ proc test_comparison_chain_adjacent_types_and_order() [error] {
   test.eq((1 < 2) == true, true)?
 }
 
-proc test_comparison_chain_evaluates_reached_operands_once(ctx: TestContext) [error] {
+test test_comparison_chain_evaluates_reached_operands_once [error] { |ctx|
   let reached = test.run_script(ctx, r"""proc observed(n: Int) [io] -> Int {
   print f"${n}"
   return n
@@ -34,7 +34,7 @@ print f"${result}"
   test.eq(skipped.stdout, "3\n2\nfalse\n")?
 }
 
-proc test_comparison_chain_rejects_invalid_adjacent_types(ctx: TestContext) [error] {
+test test_comparison_chain_rejects_invalid_adjacent_types [error] { |ctx|
   let invalid = test.run_script(ctx, "let value = 0 < 1 < \"two\"\n")?
   test.ok(! invalid.success, invalid.stderr)?
   test.contains(invalid.stderr, "check.type-mismatch")?
@@ -46,7 +46,7 @@ proc test_comparison_chain_rejects_invalid_adjacent_types(ctx: TestContext) [err
   test.contains(grouped.stderr, "comparison requires Int, Float, or Str")?
 }
 
-proc test_comparison_chain_requires_grouping_for_mixed_tests(ctx: TestContext) [error] {
+test test_comparison_chain_requires_grouping_for_mixed_tests [error] { |ctx|
   for source in [
     "let value = 0 < 1 < 2 == true\n",
     "let value = (0 + 0) < 1 < 2 == true\n",
@@ -63,7 +63,7 @@ proc test_comparison_chain_requires_grouping_for_mixed_tests(ctx: TestContext) [
   test.ok(explicit.success, explicit.stderr)?
 }
 
-proc test_comparison_chain_skips_failing_last_operand(ctx: TestContext) [error] {
+test test_comparison_chain_skips_failing_last_operand [error] { |ctx|
   let result = test.run_script(ctx, r"""let result = 2 < 1 < (1 / 0)
 print f"${result}"
 """)?
@@ -74,7 +74,7 @@ print f"${result}"
   test.contains(reached.stderr, "division-by-zero")?
 }
 
-proc test_comparison_chain_bare_assertion_reports_reached_failed_pair(ctx: TestContext) [error] {
+test test_comparison_chain_bare_assertion_reports_reached_failed_pair [error] { |ctx|
   let failed = test.run_script(ctx, r"""proc observed(n: Int) [io] -> Int {
   print f"${n}"
   return n

@@ -1,4 +1,4 @@
-proc test_yield_delegation_lists_and_parent_continuation(ctx: TestContext) [error] {
+test test_yield_delegation_lists_and_parent_continuation [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc close(message: Str) [io] { print $message }
 stream rows() [] -> Stream[Int] {
@@ -23,7 +23,7 @@ proc main() [io, error] {
   test.eq(output.stdout, "0\n1\n2\n3\n4\n5\n3 2 2\n")?
 }
 
-proc test_yield_delegation_pulls_lazily_and_closes_child_first(ctx: TestContext) [error] {
+test test_yield_delegation_pulls_lazily_and_closes_child_first [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc close(message: Str) [io] { print $message }
 stream child() [io] -> Stream[Int] {
@@ -54,7 +54,7 @@ proc main() [io] {
   test.eq(output.stdout, "created\nparent-start\npull 0\nrow 0\npull 1\nrow 1\nchild-close\nparent-close\nconsumer-after\n")?
 }
 
-proc test_yield_delegation_evaluates_source_once_and_resumes(ctx: TestContext) [error] {
+test test_yield_delegation_evaluates_source_once_and_resumes [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc close(message: Str) [io] { print $message }
 proc source() [io] -> List[Int] {
@@ -80,7 +80,7 @@ proc main() [io] {
   test.eq(output.stdout, "row 1\nchild-close\nbetween\nsource\nrow 2\nrow 3\nafter\nparent-close\n")?
 }
 
-proc test_yield_delegation_result_handling_and_late_failure(ctx: TestContext) [error] {
+test test_yield_delegation_result_handling_and_late_failure [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc close(message: Str) [io] { print $message }
 error RowsError = Late(row: Int)
@@ -107,7 +107,7 @@ proc main() [io, error] {
   test.contains(output.stderr, "RowsError.Late")?
 }
 
-proc test_yield_delegation_aliases_share_one_cursor(ctx: TestContext) [error] {
+test test_yield_delegation_aliases_share_one_cursor [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc close(message: Str) [io] { print $message }
 stream child() [] -> Stream[Int] { yield @[1, 2, 3] }
@@ -124,7 +124,7 @@ proc main() [io, error] {
   test.eq(output.stdout, "1\nremaining 0\n")?
 }
 
-proc test_yield_delegation_requires_explicit_list_or_stream(ctx: TestContext) [error] {
+test test_yield_delegation_requires_explicit_list_or_stream [error] { |ctx|
   for value in ["1", "\"text\"", "b\"bytes\"", "{name: 1}", "Ok([1])"] {
     let output = test.run_script(ctx, f"stream bad() -> Stream[Int] { yield @${value} }\n")?
     test.eq(output.success, false)?
@@ -135,7 +135,7 @@ proc test_yield_delegation_requires_explicit_list_or_stream(ctx: TestContext) [e
   test.contains(output.stderr, "check.yield")?
 }
 
-proc test_yield_delegation_guard_and_zero_take_do_not_evaluate_source(ctx: TestContext) [error] {
+test test_yield_delegation_guard_and_zero_take_do_not_evaluate_source [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc source() [io] -> List[Int] { print "source"; return [1, 2] }
 stream rows() [io] -> Stream[Int] {
@@ -153,7 +153,7 @@ proc main() [io] {
   test.eq(output.stdout, "empty 0\nsource\nrow 1\nrow 2\n")?
 }
 
-proc test_yield_delegation_live_source_and_list_snapshot(ctx: TestContext) [fs, error] {
+test test_yield_delegation_live_source_and_list_snapshot [fs, error] { |ctx|
   let file_path = test.temp_path(ctx, name: "delegated-lines")
   file_path.write("first\nsecond\n")?
   let output = test.run_script(ctx, f"""
@@ -177,7 +177,7 @@ proc main() [io, fs, error] {
   test.eq(output.stdout, "first\nsecond\nlast\n1\n2\n3\noriginal 99\n")?
 }
 
-proc test_yield_delegation_cleanup_failure_still_closes_parent(ctx: TestContext) [error] {
+test test_yield_delegation_cleanup_failure_still_closes_parent [error] { |ctx|
   let output = test.run_script(ctx, r"""
 error CleanupError = Child(message: Str) | Parent(message: Str)
 proc child_close() [io, error] -> Result[Unit, CleanupError] {
@@ -205,7 +205,7 @@ proc main() [io, error] {
   test.contains(output.stderr, "child cleanup failed")?
 }
 
-proc test_yield_delegation_rejects_item_and_effect_mismatches(ctx: TestContext) [error] {
+test test_yield_delegation_rejects_item_and_effect_mismatches [error] { |ctx|
   for source in [
     "stream bad() [] -> Stream[Int] { yield @[\"wrong\"] }\n",
     "stream child() [io] -> Stream[Int] { print \"effect\"; yield 1 }\nstream bad() [] -> Stream[Int] { yield @child() }\n",

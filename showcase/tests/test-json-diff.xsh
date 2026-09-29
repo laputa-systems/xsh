@@ -1,4 +1,4 @@
-proc test_json_diff(ctx: TestContext) [fs, process, error] {
+test test_json_diff [fs, process, error] { |ctx|
   let a = test.temp_file(ctx, name: "a.json", contents: b"{\"name\":\"old\",\"same\":1}")?
   let b = test.temp_file(ctx, name: "b.json", contents: b"{\"name\":\"new\",\"same\":1,\"extra\":true}")?
   let output = run.text "xsh" "showcase/json-diff.xsh" -- $a $b ?

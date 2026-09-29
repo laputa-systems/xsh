@@ -12,7 +12,7 @@ proc optional_postfix_observation(present: Bool) [] -> OptionalPostfixObservatio
   return {target: null, state: "observed"}
 }
 
-proc test_optional_record_return_field_alias_preserves_receiver_type() [error] {
+test test_optional_record_return_field_alias_preserves_receiver_type [error] {
   for present in [true, false] {
     let source = optional_postfix_observation(present)
     let target = source.target
@@ -21,7 +21,7 @@ proc test_optional_record_return_field_alias_preserves_receiver_type() [error] {
   }
 }
 
-proc test_optional_method_skips_arguments_and_preserves_fallback() [error] {
+test test_optional_method_skips_arguments_and_preserves_fallback [error] {
   let absent: Str? = null
   test.eq(absent?.trim() ?? "default", "default")?
   test.eq(absent?.replace("x", "y") ?? "default", "default")?
@@ -29,7 +29,7 @@ proc test_optional_method_skips_arguments_and_preserves_fallback() [error] {
   test.eq(present?.trim() ?? "default", "label")?
 }
 
-proc test_optional_index_and_slice() [error] {
+test test_optional_index_and_slice [error] {
   let absent: List[Int]? = null
   test.eq(absent?[0] ?? -1, -1)?
   test.eq(absent?[0..2] ?? [], [])?
@@ -40,7 +40,7 @@ proc test_optional_index_and_slice() [error] {
   test.eq(text?[1..2] ?? "", "β")?
 }
 
-proc test_optional_postfix_evaluation_order(ctx: TestContext) [fs, error] {
+test test_optional_postfix_evaluation_order [fs, error] { |ctx|
   let output = test.run_script(ctx, """
 proc absent() [io] -> Str? { print "receiver"; return null }
 proc present() [io] -> Str? { print "present"; return "x" }
@@ -72,7 +72,7 @@ list
 """)?
 }
 
-proc test_optional_result_layers_and_outer_propagation() [error] {
+test test_optional_result_layers_and_outer_propagation [error] {
   let present: Str? = "42"
   let absent: Str? = null
   test.eq((present?.parse_int() ?? Ok(0))?, 42)?
@@ -86,7 +86,7 @@ proc test_optional_result_layers_and_outer_propagation() [error] {
   test.eq(nested? ?.trim() ?? "default", "label")?
 }
 
-proc test_optional_non_null_errors_and_explicit_hops(ctx: TestContext) [fs, error] {
+test test_optional_non_null_errors_and_explicit_hops [fs, error] { |ctx|
   let empty = test.run_script(ctx, "let values: List[Int]? = []\nlet item = values?[0] ?? 0\nprint $item\n", [], {}, b"", "optional-empty.xsh")?
   test.ok(!empty.success)?
   test.ok(empty.stderr.contains("index"), empty.stderr)?
@@ -98,7 +98,7 @@ proc test_optional_non_null_errors_and_explicit_hops(ctx: TestContext) [fs, erro
   test.ok(mixed.stderr.contains("check.try-result"), mixed.stderr)?
 }
 
-proc test_result_postfix_propagation_skips_index_on_failure(ctx: TestContext) [fs, error] {
+test test_result_postfix_propagation_skips_index_on_failure [fs, error] { |ctx|
   let output = test.run_script(ctx, """
 error InputError = Failed(message: Str) : InvalidData
 proc argument() [io] -> Int { print "index"; return 0 }
@@ -116,7 +116,7 @@ match read() {
 """)?
 }
 
-proc test_optional_fields_guard_each_hop_and_flatten_null_layers() [error] {
+test test_optional_fields_guard_each_hop_and_flatten_null_layers [error] {
   let absent: OptionalPostfixConfig? = null
   let missing_server: OptionalPostfixConfig? = {server: null}
   let missing_host: OptionalPostfixConfig? = {server: {host: null}}
@@ -130,7 +130,7 @@ proc test_optional_fields_guard_each_hop_and_flatten_null_layers() [error] {
   test.eq(selected ?? false, false)?
 }
 
-proc test_optional_postfix_null_branch_differential_witness(ctx: TestContext) [fs, error] {
+test test_optional_postfix_null_branch_differential_witness [fs, error] { |ctx|
   let before = test.run_script(ctx, """
 proc fallback() [io] -> Str { print "fallback"; return "default" }
 proc argument() [io] -> Str { print "argument"; return "x" }
@@ -159,7 +159,7 @@ y
 """)?
 }
 
-proc test_optional_runtime_record_fields_preserve_result_layers() [error] {
+test test_optional_runtime_record_fields_preserve_result_layers [error] {
   let failure: Error? = OptionalPostfixError.Failed("42")
   test.eq((failure?.message?.parse_int() ?? Ok(0))?, 42)?
   let absent: Error? = null
@@ -168,7 +168,7 @@ proc test_optional_runtime_record_fields_preserve_result_layers() [error] {
   test.eq((handle?.command?.parse_int() ?? Ok(0))?, 0)?
 }
 
-proc test_optional_method_retains_validated_local_receiver_type() [error] {
+test test_optional_method_retains_validated_local_receiver_type [error] {
   let rows = json.decode("""[{"sched":"  noop  "},{"sched":null}]""")?
   var labels: List[Str] = []
   for row in rows.require(List[Record])? {

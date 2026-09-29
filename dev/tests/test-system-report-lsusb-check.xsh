@@ -1,6 +1,6 @@
 use system_report_lsusb_check as lsusb_reference
 
-proc test_system_report_lsusb_saved_outputs_score_ids_tree_and_selected_descriptor() [error] {
+test test_system_report_lsusb_saved_outputs_score_ids_tree_and_selected_descriptor [error] {
   let devices = lsusb_reference.parse_lsusb_list("""Bus 001 Device 001: ID 1d6b:0002 Linux root hub
 Bus 001 Device 002: ID 05e3:0610 USB hub
 """)?
@@ -41,7 +41,7 @@ Device Descriptor:
   test.ok("1:2.port" in wrong_port.mismatches)?
 }
 
-proc test_system_report_lsusb_rejects_duplicate_and_unsupported_utility_rows() [error] {
+test test_system_report_lsusb_rejects_duplicate_and_unsupported_utility_rows [error] {
   test.error_kind(
     lsusb_reference.parse_lsusb_list("""Bus 001 Device 001: ID 1d6b:0002
 Bus 001 Device 001: ID 1d6b:0002
@@ -82,7 +82,7 @@ bNumConfigurations 1
   )?
 }
 
-proc test_system_report_lsusb_live_reference_uses_bounded_selected_descriptor() [fs, process, time, error] {
+test test_system_report_lsusb_live_reference_uses_bounded_selected_descriptor [fs, process, time, error] {
   let tools_root = fs.tempdir()?
   defer fs.close_root(tools_root)?
   fs.root_write(

@@ -1,9 +1,9 @@
-proc test_path_absolute() [fs, error] {
+test test_path_absolute [fs, error] {
   let absolute = path.absolute(p"docs")?
   test.ok(absolute.display().ends_with("/docs"))?
 }
 
-proc test_membership_operator_supports_strings_lists_bytes_and_paths() [error] {
+test test_membership_operator_supports_strings_lists_bytes_and_paths [error] {
   test.ok("lib" in "usr/lib/libz.so")?
   test.ok("libz.so" in ["libz.so", "libc.so"])?
   test.ok(b"TODO" in b"one TODO two")?
@@ -11,7 +11,7 @@ proc test_membership_operator_supports_strings_lists_bytes_and_paths() [error] {
   test.eq(p"bin" in p"usr/lib/libz.so", false)?
 }
 
-proc test_path_methods(ctx: TestContext) [fs, error] {
+test test_path_methods [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "path-methods")?
   let file = fp"${root}/dir/file.txt"
   file.parent().mkdir()?
@@ -70,7 +70,7 @@ proc test_path_methods(ctx: TestContext) [fs, error] {
   test.eq(Path.parse_bytes(b"byte/path")?.display(), "byte/path")?
 }
 
-proc test_path_edge_cases_and_standard_record_schema(ctx: TestContext) [fs, process, error] {
+test test_path_edge_cases_and_standard_record_schema [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "path-edge")?
   let spaced = fp"${root}/space name"
 
@@ -105,7 +105,7 @@ pure path_entry_name(entry: FsEntry) -> Str {
   return entry.name
 }
 
-proc test_absolute_glob_traverses_symlinked_literal_components(ctx: TestContext) [fs, error] {
+test test_absolute_glob_traverses_symlinked_literal_components [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "absolute-glob-symlink")?
   let real = fp"${root}/real"
   let link = fp"${root}/link"

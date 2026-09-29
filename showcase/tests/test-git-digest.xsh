@@ -1,11 +1,9 @@
-proc test_git_digest_usage() [process, error] {
+test test_git_digest_usage [process, error] {
   let output = run.text "xsh" "showcase/git-digest.xsh" -- --help ?
   test.contains(output, "usage:")?
 }
 
-proc test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting(
-  ctx: TestContext,
-) [fs, process, env, error] {
+test test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting [fs, process, env, error] { |ctx|
   if system.uname()?.sysname != "Linux" {
     test.skip("creating non-UTF-8 path components requires the pinned Linux filesystem")
     return

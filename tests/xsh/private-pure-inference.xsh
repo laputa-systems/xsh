@@ -11,7 +11,7 @@ pure inferred_returns(value: Int) {
 }
 pure inferred_record(value: Int) { {value, label: "ready"} }
 
-proc test_private_pure_inference_values() [error] {
+test test_private_pure_inference_values [error] {
   test.eq(inferred_forward(" Label "), "label")?
   test.eq(inferred_bool(-1), false)?
   test.eq(inferred_returns(-2), -1)?
@@ -19,7 +19,7 @@ proc test_private_pure_inference_values() [error] {
   test.eq(inferred_record(4).value, 4)?
 }
 
-proc test_private_pure_inference_declaration_order(ctx: TestContext) [fs, error] {
+test test_private_pure_inference_declaration_order [fs, error] { |ctx|
   let result = test.run_script(ctx, """
 pure first(value: Int) { second(value) }
 pure second(value: Int) { value + 1 }
@@ -29,7 +29,7 @@ print first(2)
   test.eq(result.stdout, "3\n")?
 }
 
-proc test_private_pure_inference_rejects_underdetermined_boundaries(ctx: TestContext) [fs, error] {
+test test_private_pure_inference_rejects_underdetermined_boundaries [fs, error] { |ctx|
   for source in [
     "pure empty() { [] }\n",
     "pure captured() { prefix }\nlet prefix = \"later\"\n",
@@ -48,7 +48,7 @@ proc test_private_pure_inference_rejects_underdetermined_boundaries(ctx: TestCon
   }
 }
 
-proc test_private_pure_inference_reachable_paths_and_containers(ctx: TestContext) [fs, error] {
+test test_private_pure_inference_reachable_paths_and_containers [fs, error] { |ctx|
   let result = test.run_script(ctx, """
 pure early() { return 2; return "unreachable" }
 pure selected(flag: Bool) { if flag { [] } else { [1, 2] } }
@@ -62,7 +62,7 @@ print early() selected(true).len() reversed(false).len() (outcome("3")?) (option
   test.eq(result.stdout, "2 0 0 3 0 4\n")?
 }
 
-proc test_private_pure_inference_module_private_capture(ctx: TestContext) [fs, error] {
+test test_private_pure_inference_module_private_capture [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "inferred-private-module")?
   let module_path = fp"${root}/helper.xsh"
   module_path.write("""
@@ -76,7 +76,7 @@ export pure label(value: Str) -> Str { private_label(value) }
   test.eq(loaded.label(" ready "), "label:ready")?
 }
 
-proc test_private_pure_inference_lexical_dependencies(ctx: TestContext) [fs, error] {
+test test_private_pure_inference_lexical_dependencies [fs, error] { |ctx|
   let result = test.run_script(ctx, """
 pure shadow() { let first = 1; first }
 let first = shadow()
@@ -90,7 +90,7 @@ print $first parameter(1) destructured() (pattern(2) ?? 0)
   test.eq(result.stdout, "1 2 5 2\n")?
 }
 
-proc test_private_pure_inference_condition_and_fallback_capture_shadowing(ctx: TestContext) [fs, error] {
+test test_private_pure_inference_condition_and_fallback_capture_shadowing [fs, error] { |ctx|
   let result = test.run_script(ctx, """
 pure selected(outcome: Result[Int]) { if let Ok(selected) = outcome { selected + 1 } else { 0 } }
 pure expression(outcome: Result[Int]) { let value = if let Ok(expression) = outcome { expression + 1 } else { 0 }; value }
@@ -102,7 +102,7 @@ print selected(Ok(2)) expression(Ok(3)) looped(Ok(5)) recovered(Ok("ready"))
   test.eq(result.stdout, "3 4 5 ready\n")?
 }
 
-proc test_private_pure_inference_imported_module_tag_variants(ctx: TestContext) [fs, error] {
+test test_private_pure_inference_imported_module_tag_variants [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "inferred-tag-module")?
   fp"${root}/inferred_tags.xsh".write("""
 ##! Inferred tag helper module.

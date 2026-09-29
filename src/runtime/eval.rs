@@ -6797,7 +6797,7 @@ fn compact_binding_target_binds_name(
 fn compact_root_proc_main_exists(program: &ArenaProgram, id: StmtId) -> bool {
     match program.arena.stmt(id).kind {
         ArenaStmtKind::Export(inner) => compact_root_proc_main_exists(program, inner),
-        ArenaStmtKind::ProcDef(def) => program.arena.function_def(def).name == Name::intern("main"),
+        ArenaStmtKind::ProcDef(def) => !program.arena.function_def(def).test_declaration && program.arena.function_def(def).name == Name::intern("main"),
         _ => false,
     }
 }
@@ -6806,7 +6806,7 @@ fn compact_root_proc_main_span(program: &ArenaProgram, id: StmtId) -> Option<Spa
     match program.arena.stmt(id).kind {
         ArenaStmtKind::Export(inner) => compact_root_proc_main_span(program, inner),
         ArenaStmtKind::ProcDef(def)
-            if program.arena.function_def(def).name == Name::intern("main") =>
+            if !program.arena.function_def(def).test_declaration && program.arena.function_def(def).name == Name::intern("main") =>
         {
             Some(program.arena.stmt(id).span)
         }
@@ -6837,7 +6837,7 @@ fn compact_root_proc_main_unbindable_fixed_param(
                     compact_root_proc_main_unbindable_fixed_param_inner(program, inner)
                 }
                 ArenaStmtKind::ProcDef(def)
-                    if program.arena.function_def(def).name == Name::intern("main") =>
+                    if !program.arena.function_def(def).test_declaration && program.arena.function_def(def).name == Name::intern("main") =>
                 {
                     Some(def)
                 }
@@ -6872,7 +6872,7 @@ fn compact_root_proc_main_unbindable_fixed_param_inner(
             compact_root_proc_main_unbindable_fixed_param_inner(program, inner)
         }
         ArenaStmtKind::ProcDef(def)
-            if program.arena.function_def(def).name == Name::intern("main") =>
+            if !program.arena.function_def(def).test_declaration && program.arena.function_def(def).name == Name::intern("main") =>
         {
             Some(def)
         }

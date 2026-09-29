@@ -1033,6 +1033,13 @@ impl Checker {
                 "check.block-params",
             );
         }
+        self.check_value_block_contents_arena(arena, source, block_id, expected);
+    }
+
+    fn check_value_block_contents_arena(
+        &mut self, arena: &ArenaProgram, source: &str, block_id: BlockId, expected: &Type,
+    ) {
+        let block = arena.arena.block(block_id);
         self.push_scope();
         self.block_depth += 1;
         let stmt_ids: Vec<StmtId> = arena.arena.stmt_ids(block.statements).collect();
@@ -1088,6 +1095,14 @@ impl Checker {
         pure: bool,
     ) {
         let body_span = arena.arena.span(arena.arena.block(def.body).span);
+        if def.test_declaration {
+            if self.current_exported {
+                self.error(body_span, "test declarations cannot be exported", "check.test-export");
+            }
+            if self.block_depth != 0 || self.current_return.is_some() {
+                self.error(body_span, "test declarations must be top-level", "check.test-nested");
+            }
+        }
         if pure && def.return_ty_defaulted && self.inferred_returns.is_none()
             && self.function_return_types.contains_key(&body_span) {
             return;
@@ -1173,7 +1188,14 @@ impl Checker {
                 self.inferred_returns.as_mut().unwrap().push((tail, body_span));
             }
         } else {
-            self.check_value_block_arena(arena, source, def.body, &return_ty);
+            if def.test_declaration {
+                if !cfg!(feature = "native-tests") {
+                    self.error(body_span, "test declarations require native-test support; use an xsht build with the native-tests feature", "check.test-feature-disabled");
+                }
+                self.check_value_block_contents_arena(arena, source, def.body, &return_ty);
+            } else {
+                self.check_value_block_arena(arena, source, def.body, &return_ty);
+            }
         }
         if !pure
             && self.current_exported

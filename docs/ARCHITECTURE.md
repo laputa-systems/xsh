@@ -631,3 +631,11 @@ existing `MatchExpr` binding before the call. Hole reads use the exact `ExprId`,
 so the temporary cannot collide with a user name. Formatter and structural-tool
 visitors retain the pipeline's written argument position; indexed execution and
 verification use the ordinary match and call instructions.
+
+Native test declarations retain `ArenaFunctionDef::test_declaration` and the
+normal typed proc frame representation. `ArenaBlock::params` owns the source
+header; preparation derives the zero or one `TestContext` frame parameter.
+`Checker::collect_definitions_arena` retains declaration collision checks without
+adding tests to the callable namespace. `xsht::test::discover_native_tests`
+registers explicit declarations while the evaluator prepares and calls the same
+verified indexed program used by scripts.

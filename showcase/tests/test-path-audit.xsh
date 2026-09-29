@@ -1,4 +1,4 @@
-proc test_path_audit_findings(ctx: TestContext) [fs, process, env, error] {
+test test_path_audit_findings [fs, process, env, error] { |ctx|
   let root = test.temp_dir(ctx, name: "path-audit")?
   let bin1 = fp"${root}/bin1"
   let bin2 = fp"${root}/bin2"
@@ -41,7 +41,7 @@ proc test_path_audit_findings(ctx: TestContext) [fs, process, env, error] {
   } ?
 }
 
-proc test_path_audit_distinguishes_non_utf8_command_names(ctx: TestContext) [fs, process, env, error] {
+test test_path_audit_distinguishes_non_utf8_command_names [fs, process, env, error] { |ctx|
   if system.uname()?.sysname != "Linux" {
     test.skip("creating non-UTF-8 path components requires the pinned Linux filesystem")
     return

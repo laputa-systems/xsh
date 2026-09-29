@@ -3438,7 +3438,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     self.lower_function_unit(function, dependencies, scc_member_count, scc_group);
                 if unit.is_lowered() {
                     self.output.constructed_functions += 1;
-                    if self.program.arena.function_def(def).name == Name::intern("main") {
+                    if !self.program.arena.function_def(def).test_declaration && self.program.arena.function_def(def).name == Name::intern("main") {
                         self.output.constructed_auto_main_functions += 1;
                     }
                 } else if let Some(blocker) = unit.blocker() {
@@ -3634,7 +3634,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             param_defaults.push(default);
             params.push(param.name);
         }
-        if !self.program.arena.block(def.body).params.is_empty() {
+        if !def.test_declaration && !self.program.arena.block(def.body).params.is_empty() {
             self.last_blocker_detail = Some((
                 self.program
                     .arena

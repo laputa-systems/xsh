@@ -1,4 +1,4 @@
-proc test_uname_all(ctx: TestContext) [process, env, error] {
+test test_uname_all [process, env, error] { |ctx|
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/uname.xsh" -- -a ?
   test.ok(output.fields().len() >= 3)?
 }

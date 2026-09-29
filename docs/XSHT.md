@@ -306,7 +306,7 @@ Callable reachability is a separate graph over `ArenaProgram`, including loaded
 modules. Resolved local calls and resolved imported calls are graph edges. A
 resolved callable used as a value is a dynamic escape edge, activated only when
 its enclosing root or callable is live. Roots are entry top-level execution,
-the entry `proc main`, root `proc test_*` native-test entry points, exports,
+the entry `proc main`, explicit `test NAME` native-test entry points, exports,
 root signal hooks, and module initializers. Values, imports, and type
 declarations are deliberately outside this warning: they have initialization,
 API, or type-use contracts that reachability alone cannot prove dead.

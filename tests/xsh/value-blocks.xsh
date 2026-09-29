@@ -27,7 +27,7 @@ pure value_optional(name: Str?) -> Str {
   }
 }
 
-proc test_value_blocks_and_tails() [error] {
+test test_value_blocks_and_tails [error] {
   let result = if true {
     let first = 40
     let second = 2
@@ -52,7 +52,7 @@ proc test_value_blocks_and_tails() [error] {
   test.eq(value_optional(null), "default")?
 }
 
-proc test_value_match_preserves_record_literals() [error] {
+test test_value_match_preserves_record_literals [error] {
   let field = 9
   let empty = match 1 { _ => {} }
   let shorthand = match 1 { _ => {field} }
@@ -75,7 +75,7 @@ proc value_block_return_keeps_function_target() [] -> Int {
   ignored + 1
 }
 
-proc test_value_blocks_preserve_lexical_control() [error] {
+test test_value_blocks_preserve_lexical_control [error] {
   test.eq(value_block_return_keeps_function_target(), 7)?
   var visits = 0
   for number in [1, 2, 3] {
@@ -89,7 +89,7 @@ proc test_value_blocks_preserve_lexical_control() [error] {
   test.eq(visits, 4)?
 }
 
-proc test_bool_value_callbacks_and_retry() [error] {
+test test_bool_value_callbacks_and_retry [error] {
   let filtered = [1, 2, 3] |> where { |number|
     if number == 2 {
       false
@@ -111,7 +111,7 @@ proc test_bool_value_callbacks_and_retry() [error] {
   test.eq(wrapped, false)?
 }
 
-proc test_bool_statement_assertions(ctx: TestContext) [error] {
+test test_bool_statement_assertions [error] { |ctx|
   let failed = test.run_script(ctx, """proc assertion() {
   if true {
     false
@@ -139,7 +139,7 @@ pure value_result_bool(choose: Bool) -> Result[Bool] {
   }
 }
 
-proc test_result_bool_tails_and_nested_predicates() [error] {
+test test_result_bool_tails_and_nested_predicates [error] {
   test.eq(value_result_bool(true)?, false)?
   let mapped = [1, 2] |> map { |number|
     match number {
@@ -153,7 +153,7 @@ proc test_result_bool_tails_and_nested_predicates() [error] {
   test.eq(mapped, [false, true])?
 }
 
-proc test_value_branch_rejections_have_cli_witnesses(ctx: TestContext) [error] {
+test test_value_branch_rejections_have_cli_witnesses [error] { |ctx|
   let inconsistent = test.run_script(ctx, "let bad = if true { 1 } else { \"wrong\" }\n")?
   test.eq(inconsistent.success, false)?
   test.contains(inconsistent.stderr, "check.type-mismatch")?
@@ -165,7 +165,7 @@ proc test_value_branch_rejections_have_cli_witnesses(ctx: TestContext) [error] {
   test.contains(guarded.stderr, "check.match-value-exhaustive")?
 }
 
-proc test_value_blocks_evaluate_before_scope_cleanup(ctx: TestContext) [error] {
+test test_value_blocks_evaluate_before_scope_cleanup [error] { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
 proc choose() [] -> Int {
   let value = if true {
@@ -182,7 +182,7 @@ print \${choose()}
   test.eq(output.stdout, "value\ncleanup\nafter\n7\n")?
 }
 
-proc test_value_blocks_return_through_loop_and_retry(ctx: TestContext) [error] {
+test test_value_blocks_return_through_loop_and_retry [error] { |ctx|
   let output = test.run_script(ctx, """proc choose() [] -> Int {
   let ignored = loop {
     let selected = if true { return 7 } else { 0 }
@@ -203,7 +203,7 @@ print \${choose()} \${attempted()}
   test.eq(output.stdout, "7 9\n")?
 }
 
-proc test_value_callback_return_survives_retry_and_stream_cleanup(ctx: TestContext) [error] {
+test test_value_callback_return_survives_retry_and_stream_cleanup [error] { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
 stream rows() [] -> Stream[Int] {
   defer mark("source cleanup")
@@ -228,7 +228,7 @@ print \${choose()}
   test.eq(output.stdout, "branch cleanup\nsource cleanup\n7\n")?
 }
 
-proc test_value_callbacks_keep_enclosing_loop_targets() [error] {
+test test_value_callbacks_keep_enclosing_loop_targets [error] {
   var visits = 0
   for number in [1, 2, 3] {
     [number] |> each { |item|
@@ -257,7 +257,7 @@ proc test_value_callbacks_keep_enclosing_loop_targets() [error] {
   test.eq(visits, 1)?
 }
 
-proc test_value_callback_tail_precedes_cleanup(ctx: TestContext) [error] {
+test test_value_callback_tail_precedes_cleanup [error] { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
 proc result(number: Int) [] -> Int { print "value"; number }
 let mapped = [7] |> map { |number|
@@ -270,7 +270,7 @@ print \${mapped[0]}
   test.eq(output.stdout, "value\ncleanup\n7\n")?
 }
 
-proc test_value_parallel_callback_keeps_lexical_return(ctx: TestContext) [error] {
+test test_value_parallel_callback_keeps_lexical_return [error] { |ctx|
   let output = test.run_script(ctx, """proc choose() [] -> Int {
   let ignored = [1, 2] |> par-map(jobs: 2) { |number|
     let selected = if true { return 7 } else { number }
@@ -298,7 +298,7 @@ print \${choose()} \${fused()} \${serial()}
   test.eq(output.stdout, "7 9 11\n")?
 }
 
-proc test_value_parallel_callback_failure_is_propagation(ctx: TestContext) [error] {
+test test_value_parallel_callback_failure_is_propagation [error] { |ctx|
   let output = test.run_script(ctx, """error WorkerError = failed(message: Str)
 pure outcome() -> Result[Int] { Err(WorkerError.failed(message: "worker failed")) }
 let values = [1, 2] |> par-map(jobs: 2) { |number|
@@ -313,7 +313,7 @@ print "unreachable"
   test.eq(output.stdout, "")?
 }
 
-proc test_value_fold_and_key_callbacks_have_ordinary_scopes() [error] {
+test test_value_fold_and_key_callbacks_have_ordinary_scopes [error] {
   let total = [1, 2] |> fold(0) { |acc, number|
     let added = acc + number
     match number {
@@ -331,7 +331,7 @@ proc test_value_fold_and_key_callbacks_have_ordinary_scopes() [error] {
   test.eq(sorted, [1, 2])?
 }
 
-proc test_value_branches_preserve_tags_dotted_pipelines_and_tee() [error] {
+test test_value_branches_preserve_tags_dotted_pipelines_and_tee [error] {
   let options = {items: [1, 2]}
   let selected = if false { options.items } else { options.items |> drop(1) }
   test.eq(selected, [2])?
@@ -352,7 +352,7 @@ pure value_block_subtract(depth: Int) -> Int {
   }
 }
 
-proc test_value_branch_identifier_subtraction_is_a_value() [error] {
+test test_value_branch_identifier_subtraction_is_a_value [error] {
   test.eq(value_block_subtract(3), 2)?
   test.eq(value_block_subtract(0), 0)?
 }

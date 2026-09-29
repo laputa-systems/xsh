@@ -4,7 +4,7 @@ type Plugin = module {
   export proc execute(root: Path) [fs, error] -> Result[Unit]
 }
 
-proc test_module_load(ctx: TestContext) [fs, error] {
+test test_module_load [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module")?
   let plugin_path = fp"${root}/plugin.xsh"
 
@@ -35,7 +35,7 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   test.eq(fp"${root}/out.txt".read_text()?, "demo")?
 }
 
-proc test_module_load_exports_private_fields_and_contract_errors(ctx: TestContext) [fs, error] {
+test test_module_load_exports_private_fields_and_contract_errors [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "dynamic-module-contract")?
   fp"${root}/helper.xsh".write(r"""
 ##! Dynamic helper module.
@@ -132,7 +132,7 @@ match loaded.require(BadPackage) {
   test.ok(mismatch.success, mismatch.stderr)?
 }
 
-proc test_module_load_rejects_undocumented_export(ctx: TestContext) [fs, error] {
+test test_module_load_rejects_undocumented_export [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "undocumented-module")?
   let plugin_path = fp"${root}/undocumented.xsh"
   fs.write(
@@ -151,7 +151,7 @@ proc test_module_load_rejects_undocumented_export(ctx: TestContext) [fs, error] 
   test.contains(output.stderr, "undocumented exports")?
 }
 
-proc test_module_load_rejects_forbidden_top_level_forms(ctx: TestContext) [fs, error] {
+test test_module_load_rejects_forbidden_top_level_forms [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module-top-level")?
   for fixture in [
     {
@@ -200,7 +200,7 @@ export let name = "bad"
   test.contains(output.stderr, hook.name())?
 }
 
-proc test_static_and_loaded_modules_reject_the_same_contract_mismatches(ctx: TestContext) [fs, error] {
+test test_static_and_loaded_modules_reject_the_same_contract_mismatches [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module-contract-mismatches")?
   let optional_path = fp"${root}/bad_optional.xsh"
   let effect_path = fp"${root}/bad_effect.xsh"
@@ -251,7 +251,7 @@ let _ = module.load(p"${effect_path}")?.require(Runner)?
   }
 }
 
-proc test_static_module_namespace_satisfies_the_same_contract(ctx: TestContext) [fs, error] {
+test test_static_module_namespace_satisfies_the_same_contract [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "static-module-contract")?
   fp"${root}/runner.xsh".write("""
 ##! Static runner fixture.
@@ -284,7 +284,7 @@ main()?
   test.eq(fp"${root}/out.txt".read_text()?, "static")?
 }
 
-proc test_same_basename_modules_keep_separate_top_level_bindings(ctx: TestContext) [fs, error] {
+test test_same_basename_modules_keep_separate_top_level_bindings [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "same-basename-modules")?
   fp"${root}/alpha".mkdir()?
   fp"${root}/beta".mkdir()?
@@ -335,7 +335,7 @@ print ${beta.count_words()}
   )?
 }
 
-proc test_imported_local_args_shadows_predeclared_script_arguments(ctx: TestContext) [fs, error] {
+test test_imported_local_args_shadows_predeclared_script_arguments [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "imported-if-list")?
   fp"${root}/selector.xsh".write("""
 ##! Selects a list in an imported function.
@@ -363,7 +363,7 @@ print ${selector.select(["unknown"]).len()}
   )?
 }
 
-proc test_static_module_exports_bind_one_namespace(ctx: TestContext) [fs, error] {
+test test_static_module_exports_bind_one_namespace [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module-namespace")?
   fp"${root}/helper.xsh".write("""
 ##! Namespace-only static module fixture.
@@ -486,7 +486,7 @@ HelperError.Failed(detail: "failed")
   }
 }
 
-proc test_qualified_module_functions_remain_callable_as_values(ctx: TestContext) [fs, error] {
+test test_qualified_module_functions_remain_callable_as_values [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "qualified-module-functions")?
   fp"${root}/package.xsh".write(r"""
 ##! Qualified values fixture module.
@@ -530,7 +530,7 @@ pkg:demo
   )?
 }
 
-proc test_qualified_record_fields_pass_to_effectful_module_proc(ctx: TestContext) [fs, error] {
+test test_qualified_record_fields_pass_to_effectful_module_proc [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "qualified-module-record")?
   fp"${root}/target.xsh".write(r"""
 ##! Target fixture module.
@@ -579,7 +579,7 @@ l.normalize(context)?
   )?
 }
 
-proc test_module_proc_call_preserves_runtime_cwd(ctx: TestContext) [fs, error] {
+test test_module_proc_call_preserves_runtime_cwd [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module-proc-cwd")?
   let src = fp"${root}/src"
   let out = fp"${root}/cwd.txt"
@@ -617,7 +617,7 @@ c.invoke(p"${src.display()}", p"${out.display()}")?
   test.eq(out.read_text()?, src.display())?
 }
 
-proc test_module_path_resolves_nested_module_with_default_alias(ctx: TestContext) [fs, error] {
+test test_module_path_resolves_nested_module_with_default_alias [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "nested-module-path")?
   let lib = fp"${root}/lib"
   fp"${lib}/pm".mkdir()?
@@ -648,7 +648,7 @@ print ${configure.label("pkgconf")}
   test.eq(output.stderr, "")?
 }
 
-proc test_module_import_alias_trace_and_cycle(ctx: TestContext) [fs, error] {
+test test_module_import_alias_trace_and_cycle [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module-imports")?
   fp"${root}/helper.xsh".write(r"""
 ##! Helper fixture module.
@@ -735,7 +735,7 @@ export let value = 2
   test.contains(cycle.stderr, "parse.module-cycle")?
 }
 
-proc test_package_hook_module_calls_keep_dynamic_and_static_cwd(ctx: TestContext) [fs, error] {
+test test_package_hook_module_calls_keep_dynamic_and_static_cwd [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "package-hook-modules")?
   let dynamic_out = fp"${root}/dynamic-out"
   let static_src = fp"${root}/static-src"
@@ -798,7 +798,7 @@ main(@args)?
   )?
 }
 
-proc test_stream_exports_are_namespace_members_not_module_contract_members(ctx: TestContext) [fs, error] {
+test test_stream_exports_are_namespace_members_not_module_contract_members [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module-stream-contract")?
   fp"${root}/stream_only.xsh".write("""
 export stream numbers() [] -> Stream[Int] {

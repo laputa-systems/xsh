@@ -1,4 +1,4 @@
-proc test_missing_file_read_propagates_structured_error(ctx: TestContext) [fs, error] {
+test test_missing_file_read_propagates_structured_error [fs, error] { |ctx|
   let missing = test.temp_path(ctx, name: "missing-read")
   let output = test.run_script(
     ctx,
@@ -10,7 +10,7 @@ proc test_missing_file_read_propagates_structured_error(ctx: TestContext) [fs, e
   test.contains(output.stderr, "fs-read")?
 }
 
-proc test_fs_walk_and_files_take_any_break_and_count(ctx: TestContext) [fs, error] {
+test test_fs_walk_and_files_take_any_break_and_count [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-stage")?
   var index = 0
   while index < 50 {
@@ -37,7 +37,7 @@ proc test_fs_walk_and_files_take_any_break_and_count(ctx: TestContext) [fs, erro
   )?
 }
 
-proc test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary(ctx: TestContext) [fs, error] {
+test test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-dynamic-stat")?
   fs.write(fp"${root}/file.txt", "data")?
   let output = test.run_script(
@@ -53,7 +53,7 @@ print \${entry.size}
   test.contains(output.stderr, "metadata-unavailable")?
 }
 
-proc test_fs_walk_stat_true_matches_direct_record_and_snapshots_metadata(ctx: TestContext) [fs, error] {
+test test_fs_walk_stat_true_matches_direct_record_and_snapshots_metadata [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-stat-record")?
   let file = fp"${root}/entry.txt"
   file.write("old")?
@@ -69,7 +69,7 @@ proc test_fs_walk_stat_true_matches_direct_record_and_snapshots_metadata(ctx: Te
   test.eq(walked.get("size")?, 3)?
 }
 
-proc test_fs_files_dynamic_walk_flags_are_evaluated(ctx: TestContext) [fs, error] {
+test test_fs_files_dynamic_walk_flags_are_evaluated [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "fs-files-dynamic-flags")?
   fs.write(fp"${root}/normal.txt", "data")?
   fs.write(fp"${root}/ignored.txt", "ignored")?
@@ -109,7 +109,7 @@ print \${entry.size}
   test.contains(unstat.stderr, "metadata-unavailable")?
 }
 
-proc test_fs_tree_metadata_install_and_locking(ctx: TestContext) [fs, error] {
+test test_fs_tree_metadata_install_and_locking [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "fs")?
   let src = fp"${root}/src"
   let nested = fp"${src}/nested"
@@ -249,7 +249,7 @@ print \$entry.size
   test.error_kind(fs.project_root("bogus", "dev", "LaputaSystems", "xsh-test"), "fs-dir")?
 }
 
-proc test_fs_root_operations_reject_traversal(ctx: TestContext) [fs, error] {
+test test_fs_root_operations_reject_traversal [fs, error] { |ctx|
   let root_dir = test.temp_dir(ctx, name: "fs-root")?
   let outside = test.temp_dir(ctx, name: "fs-root-outside")?
   fp"${outside}/secret.txt".write("secret")?
@@ -360,7 +360,7 @@ proc test_fs_root_operations_reject_traversal(ctx: TestContext) [fs, error] {
   fs.close_root(root)?
 }
 
-proc test_fs_root_and_children_preserve_non_utf8_name(ctx: TestContext) [fs, env, error] {
+test test_fs_root_and_children_preserve_non_utf8_name [fs, env, error] { |ctx|
   if system.uname()?.sysname == "Darwin" {
     test.skip("macOS filesystems reject non-UTF-8 filenames")
     return
@@ -380,7 +380,7 @@ proc test_fs_root_and_children_preserve_non_utf8_name(ctx: TestContext) [fs, env
   fs.close_root(root)?
 }
 
-proc test_fs_root_symlink_preserves_default_parents_with_named_overwrite(ctx: TestContext) [fs, error] {
+test test_fs_root_symlink_preserves_default_parents_with_named_overwrite [fs, error] { |ctx|
   let root_dir = test.temp_dir(ctx, name: "root-symlink-overwrite-defaults")?
   let root = fs.open_root(root_dir)?
   let overwrite = false
@@ -389,7 +389,7 @@ proc test_fs_root_symlink_preserves_default_parents_with_named_overwrite(ctx: Te
   fs.close_root(root)?
 }
 
-proc test_fs_walk_filters_large_flat_directory(ctx: TestContext) [fs, error] {
+test test_fs_walk_filters_large_flat_directory [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-flat")?
   let sub = fp"${root}/sub"
   let ignored = fp"${root}/ignored"
@@ -420,7 +420,7 @@ proc test_fs_walk_filters_large_flat_directory(ctx: TestContext) [fs, error] {
   test.eq(has_hidden, false)?
 }
 
-proc test_fs_walk_honors_gitignore_by_default_and_can_disable_it(ctx: TestContext) [fs, error] {
+test test_fs_walk_honors_gitignore_by_default_and_can_disable_it [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "fs-walk-gitignore")?
   fp"${root}/ignored".mkdir()?
   fp"${root}/nested".mkdir()?
@@ -484,7 +484,7 @@ proc test_fs_walk_honors_gitignore_by_default_and_can_disable_it(ctx: TestContex
   test.ok(".env" in raw_hidden)?
 }
 
-proc test_fs_optional_arguments_accept_positional_forms(ctx: TestContext) [fs, error] {
+test test_fs_optional_arguments_accept_positional_forms [fs, error] { |ctx|
   # Positional optional arguments must compile and behave identically to the
   # equivalent named form (regression for compact-runtime fs.files/fs.walk).
   let root = test.temp_dir(ctx, name: "fs-positional-optional")?
@@ -529,7 +529,7 @@ proc test_fs_optional_arguments_accept_positional_forms(ctx: TestContext) [fs, e
   test.ok("nested/c.txt" in by_name.join(","))?
 }
 
-proc test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext(ctx: TestContext) [fs, error] {
+test test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "fs-files-recursive")?
   fp"${root}/include/bits".mkdir()?
   fp"${root}/include/sys".mkdir()?
@@ -614,7 +614,7 @@ print \$entry.size
   test.eq(cheap_c.path.strip_prefix(root)?.display(), "src/main.c")?
 }
 
-proc test_filesystem_path_and_install_apis(ctx: TestContext) [fs, error] {
+test test_filesystem_path_and_install_apis [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "fs-path-install")?
   let note = fp"${root}/note.txt"
   note.write_atomic("old")?
@@ -697,7 +697,7 @@ proc test_filesystem_path_and_install_apis(ctx: TestContext) [fs, error] {
   fs.close_root(scratch)?
 }
 
-proc test_filesystem_package_policy_apis(ctx: TestContext) [fs, error] {
+test test_filesystem_package_policy_apis [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "package-policy-fs")?
   let src = fp"${root}/src"
   fp"${src}/dir".mkdir()?
@@ -733,7 +733,7 @@ proc test_filesystem_package_policy_apis(ctx: TestContext) [fs, error] {
   test.error_kind(fs.copy_tree(src, fp"${root}/copy"), "fs-copy-tree")?
 }
 
-proc test_stable_tables_sort_files_and_process_records(ctx: TestContext) [fs, process, error] {
+test test_stable_tables_sort_files_and_process_records [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "table-sort-process")?
   fp"${root}/small".write("a")?
   fp"${root}/large".write("abcd")?

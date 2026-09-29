@@ -1,4 +1,4 @@
-proc test_map_module_and_methods() [error] {
+test test_map_module_and_methods [error] {
   let m0: Map[Int] = {}
   let m1 = m0.set("one", 1).set("two", 2)
   test.ok(m1.has("one"))?
@@ -10,7 +10,7 @@ proc test_map_module_and_methods() [error] {
   test.error_kind(m1.get("missing"), "map-missing")?
 }
 
-proc test_map_updates_preserve_older_values_and_nested_lists() [error] {
+test test_map_updates_preserve_older_values_and_nested_lists [error] {
   let base = map.empty().set("items", [1])
   let alias = base
   let replaced = base.set("items", [9])
@@ -30,7 +30,7 @@ proc test_map_updates_preserve_older_values_and_nested_lists() [error] {
   test.eq(pushed.get("items")?, [1, 2])?
 }
 
-proc test_map_index_updates_group_push_and_comprehension() [error] {
+test test_map_index_updates_group_push_and_comprehension [error] {
   var counts: Map[Int] = {}
   counts["pkg"] = counts.get("pkg", 0) + 1
   counts["pkg"] = counts.get("pkg", 0) + 4
@@ -46,7 +46,7 @@ proc test_map_index_updates_group_push_and_comprehension() [error] {
   test.eq(versions.get("tool")?, "2")?
 }
 
-proc test_map_iteration_item_shape_order_and_snapshot() [error] {
+test test_map_iteration_item_shape_order_and_snapshot [error] {
   var counts: Map[Int] = {beta: 2, alpha: 1}
   var seen: List[Str] = []
   for entry in counts {
@@ -65,7 +65,7 @@ proc test_map_iteration_item_shape_order_and_snapshot() [error] {
 
 type MapIterationPayload = {label: Str, amount: Int}
 
-proc test_map_iteration_nested_targets_and_qualifiers() [error] {
+test test_map_iteration_nested_targets_and_qualifiers [error] {
   let values: Map[MapIterationPayload] = {
     second: {label: "two", amount: 2},
     first: {label: "one", amount: 1},
@@ -106,7 +106,7 @@ pure map_iteration_success_source() -> Result[Map[Int], MapIterationError] {
   return {first: 4}
 }
 
-proc test_map_iteration_result_sources_preserve_nominal_errors() [error] {
+test test_map_iteration_result_sources_preserve_nominal_errors [error] {
   match map_iteration_collect_failure() {
     Err(MapIterationError.Missing {code}) => test.eq(code, 7)?
     _ => test.fail("comprehension lost the source error")?
@@ -127,7 +127,7 @@ proc test_map_iteration_result_sources_preserve_nominal_errors() [error] {
   test.eq([entry.value for entry in wrapped], [4])?
 }
 
-proc test_map_iteration_break_continue_restore_outer_bindings() [error] {
+test test_map_iteration_break_continue_restore_outer_bindings [error] {
   let values: Map[Int] = {alpha: 1, beta: 2, gamma: 3}
   let key = "outer"
   var sum = 0
@@ -140,7 +140,7 @@ proc test_map_iteration_break_continue_restore_outer_bindings() [error] {
   test.eq(key, "outer")?
 }
 
-proc test_map_iteration_evaluates_source_once_and_unwinds_failure(ctx: TestContext) [error] {
+test test_map_iteration_evaluates_source_once_and_unwinds_failure [error] { |ctx|
   let output = test.run_xsh(
     ctx,
     """

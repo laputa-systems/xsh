@@ -20668,11 +20668,12 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
   }
 }
 
-## Requires a fixture name to match a declared test procedure in its source.
+## Requires a fixture name to match an explicit test declaration in its source.
 export pure fixture_test_definition_exists(source: Str, test_name: Str) -> Bool {
-  let declaration = f"proc ${test_name}("
+  let declaration = f"test ${test_name}"
   for line in source.lines() {
-    if line.trim().starts_with(declaration) {
+    let trimmed = line.trim()
+    if trimmed.starts_with(f"${declaration} ") or trimmed.starts_with(f"${declaration}\t") or trimmed.starts_with(f"${declaration}{") or trimmed.starts_with(f"${declaration}[") {
       return true
     }
   }

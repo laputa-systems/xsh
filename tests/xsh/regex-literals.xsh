@@ -2,7 +2,7 @@ pure assignment_regex() -> Regex {
   rx"(?i)^\s*[a-z_]+=([0-9]+)$"
 }
 
-proc test_regex_literals_preserve_raw_patterns_and_existing_operations() [error] {
+test test_regex_literals_preserve_raw_patterns_and_existing_operations [error] {
   let assignment = assignment_regex()
   test.ok(assignment.matches("  SIZE=42"))?
   test.eq(assignment.captures("SIZE=42")[1], "42")?
@@ -22,7 +22,7 @@ pure default_regex(pattern = rx"^é+$") -> Regex {
   pattern
 }
 
-proc test_regex_literal_defaults_and_dynamic_compile_errors() [error] {
+test test_regex_literal_defaults_and_dynamic_compile_errors [error] {
   test.ok(default_regex().matches("éé"))?
   test.eq(default_regex().find("éé")[0].end, 4)?
   let dynamic_pattern = "[0-9]+"

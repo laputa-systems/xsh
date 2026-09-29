@@ -8,14 +8,14 @@ pure guarded_unless(cached: Str?) -> Str {
   return "missing"
 }
 
-proc test_guarded_return_narrows_selected_branch_and_falls_through() [error] {
+test test_guarded_return_narrows_selected_branch_and_falls_through [error] {
   test.eq(guarded_cached("hit"), "hit")?
   test.eq(guarded_cached(null), "missing")?
   test.eq(guarded_unless("hit"), "hit")?
   test.eq(guarded_unless(null), "missing")?
 }
 
-proc test_guarded_control_checks_condition_before_lazy_payload(ctx: TestContext) [error] {
+test test_guarded_control_checks_condition_before_lazy_payload [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc condition(selected: Bool) [] -> Bool {
   print "condition"
@@ -46,7 +46,7 @@ print $value
   test.eq(output.stdout, "condition\nfallback\ncleanup\n9\ncondition\npayload\ncleanup\n7\ncondition\ncondition\npayload\n7\n")?
 }
 
-proc test_guarded_yield_skips_unselected_items(ctx: TestContext) [error] {
+test test_guarded_yield_skips_unselected_items [error] { |ctx|
   let output = test.run_script(ctx, r"""
 stream guarded_items() [] -> Stream[Int] {
   yield 99 when false
@@ -62,7 +62,7 @@ for item in guarded_items() {
   test.eq(output.stdout, "1\n2\n")?
 }
 
-proc test_guarded_run_payload_keeps_literal_argv_and_status_conditions(ctx: TestContext) [error] {
+test test_guarded_run_payload_keeps_literal_argv_and_status_conditions [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc capture(selected: Bool) [process, error] -> Str {
   return (run.text /usr/bin/printf "selected")? when selected
@@ -85,7 +85,7 @@ print ${status_condition()}
   test.eq(output.stdout, "fallback\nselected\nwhen\nunless\n\n1\n")?
 }
 
-proc test_guarded_payload_propagation_and_result_wrapping(ctx: TestContext) [error] {
+test test_guarded_payload_propagation_and_result_wrapping [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc cleanup() [] {
   print "cleanup"
@@ -106,7 +106,7 @@ let _ = pick(true)?
   test.eq(output.stdout, "cleanup\n9\npayload\ncleanup\n")?
 }
 
-proc test_guarded_yield_keeps_cleanup_on_early_consumer_exit(ctx: TestContext) [error] {
+test test_guarded_yield_keeps_cleanup_on_early_consumer_exit [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc cleanup() [] {
   print "cleanup"

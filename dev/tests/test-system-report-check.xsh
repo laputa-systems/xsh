@@ -39,7 +39,7 @@ type ReportCoverageManifest = {
   fixture_scenarios: List[Str],
 }
 
-proc test_system_report_fixture_failure_shows_cargo_diagnostic() [error] {
+test test_system_report_fixture_failure_shows_cargo_diagnostic [error] {
   test.eq(
     report_checks.fixture_failure_summary(
   "",
@@ -98,7 +98,7 @@ pure manifest(assertions: List[ReportCoverageAssertion]) -> ReportCoverageManife
   }
 }
 
-proc test_system_report_cpufreq_reference_scores_policy_membership_and_bounds() [error] {
+test test_system_report_cpufreq_reference_scores_policy_membership_and_bounds [error] {
   let policy = {
     name: "policy3",
     related_cpus: [
@@ -276,7 +276,7 @@ proc test_system_report_cpufreq_reference_scores_policy_membership_and_bounds() 
   test.error_kind(report_checks.compare_cpufreq_policies(candidate, [policy], []), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_cpufreq_boost_reference_preserves_scope_and_inverts_no_turbo() [error] {
+test test_system_report_cpufreq_boost_reference_preserves_scope_and_inverts_no_turbo [error] {
   let generic = report_checks.parse_cpufreq_boost_reference("1", "1")?
   test.eq(generic.supported, true)?
   test.eq(generic.allowed, true)?
@@ -290,7 +290,7 @@ proc test_system_report_cpufreq_boost_reference_preserves_scope_and_inverts_no_t
   test.error_kind(report_checks.parse_cpufreq_boost_reference(null, "invalid"), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_usb_topology_reference_scores_parent_links_and_stable_numbers() [error] {
+test test_system_report_usb_topology_reference_scores_parent_links_and_stable_numbers [error] {
   let root = {
     name: "usb1",
     parent_name: null,
@@ -367,7 +367,7 @@ proc test_system_report_usb_topology_reference_scores_parent_links_and_stable_nu
   )?
 }
 
-proc test_system_report_usb_topology_name_parser_keeps_root_hubs_and_sparse_ports() [error] {
+test test_system_report_usb_topology_name_parser_keeps_root_hubs_and_sparse_ports [error] {
   test.eq(
     report_checks.parse_usb_topology_name("usb4")?,
     {parent_name: null, port_path: null, bus_number: 4, is_root_hub: true},
@@ -394,7 +394,7 @@ proc test_system_report_usb_topology_name_parser_keeps_root_hubs_and_sparse_port
   }
 }
 
-proc test_system_report_usb_topology_rooted_reference_reads_devices_without_interfaces() [fs, error] {
+test test_system_report_usb_topology_rooted_reference_reads_devices_without_interfaces [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   for device in [
@@ -455,7 +455,7 @@ proc test_system_report_usb_topology_rooted_reference_reads_devices_without_inte
   test.error_kind(report_checks.read_usb_topology_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_usb_ids_reference_scores_raw_ids_and_observed_labels() [error] {
+test test_system_report_usb_ids_reference_scores_raw_ids_and_observed_labels [error] {
   let observed_vendor = {value: 1507, complete: true}
   let observed_product = {value: 1573, complete: true}
   let observed_class = {value: 9, complete: true}
@@ -538,7 +538,7 @@ proc test_system_report_usb_ids_reference_scores_raw_ids_and_observed_labels() [
   )?
 }
 
-proc test_system_report_usb_ids_rooted_reference_reads_fixed_width_values() [fs, error] {
+test test_system_report_usb_ids_rooted_reference_reads_fixed_width_values [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let device_path = p"sys/bus/usb/devices/4-2"
@@ -607,7 +607,7 @@ proc test_system_report_usb_ids_rooted_reference_reads_fixed_width_values() [fs,
   test.error_kind(report_checks.read_usb_ids_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_usb_power_reference_scores_controls_and_brackets_runtime_state() [error] {
+test test_system_report_usb_power_reference_scores_controls_and_brackets_runtime_state [error] {
   let reference = {
     name: "4-2",
     power_control: {
@@ -654,7 +654,7 @@ proc test_system_report_usb_power_reference_scores_controls_and_brackets_runtime
   test.eq(incomplete.unstable_fields, ["4-2.runtime_status"])?
 }
 
-proc test_system_report_usb_power_number_reference_keeps_signed_autosuspend_delay() [error] {
+test test_system_report_usb_power_number_reference_keeps_signed_autosuspend_delay [error] {
   test.eq(report_checks.parse_usb_power_number("-1", true)?, -1)?
   test.eq(report_checks.parse_usb_power_number("0", true)?, 0)?
   test.eq(report_checks.parse_usb_power_number("2", false)?, 2)?
@@ -665,7 +665,7 @@ proc test_system_report_usb_power_number_reference_keeps_signed_autosuspend_dela
   test.error_kind(report_checks.parse_usb_power_number("-1", false), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_usb_power_rooted_reference_reads_runtime_and_configuration() [fs, error] {
+test test_system_report_usb_power_rooted_reference_reads_runtime_and_configuration [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let device_path = p"sys/bus/usb/devices/4-2"
@@ -715,7 +715,7 @@ proc test_system_report_usb_power_rooted_reference_reads_runtime_and_configurati
   test.error_kind(report_checks.read_usb_power_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_usb_interface_descriptors_keep_alternates_and_endpoint_ownership() [error] {
+test test_system_report_usb_interface_descriptors_keep_alternates_and_endpoint_ownership [error] {
   let descriptors = b"\t\x02,\0\x01\x01\0\x802\t\x04\0\0\x01\xff\0\0\0\x030\0\x07\x05\x81\x02@\0\0\t\x04\0\x01\x01\x08\x06P\0\x07\x05\x02\x03 \0\x04"
   let settings = report_checks.parse_usb_interface_descriptors(descriptors)?
   test.eq(settings.len(), 2)?
@@ -738,7 +738,7 @@ proc test_system_report_usb_interface_descriptors_keep_alternates_and_endpoint_o
   )?
 }
 
-proc test_system_report_usb_interface_reference_scores_active_and_available_settings() [error] {
+test test_system_report_usb_interface_reference_scores_active_and_available_settings [error] {
   let settings = report_checks.parse_usb_interface_descriptors(
     b"\t\x02\x19\0\x01\x01\0\x802\t\x04\0\0\x01\xff\0\0\0\x07\x05\x81\x02@\0\0",
   )?
@@ -799,7 +799,7 @@ proc test_system_report_usb_interface_reference_scores_active_and_available_sett
   test.ok("4-2:1.0.presence" in incomplete.unstable_fields)?
 }
 
-proc test_system_report_usb_interface_reference_selects_active_alternate_from_available_settings() [error] {
+test test_system_report_usb_interface_reference_selects_active_alternate_from_available_settings [error] {
   let settings = report_checks.parse_usb_interface_descriptors(
     b"\t\x02)\0\x01\x01\0\x802\t\x04\0\0\x01\xff\0\0\0\x07\x05\x81\x02@\0\0\t\x04\0\x01\x01\x08\x06P\0\x07\x05\x02\x03 \0\x04",
   )?
@@ -844,7 +844,7 @@ proc test_system_report_usb_interface_reference_selects_active_alternate_from_av
   test.ok("4-2:1.0.active_class" in wrong_active_class.field_mismatches)?
 }
 
-proc test_system_report_usb_interface_rooted_reference_reads_driver_active_class_and_descriptors() [fs, error] {
+test test_system_report_usb_interface_rooted_reference_reads_driver_active_class_and_descriptors [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let device_path = p"sys/bus/usb/devices/4-2"
@@ -908,7 +908,7 @@ proc test_system_report_usb_interface_rooted_reference_reads_driver_active_class
   test.error_kind(report_checks.read_usb_interface_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_power_supply_reference_scores_units_and_brackets_gauges() [error] {
+test test_system_report_power_supply_reference_scores_units_and_brackets_gauges [error] {
   let battery = {
     name: "BAT0",
     kind: {
@@ -979,7 +979,7 @@ proc test_system_report_power_supply_reference_scores_units_and_brackets_gauges(
   test.ok(report_checks.compare_power_supplies(cap_only_issue, [battery], [battery])?.exact)?
 }
 
-proc test_system_report_power_supply_number_reference_keeps_signed_current_and_exact_range() [error] {
+test test_system_report_power_supply_number_reference_keeps_signed_current_and_exact_range [error] {
   test.eq(report_checks.parse_power_supply_number("-250000", true)?, -250000)?
   test.eq(report_checks.parse_power_supply_number("0", false)?, 0)?
   for invalid in ["", "-", "1.5", "9007199254740992"] {
@@ -989,7 +989,7 @@ proc test_system_report_power_supply_number_reference_keeps_signed_current_and_e
   test.error_kind(report_checks.parse_power_supply_number("-1", false), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_power_supply_rooted_reference_reads_signed_current_and_missing_fields() [fs, error] {
+test test_system_report_power_supply_rooted_reference_reads_signed_current_and_missing_fields [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let battery = p"sys/class/power_supply/BAT0"
@@ -1027,9 +1027,7 @@ proc test_system_report_power_supply_rooted_reference_reads_signed_current_and_m
   test.error_kind(report_checks.read_power_supply_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_tampering(
-  ctx: TestContext,
-) [fs, process, time, error] {
+test test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_tampering [fs, process, time, error] { |ctx|
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1117,7 +1115,7 @@ proc test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_t
   test.error_kind(report_checks.validate_power_supply_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_power_supply_bundle_keeps_absent_class_unscoreable() [fs, time, error] {
+test test_system_report_power_supply_bundle_keeps_absent_class_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1129,7 +1127,7 @@ proc test_system_report_power_supply_bundle_keeps_absent_class_unscoreable() [fs
   test.error_kind(report_checks.validate_power_supply_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_power_supply_bundle_keeps_missing_type_unscoreable() [fs, time, error] {
+test test_system_report_power_supply_bundle_keeps_missing_type_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1147,7 +1145,7 @@ proc test_system_report_power_supply_bundle_keeps_missing_type_unscoreable() [fs
   test.error_kind(report_checks.validate_power_supply_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_power_supply_bundle_rejects_escaping_class_link() [fs, time, error] {
+test test_system_report_power_supply_bundle_rejects_escaping_class_link [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1160,7 +1158,7 @@ proc test_system_report_power_supply_bundle_rejects_escaping_class_link() [fs, t
   )?
 }
 
-proc test_system_report_powercap_reference_scores_nested_zones_constraints_and_counter_brackets() [error] {
+test test_system_report_powercap_reference_scores_nested_zones_constraints_and_counter_brackets [error] {
   let package: report_checks.PowerCapZoneReference = {
     entry_name: "intel-rapl:0",
     name: {
@@ -1282,7 +1280,7 @@ proc test_system_report_powercap_reference_scores_nested_zones_constraints_and_c
   test.ok("intel-rapl:0.energy_uj" in wrapped.unstable_fields)?
 }
 
-proc test_system_report_powercap_rooted_reference_keeps_zone_parent_and_sparse_constraint_indices() [fs, error] {
+test test_system_report_powercap_rooted_reference_keeps_zone_parent_and_sparse_constraint_indices [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let package = p"sys/class/powercap/intel-rapl:0"
@@ -1356,7 +1354,7 @@ proc test_system_report_powercap_rooted_reference_keeps_zone_parent_and_sparse_c
   test.error_kind(report_checks.read_powercap_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_powercap_capture_replays_nested_zones_and_rejects_tampering() [fs, time, error] {
+test test_system_report_powercap_capture_replays_nested_zones_and_rejects_tampering [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1421,7 +1419,7 @@ proc test_system_report_powercap_capture_replays_nested_zones_and_rejects_tamper
   test.error_kind(report_checks.validate_powercap_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_powercap_capture_preserves_absence_and_rejects_unrelated_links() [fs, time, error] {
+test test_system_report_powercap_capture_preserves_absence_and_rejects_unrelated_links [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1451,7 +1449,7 @@ proc test_system_report_powercap_capture_preserves_absence_and_rejects_unrelated
   )?
 }
 
-proc test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampering() [fs, time, error] {
+test test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampering [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1545,7 +1543,7 @@ proc test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampe
   test.error_kind(report_checks.validate_pci_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_hwmon_capture_replays_raw_channels_and_rejects_tampering() [fs, time, error] {
+test test_system_report_hwmon_capture_replays_raw_channels_and_rejects_tampering [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1612,7 +1610,7 @@ proc test_system_report_hwmon_capture_replays_raw_channels_and_rejects_tampering
   test.error_kind(report_checks.validate_hwmon_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_hwmon_capture_rejects_escaping_class_link() [fs, time, error] {
+test test_system_report_hwmon_capture_rejects_escaping_class_link [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1632,7 +1630,7 @@ proc test_system_report_hwmon_capture_rejects_escaping_class_link() [fs, time, e
   )?
 }
 
-proc test_system_report_hwmon_capture_keeps_absent_class_unscoreable() [fs, time, error] {
+test test_system_report_hwmon_capture_keeps_absent_class_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1645,7 +1643,7 @@ proc test_system_report_hwmon_capture_keeps_absent_class_unscoreable() [fs, time
   test.error_kind(report_checks.validate_hwmon_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_block_bundle_replays_sparse_partition_and_layered_edges() [fs, time, error] {
+test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1792,7 +1790,7 @@ proc test_system_report_block_bundle_replays_sparse_partition_and_layered_edges(
   test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_block_bundle_rejects_escaping_class_link() [fs, time, error] {
+test test_system_report_block_bundle_rejects_escaping_class_link [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1805,7 +1803,7 @@ proc test_system_report_block_bundle_rejects_escaping_class_link() [fs, time, er
   )?
 }
 
-proc test_system_report_block_bundle_rejects_misdirected_layer_link() [fs, time, error] {
+test test_system_report_block_bundle_rejects_misdirected_layer_link [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1827,7 +1825,7 @@ proc test_system_report_block_bundle_rejects_misdirected_layer_link() [fs, time,
   )?
 }
 
-proc test_system_report_block_bundle_keeps_absent_class_unscoreable() [fs, time, error] {
+test test_system_report_block_bundle_keeps_absent_class_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1839,7 +1837,7 @@ proc test_system_report_block_bundle_keeps_absent_class_unscoreable() [fs, time,
   test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_block_raw_reference_checks_each_layer_direction() [error] {
+test test_system_report_block_raw_reference_checks_each_layer_direction [error] {
   let reference = {
     devices: [
       {
@@ -1891,7 +1889,7 @@ proc test_system_report_block_raw_reference_checks_each_layer_direction() [error
   test.ok(! compared.exact)?
 }
 
-proc test_system_report_pci_capture_rejects_bus_link_outside_devices_tree() [fs, time, error] {
+test test_system_report_pci_capture_rejects_bus_link_outside_devices_tree [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1904,7 +1902,7 @@ proc test_system_report_pci_capture_rejects_bus_link_outside_devices_tree() [fs,
   )?
 }
 
-proc test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored(ctx: TestContext) [fs, process, time, error] {
+test test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored [fs, process, time, error] { |ctx|
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -1962,7 +1960,7 @@ proc test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored(ctx: T
   test.contains(output.read_text()?, "link=unavailable")?
 }
 
-proc test_system_report_usb_capture_replays_raw_devices_interfaces_and_rejects_tampering() [fs, time, error] {
+test test_system_report_usb_capture_replays_raw_devices_interfaces_and_rejects_tampering [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -2099,7 +2097,7 @@ proc test_system_report_usb_capture_replays_raw_devices_interfaces_and_rejects_t
   test.error_kind(report_checks.validate_usb_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_usb_capture_rejects_bus_link_outside_devices_tree() [fs, time, error] {
+test test_system_report_usb_capture_rejects_bus_link_outside_devices_tree [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -2112,9 +2110,7 @@ proc test_system_report_usb_capture_rejects_bus_link_outside_devices_tree() [fs,
   )?
 }
 
-proc test_system_report_usb_capture_keeps_unavailable_power_and_interfaces_unscored(
-  ctx: TestContext,
-) [fs, process, time, error] {
+test test_system_report_usb_capture_keeps_unavailable_power_and_interfaces_unscored [fs, process, time, error] { |ctx|
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -2150,7 +2146,7 @@ proc test_system_report_usb_capture_keeps_unavailable_power_and_interfaces_unsco
   test.contains(output.read_text()?, "interfaces=unavailable")?
 }
 
-proc test_system_report_device_class_reference_scores_duplicate_labels_and_parent_indexes() [error] {
+test test_system_report_device_class_reference_scores_duplicate_labels_and_parent_indexes [error] {
   let first = {
     class: "sound",
     entry_name: "card0",
@@ -2192,7 +2188,7 @@ proc test_system_report_device_class_reference_scores_duplicate_labels_and_paren
   test.eq(missing.missing_names, ["sound:card1"])?
 }
 
-proc test_system_report_device_class_rooted_reference_keeps_sysfs_entry_identity() [fs, error] {
+test test_system_report_device_class_rooted_reference_keeps_sysfs_entry_identity [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   for entry in ["card0", "card1"] {
@@ -2212,7 +2208,7 @@ proc test_system_report_device_class_rooted_reference_keeps_sysfs_entry_identity
   test.ok(records |> all .name == "Shared label")?
 }
 
-proc test_system_report_hwmon_reference_scores_duplicate_chip_names_and_raw_units() [error] {
+test test_system_report_hwmon_reference_scores_duplicate_chip_names_and_raw_units [error] {
   let first = {
     chip_entry_name: "hwmon0",
     chip: {
@@ -2290,7 +2286,7 @@ proc test_system_report_hwmon_reference_scores_duplicate_chip_names_and_raw_unit
   test.ok("hwmon1:temp1.value" in transient.unstable_fields)?
 }
 
-proc test_system_report_hwmon_rooted_reference_reads_channel_attributes() [fs, error] {
+test test_system_report_hwmon_rooted_reference_reads_channel_attributes [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/hwmon/hwmon0", parents: true)?
@@ -2326,7 +2322,7 @@ proc test_system_report_hwmon_rooted_reference_reads_channel_attributes() [fs, e
   test.eq(channels[0].alarm, {value: 1, complete: true})?
 }
 
-proc test_system_report_smbios_raw_reference_scores_records_fields_and_strings() [error] {
+test test_system_report_smbios_raw_reference_scores_records_fields_and_strings [error] {
   let table = b"\x01\x084\x12\x01\x02\x03\0Vendor\0Model\0Version\0\0\x7f\x04\0\0\0\0"
   let reference = smbios_reference.parse_smbios_reference(table)?
   test.eq(reference.records.len(), 2)?
@@ -2357,7 +2353,7 @@ proc test_system_report_smbios_raw_reference_scores_records_fields_and_strings()
   test.ok(! (short_reference.records[0].fields |> any .name == "extended_size_raw"))?
 }
 
-proc test_system_report_smbios_type16_reference_reads_short_form_device_count() [error] {
+test test_system_report_smbios_type16_reference_reads_short_form_device_count [error] {
   let table = bytes.concat(
     [
       bytes.from_ints([16, 15, 1, 0])?,
@@ -2375,7 +2371,7 @@ proc test_system_report_smbios_type16_reference_reads_short_form_device_count() 
   test.eq(count.unit, "count")?
 }
 
-proc test_system_report_dmidecode_dump_relocates_smbios3_entry_point() [error] {
+test test_system_report_dmidecode_dump_relocates_smbios3_entry_point [error] {
   let entry = bytes.from_ints([95, 83, 77, 51, 95, 59, 24, 3, 2, 0, 1, 0, 6, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0])?
   let table = b"\x7f\x04\0\0\0\0"
   let dump = smbios_reference.craft_dmidecode_dump(entry, table)?
@@ -2400,7 +2396,7 @@ proc test_system_report_dmidecode_dump_relocates_smbios3_entry_point() [error] {
   test.error_kind(smbios_reference.craft_dmidecode_dump(entry, bytes.concat([table, b"x"])), "SmbiosCheckError.Invalid")?
 }
 
-proc test_system_report_dmidecode_dump_relocates_smbios2_entry_point() [error] {
+test test_system_report_dmidecode_dump_relocates_smbios2_entry_point [error] {
   let entry = bytes.from_ints(
     [
       95,
@@ -2456,7 +2452,7 @@ proc test_system_report_dmidecode_dump_relocates_smbios2_entry_point() [error] {
   test.eq(dmi_checksum % 256, 0)?
 }
 
-proc test_system_report_dmidecode_hex_output_corroborates_raw_records_and_strings() [error] {
+test test_system_report_dmidecode_hex_output_corroborates_raw_records_and_strings [error] {
   let table = b"\x01\x084\x12\x01\x02\x03\0Vendor\0Model\0Version\0\0\x7f\x04\0\0\0\0"
   let raw = smbios_reference.parse_smbios_reference(table)?
   let output = """# dmidecode 3.7
@@ -2509,7 +2505,7 @@ End Of Table
   )?
 }
 
-proc test_system_report_smbios_rooted_reference_reads_only_exported_table() [fs, error] {
+test test_system_report_smbios_rooted_reference_reads_only_exported_table [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let absent = smbios_reference.read_smbios_reference(root)?
@@ -2523,7 +2519,7 @@ proc test_system_report_smbios_rooted_reference_reads_only_exported_table() [fs,
   test.eq(smbios_reference.parse_smbios_reference(observed.data ?? b"")?.records[0].record_type, 144)?
 }
 
-proc test_system_report_smbios_capture_validates_saved_raw_table_and_oracle() [fs, time, error] {
+test test_system_report_smbios_capture_validates_saved_raw_table_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -2559,7 +2555,7 @@ proc test_system_report_smbios_capture_validates_saved_raw_table_and_oracle() [f
   )?
 }
 
-proc test_system_report_smbios_capture_scores_table_without_optional_entry_point() [fs, time, error] {
+test test_system_report_smbios_capture_scores_table_without_optional_entry_point [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -2571,7 +2567,7 @@ proc test_system_report_smbios_capture_scores_table_without_optional_entry_point
   test.contains(fs.root_read_text(bundle, p"capture.json")?, "\"path\": \"sys/firmware/dmi/tables/smbios_entry_point\"")?
 }
 
-proc test_system_report_smbios_capture_preserves_absent_source_without_scoring() [fs, time, error] {
+test test_system_report_smbios_capture_preserves_absent_source_without_scoring [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -2583,7 +2579,7 @@ proc test_system_report_smbios_capture_preserves_absent_source_without_scoring()
   test.error_kind(smbios_reference.validate_smbios_bundle(bundle), "SmbiosCheckError.Invalid")?
 }
 
-proc test_system_report_smbios_capture_replays_production_collector_from_raw_table() [fs, time, error] {
+test test_system_report_smbios_capture_replays_production_collector_from_raw_table [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -2594,7 +2590,7 @@ proc test_system_report_smbios_capture_replays_production_collector_from_raw_tab
   test.ok(smbios_reference.replay_smbios_bundle(bundle)?.exact)?
 }
 
-proc test_system_report_dmidecode_corroboration_records_opt_in_utility_provenance() [fs, process, time, error] {
+test test_system_report_dmidecode_corroboration_records_opt_in_utility_provenance [fs, process, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -2637,7 +2633,7 @@ printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n
   )?
 }
 
-proc test_system_report_dmidecode_corroboration_rejects_changed_capture_origin() [fs, process, time, error] {
+test test_system_report_dmidecode_corroboration_rejects_changed_capture_origin [fs, process, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -2674,7 +2670,7 @@ printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n
   test.ok(! fs.root_exists(bundle, p"dmidecode-comparison.json")?)?
 }
 
-proc test_system_report_dmidecode_version_failure_keeps_reference_provenance() [fs, process, time, error] {
+test test_system_report_dmidecode_version_failure_keeps_reference_provenance [fs, process, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -2705,9 +2701,7 @@ exit 2
   test.ok(! fs.root_exists(bundle, p"dmidecode-comparison.json")?)?
 }
 
-proc test_system_report_dmidecode_cli_runs_only_on_explicit_captured_bundle(
-  ctx: TestContext,
-) [fs, process, time, error] {
+test test_system_report_dmidecode_cli_runs_only_on_explicit_captured_bundle [fs, process, time, error] { |ctx|
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -2742,7 +2736,7 @@ printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n
   test.contains(fs.root_read_text(bundle, p"dmidecode-comparison.json")?, "\"exact\": true")?
 }
 
-proc test_system_report_cpufreq_rooted_reference_reads_every_policy() [fs, error] {
+test test_system_report_cpufreq_rooted_reference_reads_every_policy [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   for policy_name in ["policy3", "policy9"] {
@@ -2891,7 +2885,7 @@ proc test_system_report_cpufreq_rooted_reference_reads_every_policy() [fs, error
   test.error_kind(report_checks.read_cpufreq_policy_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tampering() [fs, time, error] {
+test test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tampering [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -3022,7 +3016,7 @@ proc test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tamperi
   test.error_kind(report_checks.validate_cpufreq_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_cpufreq_capture_rejects_noncanonical_policy_directory() [fs, time, error] {
+test test_system_report_cpufreq_capture_rejects_noncanonical_policy_directory [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -3034,7 +3028,7 @@ proc test_system_report_cpufreq_capture_rejects_noncanonical_policy_directory() 
   )?
 }
 
-proc test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes() [fs, time, error] {
+test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -3118,7 +3112,7 @@ proc test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes() [f
   test.error_kind(report_checks.validate_cpu_topology_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_cpu_topology_capture_rejects_escaping_numa_link() [fs, time, error] {
+test test_system_report_cpu_topology_capture_rejects_escaping_numa_link [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -3156,7 +3150,7 @@ proc test_system_report_cpu_topology_capture_rejects_escaping_numa_link() [fs, t
   )?
 }
 
-proc test_system_report_cpuidle_reference_scores_state_indices_and_bracketed_counters() [error] {
+test test_system_report_cpuidle_reference_scores_state_indices_and_bracketed_counters [error] {
   let shallow = {
     cpu_id: 0,
     state_index: 0,
@@ -3226,7 +3220,7 @@ proc test_system_report_cpuidle_reference_scores_state_indices_and_bracketed_cou
   test.ok(! report_checks.compare_cpuidle(absent_candidate, absent, absent)?.eligible)?
 }
 
-proc test_system_report_cpuidle_rooted_reference_reads_each_present_cpu_state() [fs, error] {
+test test_system_report_cpuidle_rooted_reference_reads_each_present_cpu_state [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/devices/system/cpu/cpuidle", parents: true)?
@@ -3319,7 +3313,7 @@ proc test_system_report_cpuidle_rooted_reference_reads_each_present_cpu_state() 
   test.error_kind(report_checks.read_cpuidle_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_capture_rejects_simultaneous_live_comparison(ctx: TestContext) [fs, process, error] {
+test test_system_report_capture_rejects_simultaneous_live_comparison [fs, process, error] { |ctx|
   let bundle = test.temp_path(ctx, name: "system-report-cpu-bundle")
   let stderr = test.temp_path(ctx, name: "system-report-cpu-bundle.stderr")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-cpu-bundle $bundle --compare-cpuidle 2> $stderr
@@ -3415,7 +3409,7 @@ proc test_system_report_capture_rejects_simultaneous_live_comparison(ctx: TestCo
   test.ok(! bundle.exists()?)?
 }
 
-proc test_system_report_lscpu_topology_scores_relationships_across_id_spaces() [error] {
+test test_system_report_lscpu_topology_scores_relationships_across_id_spaces [error] {
   let output = """{"cpus":[{"cpu":0,"online":true,"socket":0,"core":20,"node":0},{"cpu":1,"online":true,"socket":0,"core":20,"node":0},{"cpu":2,"online":true,"socket":1,"core":21,"node":1}]}"""
   let reference = report_checks.parse_lscpu_topology(output)?
   let possible_extra = report_checks.parse_lscpu_topology(
@@ -3460,7 +3454,7 @@ proc test_system_report_lscpu_topology_scores_relationships_across_id_spaces() [
   test.error_kind(report_checks.parse_lscpu_topology(duplicate), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_cache_reference_scores_unique_instances_and_cpu_links() [error] {
+test test_system_report_cache_reference_scores_unique_instances_and_cpu_links [error] {
   let source0 = {
     owner_cpu_id: 0,
     sysfs_index: 7,
@@ -3526,14 +3520,14 @@ proc test_system_report_cache_reference_scores_unique_instances_and_cpu_links() 
   test.ok(! without_kernel_id.exact)?
 }
 
-proc test_system_report_cache_reference_parses_sizes_without_candidate_rules() [error] {
+test test_system_report_cache_reference_parses_sizes_without_candidate_rules [error] {
   test.eq(report_checks.parse_cpu_cache_size_reference("1M")?, 1048576)?
   test.eq(report_checks.parse_cpu_cache_size_reference("48K")?, 49152)?
   test.error_kind(report_checks.parse_cpu_cache_size_reference("1T"), "SystemReportCheckError.Invalid")?
   test.error_kind(report_checks.parse_cpu_cache_size_reference("8796093022208K"), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_cache_rooted_reference_reads_shared_instance_sources() [fs, error] {
+test test_system_report_cache_rooted_reference_reads_shared_instance_sources [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/devices/system/cpu", parents: true)?
@@ -3606,7 +3600,7 @@ proc test_system_report_cache_rooted_reference_reads_shared_instance_sources() [
   test.error_kind(report_checks.read_cpu_cache_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_network_link_raw_reference_scores_flags_type_and_stable_counters() [error] {
+test test_system_report_network_link_raw_reference_scores_flags_type_and_stable_counters [error] {
   let reference = [
     {
       ifindex: 2,
@@ -3660,7 +3654,7 @@ proc test_system_report_network_link_raw_reference_scores_flags_type_and_stable_
   test.ok(! incomplete.exact)?
 }
 
-proc test_system_report_network_link_raw_reference_reads_bounded_sysfs_attributes() [fs, error] {
+test test_system_report_network_link_raw_reference_reads_bounded_sysfs_attributes [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/net/eth0/statistics", parents: true)?
@@ -3727,7 +3721,7 @@ proc test_system_report_network_link_raw_reference_reads_bounded_sysfs_attribute
   test.eq(malformed_flags[0].flags, null)?
 }
 
-proc test_system_report_ip_link_reference_scores_stable_identity_and_state() [error] {
+test test_system_report_ip_link_reference_scores_stable_identity_and_state [error] {
   let ip_output = """[{"ifindex":2,"ifname":"eth0","flags":["BROADCAST","MULTICAST","UP","LOWER_UP"],"mtu":1500,"operstate":"UP","link_type":"ether"},{"ifindex":1,"ifname":"lo","flags":["LOOPBACK","UP"],"mtu":65536,"operstate":"UNKNOWN","link_type":"loopback"}]"""
   let reference = report_checks.parse_ip_link_json(ip_output)?
   test.eq(reference.len(), 2)?
@@ -3787,7 +3781,7 @@ proc test_system_report_ip_link_reference_scores_stable_identity_and_state() [er
   test.ok(! wrong_kind.exact)?
 }
 
-proc test_system_report_ip_link_reference_checks_master_relationship() [error] {
+test test_system_report_ip_link_reference_checks_master_relationship [error] {
   let reference = report_checks.parse_ip_link_json(
     """[{"ifindex":6,"ifname":"br0","flags":["UP"],"mtu":1500,"operstate":"UP","linkinfo":{"info_kind":"bridge"}},{"ifindex":5,"ifname":"eth0","flags":["UP"],"mtu":1500,"operstate":"UP","master":"br0"}]""",
   )?
@@ -3805,7 +3799,7 @@ proc test_system_report_ip_link_reference_checks_master_relationship() [error] {
   test.error_kind(report_checks.compare_ip_links(candidate, unresolved_master), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_ip_link_reference_checks_lower_link_relationship() [error] {
+test test_system_report_ip_link_reference_checks_lower_link_relationship [error] {
   let reference = report_checks.parse_ip_link_json(
     """[{"ifindex":2,"ifname":"eth0","flags":["UP"],"mtu":1500,"operstate":"UP"},{"ifindex":5,"ifname":"eth0.42","flags":["UP"],"mtu":1500,"operstate":"UP","link":"eth0","linkinfo":{"info_kind":"vlan"}}]""",
   )?
@@ -3829,7 +3823,7 @@ proc test_system_report_ip_link_reference_checks_lower_link_relationship() [erro
   test.error_kind(report_checks.compare_ip_links(candidate, unresolved_lower), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_ip_address_reference_preserves_ipv6_identity_and_link_membership() [error] {
+test test_system_report_ip_address_reference_preserves_ipv6_identity_and_link_membership [error] {
   let ip_output = """[{"ifindex":2,"ifname":"eth0","addr_info":[{"family":"inet","local":"192.0.2.10","prefixlen":24,"broadcast":"192.0.2.255","scope":"global","valid_life_time":300,"preferred_life_time":120},{"family":"inet6","local":"2001:db8::10","prefixlen":64,"scope":"global","valid_life_time":240,"preferred_life_time":100}]},{"ifindex":3,"ifname":"eth0.42","addr_info":[{"family":"inet6","local":"2001:db8:42::5","prefixlen":64,"scope":"link"}]}]"""
   let reference = report_checks.parse_ip_address_json(ip_output)?
   test.eq(reference.len(), 3)?
@@ -3871,7 +3865,7 @@ proc test_system_report_ip_address_reference_preserves_ipv6_identity_and_link_me
   test.error_kind(report_checks.parse_ip_address_json(unsupported), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_ip_address_lifetimes_score_bracketed_countdowns() [error] {
+test test_system_report_ip_address_lifetimes_score_bracketed_countdowns [error] {
   let first = [
     {
       ifindex: 2,
@@ -3916,7 +3910,7 @@ proc test_system_report_ip_address_lifetimes_score_bracketed_countdowns() [error
   test.ok(! unknown.exact)?
 }
 
-proc test_system_report_ip_rule_reference_keeps_family_and_static_selectors() [error] {
+test test_system_report_ip_rule_reference_keeps_family_and_static_selectors [error] {
   let ipv4 = report_checks.parse_ip_rule_json(
     """[{"priority":0,"src":"all","table":"local"},{"priority":100,"src":"192.0.2.0","srclen":24,"dst":"all","fwmark":"0x7","fwmask":"0xff","iif":"eth0","table":"main"}]""",
     "ipv4",
@@ -3967,7 +3961,7 @@ proc test_system_report_ip_rule_reference_keeps_family_and_static_selectors() [e
   test.error_kind(report_checks.parse_ip_rule_json("[]", "unspec"), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_ip_rule_goto_target_is_part_of_rule_identity() [error] {
+test test_system_report_ip_rule_goto_target_is_part_of_rule_identity [error] {
   let before = report_checks.parse_ip_rule_json("""[{"priority":150,"src":"all","goto":123}]""", "ipv4")?
   let changed = report_checks.parse_ip_rule_json("""[{"priority":150,"src":"all","goto":124}]""", "ipv4")?
   test.ok(! report_checks.ip_rule_reference_stable(before, changed)?)?
@@ -3983,7 +3977,7 @@ proc test_system_report_ip_rule_goto_target_is_part_of_rule_identity() [error] {
   test.ok(! missing.exact_static)?
 }
 
-proc test_system_report_ip_rule_full_score_requires_representable_selectors() [error] {
+test test_system_report_ip_rule_full_score_requires_representable_selectors [error] {
   let reference = report_checks.parse_ip_rule_json("""[{"priority":100,"src":"all","table":"main"}]""", "ipv4")?
   let candidate = """{"network":{"status":{"state":"complete","enumeration_succeeded":true},"links":[],"rules":[{"family":"ipv4","priority":100,"source":{"state":"absent","value":null},"source_prefix_length":0,"destination":{"state":"absent","value":null},"destination_prefix_length":0,"fwmark":null,"fwmask":null,"table":254,"action":"to_table","input_ifindex":null,"output_ifindex":null,"flags":0,"attributes":[]}]}}"""
   test.ok(report_checks.compare_ip_rules(candidate, reference)?.exact_scored)?
@@ -4022,7 +4016,7 @@ proc test_system_report_ip_rule_full_score_requires_representable_selectors() [e
   test.ok(! missing_priority.exact_scored)?
 }
 
-proc test_system_report_ip_rule_reference_preserves_unknown_numeric_action() [error] {
+test test_system_report_ip_rule_reference_preserves_unknown_numeric_action [error] {
   let reference = report_checks.parse_ip_rule_json("""[{"priority":150,"src":"all","action":"50"}]""", "ipv4")?
   test.eq(reference[0].action, "action_50")?
   let known = report_checks.parse_ip_rule_json("""[{"priority":150,"src":"all","action":"6"}]""", "ipv4")?
@@ -4033,7 +4027,7 @@ proc test_system_report_ip_rule_reference_preserves_unknown_numeric_action() [er
   )?
 }
 
-proc test_system_report_ip_rule_reference_normalizes_named_kernel_actions() [error] {
+test test_system_report_ip_rule_reference_normalizes_named_kernel_actions [error] {
   let reference = report_checks.parse_ip_rule_json(
     """[{"priority":100,"src":"all","action":"none"},{"priority":101,"src":"all","action":"anycast"},{"priority":102,"src":"all","action":"multicast"},{"priority":103,"src":"all","action":"throw"},{"priority":104,"src":"all","action":"xresolve"},{"priority":105,"src":"all","masquerade":null}]""",
     "ipv4",
@@ -4047,7 +4041,7 @@ proc test_system_report_ip_rule_reference_normalizes_named_kernel_actions() [err
   test.eq(reference[5].unscored_fields, ["masquerade"])?
 }
 
-proc test_system_report_ip_rule_reference_preserves_prefix_without_address_attribute() [error] {
+test test_system_report_ip_rule_reference_preserves_prefix_without_address_attribute [error] {
   let reference = report_checks.parse_ip_rule_json(
     """[{"priority":100,"src":"0","srclen":24,"dst":"0","dstlen":16,"table":"main"}]""",
     "ipv4",
@@ -4063,7 +4057,7 @@ proc test_system_report_ip_rule_reference_preserves_prefix_without_address_attri
   test.eq(ipv6[0].source_prefix_length, 64)?
 }
 
-proc test_system_report_ip_route_reference_keeps_family_table_and_link_identity() [error] {
+test test_system_report_ip_route_reference_keeps_family_table_and_link_identity [error] {
   let ipv4 = report_checks.parse_ip_route_json(
     """[{"dst":"default","gateway":"192.0.2.1","dev":"eth0","metric":100},{"type":"local","dst":"192.0.2.10","dev":"eth0","table":"local","scope":"host","protocol":"kernel"}]""",
     "ipv4",
@@ -4109,7 +4103,7 @@ proc test_system_report_ip_route_reference_keeps_family_table_and_link_identity(
   test.error_kind(report_checks.parse_ip_route_json("[]", "unspec"), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_ip_route_reference_scores_source_and_multipath_hops() [error] {
+test test_system_report_ip_route_reference_scores_source_and_multipath_hops [error] {
   let output = """[{"dst":"2001:db8::/64","from":"2001:db8:1::/64","prefsrc":"2001:db8::10","table":"1000","flags":["notify"],"nexthops":[{"gateway":"2001:db8::1","dev":"eth0","weight":2,"flags":["onlink"]},{"gateway":"2001:db8::2","dev":"eth1","weight":1,"flags":[]}]}]"""
   let reference = report_checks.parse_ip_route_json(output, "ipv6")?
   test.eq(reference[0].source, "2001:db8:1::")?
@@ -4189,7 +4183,7 @@ proc test_system_report_ip_route_reference_scores_source_and_multipath_hops() [e
   )?
 }
 
-proc test_system_report_ip_route_full_score_requires_representable_fields() [error] {
+test test_system_report_ip_route_full_score_requires_representable_fields [error] {
   let reference = report_checks.parse_ip_route_json(
     """[{"dst":"192.0.2.0/24","dev":"eth0","table":"main","protocol":"static"}]""",
     "ipv4",
@@ -4237,7 +4231,7 @@ proc test_system_report_ip_route_full_score_requires_representable_fields() [err
   test.ok(! unknown_hop.exact_scored)?
 }
 
-proc test_system_report_ip_route_reference_preserves_unknown_numeric_enums() [error] {
+test test_system_report_ip_route_reference_preserves_unknown_numeric_enums [error] {
   let reference = report_checks.parse_ip_route_json(
     """[{"dst":"192.0.2.0/24","dev":"eth0","table":"main","protocol":"77","type":"222","scope":"77"}]""",
     "ipv4",
@@ -4251,7 +4245,7 @@ proc test_system_report_ip_route_reference_preserves_unknown_numeric_enums() [er
   )?
 }
 
-proc test_system_report_cpu_set_capture_validates_saved_reference() [fs, time, error] {
+test test_system_report_cpu_set_capture_validates_saved_reference [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4306,7 +4300,7 @@ proc test_system_report_cpu_set_capture_validates_saved_reference() [fs, time, e
   test.error_kind(report_checks.validate_cpu_set_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_cpu_set_capture_rejects_observed_error_metadata() [fs, time, error] {
+test test_system_report_cpu_set_capture_rejects_observed_error_metadata [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4341,7 +4335,7 @@ proc test_system_report_cpu_set_capture_rejects_observed_error_metadata() [fs, t
   test.error_kind(report_checks.validate_cpu_set_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_cpu_set_capture_replays_raw_sources() [fs, time, error] {
+test test_system_report_cpu_set_capture_replays_raw_sources [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4389,7 +4383,7 @@ proc test_system_report_cpu_set_capture_replays_raw_sources() [fs, time, error] 
   test.error_kind(report_checks.replay_cpu_set_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_cpu_set_capture_records_missing_source() [fs, time, error] {
+test test_system_report_cpu_set_capture_records_missing_source [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4402,7 +4396,7 @@ proc test_system_report_cpu_set_capture_records_missing_source() [fs, time, erro
   test.error_kind(report_checks.replay_cpu_set_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_memory_capture_validates_raw_sources_and_oracles() [fs, time, error] {
+test test_system_report_memory_capture_validates_raw_sources_and_oracles [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4463,7 +4457,7 @@ MemFree: 4 kB
   test.error_kind(report_checks.validate_memory_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_memory_capture_rejects_observed_error_metadata() [fs, time, error] {
+test test_system_report_memory_capture_rejects_observed_error_metadata [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4486,7 +4480,7 @@ MemFree: 4 kB
   test.error_kind(report_checks.validate_memory_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_memory_capture_replays_raw_sources() [fs, time, error] {
+test test_system_report_memory_capture_replays_raw_sources [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4512,7 +4506,7 @@ MemFree: 4 kB
   test.ok(replay.thp.exact)?
 }
 
-proc test_system_report_os_release_capture_validates_selected_raw_source() [fs, time, error] {
+test test_system_report_os_release_capture_validates_selected_raw_source [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4547,7 +4541,7 @@ VERSION_ID=2
   test.error_kind(report_checks.validate_os_release_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_os_release_capture_rejects_observed_error_metadata() [fs, time, error] {
+test test_system_report_os_release_capture_rejects_observed_error_metadata [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4576,7 +4570,7 @@ proc test_system_report_os_release_capture_rejects_observed_error_metadata() [fs
   test.error_kind(report_checks.validate_os_release_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_os_release_capture_replays_product_identity() [fs, time, error] {
+test test_system_report_os_release_capture_replays_product_identity [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4602,7 +4596,7 @@ VERSION_ID=2
   test.ok(report_checks.replay_os_release_bundle(bundle)?.exact)?
 }
 
-proc test_system_report_os_release_capture_ignores_unselected_vendor_read_failure() [fs, time, error] {
+test test_system_report_os_release_capture_ignores_unselected_vendor_read_failure [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4619,7 +4613,7 @@ proc test_system_report_os_release_capture_ignores_unselected_vendor_read_failur
   test.eq(report_checks.validate_os_release_bundle(bundle)?.id, "local")?
 }
 
-proc test_system_report_os_release_capture_does_not_fallback_from_malformed_local_source() [fs, time, error] {
+test test_system_report_os_release_capture_does_not_fallback_from_malformed_local_source [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4645,7 +4639,7 @@ proc test_system_report_os_release_capture_does_not_fallback_from_malformed_loca
   test.error_kind(report_checks.validate_os_release_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_kernel_command_line_capture_validates_raw_bytes() [fs, time, error] {
+test test_system_report_kernel_command_line_capture_validates_raw_bytes [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4675,7 +4669,7 @@ proc test_system_report_kernel_command_line_capture_validates_raw_bytes() [fs, t
   test.error_kind(report_checks.validate_kernel_command_line_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_kernel_command_line_capture_replays_redaction() [fs, time, error] {
+test test_system_report_kernel_command_line_capture_replays_redaction [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4694,7 +4688,7 @@ proc test_system_report_kernel_command_line_capture_replays_redaction() [fs, tim
   test.ok(result.redacted_exact)?
 }
 
-proc test_system_report_kernel_command_line_capture_records_absence_without_scoring() [fs, time, error] {
+test test_system_report_kernel_command_line_capture_records_absence_without_scoring [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -4706,7 +4700,7 @@ proc test_system_report_kernel_command_line_capture_records_absence_without_scor
   test.error_kind(report_checks.validate_kernel_command_line_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_proc_stat_reference_preserves_identity_and_rejects_unsafe_fields() [error] {
+test test_system_report_proc_stat_reference_preserves_identity_and_rejects_unsafe_fields [error] {
   let stat = """123 (worker) pool) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2
 """
   let parsed = report_checks.parse_proc_stat_identity_reference(stat)?
@@ -4750,7 +4744,7 @@ proc test_system_report_proc_stat_reference_preserves_identity_and_rejects_unsaf
   )?
 }
 
-proc test_system_report_proc_status_uid_reference_requires_one_numeric_row() [error] {
+test test_system_report_proc_status_uid_reference_requires_one_numeric_row [error] {
   test.eq(
     report_checks.parse_proc_status_uid_reference("""Name:	worker
 Uid:	1000	1001	1001	1001
@@ -4780,7 +4774,7 @@ Uid:	2000	2000	2000	2000
   )?
 }
 
-proc test_system_report_proc_statm_reference_uses_reported_page_size_and_exact_bytes() [error] {
+test test_system_report_proc_statm_reference_uses_reported_page_size_and_exact_bytes [error] {
   let parsed = report_checks.parse_proc_statm_reference(
     """2 1 0 0 0 0 0
 """,
@@ -4806,7 +4800,7 @@ proc test_system_report_proc_statm_reference_uses_reported_page_size_and_exact_b
   test.eq(report_checks.parse_proc_statm_reference("2 1 9007199254740992 0 0 0 0", 4096)?.resident_bytes, 4096)?
 }
 
-proc test_system_report_proc_cgroup_reference_requires_one_absolute_v2_path() [error] {
+test test_system_report_proc_cgroup_reference_requires_one_absolute_v2_path [error] {
   test.eq(
     report_checks.parse_proc_cgroup_reference("""0::/tenant/worker
 2:cpu:/legacy
@@ -4836,7 +4830,7 @@ proc test_system_report_proc_cgroup_reference_requires_one_absolute_v2_path() [e
   )?
 }
 
-proc test_system_report_cpu_scope_reference_selects_visible_cgroup_mount() [error] {
+test test_system_report_cpu_scope_reference_selects_visible_cgroup_mount [error] {
   let membership = """0::/tenant/team:blue
 """
   let mounts = """31 20 0:25 / /sys/fs/cgroup rw - cgroup2 cgroup rw
@@ -4896,7 +4890,7 @@ proc test_system_report_cpu_scope_reference_selects_visible_cgroup_mount() [erro
   )?
 }
 
-proc test_system_report_cpu_scope_reference_parses_exact_quota_period() [error] {
+test test_system_report_cpu_scope_reference_parses_exact_quota_period [error] {
   test.eq(
     report_checks.parse_cpu_scope_quota("""50000 100000
 """)?,
@@ -4912,7 +4906,7 @@ proc test_system_report_cpu_scope_reference_parses_exact_quota_period() [error] 
   }
 }
 
-proc test_system_report_cpu_scope_rooted_reference_reads_current_and_visible_ancestors() [fs, time, error] {
+test test_system_report_cpu_scope_rooted_reference_reads_current_and_visible_ancestors [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -5051,7 +5045,7 @@ proc test_system_report_cpu_scope_rooted_reference_reads_current_and_visible_anc
   test.error_kind(report_checks.read_cpu_scope_cgroup_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_cpu_scope_cgroup_comparison_scores_visible_limits() [error] {
+test test_system_report_cpu_scope_cgroup_comparison_scores_visible_limits [error] {
   let before: report_checks.CpuScopeCgroupObservation = {
     ancestors: [
       {
@@ -5123,7 +5117,7 @@ proc test_system_report_cpu_scope_cgroup_comparison_scores_visible_limits() [err
   test.eq(unavailable.exact, true)?
 }
 
-proc test_system_report_cgroup_v2_reference_parses_limits_and_named_counters() [error] {
+test test_system_report_cgroup_v2_reference_parses_limits_and_named_counters [error] {
   test.eq(
     report_checks.parse_cgroup2_limit("""max
 """)?,
@@ -5218,7 +5212,7 @@ usage_usec 10
   )?
 }
 
-proc test_system_report_cgroup_v2_rooted_reference_reads_all_visible_resource_families() [fs, time, error] {
+test test_system_report_cgroup_v2_rooted_reference_reads_all_visible_resource_families [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/self", parents: true)?
@@ -5330,7 +5324,7 @@ nr_periods 2
   test.error_kind(report_checks.read_cgroup2_resource_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_cgroup_v2_bundle_replays_visible_ancestors_and_rejects_tampering() [fs, time, error] {
+test test_system_report_cgroup_v2_bundle_replays_visible_ancestors_and_rejects_tampering [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -5399,7 +5393,7 @@ nr_periods 2
   test.error_kind(report_checks.validate_cgroup2_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_cgroup_v2_bundle_keeps_missing_mount_unscoreable() [fs, time, error] {
+test test_system_report_cgroup_v2_bundle_keeps_missing_mount_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -5423,7 +5417,7 @@ proc test_system_report_cgroup_v2_bundle_keeps_missing_mount_unscoreable() [fs, 
   test.error_kind(report_checks.validate_cgroup2_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_cgroup_v2_bundle_records_missing_membership_source() [fs, time, error] {
+test test_system_report_cgroup_v2_bundle_records_missing_membership_source [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -5443,7 +5437,7 @@ proc test_system_report_cgroup_v2_bundle_records_missing_membership_source() [fs
   test.error_kind(report_checks.validate_cgroup2_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_cgroup_v2_comparison_scores_stable_limits_and_bracketed_counters() [error] {
+test test_system_report_cgroup_v2_comparison_scores_stable_limits_and_bracketed_counters [error] {
   let before: report_checks.Cgroup2ResourceObservation = {
     ancestors: [
       "/tenant/worker",
@@ -5528,7 +5522,7 @@ proc test_system_report_cgroup_v2_comparison_scores_stable_limits_and_bracketed_
   )?
 }
 
-proc test_system_report_meminfo_reference_preserves_units_and_rejects_ambiguous_rows() [error] {
+test test_system_report_meminfo_reference_preserves_units_and_rejects_ambiguous_rows [error] {
   let source = """MemTotal: 16 kB
 MemFree:	4	kB
 HugePages_Total: 2
@@ -5564,7 +5558,7 @@ BrokenRow
   )?
 }
 
-proc test_system_report_meminfo_comparison_scores_stable_fields_and_host_projection() [error] {
+test test_system_report_meminfo_comparison_scores_stable_fields_and_host_projection [error] {
   let before = report_checks.parse_meminfo_reference("""MemTotal: 16 kB
 MemFree: 4 kB
 VendorCounter: 12 widgets
@@ -5596,7 +5590,7 @@ VendorCounter: 12 widgets
   )?
 }
 
-proc test_system_report_thp_reference_requires_one_selected_policy_and_stable_fields() [error] {
+test test_system_report_thp_reference_requires_one_selected_policy_and_stable_fields [error] {
   test.eq(
     report_checks.parse_thp_reference("""always [future_policy] never
 """)?,
@@ -5644,7 +5638,7 @@ proc test_system_report_thp_reference_requires_one_selected_policy_and_stable_fi
   test.error_kind(report_checks.compare_thp(candidate, before, changed), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_vulnerability_reference_requires_complete_stable_named_values() [error] {
+test test_system_report_vulnerability_reference_requires_complete_stable_named_values [error] {
   let before = [
     {
       name: "spectre_v1",
@@ -5699,7 +5693,7 @@ proc test_system_report_vulnerability_reference_requires_complete_stable_named_v
   )?
 }
 
-proc test_system_report_vulnerability_capture_validates_saved_files_and_oracle() [fs, time, error] {
+test test_system_report_vulnerability_capture_validates_saved_files_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -5751,7 +5745,7 @@ proc test_system_report_vulnerability_capture_validates_saved_files_and_oracle()
   test.error_kind(report_checks.validate_vulnerabilities_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_vulnerability_capture_replays_production_cpu_collector() [fs, time, error] {
+test test_system_report_vulnerability_capture_replays_production_cpu_collector [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -5767,7 +5761,7 @@ proc test_system_report_vulnerability_capture_replays_production_cpu_collector()
   test.ok(report_checks.replay_vulnerabilities_bundle(bundle)?.exact)?
 }
 
-proc test_system_report_vulnerability_capture_preserves_absent_class_without_scoring() [fs, time, error] {
+test test_system_report_vulnerability_capture_preserves_absent_class_without_scoring [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -5777,7 +5771,7 @@ proc test_system_report_vulnerability_capture_preserves_absent_class_without_sco
   test.error_kind(report_checks.validate_vulnerabilities_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_bundle_replay_rejects_changed_capture_metadata() [fs, error] {
+test test_system_report_bundle_replay_rejects_changed_capture_metadata [fs, error] {
   let bundle = fs.tempdir()?
   defer fs.close_root(bundle)?
   fs.root_write(bundle, p"capture.json", "{\"origin\":\"synthetic_fixture\"}")?
@@ -5787,7 +5781,7 @@ proc test_system_report_bundle_replay_rejects_changed_capture_metadata() [fs, er
   test.error_kind(report_checks.require_capture_metadata_unchanged(bundle, original), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_huge_page_reference_scores_global_and_numa_pools() [error] {
+test test_system_report_huge_page_reference_scores_global_and_numa_pools [error] {
   let before: List[HugePageReferenceFixture] = [
     {
       node_id: null,
@@ -5832,7 +5826,7 @@ proc test_system_report_huge_page_reference_scores_global_and_numa_pools() [erro
   test.eq(report_checks.compare_huge_pages(candidate, [], [])?.unexpected_keys, ["global:2097152", "node0:2097152"])?
 }
 
-proc test_system_report_huge_page_reference_parses_complete_decimal_counters() [error] {
+test test_system_report_huge_page_reference_parses_complete_decimal_counters [error] {
   test.eq(
     report_checks.parse_huge_page_counter_reference("""42
 """)?,
@@ -5858,7 +5852,7 @@ proc test_system_report_huge_page_reference_parses_complete_decimal_counters() [
   }
 }
 
-proc test_system_report_huge_page_reference_reads_visible_global_and_numa_sources() [fs, time, error] {
+test test_system_report_huge_page_reference_reads_visible_global_and_numa_sources [fs, time, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/kernel/mm/hugepages/hugepages-2048kB", parents: true)?
@@ -5895,7 +5889,7 @@ proc test_system_report_huge_page_reference_reads_visible_global_and_numa_source
   test.eq(node[0].total, 2)?
 }
 
-proc test_system_report_psi_reference_parses_complete_rows_and_brackets_counters() [error] {
+test test_system_report_psi_reference_parses_complete_rows_and_brackets_counters [error] {
   let raw = """some avg10=0.10 avg60=1.25 avg300=2.50 total=10
 full avg10=0.00 avg60=0.00 avg300=0.00 total=2
 """
@@ -5950,7 +5944,7 @@ full avg10=0.00 avg60=0.00 avg300=0.00 total=2
   }
 }
 
-proc test_system_report_pressure_capture_validates_saved_sources_and_oracle() [fs, time, error] {
+test test_system_report_pressure_capture_validates_saved_sources_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -6010,7 +6004,7 @@ full avg10=0.00 avg60=0.00 avg300=0.00 total=2
   test.error_kind(report_checks.validate_pressure_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_pressure_capture_keeps_incomplete_sources_unscoreable() [fs, time, error] {
+test test_system_report_pressure_capture_keeps_incomplete_sources_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let absent = fs.tempdir()?
@@ -6040,7 +6034,7 @@ proc test_system_report_pressure_capture_keeps_incomplete_sources_unscoreable() 
   test.error_kind(report_checks.validate_pressure_bundle(truncated), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_pressure_capture_replays_production_collector() [fs, time, error] {
+test test_system_report_pressure_capture_replays_production_collector [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -6056,7 +6050,7 @@ proc test_system_report_pressure_capture_replays_production_collector() [fs, tim
   test.ok(report_checks.replay_pressure_bundle(bundle)?.exact_scored)?
 }
 
-proc test_system_report_process_identity_snapshot_keeps_complete_stable_sources() [fs, error] {
+test test_system_report_process_identity_snapshot_keeps_complete_stable_sources [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/123", parents: true)?
@@ -6087,7 +6081,7 @@ Uid:	1000	1000	1000	1000
   test.eq(captured.skipped_count, 1)?
 }
 
-proc test_system_report_process_resource_snapshot_requires_complete_per_pid_sources() [fs, error] {
+test test_system_report_process_resource_snapshot_requires_complete_per_pid_sources [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"proc/123", parents: true)?
@@ -6137,7 +6131,7 @@ proc test_system_report_process_resource_snapshot_requires_complete_per_pid_sour
   test.eq(captured.skipped_count, 1)?
 }
 
-proc test_system_report_process_bundle_replays_complete_pid_and_records_skips() [fs, time, error] {
+test test_system_report_process_bundle_replays_complete_pid_and_records_skips [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -6229,7 +6223,7 @@ Uid:	1001	1001	1001	1001
   test.error_kind(report_checks.validate_process_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_process_bundle_keeps_absent_proc_unscoreable() [fs, time, error] {
+test test_system_report_process_bundle_keeps_absent_proc_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -6241,7 +6235,7 @@ proc test_system_report_process_bundle_keeps_absent_proc_unscoreable() [fs, time
   test.error_kind(report_checks.validate_process_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_process_identity_reference_excludes_pid_reuse_and_scores_stable_values() [error] {
+test test_system_report_process_identity_reference_excludes_pid_reuse_and_scores_stable_values [error] {
   let stable = {
     pid: 123,
     start_ticks: 100,
@@ -6288,7 +6282,7 @@ proc test_system_report_process_identity_reference_excludes_pid_reuse_and_scores
   test.ok(! report_checks.compare_process_identity(candidate, [], [])?.exact_static)?
 }
 
-proc test_system_report_process_reference_excludes_exits_and_new_arrivals_from_static_scoring() [error] {
+test test_system_report_process_reference_excludes_exits_and_new_arrivals_from_static_scoring [error] {
   let stable = {
     pid: 123,
     start_ticks: 100,
@@ -6339,9 +6333,7 @@ proc test_system_report_process_reference_excludes_exits_and_new_arrivals_from_s
   test.ok(resources.exact_scored)?
 }
 
-proc test_system_report_traced_live_and_replay_paths_keep_host_effect_contract(
-  ctx: TestContext,
-) [fs, process, env, error] {
+test test_system_report_traced_live_and_replay_paths_keep_host_effect_contract [fs, process, env, error] { |ctx|
   if system.uname()?.sysname != "Linux" {
     test.skip("the production syscall audit requires Linux strace")
     return
@@ -6351,7 +6343,7 @@ proc test_system_report_traced_live_and_replay_paths_keep_host_effect_contract(
   report_checks.audit_no_subprocess(ctx.xsh_bin.display(), script.display())?
 }
 
-proc test_system_report_process_resource_reference_scores_only_stable_fields() [error] {
+test test_system_report_process_resource_reference_scores_only_stable_fields [error] {
   let stable = {
     pid: 123,
     start_ticks: 100,
@@ -6391,7 +6383,7 @@ proc test_system_report_process_resource_reference_scores_only_stable_fields() [
   test.ok(! report_checks.compare_process_resources(candidate, [], [])?.exact_scored)?
 }
 
-proc test_system_report_rust_fixture_argv_accepts_target_override() [error] {
+test test_system_report_rust_fixture_argv_accepts_target_override [error] {
   let argv = report_checks.rust_fixture_argv_for_target(
     "/opt/cargo",
     "src/modules/linux/real/netlink.rs::dump_accumulator_reads_multipart_messages_across_datagrams",
@@ -6400,7 +6392,7 @@ proc test_system_report_rust_fixture_argv_accepts_target_override() [error] {
   test.eq(argv[7], "x86_64-unknown-linux-musl")?
 }
 
-proc test_system_report_coverage_manifest_contract() [error] {
+test test_system_report_coverage_manifest_contract [error] {
   let required = assertion("cpu.policy.related-cpus", "mandatory")
   let supplemental = assertion("cpu.policy.governor", "supplemental")
   let valid = manifest([required, supplemental])
@@ -7268,7 +7260,7 @@ execve("/bin/sh", ["sh"], 0x0) = 0
   test.eq(report_checks.forbidden_process_field_violations(forbidden_process_json)?.len(), 3)?
 }
 
-proc test_system_report_trace_ignores_syscall_names_inside_file_paths() [error] {
+test test_system_report_trace_ignores_syscall_names_inside_file_paths [error] {
   let trace = """42 execve("/target/xsh", ["xsh"], 0x0) = 0
 42 openat(AT_FDCWD, "/tmp/ execve( fork( clone( socket( O_WRONLY", O_RDONLY) = 3
 """
@@ -7276,10 +7268,10 @@ proc test_system_report_trace_ignores_syscall_names_inside_file_paths() [error] 
   test.eq(report_checks.host_effect_trace_violations(trace).len(), 0)?
 }
 
-proc test_system_report_fixture_definition_check_ignores_comments_and_partial_names() [error] {
-  let source = """# proc test_system_report_comment_only() {}
-proc test_system_report_existing() [error] {}
-proc test_system_report_existing_more() [error] {}
+test test_system_report_fixture_definition_check_ignores_comments_and_partial_names [error] {
+  let source = """# test test_system_report_comment_only {}
+test test_system_report_existing [error] {}
+test test_system_report_existing_more [error] {}
 """
   test.ok(report_checks.fixture_test_definition_exists(source, "test_system_report_existing"))?
   test.ok(! report_checks.fixture_test_definition_exists(source, "test_system_report_comment_only"))?
@@ -7304,7 +7296,7 @@ fn observed_more() {}
   test.ok(! report_checks.rust_fixture_test_definition_exists(rust_source, "observed_m"))?
 }
 
-proc test_system_report_forbidden_process_read_trace_normalizes_source_paths() [error] {
+test test_system_report_forbidden_process_read_trace_normalizes_source_paths [error] {
   let forbidden = """42 openat(AT_FDCWD, "/proc/./123/environ", O_RDONLY) = -1 EACCES
 42 openat2(3, "proc//self/cmdline", {flags=O_RDONLY}, 24) = 4
 42 readlinkat(3, "proc/self/task/321/../321/fd/4", "/private/path", 4096) = 13
@@ -7316,7 +7308,7 @@ proc test_system_report_forbidden_process_read_trace_normalizes_source_paths() [
   test.eq(report_checks.forbidden_process_read_violations(permitted), [])?
 }
 
-proc test_system_report_replay_trace_rejects_normalized_live_source_paths() [error] {
+test test_system_report_replay_trace_rejects_normalized_live_source_paths [error] {
   let forbidden = """42 openat(AT_FDCWD, "/tmp/../proc/meminfo", O_RDONLY) = 4
 42 newfstatat(AT_FDCWD, "cache/../../sys/devices/system/cpu/online", 0x7fff, 0) = 0
 42 readlinkat(3, "tmp/../etc/os-release", "/private/link", 4096) = 13
@@ -7328,7 +7320,7 @@ proc test_system_report_replay_trace_rejects_normalized_live_source_paths() [err
   test.eq(report_checks.replay_host_read_violations(permitted), [])?
 }
 
-proc test_system_report_replay_trace_subtracts_exact_startup_reads() [error] {
+test test_system_report_replay_trace_subtracts_exact_startup_reads [error] {
   let startup = "42 open(\"/proc/sys/vm/overcommit_memory\", O_RDONLY) = 3"
   test.eq(report_checks.replay_host_read_violations_after_baseline(startup, startup), [])?
   let repeated = f"""${startup}
@@ -7341,7 +7333,7 @@ ${startup}"""
   test.eq(report_checks.replay_host_read_violations_after_baseline(different_call, startup).len(), 1)?
 }
 
-proc test_system_report_trace_resolves_annotated_directory_descriptors() [error] {
+test test_system_report_trace_resolves_annotated_directory_descriptors [error] {
   let unresolved_directory = "42 openat(3, \"self/environ\", O_RDONLY) = -1 EACCES"
   test.eq(report_checks.host_effect_trace_violations(unresolved_directory), ["unresolved source directory descriptor"])?
   let unresolved_metadata = "42 statx(3, \"devices/system/cpu/online\", AT_STATX_SYNC_AS_STAT, STATX_ALL, 0x7fff) = 0"
@@ -7362,7 +7354,7 @@ proc test_system_report_trace_resolves_annotated_directory_descriptors() [error]
   test.eq(report_checks.host_effect_trace_violations(output_write), [])?
 }
 
-proc test_system_report_lscpu_reference_parser_keeps_sparse_online_ids() [error] {
+test test_system_report_lscpu_reference_parser_keeps_sparse_online_ids [error] {
   let reference = """{"cpus":[{"cpu":0,"online":true,"node":0},{"cpu":1,"online":false,"node":0},{"cpu":65,"online":true,"node":1}]}"""
   test.eq(report_checks.parse_lscpu_online_cpu_ids(reference)?, [0, 65])?
   let repeated = """{"cpus":[{"cpu":0,"online":true},{"cpu":0,"online":false}]}"""
@@ -7371,7 +7363,7 @@ proc test_system_report_lscpu_reference_parser_keeps_sparse_online_ids() [error]
   test.error_kind(report_checks.parse_lscpu_online_cpu_ids(unknown), "schema")?
 }
 
-proc test_system_report_lscpu_reference_parser_rejects_empty_cpu_set() [error] {
+test test_system_report_lscpu_reference_parser_rejects_empty_cpu_set [error] {
   test.error_kind(report_checks.parse_lscpu_online_cpu_ids("""{"cpus":[]}"""), "SystemReportCheckError.Invalid")?
   test.error_kind(
     report_checks.parse_lscpu_online_cpu_ids("""{"cpus":[{"cpu":0,"online":false}]}"""),
@@ -7379,7 +7371,7 @@ proc test_system_report_lscpu_reference_parser_rejects_empty_cpu_set() [error] {
   )?
 }
 
-proc test_system_report_sysfs_reference_cpu_list_parser_handles_sparse_ids() [error] {
+test test_system_report_sysfs_reference_cpu_list_parser_handles_sparse_ids [error] {
   test.eq(report_checks.parse_reference_cpu_list("0-2,65,129-130", false)?, [0, 1, 2, 65, 129, 130])?
   test.eq(report_checks.parse_reference_cpu_list("", true)?, [])?
   test.error_kind(report_checks.parse_reference_cpu_list("", false), "SystemReportCheckError.Invalid")?
@@ -7388,7 +7380,7 @@ proc test_system_report_sysfs_reference_cpu_list_parser_handles_sparse_ids() [er
   test.error_kind(report_checks.parse_reference_cpu_list("0-65536", false), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_proc_status_affinity_reference_requires_one_valid_cpu_list() [error] {
+test test_system_report_proc_status_affinity_reference_requires_one_valid_cpu_list [error] {
   test.eq(
     report_checks.parse_proc_status_affinity("""Name:	cat
 Cpus_allowed_list:	0-2,65,129-130
@@ -7418,7 +7410,7 @@ Cpus_allowed_list:	2
   )?
 }
 
-proc test_system_report_cpu_scope_affinity_comparison_requires_stable_reference() [error] {
+test test_system_report_cpu_scope_affinity_comparison_requires_stable_reference [error] {
   let before = """Cpus_allowed_list:	0-1,65
 """
   let candidate = """{"cpu":{"affinity":[65,0,1]}}"""
@@ -7442,7 +7434,7 @@ proc test_system_report_cpu_scope_affinity_comparison_requires_stable_reference(
   )?
 }
 
-proc test_system_report_cpu_online_comparison_counts_missing_and_unexpected_ids() [error] {
+test test_system_report_cpu_online_comparison_counts_missing_and_unexpected_ids [error] {
   let reference = """{"cpus":[{"cpu":0,"online":true},{"cpu":1,"online":false},{"cpu":65,"online":true}]}"""
   let candidate = """{"cpu":{"online":[0,2]}}"""
   let compared = report_checks.compare_cpu_online_ids(candidate, reference)?
@@ -7460,7 +7452,7 @@ proc test_system_report_cpu_online_comparison_counts_missing_and_unexpected_ids(
   )?
 }
 
-proc test_system_report_cpu_set_comparison_scores_all_four_kernel_sets() [error] {
+test test_system_report_cpu_set_comparison_scores_all_four_kernel_sets [error] {
   let reference = {
     possible: [
       0,
@@ -7490,7 +7482,7 @@ proc test_system_report_cpu_set_comparison_scores_all_four_kernel_sets() [error]
   test.error_kind(report_checks.compare_cpu_sets(duplicate, reference), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_swapon_raw_parser_and_comparison_keep_swap_identity() [error] {
+test test_system_report_swapon_raw_parser_and_comparison_keep_swap_identity [error] {
   let output = """NAME TYPE SIZE USED PRIO
 /dev/zram0 partition 4096 1024 42
 /swapfile file 8192 0 -1
@@ -7538,7 +7530,7 @@ proc test_system_report_swapon_raw_parser_and_comparison_keep_swap_identity() [e
   test.error_kind(report_checks.compare_swap_devices(duplicate, reference), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_swap_comparison_requires_source_evidence_for_empty_set() [error] {
+test test_system_report_swap_comparison_requires_source_evidence_for_empty_set [error] {
   let complete = """{"memory":{"status":{"state":"complete"},"swaps":[]},"issues":[]}"""
   test.ok(report_checks.compare_swap_devices(complete, [])?.exact)?
   let failed_read = """{"memory":{"status":{"state":"partial"},"swaps":[]},"issues":[{"section":"memory","field":"swaps"}]}"""
@@ -7549,7 +7541,7 @@ proc test_system_report_swap_comparison_requires_source_evidence_for_empty_set()
   test.ok(! report_checks.compare_swap_devices(missing_provenance, [])?.exact)?
 }
 
-proc test_system_report_swapon_raw_parser_rejects_ambiguous_or_unsafe_rows() [error] {
+test test_system_report_swapon_raw_parser_rejects_ambiguous_or_unsafe_rows [error] {
   for output in [
     "",
     """/dev/zram0 partition 4096 0 42
@@ -7575,7 +7567,7 @@ proc test_system_report_swapon_raw_parser_rejects_ambiguous_or_unsafe_rows() [er
   }
 }
 
-proc test_system_report_proc_swaps_raw_reference_decodes_units_paths_and_empty_inventory() [error] {
+test test_system_report_proc_swaps_raw_reference_decodes_units_paths_and_empty_inventory [error] {
   let raw = """Filename	Type	Size	Used	Priority
 /dev/zram0	partition	4	1	42
 /swap\\040file	file	8	0	-1
@@ -7617,7 +7609,7 @@ proc test_system_report_proc_swaps_raw_reference_decodes_units_paths_and_empty_i
   )?
 }
 
-proc test_system_report_proc_swaps_capture_validates_saved_source_and_oracle() [fs, time, error] {
+test test_system_report_proc_swaps_capture_validates_saved_source_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -7657,7 +7649,7 @@ proc test_system_report_proc_swaps_capture_validates_saved_source_and_oracle() [
   test.error_kind(report_checks.validate_proc_swaps_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_proc_swaps_capture_marks_absent_malformed_and_truncated_unscoreable() [fs, time, error] {
+test test_system_report_proc_swaps_capture_marks_absent_malformed_and_truncated_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let absent = fs.tempdir()?
@@ -7702,7 +7694,7 @@ ${padding}""",
   test.eq(report_checks.validate_proc_swaps_bundle(empty)?, [])?
 }
 
-proc test_system_report_proc_swaps_capture_replays_production_collector() [fs, time, error] {
+test test_system_report_proc_swaps_capture_replays_production_collector [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -7719,7 +7711,7 @@ proc test_system_report_proc_swaps_capture_replays_production_collector() [fs, t
   test.ok(report_checks.replay_proc_swaps_bundle(bundle)?.exact)?
 }
 
-proc test_system_report_lsblk_json_scores_devices_and_layering() [error] {
+test test_system_report_lsblk_json_scores_devices_and_layering [error] {
   let output = """{"blockdevices":[{"name":"sda","kname":"sda","maj:min":"8:0","size":8192,"type":"disk","pkname":null,"ro":false,"rm":false,"rota":true,"log-sec":512,"phy-sec":4096,"children":[{"name":"sda1","kname":"sda1","maj:min":"8:1","size":4096,"type":"part","pkname":"sda","ro":false,"rm":false,"rota":true,"log-sec":512,"phy-sec":4096,"children":[{"name":"cryptroot","kname":"dm-0","maj:min":"253:0","size":4096,"type":"crypt","pkname":"sda1","ro":false,"rm":false,"rota":false,"log-sec":512,"phy-sec":4096}]}]}]}"""
   let reference = report_checks.parse_lsblk_json(output)?
   test.eq(reference.devices.len(), 3)?
@@ -7754,7 +7746,7 @@ proc test_system_report_lsblk_json_scores_devices_and_layering() [error] {
   test.ok(report_checks.block_reference_stable(reference, report_checks.parse_lsblk_json(output)?))?
 }
 
-proc test_system_report_lsblk_json_preserves_sparse_partition_identity_and_parent_edges() [error] {
+test test_system_report_lsblk_json_preserves_sparse_partition_identity_and_parent_edges [error] {
   let output = """{"blockdevices":[{"name":"sda","kname":"sda","maj:min":"8:0","size":524288,"type":"disk","pkname":null,"ro":false,"rm":false,"rota":true,"log-sec":512,"phy-sec":4096,"children":[{"name":"sda1","kname":"sda1","maj:min":"8:1","size":65536,"type":"part","pkname":"sda","ro":false,"rm":false,"rota":true,"log-sec":512,"phy-sec":4096},{"name":"sda3","kname":"sda3","maj:min":"8:3","size":65536,"type":"part","pkname":"sda","ro":false,"rm":false,"rota":true,"log-sec":512,"phy-sec":4096}]}]}"""
   let reference = report_checks.parse_lsblk_json(output)?
   test.eq(reference.devices.len(), 3)?
@@ -7778,7 +7770,7 @@ proc test_system_report_lsblk_json_preserves_sparse_partition_identity_and_paren
   test.ok(! report_checks.compare_block_devices(wrong_parent, reference)?.exact)?
 }
 
-proc test_system_report_lspci_vmm_numeric_identity_keeps_repeated_ids_distinct() [error] {
+test test_system_report_lspci_vmm_numeric_identity_keeps_repeated_ids_distinct [error] {
   let first = """Slot:	0000:00:1f.6
 Class:	0600
 Vendor:	8086
@@ -7846,7 +7838,7 @@ ProgIf:	00
   )?
 }
 
-proc test_system_report_pci_link_reference_scores_all_functions_and_stable_link_fields() [error] {
+test test_system_report_pci_link_reference_scores_all_functions_and_stable_link_fields [error] {
   let linked = {
     address: "0000:00:1f.6",
     current_speed: "8.0 GT/s PCIe",
@@ -7885,7 +7877,7 @@ proc test_system_report_pci_link_reference_scores_all_functions_and_stable_link_
   test.ok(! absent.exact)?
 }
 
-proc test_system_report_pci_binding_reference_resolves_parent_indexes_and_absent_links() [error] {
+test test_system_report_pci_binding_reference_resolves_parent_indexes_and_absent_links [error] {
   let bridge = {address: "0001:02:01.0", driver: "pcieport", parent_address: null, numa_node: 0, iommu_group: "42"}
   let child = {
     address: "0001:03:00.0",
@@ -7928,7 +7920,7 @@ proc test_system_report_pci_binding_reference_resolves_parent_indexes_and_absent
   test.ok(! incomplete.exact)?
 }
 
-proc test_system_report_pci_binding_parent_reference_requires_own_bdf_and_keeps_bridge() [error] {
+test test_system_report_pci_binding_parent_reference_requires_own_bdf_and_keeps_bridge [error] {
   test.eq(
     report_checks.pci_binding_parent_from_target(../../../devices/pci0001:02/0001:02:01.0/0001:03:00.0, "0001:03:00.0")?,
     "0001:02:01.0",
@@ -7940,7 +7932,7 @@ proc test_system_report_pci_binding_parent_reference_requires_own_bdf_and_keeps_
   )?
 }
 
-proc test_system_report_pci_binding_rooted_reference_reads_links_and_unknown_numa() [fs, error] {
+test test_system_report_pci_binding_rooted_reference_reads_links_and_unknown_numa [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let bridge = p"sys/devices/pci0001:02/0001:02:01.0"
@@ -7980,7 +7972,7 @@ proc test_system_report_pci_binding_rooted_reference_reads_links_and_unknown_num
   test.error_kind(report_checks.read_pci_binding_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_thermal_reference_preserves_sparse_trip_indexes_and_brackets_temperature() [error] {
+test test_system_report_thermal_reference_preserves_sparse_trip_indexes_and_brackets_temperature [error] {
   let zone = {
     id: 3,
     kind: "cpu_thermal",
@@ -8023,7 +8015,7 @@ proc test_system_report_thermal_reference_preserves_sparse_trip_indexes_and_brac
   test.ok(report_checks.compare_thermal_zones(thermal_issue, [zone], [zone])?.candidate_field_missing)?
 }
 
-proc test_system_report_thermal_rooted_reference_reads_indexed_sources() [fs, error] {
+test test_system_report_thermal_rooted_reference_reads_indexed_sources [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let zone = p"sys/class/thermal/thermal_zone3"
@@ -8078,7 +8070,7 @@ proc test_system_report_thermal_rooted_reference_reads_indexed_sources() [fs, er
   test.error_kind(report_checks.read_thermal_zone_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_thermal_capture_replays_raw_zone_and_rejects_tampering() [fs, time, error] {
+test test_system_report_thermal_capture_replays_raw_zone_and_rejects_tampering [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -8135,7 +8127,7 @@ proc test_system_report_thermal_capture_replays_raw_zone_and_rejects_tampering()
   test.error_kind(report_checks.validate_thermal_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_thermal_capture_preserves_absent_class_without_scoring() [fs, time, error] {
+test test_system_report_thermal_capture_preserves_absent_class_without_scoring [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -8148,7 +8140,7 @@ proc test_system_report_thermal_capture_preserves_absent_class_without_scoring()
   test.error_kind(report_checks.validate_thermal_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_pci_link_rooted_reference_reads_bounded_attributes() [fs, error] {
+test test_system_report_pci_link_rooted_reference_reads_bounded_attributes [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   let first = p"sys/bus/pci/devices/0000:00:1f.6"
@@ -8200,7 +8192,7 @@ proc test_system_report_pci_link_rooted_reference_reads_bounded_attributes() [fs
   test.error_kind(report_checks.read_pci_link_reference(root), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_lsblk_json_rejects_incomplete_or_unsafe_rows() [error] {
+test test_system_report_lsblk_json_rejects_incomplete_or_unsafe_rows [error] {
   for output in [
     """{"blockdevices":[{"name":"sda"}]}""",
     """{"blockdevices":[{"name":"sda","kname":"sda","maj:min":"8:0","size":9007199254740992,"type":"disk","pkname":null,"ro":false,"rm":false,"rota":true,"log-sec":512,"phy-sec":4096}]}""",
@@ -8211,7 +8203,7 @@ proc test_system_report_lsblk_json_rejects_incomplete_or_unsafe_rows() [error] {
   }
 }
 
-proc test_system_report_lsblk_json_preserves_shared_tree_edges() [error] {
+test test_system_report_lsblk_json_preserves_shared_tree_edges [error] {
   let first = """{"name":"sda","kname":"sda","maj:min":"8:0","size":8192,"type":"disk","pkname":null,"ro":false,"rm":false,"rota":true,"log-sec":512,"phy-sec":4096,"children":[{"name":"cryptroot","kname":"dm-0","maj:min":"253:0","size":4096,"type":"crypt","pkname":"sda","ro":false,"rm":false,"rota":false,"log-sec":512,"phy-sec":4096}]}"""
   let second = """{"name":"sdb","kname":"sdb","maj:min":"8:16","size":8192,"type":"disk","pkname":null,"ro":false,"rm":false,"rota":true,"log-sec":512,"phy-sec":4096,"children":[{"name":"cryptroot","kname":"dm-0","maj:min":"253:0","size":4096,"type":"crypt","pkname":"sdb","ro":false,"rm":false,"rota":false,"log-sec":512,"phy-sec":4096}]}"""
   let before = report_checks.parse_lsblk_json("{\"blockdevices\":[" + first + "," + second + "]}")?
@@ -8223,7 +8215,7 @@ proc test_system_report_lsblk_json_preserves_shared_tree_edges() [error] {
   test.ok(! report_checks.block_reference_stable(before, changed))?
 }
 
-proc test_system_report_lsblk_queue_json_scores_supported_fields() [error] {
+test test_system_report_lsblk_queue_json_scores_supported_fields [error] {
   let output = """{"blockdevices":[{"kname":"sda","sched":"mq-deadline","ra":128,"disc-gran":4096,"disc-max":1048576,"model":"Fixture Disk   ","rev":"1.0"},{"kname":"loop0","sched":null,"ra":null,"disc-gran":null,"disc-max":null,"model":null,"rev":null}]}"""
   let reference = report_checks.parse_lsblk_queue_json(output)?
   test.eq(reference.len(), 2)?
@@ -8244,7 +8236,7 @@ proc test_system_report_lsblk_queue_json_scores_supported_fields() [error] {
   test.ok(report_checks.compare_block_queue_fields(partition, projected)?.exact)?
 }
 
-proc test_system_report_lsblk_queue_json_rejects_duplicate_and_unsafe_rows() [error] {
+test test_system_report_lsblk_queue_json_rejects_duplicate_and_unsafe_rows [error] {
   let row = """{"kname":"sda","sched":"none","ra":128,"disc-gran":4096,"disc-max":1048576,"model":null,"rev":null}"""
   test.error_kind(
     report_checks.parse_lsblk_queue_json("{\"blockdevices\":[" + row + "," + row + "]}"),
@@ -8257,7 +8249,7 @@ proc test_system_report_lsblk_queue_json_rejects_duplicate_and_unsafe_rows() [er
   )?
 }
 
-proc test_system_report_block_queue_raw_sources_bracket_counters_and_firmware() [fs, error] {
+test test_system_report_block_queue_raw_sources_bracket_counters_and_firmware [fs, error] {
   let output = """{"blockdevices":[{"kname":"sda","sched":"none","ra":128,"disc-gran":4096,"disc-max":1048576,"model":"Fixture Disk","rev":null}]}"""
   let queue = report_checks.parse_lsblk_queue_json(output)?
   let root = fs.tempdir()?
@@ -8310,7 +8302,7 @@ proc test_system_report_block_queue_raw_sources_bracket_counters_and_firmware() 
   test.eq(report_checks.read_block_queue_sources(root, queue)?[0].counters.len(), 17)?
 }
 
-proc test_system_report_block_queue_raw_sources_reject_incomplete_and_unsafe_stats() [fs, error] {
+test test_system_report_block_queue_raw_sources_reject_incomplete_and_unsafe_stats [fs, error] {
   let queue = report_checks.parse_lsblk_queue_json(
     """{"blockdevices":[{"kname":"sda","sched":null,"ra":null,"disc-gran":null,"disc-max":null,"model":null,"rev":null}]}""",
   )?
@@ -8337,7 +8329,7 @@ proc test_system_report_block_queue_raw_sources_reject_incomplete_and_unsafe_sta
   test.error_kind(report_checks.read_block_queue_sources(root, unsafe_name), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_findmnt_json_scores_repeated_targets_and_redaction() [error] {
+test test_system_report_findmnt_json_scores_repeated_targets_and_redaction [error] {
   let output = """{"filesystems":[{"id":12,"parent":1,"maj:min":"8:1","fsroot":"/","target":"/mnt/data","fstype":"ext4","source":"/dev/sda1","vfs-options":"rw,relatime","fs-options":"rw,errors=remount-ro,password=private","propagation":"private"},{"id":13,"parent":12,"maj:min":"0:2","fsroot":"/","target":"/mnt/data","fstype":"cifs","source":"//user:private@server/share","vfs-options":"rw,nosuid","fs-options":"rw","propagation":"shared"}]}"""
   let reference = report_checks.parse_findmnt_json(output)?
   test.eq(reference.len(), 2)?
@@ -8367,7 +8359,7 @@ proc test_system_report_findmnt_json_scores_repeated_targets_and_redaction() [er
   test.ok(report_checks.mount_reference_stable(reference, report_checks.parse_findmnt_json(output)?))?
 }
 
-proc test_system_report_findmnt_json_rejects_ambiguous_rows() [error] {
+test test_system_report_findmnt_json_rejects_ambiguous_rows [error] {
   let base = """{"id":12,"parent":1,"maj:min":"8:1","fsroot":"/","target":"/mnt/data","fstype":"ext4","source":"/dev/sda1","vfs-options":"rw","fs-options":"rw","propagation":"private"}"""
   test.error_kind(
     report_checks.parse_findmnt_json("{\"filesystems\":[" + base + "," + base + "]}"),
@@ -8380,7 +8372,7 @@ proc test_system_report_findmnt_json_rejects_ambiguous_rows() [error] {
   )?
 }
 
-proc test_system_report_mountinfo_raw_reference_preserves_ids_escapes_and_options() [error] {
+test test_system_report_mountinfo_raw_reference_preserves_ids_escapes_and_options [error] {
   let raw = """12 1 8:1 / /mnt/data rw,relatime shared:8 - ext4 /dev/sda1 rw,errors=remount-ro,password=private
 13 12 0:2 /tenant\\040one /mnt/tenant\\040one rw master:8 - tmpfs tmpfs rw
 """
@@ -8432,7 +8424,7 @@ proc test_system_report_mountinfo_raw_reference_preserves_ids_escapes_and_option
   )?
 }
 
-proc test_system_report_mountinfo_capture_validates_saved_bytes_and_oracle() [fs, time, error] {
+test test_system_report_mountinfo_capture_validates_saved_bytes_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -8462,7 +8454,7 @@ proc test_system_report_mountinfo_capture_validates_saved_bytes_and_oracle() [fs
   test.error_kind(report_checks.validate_mountinfo_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_mountinfo_capture_preserves_absent_source_without_scoring() [fs, time, error] {
+test test_system_report_mountinfo_capture_preserves_absent_source_without_scoring [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -8472,7 +8464,7 @@ proc test_system_report_mountinfo_capture_preserves_absent_source_without_scorin
   test.error_kind(report_checks.validate_mountinfo_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_mountinfo_capture_replays_production_storage_collector() [fs, time, error] {
+test test_system_report_mountinfo_capture_replays_production_storage_collector [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -8488,7 +8480,7 @@ proc test_system_report_mountinfo_capture_replays_production_storage_collector()
   test.ok(report_checks.replay_mountinfo_bundle(bundle)?.exact)?
 }
 
-proc test_system_report_findmnt_usage_scores_safe_mounts_and_explicit_skips() [error] {
+test test_system_report_findmnt_usage_scores_safe_mounts_and_explicit_skips [error] {
   let mounts = report_checks.parse_findmnt_json(
     """{"filesystems":[{"id":1,"parent":0,"maj:min":"8:1","fsroot":"/","target":"/","fstype":"ext4","source":"/dev/sda1","vfs-options":"rw","fs-options":"rw","propagation":"private"},{"id":2,"parent":1,"maj:min":"0:2","fsroot":"/","target":"/auto","fstype":"autofs","source":"autofs","vfs-options":"rw","fs-options":"rw","propagation":"private"},{"id":3,"parent":2,"maj:min":"8:3","fsroot":"/","target":"/auto/local","fstype":"ext4","source":"/dev/sdb1","vfs-options":"rw","fs-options":"rw","propagation":"private"},{"id":4,"parent":1,"maj:min":"0:4","fsroot":"/","target":"/shared","fstype":"tmpfs","source":"tmpfs","vfs-options":"rw","fs-options":"rw","propagation":"private"},{"id":5,"parent":1,"maj:min":"0:5","fsroot":"/","target":"/shared","fstype":"tmpfs","source":"tmpfs","vfs-options":"rw","fs-options":"rw","propagation":"private"}]}""",
   )?
@@ -8509,7 +8501,7 @@ proc test_system_report_findmnt_usage_scores_safe_mounts_and_explicit_skips() [e
   test.ok(! report_checks.compare_mount_usage(wrong_usage, mounts, before, after)?.exact)?
 }
 
-proc test_system_report_findmnt_usage_rejects_ambiguous_or_unsafe_rows() [error] {
+test test_system_report_findmnt_usage_rejects_ambiguous_or_unsafe_rows [error] {
   test.error_kind(
     report_checks.parse_findmnt_usage_json(
   """{"filesystems":[{"id":1,"size":100,"used":20,"avail":80},{"id":1,"size":100,"used":20,"avail":80}]}""",
@@ -8531,7 +8523,7 @@ proc test_system_report_findmnt_usage_rejects_ambiguous_or_unsafe_rows() [error]
   )?
 }
 
-proc test_system_report_findmnt_usage_keeps_unavailable_capacity_explicit() [error] {
+test test_system_report_findmnt_usage_keeps_unavailable_capacity_explicit [error] {
   let mounts = report_checks.parse_findmnt_json(
     """{"filesystems":[{"id":8,"parent":0,"maj:min":"0:8","fsroot":"/","target":"/opaque","fstype":"overlay","source":"overlay","vfs-options":"rw","fs-options":"rw","propagation":"private"}]}""",
   )?
@@ -8550,7 +8542,7 @@ proc test_system_report_findmnt_usage_keeps_unavailable_capacity_explicit() [err
   test.ok(report_checks.compare_mount_usage(candidate, mounts, [unavailable], [observed])?.unstable)?
 }
 
-proc test_system_report_lsmod_reference_scores_module_values_and_state() [error] {
+test test_system_report_lsmod_reference_scores_module_values_and_state [error] {
   let formatted = """Module                  Size  Used by
 alpha                  4096  2 beta,gamma
 beta                   8192  0
@@ -8596,7 +8588,7 @@ beta 8192 0 - Loading 0x0
   test.ok(report_checks.kernel_module_reference_stable(reference, report_checks.parse_lsmod_reference(formatted, raw)?))?
 }
 
-proc test_system_report_lsmod_reference_rejects_conflicting_or_unsafe_rows() [error] {
+test test_system_report_lsmod_reference_rejects_conflicting_or_unsafe_rows [error] {
   let header = """Module Size Used by
 """
   test.eq(
@@ -8656,7 +8648,7 @@ alpha 4096 0
   )?
 }
 
-proc test_system_report_proc_modules_raw_reference_requires_complete_unique_rows() [error] {
+test test_system_report_proc_modules_raw_reference_requires_complete_unique_rows [error] {
   let reference = report_checks.parse_proc_modules_raw_reference("""alpha 4096 0 - Live 0x0
 beta 8192 1 alpha Live 0x1
 """)?
@@ -8693,7 +8685,7 @@ alpha 4096 0 - Live 0x0
   )?
 }
 
-proc test_system_report_proc_modules_preserves_unavailable_use_count() [error] {
+test test_system_report_proc_modules_preserves_unavailable_use_count [error] {
   let reference = report_checks.parse_proc_modules_raw_reference("""permanent 4096 - - Live 0x0
 """)?
   test.eq(reference.len(), 1)?
@@ -8711,7 +8703,7 @@ proc test_system_report_proc_modules_preserves_unavailable_use_count() [error] {
   )?
 }
 
-proc test_system_report_kernel_modules_capture_validates_raw_source_and_oracle() [fs, time, error] {
+test test_system_report_kernel_modules_capture_validates_raw_source_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -8764,7 +8756,7 @@ beta 8192 2 alpha Live 0x1
   test.eq(report_checks.validate_kernel_modules_bundle(unavailable_bundle)?[0].users, null)?
 }
 
-proc test_system_report_kernel_modules_capture_marks_absent_and_malformed_unscoreable() [fs, time, error] {
+test test_system_report_kernel_modules_capture_marks_absent_and_malformed_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let absent_bundle = fs.tempdir()?
@@ -8791,7 +8783,7 @@ proc test_system_report_kernel_modules_capture_marks_absent_and_malformed_unscor
   test.eq(report_checks.validate_kernel_modules_bundle(empty_bundle)?.len(), 0)?
 }
 
-proc test_system_report_kernel_modules_capture_replays_production_collector() [fs, time, error] {
+test test_system_report_kernel_modules_capture_replays_production_collector [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -8808,7 +8800,7 @@ beta 8192 1 alpha Live 0x1
   test.ok(report_checks.replay_kernel_modules_bundle(bundle)?.exact)?
 }
 
-proc test_system_report_kernel_command_line_reference_preserves_bytes_and_redaction() [error] {
+test test_system_report_kernel_command_line_reference_preserves_bytes_and_redaction [error] {
   let raw = b"  root=UUID=private  quiet  \n"
   let sensitive = json.encode({
     kernel: {
@@ -8837,7 +8829,7 @@ proc test_system_report_kernel_command_line_reference_preserves_bytes_and_redact
   test.ok(! report_checks.compare_kernel_command_line(raw_sensitive, leaked, malformed)?.exact)?
 }
 
-proc test_system_report_kernel_parameter_reference_scores_values_and_absence() [error] {
+test test_system_report_kernel_parameter_reference_scores_values_and_absence [error] {
   let reference: List[KernelParameterReferenceFixture] = [
     {
       name: "kernel.pid_max",
@@ -8869,7 +8861,7 @@ proc test_system_report_kernel_parameter_reference_scores_values_and_absence() [
   test.ok(! report_checks.compare_kernel_parameters(invented, reference)?.exact)?
 }
 
-proc test_system_report_kernel_parameter_reference_rejects_duplicate_or_unexpected_names() [error] {
+test test_system_report_kernel_parameter_reference_rejects_duplicate_or_unexpected_names [error] {
   let reference = [
     {
       name: "kernel.pid_max",
@@ -8915,7 +8907,7 @@ proc test_system_report_kernel_parameter_reference_rejects_duplicate_or_unexpect
   test.ok(! report_checks.compare_kernel_parameters(extra, reference)?.exact)?
 }
 
-proc test_system_report_kernel_parameter_capture_validates_observed_absent_and_tampered_sources() [fs, time, error] {
+test test_system_report_kernel_parameter_capture_validates_observed_absent_and_tampered_sources [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -8980,7 +8972,7 @@ proc test_system_report_kernel_parameter_capture_validates_observed_absent_and_t
   test.error_kind(report_checks.validate_kernel_parameters_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_kernel_parameter_capture_preserves_malformed_utf8_and_rejects_truncation() [fs, time, error] {
+test test_system_report_kernel_parameter_capture_preserves_malformed_utf8_and_rejects_truncation [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   fs.root_mkdir(source, p"proc/sys/kernel", parents: true)?
@@ -9003,7 +8995,7 @@ proc test_system_report_kernel_parameter_capture_preserves_malformed_utf8_and_re
   test.error_kind(report_checks.validate_kernel_parameters_bundle(truncated), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_kernel_parameter_capture_replays_production_collector() [fs, time, error] {
+test test_system_report_kernel_parameter_capture_replays_production_collector [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -9019,7 +9011,7 @@ proc test_system_report_kernel_parameter_capture_replays_production_collector() 
   test.ok(report_checks.replay_kernel_parameters_bundle(bundle)?.exact)?
 }
 
-proc test_system_report_identity_comparison_scores_release_and_architecture_separately() [error] {
+test test_system_report_identity_comparison_scores_release_and_architecture_separately [error] {
   let matching = """{"identity":{"kernel_release":"6.1-test","architecture":"aarch64"}}"""
   let exact = report_checks.compare_identity(matching, "6.1-test", "aarch64")?
   test.ok(exact.release_exact)?
@@ -9035,7 +9027,7 @@ proc test_system_report_identity_comparison_scores_release_and_architecture_sepa
   test.ok(! compared.exact)?
 }
 
-proc test_system_report_os_release_reference_decodes_data_and_requires_candidate_agreement() [error] {
+test test_system_report_os_release_reference_decodes_data_and_requires_candidate_agreement [error] {
   let reference = report_checks.parse_reference_os_release("""ID=example
 VERSION_ID="2026\\"release"
 """)?
@@ -9153,7 +9145,7 @@ VERSION_ID=2
   test.eq(repeated.version_id, "2")?
 }
 
-proc test_system_report_device_tree_reference_requires_exact_terminated_bytes_and_order() [error] {
+test test_system_report_device_tree_reference_requires_exact_terminated_bytes_and_order [error] {
   test.eq(
     report_checks.parse_reference_od_bytes(
   """ 41 52 4d 00
@@ -9218,7 +9210,7 @@ proc test_system_report_device_tree_reference_requires_exact_terminated_bytes_an
   test.ok(! report_checks.compare_device_tree(malformed_optional, model_only, false)?.exact)?
 }
 
-proc test_system_report_device_tree_capture_validates_saved_sources_and_oracle() [fs, time, error] {
+test test_system_report_device_tree_capture_validates_saved_sources_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -9242,7 +9234,7 @@ proc test_system_report_device_tree_capture_validates_saved_sources_and_oracle()
   test.error_kind(report_checks.validate_device_tree_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_device_tree_capture_keeps_unavailable_sources_unscoreable() [fs, time, error] {
+test test_system_report_device_tree_capture_keeps_unavailable_sources_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let absent = fs.tempdir()?
@@ -9275,7 +9267,7 @@ proc test_system_report_device_tree_capture_keeps_unavailable_sources_unscoreabl
   test.error_kind(report_checks.validate_device_tree_bundle(truncated), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_device_tree_capture_replays_production_collector() [fs, time, error] {
+test test_system_report_device_tree_capture_replays_production_collector [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -9287,7 +9279,7 @@ proc test_system_report_device_tree_capture_replays_production_collector() [fs, 
   test.ok(report_checks.replay_device_tree_bundle(bundle)?.exact)?
 }
 
-proc test_system_report_dmi_identity_reference_scores_raw_fields_and_sensitive_observations() [error] {
+test test_system_report_dmi_identity_reference_scores_raw_fields_and_sensitive_observations [error] {
   let reference = {
     vendor: {
       value: "Example Vendor",
@@ -9401,7 +9393,7 @@ proc test_system_report_dmi_identity_reference_scores_raw_fields_and_sensitive_o
   test.ok("vendor" in fabricated.field_mismatches)?
 }
 
-proc test_system_report_dmi_identity_rooted_reference_reads_optional_fields() [fs, error] {
+test test_system_report_dmi_identity_rooted_reference_reads_optional_fields [fs, error] {
   let root = fs.tempdir()?
   defer fs.close_root(root)?
   fs.root_mkdir(root, p"sys/class/dmi/id", parents: true)?
@@ -9429,7 +9421,7 @@ proc test_system_report_dmi_identity_rooted_reference_reads_optional_fields() [f
   test.eq(reference.uuid, {value: null, complete: true})?
 }
 
-proc test_system_report_dmi_identity_capture_validates_saved_sources_and_oracle() [fs, time, error] {
+test test_system_report_dmi_identity_capture_validates_saved_sources_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -9485,7 +9477,7 @@ proc test_system_report_dmi_identity_capture_validates_saved_sources_and_oracle(
   test.error_kind(report_checks.validate_dmi_identity_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_dmi_identity_capture_keeps_unavailable_sources_unscoreable() [fs, time, error] {
+test test_system_report_dmi_identity_capture_keeps_unavailable_sources_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let absent = fs.tempdir()?
@@ -9510,7 +9502,7 @@ proc test_system_report_dmi_identity_capture_keeps_unavailable_sources_unscoreab
   test.error_kind(report_checks.validate_dmi_identity_bundle(truncated), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_dmi_identity_capture_replays_production_collector() [fs, time, error] {
+test test_system_report_dmi_identity_capture_replays_production_collector [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -9540,7 +9532,7 @@ proc test_system_report_dmi_identity_capture_replays_production_collector() [fs,
   test.ok(replay.default_redacted)?
 }
 
-proc test_system_report_device_tree_od_reference_reads_bounded_raw_source() [fs, process, time, error] {
+test test_system_report_device_tree_od_reference_reads_bounded_raw_source [fs, process, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let scratch = fs.tempdir()?
@@ -9563,7 +9555,7 @@ proc test_system_report_device_tree_od_reference_reads_bounded_raw_source() [fs,
   test.eq(absent.data, null)?
 }
 
-proc test_system_report_live_reference_rejects_synthetic_candidate_mode() [error] {
+test test_system_report_live_reference_rejects_synthetic_candidate_mode [error] {
   report_checks.require_live_linux_report("""{"source_mode":"live_linux"}""")?
   test.error_kind(
     report_checks.require_live_linux_report("""{"source_mode":"synthetic_fixture"}"""),
@@ -9572,7 +9564,7 @@ proc test_system_report_live_reference_rejects_synthetic_candidate_mode() [error
   test.error_kind(report_checks.require_live_linux_report("""{"source_mode":null}"""), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_uptime_reference_requires_a_bracketed_integer_second() [error] {
+test test_system_report_uptime_reference_requires_a_bracketed_integer_second [error] {
   test.eq(
     report_checks.parse_reference_uptime_seconds("""123.456 987.654
 """)?,
@@ -9620,7 +9612,7 @@ proc test_system_report_uptime_reference_requires_a_bracketed_integer_second() [
   test.error_kind(report_checks.compare_uptime(candidate, 125, 123), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_uptime_capture_validates_saved_source_and_oracle() [fs, time, error] {
+test test_system_report_uptime_capture_validates_saved_source_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -9658,7 +9650,7 @@ proc test_system_report_uptime_capture_validates_saved_source_and_oracle() [fs, 
   test.error_kind(report_checks.validate_uptime_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_uptime_capture_keeps_absent_malformed_and_truncated_unscoreable() [fs, time, error] {
+test test_system_report_uptime_capture_keeps_absent_malformed_and_truncated_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let absent = fs.tempdir()?
@@ -9693,7 +9685,7 @@ ${padding}""",
   test.error_kind(report_checks.validate_uptime_bundle(truncated), "SystemReportCheckError.Invalid")?
 }
 
-proc test_system_report_uptime_capture_replays_production_identity() [fs, time, error] {
+test test_system_report_uptime_capture_replays_production_identity [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
   let bundle = fs.tempdir()?
@@ -9709,7 +9701,7 @@ proc test_system_report_uptime_capture_replays_production_identity() [fs, time, 
   test.ok(report_checks.replay_uptime_bundle(bundle)?.bracketed)?
 }
 
-proc test_system_report_namespace_reference_requires_observed_exact_targets() [error] {
+test test_system_report_namespace_reference_requires_observed_exact_targets [error] {
   let reference = [
     {
       field: "mount_namespace",

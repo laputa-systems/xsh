@@ -1,7 +1,7 @@
 type RecordBuild = {jobs: Int, target: Str}
 type RecordConfig = {root: Str, build: RecordBuild}
 
-proc test_nested_renamed_record_binding_preserves_field_types() [error] {
+test test_nested_renamed_record_binding_preserves_field_types [error] {
   let config: RecordConfig = {root: "src", build: {jobs: 3, target: "native"}}
   let {root, build: {jobs, target: target_name, ..}, ..} = config
   test.eq(root, "src")?
@@ -9,7 +9,7 @@ proc test_nested_renamed_record_binding_preserves_field_types() [error] {
   test.eq(target_name.upper(), "NATIVE")?
 }
 
-proc test_nested_record_var_values_preserve_source_aliases() [error] {
+test test_nested_record_var_values_preserve_source_aliases [error] {
   let config: RecordConfig = {root: "src", build: {jobs: 3, target: "native"}}
   var {build: selected_build, root: _, ..} = config
   selected_build.jobs = 9
@@ -20,7 +20,7 @@ proc test_nested_record_var_values_preserve_source_aliases() [error] {
   test.eq(config.build.jobs, 3)?
 }
 
-proc test_nested_record_iteration_and_comprehension_targets() [error] {
+test test_nested_record_iteration_and_comprehension_targets [error] {
   let configs: List[RecordConfig] = [
     {root: "src", build: {jobs: 3, target: "native"}},
     {root: "lib", build: {jobs: 1, target: "other"}},
@@ -40,7 +40,7 @@ pure record_config_result() -> Result[RecordConfig] {
   return Ok({root: "src", build: {jobs: 3, target: "native"}})
 }
 
-proc test_nested_record_guard_target() [error] {
+test test_nested_record_guard_target [error] {
   guard let {root, build: {jobs, target: target_name, ..}, ..} = record_config_result() else {
     return
   }
@@ -49,7 +49,7 @@ proc test_nested_record_guard_target() [error] {
   test.eq(target_name, "native")?
 }
 
-proc test_nested_record_iteration_restores_shadowed_outer_bindings() [error] {
+test test_nested_record_iteration_restores_shadowed_outer_bindings [error] {
   let jobs = 40
   let configs: List[RecordConfig] = [{root: "src", build: {jobs: 3, target: "native"}}]
   for {build: {jobs, ..}, ..} in configs {
@@ -65,7 +65,7 @@ proc test_nested_record_iteration_restores_shadowed_outer_bindings() [error] {
   test.eq(jobs, 40)?
 }
 
-proc test_nested_record_source_once_and_stream_cleanup(ctx: TestContext) [error] {
+test test_nested_record_source_once_and_stream_cleanup [error] { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -93,7 +93,7 @@ for {build: {target: target_name, ..}, ..} in configs() {
   test.eq(output.stdout, "source\nsrc:3:native\nnative\nclosed\n")?
 }
 
-proc test_nested_record_dynamic_stream_selection_failure_runs_cleanup(ctx: TestContext) [error] {
+test test_nested_record_dynamic_stream_selection_failure_runs_cleanup [error] { |ctx|
   let output = test.run_script(
     ctx,
     """

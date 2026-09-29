@@ -975,11 +975,11 @@ fn xsht_test_discovers_tests_from_current_directory() {
     std::fs::write(
         root.join("tests/sub/main.xsh"),
         r#"
-proc test_alpha() [error] {
+test test_alpha [error] {
   test.eq("a", "a")?
 }
 
-proc test_beta() [error] {
+test test_beta [error] {
   test.eq("b", "b")?
 }
 "#,
@@ -1072,7 +1072,7 @@ export pure value() -> Str {
         root.join("tests/main.xsh"),
         r#"use helper
 
-proc test_imported_helper() [error] {
+test test_imported_helper [error] {
   test.eq(helper.value(), "ok")?
 }
 "#,
@@ -1119,7 +1119,7 @@ export pure value() -> Str {
         root.join("tests/main.xsh"),
         r#"use helper
 
-proc test_imported_helper() [error] {
+test test_imported_helper [error] {
   test.eq(helper.value(), "ok")?
 }
 "#,
@@ -1155,7 +1155,7 @@ fn xsht_test_reports_failures_and_can_keep_temp_roots() {
     std::fs::write(
         root.join("tests/main.xsh"),
         r#"
-proc test_alpha(ctx: TestContext) [fs, io, error] {
+test test_alpha [fs, io, error] { |ctx|
   print ${ctx.temp_root.display()}
   print "alpha stdout"
   eprint "alpha stderr"
@@ -1163,7 +1163,7 @@ proc test_alpha(ctx: TestContext) [fs, io, error] {
   test.fail("alpha failed")?
 }
 
-proc test_beta() [error] {
+test test_beta [error] {
   test.fail("beta should not run")?
 }
 "#,
@@ -1230,7 +1230,7 @@ fn xsht_test_captures_process_output_by_default() {
     std::fs::write(
         root.join("tests/main.xsh"),
         r#"
-proc test_process_output() [process, error] {
+test test_process_output [process, error] {
   let command = process.command_argv(
     "sh",
     ["sh", "-c", "printf process-stdout; printf process-stderr >&2"],
@@ -1388,7 +1388,7 @@ fn xsht_test_cov_json_includes_nested_xsh_processes() {
         root.join("tests/main.xsh"),
         format!(
             r#"
-proc test_child_coverage() [process, error] {{
+test test_child_coverage [process, error] {{
   let output = run.text (Path({})) (Path({})) ?
   test.ok(output.trim().parse_int()? > 0)?
 }}

@@ -1,16 +1,16 @@
-proc test_run_retry() [process, error] {
+test test_run_retry [process, error] {
   let ok = run.text "xsh" "showcase/run-retry.xsh" -- true ?
   test.contains(ok, "ok (try 1)")?
 }
 
-proc test_run_retry_exhaustion_exits_unsuccessfully(ctx: TestContext) [fs, process, error] {
+test test_run_retry_exhaustion_exits_unsuccessfully [fs, process, error] { |ctx|
   let output = test.temp_path(ctx, name: "run-retry-output")
   let status = run.status "xsh" "showcase/run-retry.xsh" -- false > $output
   test.ok(status.exited_with(1), "exhausted retries must fail the command")?
   test.contains(output.read_text()?, "failed after 3")?
 }
 
-proc test_run_retry_cancellation_reaps_child_descendants(ctx: TestContext) [fs, process, time, error] {
+test test_run_retry_cancellation_reaps_child_descendants [fs, process, time, error] { |ctx|
   let ready = test.temp_path(ctx, name: "retry-child-ready")
   let leaked = test.temp_path(ctx, name: "retry-child-leaked")
   let executable = fp"${fs.cwd()?}/target/debug/xsh"

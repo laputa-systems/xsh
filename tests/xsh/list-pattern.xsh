@@ -8,7 +8,7 @@ pure list_shape(values: List[Int]) -> Str {
   }
 }
 
-proc test_list_pattern_exact_and_trailing_rest() [error] {
+test test_list_pattern_exact_and_trailing_rest [error] {
   test.eq(list_shape([]), "empty")?
   test.eq(list_shape([4]), "many:4:0")?
   test.eq(list_shape([4, 5]), "two:4:5")?
@@ -20,7 +20,7 @@ proc test_list_pattern_exact_and_trailing_rest() [error] {
   test.eq(selected, "kernel")?
 }
 
-proc test_list_pattern_nested_records_and_constructors() [error] {
+test test_list_pattern_nested_records_and_constructors [error] {
   let values: List[ListEntry] = [
     {labels: ["build", "kernel"], result: Ok(7)},
   ]
@@ -34,7 +34,7 @@ proc test_list_pattern_nested_records_and_constructors() [error] {
   test.eq(selected, "kernel:7:0")?
 }
 
-proc test_list_pattern_mismatch_does_not_index_or_publish_bindings() [error] {
+test test_list_pattern_mismatch_does_not_index_or_publish_bindings [error] {
   let short = match [1] {
     [first, 99] => first
     [matched] => matched + 10
@@ -49,7 +49,7 @@ proc test_list_pattern_mismatch_does_not_index_or_publish_bindings() [error] {
   test.eq(nested, 5)?
 }
 
-proc test_list_pattern_rest_preserves_value_semantics() [error] {
+test test_list_pattern_rest_preserves_value_semantics [error] {
   var values = [1, 2, 3]
   let rest = match values {
     [_, ..tail] => tail
@@ -64,7 +64,7 @@ proc test_list_pattern_rest_preserves_value_semantics() [error] {
   test.eq(values, [1, 2, 3, 99])?
 }
 
-proc test_list_pattern_nonbinding_predicates() [error] {
+test test_list_pattern_nonbinding_predicates [error] {
   let values = ["build", "kernel"]
   test.eq(values is ["build", _], true)?
   test.eq(values is ["build", _, ..], true)?
@@ -73,7 +73,7 @@ proc test_list_pattern_nonbinding_predicates() [error] {
   test.eq(values is [..], true)?
 }
 
-proc test_list_pattern_dynamic_elements_keep_type_narrowing() [error] {
+test test_list_pattern_dynamic_elements_keep_type_narrowing [error] {
   let value = json.decode("[7, \"kernel\"]")?
   let selected = match value {
     [count is Int, name is Str] => f"${count + 1}:${name.upper()}"
@@ -85,7 +85,7 @@ proc test_list_pattern_dynamic_elements_keep_type_narrowing() [error] {
   test.eq(scalar is [..], false)?
 }
 
-proc test_list_pattern_rejects_unsupported_subjects_and_bindings(ctx: TestContext) [error] {
+test test_list_pattern_rejects_unsupported_subjects_and_bindings [error] { |ctx|
   for source in [
     "let selected = match \"abc\" { [_, ..] => 1 _ => 0 }\n",
     "let selected = match b\"abc\" { [_, ..] => 1 _ => 0 }\n",
@@ -109,7 +109,7 @@ proc test_list_pattern_rejects_unsupported_subjects_and_bindings(ctx: TestContex
   test.ok(! ordinary.success, ordinary.stderr)?
 }
 
-proc test_list_pattern_rejects_middle_and_duplicate_rests(ctx: TestContext) [error] {
+test test_list_pattern_rejects_middle_and_duplicate_rests [error] { |ctx|
   for source in [
     "let selected = match [1, 2] { [..tail, last] => last _ => 0 }\n",
     "let selected = match [1, 2] { [first, ..tail, ..other] => first _ => 0 }\n",
@@ -120,7 +120,7 @@ proc test_list_pattern_rejects_middle_and_duplicate_rests(ctx: TestContext) [err
   }
 }
 
-proc test_list_pattern_exhaustiveness_is_conservative(ctx: TestContext) [error] {
+test test_list_pattern_exhaustiveness_is_conservative [error] { |ctx|
   for source in [
     "pure selected(values: List[Int]) -> Int { match values { [] => 0, [_, ..] => 1 } }\n",
     "pure selected(values: List[Int]) -> Int { match values { [..tail] => tail.len() } }\n",
@@ -139,7 +139,7 @@ proc test_list_pattern_exhaustiveness_is_conservative(ctx: TestContext) [error] 
   }
 }
 
-proc test_list_pattern_rejects_duplicates_and_honors_guards(ctx: TestContext) [error] {
+test test_list_pattern_rejects_duplicates_and_honors_guards [error] { |ctx|
   let guarded = match [1, 2] {
     [head, ..tail] if head == 9 => tail.len()
     [head, ..tail] => head + tail.len()
@@ -153,7 +153,7 @@ proc test_list_pattern_rejects_duplicates_and_honors_guards(ctx: TestContext) [e
   test.ok(unreachable.success, unreachable.stderr)?
 }
 
-proc test_list_pattern_ordinary_literals() [error] {
+test test_list_pattern_ordinary_literals [error] {
   let values = json.decode("[null, true, 1.5]")?
   test.eq(values is [null, true, 1.5], true)?
   test.eq([b"abc"] is [b"abc"], true)?

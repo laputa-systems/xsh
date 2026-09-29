@@ -65,6 +65,51 @@ impl Checker {
         }
     }
 
+    fn check_test_declaration_names_arena(
+        &mut self, program: &ArenaProgram, statements: &[StmtId], module: bool,
+    ) {
+        let mut tests = FxHashSet::default();
+        for &statement in statements {
+            let (kind, span) = exported_stmt_kind_arena(program, statement);
+            if let ArenaStmtKind::ProcDef(id) = kind {
+                let def = program.arena.function_def(id);
+                if def.test_declaration && !tests.insert(def.name) && module {
+                    self.error(span, "duplicate module test name", "check.duplicate-name");
+                }
+            }
+        }
+        for &statement in statements {
+            let (kind, span) = exported_stmt_kind_arena(program, statement);
+            let mut names = Vec::new();
+            match kind {
+                ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. } => {
+                    let mut targets = vec![target];
+                    while let Some(target) = targets.pop() {
+                        match program.arena.binding_target(target).kind {
+                            ArenaBindingTargetKind::Name(name) => names.push(name),
+                            ArenaBindingTargetKind::Record { fields, .. } => targets.extend(
+                                program.arena.destructure_fields(fields).iter().map(|field| field.target)),
+                        }
+                    }
+                }
+                ArenaStmtKind::Use(id) => {
+                    let declaration = program.arena.use_stmt(id);
+                    names.extend(declaration.alias.or_else(|| program.arena.names(declaration.path).last()));
+                }
+                ArenaStmtKind::ProcDef(id) | ArenaStmtKind::PureDef(id) | ArenaStmtKind::StreamDef(id)
+                    if module && !program.arena.function_def(id).test_declaration => {
+                    names.push(program.arena.function_def(id).name);
+                }
+                ArenaStmtKind::TypeDef(id) if module => names.push(program.arena.type_def(id).name),
+                ArenaStmtKind::ErrorDef(id) if module => names.push(program.arena.error_def(id).name),
+                _ => {}
+            }
+            if names.iter().any(|name| tests.contains(name)) {
+                self.error(span, "name conflicts with a test declaration", "check.duplicate-name");
+            }
+        }
+    }
+
     pub(super) fn collect_definitions_arena(
         &mut self,
         program: &ArenaProgram,
@@ -73,6 +118,7 @@ impl Checker {
         statements: impl IntoIterator<Item = StmtId>,
     ) {
         let stmt_ids: Vec<StmtId> = statements.into_iter().collect();
+        self.check_test_declaration_names_arena(program, &stmt_ids, false);
         let mut names = FxHashSet::default();
         for stmt_id in &stmt_ids {
             let (kind, span) = exported_stmt_kind_arena(program, *stmt_id);
@@ -169,7 +215,7 @@ impl Checker {
                 ArenaStmtKind::ProcDef(def_id) => {
                     let def = program.arena.function_def(def_id);
                     let sig = self.function_sig_arena(program, source, def_id);
-                    self.procs.insert(def.name, sig);
+                    if !def.test_declaration { self.procs.insert(def.name, sig); }
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
@@ -215,6 +261,7 @@ impl Checker {
         self.define_standard_values();
 
         let stmt_ids: Vec<StmtId> = program.module_statements(module).collect();
+        self.check_test_declaration_names_arena(program, &stmt_ids, true);
         if !module.internal { self.check_public_docs(program, module.statements, &stmt_ids); }
         self.collect_type_imports_arena(program, stmt_ids.iter().copied());
         let mut names = FxHashSet::default();
@@ -249,7 +296,7 @@ impl Checker {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
                     let sig = self.function_sig_arena(program, source, def_id);
-                    self.procs.insert(def.name, sig);
+                    if !def.test_declaration { self.procs.insert(def.name, sig); }
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);

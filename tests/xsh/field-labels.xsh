@@ -1,7 +1,7 @@
 type WireEntry = {type: Str, in: Int, match: Bool = true}
 error WireError = Invalid(type: Str, in: Int)
 
-proc test_keyword_field_labels_preserve_known_types_and_wire_bytes() [error] {
+test test_keyword_field_labels_preserve_known_types_and_wire_bytes [error] {
   let entry = WireEntry(type: "file", in: 2)
   test.eq(entry.type, "file")?
   test.eq(entry.in, 2)?

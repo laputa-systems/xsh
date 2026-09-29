@@ -1,4 +1,4 @@
-proc test_tee_input_file(ctx: TestContext) [fs, process, env, error] {
+test test_tee_input_file [fs, process, env, error] { |ctx|
   let input = test.temp_file(ctx, name: "input.txt", contents: b"hello\n")?
   let out = test.temp_path(ctx, name: "out.txt")
   let stdout = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tee.xsh" -- --input $input $out ?
@@ -16,7 +16,7 @@ proc test_tee_input_file(ctx: TestContext) [fs, process, env, error] {
   )?
 }
 
-proc test_tee_reads_stdin_and_appends(ctx: TestContext) [fs, process, env, error] {
+test test_tee_reads_stdin_and_appends [fs, process, env, error] { |ctx|
   let input = test.temp_file(ctx, name: "stdin.txt", contents: b"second\n")?
   let out = test.temp_path(ctx, name: "append.txt")
 
@@ -39,7 +39,7 @@ second
   )?
 }
 
-proc test_tee_preserves_non_utf8_bytes_and_appends(ctx: TestContext) [fs, process, env, error] {
+test test_tee_preserves_non_utf8_bytes_and_appends [fs, process, env, error] { |ctx|
   let input = test.temp_file(ctx, name: "binary.dat", contents: b"\0\xff\n")?
   let out = test.temp_path(ctx, name: "binary-out.dat")
   test.eq(run.bytes ${ctx.xsh_bin} fp"${ctx.core_dir}/tee.xsh" -- --input $input $out?, b"\0\xff\n")?

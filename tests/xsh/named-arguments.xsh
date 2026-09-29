@@ -2,7 +2,7 @@ pure named_argument_values(first: Int, second: Int, third: Int = 30) -> List[Int
   [first, second, third]
 }
 
-proc test_named_argument_puns_use_lexical_values() [error] {
+test test_named_argument_puns_use_lexical_values [error] {
   let first = 10
   let second = 20
   let third = 40
@@ -18,7 +18,7 @@ proc test_named_argument_puns_use_lexical_values() [error] {
   )?
 }
 
-proc test_named_argument_puns_preserve_source_order_and_effects(ctx: TestContext) [error] {
+test test_named_argument_puns_preserve_source_order_and_effects [error] { |ctx|
   let executed = test.run_script(
     ctx,
     """proc marked(label: Str, value: Int) -> Int {
@@ -39,7 +39,7 @@ print $result
   test.eq(executed.stdout, "first\nthird\n60\n")?
 }
 
-proc test_named_argument_puns_keep_resolution_and_call_errors(ctx: TestContext) [error] {
+test test_named_argument_puns_keep_resolution_and_call_errors [error] { |ctx|
   let missing = test.run_script(
     ctx,
     """pure accept(value: Int) -> Int { value }
@@ -76,7 +76,7 @@ print $result
   test.contains(wrong_type.stderr, "Str")?
 }
 
-proc test_named_argument_puns_apply_to_module_and_method_calls(ctx: TestContext) [fs, error] {
+test test_named_argument_puns_apply_to_module_and_method_calls [fs, error] { |ctx|
   let name = "punned-temp.xsh"
   let contents = b"punning"
   let candidate = test.temp_file(ctx, name:, contents:)?
@@ -86,7 +86,7 @@ proc test_named_argument_puns_apply_to_module_and_method_calls(ctx: TestContext)
   test.eq(b"abcde".slice(offset:, length:), b"bcd")?
 }
 
-proc test_named_argument_pun_tooling_preserves_behavior_and_is_idempotent(ctx: TestContext) [fs, process, error] {
+test test_named_argument_pun_tooling_preserves_behavior_and_is_idempotent [fs, process, error] { |ctx|
   let source = p"tests/fixtures/syntax/valid/named-argument-pun-explicit.xsh".read_text()?
   let before = test.run_script(ctx, source)?
   test.ok(before.success, before.stderr)?
@@ -107,7 +107,7 @@ proc test_named_argument_pun_tooling_preserves_behavior_and_is_idempotent(ctx: T
   test.ok(formatted.status.exited_with(0), formatted.stderr)?
 }
 
-proc test_named_argument_pun_fixes_shared_import_once(ctx: TestContext) [fs, process, error] {
+test test_named_argument_pun_fixes_shared_import_once [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "named-pun-shared")?
   let helper = fp"${root}/helper.xsh"
   helper.write_atomic(p"tests/fixtures/syntax/valid/named-argument-pun-module.xsh".read_text()?)?

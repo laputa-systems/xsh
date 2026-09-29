@@ -386,3 +386,11 @@ An inferred Result tail remains nested data; only propagation contributes its
 error family to the captured Result. A Unit success annotation consumes the
 tail as a statement, preserving Bool assertions and Result[Unit] propagation.
 Underconstrained error-only blocks require a success annotation.
+
+## Native test declarations
+
+`test NAME [effects]? { |ctx| ... }` checks its body as `Result[Unit]` through
+the ordinary proc body checker. The optional block parameter is an immutable
+`TestContext`; `_` discards it. The name participates in declaration collisions
+but never enters the ordinary callable namespace. Explicit effect lists retain
+the normal proc restrictions, and registration performs no evaluation.

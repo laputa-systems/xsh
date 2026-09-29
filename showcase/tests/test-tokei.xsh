@@ -1,4 +1,4 @@
-proc test_tokei_json_shape_counts_and_ignores(ctx: TestContext) [fs, process, error] {
+test test_tokei_json_shape_counts_and_ignores [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "tokei-root")?
 
   fp"${root}/.tokeignore".write("""ignored

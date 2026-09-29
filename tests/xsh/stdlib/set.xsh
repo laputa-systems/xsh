@@ -1,4 +1,4 @@
-proc test_set_module() [error] {
+test test_set_module [error] {
   let empty = set.empty()
   test.ok(! set.has(empty, "alpha"))?
   let items = set.from(["alpha", "beta", "alpha"])

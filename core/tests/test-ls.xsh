@@ -1,4 +1,4 @@
-proc test_ls(ctx: TestContext) [fs, process, env, error] {
+test test_ls [fs, process, env, error] { |ctx|
   let root = test.temp_dir(ctx, name: "ls")?
   fp"${root}/a.txt".write("a")?
   fp"${root}/b.txt".write("bb")?

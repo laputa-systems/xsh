@@ -55,7 +55,7 @@ pure rest_field(result: Result[Record], name: Str) -> Str {
   }
 }
 
-proc test_cli_usage_renders_the_command_line_and_its_sections() [error] {
+test test_cli_usage_renders_the_command_line_and_its_sections [error] {
   # Positionals contribute to the command line in sorted schema-name order, and
   # each is bare when it is required and bracketed when it is not. A positional
   # with no explicit `required` and no default is required; an explicit
@@ -170,7 +170,7 @@ options:
   )?
 }
 
-proc test_cli_usage_rejects_a_schema_it_cannot_interpret(ctx: TestContext) [error] {
+test test_cli_usage_rejects_a_schema_it_cannot_interpret [error] { |ctx|
   # A renderer reads the schema with the same interpreter the parser uses, so a
   # descriptor that interpreter rejects rejects the whole call with its kind and
   # message, exactly as the baseline's native route does. The rejection is a
@@ -210,7 +210,7 @@ print cli.usage({helper: {kind: "Bool", long: ["help"]}}, "demo")
   test.contains(reserved_help.stderr, "cli-parse: `--help` is reserved by cli.parse")?
 }
 
-proc test_cli_tokens_splits_values_clusters_and_operands() [error] {
+test test_cli_tokens_splits_values_clusters_and_operands [error] {
   # A long option carries an attached value; a short name that takes a value
   # consumes the rest of its cluster or the next argument; a negative number,
   # `-`, and everything after `--` are operands. A token with no value records
@@ -257,7 +257,7 @@ proc test_cli_tokens_splits_values_clusters_and_operands() [error] {
   test.eq(cli.tokens([])?.len(), 0)?
 }
 
-proc test_cli_commands_dispatch_names_aliases_and_forms() [fs, error] {
+test test_cli_commands_dispatch_names_aliases_and_forms [fs, error] {
   let schema = {
     build: {
       positionals: [
@@ -353,7 +353,7 @@ proc test_cli_commands_dispatch_names_aliases_and_forms() [fs, error] {
   )?
 }
 
-proc test_cli_commands_rootless_and_fallback_routing() [fs, error] {
+test test_cli_commands_rootless_and_fallback_routing [fs, error] {
   let schema = {build: {rest: "raw"}, clean: {positionals: ["root"], types: {root: "Str"}}}
 
   # A rootless default takes a first token that names no command, and the whole
@@ -407,7 +407,7 @@ proc test_cli_commands_rootless_and_fallback_routing() [fs, error] {
   )?
 }
 
-proc test_cli_commands_convert_positionals_and_collect_the_rest() [fs, error] {
+test test_cli_commands_convert_positionals_and_collect_the_rest [fs, error] {
   let basic = {t: {positionals: ["n", "where"], types: {n: "Int", where: "Path"}}}
 
   # The declared type decides the conversion: an integer, a path, a flag
@@ -504,7 +504,7 @@ proc test_cli_commands_convert_positionals_and_collect_the_rest() [fs, error] {
   test.not_contains(failure_message(cli.commands([], basic)), "usage:")?
 }
 
-proc test_cli_command_options_split_values_and_defaults() [fs, error] {
+test test_cli_command_options_split_values_and_defaults [fs, error] {
   let schema = {
     go: {
       positionals: [
@@ -616,7 +616,7 @@ proc test_cli_command_options_split_values_and_defaults() [fs, error] {
   test.eq(rest_field(cli.commands(["build", "--", "-x"], {build: {rest: "raw"}}), "raw"), "--,-x")?
 }
 
-proc test_cli_command_options_validate_values_and_relationships() [fs, error] {
+test test_cli_command_options_validate_values_and_relationships [fs, error] {
   # Conflicting, required, and grouped options are checked after the walk, in
   # sorted schema-name order, so the first relationship that fails is the one
   # reported.
@@ -789,7 +789,7 @@ proc test_cli_command_options_validate_values_and_relationships() [fs, error] {
   )?
 }
 
-proc test_cli_command_option_path_constraints(ctx: TestContext) [fs, error] {
+test test_cli_command_option_path_constraints [fs, error] { |ctx|
   let present = test.temp_file(ctx, name: "cli-present.txt", contents: b"text")?
   let root = test.temp_dir(ctx, name: "cli-root")?
   let missing = test.temp_path(ctx, name: "cli-missing")
@@ -887,7 +887,7 @@ proc test_cli_command_option_path_constraints(ctx: TestContext) [fs, error] {
   )?
 }
 
-proc test_cli_parse_returns_values_and_asks_for_help() [fs, error] {
+test test_cli_parse_returns_values_and_asks_for_help [fs, error] {
   # A supplied value keeps the spelling it was given, takes the declared type,
   # or is `true` for a flag that appeared. An entry no argument supplies falls
   # back to its default, to `false` for a flag, and to `null` for an optional
@@ -979,7 +979,7 @@ options:
   )?
 }
 
-proc test_cli_parse_full_reports_sources_and_warnings() [fs, error] {
+test test_cli_parse_full_reports_sources_and_warnings [fs, error] {
   # `parse_full` reports the record `parse` returns under `values`, where every
   # value came from under `sources`, and the walk's warnings. A value an
   # argument supplied names `argv`, an environment name it read names `env`, a
@@ -1053,7 +1053,7 @@ options:
   )?
 }
 
-proc test_cli_applet_applies_the_three_policy_deltas() [fs, error] {
+test test_cli_applet_applies_the_three_policy_deltas [fs, error] {
   # One: the short `h` is not reserved, so an applet may claim it. The strict
   # reader rejects that schema outright, and the applet's help line then names
   # `--help` alone because `-h` belongs to the descriptor.
@@ -1166,7 +1166,7 @@ options:
   )?
 }
 
-proc test_cli_parse_names_the_program_and_presents_at_the_boundary(ctx: TestContext) [fs, error] {
+test test_cli_parse_names_the_program_and_presents_at_the_boundary [fs, error] { |ctx|
   # The usage label defaults to the name the program was invoked under, read
   # when the entry is called: the nested script is named for the label, so its
   # usage line starts with that name rather than with the renderer's own

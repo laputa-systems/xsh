@@ -1,4 +1,4 @@
-proc test_ecount_counts_extensions(ctx: TestContext) [fs, process, error] {
+test test_ecount_counts_extensions [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "ecount-root")?
   fp"${root}/a.txt".write("alpha")?
   fp"${root}/b.txt".write("beta")?
@@ -15,7 +15,7 @@ proc test_ecount_counts_extensions(ctx: TestContext) [fs, process, error] {
   test.eq(output.split("README").len(), 1)?
 }
 
-proc test_ecount_can_sum_sizes(ctx: TestContext) [fs, process, error] {
+test test_ecount_can_sum_sizes [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "ecount-size-root")?
   fp"${root}/a.bin".write("abcd")?
   fp"${root}/b.log".write("x")?

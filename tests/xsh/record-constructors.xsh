@@ -3,7 +3,7 @@ type ConstructorConfig = {name: Str, enabled: Bool = true, names: List[Str] = re
 type ConstructorAlias = ConstructorConfig
 pure constructor_config(name: Str) -> ConstructorConfig { ConstructorConfig(name:) }
 
-proc test_record_constructors_defaults_aliases_and_puns() [error] {
+test test_record_constructors_defaults_aliases_and_puns [error] {
   let name = "demo"
   let config = ConstructorAlias(name:)
   test.eq(constructor_config("pure").name, "pure")?
@@ -22,7 +22,7 @@ proc test_record_constructors_defaults_aliases_and_puns() [error] {
   test.eq(record_default_names, ["initial"])?
 }
 
-proc test_record_constructors_evaluate_supplied_arguments_in_source_order(ctx: TestContext) [error] {
+test test_record_constructors_evaluate_supplied_arguments_in_source_order [error] { |ctx|
   let executed = test.run_script(ctx, r"""type Pair = {first: Int = 0, second: Int = 0}
 proc marked(value: Int) -> Int {
   print $value
@@ -36,7 +36,7 @@ print $pair.second
   test.eq(executed.stdout, "2\n1\n1\n2\n")?
 }
 
-proc test_record_constructors_reject_invalid_calls_and_defaults(ctx: TestContext) [error] {
+test test_record_constructors_reject_invalid_calls_and_defaults [error] { |ctx|
   for source in [
     "type Config = {name: Str}\nlet config = Config()\n",
     "type Config = {name: Str}\nlet config = Config(\"demo\")\n",
@@ -60,7 +60,7 @@ proc test_record_constructors_reject_invalid_calls_and_defaults(ctx: TestContext
   test.ok(! missing.success, missing.stderr)?
 }
 
-proc test_record_constructors_resolve_defaults_in_defining_module(ctx: TestContext) [fs, error] {
+test test_record_constructors_resolve_defaults_in_defining_module [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "record-constructor-module")?
   fp"${root}/config.xsh".write_atomic("""##! Constructor defaults and aliases.
 let name = "module"
@@ -101,7 +101,7 @@ print $third.name
   test.eq(executed.stdout, "OTHER\n5\nMODULE\nMODULE\nmodule\nREQUIRED\n9\nmodule\nmodule\nmodule\n")?
 }
 
-proc test_record_constructor_defaults_do_not_change_require_or_json_validation(ctx: TestContext) [error] {
+test test_record_constructor_defaults_do_not_change_require_or_json_validation [error] { |ctx|
   let executed = test.run_script(ctx, r"""type Config = {name: Str = "demo"}
 let raw: Record = {}
 match raw.require(Config) {
@@ -118,7 +118,7 @@ match decoded.require(Config) {
   test.eq(executed.stdout, "missing-record\nmissing-json\n")?
 }
 
-proc test_record_constructor_tooling_preserves_behavior_and_converges(ctx: TestContext) [fs, process, error] {
+test test_record_constructor_tooling_preserves_behavior_and_converges [fs, process, error] { |ctx|
   let source = p"tests/fixtures/syntax/valid/record-constructor-explicit.xsh".read_text()?
   let before = test.run_script(ctx, source)?
   test.ok(before.success, before.stderr)?
@@ -137,7 +137,7 @@ proc test_record_constructor_tooling_preserves_behavior_and_converges(ctx: TestC
   test.eq(candidate.read_text()?, fixed)?
 }
 
-proc test_record_constructors_bound_scalar_defaults_and_static_identity(ctx: TestContext) [error] {
+test test_record_constructors_bound_scalar_defaults_and_static_identity [error] { |ctx|
   let accepted = test.run_script(ctx, r"""let base_path: Path = p"base"
 type Paths = {root: Path = base_path}
 print ${Paths().root.display()}

@@ -1,4 +1,4 @@
-proc test_text_fields_replacement_and_counts() [error] {
+test test_text_fields_replacement_and_counts [error] {
   let row = " alpha::beta::gamma "
   let fields = row.trim().fields(delimiter: "::")
   let joined = fields.join(separator: "/")
@@ -37,7 +37,7 @@ two
 }
 
 # Wrapping is per input line, greedy, and measured in Unicode scalar values.
-proc test_text_wrap_fills_lines_and_cuts_overlong_words() [error] {
+test test_text_wrap_fills_lines_and_cuts_overlong_words [error] {
   # Empty text wraps to no lines at all, while a blank input line is a line
   # like any other and a trailing newline contributes one more empty line.
   test.eq("".wrap(5), [])?
@@ -100,7 +100,7 @@ b""".wrap(5),
   test.eq("\u{1f600}\u{1f600}".wrap(2), ["\u{1f600}\u{1f600}"])?
 }
 
-proc test_text_wrap_short_unicode_lines_keep_normalization_and_trailing_line() [error] {
+test test_text_wrap_short_unicode_lines_keep_normalization_and_trailing_line [error] {
   test.eq(
     ("  caf\u{e9}  \u{65e5}\u{672c} \u{1f600}  " + """
 short
@@ -110,7 +110,7 @@ short
 }
 
 # Field selection is either the whitespace policy or one literal delimiter.
-proc test_text_fields_selects_runs_or_literal_delimiters() [error] {
+test test_text_fields_selects_runs_or_literal_delimiters [error] {
   # The default delimiter selects runs of Unicode whitespace, so leading,
   # trailing, and repeated whitespace contribute no fields.
   test.eq(
@@ -148,7 +148,7 @@ b""".fields(delimiter: """\r
 
 # A width of zero or less is a rejection rather than an empty wrap, so it is
 # observed the way a user would: through a child run of the script.
-proc test_text_wrap_rejects_a_non_positive_width(ctx: TestContext) [fs, error] {
+test test_text_wrap_rejects_a_non_positive_width [fs, error] { |ctx|
   let zero = test.run_script(
     ctx,
     """let lines = "abc".wrap(0)

@@ -43,7 +43,7 @@ fn nested_expression_source(depth: usize) -> String {
 }
 
 fn nested_native_test_source(depth: usize) -> String {
-    let mut source = String::from("proc test_nested() [error] {\n");
+    let mut source = String::from("test test_nested [error] {\n");
     for _ in 0..depth {
         source.push_str("  if true {\n");
     }

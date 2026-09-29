@@ -71,7 +71,11 @@ impl<'a> Parser<'a> {
                 self.parse_export_arena_only(start, arena)
             }
             (TokenTag::Ident | TokenTag::ProcIdent, _) => {
-                if self.current_name().is_some_and(|name| name == "error")
+                if self.current_name().is_some_and(|name| name == "test")
+                    && matches!(self.peek_tag(1), Some(TokenTag::Ident | TokenTag::ProcIdent))
+                {
+                    self.parse_test_declaration_arena_only(start, arena)
+                } else if self.current_name().is_some_and(|name| name == "error")
                     && matches!(
                         self.peek_tag(1),
                         Some(TokenTag::Ident | TokenTag::ProcIdent)
@@ -706,6 +710,27 @@ impl<'a> Parser<'a> {
             self.skip_newlines();
         }
         params
+    }
+
+    fn parse_test_declaration_arena_only(
+        &mut self,
+        start: usize,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
+        self.bump();
+        let name = self.expect_ident("expected test name")?;
+        if self.block_depth != 0 {
+            self.diagnostic_here("test declarations must be top-level", "parse.test-nested");
+        }
+        let effects = self.parse_effect_list();
+        let body = self.parse_block_arena_only(arena)?;
+        if arena.block_parameter_count(body) > 1 {
+            self.diagnostic_here("test declarations accept at most one immutable TestContext parameter", "parse.test-params");
+        }
+        let effects = effects.as_deref().map(|effects| arena.push_effects(effects));
+        let span = self.span(start, self.previous_end());
+        arena.push_test_declaration(name, effects, body, span);
+        Some(())
     }
 
     fn parse_function_arena_only(

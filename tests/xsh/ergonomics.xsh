@@ -27,7 +27,7 @@ pure ergonomics_pattern_name(value: Any) -> Str {
   "missing"
 }
 
-proc test_ergonomics_boolean_branch_tails_and_pattern_values() [error] {
+test test_ergonomics_boolean_branch_tails_and_pattern_values [error] {
   test.eq(ergonomics_result_flag(Ok(1)), false)?
   let outcome: Result[Int] = Ok(1)
   let accepted = outcome is Ok(_)
@@ -43,7 +43,7 @@ proc test_ergonomics_boolean_branch_tails_and_pattern_values() [error] {
   test.eq(filtered, [1, 3])?
 }
 
-proc test_ergonomics_guarded_return_narrows_nullable_payload() [error] {
+test test_ergonomics_guarded_return_narrows_nullable_payload [error] {
   test.eq(ergonomics_guarded_name(null), "default")?
   test.eq(ergonomics_guarded_name("  configured  "), "configured")?
   test.eq(ergonomics_conditional_name(null), "default")?
@@ -52,7 +52,7 @@ proc test_ergonomics_guarded_return_narrows_nullable_payload() [error] {
   test.eq(ergonomics_pattern_name(42), "missing")?
 }
 
-proc test_ergonomics_retry_branch_false_is_a_value() [error] {
+test test_ergonomics_retry_branch_false_is_a_value [error] {
   let value = retry [] {
     if true {
       let outcome: Result[Bool] = Ok(false)
@@ -64,7 +64,7 @@ proc test_ergonomics_retry_branch_false_is_a_value() [error] {
   test.eq(value, false)?
 }
 
-proc test_ergonomics_optional_method_retains_result_layer() [error] {
+test test_ergonomics_optional_method_retains_result_layer [error] {
   let absent: Str? = null
   let present: Str? = "42"
   let absent_result = absent?.parse_int()
@@ -73,7 +73,7 @@ proc test_ergonomics_optional_method_retains_result_layer() [error] {
   test.eq((present_result ?? Ok(0))?, 42)?
 }
 
-proc test_ergonomics_nullable_bytes_slice_and_fallback() [error] {
+test test_ergonomics_nullable_bytes_slice_and_fallback [error] {
   let absent: Bytes? = null
   let present: Bytes? = b"abcdef"
   test.eq(absent?[1..4] ?? b"fallback", b"fallback")?
@@ -82,7 +82,7 @@ proc test_ergonomics_nullable_bytes_slice_and_fallback() [error] {
   test.eq(present?[4..], b"ef")?
 }
 
-proc test_ergonomics_renamed_targets_in_filtered_nested_comprehensions() [error] {
+test test_ergonomics_renamed_targets_in_filtered_nested_comprehensions [error] {
   let packages = [
     {name: "first", build: {jobs: [1, 2]}},
     {name: "second", build: {jobs: [3, 4]}},
@@ -103,7 +103,7 @@ proc test_ergonomics_renamed_targets_in_filtered_nested_comprehensions() [error]
   test.eq(combined, ["second:3", "second:4", "last"])?
 }
 
-proc test_ergonomics_optional_call_skips_punned_argument_evaluation(ctx: TestContext) [error] {
+test test_ergonomics_optional_call_skips_punned_argument_evaluation [error] { |ctx|
   let output = test.run_script(
     ctx,
     """var calls = 0
@@ -124,7 +124,7 @@ print (skipped_effect ?? "absent")
   test.eq(output.stdout, "1\nabsent\nabsent\n")?
 }
 
-proc test_ergonomics_failed_chain_reports_only_reached_operands(ctx: TestContext) [error] {
+test test_ergonomics_failed_chain_reports_only_reached_operands [error] { |ctx|
   let output = test.run_script(
     ctx,
     """proc skipped() [] -> Int {
@@ -140,7 +140,7 @@ proc test_ergonomics_failed_chain_reports_only_reached_operands(ctx: TestContext
   test.contains(output.stderr, "2")?
 }
 
-proc test_ergonomics_statement_branch_false_still_asserts(ctx: TestContext) [error] {
+test test_ergonomics_statement_branch_false_still_asserts [error] { |ctx|
   let output = test.run_script(
     ctx,
     """proc check_branch() [] {

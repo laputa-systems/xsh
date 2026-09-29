@@ -4,7 +4,7 @@ type JsonNestedRow = {cpu: Int, online: Bool}
 
 type JsonNestedRows = {cpus: List[JsonNestedRow]}
 
-proc test_json_require_checks_nested_named_record_fields() [error] {
+test test_json_require_checks_nested_named_record_fields [error] {
   let valid = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":true}]}")?
   test.eq(valid.require(JsonNestedRows)?.cpus[0].online, true)?
   let wrong_type = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":\"yes\"}]}")?
@@ -13,7 +13,7 @@ proc test_json_require_checks_nested_named_record_fields() [error] {
   test.error_kind(missing_field.require(JsonNestedRows), "schema")?
 }
 
-proc test_float_arithmetic_and_json_record_boundary() [error] {
+test test_float_arithmetic_and_json_record_boundary [error] {
   let ratio = 5.float() / 2.0
   var adjusted: Float = ratio
   adjusted += 0.25
@@ -24,7 +24,7 @@ proc test_float_arithmetic_and_json_record_boundary() [error] {
   test.eq(encoded, "{\"ratio\":1.5,\"value\":2.75}")?
 }
 
-proc test_json_read_write_lines_and_paths(ctx: TestContext) [fs, error] {
+test test_json_read_write_lines_and_paths [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "json")?
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true}}")?
   test.eq(json.get(value, ["name"])?, "pkg")?
@@ -45,7 +45,7 @@ proc test_json_read_write_lines_and_paths(ctx: TestContext) [fs, error] {
   test.error_kind(json.get(value, ["items", "bad"]), "json-path")?
 }
 
-proc test_json_decode_type_patterns_and_public_boundaries() [error] {
+test test_json_decode_type_patterns_and_public_boundaries [error] {
   let decoded = json.decode("{\"quote\":\"\\\"\",\"line\":\"a\\nb\",\"snow\":\"\\u2603\",\"music\":\"\\uD834\\uDD1E\"}")?
   test.eq(decoded.quote, "\"")?
 
@@ -93,7 +93,7 @@ pure json_label(value: Any) -> Result[Str] {
   }
 }
 
-proc test_json_path_helpers_report_invalid_paths() [error] {
+test test_json_path_helpers_report_invalid_paths [error] {
   let data = {items: [1]}
   test.error_kind(json.get(data, ["items", 4]), "json-path")?
   test.error_kind(json.set(data, ["items", 2], 3), "json-path")?
@@ -101,7 +101,7 @@ proc test_json_path_helpers_report_invalid_paths() [error] {
   test.error_kind(json.get(data, [-1]), "json-path")?
 }
 
-proc test_json_rejection_is_trace_visible(ctx: TestContext) [error] {
+test test_json_rejection_is_trace_visible [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     """
@@ -156,7 +156,7 @@ proc expect_record(label: Str, value: Any) [error] {
   }
 }
 
-proc test_json_path_get_walks_records_and_lists() [error] {
+test test_json_path_get_walks_records_and_lists [error] {
   let value = json.decode(
     "{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true},\"nil\":null,\"deep\":{\"rows\":[{\"cell\":7}]}}",
   )?
@@ -191,7 +191,7 @@ proc test_json_path_get_walks_records_and_lists() [error] {
   test.eq(rejection_message(json.get(value, ["items", "x"]))?, "expected object at key `x`, found List")?
 }
 
-proc test_json_path_get_keeps_maps_and_passes_values_through() [error] {
+test test_json_path_get_keeps_maps_and_passes_values_through [error] {
   let empty: Map[Any] = {}
   let tree: Any = empty.set("inner", empty.set("leaf", 0)).set("nil", null)
   test.eq(json.get(tree, ["inner", "leaf"])?, 0)?
@@ -216,7 +216,7 @@ proc test_json_path_get_keeps_maps_and_passes_values_through() [error] {
   expect_map("a mixed path keeps the Map", json.get(mixed, ["rows", 0])?)?
 }
 
-proc test_json_path_is_interpreted_before_traversal() [error] {
+test test_json_path_is_interpreted_before_traversal [error] {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2]}")?
 
   # Indexes are positions, so a negative one is rejected outright.
@@ -243,7 +243,7 @@ proc test_json_path_is_interpreted_before_traversal() [error] {
   test.error_kind(json.remove(value, [null]), "json-path")?
 }
 
-proc test_json_set_updates_the_named_position() [error] {
+test test_json_set_updates_the_named_position [error] {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true},\"nil\":null}")?
 
   # An empty path replaces the value itself.
@@ -289,7 +289,7 @@ proc test_json_set_updates_the_named_position() [error] {
   test.error_kind(json.set(value, [-1], path_value), "json-compatible")?
 }
 
-proc test_json_remove_drops_the_named_position() [error] {
+test test_json_remove_drops_the_named_position [error] {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"meta\":{\"ok\":true},\"nil\":null}")?
 
   # An empty path removes nothing and answers `null`.
@@ -337,7 +337,7 @@ proc test_json_remove_drops_the_named_position() [error] {
   test.eq(json.get(kept, ["raw"])?, b"raw")?
 }
 
-proc test_json_get_overloads_and_encoded_lines() [error] {
+test test_json_get_overloads_and_encoded_lines [error] {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2],\"nil\":null}")?
 
   # The two-argument overload answers with the read or with the rejection.
@@ -402,7 +402,7 @@ b""",
   test.error_kind(json.encode_lines([path_value, 1]), "json-compatible")?
 }
 
-proc test_json_path_rejects_a_non_list_path(ctx: TestContext) [error] {
+test test_json_path_rejects_a_non_list_path [error] { |ctx|
   # `path` is declared `List[Any]`, so a path of any other type fails the call
   # itself and aborts before the path policy runs: `path expected List` is only
   # reachable from inside this module, where the parameter is `Any`.

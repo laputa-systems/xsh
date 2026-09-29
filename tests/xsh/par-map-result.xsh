@@ -8,7 +8,7 @@ proc safe_div(x: Int) [error] -> Result[Int] {
   Ok(100 / x)
 }
 
-proc test_par_map_collect_all(ctx: TestContext) [error] {
+test test_par_map_collect_all [error] { |ctx|
   let failed = test.run_script(
     ctx,
     """
@@ -38,7 +38,7 @@ main()?
   test.ok("DivisionByZero" in failed.stderr or "division by zero" in failed.stderr, failed.stderr)?
 }
 
-proc test_par_map_all_ok() [error] {
+test test_par_map_all_ok [error] {
   let results = [1, 2, 3]
     |> par-map { |x|
       safe_div(x)

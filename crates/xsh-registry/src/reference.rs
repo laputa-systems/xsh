@@ -877,7 +877,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "native-tests" => (
             "Defines native XSH test declarations and harness context.",
-            "Native tests run through the same checked runtime and expose test-only host helpers only in the native-test feature.",
+            "Top-level test NAME [effects]? { |ctx| ... } declarations check as Result[Unit], accept zero or one immutable TestContext parameter, and register without execution. The native-tests feature enables declarations and test-only host helpers.",
         ),
         "command-interpolation" => (
             "Defines explicit command and argv interpolation.",

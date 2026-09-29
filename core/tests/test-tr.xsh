@@ -1,4 +1,4 @@
-proc test_tr_translate_delete_squeeze_and_stdin(ctx: TestContext) [fs, process, env, error] {
+test test_tr_translate_delete_squeeze_and_stdin [fs, process, env, error] { |ctx|
   let input = test.temp_file(ctx, name: "tr.txt", contents: b"abbc\n")?
   let translated = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tr.xsh" -- a A $input ?
   let upper = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tr.xsh" -- a-z A-Z $input ?
@@ -20,7 +20,7 @@ proc test_tr_translate_delete_squeeze_and_stdin(ctx: TestContext) [fs, process, 
   test.eq(stdin_output.trim(), "Abc")?
 }
 
-proc test_tr_rejects_bad_usage(ctx: TestContext) [fs, process, env, error] {
+test test_tr_rejects_bad_usage [fs, process, env, error] { |ctx|
   let err = test.temp_path(ctx, name: "tr.err")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/tr.xsh" -- a 2> $err
   test.ok(! status.exited_with(0))?

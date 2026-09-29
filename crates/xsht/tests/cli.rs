@@ -648,7 +648,7 @@ fn test_reports_compact_lowerability_without_panicking() {
     fs::create_dir(&tests).expect("create tests directory");
     fs::write(
         tests.join("lowering.xsh"),
-        "pure helper(x: Int = 1 + 1) -> Int {\n  return x\n}\n\nproc test_lowering() {\n  let _ = helper()\n}\n",
+        "pure helper(x: Int = 1 + 1) -> Int {\n  return x\n}\n\ntest test_lowering {\n  let _ = helper()\n}\n",
     )
     .expect("write test script");
 
@@ -1687,4 +1687,83 @@ fn value_pipeline_hole_lint_cli_converges_without_changing_execution() {
     let after = run(&["trace", "main.xsh"]);
     assert!(after.status.success(), "{}", String::from_utf8_lossy(&after.stderr));
     assert_eq!(before.stdout, after.stdout);
+}
+
+#[test]
+fn native_test_declaration_discovery_preserves_names_and_runs_each_once() {
+    let root = TempDir::new().expect("temporary native declaration fixture");
+    fs::create_dir(root.path().join("tests")).expect("create test root");
+    fs::write(root.path().join("tests/explicit.xsh"), "\
+pure helper() -> Int { 2 }
+proc ordinary_helper() { print helper() }
+proc test_named_helper(value: Int) -> Int { value }
+test test_old_name { test_named_helper(helper()) == 2 }
+test no_prefix { |ctx| ctx.name.contains(\"no_prefix\") }
+test discarded { |_| }
+").expect("write native declaration fixture");
+    let list = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["test", "--list"]).current_dir(root.path()).output().expect("list declarations");
+    assert!(list.status.success());
+    assert_eq!(String::from_utf8(list.stdout).unwrap(), "tests/explicit.xsh::discarded\ntests/explicit.xsh::no_prefix\ntests/explicit.xsh::test_old_name\n");
+    let run = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["test", "--jobs", "1"]).current_dir(root.path()).output().expect("run declarations");
+    assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stdout));
+    assert!(String::from_utf8_lossy(&run.stdout).contains("3 passed; 0 failed"));
+}
+
+#[test]
+fn native_test_declaration_legacy_proc_has_actionable_failure() {
+    let root = TempDir::new().expect("temporary legacy fixture");
+    fs::create_dir(root.path().join("tests")).expect("create test root");
+    fs::write(root.path().join("tests/legacy.xsh"), "proc test_old(ctx: TestContext) -> Result[Unit] {}\n")
+        .expect("write legacy fixture");
+    let run = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["test", "--jobs", "1"]).current_dir(root.path()).output().expect("run legacy fixture");
+    assert_eq!(run.status.code(), Some(1));
+    let output = String::from_utf8_lossy(&run.stdout);
+    assert!(output.contains("check.legacy-test-proc"), "{output}");
+    assert!(output.contains("keep the exact declared name"), "{output}");
+    assert!(!output.contains("0 passed; 0 failed"), "{output}");
+    let filtered = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["test", "--exact", "tests/legacy.xsh::test_old"])
+        .current_dir(root.path()).output().expect("run exact legacy filter");
+    assert_eq!(filtered.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&filtered.stdout).contains("check.legacy-test-proc"));
+}
+
+#[test]
+fn native_test_declaration_import_registers_without_execution_or_discovery() {
+    let root = TempDir::new().expect("temporary imported declaration fixture");
+    fs::create_dir(root.path().join("tests")).expect("create test root");
+    fs::write(root.path().join("tests/helper.xsh"), "##! Import registration fixture.\n## Returns the fixture value.\nexport pure value() -> Int { 7 }\ntest imported { false }\n")
+        .expect("write imported module");
+    fs::write(root.path().join("tests/entry.xsh"), "use helper\ntest entry { helper.value() == 7 }\n")
+        .expect("write entry fixture");
+    let run = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["test", "--jobs", "1", "tests/entry.xsh"]).current_dir(root.path()).output().expect("run imported fixture");
+    assert!(run.status.success(), "{}", String::from_utf8_lossy(&run.stdout));
+    let output = String::from_utf8_lossy(&run.stdout);
+    assert!(output.contains("1 passed; 0 failed"), "{output}");
+    assert!(!output.contains("::imported"), "{output}");
+}
+
+#[test]
+fn native_test_declaration_duplicate_and_callable_collision_are_rejected() {
+    let root = TempDir::new().expect("temporary colliding declaration fixture");
+    let source = root.path().join("collision.xsh");
+    for text in ["test same {}\ntest same {}", "pure same() -> Int { 1 }\ntest same {}", "let same = 1\ntest same {}", "test same {}\nlet {same} = {same: 1}", "use env as same\ntest same {}"] {
+        fs::write(&source, text).expect("write collision fixture");
+        let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+            .arg("check").arg(&source).output().expect("check collision");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("check.duplicate-name"));
+    }
+    fs::write(&source, "use helper\ntest entry {}\n").expect("write importing collision fixture");
+    for text in ["test same {}\ntest same {}", "test same {}\npure same() -> Int { 1 }", "let same = 1\ntest same {}"] {
+        fs::write(root.path().join("helper.xsh"), text).expect("write module collision fixture");
+        let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+            .arg("check").arg(&source).output().expect("check module collision");
+        assert_eq!(output.status.code(), Some(2));
+        assert!(String::from_utf8_lossy(&output.stderr).contains("check.duplicate-name"));
+    }
 }

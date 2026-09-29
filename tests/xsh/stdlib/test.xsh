@@ -1,14 +1,14 @@
-proc test_test_helpers() [error] {
+test test_test_helpers [error] {
   test.ne(1, 2)?
   test.error_kind(test.fail("covered failure"), "test-fail")?
 }
 
-proc test_error_fail_constructs_validation_result() [error] {
+test test_error_fail_constructs_validation_result [error] {
   let failure = error.fail("header is missing")
   test.error_kind(failure, "validation")?
 }
 
-proc test_run_script_captures_status_env_args_and_bytes(ctx: TestContext) [error] {
+test test_run_script_captures_status_env_args_and_bytes [error] { |ctx|
   let ok = test.run_script(
     ctx,
     """
@@ -36,7 +36,7 @@ io.write_stdout_bytes(b"\\xff\\x00a")?
   test.eq(failed.status, 7)?
 }
 
-proc test_run_xsht_trace_accepts_trace_flags_and_script_args(ctx: TestContext) [error] {
+test test_run_xsht_trace_accepts_trace_flags_and_script_args [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     """
@@ -59,6 +59,6 @@ run true ?
   test.contains(output.stderr, "kind=run.start")?
 }
 
-proc test_skip_function_is_covered() {
+test test_skip_function_is_covered {
   test.skip("covered skip")
 }

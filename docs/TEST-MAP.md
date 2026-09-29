@@ -14,6 +14,16 @@ parameters, mutation invalidation, lexical loop targets, and cleanup before
 return. Run the syntax and checker gates, indexed runtime verifier tests, and
 `cargo test -p xsht --test integration lint::` for the checked negative-if rewrite.
 
+## Explicit native test declarations
+
+`target/debug/xsht test --jobs 1 tests/xsh/test-declarations.xsh` covers checked
+registration, immutable context headers, effects, and ordinary-script behavior.
+`cargo test -p xsht --test integration native_test_declaration -- --test-threads=1`
+covers discovery, stable file/name IDs, isolation, legacy migration diagnostics,
+and rejection at the CLI boundary. Test bodies use `test NAME { ... }`, or
+`test NAME [effects] { |ctx| ... }` for context helpers. Maintain exact old names
+when migrating existing harness entrypoints; new declarations need no prefix.
+
 ## List patterns
 
 Bare lexical block consumption, scope cleanup, and lexical transfers are covered

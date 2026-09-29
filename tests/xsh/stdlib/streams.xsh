@@ -1,4 +1,4 @@
-proc test_stream_adapters_and_transform_stages() [fs, process, error] {
+test test_stream_adapters_and_transform_stages [fs, process, error] {
   let lines = """alpha
 beta
 """ |> text.lines
@@ -198,7 +198,7 @@ beta
   [{name: "small", size: 1}, {name: "large", size: 4}] |> table.print(columns: ["name", "size"])
 }
 
-proc test_fold_block_composes_pipeline_over_accumulator_field() [error] {
+test test_fold_block_composes_pipeline_over_accumulator_field [error] {
   let result = [0]
     |> fold({parts: ["first", "last"]}) { |acc, _|
       let popped = acc.parts
@@ -209,7 +209,7 @@ proc test_fold_block_composes_pipeline_over_accumulator_field() [error] {
   test.eq(result.parts, ["first"])?
 }
 
-proc test_fold_block_supports_nested_if_statement_with_assignment() [error] {
+test test_fold_block_supports_nested_if_statement_with_assignment [error] {
   let result = [1, 2, 3]
     |> fold(0) { |acc, item|
       var next = acc
@@ -222,7 +222,7 @@ proc test_fold_block_supports_nested_if_statement_with_assignment() [error] {
   test.eq(result, 5)?
 }
 
-proc test_fold_block_supports_nested_if_as_branch_tail() [error] {
+test test_fold_block_supports_nested_if_as_branch_tail [error] {
   let result = [1, 2, 3]
     |> fold(0) { |acc, item|
       if item == 1 {
@@ -238,7 +238,7 @@ proc test_fold_block_supports_nested_if_as_branch_tail() [error] {
   test.eq(result, 5)?
 }
 
-proc test_fold_and_reduce_run_direct_effects_in_item_order(ctx: TestContext) [error] {
+test test_fold_and_reduce_run_direct_effects_in_item_order [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -289,7 +289,7 @@ reduced=3
   )?
 }
 
-proc test_fold_error_stops_and_closes_live_source(ctx: TestContext) [fs, error] {
+test test_fold_error_stops_and_closes_live_source [fs, error] { |ctx|
   let pulled = test.temp_path(ctx, name: "fold-pulled")
   let closed = test.temp_path(ctx, name: "fold-closed")
   let output = test.run_script(
@@ -315,7 +315,7 @@ proc main() [fs, error] {
   test.eq(closed.read_text()?, "closed")?
 }
 
-proc test_sum_type_error_stops_and_closes_live_source(ctx: TestContext) [error] {
+test test_sum_type_error_stops_and_closes_live_source [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -346,7 +346,7 @@ closed
   )?
 }
 
-proc test_keyed_stages_errors_stop_live_source(ctx: TestContext) [error] {
+test test_keyed_stages_errors_stop_live_source [error] { |ctx|
   for terminal in ["group-by", "count", "unique-by"] {
     let source = f"""
 proc close() [io] { print "closed" }
@@ -375,7 +375,7 @@ closed
   }
 }
 
-proc test_keyed_stages_project_before_next_live_pull(ctx: TestContext) [error] {
+test test_keyed_stages_project_before_next_live_pull [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -429,7 +429,7 @@ unique=2,1
   )?
 }
 
-proc test_zip_evaluates_right_before_pulling_and_stops_at_shorter_side(ctx: TestContext) [error] {
+test test_zip_evaluates_right_before_pulling_and_stops_at_shorter_side [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -466,7 +466,7 @@ pairs=0:10,1:20
   )?
 }
 
-proc test_zip_right_error_does_not_pull_left(ctx: TestContext) [error] {
+test test_zip_right_error_does_not_pull_left [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     r"""
@@ -497,7 +497,7 @@ proc main() [io, error] {
   test.contains(output.stderr, "kind=stream.stage.exit name=\"zip\"")?
 }
 
-proc test_zip_collects_right_stream_before_pulling_left(ctx: TestContext) [error] {
+test test_zip_collects_right_stream_before_pulling_left [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -533,7 +533,7 @@ pairs=1:10,2:20
   )?
 }
 
-proc test_zip_result_length_is_available_to_format_interpolation(ctx: TestContext) [error] {
+test test_zip_result_length_is_available_to_format_interpolation [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -553,7 +553,7 @@ proc main() [io, error] {
   )?
 }
 
-proc test_last_min_max_live_terminals_finish_and_close_producers(ctx: TestContext) [error] {
+test test_last_min_max_live_terminals_finish_and_close_producers [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -599,7 +599,7 @@ max=3
   )?
 }
 
-proc test_terminal_each_as_final_proc_statement_returns_unit(ctx: TestContext) [error] {
+test test_terminal_each_as_final_proc_statement_returns_unit [error] { |ctx|
   # A nested script keeps `each` as the final statement of its own procedure.
   # The checker and runtime must agree that the drained stage returns Unit.
   let output = test.run_script(
@@ -622,7 +622,7 @@ three
   test.eq(output.stderr, "")?
 }
 
-proc test_each_live_source_runs_body_before_next_pull(ctx: TestContext) [error] {
+test test_each_live_source_runs_body_before_next_pull [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -651,7 +651,7 @@ each 2
   )?
 }
 
-proc test_each_error_stops_and_closes_live_source(ctx: TestContext) [fs, error] {
+test test_each_error_stops_and_closes_live_source [fs, error] { |ctx|
   let pulled = test.temp_path(ctx, name: "each-pulled")
   let closed = test.temp_path(ctx, name: "each-closed")
   let output = test.run_script(
@@ -676,7 +676,7 @@ proc main() [fs, error] {
   test.eq(closed.read_text()?, "closed")?
 }
 
-proc test_if_else_is_a_stream_stage_tail_value() [error] {
+test test_if_else_is_a_stream_stage_tail_value [error] {
   let mapped = [1, 2, 3]
     |> map { |n|
       if n % 2 == 0 {
@@ -707,7 +707,7 @@ proc test_if_else_is_a_stream_stage_tail_value() [error] {
     }
 }
 
-proc test_predicate_stage_blocks_bind_local_lets() [error] {
+test test_predicate_stage_blocks_bind_local_lets [error] {
   # A multi-statement predicate block with a local let binding must compile
   # and behave identically to the single-expression form for where/any/all.
   let nums = [1, 2, 3, 4, 5, 6]
@@ -756,7 +756,7 @@ proc test_predicate_stage_blocks_bind_local_lets() [error] {
   )?
 }
 
-proc test_implicit_standard_read_helpers_and_pipe_shorthand(ctx: TestContext) [fs, error] {
+test test_implicit_standard_read_helpers_and_pipe_shorthand [fs, error] { |ctx|
   let file = test.temp_file(ctx, name: "pipe-shorthand-input", contents: b"ok\nwarn one\nwarn two\n")?
   let file_text = fs.read_text(file)?
   let piped = file.read_bytes()?.utf8()?
@@ -776,7 +776,7 @@ proc test_implicit_standard_read_helpers_and_pipe_shorthand(ctx: TestContext) [f
   test.ok(cpu.count() > 0)?
 }
 
-proc test_core_commands_and_byte_pipeline(ctx: TestContext) [fs, process, env, error] {
+test test_core_commands_and_byte_pipeline [fs, process, env, error] { |ctx|
   let root = test.temp_dir(ctx, name: "core-byte-pipeline")?
   let output = fp"${root}/out.txt"
 
@@ -790,7 +790,7 @@ proc test_core_commands_and_byte_pipeline(ctx: TestContext) [fs, process, env, e
   test.eq(output.read_text()?, "ABC")?
 }
 
-proc test_reduce_by_stream_aggregates() [error] {
+test test_reduce_by_stream_aggregates [error] {
   # `reduce-by` keeps one accumulator per key without group-by materialization.
   let nums = [1, 2, 3, 4, 5, 6]
 
@@ -815,7 +815,7 @@ proc test_reduce_by_stream_aggregates() [error] {
   test.eq(hi.get("all", 0), 6)?
 }
 
-proc test_reduce_by_live_source_folds_each_item_before_next_pull(ctx: TestContext) [error] {
+test test_reduce_by_live_source_folds_each_item_before_next_pull [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -854,7 +854,7 @@ total=3
   )?
 }
 
-proc test_reduce_by_error_stops_and_closes_live_source(ctx: TestContext) [fs, error] {
+test test_reduce_by_error_stops_and_closes_live_source [fs, error] { |ctx|
   let pulled = test.temp_path(ctx, name: "reduce-by-pulled")
   let closed = test.temp_path(ctx, name: "reduce-by-closed")
   let output = test.run_script(
@@ -882,7 +882,7 @@ proc main() [fs, error] {
   test.eq(closed.read_text()?, "closed")?
 }
 
-proc test_reduce_by_jobs_hint_preserves_results() [error] {
+test test_reduce_by_jobs_hint_preserves_results [error] {
   # The accepted `--jobs` hint currently uses the same serial reducer.
   let nums = [0] |> range(0, 50000)
 
@@ -919,7 +919,7 @@ proc test_reduce_by_jobs_hint_preserves_results() [error] {
   )?
 }
 
-proc test_jobs_options_evaluate_once_before_stage(ctx: TestContext) [error] {
+test test_jobs_options_evaluate_once_before_stage [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -952,7 +952,7 @@ done
   )?
 }
 
-proc test_serial_stages_reject_jobs_option(ctx: TestContext) [error] {
+test test_serial_stages_reject_jobs_option [error] { |ctx|
   for script in [
     "proc main() [io] { [1] |> each(jobs: 2) { |n| print $n } }",
     "proc main() [] { let _ = [1] |> group-by(jobs: 2) { |n| n } }",
@@ -965,7 +965,7 @@ proc test_serial_stages_reject_jobs_option(ctx: TestContext) [error] {
   }
 }
 
-proc test_reduce_by_jobs_rejects_dynamic_zero_before_pulling_source(ctx: TestContext) [fs, error] {
+test test_reduce_by_jobs_rejects_dynamic_zero_before_pulling_source [fs, error] { |ctx|
   let evaluated = test.temp_path(ctx, name: "jobs-evaluated")
   let pulled = test.temp_path(ctx, name: "jobs-source-pulled")
   let output = test.run_script(
@@ -994,7 +994,7 @@ proc main() [fs, error] {
   test.ok(! pulled.exists()?)?
 }
 
-proc test_par_map_jobs_rejects_dynamic_zero(ctx: TestContext) [error] {
+test test_par_map_jobs_rejects_dynamic_zero [error] { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -1010,7 +1010,7 @@ proc main() [error] {
   test.contains(output.stderr, "stream worker count must be positive", output.stderr)?
 }
 
-proc test_reduce_by_jobs_rejects_static_zero_in_checker(ctx: TestContext) [error] {
+test test_reduce_by_jobs_rejects_static_zero_in_checker [error] { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -1024,7 +1024,7 @@ proc main() [error] {
   test.contains(output.stderr, "check.stream-jobs", output.stderr)?
 }
 
-proc test_par_map_reduce_by_fuses_to_worker_aggregation() [error] {
+test test_par_map_reduce_by_fuses_to_worker_aggregation [error] {
   let nums = [0] |> range(0, 50000)
 
   let fused = nums
@@ -1059,7 +1059,7 @@ proc test_par_map_reduce_by_fuses_to_worker_aggregation() [error] {
   test.eq(fused.get("a", {count: 0, total: 0}), {count: 12500, total: 624950000})?
 }
 
-proc test_flat_map_identity_reduce_by_matches_direct_rows() [error] {
+test test_flat_map_identity_reduce_by_matches_direct_rows [error] {
   let nums = [0] |> range(0, 1000)
 
   let nested = nums
@@ -1085,7 +1085,7 @@ proc test_flat_map_identity_reduce_by_matches_direct_rows() [error] {
   test.eq(nested.get("odd", {count: 0, total: 0}), {count: 500, total: 250000})?
 }
 
-proc test_live_files_flat_map_reduce_by_matches_collected_rows(ctx: TestContext) [fs, error] {
+test test_live_files_flat_map_reduce_by_matches_collected_rows [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "live-stream-flat-map-reduce")?
   fp"${root}/nested".mkdir()?
   fp"${root}/a.txt".write("abc")?
@@ -1115,7 +1115,7 @@ proc test_live_files_flat_map_reduce_by_matches_collected_rows(ctx: TestContext)
   test.eq(streamed.get("md", {count: 0, size: 0}), {count: 1, size: 4})?
 }
 
-proc test_live_files_par_map_for_matches_collected_rows(ctx: TestContext) [fs, error] {
+test test_live_files_par_map_for_matches_collected_rows [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "live-stream-par-map-for")?
   fp"${root}/nested".mkdir()?
   fp"${root}/a.txt".write("abc")?
@@ -1158,7 +1158,7 @@ proc test_live_files_par_map_for_matches_collected_rows(ctx: TestContext) [fs, e
   test.eq({count: streamed_md_count, size: streamed_md_size}, {count: 1, size: 4})?
 }
 
-proc test_par_map_filesystem_reads_preserve_all_results(ctx: TestContext) [fs, error] {
+test test_par_map_filesystem_reads_preserve_all_results [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "par-map-filesystem-reads")?
   for index in range(32) {
     fp"${root}/entry-${index}.txt".write(f"""${index}
@@ -1174,7 +1174,7 @@ proc test_par_map_filesystem_reads_preserve_all_results(ctx: TestContext) [fs, e
   test.eq(lengths |> sum, 86)?
 }
 
-proc test_projected_reduce_by_sums_output_fields(ctx: TestContext) [error] {
+test test_projected_reduce_by_sums_output_fields [error] { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -1199,7 +1199,7 @@ print f"x=\${g.x}"
   )?
 }
 
-proc test_stream_producers_are_lazy_and_run_defers_on_stop(ctx: TestContext) [fs, error] {
+test test_stream_producers_are_lazy_and_run_defers_on_stop [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "stream-marker")
   let rows = test.temp_path(ctx, name: "stream-rows")
   let output = test.run_script(
@@ -1234,7 +1234,7 @@ closed
   )?
 }
 
-proc test_any_and_all_stop_live_producer_after_decisive_item(ctx: TestContext) [fs, error] {
+test test_any_and_all_stop_live_producer_after_decisive_item [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "any-stop-marker")
   let output = test.run_script(
     ctx,
@@ -1300,7 +1300,7 @@ all_true=true
   )?
 }
 
-proc test_live_tee_where_take_stops_upstream_and_closes_producer(ctx: TestContext) [fs, error] {
+test test_live_tee_where_take_stops_upstream_and_closes_producer [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "tee-take-marker")
   let output = test.run_script(
     ctx,
@@ -1345,7 +1345,7 @@ closed
   )?
 }
 
-proc test_live_serial_collect_runs_stages_in_item_order(ctx: TestContext) [error] {
+test test_live_serial_collect_runs_stages_in_item_order [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -1382,7 +1382,7 @@ rows=3
   )?
 }
 
-proc test_live_serial_expression_boundary_runs_stages_in_item_order(ctx: TestContext) [error] {
+test test_live_serial_expression_boundary_runs_stages_in_item_order [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -1416,7 +1416,7 @@ row 1
   )?
 }
 
-proc test_live_serial_for_interleaves_body_and_stops_producer(ctx: TestContext) [fs, error] {
+test test_live_serial_for_interleaves_body_and_stops_producer [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "serial-for-marker")
   let output = test.run_script(
     ctx,
@@ -1456,7 +1456,7 @@ closed
   )?
 }
 
-proc test_live_serial_for_keeps_source_and_stage_state(ctx: TestContext) [error] {
+test test_live_serial_for_keeps_source_and_stage_state [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -1491,7 +1491,7 @@ kept 2
   test.ok(output.success, output.stderr)?
 }
 
-proc test_live_serial_for_take_closes_producer(ctx: TestContext) [fs, error] {
+test test_live_serial_for_take_closes_producer [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "serial-for-take-marker")
   let output = test.run_script(
     ctx,
@@ -1524,7 +1524,7 @@ closed
   )?
 }
 
-proc test_raw_stream_for_continue_reaches_next_item(ctx: TestContext) [error] {
+test test_raw_stream_for_continue_reaches_next_item [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -1555,7 +1555,7 @@ row 2
   )?
 }
 
-proc test_returned_stream_delegates_rows_and_cleanup(ctx: TestContext) [fs, error] {
+test test_returned_stream_delegates_rows_and_cleanup [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "returned-stream-marker")
   let output = test.run_script(
     ctx,
@@ -1595,7 +1595,7 @@ closed
   )?
 }
 
-proc test_live_serial_for_error_closes_trace_and_producer(ctx: TestContext) [fs, error] {
+test test_live_serial_for_error_closes_trace_and_producer [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "serial-for-error-marker")
   let output = test.run_xsht_trace(
     ctx,
@@ -1621,7 +1621,7 @@ proc main() [fs, io, error] {
   test.eq(marker.read_text()?, "closed")?
 }
 
-proc test_live_flat_map_take_stops_within_expanded_row(ctx: TestContext) [fs, error] {
+test test_live_flat_map_take_stops_within_expanded_row [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "flat-map-take-marker")
   let output = test.run_script(
     ctx,
@@ -1664,7 +1664,7 @@ closed
   )?
 }
 
-proc test_live_map_drop_and_where_block_keep_take_bounded(ctx: TestContext) [fs, error] {
+test test_live_map_drop_and_where_block_keep_take_bounded [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "map-take-marker")
   let output = test.run_script(
     ctx,
@@ -1724,7 +1724,7 @@ closed
   )?
 }
 
-proc test_live_bounded_map_error_closes_producer(ctx: TestContext) [fs, error] {
+test test_live_bounded_map_error_closes_producer [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "bounded-map-error-marker")
   let output = test.run_script(
     ctx,
@@ -1749,7 +1749,7 @@ proc main() [io, fs, error] {
   test.eq(marker.read_text()?, "closed")?
 }
 
-proc test_live_tee_any_and_where_first_stop_upstream(ctx: TestContext) [fs, error] {
+test test_live_tee_any_and_where_first_stop_upstream [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "bounded-terminal-marker")
   let output = test.run_script(
     ctx,
@@ -1803,7 +1803,7 @@ closed
   )?
 }
 
-proc test_live_where_first_empty_preserves_error_and_cleanup(ctx: TestContext) [fs, error] {
+test test_live_where_first_empty_preserves_error_and_cleanup [fs, error] { |ctx|
   let marker = test.temp_path(ctx, name: "first-empty-marker")
   let output = test.run_script(
     ctx,
@@ -1824,7 +1824,7 @@ proc main() [fs, io, error] {
   test.eq(marker.read_text()?, "closed")?
 }
 
-proc test_zero_argument_stream_producers_run_from_every_call_position(ctx: TestContext) [error] {
+test test_zero_argument_stream_producers_run_from_every_call_position [error] { |ctx|
   # A call with no arguments reaches the frame engine's call decision without
   # walking an argument list, so a producer spelled that way has to be
   # recognized there too: a producer pushed as an ordinary frame runs its body
@@ -1881,7 +1881,7 @@ first=1
   )?
 }
 
-proc test_count_and_group_by_preserve_large_group_counts_and_order() [error] {
+test test_count_and_group_by_preserve_large_group_counts_and_order [error] {
   # group-by must preserve encounter order within each group.
   let nums = [0] |> range(0, 20000)
 
@@ -1918,7 +1918,7 @@ proc test_count_and_group_by_preserve_large_group_counts_and_order() [error] {
   test.eq(groups[2][6665], 19997)?
 }
 
-proc test_stream_adapters_bridge_text_bytes_and_json_lines() [process, error] {
+test test_stream_adapters_bridge_text_bytes_and_json_lines [process, error] {
   let captured = run.text printf "%s\n" "a.txt" "b.log" ?
 
   let paths = captured
@@ -1949,7 +1949,7 @@ proc test_stream_adapters_bridge_text_bytes_and_json_lines() [process, error] {
   test.eq(words[1], "two")?
 }
 
-proc test_line_methods_and_adapters_are_lazy_sources(ctx: TestContext) [fs, error] {
+test test_line_methods_and_adapters_are_lazy_sources [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "stream-lines")?
   let input = fp"${root}/input.txt"
 
@@ -1990,7 +1990,7 @@ y
   test.eq(input.bytes_lines()?.collect()[1], b"beta")?
 }
 
-proc test_terminal_newline_does_not_add_empty_line_for_round_trip() [error] {
+test test_terminal_newline_does_not_add_empty_line_for_round_trip [error] {
   let lines = """a
 b
 """.lines()
@@ -2006,7 +2006,7 @@ b
   )?
 }
 
-proc test_flat_map_consumes_live_streams_returned_by_blocks(ctx: TestContext) [fs, error] {
+test test_flat_map_consumes_live_streams_returned_by_blocks [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "flat-map-live-stream")?
   let left = fp"${root}/left.txt"
   let right = fp"${root}/right.txt"
@@ -2027,7 +2027,7 @@ d
   test.eq(lines, ["a", "b", "c", "d"])?
 }
 
-proc test_flat_map_drains_one_nested_stream_before_next_outer_pull(ctx: TestContext) [error] {
+test test_flat_map_drains_one_nested_stream_before_next_outer_pull [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -2063,7 +2063,7 @@ first=0
   )?
 }
 
-proc test_sort_boundary_materializes_serial_prefix_before_key_projection(ctx: TestContext) [error] {
+test test_sort_boundary_materializes_serial_prefix_before_key_projection [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -2106,7 +2106,7 @@ row=1
   )?
 }
 
-proc test_sort_by_desc_option_error_precedes_live_source_pull(ctx: TestContext) [error] {
+test test_sort_by_desc_option_error_precedes_live_source_pull [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     r"""
@@ -2138,7 +2138,7 @@ proc main() [io, error] {
   test.contains(output.stderr, "kind=stream.stage.exit name=\"sort-by\"")?
 }
 
-proc test_sort_by_desc_reverses_sort_order() [error] {
+test test_sort_by_desc_reverses_sort_order [error] {
   let nums = [
     3,
     1,
@@ -2173,7 +2173,7 @@ proc test_sort_by_desc_reverses_sort_order() [error] {
   test.eq(words[2], "apple")?
 }
 
-proc test_sort_by_compound_record_keys_and_stability() [error] {
+test test_sort_by_compound_record_keys_and_stability [error] {
   let records = [
     {
       name: "b",
@@ -2239,7 +2239,7 @@ proc test_sort_by_compound_record_keys_and_stability() [error] {
   test.eq(whole, direct)?
 }
 
-proc test_sort_by_rejects_non_orderable_keys_at_runtime(ctx: TestContext) [error] {
+test test_sort_by_rejects_non_orderable_keys_at_runtime [error] { |ctx|
   let failed = test.run_script(
     ctx,
     """
@@ -2256,7 +2256,7 @@ for r in out { print \${r.name} }
   test.contains(failed.stderr, "List", failed.stderr)?
 }
 
-proc test_sort_by_map_accumulator_any_typed_fields() [error] {
+test test_sort_by_map_accumulator_any_typed_fields [error] {
   # Map.empty() is Map[Any], so Map.get(k, 0) yields an Any-typed field. A
   # sort-by over such a field must checker-accept the same way the runtime does
   # (the actual value is a supported scalar Int), matching the loud-failure
@@ -2277,7 +2277,7 @@ proc test_sort_by_map_accumulator_any_typed_fields() [error] {
   test.eq(by_count_comp, by_count)?
 }
 
-proc test_structured_stream_batch_count_and_argv_limits() [process, error] {
+test test_structured_stream_batch_count_and_argv_limits [process, error] {
   let by_count = [1, 2, 3, 4, 5] |> batch(count: 2)
   let by_size = [p"aaaa", p"bbbb", p"cccc"] |> batch(max_bytes: 10)
   test.eq(by_count, [[1, 2], [3, 4], [5]])?
@@ -2299,7 +2299,7 @@ proc test_structured_stream_batch_count_and_argv_limits() [process, error] {
   )?
 }
 
-proc test_batch_max_bytes_error_stops_and_closes_live_source(ctx: TestContext) [error] {
+test test_batch_max_bytes_error_stops_and_closes_live_source [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     r"""
@@ -2332,7 +2332,7 @@ closed
   test.contains(output.stderr, "kind=stream.stage.exit name=\"batch\"")?
 }
 
-proc test_repeat_zero_does_not_pull_live_source(ctx: TestContext) [error] {
+test test_repeat_zero_does_not_pull_live_source [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -2357,7 +2357,7 @@ proc main() [io, error] {
   )?
 }
 
-proc test_count_producer_error_runs_defer_and_closes_trace(ctx: TestContext) [error] {
+test test_count_producer_error_runs_defer_and_closes_trace [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     r"""
@@ -2386,7 +2386,7 @@ proc main() [io, error] {
   test.contains(output.stderr, "kind=stream.stage.exit name=\"count\"")?
 }
 
-proc test_mapped_live_count_enters_terminal_before_source_error(ctx: TestContext) [error] {
+test test_mapped_live_count_enters_terminal_before_source_error [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     r"""
@@ -2418,7 +2418,7 @@ proc main() [io, error] {
   }
 }
 
-proc test_live_serial_count_after_map_where_and_flat_map() [error] {
+test test_live_serial_count_after_map_where_and_flat_map [error] {
   let count = range(4)
     |> map { |n|
       n + 1
@@ -2431,7 +2431,7 @@ proc test_live_serial_count_after_map_where_and_flat_map() [error] {
   test.eq(count, 4)?
 }
 
-proc test_parallel_stream_stages_are_bounded_and_deterministic() [error] {
+test test_parallel_stream_stages_are_bounded_and_deterministic [error] {
   test.eq(
     [1, 2, 3, 4]
       |> par-map { |x|
@@ -2450,7 +2450,7 @@ proc test_parallel_stream_stages_are_bounded_and_deterministic() [error] {
   test.eq(seen, ["a", "b"])?
 }
 
-proc test_each_trace_reports_serial_execution(ctx: TestContext) [error] {
+test test_each_trace_reports_serial_execution [error] { |ctx|
   let trace = test.run_xsht_trace(
     ctx,
     r"""
@@ -2473,7 +2473,7 @@ item=2
   test.not_contains(trace.stderr, "kind=parallel.cancel")?
 }
 
-proc test_parallel_stream_preserves_filtered_order() [error] {
+test test_parallel_stream_preserves_filtered_order [error] {
   test.eq(
     [0, 1, 2, 3, 4, 5]
       |> where . >= 2
@@ -2484,7 +2484,7 @@ proc test_parallel_stream_preserves_filtered_order() [error] {
   )?
 }
 
-proc test_structured_streams_walk_filter_map_collect_and_count(ctx: TestContext) [fs, error] {
+test test_structured_streams_walk_filter_map_collect_and_count [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "stream-walk")?
   let nested = fp"${root}/nested"
   nested.mkdir()?
@@ -2501,7 +2501,7 @@ proc test_structured_streams_walk_filter_map_collect_and_count(ctx: TestContext)
   test.eq(count, 2)?
 }
 
-proc test_direct_collect_of_lazy_module_stream_is_a_list(ctx: TestContext) [fs, error] {
+test test_direct_collect_of_lazy_module_stream_is_a_list [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "stream-direct-collect")?
   fp"${root}/a.txt".write("a")?
   fp"${root}/b.txt".write("b")?
@@ -2515,7 +2515,7 @@ proc test_direct_collect_of_lazy_module_stream_is_a_list(ctx: TestContext) [fs, 
   test.eq(all.len(), 3)?
 }
 
-proc test_table_print_wraps_cells_to_terminal_width(ctx: TestContext) [error] {
+test test_table_print_wraps_cells_to_terminal_width [error] { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -2536,7 +2536,7 @@ let rows = [{name: "very-long-command-name-that-keeps-going", size: 123}]
   }
 }
 
-proc test_stream_stages_are_trace_observable(ctx: TestContext) [error] {
+test test_stream_stages_are_trace_observable [error] { |ctx|
   let table_trace = test.run_xsht_trace(
     ctx,
     """
@@ -2611,7 +2611,7 @@ count=1
   test.contains(batch_trace.stderr, "item_count=3")?
 }
 
-proc test_stream_errors_include_trace_context(ctx: TestContext) [error] {
+test test_stream_errors_include_trace_context [error] { |ctx|
   let stream_error = test.run_xsht_trace(
     ctx,
     """
@@ -2674,7 +2674,7 @@ let values = [1, 2, 3] |> par-map(jobs: 8) { |index| xs[index] }
   test.contains(idle_error.stderr, "index-out-of-range")?
 }
 
-proc test_fs_files_lazy_folding_terminals_match_eager_results(ctx: TestContext) [fs, error] {
+test test_fs_files_lazy_folding_terminals_match_eager_results [fs, error] { |ctx|
   # count/sum/min/max/fold drive the live stream by folding one item at a time.
   let root = test.temp_dir(ctx, name: "fs-walk-fold")?
   fp"${root}/a.txt".write("a")?

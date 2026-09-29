@@ -115,7 +115,7 @@ extends plain grep to handle whitespace and expression boundaries correctly,
 but plain grep must also be sufficient for most searches.
 
 **Testable at every layer.** The language has mocks, temp files, and
-assertions built in. Tests are typed procs; the test module is a standard
+assertions built in. Tests are checked declarations; the test module is a standard
 library, not a framework import. Coverage is structural — measured over the
 API surface — rather than only over lines. Scripts that are not tested are
 not complete.
@@ -4100,11 +4100,28 @@ names of the form `tests/file.xsh::test_name` or
 Test files are module-shaped. The only allowed top-level forms are `use`,
 `let`, `type`, `proc`, `pure`, and `export`; top-level commands, mutation, and
 control flow are rejected. Top-level imports and constants are initialized
-before each test proc runs.
+before each declared test runs.
 
-Native tests are top-level `proc test_*` functions returning `Result[Unit]`.
-They may accept no parameters or a single `ctx: TestContext` parameter. Each
-test runs in a fresh evaluator with fresh stdout and stderr capture, cwd/env
+Native tests are top-level `test NAME [effects]? { ... }` declarations with a
+`Result[Unit]` body contract. The ordinary inside-brace header may bind one
+immutable `TestContext` parameter (`{ |ctx| ... }`) or discard it (`{ |_| ... }`);
+zero parameters are also valid. Omitted effects retain unrestricted proc behavior;
+explicit effects are checked normally. Declared names need no `test_` prefix.
+Names share the top-level namespace, and duplicates or collisions are errors.
+Declarations are checked and registered without executing their bodies. They
+cannot be called, exported, or nested, and importing a module or running a script
+does not execute them, including a declaration named `main`. Qualified `test.*`
+operations remain ordinary module access. Builds without `native-tests` diagnose
+declarations with instructions to use a build that supports native tests.
+
+The harness discovers declarations only within its existing configured roots.
+Legacy `proc test_*` harness signatures produce migration diagnostics rather than
+prefix-based discovery; preserve the exact old name when converting a signature.
+If callers use a legacy test proc, extract the callable work into an ordinary
+helper and retain one declared test. Ordinary helper procs remain valid. `xsht lint --fix` offers a checked migration
+for private, unreferenced legacy signatures in configured test roots; callers or
+signature comments require manual conversion.
+Each test runs in a fresh evaluator with fresh stdout and stderr capture, cwd/env
 state, mock registry, call log, and temp root.
 
 `TestContext` is `{name: Str, file: Path, temp_root: Path}`. `TestCall` is

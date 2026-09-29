@@ -2325,6 +2325,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             return_ty,
             return_ty_defaulted,
             body,
+            test_declaration: false,
         });
         id
     }
@@ -2355,6 +2356,33 @@ impl<'a> ArenaProgramBuilder<'a> {
             ArenaStmtKind::PureDef(def)
         };
         let id = self.lowerer.push_stmt_kind(kind, span);
+        self.push_current_statement(id);
+        id
+    }
+
+    /// The body retains its source header; typed frame parameters derive from that header.
+    pub fn push_test_declaration(
+        &mut self,
+        name: Name,
+        effects: Option<ArenaRange>,
+        body: BlockId,
+        span: Span,
+    ) -> StmtId {
+        let header = self.lowerer.arena.block_params(self.lowerer.arena.block(body).params).to_vec();
+        let context_ty = self.push_named_type_expr(Name::intern("TestContext"), span);
+        let params_start = self.lowerer.arena.params.len();
+        for param in header {
+            self.lowerer.arena.params.push(ArenaParam {
+                name: param.name, ty: context_ty, ty_defaulted: false,
+                default: None, rest: false, span: param.span,
+            });
+        }
+        let params = ArenaRange::new(params_start, self.lowerer.arena.params.len() - params_start);
+        let unit = self.push_named_type_expr(Name::intern("Unit"), span);
+        let return_ty = self.push_result_type_expr(unit, None, span);
+        let def = self.push_arena_function_def(name, params, effects, return_ty, true, body);
+        self.lowerer.arena.function_defs[def.index()].test_declaration = true;
+        let id = self.lowerer.push_stmt_kind(ArenaStmtKind::ProcDef(def), span);
         self.push_current_statement(id);
         id
     }
@@ -4927,6 +4955,8 @@ pub struct ArenaBlockParam {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArenaFunctionDef {
+    /// Harness registration keeps this frame out of the ordinary callable namespace.
+    pub test_declaration: bool,
     pub name: Name,
     pub params: ArenaRange,
     pub effects: Option<ArenaRange>,

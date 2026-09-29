@@ -1,6 +1,6 @@
 error TestBaseError = Base(message: Str)
 
-proc test_list_push_and_extend_preserve_older_values() [error] {
+test test_list_push_and_extend_preserve_older_values [error] {
   let base = [1, 2]
   let alias = base
   let pushed = base.push(3)
@@ -12,7 +12,7 @@ proc test_list_push_and_extend_preserve_older_values() [error] {
   test.eq(extended, [1, 2, 3, 4, 5])?
 }
 
-proc test_list_concatenation_and_compound_assignment_preserve_aliases() [error] {
+test test_list_concatenation_and_compound_assignment_preserve_aliases [error] {
   var items: List[Int] = []
   items += []
   items += [1]
@@ -47,7 +47,7 @@ proc test_list_concatenation_and_compound_assignment_preserve_aliases() [error] 
   test.eq(table_alias.get("entry")?, [1])?
 }
 
-proc test_list_compound_assignment_checks_targets_and_elements(ctx: TestContext) [error] {
+test test_list_compound_assignment_checks_targets_and_elements [error] { |ctx|
   for source in [
     "var items = [1]\nitems += 2\n",
     "var items = [1]\nitems += [\"wrong\"]\n",
@@ -61,7 +61,7 @@ proc test_list_compound_assignment_checks_targets_and_elements(ctx: TestContext)
   }
 }
 
-proc test_list_compound_assignment_evaluates_selectors_before_rhs_once(ctx: TestContext) [error] {
+test test_list_compound_assignment_evaluates_selectors_before_rhs_once [error] { |ctx|
   let result = test.run_script(
     ctx,
     r"""proc key() [io] -> Str {
@@ -87,7 +87,7 @@ print ${values[0]} ${values[1]} ${values[2]}
   test.eq(result.stdout, "selector\nrhs\nselector\nitem\n1 2 3\n")?
 }
 
-proc test_list_concatenation_evaluates_operands_once_in_source_order(ctx: TestContext) [error] {
+test test_list_concatenation_evaluates_operands_once_in_source_order [error] { |ctx|
   let result = test.run_script(
     ctx,
     r"""proc left() [io] -> List[Int] {
@@ -106,7 +106,7 @@ print values.len()
   test.eq(result.stdout, "left\nright\n2\n")?
 }
 
-proc test_list_compound_assignment_retains_target_on_dynamic_rhs_failure(ctx: TestContext) [error] {
+test test_list_compound_assignment_retains_target_on_dynamic_rhs_failure [error] { |ctx|
   let result = test.run_script(
     ctx,
     r"""pure wrong() -> Any {
@@ -127,7 +127,7 @@ proc main() [io] {
   test.eq(result.stdout, "1\n")?
 }
 
-proc test_collection_number_text_status_and_result_methods() [process, error] {
+test test_collection_number_text_status_and_result_methods [process, error] {
   let base = ["alpha"]
   let pushed = base.push("beta")
   let extended = pushed.extend(["gamma"])
@@ -246,7 +246,7 @@ beta""".find("z"),
   test.error_kind(result.context("wrapped", "extra"), "TestBaseError.Base")?
 }
 
-proc test_int_bitset_methods(ctx: TestContext) [fs, error] {
+test test_int_bitset_methods [fs, error] { |ctx|
   let mode = 0o754
   test.eq(mode.bit_and(0o070), 0o050)?
   test.eq(mode.bit_or(0o002), 0o756)?

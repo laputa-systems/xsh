@@ -1,4 +1,4 @@
-proc test_hash_digests_checksums_and_digest_methods(ctx: TestContext) [fs, error] {
+test test_hash_digests_checksums_and_digest_methods [fs, error] { |ctx|
   let data_path = test.temp_path(ctx, name: "hash-data.txt")
   fs.write(data_path, "abc")?
   let digest = hash.sha256(b"abc")
@@ -38,7 +38,7 @@ pure verify_message(result: Result[Unit]) -> Str {
 
 # Every case the removed native `verify_hex`/`validate_expected_hex` pair
 # covered, plus the algorithm selection the specialized call form carries.
-proc test_hash_verify_file_policy(ctx: TestContext) [fs, error] {
+test test_hash_verify_file_policy [fs, error] { |ctx|
   let data_path = test.temp_path(ctx, name: "hash-verify.txt")
   fs.write(data_path, "abc")?
   let digest = hash.sha256(data_path)?
@@ -170,7 +170,7 @@ pure check_line_message(result: Result[Record]) -> Str {
   }
 }
 
-proc test_parse_check_line_reads_both_gnu_separators() [error] {
+test test_parse_check_line_reads_both_gnu_separators [error] {
   let digest = "900150983cd24fb0d6963f7d28e17f72"
 
   let two_space = hash.parse_check_line(f"${digest}  docs/readme.txt")?
@@ -189,7 +189,7 @@ proc test_parse_check_line_reads_both_gnu_separators() [error] {
   test.eq(spaced.path, "my file.txt ")?
 }
 
-proc test_parse_check_line_handles_path_star_and_marker() [error] {
+test test_parse_check_line_handles_path_star_and_marker [error] {
   let digest = "900150983cd24fb0d6963f7d28e17f72"
 
   # The marker comes from the separator, so a star that begins a double-space
@@ -204,7 +204,7 @@ proc test_parse_check_line_handles_path_star_and_marker() [error] {
   test.eq(twice.binary, false)?
 }
 
-proc test_parse_check_line_normalizes_case_and_carriage_returns() [error] {
+test test_parse_check_line_normalizes_case_and_carriage_returns [error] {
   let upper = hash.parse_check_line("900150983CD24FB0D6963F7D28E17F72  readme.txt")?
   test.eq(upper.hex, "900150983cd24fb0d6963f7d28e17f72")?
   test.eq(upper.path, "readme.txt")?
@@ -220,7 +220,7 @@ proc test_parse_check_line_normalizes_case_and_carriage_returns() [error] {
   test.eq(doubled.path, "readme.txt")?
 }
 
-proc test_parse_check_line_prefers_the_double_space_separator() [error] {
+test test_parse_check_line_prefers_the_double_space_separator [error] {
   # Digest length is a `hash.verify_file` policy: the line parser accepts any
   # non-empty hexadecimal field.
   let short = hash.parse_check_line("abc  readme.txt")?
@@ -235,7 +235,7 @@ proc test_parse_check_line_prefers_the_double_space_separator() [error] {
   test.eq(check_line_message(both), "checksum is not hexadecimal")?
 }
 
-proc test_parse_check_line_rejects_malformed_lines() [error] {
+test test_parse_check_line_rejects_malformed_lines [error] {
   let separator_message = "expected `<hex>  <path>` or `<hex> *<path>`"
   test.error_kind(hash.parse_check_line(""), "checksum-line")?
   test.eq(check_line_message(hash.parse_check_line("")), separator_message)?

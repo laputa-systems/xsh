@@ -1,4 +1,4 @@
-proc test_sort_unique_reverse(ctx: TestContext) [fs, process, env, error] {
+test test_sort_unique_reverse [fs, process, env, error] { |ctx|
   let input = test.temp_file(ctx, name: "sort.txt", contents: b"b\na\nb\n")?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/sort.xsh" -- -u -r $input ?
   let output_lines = output.lines().collect()

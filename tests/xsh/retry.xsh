@@ -1,4 +1,4 @@
-proc test_retry_repeats_until_attempt_succeeds(ctx: TestContext) [error] {
+test test_retry_repeats_until_attempt_succeeds [error] { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -32,7 +32,7 @@ print f"\${value} \${attempts}"
   test.eq(output.stderr, "")?
 }
 
-proc test_retry_exhaustion_returns_final_error(ctx: TestContext) [error] {
+test test_retry_exhaustion_returns_final_error [error] { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -56,7 +56,7 @@ retry [0ms, 0ms] {
   test.contains(output.stderr, "traceback")?
 }
 
-proc test_retry_attempt_defers_run_before_next_attempt(ctx: TestContext) [error] {
+test test_retry_attempt_defers_run_before_next_attempt [error] { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -96,7 +96,7 @@ print f"\${value} \${attempts} \${cleaned}"
   test.eq(output.stderr, "")?
 }
 
-proc test_return_inside_retry_returns_from_enclosing_proc(ctx: TestContext) [error] {
+test test_return_inside_retry_returns_from_enclosing_proc [error] { |ctx|
   let output = test.run_script(
     ctx,
     """
@@ -123,7 +123,7 @@ print \${result}
   test.eq(output.stderr, "")?
 }
 
-proc test_retry_attempts_are_traced(ctx: TestContext) [error] {
+test test_retry_attempts_are_traced [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     """

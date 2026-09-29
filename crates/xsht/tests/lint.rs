@@ -2229,7 +2229,7 @@ pure recursive_b() -> Int {
   return 1
 }
 
-proc test_callable_roots() {
+test test_callable_roots {
   print public_api()
 }
 ";
@@ -3661,4 +3661,49 @@ proc assertions(dynamic: Any) [io, error] {
     let assertions = second.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.core-assert")).collect::<Vec<_>>();
     assert_eq!(assertions.len(), 1);
     assert!(assertions[0].fix_hints.is_empty());
+}
+
+#[test]
+fn native_test_declaration_migration_preserves_context_effects_and_is_idempotent() {
+    let source = "proc test_exact_name(ctx: TestContext) [error] -> Result[Unit] {\n  test.eq(ctx.name, ctx.name)?\n  return Ok()\n}\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let options = LintOptions { native_test_file: true, function_return_types: checked.function_return_types.clone(), ..LintOptions::default() };
+    let linted = Linter::lint(&parsed.arena, source, options);
+    let diagnostic = linted.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.legacy-test-proc")).expect("migration diagnostic");
+    let mut edits = diagnostic.fix_hints.iter().map(|fix| (fix.span.unwrap(), fix.replacement.as_ref().unwrap())).collect::<Vec<_>>();
+    edits.sort_by_key(|(span, _)| span.start());
+    let mut rewritten = source.to_owned();
+    for (span, replacement) in edits.into_iter().rev() { rewritten.replace_range(span.range(), replacement); }
+    assert!(rewritten.starts_with("test test_exact_name [error] { |ctx|"), "{rewritten}");
+    assert!(rewritten.contains("return Ok()"));
+    let parsed = parse_lint_source(&rewritten);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, &rewritten);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let second = Linter::lint(&parsed.arena, &rewritten, LintOptions { native_test_file: true, function_return_types: checked.function_return_types, ..LintOptions::default() });
+    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.legacy-test-proc")));
+    let formatted = Formatter::new().format_source(SourceId::new(0), &rewritten);
+    assert!(formatted.diagnostics.is_empty());
+    assert!(formatted.formatted.contains("test test_exact_name [error] { |ctx|"));
+    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(formatted.formatted, second.formatted);
+}
+
+#[test]
+fn native_test_declaration_migration_declines_callers_and_ordinary_files() {
+    for source in [
+        "proc test_called() {}\nproc caller() { test_called() }\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let linted = Linter::lint(&parsed.arena, source, LintOptions { native_test_file: true, function_return_types: checked.function_return_types.clone(), ..LintOptions::default() });
+        let migration = linted.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.legacy-test-proc")).expect("manual migration diagnostic");
+        assert!(migration.fix_hints.is_empty());
+        let ordinary = Linter::lint(&parsed.arena, source, LintOptions { function_return_types: checked.function_return_types, ..LintOptions::default() });
+        assert!(!ordinary.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.legacy-test-proc")));
+    }
 }

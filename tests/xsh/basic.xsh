@@ -1,8 +1,8 @@
-proc test_pass() [error] {
+test test_pass [error] {
   test.eq(1, 1)?
 }
 
-proc test_guard_failure_controls_enclosing_loop() [error] {
+test test_guard_failure_controls_enclosing_loop [error] {
   var numbers: List[Int] = []
   for source in ["1", "invalid", "2"] {
     guard let number = source.parse_int() else { |_|
@@ -26,7 +26,7 @@ proc test_guard_failure_controls_enclosing_loop() [error] {
   test.eq(numbers, [1])?
 }
 
-proc test_typed_integer_augmented_assignment_keeps_results_and_errors(ctx: TestContext) [error] {
+test test_typed_integer_augmented_assignment_keeps_results_and_errors [error] { |ctx|
   var value: Int = 13
   value += 5
   value -= 2
@@ -67,7 +67,7 @@ pure sibling_branch_value(choice: Str) -> Int {
   }
 }
 
-proc test_sibling_if_branches_keep_their_own_local_bindings() [error] {
+test test_sibling_if_branches_keep_their_own_local_bindings [error] {
   test.eq(sibling_branch_value("first"), 0)?
   test.eq(sibling_branch_value("second"), 10)?
   test.eq(sibling_branch_value("other"), 20)?
@@ -81,7 +81,7 @@ proc test_sibling_if_branches_keep_their_own_local_bindings() [error] {
   }
 }
 
-proc test_repeated_if_branches_select_statement_and_expression_arms() [error] {
+test test_repeated_if_branches_select_statement_and_expression_arms [error] {
   var total = 0
   for value in [0, 1, 2, 3, 4, 5] {
     if value % 3 == 0 {
@@ -103,7 +103,7 @@ pure locally_selected_arguments(argv: List[Str]) -> List[Str] {
   return if argv.len() > 0 and argv[0] == "--" { [] } else { argv }
 }
 
-proc test_local_args_shadows_predeclared_script_arguments() [error] {
+test test_local_args_shadows_predeclared_script_arguments [error] {
   test.eq(locally_selected_arguments(["unknown"]), ["unknown"])?
   test.eq(locally_selected_arguments([]), [])?
   let argv = ["unknown"]
@@ -111,11 +111,11 @@ proc test_local_args_shadows_predeclared_script_arguments() [error] {
   test.eq(selected, ["unknown"])?
 }
 
-proc test_skip() {
+test test_skip {
   test.skip("later")
 }
 
-proc test_temp(ctx: TestContext) [fs, error] {
+test test_temp [fs, error] { |ctx|
   let one = test.temp_path(ctx)
   let two = test.temp_path(ctx)
   test.ne(one, two)?
@@ -124,7 +124,7 @@ proc test_temp(ctx: TestContext) [fs, error] {
   test.eq(data, "ok")?
 }
 
-proc test_process_command_builder() [process, error] {
+test test_process_command_builder [process, error] {
   let command = process.command {
     run true
   }
@@ -141,7 +141,7 @@ pure language_sugar_returned(value: Str) -> Result[Str] {
   return value
 }
 
-proc test_language_sugar_edge_cases(ctx: TestContext) [fs, error] {
+test test_language_sugar_edge_cases [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "language-sugar")?
   let file = fp"${root}/note.txt"
   file.write("""alpha
@@ -167,7 +167,7 @@ beta
   test.eq(names[0], "note.txt")?
 }
 
-proc test_dns_mock(ctx: TestContext) [net, error] {
+test test_dns_mock [net, error] { |ctx|
   test.mock(
     ctx,
     "dns.lookup",
@@ -181,7 +181,7 @@ proc test_dns_mock(ctx: TestContext) [net, error] {
   test.eq(calls.len(), 1)?
 }
 
-proc test_net_mock(ctx: TestContext) [net, error] {
+test test_net_mock [net, error] { |ctx|
   test.mock(
     ctx,
     "net.request",

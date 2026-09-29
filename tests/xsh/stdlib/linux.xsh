@@ -1,4 +1,4 @@
-proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, env, error] {
+test test_linux_dry_run_covers_module_surface [fs, process, env, error] { |ctx|
   let root = test.temp_dir(ctx, name: "linux")?
   let log = fp"${root}/linux.jsonl"
   let seed = fp"${root}/seed"
@@ -132,7 +132,7 @@ pure meminfo_failure(result: Result[LinuxMemInfo]) -> Str {
   }
 }
 
-proc test_linux_text_entries_require_a_gate() [process, env, error] {
+test test_linux_text_entries_require_a_gate [process, env, error] {
   # Both variables are emptied here so the test does not depend on the
   # environment it runs in. Neither empties to an accepted true value, so both
   # entries refuse before they open any host file, and the refusal names the
@@ -144,7 +144,7 @@ proc test_linux_text_entries_require_a_gate() [process, env, error] {
   } ?
 }
 
-proc test_linux_halt_requires_an_explicit_mode(ctx: TestContext) [error] {
+test test_linux_halt_requires_an_explicit_mode [error] { |ctx|
   let output = test.run_script(
     ctx,
     """let _ = linux.halt()?
@@ -156,7 +156,7 @@ proc test_linux_halt_requires_an_explicit_mode(ctx: TestContext) [error] {
   test.contains(output.stderr, "linux-unimplemented")?
 }
 
-proc test_linux_text_dry_run_values_and_log(ctx: TestContext) [fs, process, env, error] {
+test test_linux_text_dry_run_values_and_log [fs, process, env, error] { |ctx|
   let root = test.temp_dir(ctx, name: "linux-text-dry-run")?
   let log = fp"${root}/linux.jsonl"
 
@@ -188,7 +188,7 @@ proc test_linux_text_dry_run_values_and_log(ctx: TestContext) [fs, process, env,
   )?
 }
 
-proc test_linux_dry_run_disk_usage_and_sysctl_records() [process, env, error] {
+test test_linux_dry_run_disk_usage_and_sysctl_records [process, env, error] {
   env XSH_LINUX_DRY_RUN=1 XSH_LINUX_SYSCTL_VALUE=65535 {
     let root_usage = linux.disk_usage()?.collect()
     let tmp_usage = linux.disk_usage(/tmp)?.collect()
@@ -205,7 +205,7 @@ proc test_linux_dry_run_disk_usage_and_sysctl_records() [process, env, error] {
   } ?
 }
 
-proc test_linux_dry_run_file_attrs_decode_seed_flags(ctx: TestContext) [fs, process, env, error] {
+test test_linux_dry_run_file_attrs_decode_seed_flags [fs, process, env, error] { |ctx|
   let root = test.temp_dir(ctx, name: "linux-file-attrs")?
   let seed = fp"${root}/seed"
   fs.write(seed, "seed")?
@@ -232,7 +232,7 @@ proc test_linux_dry_run_file_attrs_decode_seed_flags(ctx: TestContext) [fs, proc
   } ?
 }
 
-proc test_linux_dry_run_rejects_invalid_seed_inputs() [process, env, error] {
+test test_linux_dry_run_rejects_invalid_seed_inputs [process, env, error] {
   env XSH_LINUX_DRY_RUN=1 {
     match linux.sysctl_get("kernel..pid_max") {
       Ok(_) => test.ok(false, "invalid sysctl name was accepted")?
@@ -279,7 +279,7 @@ proc test_linux_dry_run_rejects_invalid_seed_inputs() [process, env, error] {
   } ?
 }
 
-proc test_linux_dry_run_log_appends_in_place(ctx: TestContext) [fs, process, env, error] {
+test test_linux_dry_run_log_appends_in_place [fs, process, env, error] { |ctx|
   if system.uname()?.sysname != "Linux" {
     # This checks Linux's in-place append behavior.
     test.skip("the dry-run log is appended on Linux only")
@@ -336,7 +336,7 @@ proc test_linux_dry_run_log_appends_in_place(ctx: TestContext) [fs, process, env
   test.eq(blocked.metadata()?.kind, "dir")?
 }
 
-proc test_linux_text_log_failure_kind(ctx: TestContext) [fs, process, env, error] {
+test test_linux_text_log_failure_kind [fs, process, env, error] { |ctx|
   if system.uname()?.sysname != "Linux" {
     test.skip("Linux dry-run logging is tested on Linux only")
     return
@@ -373,7 +373,7 @@ proc test_linux_text_log_failure_kind(ctx: TestContext) [fs, process, env, error
   test.contains(failed.stderr, "linux-dry-run-log")?
 }
 
-proc test_linux_meminfo_reads_the_host_text() [process, env, error] {
+test test_linux_meminfo_reads_the_host_text [process, env, error] {
   if system.uname()?.sysname != "Linux" {
     # The entry reads `/proc/meminfo` on Linux only; on other platforms the
     # binding is still native, so there is nothing to add here.
@@ -396,7 +396,7 @@ proc test_linux_meminfo_reads_the_host_text() [process, env, error] {
   } ?
 }
 
-proc test_linux_modules_streams_the_host_text() [process, env, error] {
+test test_linux_modules_streams_the_host_text [process, env, error] {
   if system.uname()?.sysname != "Linux" {
     # The entry reads `/proc/modules` on Linux only; on other platforms the
     # binding is still native, so there is nothing to add here.
@@ -442,7 +442,7 @@ proc test_linux_modules_streams_the_host_text() [process, env, error] {
 # selects the tree, and it is read from the *process* environment by the
 # retained scan, so a scoped `env` block around the call would not be visible
 # to it.
-proc test_linux_module_policy_uses_the_configured_tree(ctx: TestContext) [fs, process, env, error] {
+test test_linux_module_policy_uses_the_configured_tree [fs, process, env, error] { |ctx|
   if system.uname()?.sysname != "Linux" {
     # On other platforms the binding is still native, so there is nothing to
     # add here.
@@ -507,7 +507,7 @@ dep.ko:
   )?
 }
 
-proc test_linux_open_files_tracks_a_live_child_descriptor(ctx: TestContext) [fs, process, env, time, error] {
+test test_linux_open_files_tracks_a_live_child_descriptor [fs, process, env, time, error] { |ctx|
   if system.uname()?.sysname != "Linux" {
     test.skip("linux.open_files reads live Linux process descriptors")
     return

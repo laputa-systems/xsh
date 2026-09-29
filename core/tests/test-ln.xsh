@@ -1,4 +1,4 @@
-proc test_ln_symbolic_force(ctx: TestContext) [fs, process, env, error] {
+test test_ln_symbolic_force [fs, process, env, error] { |ctx|
   let root = test.temp_dir(ctx, name: "ln")?
   let src = fp"${root}/src.txt"
   let dst = fp"${root}/dst.txt"

@@ -28,7 +28,7 @@ ${body}
   fs.chmod(tool_path, 0o755)?
 }
 
-proc test_binary_verification_rejects_missing_and_non_elf_products(ctx: TestContext) [fs, process, error, io] {
+test test_binary_verification_rejects_missing_and_non_elf_products [fs, process, error, io] { |ctx|
   let root = test.temp_dir(ctx, name: "verify-binary")?
   let verify_ctx = verification_context(root)?
 
@@ -51,7 +51,7 @@ proc test_binary_verification_rejects_missing_and_non_elf_products(ctx: TestCont
   }
 }
 
-proc test_distribution_product_paths_are_stable() [error] {
+test test_distribution_product_paths_are_stable [error] {
   let target_dir = /repo/target
   test.eq(
     distributions.profile_product_path(target_dir, "x86_64-unknown-linux-musl", "release", "xsh").display(),
@@ -63,7 +63,7 @@ proc test_distribution_product_paths_are_stable() [error] {
   )?
 }
 
-proc test_linux_verification_rejects_wrong_machine_and_dynamic_binaries(ctx: TestContext) [fs, error] {
+test test_linux_verification_rejects_wrong_machine_and_dynamic_binaries [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "verify-linux")?
   let product = fp"${root}/target/x86_64-unknown-linux-musl/dist/xsh"
   product.parent().mkdir()?

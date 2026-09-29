@@ -1,4 +1,4 @@
-proc test_process_module() [fs, process, error] {
+test test_process_module [fs, process, error] {
   let current_pid = process.current_pid()?
   test.ok(current_pid > 0)?
   test.ok(process.list()? |> any .pid == current_pid, "process list should contain current pid")?
@@ -52,7 +52,7 @@ proc test_process_module() [fs, process, error] {
   handle.cancel(signal: "TERM", kill_after: 10ms)?
 }
 
-proc test_process_command_argv_requires_argv0(ctx: TestContext) [error] {
+test test_process_command_argv_requires_argv0 [error] { |ctx|
   let output = test.run_script(
     ctx,
     """let command = process.command_argv("echo", [])
@@ -74,7 +74,7 @@ pure argv_words_message(result: Result[List[Str]]) -> Str {
 
 # Every case the native `argv_words` unit test covered, plus whitespace runs,
 # empty quoted arguments, and quote concatenation.
-proc test_process_argv_words_parses_quotes_and_escapes() [process, error] {
+test test_process_argv_words_parses_quotes_and_escapes [process, error] {
   test.eq(
     process.argv_words("cmd 'two words' \"double quoted\" escaped\\ space 'literal *'")?,
     ["cmd", "two words", "double quoted", "escaped space", "literal *"],
@@ -134,7 +134,7 @@ proc test_process_argv_words_parses_quotes_and_escapes() [process, error] {
 
 # Every case the native `argv_words` unit test covered, plus each shell syntax
 # character, the rejection messages, and unterminated input.
-proc test_process_argv_words_rejects_shell_syntax() [process, error] {
+test test_process_argv_words_rejects_shell_syntax [process, error] {
   for text in [
     "echo hi | wc",
     "echo $HOME",
@@ -220,7 +220,7 @@ proc test_process_argv_words_rejects_shell_syntax() [process, error] {
 
 # Unicode text: multi-byte characters stay inside a word, and every character
 # the baseline treats as whitespace separates words.
-proc test_process_argv_words_reads_unicode_text() [process, error] {
+test test_process_argv_words_reads_unicode_text [process, error] {
   test.eq(process.argv_words("h\u{e9}llo w\u{f6}rld")?, ["h\u{e9}llo", "w\u{f6}rld"])?
   test.eq(process.argv_words("'h\u{e9}llo w\u{f6}rld'")?, ["h\u{e9}llo w\u{f6}rld"])?
   test.eq(process.argv_words("\u{65e5}\u{672c} \u{8a9e}")?, ["\u{65e5}\u{672c}", "\u{8a9e}"])?
@@ -249,7 +249,7 @@ proc test_process_argv_words_reads_unicode_text() [process, error] {
   test.eq(process.argv_words("\u{3b1}\u{3000}\u{3b2} \u{3b3}")?, ["\u{3b1}", "\u{3b2}", "\u{3b3}"])?
 }
 
-proc test_process_command_redirections(ctx: TestContext) [fs, process, error] {
+test test_process_command_redirections [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "process-redirections")?
   let input = fp"${root}/input.txt"
   let log = fp"${root}/combined.log"
@@ -275,7 +275,7 @@ proc test_process_command_redirections(ctx: TestContext) [fs, process, error] {
   test.eq(builder_log.read_text()?, "builder-outbuilder-err")?
 }
 
-proc test_process_timeout_errors() [process, error] {
+test test_process_timeout_errors [process, error] {
   let command = process.command_argv("sh", ["sh", "-c", "sleep 1"], timeout: 10ms)
   match process.run(command) {
     Err(ProcessError.Timeout {message: message}) => test.ok("timed out" in message)?
@@ -285,7 +285,7 @@ proc test_process_timeout_errors() [process, error] {
   }
 }
 
-proc test_process_wait_and_handle_contracts() [process, error] {
+test test_process_wait_and_handle_contracts [process, error] {
   let ok = spawn run true ?
   let ok_status = wait ok?
   let bad = spawn run false ?
@@ -326,7 +326,7 @@ proc test_process_wait_and_handle_contracts() [process, error] {
   }
 }
 
-proc test_process_spawn_setup_errors() [process, env, error] {
+test test_process_spawn_setup_errors [process, env, error] {
   env PATH="/bin:/usr/bin" {
     match spawn run xsh-definitely-missing-command {
       Err(ProcessError.NotFound {message: message}) => test.ok("not found" in message)?
@@ -361,7 +361,7 @@ proc process_handle_from_list() [process, error] -> Result[List[ProcessHandle]] 
   return [nested]
 }
 
-proc test_process_spawn_timeout_and_return_transfer() [process, time, error] {
+test test_process_spawn_timeout_and_return_transfer [process, time, error] {
   let command = process.command_argv("sh", ["sh", "-c", "sleep 1"], timeout: 10ms)
   let handle = spawn command?
   time.sleep(50ms)?
@@ -385,7 +385,7 @@ proc test_process_spawn_timeout_and_return_transfer() [process, time, error] {
   test.ok(list_status[0].ok)?
 }
 
-proc test_process_spawn_traces(ctx: TestContext) [process, error] {
+test test_process_spawn_traces [process, error] { |ctx|
   let source = """
 let h = spawn run sh -c "exit 7" ?
 let status = wait h?

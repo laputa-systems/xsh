@@ -1,24 +1,24 @@
 type Entry = {name: Str, score: Int}
 
-proc test_list_comprehension_basic_transform() [error] {
+test test_list_comprehension_basic_transform [error] {
   let nums = [1, 2, 3]
   let doubled = [x * 2 for x in nums]
   test.eq(doubled, [2, 4, 6])?
 }
 
-proc test_list_comprehension_with_guard_filters_elements() [error] {
+test test_list_comprehension_with_guard_filters_elements [error] {
   let nums = [1, 2, 3, 4, 5]
   let evens = [x for x in nums if x % 2 == 0]
   test.eq(evens, [2, 4])?
 }
 
-proc test_list_comprehension_guard_can_produce_empty_list() [error] {
+test test_list_comprehension_guard_can_produce_empty_list [error] {
   let nums = [1, 3, 5]
   let evens = [x for x in nums if x % 2 == 0]
   test.eq(evens |> count(), 0)?
 }
 
-proc test_list_comprehension_with_record_destructuring() [error] {
+test test_list_comprehension_with_record_destructuring [error] {
   let entries: List[Entry] = [{name: "alice", score: 90}, {name: "bob", score: 55}, {name: "carol", score: 80}]
   let passing = [name for {name, score} in entries if score >= 60]
   test.eq(passing, ["alice", "carol"])?
@@ -30,7 +30,7 @@ proc missing(file: Path) [error] -> Result[Str, FsError] {
   return Err(FsError.NotFound(file:))
 }
 
-proc test_nominal_error_payload_and_facet_patterns() [error] {
+test test_nominal_error_payload_and_facet_patterns [error] {
   match missing(p"missing") {
     Ok(text) => test.fail(f"unexpected ok ${text}")?
     Err(FsError.NotFound {file: file}) => test.eq(file.display(), "missing")?
@@ -57,7 +57,7 @@ pure count_lines(lines: List[Str]) -> Stats {
   return stats
 }
 
-proc test_local_accumulator_field_mutation() [error] {
+test test_local_accumulator_field_mutation [error] {
   let stats = count_lines(["alpha", "", "# note", "beta"])
   var counts: Map[Int] = {}
   counts["code"] = stats.code
@@ -67,7 +67,7 @@ proc test_local_accumulator_field_mutation() [error] {
   test.eq(counts.get("comments", 0), 1)?
 }
 
-proc test_compact_sugar_forms(ctx: TestContext) [error] {
+test test_compact_sugar_forms [error] { |ctx|
   let root = test.temp_dir(ctx, name: "compact-sugar")?
 
   let output = test.run_script(
@@ -96,7 +96,7 @@ print \${label} \${value} \${files |> count()}
   )?
 }
 
-proc test_ergonomic_sugar_pass_forms(ctx: TestContext) [fs, error] {
+test test_ergonomic_sugar_pass_forms [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "ergonomic-sugar")?
   fs.remove(root, missing_ok: true)?
   fs.mkdir(fp"${root}/nested/dir")?
@@ -124,7 +124,7 @@ proc test_ergonomic_sugar_pass_forms(ctx: TestContext) [fs, error] {
   test.eq(metadata.jobs, "1")?
 }
 
-proc test_multi_clause_list_comprehension_encounter_order() [error] {
+test test_multi_clause_list_comprehension_encounter_order [error] {
   let pairs = [
     outer * 10 + inner
     for outer in [1, 2, 3]
@@ -143,7 +143,7 @@ proc test_multi_clause_list_comprehension_encounter_order() [error] {
   test.eq(empty, [])?
 }
 
-proc test_multi_clause_comprehension_bindings_are_lexical(ctx: TestContext) [error] {
+test test_multi_clause_comprehension_bindings_are_lexical [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -158,7 +158,7 @@ proc main() [io] {
   test.eq(output.stdout, "2,3,10\n")?
 }
 
-proc test_multi_clause_map_comprehension_later_entries_win() [error] {
+test test_multi_clause_map_comprehension_later_entries_win [error] {
   let entries = [{key: "a", values: [1, 2]}, {key: "b", values: [3]}, {key: "a", values: [4]}]
   let by_key = {
     entry.key: number
@@ -170,7 +170,7 @@ proc test_multi_clause_map_comprehension_later_entries_win() [error] {
   test.eq(by_key.get("b", 0), 3)?
 }
 
-proc test_multi_clause_comprehension_evaluates_only_reached_clauses(ctx: TestContext) [error] {
+test test_multi_clause_comprehension_evaluates_only_reached_clauses [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -192,7 +192,7 @@ proc main() [io] {
   test.eq(output.stdout, "iter 1\nvalue 1:1\niter 3\nvalue 3:1\n2\n")?
 }
 
-proc test_multi_clause_comprehension_pulls_streams_lazily_and_closes(ctx: TestContext) [error] {
+test test_multi_clause_comprehension_pulls_streams_lazily_and_closes [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -218,7 +218,7 @@ proc main() [io] {
   test.eq(output.stdout, "pull outer:1\npull inner:1\nvalue 1:1\npull inner:2\nvalue 1:2\nclose inner\npull outer:2\nclose outer\n2\n")?
 }
 
-proc test_multi_clause_comprehension_failure_closes_nested_streams(ctx: TestContext) [error] {
+test test_multi_clause_comprehension_failure_closes_nested_streams [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -245,7 +245,7 @@ proc main() [io, error] {
   test.contains(output.stderr, "failure")?
 }
 
-proc test_multi_clause_comprehension_rejects_forward_bindings(ctx: TestContext) [error] {
+test test_multi_clause_comprehension_rejects_forward_bindings [error] { |ctx|
   let output = test.run_script(ctx, "let values = [inner for outer in [1] if inner == 1 for inner in [outer]]\n")?
   test.eq(output.success, false)?
   test.contains(output.stderr, "inner")?
@@ -255,7 +255,7 @@ pure comprehension_values(number: Int) -> Result[List[Int]] {
   return Ok([number, number + 1])
 }
 
-proc test_multi_clause_comprehension_accepts_fallible_iterables() [error] {
+test test_multi_clause_comprehension_accepts_fallible_iterables [error] {
   let values = [
     inner
     for outer in comprehension_values(1)
@@ -265,7 +265,7 @@ proc test_multi_clause_comprehension_accepts_fallible_iterables() [error] {
   test.eq(values, [1, 3])?
 }
 
-proc test_multi_clause_comprehension_propagation_retains_result_and_cleanup(ctx: TestContext) [error] {
+test test_multi_clause_comprehension_propagation_retains_result_and_cleanup [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -298,7 +298,7 @@ pure list_splice_default(values: List[Int] = [1, @[2, 3]]) -> List[Int] {
   return values
 }
 
-proc test_list_literal_splicing_preserves_types_nesting_and_aliases() [error] {
+test test_list_literal_splicing_preserves_types_nesting_and_aliases [error] {
   var middle = [2, 3]
   let source_alias = middle
   var combined = [1, @middle, 4, @[], @[5, 6]]
@@ -329,7 +329,7 @@ proc test_list_literal_splicing_preserves_types_nesting_and_aliases() [error] {
   test.eq(declared, [p"first", p"second"])?
 }
 
-proc test_list_literal_splicing_evaluates_left_to_right_once(ctx: TestContext) [error] {
+test test_list_literal_splicing_evaluates_left_to_right_once [error] { |ctx|
   let result = test.run_script(
     ctx,
     r"""proc item(value: Int) [io] -> Int {
@@ -348,7 +348,7 @@ print result.len()
   test.eq(result.stdout, "item 1\nsplice 2\nitem 4\nsplice 5\n6\n")?
 }
 
-proc test_list_literal_splicing_propagates_before_later_elements(ctx: TestContext) [error] {
+test test_list_literal_splicing_propagates_before_later_elements [error] { |ctx|
   let result = test.run_script(
     ctx,
     r"""error SpliceFailure = Stopped(message: Str)
@@ -369,7 +369,7 @@ print values.len()
   test.eq(result.stdout, "item 1\nflags\n")?
 }
 
-proc test_list_literal_splicing_rejects_non_lists_and_incompatible_elements(ctx: TestContext) [error] {
+test test_list_literal_splicing_rejects_non_lists_and_incompatible_elements [error] { |ctx|
   for source in [
     "let value = [@\"text\"]\n",
     "let value = [@b\"bytes\"]\n",
@@ -388,14 +388,14 @@ proc test_list_literal_splicing_rejects_non_lists_and_incompatible_elements(ctx:
   test.contains(ambiguous.stderr, "parse.")?
 }
 
-proc test_list_literal_splicing_handles_results_explicitly_and_composes_with_argv() [error] {
+test test_list_literal_splicing_handles_results_explicitly_and_composes_with_argv [error] {
   let loaded: Result[List[Str]] = Ok(["-O2", "-g"])
   let argv = ["cc", @(loaded?), "-o", "app"]
   let _ = process.command_argv("true", ["true", @argv])
   test.eq(argv, ["cc", "-O2", "-g", "-o", "app"])?
 }
 
-proc test_multi_clause_comprehension_cleanup_precedes_block_and_function_defers(ctx: TestContext) [error] {
+test test_multi_clause_comprehension_cleanup_precedes_block_and_function_defers [error] { |ctx|
   let output = test.run_script(ctx, r"""
 error FixtureError = Failure(message: Str)
 stream numbers(label: Str) [io] -> Stream[Int] {

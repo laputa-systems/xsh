@@ -1,6 +1,6 @@
 type JsonPackage = {name: Str, version: Str}
 
-proc test_record_require_and_any_require() [error] {
+test test_record_require_and_any_require [error] {
   let required = record.require({name: "pkg", version: "1", extra: 1}, {name: "Str"}, optional: {version: "Str"})?
   test.eq(required.name, "pkg")?
   test.error_kind(record.require({name: 1}, {name: "Str"}), "record-contract")?
@@ -13,7 +13,7 @@ proc test_record_require_and_any_require() [error] {
   test.error_kind(row.get("missing"), "missing-field")?
 }
 
-proc test_standard_record_schemas_reject_bad_dynamic_records(ctx: TestContext) [error] {
+test test_standard_record_schemas_reject_bad_dynamic_records [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -42,7 +42,7 @@ print ${entry_name(raw)}
   test.contains(output.stderr, "expected FsEntry, found Record")?
 }
 
-proc test_schema_runtime_checks_unknown_values(ctx: TestContext) [error] {
+test test_schema_runtime_checks_unknown_values [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""

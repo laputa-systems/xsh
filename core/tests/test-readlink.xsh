@@ -1,4 +1,4 @@
-proc test_readlink(ctx: TestContext) [fs, process, env, error] {
+test test_readlink [fs, process, env, error] { |ctx|
   let root = test.temp_dir(ctx, name: "readlink")?
   let target = fp"${root}/target.txt"
   let link = fp"${root}/link.txt"

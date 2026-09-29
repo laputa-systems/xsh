@@ -717,7 +717,23 @@ impl<'a> Writer<'a> {
         indent: usize,
         output: &mut String,
     ) {
-        let body = self.arena.function_def(def_id).body;
+        let def = self.arena.function_def(def_id).clone();
+        let body = def.body;
+        if def.test_declaration {
+            output.push_str("test ");
+            output.push_str(def.name.as_str().as_str());
+            if let Some(effects) = def.effects {
+                output.push_str(" [");
+                for (index, effect) in canonical_effects(&self.arena.effects(effects).collect::<Vec<_>>()).iter().enumerate() {
+                    if index > 0 { output.push_str(", "); }
+                    output.push_str(effect.as_str());
+                }
+                output.push(']');
+            }
+            output.push(' ');
+            self.write_block(body, indent, output);
+            return;
+        }
         let params_empty = self.arena.function_def(def_id).params.is_empty();
         let inline = self.render_inline(|writer, inline| {
             writer.write_function_signature(keyword, def_id, inline);

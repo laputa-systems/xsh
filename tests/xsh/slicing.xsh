@@ -1,4 +1,4 @@
-proc test_slice_existing_list_and_unicode_scalar_normalization() [error] {
+test test_slice_existing_list_and_unicode_scalar_normalization [error] {
   let values = [10, 20, 30, 40]
   test.eq(values[1..3], [20, 30])?
   test.eq(values[..2], [10, 20])?
@@ -24,7 +24,7 @@ proc test_slice_existing_list_and_unicode_scalar_normalization() [error] {
   test.eq(""[-1..99], "")?
 }
 
-proc test_slice_bytes_normalization_and_nested_views() [error] {
+test test_slice_bytes_normalization_and_nested_views [error] {
   let data = b"a\0\xffbcd"
   test.eq(data[1..3], b"\0\xff")?
   test.eq(data[..2], b"a\0")?
@@ -43,7 +43,7 @@ proc test_slice_bytes_normalization_and_nested_views() [error] {
   test.eq(data[3..], data.slice(3, length: data.len() - 3))?
 }
 
-proc test_slice_list_aliases_keep_value_semantics() [error] {
+test test_slice_list_aliases_keep_value_semantics [error] {
   var data = [1, 2, 3]
   var selected = data[1..]
   selected = selected.push(9)
@@ -52,7 +52,7 @@ proc test_slice_list_aliases_keep_value_semantics() [error] {
   test.eq(selected, [2, 3, 9])?
 }
 
-proc test_slice_evaluates_receiver_and_bounds_once_in_order(ctx: TestContext) [error] {
+test test_slice_evaluates_receiver_and_bounds_once_in_order [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc receiver() [io] -> Bytes {
   print "receiver"
@@ -73,7 +73,7 @@ print ${all.base64()}
   test.eq(output.stdout, "receiver\nstart\nend\nYmM=\nreceiver\nsuffix\nY2Q=\nreceiver\nYWJjZA==\n")?
 }
 
-proc test_slice_brackets_preserve_distinct_offset_count_errors(ctx: TestContext) [error] {
+test test_slice_brackets_preserve_distinct_offset_count_errors [error] { |ctx|
   let negative_offset = test.run_script(ctx, "let part = b\"abc\".slice(-1)\n")?
   test.eq(negative_offset.success, false)?
   test.contains(negative_offset.stderr, "bytes-slice")?
@@ -89,7 +89,7 @@ proc test_slice_brackets_preserve_distinct_offset_count_errors(ctx: TestContext)
   test.eq(b"abc"[..9223372036854775807], b"abc".slice(0, 9223372036854775807))?
 }
 
-proc test_slice_dynamic_bounds_and_receivers_keep_runtime_type_errors(ctx: TestContext) [error] {
+test test_slice_dynamic_bounds_and_receivers_keep_runtime_type_errors [error] { |ctx|
   let bound_error = test.run_script(ctx, "let bound: Any = true\nlet part = [1, 2][bound..]\n")?
   test.eq(bound_error.success, false)?
   test.contains(bound_error.stderr, "slice index expected Int")?
