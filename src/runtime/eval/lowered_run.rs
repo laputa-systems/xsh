@@ -3554,6 +3554,7 @@ impl Evaluator {
         op: RuntimeOp,
         mut values: NativeArgumentValues,
         span: Span,
+        cli_plan: Option<&crate::modules::cli::CliDescriptorPlan>,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         let value = match op {
             RuntimeOp::CpuCount if values.is_empty() => {
@@ -3868,7 +3869,7 @@ impl Evaluator {
                 let schema = lowered_record_runtime_arg(values.remove(1), "cli.parse", span)?;
                 let argv = lowered_str_list_runtime_arg(values.remove(0), "cli.parse", span)?;
                 lowered_module_result_value(
-                    cli_module::parse_cli(argv, schema, &command, span),
+                    cli_module::parse_cli(argv, schema, &command, span, cli_plan),
                     span,
                 )?
             }
@@ -3882,7 +3883,7 @@ impl Evaluator {
                 let schema = lowered_record_runtime_arg(values.remove(1), "cli.applet", span)?;
                 let argv = lowered_str_list_runtime_arg(values.remove(0), "cli.applet", span)?;
                 lowered_module_result_value(
-                    cli_module::parse_cli_applet(argv, schema, &command, span),
+                    cli_module::parse_cli_applet(argv, schema, &command, span, cli_plan),
                     span,
                 )?
             }
@@ -3900,7 +3901,7 @@ impl Evaluator {
                 let schema = lowered_record_runtime_arg(values.remove(1), "cli.parse_full", span)?;
                 let argv = lowered_str_list_runtime_arg(values.remove(0), "cli.parse_full", span)?;
                 lowered_module_result_value(
-                    cli_module::parse_cli_full(argv, schema, env, &command, span),
+                    cli_module::parse_cli_full(argv, schema, env, &command, span, cli_plan),
                     span,
                 )?
             }

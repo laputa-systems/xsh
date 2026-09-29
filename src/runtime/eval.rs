@@ -1662,6 +1662,7 @@ enum BuildExprRow {
     },
     ModuleCall {
         op: RuntimeOp,
+        cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
         args: Vec<Option<BuildExprId>>,
         span: Span,
     },

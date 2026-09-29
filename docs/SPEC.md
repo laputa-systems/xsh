@@ -2627,9 +2627,12 @@ Archive entry records have `path: Path`, `kind: Str`, `size: Int`, `mode: Int`,
 `cli.parse` is the typed replacement for `getopt`: it accepts long options such
 as `--root value` and `--jobs=4`, short options such as `-v`, and short clusters
 such as `-vj4`. It maps dashes in long option names to underscores in record
-fields. When the schema argument is a literal record, the checker infers a
-result record shape: required, positional, and defaulted scalar fields are
-concrete, non-required scalar fields are optional, repeated fields are
+fields. When the descriptor is established constant data, the checker infers a
+result record shape. Inline descriptors, `const` references, imported constants,
+closed constant field projections, and admitted constant record composition
+use the same normalized descriptor plan as argument parsing. Required and
+defaulted scalar fields are concrete, non-required scalar fields are optional,
+repeated fields are
 `List[T]`, and flags are `Bool`. Schema descriptors may be a type string such as
 `"Str"` or a record with `kind`, `form`, `default`, `required`, `repeated`,
 `flag`, `long`, `short`, `choices`, `conflicts`, `requires`,
@@ -2664,7 +2667,7 @@ normally omit it, while subcommands can pass labels such as `"pm world-plan"`.
 When help is requested before `--`, parsing returns a `cli-help` error whose
 message is the rendered usage. If that result is propagated with `?` at script
 top level, XSH prints the usage to stdout and exits successfully. Other parse
-failures keep the `args-parse` error kind, include the rendered usage after the
+failures keep the `cli-parse` error kind, include the rendered usage after the
 specific parse message, and exit with usage status `2` without a traceback when
 propagated at script top level.
 
@@ -2679,8 +2682,16 @@ member of the named group. Hidden options parse normally but are omitted by
 `cli.parse_full`, with precedence `argv > env > default > absent`; `cli.parse`
 behaves as if the environment record were empty.
 
+Known descriptors are validated during checking, with diagnostics attributed to
+their declaration source. This intentionally rejects malformed static
+descriptors before execution; dynamically computed descriptors retain runtime
+validation and dynamic result types. A string field type without a constant
+value does not establish a descriptor. Preparation never calls user functions
+or reads runtime bindings or host state to infer its contents.
+
 `cli.parse_full` returns `{values: Record, sources: Record, warnings:
-List[Str]}`. `values` is the same record returned by `cli.parse`; `sources`
+List[Str]}`. For a known descriptor, `values` retains the same concrete record
+type inferred for `cli.parse` and `cli.applet`; `sources`
 maps fields to `"argv"`, `"env"`, `"default"`, or `"absent"`; `warnings`
 contains deprecation messages. `cli.usage` renders a plain usage string from
 the schema, includes the implicit `-h, --help` option, and skips hidden options.

@@ -831,3 +831,16 @@ successful dispatch. `cargo test -p xsht --test integration signature_cli`
 covers literal-schema migration, comment preservation, policy rejection, and
 fix convergence. Ordinary explicit CLI parsing remains covered by
 `tests/xsh/stdlib/cli.xsh`.
+## Constant CLI descriptors
+
+`target/debug/xsht test --jobs 1 tests/xsh/stdlib/cli_constants.xsh` covers
+constant, imported, projected, and composed descriptors, defaults, aliases,
+repeated fields, explicit optional positionals, applet duplicate policy,
+`parse_full.values`, named argument evaluation order, dynamic validation, and
+declaration-time rejection with imported source provenance.
+Broaden with `target/debug/xsht test --jobs 1 tests/xsh/stdlib/cli.xsh`.
+`cargo test --test integration checker_cli_constant_descriptor` checks full
+and compact type parity and declaration spans. The indexed plan pool, verifier
+boundaries, and both execution routes use
+`cargo test -p xsh --lib cli_descriptor_plans --features native-tests`; broaden
+with the filtered indexed runtime gate.

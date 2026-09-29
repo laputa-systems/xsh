@@ -6258,6 +6258,7 @@ impl Evaluator {
             }
             FullTag::ExprModuleCall => {
                 let op = indexed_decode::<RuntimeOp>(&mut payload, execution, call_span)?;
+                let cli_plan = indexed_decode::<Option<Arc<crate::modules::cli::CliDescriptorPlan>>>(&mut payload, execution, call_span)?;
                 let (_, mut args) = execution
                     .block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, call_span))?;
@@ -6277,7 +6278,7 @@ impl Evaluator {
                 indexed_finish(args, span)?;
                 let values = super::NativeArgumentValues::new(values);
                 if !self.trace_enabled {
-                    return self.eval_lowered_module_call_values(op, values, span);
+                    return self.eval_lowered_module_call_values(op, values, span, cli_plan.as_deref());
                 }
                 let trace_name = crate::modules::signature::api_spec()
                     .op_trace_name(op)
@@ -6289,7 +6290,7 @@ impl Evaluator {
                     trace_name.as_deref(),
                     TracePayload::None,
                 );
-                let result = self.eval_lowered_module_call_values(op, values, span);
+                let result = self.eval_lowered_module_call_values(op, values, span, cli_plan.as_deref());
                 self.trace_exit(
                     if rooted { TraceKind::MethodResult } else { TraceKind::ModuleResult },
                     Some(span),

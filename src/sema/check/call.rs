@@ -13,26 +13,6 @@ use crate::syntax::arena::{
 use crate::syntax::node::Effect;
 use xsh_registry::types::BuiltinTypeName;
 
-fn args_parse_form_position(form: &str) -> (bool, bool) {
-    let mut has_option = false;
-    for token in form.split_whitespace() {
-        if token.starts_with('-') {
-            has_option = true;
-        } else if !has_option {
-            return (true, token.starts_with("..."));
-        }
-    }
-    (false, false)
-}
-
-fn args_parse_type_from_default(ty: Type) -> Option<(Type, bool)> {
-    match ty {
-        Type::List(inner) => Some((*inner, true)),
-        Type::Str | Type::Int | Type::Bool | Type::Path | Type::Duration => Some((ty, false)),
-        _ => None,
-    }
-}
-
 fn contract_type_is_valid(text: &str) -> bool {
     let text = text.trim();
     if text.is_empty() {
@@ -66,29 +46,6 @@ fn contract_type_is_valid(text: &str) -> bool {
 
 fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
     matches!(ty, Type::Str | Type::Path | Type::Any | Type::Unknown)
-}
-
-fn args_parse_type_from_name(text: &str) -> Option<(Type, bool)> {
-    let text = text.trim();
-    if let Some(inner) = text
-        .strip_prefix("List[")
-        .and_then(|value| value.strip_suffix(']'))
-    {
-        let (inner, inner_repeated) = args_parse_type_from_name(inner)?;
-        if inner_repeated {
-            return None;
-        }
-        return Some((inner, true));
-    }
-    let ty = match BuiltinTypeName::parse(text)? {
-        BuiltinTypeName::Str => Type::Str,
-        BuiltinTypeName::Int | BuiltinTypeName::UInt => Type::Int,
-        BuiltinTypeName::Bool => Type::Bool,
-        BuiltinTypeName::Path => Type::Path,
-        BuiltinTypeName::Duration => Type::Duration,
-        _ => return None,
-    };
-    Some((ty, false))
 }
 
 fn contract_proc_signature(text: &str) -> Option<(Vec<&str>, &str)> {
@@ -139,13 +96,6 @@ fn contract_split_types(text: &str) -> Vec<&str> {
     }
     items.push(text[start..].trim());
     items
-}
-
-fn literal_bool_arena(kind: &ArenaExprKind) -> Option<bool> {
-    match kind {
-        ArenaExprKind::Bool(value) => Some(*value),
-        _ => None,
-    }
 }
 
 #[allow(dead_code)]
@@ -979,123 +929,30 @@ impl Checker {
                 }
             }
         }
-        let return_ty = if module == "cli" && matches!(name, "parse" | "applet") {
-            self.infer_args_parse_return_arena(arena, source, args)
-                .map(|ty| Type::Result(Box::new(ty), Box::new(Type::Error)))
-                .unwrap_or_else(|| sig.return_ty.clone())
-        } else {
-            sig.return_ty.clone()
-        };
+        let return_ty = if sig.semantic_rule == crate::modules::signature::SemanticRule::CliDescriptor {
+            self.infer_cli_descriptor_return_arena(arena, args, sig.op).unwrap_or_else(|| sig.return_ty.clone())
+        } else { sig.return_ty.clone() };
         if self.options.strict_dynamic && module == "record" && name == "require" {
             self.check_contract_literal_args_arena(arena, args);
         }
         return_ty
     }
 
-    fn infer_args_parse_return_arena(
+    fn infer_cli_descriptor_return_arena(
         &mut self,
         arena: &ArenaProgram,
-        source: &str,
         args: &[ArenaCallArg],
+        op: xsh_registry::RuntimeOp,
     ) -> Option<Type> {
-        let schema = args
-            .iter()
-            .enumerate()
-            .find_map(|(index, arg)| match &arg.kind {
-                ArenaCallArgKind::Named { name, value, .. } if name == "schema" => Some(*value),
-                ArenaCallArgKind::Positional(value) if index == 1 => Some(*value),
-                _ => None,
-            })?;
-        let ArenaExprKind::Record(fields_range) = arena.arena.expr(schema).kind else {
-            return None;
-        };
-        let mut output = BTreeMap::new();
-        for field in arena.arena.record_fields(fields_range) {
-            let ArenaRecordFieldKind::Named { name, value, .. } = &field.kind else {
-                return None;
-            };
-            let field_ty = self.infer_args_parse_field_type_arena(arena, source, *value)?;
-            output.insert(*name, field_ty);
-        }
-        Some(Type::Record(output))
-    }
-
-    fn infer_args_parse_field_type_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        descriptor: ExprId,
-    ) -> Option<Type> {
-        let descriptor_expr = arena.arena.expr(descriptor);
-        match &descriptor_expr.kind {
-            ArenaExprKind::Str(type_name_id) => {
-                let type_name = arena.arena.string_literal(*type_name_id).clone();
-                let (ty, repeated) = args_parse_type_from_name(&type_name)?;
-                if repeated {
-                    Some(Type::List(Box::new(ty)))
-                } else if matches!(ty, Type::Bool) {
-                    Some(Type::Bool)
-                } else {
-                    Some(Type::Optional(Box::new(ty)))
-                }
+        let schema = crate::modules::cli::descriptor_argument(args)?;
+        let applet = op == xsh_registry::RuntimeOp::CliApplet;
+        match self.prepared_constants.cli_descriptor_plan(&arena.arena, schema, applet)? {
+            Ok(plan) => Some(plan.return_type(op == xsh_registry::RuntimeOp::CliParseFull)),
+            Err(error) => {
+                let span = error.span.unwrap_or(arena.arena.expr(schema).span);
+                self.error(span, &error.message, "check.cli-descriptor");
+                None
             }
-            ArenaExprKind::Record(fields_range) => {
-                let mut type_name = None;
-                let mut repeated = false;
-                let mut required = false;
-                let mut positional = false;
-                let mut flag = None;
-                let mut default_ty = None;
-                for field in arena.arena.record_fields(*fields_range) {
-                    let ArenaRecordFieldKind::Named { name, value, .. } = &field.kind else {
-                        return None;
-                    };
-                    let value_expr = arena.arena.expr(*value);
-                    match name.as_str().as_str() {
-                        "kind" | "type" => {
-                            let ArenaExprKind::Str(value_id) = value_expr.kind else {
-                                return None;
-                            };
-                            type_name = Some(arena.arena.string_literal(value_id).clone());
-                        }
-                        "repeated" => repeated = literal_bool_arena(&value_expr.kind)?,
-                        "required" => required = literal_bool_arena(&value_expr.kind)?,
-                        "positional" => positional = literal_bool_arena(&value_expr.kind)?,
-                        "flag" => flag = Some(literal_bool_arena(&value_expr.kind)?),
-                        "default" => {
-                            default_ty = Some(self.check_expr_arena(arena, source, *value, None));
-                        }
-                        "form" => {
-                            let ArenaExprKind::Str(value_id) = value_expr.kind else {
-                                return None;
-                            };
-                            let form = arena.arena.string_literal(value_id).clone();
-                            let (form_positional, form_repeated) = args_parse_form_position(&form);
-                            positional = positional || form_positional;
-                            repeated = repeated || form_repeated;
-                        }
-                        _ => {}
-                    }
-                }
-                let (ty, type_repeated) = if let Some(type_name) = &type_name {
-                    args_parse_type_from_name(type_name)?
-                } else if let Some(default_ty) = default_ty.clone() {
-                    args_parse_type_from_default(default_ty)?
-                } else {
-                    (Type::Str, false)
-                };
-                repeated = repeated || type_repeated;
-                required = required || (positional && !repeated);
-                let flag = flag.unwrap_or(matches!(ty, Type::Bool) && !repeated && !positional);
-                if repeated {
-                    Some(Type::List(Box::new(ty)))
-                } else if flag || required || default_ty.is_some() {
-                    Some(ty)
-                } else {
-                    Some(Type::Optional(Box::new(ty)))
-                }
-            }
-            _ => None,
         }
     }
 

@@ -504,6 +504,7 @@ struct FullStore {
     prepared_constants: Vec<PreparedConstantValue>,
     wire_enums: Vec<Arc<crate::sema::wire_enums::WireEnumMapping>>,
     prepared_schemas: Vec<Arc<super::super::require::PreparedSchema>>,
+    prepared_cli_plans: Vec<Arc<crate::modules::cli::CliDescriptorPlan>>,
     locations: Vec<IrLocation>,
     location_sources: Vec<SourceId>,
     runtime_ops: Vec<RuntimeOp>,
@@ -549,6 +550,7 @@ impl Default for FullStore {
             prepared_constants: Vec::new(),
             wire_enums: Vec::new(),
             prepared_schemas: Vec::new(),
+            prepared_cli_plans: Vec::new(),
             locations: Vec::new(),
             location_sources: Vec::new(),
             runtime_ops: Vec::new(),
@@ -681,6 +683,7 @@ impl FullStore {
             + self.prepared_constants.capacity() * size_of::<PreparedConstantValue>()
             + self.prepared_schemas.capacity() * size_of::<Arc<super::super::require::PreparedSchema>>()
             + self.wire_enums.capacity() * size_of::<Arc<crate::sema::wire_enums::WireEnumMapping>>()
+            + self.prepared_cli_plans.capacity() * size_of::<Arc<crate::modules::cli::CliDescriptorPlan>>()
             + self.prepared_regexes.capacity() * size_of::<RegexValue>()
             + self.prepared_regexes.iter().map(|value| value.pattern.capacity()).sum::<usize>()
             + self.locations.capacity() * size_of::<IrLocation>()
@@ -4816,6 +4819,19 @@ impl FullCodec for PreparedConstantValue {
     }
 }
 
+impl FullCodec for Arc<crate::modules::cli::CliDescriptorPlan> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        let index = if let Some(index) = builder.store.prepared_cli_plans.iter().position(|plan| Arc::ptr_eq(plan, self)) { index }
+            else { let index = builder.store.prepared_cli_plans.len(); builder.store.prepared_cli_plans.push(Arc::clone(self)); index };
+        output.push(u32::try_from(index).map_err(|_| IrBuildError::format("CLI plan pool overflow", None, 0, 0))?);
+        Ok(())
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        decoder.store.prepared_cli_plans.get(input.raw()? as usize).cloned()
+            .ok_or_else(|| IrVerifyError::new("prepared CLI descriptor plan is out of bounds"))
+    }
+}
+
 fn prepared_constant_is_data(value: &LoweredValue, depth: usize) -> bool {
     if depth > 128 { return false; }
     match value {
@@ -5463,6 +5479,14 @@ macro_rules! impl_node_codec {
                 input: &mut FullCursor<'_>,
             ) -> Result<(), IrVerifyError> {
                 let (instruction, tag, mut payload) = decoder.instruction(input)?;
+                if tag == FullTag::ExprModuleCall {
+                    let mut metadata = payload;
+                    let op = RuntimeOp::decode(decoder, &mut metadata)?;
+                    let plan = Option::<Arc<crate::modules::cli::CliDescriptorPlan>>::decode(decoder, &mut metadata)?;
+                    if plan.as_ref().is_some_and(|plan| !plan.matches_operation(op)) {
+                        return Err(IrVerifyError::new("prepared CLI plan operation policy does not match its instruction"));
+                    }
+                }
                 if tag == FullTag::ExprComparisonChain { decoder.verify_comparison_chain_shape(payload)?; }
                 if tag == FullTag::ExprTag {
                     let mut metadata = payload;
@@ -7495,11 +7519,12 @@ impl_node_codec! {
             dest: BuildExprId,
             span: Span,
         } => BuildExprRow::ArchiveTarExtract { path, dest, span },
-        BuildExprRow::ModuleCall { op, args, span } => ExprModuleCall {
+        BuildExprRow::ModuleCall { op, cli_plan, args, span } => ExprModuleCall {
             op: RuntimeOp,
+            cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
             args: Vec<Option<BuildExprId>>,
             span: Span,
-        } => BuildExprRow::ModuleCall { op, args, span },
+        } => BuildExprRow::ModuleCall { op, cli_plan, args, span },
         BuildExprRow::ProcessCommandArgv(value) => ExprProcessCommandArgv {
             value: Box<LoweredProcessCommandArgv>,
         } => BuildExprRow::ProcessCommandArgv(value),
@@ -8651,6 +8676,36 @@ proc main() [error] {
                 ).expect("filesystem root fixture exists");
                 let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
                 assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("payload"))));
+            }
+        });
+    }
+
+    #[test]
+    fn cli_descriptor_plans_share_preparation_and_execute_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/cli-constant-descriptors.xsh");
+            let program = fixture("cli-constant-descriptors.xsh", source);
+            assert_eq!(program.store.prepared_cli_plans.len(), 2);
+            FullVerifier::verify(&program).unwrap();
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprModuleCall).unwrap();
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let mut broken = program.clone();
+            broken.store.extra[payload.start + 2] = u32::MAX;
+            assert!(FullVerifier::verify(&broken).unwrap_err().message.contains("CLI descriptor plan is out of bounds"));
+            let mut wrong_policy = program.clone();
+            let applet = program.store.prepared_cli_plans.iter().position(|plan| plan.matches_operation(RuntimeOp::CliApplet)).unwrap();
+            wrong_policy.store.extra[payload.start + 2] = applet as u32;
+            assert!(FullVerifier::verify(&wrong_policy).unwrap_err().message.contains("operation policy"));
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "descriptor_values")),
+                    LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("descriptor function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("6/4/3"))));
             }
         });
     }

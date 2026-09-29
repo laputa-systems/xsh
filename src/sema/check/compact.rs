@@ -1738,6 +1738,15 @@ impl CompactBodyProbe<'_> {
                     name: Name::intern(param.name), ty: param.ty.clone(), defaulted: param.defaulted, rest: false,
                 }).collect::<Vec<_>>();
                 self.apply_compact_call_expected(range, &params);
+                if sig.semantic_rule == crate::modules::signature::SemanticRule::CliDescriptor
+                    && let Some(schema) = crate::modules::cli::descriptor_argument(&args)
+                    && let Some(plan) = self.declarations.prepared_constants.cli_descriptor_plan(&self.program.arena, schema, sig.op == xsh_registry::RuntimeOp::CliApplet)
+                {
+                    match plan {
+                        Ok(plan) => return Some(plan.return_type(sig.op == xsh_registry::RuntimeOp::CliParseFull)),
+                        Err(error) => self.error(error.span.unwrap_or(self.program.arena.expr(schema).span), &error.message, "check.cli-descriptor"),
+                    }
+                }
                 return Some(sig.return_ty.clone());
             }
         }

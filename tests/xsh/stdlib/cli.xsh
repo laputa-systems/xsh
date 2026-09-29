@@ -1,3 +1,5 @@
+pure dynamic_cli_schema(schema: Record) -> Record { schema }
+
 # Coverage for the `cli` argument policy.
 #
 # Every public entry is exercised here: `cli.parse`, `cli.parse_full`,
@@ -946,9 +948,9 @@ options:
   # A schema the reader cannot interpret rejects before the walk, so its
   # rejection is a `cli-parse` one without the usage text; the same reading
   # reserves the `-h` short for `parse` alone.
-  test.eq(failure_message(cli.parse([], {count: {kind: "Nope"}}, "demo")), "unsupported option type `Nope`")?
+  test.eq(failure_message(cli.parse([], dynamic_cli_schema({count: {kind: "Nope"}}), "demo")), "unsupported option type `Nope`")?
   test.eq(
-    failure_message(cli.parse(["-h"], {handle: {short: "h", kind: "Bool"}}, "demo")),
+    failure_message(cli.parse(["-h"], dynamic_cli_schema({handle: {short: "h", kind: "Bool"}}), "demo")),
     "`-h` is reserved by cli.parse",
   )?
 
@@ -1058,7 +1060,7 @@ test test_cli_applet_applies_the_three_policy_deltas [fs, error] {
   # reader rejects that schema outright, and the applet's help line then names
   # `--help` alone because `-h` belongs to the descriptor.
   test.eq(
-    failure_message(cli.parse(["--help"], {handle: {short: "h", kind: "Bool"}}, "demo")),
+    failure_message(cli.parse(["--help"], dynamic_cli_schema({handle: {short: "h", kind: "Bool"}}), "demo")),
     "`-h` is reserved by cli.parse",
   )?
   test.eq(
@@ -1259,7 +1261,8 @@ options:
     """use cli
 
 proc main() [io, error, fs] {
-  let _ = cli.parse([], {count: {kind: "Nope"}})
+  let schema = {count: {kind: "Nope"}}
+  let _ = cli.parse([], schema)
 }
 """,
     [],

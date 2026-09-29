@@ -792,3 +792,14 @@ ordinary explicit schemas retain sorted order. `CompactIndexedRunPlan` carries
 the prepared schema, and the evaluator parses argv before executing any driver
 step, including imported module initialization. Help and usage errors use the
 existing CLI stop handling before an entry frame is invoked.
+
+`modules/cli.rs::CliDescriptorPlan` owns normalized descriptor entries and the
+strict-versus-applet policy. `PreparedConstants::cli_descriptor_plan` resolves
+only admitted constant data, retains declaration spans, and caches plans by
+origin and policy. Full and compact checking derive their result shapes from
+that plan. `ModuleFnSig.semantic_rule` identifies this descriptor relation.
+`BuildExprRow::ModuleCall::cli_plan` retains the same Arc in a verified indexed
+plan pool, so execution does not normalize static descriptors again. Ordinary
+argument entries still evaluate once in source order; missing slots remain
+separate from supplied null values. Dynamic descriptors use the same normalizer
+at the runtime boundary.

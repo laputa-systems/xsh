@@ -297,11 +297,21 @@ remains responsible for checking the actual value against the schema.
 Named standard record schemas use the same structural runtime check as
 user-defined record schemas.
 
-`cli.parse(argv, schema)` is also a schema boundary when `schema` is a literal
-record. The checker infers the returned record shape from the descriptor
-literal, including concrete fields for required, positional, and defaulted
-scalars, optional fields for absent non-required scalars, `Bool` for flags, and
-`List[T]` for repeated values.
+`cli.parse`, `cli.applet`, and `cli.parse_full` retain the result shape of
+established constant descriptors, including inline data, imported `const`
+values, closed constant projections, and constant record composition. One
+normalized descriptor plan supplies argument policy and checked field types.
+Required and defaulted scalars are concrete, absent non-required scalars are
+optional, flags are `Bool`, and repeated values are `List[T]`. Explicit
+`required: false` also applies to positional forms. `parse_full.values` retains
+this shape while its provenance and warnings keep their existing contracts.
+
+Runtime bindings and descriptor-producing calls remain dynamic. Known invalid
+descriptors are checking errors at their declaration source; the descriptor
+normalizer remains responsible for validating dynamically supplied data. A
+forced non-Bool flag retains a dynamic field type because the parser can return
+a Bool for an unvalued spelling and its declared scalar for attached values or
+defaults.
 
 Strict mode warns when `Any` flows into a concrete assignment, argument, return,
 index, field access, or container merge without such a schema check boundary.

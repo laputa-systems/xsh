@@ -136,7 +136,14 @@ impl LiteralConstant {
                     let (name, value) = match field.kind {
                         ArenaRecordFieldKind::Named { name, value, .. } => (name, Self::analyze_depth(arena, value, bindings, prepared, depth + 1)?),
                         ArenaRecordFieldKind::Shorthand { name, .. } => (name, bindings.get(&name)?.clone()),
-                        ArenaRecordFieldKind::Spread { .. } | ArenaRecordFieldKind::Computed { .. } | ArenaRecordFieldKind::Path { .. } => return None,
+                        ArenaRecordFieldKind::Spread { expr, .. } => {
+                            let Self::Record(fields) = Self::analyze_depth(arena, expr, bindings, prepared, depth + 1)? else { return None; };
+                            for (name, value) in fields.iter() {
+                                if values.insert(*name, value.clone()).is_some() { return None; }
+                            }
+                            continue;
+                        }
+                        ArenaRecordFieldKind::Computed { .. } | ArenaRecordFieldKind::Path { .. } => return None,
                     };
                     if values.insert(name, value).is_some() {
                         return None;
@@ -788,6 +795,8 @@ pub struct PreparedConstants {
     pub tail_bindings: BTreeMap<crate::source::Span, ExprId>,
     pub global_bindings: FxHashMap<(Option<Name>, Name), ExprId>,
     pub diagnostics: Vec<crate::diagnostic::Diagnostic>,
+    pub(crate) cli_wire_enums: crate::sema::wire_enums::PreparedWireEnums,
+    pub(crate) cli_plans: Arc<std::sync::Mutex<FxHashMap<(ExprId, bool), Result<Arc<crate::modules::cli::CliDescriptorPlan>, crate::runtime::value::RuntimeError>>>>,
 }
 
 #[derive(Default)]
@@ -813,6 +822,58 @@ struct ConstantPreparation<'a> {
 }
 
 impl PreparedConstants {
+    fn cli_descriptor_origin(&self, arena: &AstArena, expr: ExprId, depth: usize) -> ExprId {
+        if depth > 128 { return expr; }
+        if let Some(origin) = self.origins.get(&expr).copied() && origin != expr {
+            return self.cli_descriptor_origin(arena, origin, depth + 1);
+        }
+        if let ArenaExprKind::Field { base, name } = arena.expr(expr).kind {
+            let base = self.cli_descriptor_origin(arena, base, depth + 1);
+            if let ArenaExprKind::Record(fields) = arena.expr(base).kind {
+                for field in arena.record_fields(fields) {
+                    if let ArenaRecordFieldKind::Named { name: field_name, value, .. } = field.kind && field_name == name {
+                        return self.cli_descriptor_origin(arena, value, depth + 1);
+                    }
+                }
+            }
+        }
+        expr
+    }
+
+    fn cli_descriptor_spans(&self, arena: &AstArena, expr: ExprId, spans: &mut BTreeMap<String, crate::source::Span>, depth: usize) {
+        if depth > 128 { return; }
+        let origin = self.cli_descriptor_origin(arena, expr, depth);
+        if let ArenaExprKind::Record(fields) = arena.expr(origin).kind {
+            for field in arena.record_fields(fields) {
+                match field.kind {
+                    ArenaRecordFieldKind::Named { name, value, .. } => {
+                        let value_origin = self.cli_descriptor_origin(arena, value, depth + 1);
+                        spans.insert(name.as_str().to_string(), arena.expr(value_origin).span);
+                    }
+                    ArenaRecordFieldKind::Spread { expr, .. } => self.cli_descriptor_spans(arena, expr, spans, depth + 1),
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    pub(crate) fn cli_descriptor_plan(&self, arena: &AstArena, expr: ExprId, applet: bool)
+        -> Option<Result<Arc<crate::modules::cli::CliDescriptorPlan>, crate::runtime::value::RuntimeError>>
+    {
+        let origin = self.cli_descriptor_origin(arena, expr, 0);
+        let key = (origin, applet);
+        let constant = self.analyze_expression(arena, expr)?;
+        if let Some(plan) = self.cli_plans.lock().expect("descriptor cache lock").get(&key).cloned() { return Some(plan); }
+        let value = cli_constant_value(&constant, &self.cli_wire_enums)?;
+        let crate::runtime::value::Value::Record(schema) = value else { return None; };
+        let policy = if applet { crate::modules::cli::ParsePolicy::Applet } else { crate::modules::cli::ParsePolicy::Strict };
+        let mut descriptor_origins = BTreeMap::new();
+        self.cli_descriptor_spans(arena, origin, &mut descriptor_origins, 0);
+        let plan = crate::modules::cli::CliDescriptorPlan::normalize(schema, arena.expr(origin).span, policy, &descriptor_origins).map(Arc::new);
+        self.cli_plans.lock().expect("descriptor cache lock").insert(key, plan.clone());
+        Some(plan)
+    }
+
     pub fn analyze_expression(&self, arena: &AstArena, expr: ExprId) -> Option<LiteralConstant> {
         let value = LiteralConstant::analyze_prepared(arena, expr, &FxHashMap::default(), &self.values)?;
         constant_size_within_limit(&value).then_some(value)
@@ -948,9 +1009,30 @@ impl PreparedConstants {
                 }
             }
         }
+        preparation.prepared.cli_wire_enums = crate::sema::wire_enums::PreparedWireEnums::prepare(program, |expr| preparation.prepared.analyze_expression(arena, expr)).0;
         preparation.prepared.types.retain(|_, ty| !ty.contains_inference());
         preparation.prepared
     }
+}
+
+fn cli_constant_value(value: &LiteralConstant, enums: &crate::sema::wire_enums::PreparedWireEnums) -> Option<crate::runtime::value::Value> {
+    use crate::runtime::value::{DurationValue, FloatValue, PathValue, RegexValue, Value};
+    Some(match value {
+        LiteralConstant::Null => Value::Null,
+        LiteralConstant::Bool(value) => Value::Bool(*value),
+        LiteralConstant::Int(value) => Value::Int(*value),
+        LiteralConstant::Float(value) => Value::Float(FloatValue::new(f64::from_bits(*value))),
+        LiteralConstant::Duration(millis) => Value::Duration(DurationValue { millis: *millis }),
+        LiteralConstant::Str(value) => Value::Str(value.clone()),
+        LiteralConstant::Bytes(value) => Value::Bytes(value.as_ref().to_vec()),
+        LiteralConstant::Path(value) => Value::Path(PathValue::from_text(value).ok()?),
+        LiteralConstant::Regex(literal) => Value::Regex(RegexValue { pattern: literal.pattern.to_string(), regex: literal.prepared.get()?.as_ref().ok()?.clone() }),
+        LiteralConstant::Tag { family, variant, fields } => Value::Tag { type_name: *family, wire: enums.mappings.get(family).cloned(), name: Arc::from(variant.as_str().as_str()), fields: fields.iter().map(|value| cli_constant_value(value, enums)).collect::<Option<Vec<_>>>()? },
+        LiteralConstant::EmptyMap => Value::Map(BTreeMap::new()),
+        LiteralConstant::Map(values) => Value::Map(values.iter().map(|(name, value)| Some((name.clone(), cli_constant_value(value, enums)?))).collect::<Option<_>>()?),
+        LiteralConstant::List(values) => Value::List(values.iter().map(|value| cli_constant_value(value, enums)).collect::<Option<Vec<_>>>()?),
+        LiteralConstant::Record(values) => Value::Record(values.iter().map(|(name, value)| Some((Arc::<str>::from(name.as_str().as_str()), cli_constant_value(value, enums)?))).collect::<Option<_>>()?),
+    })
 }
 
 impl ConstantPreparation<'_> {

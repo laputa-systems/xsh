@@ -122,6 +122,7 @@ struct LoweredPathWriteArgs {
 }
 
 struct LoweredModuleCallArgs {
+    semantic_rule: crate::modules::signature::SemanticRule,
     op: RuntimeOp,
     args: Vec<Option<ExprId>>,
 }
@@ -342,6 +343,7 @@ fn lowered_module_call_args(
         let positional = positional_call_args(args)?;
         if positional.len() == 2 {
             return Some(LoweredModuleCallArgs {
+                semantic_rule: crate::modules::signature::SemanticRule::Standard,
                 op: RuntimeOp::FsHardlink,
                 args: positional.into_iter().map(Some).collect(),
             });
@@ -351,6 +353,7 @@ fn lowered_module_call_args(
         let positional = positional_call_args(args)?;
         if positional.len() == 1 {
             return Some(LoweredModuleCallArgs {
+                semantic_rule: crate::modules::signature::SemanticRule::Standard,
                 op: RuntimeOp::MimeLookupExt,
                 args: positional.into_iter().map(Some).collect(),
             });
@@ -360,6 +363,7 @@ fn lowered_module_call_args(
         let positional = positional_call_args(args)?;
         if positional.len() == 1 {
             return Some(LoweredModuleCallArgs {
+                semantic_rule: crate::modules::signature::SemanticRule::Standard,
                 op: RuntimeOp::MimeLookupPath,
                 args: positional.into_iter().map(Some).collect(),
             });
@@ -390,6 +394,7 @@ fn lowered_module_call_args(
     }
     while lowered_args.last().is_some_and(Option::is_none) { lowered_args.pop(); }
     Some(LoweredModuleCallArgs {
+        semantic_rule: sig.semantic_rule,
         op: sig.op,
         args: lowered_args,
     })
@@ -1113,6 +1118,7 @@ fn lower_env_command_word_reference(
                 Some(build_expr(
                     scratch,
                     BuildExprRow::ModuleCall {
+                        cli_plan: None,
                         op: RuntimeOp::EnvPathList,
                         args: vec![Some(name)],
                         span,
@@ -1123,6 +1129,7 @@ fn lower_env_command_word_reference(
                 Some(build_expr(
                     scratch,
                     BuildExprRow::ModuleCall {
+                        cli_plan: None,
                         op: RuntimeOp::EnvGet,
                         args: vec![Some(name)],
                         span,
@@ -1143,6 +1150,7 @@ fn lower_env_command_word_reference(
             Some(build_expr(
                 scratch,
                 BuildExprRow::ModuleCall {
+                    cli_plan: None,
                     op,
                     args: vec![Some(name)],
                     span,
@@ -8552,6 +8560,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     self,
                     expr,
                     BuildExprRow::ModuleCall {
+                        cli_plan: None,
                         op,
                         args: vec![Some(name)],
                         span,
@@ -8562,6 +8571,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 self,
                 expr,
                 BuildExprRow::ModuleCall {
+                    cli_plan: None,
                     op: RuntimeOp::EnvPathList,
                     args: Vec::new(),
                     span,
@@ -8657,6 +8667,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             self,
             expr,
             BuildExprRow::ModuleCall {
+                cli_plan: None,
                 op,
                 args: lowered_args.into_iter().map(Some).collect(),
                 span,
@@ -8678,6 +8689,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::ModuleCall {
+                            cli_plan: None,
                             op: RuntimeOp::EnvPathList,
                             args: Vec::new(),
                             span,
@@ -8689,6 +8701,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     self,
                     expr,
                     BuildExprRow::ModuleCall {
+                        cli_plan: None,
                         op: RuntimeOp::EnvGet,
                         args: vec![Some(name)],
                         span,
@@ -8713,6 +8726,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
+                                cli_plan: None,
                                 op,
                                 args: vec![Some(arg)],
                                 span,
@@ -9480,6 +9494,12 @@ impl CompactLowerConstructProbe<'_, '_> {
         Some(push_build_row!(self, expr, row))
     }
 
+    fn prepared_cli_plan(&self, call: &LoweredModuleCallArgs, args: &[ArenaCallArg]) -> Option<Arc<crate::modules::cli::CliDescriptorPlan>> {
+        if call.semantic_rule != crate::modules::signature::SemanticRule::CliDescriptor { return None; }
+        let schema = crate::modules::cli::descriptor_argument(args)?;
+        self.declarations.prepared_constants.cli_descriptor_plan(&self.program.arena, schema, call.op == RuntimeOp::CliApplet)?.ok()
+    }
+
     fn lower_call(
         &mut self,
         id: ExprId,
@@ -9532,7 +9552,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             let mut arguments = vec![Some(push_build_row!(self, expr, BuildExprRow::Param(receiver_slot)))];
             arguments.extend(order.into_iter().map(|argument| argument.map(|index| evaluated[index])));
-            let call = push_build_row!(self, expr, BuildExprRow::ModuleCall { op: method.sig.op, args: arguments, span });
+            let call = push_build_row!(self, expr, BuildExprRow::ModuleCall { cli_plan: None, op: method.sig.op, args: arguments, span });
             return Some(self.wrap_argument_bindings(call, bindings, span));
         }
         if let Some(definition) = self.declarations.record_constructors.resolve_call(
@@ -9660,6 +9680,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                                 self,
                                 expr,
                                 BuildExprRow::ModuleCall {
+                                    cli_plan: None,
                                     op: RuntimeOp::PathParseBytes,
                                     args: self.lower_expr_ids(
                                         &positional,
@@ -10071,6 +10092,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
+                                cli_plan: self.prepared_cli_plan(&module_call, &args_vec),
                                 op: module_call.op,
                                 args: self.lower_module_argument_values(
                                     &module_call.args,
@@ -10256,6 +10278,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::ModuleCall {
+                            cli_plan: self.prepared_cli_plan(&module_call, &args_vec),
                             op: module_call.op,
                             args: self.lower_module_argument_values(
                                 &module_call.args,
@@ -10276,6 +10299,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
+                                cli_plan: None,
                                 op: RuntimeOp::PathParseBytes,
                                 args: self.lower_expr_ids(
                                     positional,
@@ -10429,6 +10453,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
+                                cli_plan: self.prepared_cli_plan(&module_call, &args_vec),
                                 op: module_call.op,
                                 args: self.lower_module_argument_values(
                                     &module_call.args,
@@ -10502,6 +10527,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
+                                cli_plan: None,
                                 op: call_args.op,
                                 args: lowered,
                                 span,
@@ -10762,6 +10788,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                             self,
                             expr,
                             BuildExprRow::ModuleCall {
+                                cli_plan: None,
                                 op: call_args.op,
                                 args: lowered,
                                 span,
@@ -10911,6 +10938,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::ModuleCall {
+                            cli_plan: None,
                             op: RuntimeOp::EnvGet,
                             args: vec![Some(self.lower_expr(
                                 *value,
@@ -10970,6 +10998,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::ModuleCall {
+                            cli_plan: None,
                             op: bridge,
                             args: args.into_iter().map(Some).collect(),
                             span,

@@ -2526,6 +2526,58 @@ let note: Str? = cfg.note
 }
 
 #[test]
+fn checker_cli_constant_descriptors_match_inline_and_compact_facts() {
+    let source = r#"
+const schema = {
+  item: {kind: "Int", form: "ITEM", required: false},
+  defaulted: {kind: "Int", form: "DEFAULT", default: 5},
+  repeated: "List[UInt]",
+  flag: {kind: "Bool", flag: false},
+}
+let constant = cli.parse([], schema)?
+let inline = cli.parse([], {
+  item: {kind: "Int", form: "ITEM", required: false},
+  defaulted: {kind: "Int", form: "DEFAULT", default: 5},
+  repeated: "List[UInt]",
+  flag: {kind: "Bool", flag: false},
+})?
+let full = cli.parse_full([], schema)?
+let item: Int? = constant.item
+let defaulted: Int = constant.defaulted
+let repeated: List[Int] = constant.repeated
+let flag: Bool? = constant.flag
+let full_item: Int? = full.values.item
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut shapes = Vec::new();
+    for (id, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(id).span;
+        if source[span.range()].starts_with("cli.parse(") && !source[span.range()].ends_with('?') {
+            assert_eq!(checked.expr_types.get(&span), Some(&ty));
+            shapes.push(ty);
+        }
+    }
+    assert_eq!(shapes.len(), 2);
+    assert_eq!(shapes[0], shapes[1]);
+}
+
+#[test]
+fn checker_cli_constant_descriptor_errors_keep_the_declaration_origin() {
+    let source = "const schema = {count: {kind: \"Nope\"}}\nlet _ = cli.parse([], schema)\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    let error = checked.diagnostics.iter().find(|error| error.code.as_deref() == Some("check.cli-descriptor")).unwrap();
+    assert!(error.message.contains("unsupported option type `Nope`"));
+    assert!(error.labels.iter().any(|label| &source[label.span.range()] == "{kind: \"Nope\"}"));
+}
+
+#[test]
 fn checker_infers_args_parse_literal_schema_records() {
     let ok = check(
         r#"

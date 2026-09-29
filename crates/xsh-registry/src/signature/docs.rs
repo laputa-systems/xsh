@@ -346,7 +346,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("cli", "parse") => Some((
             "Parses script arguments into a typed option record.",
-            "The descriptor record is the command-line contract; validate defaults and repeated/positional fields there.",
+            "Inline and prepared const descriptors retain the same checked option shape; dynamic descriptors remain runtime-validated.",
             &["cli", "typed", "argv"],
         )),
         ("cli", "applet") => Some((
@@ -466,7 +466,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("cli", "parse_full") => Some((
             "Parses the complete script argument schema including help and usage policy.",
-            "The full descriptor remains the source of truth for conversion, defaults, and help behavior.",
+            "Established constant descriptors retain the concrete values shape; source provenance and warnings keep their ordinary contracts.",
             &["cli", "typed", "usage"],
         )),
         ("cli", "tokens") => Some((

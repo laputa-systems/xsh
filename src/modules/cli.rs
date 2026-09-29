@@ -191,9 +191,82 @@ struct ParsedValues {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum ParsePolicy {
+pub(crate) enum ParsePolicy {
     Strict,
     Applet,
+}
+
+/// One normalized descriptor supplies both checked field types and argument
+/// parsing policy. Prepared calls retain this plan without exposing it as a
+/// language value; dynamic descriptors use the same normalization at runtime.
+#[derive(Clone, Debug)]
+pub(crate) struct CliDescriptorPlan {
+    specs: BTreeMap<String, OptionSpec>,
+    policy: ParsePolicy,
+}
+
+impl CliDescriptorPlan {
+    pub(crate) fn normalize(schema: RecordMap, span: Span, policy: ParsePolicy, origins: &BTreeMap<String, Span>) -> Result<Self, RuntimeError> {
+        Ok(Self { specs: parse_schema_at(schema, span, policy, origins)?, policy })
+    }
+
+    pub(crate) fn matches_operation(&self, op: xsh_registry::RuntimeOp) -> bool {
+        use xsh_registry::RuntimeOp;
+        matches!((self.policy, op), (ParsePolicy::Applet, RuntimeOp::CliApplet)
+            | (ParsePolicy::Strict, RuntimeOp::CliParse | RuntimeOp::CliParseFull))
+    }
+
+    pub(crate) fn values_type(&self) -> crate::sema::types::Type {
+        use crate::sema::types::Type;
+        Type::Record(self.specs.iter().map(|(name, spec)| {
+            let scalar = match spec.value_ty {
+                ArgValueType::Str => Type::Str,
+                ArgValueType::Int | ArgValueType::UInt => Type::Int,
+                ArgValueType::Bool => Type::Bool,
+                ArgValueType::Path => Type::Path,
+                ArgValueType::Duration => Type::Duration,
+            };
+            // A forced non-Bool flag produces Bool for an unvalued spelling
+            // and its declared scalar for attached values or defaults.
+            let scalar = if spec.flag && scalar != Type::Bool { Type::Any } else { scalar };
+            let ty = if spec.repeated { Type::List(Box::new(scalar)) }
+                else if spec.flag || spec.required || spec.default.is_some() { scalar }
+                else { Type::Optional(Box::new(scalar)) };
+            (crate::symbol::Name::intern(name), ty)
+        }).collect())
+    }
+
+    pub(crate) fn return_type(&self, full: bool) -> crate::sema::types::Type {
+        use crate::sema::types::Type;
+        let values = self.values_type();
+        let result = if full { Type::Record(BTreeMap::from([
+            (crate::symbol::Name::intern("values"), values),
+            (crate::symbol::Name::intern("sources"), Type::Record(BTreeMap::new())),
+            (crate::symbol::Name::intern("warnings"), Type::List(Box::new(Type::Str))),
+        ])) } else { values };
+        Type::Result(Box::new(result), Box::new(Type::Error))
+    }
+}
+
+pub(crate) fn descriptor_argument(args: &[crate::syntax::arena::ArenaCallArg]) -> Option<crate::syntax::arena::ExprId> {
+    use crate::syntax::arena::ArenaCallArgKind;
+    let mut occupied = [false; 4];
+    let mut positional = 0;
+    let mut schema = None;
+    for arg in args {
+        let (slot, value) = match arg.kind {
+            ArenaCallArgKind::Named { name, value, .. } => (
+                ["argv", "schema", "env", "command"].iter().position(|field| name == *field)?, value),
+            ArenaCallArgKind::Positional(value) => {
+                while occupied.get(positional) == Some(&true) { positional += 1; }
+                let slot = positional; positional += 1; (slot, value)
+            }
+            ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
+        };
+        if let Some(occupied) = occupied.get_mut(slot) { *occupied = true; }
+        if slot == 1 { schema = Some(value); }
+    }
+    schema
 }
 
 impl ParsePolicy {
@@ -207,8 +280,9 @@ pub(crate) fn parse_cli(
     schema: RecordMap,
     command: &str,
     span: Span,
+    prepared: Option<&CliDescriptorPlan>,
 ) -> Result<Value, RuntimeError> {
-    parse_cli_with_policy(argv, schema, command, span, ParsePolicy::Strict)
+    parse_cli_with_policy(argv, schema, command, span, ParsePolicy::Strict, prepared)
 }
 
 pub(crate) fn parse_cli_applet(
@@ -216,8 +290,9 @@ pub(crate) fn parse_cli_applet(
     schema: RecordMap,
     command: &str,
     span: Span,
+    prepared: Option<&CliDescriptorPlan>,
 ) -> Result<Value, RuntimeError> {
-    parse_cli_with_policy(argv, schema, command, span, ParsePolicy::Applet)
+    parse_cli_with_policy(argv, schema, command, span, ParsePolicy::Applet, prepared)
 }
 
 fn parse_cli_with_policy(
@@ -226,8 +301,10 @@ fn parse_cli_with_policy(
     command: &str,
     span: Span,
     policy: ParsePolicy,
+    prepared: Option<&CliDescriptorPlan>,
 ) -> Result<Value, RuntimeError> {
-    let specs = parse_schema_with_policy(schema, span, policy)?;
+    let dynamic;
+    let specs = if let Some(plan) = prepared { &plan.specs } else { dynamic = parse_schema_with_policy(schema, span, policy)?; &dynamic };
     if argv_requests_help(&argv, &specs, policy) {
         return Err(cli_help_error(
             usage_text_with_policy(&specs, command, policy),
@@ -245,8 +322,10 @@ pub(crate) fn parse_cli_full(
     env: RecordMap,
     command: &str,
     span: Span,
+    prepared: Option<&CliDescriptorPlan>,
 ) -> Result<Value, RuntimeError> {
-    let specs = parse_schema(schema, span)?;
+    let dynamic;
+    let specs = if let Some(plan) = prepared { &plan.specs } else { dynamic = parse_schema(schema, span)?; &dynamic };
     if argv_requests_help(&argv, &specs, ParsePolicy::Strict) {
         return Err(cli_help_error(usage_text(&specs, command), span));
     }
@@ -520,10 +599,17 @@ fn parse_schema_with_policy(
     span: Span,
     policy: ParsePolicy,
 ) -> Result<BTreeMap<String, OptionSpec>, RuntimeError> {
+    parse_schema_at(schema, span, policy, &BTreeMap::new())
+}
+
+fn parse_schema_at(schema: RecordMap, span: Span, policy: ParsePolicy, origins: &BTreeMap<String, Span>)
+    -> Result<BTreeMap<String, OptionSpec>, RuntimeError>
+{
     let mut specs = BTreeMap::new();
     for (name, descriptor) in schema {
-        let spec = parse_descriptor(&name, descriptor, span)?;
-        validate_not_reserved_help(&name, &spec, span, policy)?;
+        let descriptor_span = origins.get(name.as_ref()).copied().unwrap_or(span);
+        let spec = parse_descriptor(&name, descriptor, descriptor_span)?;
+        validate_not_reserved_help(&name, &spec, descriptor_span, policy)?;
         specs.insert(name.to_string(), spec);
     }
     Ok(specs)
