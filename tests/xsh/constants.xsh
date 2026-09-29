@@ -1,4 +1,4 @@
-proc test_constants_prepare_data_and_keep_aliases() [error] {
+test test_constants_prepare_data_and_keep_aliases [error] {
   const count = 2 + 3
   const values: List[Int] = [count, 9]
   var copy = values
@@ -8,7 +8,7 @@ proc test_constants_prepare_data_and_keep_aliases() [error] {
   test.eq(copy, [5, 9, 10])?
 }
 
-proc test_constants_reject_runtime_dependencies(ctx: TestContext) [error] {
+test test_constants_reject_runtime_dependencies [error] { |ctx|
   let ordinary = test.run_script(ctx, "let source = 1\nconst value = source\nprint value\n")?
   test.eq(ordinary.success, false)?
   let overflow = test.run_script(ctx, "const value = 9223372036854775807 + 1\nprint value\n")?
@@ -24,10 +24,10 @@ const empty_numbers: List[Int] = []
 const empty_alias = empty_numbers
 type ConstantConfig = {name: Str = "default", values: List[Int] = empty_numbers}
 const protocol_config = ConstantConfig(name: "static")
-type ConstantEvent = Ready | Count(Int)
+enum ConstantEvent { Ready, Count(Int) }
 const protocol_event = Count(global_constant)
 
-proc test_constants_prepare_constructors_paths_regex_and_forward_references() [error] {
+test test_constants_prepare_constructors_paths_regex_and_forward_references [error] {
   test.eq(global_constant, 5)?
   test.eq(protocol_path.display(), "relative/config")?
   test.eq(protocol_pattern.matches("static"), true)?
@@ -38,7 +38,7 @@ proc test_constants_prepare_constructors_paths_regex_and_forward_references() [e
   test.eq(protocol_event, Count(5))?
 }
 
-proc test_constants_reject_cycles_contextless_empty_values_and_local_captures(ctx: TestContext) [error] {
+test test_constants_reject_cycles_contextless_empty_values_and_local_captures [error] { |ctx|
   let sources = [
     "const a = b\nconst b = a\n",
     "const values = []\n",
@@ -57,7 +57,7 @@ proc test_constants_reject_cycles_contextless_empty_values_and_local_captures(ct
   }
 }
 
-proc test_constants_exports_are_ordinary_readonly_module_data(ctx: TestContext) [fs, error] {
+test test_constants_exports_are_ordinary_readonly_module_data [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "constant-module")?
   fp"${root}/config.xsh".write_atomic(r"""##! Immutable configuration.
 ## A prepared scalar.
@@ -82,7 +82,7 @@ print ${values.len()}
   test.eq(executed.stdout, "4\n2\n2\n3\n")?
 }
 
-proc test_constants_contextual_maps_share_without_mutation() [error] {
+test test_constants_contextual_maps_share_without_mutation [error] {
   const table: Map[Int] = {["last"]: 1, first: 2, ["last"]: 3}
   const combined: Map[Int] = {...table, first: 4}
   var changed = combined
@@ -93,7 +93,7 @@ proc test_constants_contextual_maps_share_without_mutation() [error] {
   test.eq(changed.get("first")?, 9)?
 }
 
-proc test_constants_reject_shadowed_runtime_values(ctx: TestContext) [error] {
+test test_constants_reject_shadowed_runtime_values [error] { |ctx|
   let sources = [
     "const input = 1\npure helper(input: Int) -> Int { const captured = input; captured }\n",
     "const item = 1\nfor item in [2] { const captured = item }\n",
@@ -108,7 +108,7 @@ proc test_constants_reject_shadowed_runtime_values(ctx: TestContext) [error] {
   }
 }
 
-proc test_constants_functions_read_prepared_globals_before_runtime_registration(ctx: TestContext) [error] {
+test test_constants_functions_read_prepared_globals_before_runtime_registration [error] { |ctx|
   let executed = test.run_script(ctx, r"""pure prepared() -> Int { value }
 print ${prepared()}
 const value = 8
@@ -121,7 +121,7 @@ display()
   test.eq(asserted.success, false)?
 }
 
-proc test_constants_checked_operators_keep_typed_optional_and_duration_data() [error] {
+test test_constants_checked_operators_keep_typed_optional_and_duration_data [error] {
   const pause = 250ms * 2 + 1s
   const intervals = 1s / 250ms
   const maybe: Str? = "ready"
@@ -133,7 +133,7 @@ proc test_constants_checked_operators_keep_typed_optional_and_duration_data() [e
   test.eq(equal_zero, true)?
 }
 
-proc test_constants_fail_before_any_runtime_statement(ctx: TestContext) [error] {
+test test_constants_fail_before_any_runtime_statement [error] { |ctx|
   let prepared = test.run_script(ctx, "print starting\nconst invalid = 1 / 0\n")?
   test.eq(prepared.success, false)?
   test.eq(prepared.stdout, "")?

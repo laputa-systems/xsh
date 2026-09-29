@@ -38,11 +38,11 @@ pure lexical_tail() -> Bool {
   { false }
 }
 
-proc test_bare_value_tail_preserves_false() [error] {
+test test_bare_value_tail_preserves_false [error] {
   test.eq(lexical_tail(), false)?
 }
 
-proc test_bare_blocks_preserve_lexical_transfers(ctx: TestContext) [error] {
+test test_bare_blocks_preserve_lexical_transfers [error] { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
 proc answer() [] -> Int {
   {
@@ -68,7 +68,7 @@ visit()
   test.eq(output.stdout, "return cleanup\n7\n1\nloop cleanup\nloop cleanup\nloop cleanup\n")?
 }
 
-proc test_bare_blocks_preserve_literal_and_callable_tails(ctx: TestContext) [error] {
+test test_bare_blocks_preserve_literal_and_callable_tails [error] { |ctx|
   let output = test.run_script(ctx, r"""
 pure calculated() -> Int { 9 }
 type Row = {value: Int}
@@ -86,7 +86,7 @@ print ${empty.len()} ${named.if} ${updated.get("next")?} ${called} ${selected.va
   test.eq(output.stdout, "0 1 4 9 5 6 3\n")?
 }
 
-proc test_bare_blocks_keep_checker_and_result_boundaries(ctx: TestContext) [error] {
+test test_bare_blocks_keep_checker_and_result_boundaries [error] { |ctx|
   for source in [
     "{ let hidden = 1 }\nprint $hidden\n",
     "let value = { |input| input }\n",
@@ -109,7 +109,7 @@ print ${data ?? {|failure| failure.message}}
   test.eq(output.stdout, "identity\ndata\n")?
 }
 
-proc test_bare_blocks_run_cleanup_before_exposing_values(ctx: TestContext) [error] {
+test test_bare_blocks_run_cleanup_before_exposing_values [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc mark(message: Str) [] { print $message }
 error BlockError = Failed(message: Str)
@@ -127,7 +127,7 @@ print ${primary ?? {|failure| failure.message}}
   test.contains(output.stdout, "assertion")?
 }
 
-proc test_lexical_block_lint_preserves_scope_comments_and_converges(ctx: TestContext) [fs, process, error] {
+test test_lexical_block_lint_preserves_scope_comments_and_converges [fs, process, error] { |ctx|
   let source = r"""proc mark(message: Str) [] { print $message }
 var selected = 0
 if true { # Keep the scope rationale.
@@ -154,7 +154,7 @@ print $selected
   test.eq(candidate.read_text()?, fixed)?
 }
 
-proc test_lexical_block_lint_declines_changed_value_and_comment_boundaries(ctx: TestContext) [fs, process, error] {
+test test_lexical_block_lint_declines_changed_value_and_comment_boundaries [fs, process, error] { |ctx|
   for source in [
     "if true # condition rationale\n{ let value = 1; print $value }\n",
     "if true { print yes } else { print no }\n",
@@ -170,7 +170,7 @@ proc test_lexical_block_lint_declines_changed_value_and_comment_boundaries(ctx: 
   }
 }
 
-proc test_bare_blocks_preserve_stream_cancellation_cleanup(ctx: TestContext) [error] {
+test test_bare_blocks_preserve_stream_cancellation_cleanup [error] { |ctx|
   let output = test.run_script(ctx, r"""
 stream values() [] -> Stream[Int] {
   defer { print outer }
@@ -187,7 +187,7 @@ print done
   test.eq(output.stdout, "1\ninner\nouter\ndone\n")?
 }
 
-proc test_bare_blocks_do_not_expand_module_or_integer_exit_permissions(ctx: TestContext) [fs, error] {
+test test_bare_blocks_do_not_expand_module_or_integer_exit_permissions [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "lexical-module")?
   let module_path = fp"${root}/invalid.xsh"
   module_path.write("##! Invalid executable module.\n{ print forbidden }\n## Exported name.\nexport let name = \"invalid\"\n")?
@@ -204,7 +204,7 @@ proc test_bare_blocks_do_not_expand_module_or_integer_exit_permissions(ctx: Test
   test.eq(bare.status, 0, message: f"bare status=${bare.status}: ${bare.stderr}")?
 }
 
-proc test_bare_block_resource_escape_keeps_explicit_cleanup_validity(ctx: TestContext) [error] {
+test test_bare_block_resource_escape_keeps_explicit_cleanup_validity [error] { |ctx|
   let output = test.run_script(ctx, r"""
 let live = { fs.tempdir()? }
 print ${fs.root_exists(live, p".")?}
@@ -221,7 +221,7 @@ print ${inspected ?? false}
   test.eq(output.stdout, "true\nfalse\n")?
 }
 
-proc test_bare_block_grep_and_refactor_preserve_literal_distinctions(ctx: TestContext) [fs, process, error] {
+test test_bare_block_grep_and_refactor_preserve_literal_distinctions [fs, process, error] { |ctx|
   let reference = run.capture --text "xsht" api "language:core.bare-blocks" ?
   test.ok(reference.status.exited_with(0), reference.stderr)?
   test.contains(reference.stdout, "Bool values may be false")?
@@ -246,7 +246,7 @@ print $answer ${row.answer}
   test.eq(checked.stdout, "9 9\n")?
 }
 
-proc test_bare_blocks_preserve_implicit_stream_item_values(ctx: TestContext) [error] {
+test test_bare_blocks_preserve_implicit_stream_item_values [error] { |ctx|
   let output = test.run_script(ctx, r"""
 let selected = [{value: 7}] |> map { { .value } }
 print ${selected[0]}

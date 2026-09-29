@@ -721,6 +721,7 @@ impl ConstantPreparation<'_> {
                 let mut map_values = BTreeMap::new();
                 for field in arena.record_fields(fields) {
                     let (name, value) = match field.kind {
+                        ArenaRecordFieldKind::Path { .. } => return Err(failure()),
                         ArenaRecordFieldKind::Computed { key, value, .. } => {
                             let LiteralConstant::Str(key) = self.expression(key, scope, Some(&Type::Str), depth + 1)? else { return Err(failure()); };
                             (Name::intern(&key), value)

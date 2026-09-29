@@ -6,7 +6,7 @@ pure spread_map_default(options: Map[Int] = {}, count: Int = 3) -> Int { options
 pure spread_label(first: Int, label: Str? = "default") -> Str? { label }
 pure spread_rest(first: Int, ...items: List[Int]) -> List[Int] { [first, @items] }
 
-proc test_named_argument_spreads_use_visible_fields_and_constructor_defaults() [error] {
+test test_named_argument_spreads_use_visible_fields_and_constructor_defaults [error] {
   let options = {first: 2, second: 3}
   test.eq(spread_sum(...options), 5)?
   test.eq(spread_sum(...{first: 4}), 24)?
@@ -26,7 +26,7 @@ proc test_named_argument_spreads_use_visible_fields_and_constructor_defaults() [
   test.eq(spread_label(...{first: 1, label: null}), null)?
 }
 
-proc test_named_argument_spreads_evaluate_entries_once_in_source_order(ctx: TestContext) [error] {
+test test_named_argument_spreads_evaluate_entries_once_in_source_order [error] { |ctx|
   let executed = test.run_script(ctx, r"""type Pair = {first: Int, second: Int}
 proc options() -> Pair {
   print spread
@@ -43,7 +43,7 @@ print ${sum(third: marked(7), ...options())}
   test.eq(executed.stdout, "7\nspread\n12\n")?
 }
 
-proc test_named_argument_spreads_reject_unknown_duplicate_and_dynamic_shapes(ctx: TestContext) [error] {
+test test_named_argument_spreads_reject_unknown_duplicate_and_dynamic_shapes [error] { |ctx|
   for source in [
     "pure f(first: Int) -> Int { first }\nf(...{other: 2})\n",
     "pure f(first: Int) -> Int { first }\nf(first: 1, ...{first: 2})\n",
@@ -63,7 +63,7 @@ proc test_named_argument_spreads_reject_unknown_duplicate_and_dynamic_shapes(ctx
   }
 }
 
-proc test_named_argument_spreads_support_modules_methods_and_rest() [error] {
+test test_named_argument_spreads_support_modules_methods_and_rest [error] {
   test.eq("abc".replace(...{from: "b", to: "X"}), "aXc")?
   test.eq(shlex.join(...{argv: ["a", "b"]}), "a b")?
   test.eq(spread_rest(...{first: 1}, 2, 3), [1, 2, 3])?
@@ -71,7 +71,7 @@ proc test_named_argument_spreads_support_modules_methods_and_rest() [error] {
   test.eq(spread_rest(...{first: 1}, @tail), [1, 2, 3])?
 }
 
-proc test_named_argument_spreads_project_before_later_mutation() [error] {
+test test_named_argument_spreads_project_before_later_mutation [error] {
   var options = {first: 1}
   let total = spread_sum(...options, second: if true {
     let next = 2
@@ -82,7 +82,7 @@ proc test_named_argument_spreads_project_before_later_mutation() [error] {
   test.eq(options.first, 99)?
 }
 
-proc test_named_argument_spreads_evaluate_receiver_first_and_stop_on_failure(ctx: TestContext) [error] {
+test test_named_argument_spreads_evaluate_receiver_first_and_stop_on_failure [error] { |ctx|
   let ordered = test.run_script(ctx, r"""type ReplaceOptions = {from: Str, to: Str}
 proc receiver() -> Str { print receiver; return "abc" }
 proc options() -> ReplaceOptions { print options; return ReplaceOptions(from: "b", to: "X") }
@@ -103,7 +103,7 @@ print ${total(...(options()?), third: later())}
 }
 
 error SpreadPayload = Bad(message: Str, code: Int)
-proc test_named_argument_spreads_support_static_error_payloads() [error] {
+test test_named_argument_spreads_support_static_error_payloads [error] {
   let failure = SpreadPayload.Bad(...{code: 3, message: "supplied"})
   match failure {
     SpreadPayload.Bad {code: code, message: message} => {
@@ -117,7 +117,7 @@ proc test_named_argument_spreads_support_static_error_payloads() [error] {
 type SpreadModule = module {
   export pure total(first: Int, second: Int = 20, third: Int = 30) -> Int
 }
-proc test_named_argument_spreads_bind_checked_loaded_module_contracts(ctx: TestContext) [fs, error] {
+test test_named_argument_spreads_bind_checked_loaded_module_contracts [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "named-spread-module")?
   let source_path = fp"${root}/math.xsh"
   source_path.write("""##! Checked static argument fixture.
@@ -128,7 +128,7 @@ export pure total(first: Int, second: Int = 20, third: Int = 30) -> Int { first 
   test.eq(loaded.total(...{first: 1, third: 3}), 24)?
 }
 
-proc test_named_argument_spreads_native_method_signatures() [error] {
+test test_named_argument_spreads_native_method_signatures [error] {
   test.eq("alphabet".starts_with(...{prefix: "alpha"}), true)?
   test.eq("alphabet".ends_with(...{suffix: "bet"}), true)?
   test.eq("alphabet".contains(...{needle: "pha"}), true)?
@@ -136,7 +136,7 @@ proc test_named_argument_spreads_native_method_signatures() [error] {
   test.eq(failure is Err(_), true)?
 }
 
-proc test_named_argument_spreads_preserve_native_omitted_slots(ctx: TestContext) [fs, error] {
+test test_named_argument_spreads_preserve_native_omitted_slots [fs, error] { |ctx|
   let root = test.temp_dir(ctx)?
   let source = fp"${root}/payload.txt"
   let compressed = fp"${root}/payload.gz"

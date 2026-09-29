@@ -2679,7 +2679,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::Capture(_) => 42,
         ArenaExprKind::Retry { .. } => 38,
         ArenaExprKind::ValueBlock(_) => 39,
-        ArenaExprKind::ErrorContext { .. } => 42,
+        ArenaExprKind::ErrorContext { .. } => 44,
         ArenaExprKind::Regex(_) => 41,
         ArenaExprKind::ValuePipelineCall { .. } => 43,
     }
@@ -3185,7 +3185,7 @@ fn compact_body_tail_command_blocker(
 
 const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 8];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 29];
-const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 44];
+const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 45];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 
