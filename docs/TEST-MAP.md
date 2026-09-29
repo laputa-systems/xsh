@@ -280,6 +280,7 @@ the differing but valid words.
 | LLVM IR size | `tools/llvm-lines-repeat-offenders.xsh` over an existing capture | fresh `cargo llvm-lines` capture plus the applicable behavior/benchmark gate |
 | API registry/reference/examples | see `API Gate` below | same |
 | Broad cross-cutting work | closest targeted tests | relevant filtered package tests; unfiltered `cargo test` is owner-run |
+| Coordinated language ergonomics and statement/value contexts | `target/debug/xsht test --jobs 1 tests/xsh/ergonomics.xsh` plus the nearest feature test module | syntax and checker integration suites, isolated lint acceptance tests, the filtered runtime gate, and native stdlib tests |
 | Ambient filesystem authority policy | `cargo test --test ambient_fs_policy` | relevant filtered tests; unfiltered `cargo test --tests` is owner-run |
 
 Network link, address, route, and rule reference adapters score the fields they
