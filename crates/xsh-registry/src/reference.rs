@@ -207,6 +207,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "comments",
     "statements",
     "guarded-control",
+    "block-parameters",
     "defer",
     "bindings",
     "procs",
@@ -771,6 +772,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "boolean-guards" => (
             "Continues only when an explicit Boolean or Status condition succeeds.",
             "guard condition else { ... } uses ordinary Bool/Status conditions, evaluates once, and requires every reachable failure path to leave the enclosing continuation. Return, applicable break/continue, and checked terminating operations qualify; an arbitrary fallible call does not. The failure block has no input parameter or new Result boundary. Success and failure retain checked refinements, mutation invalidation, lexical targets, effects, error identity, and defer cleanup. lint.boolean-guard preserves the complete exiting failure body; Float ordering retains negation for NaN safety. guard let remains the separate Result-binding form.",
+        ),
+        "block-parameters" => (
+            "Defines one lexical block-header convention.",
+            "Parameterized blocks use { |parameters| ... }, after optional whitespace and comments. With and guard-let error handlers accept zero or one immutable error parameter; _ discards it. Guard handlers retain the exact Result error type; With handlers retain a shared nominal initializer error type or use Error for differing families. Plain conditional, boolean-guard and defer blocks receive no input. Headers retain lexical return, loop and cleanup targets without a callable frame. Outside-brace handler headers are migration errors; lint.block-header moves safe headers and rechecks source.",
         ),
         "defer" => (
             "Registers lexical cleanup actions without executing them.",

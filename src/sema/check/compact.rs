@@ -92,6 +92,8 @@ pub struct CompactBodyProbeOutput {
     pub block_types: FxHashMap<BlockId, Type>,
     // Keep inferred value tails separate from contextual Unit consumption.
     pub value_block_types: FxHashMap<ExprId, Type>,
+    // Handler slots retain the common nominal error of their checked inputs.
+    pub handler_input_types: FxHashMap<BlockId, Type>,
 }
 
 impl Checker {
@@ -140,6 +142,7 @@ impl Checker {
                 stream_items: Vec::new(),
                 return_types: Vec::new(),
                 current_namespace: None,
+                with_initializer_errors: None,
             };
             probe.seed_declarations();
             probe.check_compact_program();
@@ -551,6 +554,7 @@ enum CompactFunctionKind {
 /// Checks executable bodies directly from arena rows. The `check_compact_*`
 /// method family distinguishes this probe from the general `Checker` paths.
 struct CompactBodyProbe<'a> {
+    with_initializer_errors: Option<Vec<Type>>,
     current_namespace: Option<Name>,
     program: &'a ArenaProgram,
     declarations: &'a CompactDeclOutput,
@@ -654,6 +658,18 @@ impl CompactBodyProbe<'_> {
         self.current_namespace = None;
     }
 
+    fn check_compact_error_handler(&mut self, block: BlockId, error_ty: Type) {
+        self.output.handler_input_types.insert(block, error_ty.clone());
+        self.push_scope();
+        for param in self.program.arena.block_params(self.program.arena.block(block).params) {
+            if param.name.as_str() != "_" {
+                self.current_scope_mut().insert(param.name, CompactBinding::new(error_ty.clone(), false));
+            }
+        }
+        self.check_compact_block_in_current_scope(block);
+        self.pop_scope();
+    }
+
     fn check_compact_stmt(&mut self, id: StmtId) {
         self.output.statements += 1;
         let stmt = self.program.arena.stmt(id);
@@ -723,7 +739,9 @@ impl CompactBodyProbe<'_> {
             | ArenaStmtKind::PureDef(def)
             | ArenaStmtKind::StreamDef(def) => {
                 self.output.supported_statements += 1;
+                let previous_errors = self.with_initializer_errors.take();
                 self.check_compact_function(def);
+                self.with_initializer_errors = previous_errors;
             }
             ArenaStmtKind::Return(value) => {
                 self.output.supported_statements += 1;
@@ -737,7 +755,9 @@ impl CompactBodyProbe<'_> {
             {
                 self.output.supported_statements += 1;
                 let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(expr).kind else { unreachable!() };
+                let previous_errors = self.with_initializer_errors.take();
                 self.check_compact_block(block);
+                self.with_initializer_errors = previous_errors;
                 self.mark_tail_position(block, false);
                 self.output.expr_types.insert(expr, Type::Unit);
             }
@@ -816,48 +836,34 @@ impl CompactBodyProbe<'_> {
                 let hook = self.program.arena.signal_hook(hook);
                 self.check_compact_block(hook.body);
             }
-            ArenaStmtKind::With {
-                bindings,
-                body,
-                else_param,
-                else_block,
-            } => {
+            ArenaStmtKind::With { bindings, body, else_block } => {
                 self.output.supported_statements += 1;
                 self.push_scope();
+                let mut error_ty = None;
                 for binding in self.program.arena.with_bindings(bindings) {
-                    let ty = self.check_compact_expr(binding.initializer);
-                    self.current_scope_mut()
-                        .insert(binding.name, CompactBinding::new(ty, false));
+                    let previous_errors = self.with_initializer_errors.replace(Vec::new());
+                    let actual = self.check_compact_expr(binding.initializer);
+                    let mut errors = self.with_initializer_errors.take().unwrap_or_default();
+                    self.with_initializer_errors = previous_errors;
+                    if let Type::Result(_, error) = &actual { errors.push((**error).clone()); }
+                    for error in errors {
+                        error_ty = Some(match error_ty { None => error, Some(previous) if previous == error => previous, Some(_) => Type::Error });
+                    }
+                    let ty = match actual { Type::Result(ok, _) => *ok, other => other };
+                    if binding.name.as_str() != "_" { self.current_scope_mut().insert(binding.name, CompactBinding::new(ty, false)); }
                 }
                 self.check_compact_block_in_current_scope(body);
                 self.pop_scope();
-                self.push_scope();
-                if let Some(param) = else_param {
-                    self.current_scope_mut()
-                        .insert(param, CompactBinding::new(Type::Error, false));
-                }
-                self.check_compact_block_in_current_scope(else_block);
-                self.pop_scope();
+                self.check_compact_error_handler(else_block, error_ty.unwrap_or(Type::Error));
             }
-            ArenaStmtKind::Guard {
-                target,
-                ty,
-                initializer,
-                else_param,
-                else_block,
-            } => {
+            ArenaStmtKind::Guard { target, ty, initializer, else_block } => {
                 self.output.supported_statements += 1;
                 self.output.bindings += 1;
                 let expected = ty.map(|ty| self.type_from_arena(ty));
                 let actual = self.check_compact_expr_or_run(initializer);
-                self.define_binding_target(target, expected.unwrap_or(actual), false);
-                self.push_scope();
-                if let Some(param) = else_param {
-                    self.current_scope_mut()
-                        .insert(param, CompactBinding::new(Type::Error, false));
-                }
-                self.check_compact_block_in_current_scope(else_block);
-                self.pop_scope();
+                let (ok, error) = match actual { Type::Result(ok, error) => (*ok, *error), other => (other, Type::Error) };
+                self.check_compact_error_handler(else_block, error);
+                self.define_binding_target(target, expected.unwrap_or(ok), false);
             }
             ArenaStmtKind::GuardedStmt {
                 stmt, condition, ..
@@ -1065,11 +1071,13 @@ impl CompactBodyProbe<'_> {
                 EnvGetKind::PathList => Type::EnvPathList,
             }), Box::new(Type::Error)),
             ArenaExprKind::EnvPathList => Type::EnvPathList,
-            ArenaExprKind::Try(expr) => self
-                .check_compact_expr(expr)
-                .result_ok()
-                .cloned()
-                .unwrap_or(Type::Unknown),
+            ArenaExprKind::Try(expr) => {
+                let ty = self.check_compact_expr(expr);
+                if let Some(errors) = &mut self.with_initializer_errors && let Type::Result(_, error) = &ty {
+                    errors.push((**error).clone());
+                }
+                ty.result_ok().cloned().unwrap_or(Type::Unknown)
+            }
             ArenaExprKind::Require { value, schema } => {
                 self.check_compact_expr(value);
                 Type::Result(

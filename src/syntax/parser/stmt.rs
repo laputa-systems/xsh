@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    AssignOp, BlockParam, DurationLiteral, Effect, IntLiteral, Keyword, Name,
+    AssignOp, BlockParam, Diagnostic, FixHint, DurationLiteral, Effect, IntLiteral, Keyword, Label, Name,
     Parser, SignalHookOptions, TokenKindMatch, TokenTag, result_unit_type_expr, unknown_type_expr,
 };
 use crate::syntax::arena::{
@@ -994,16 +994,9 @@ impl<'a> Parser<'a> {
         self.expect(TokenKindMatch::Equals, "expected `=` in guard binding");
         let initializer = self.parse_expr_or_run_arena_only(arena)?;
         self.expect_keyword(Keyword::Else, "expected `else` in guard statement");
-        let else_param = if self.consume(TokenKindMatch::Pipe).is_some() {
-            let param = self.expect_ident("expected parameter name in `else |param|`");
-            self.expect(TokenKindMatch::Pipe, "expected `|` after else parameter");
-            param
-        } else {
-            None
-        };
-        let else_block = self.parse_block_arena_only(arena)?;
+        let else_block = self.parse_error_handler_block_arena_only(arena)?;
         let span = self.span(start, self.previous_end());
-        arena.push_guard(target, ty, initializer, else_param, else_block, span);
+        arena.push_guard(target, ty, initializer, else_block, span);
         Some(())
     }
 
@@ -1308,17 +1301,10 @@ impl<'a> Parser<'a> {
         let body = self.parse_block_arena_only(arena)?;
         self.skip_newlines();
         self.expect_keyword(Keyword::Else, "expected `else` after `with` body")?;
-        let else_param = if self.consume(TokenKindMatch::Pipe).is_some() {
-            let param = self.expect_ident("expected parameter name in `else |param|`");
-            self.expect(TokenKindMatch::Pipe, "expected `|` after else parameter");
-            param
-        } else {
-            None
-        };
-        let else_block = self.parse_block_arena_only(arena)?;
+        let else_block = self.parse_error_handler_block_arena_only(arena)?;
         let span = self.span(start, self.previous_end());
         let bindings_range = arena.push_with_bindings(&bindings);
-        arena.push_with(bindings_range, body, else_param, else_block, span);
+        arena.push_with(bindings_range, body, else_block, span);
         Some(())
     }
 
@@ -1397,6 +1383,44 @@ impl<'a> Parser<'a> {
         let end = self.expect_terminator();
         arena.push_expr_statement(expr_id, self.span(start, end));
         Some(())
+    }
+
+    fn parse_error_handler_block_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<crate::syntax::arena::BlockId> {
+        self.skip_newlines();
+        if !self.at(TokenKindMatch::Pipe) {
+            return self.parse_block_arena_only(arena);
+        }
+        let start = self.current_start();
+        let params = self.parse_block_params();
+        let header_end = self.previous_end();
+        self.skip_newlines();
+        let brace_start = self.current_start();
+        let brace_end = self.current_end();
+        let mut diagnostic = Diagnostic::error("put error-handler parameters inside the block: `else { |failure| ... }`")
+            .with_code("parse.block-header-migration")
+            .with_label(Label::primary(self.span(start, header_end), "move this header after `{`"));
+        if self.at(TokenKindMatch::LBrace)
+            && !self.source[start..brace_end].contains('#')
+        {
+            let between = self.source[header_end..brace_start].trim_end_matches([' ', '\t']);
+            let replacement = format!("{{ {}{between}", &self.source[start..header_end]);
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                self.span(start, brace_end), "move the header inside the block", replacement,
+            ));
+        }
+        self.diagnostics.push(diagnostic);
+        let block = self.parse_block_arena_only(arena)?;
+        if arena.block_parameter_count(block) == 0 {
+            arena.recover_block_parameters(block, &params);
+        } else {
+            self.diagnostics.push(Diagnostic::error("an error handler cannot have two parameter headers")
+                .with_code("parse.block-params")
+                .with_label(Label::primary(self.span(start, brace_end), "remove the outside header")));
+        }
+        Some(block)
     }
 
     pub(super) fn parse_block_arena_only(

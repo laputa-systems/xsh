@@ -2334,7 +2334,7 @@ export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) ->
 
 ## Validates the JSON v1 wire schema and restores its typed tag unions.
 export pure decode_report_json(text: Str) -> Result[SystemReport] {
-  guard let raw = json.decode(text) else |error| {
+  guard let raw = json.decode(text) else { |error|
     return Err(SystemReportError.InvalidJson(message: error.message))
   }
 
@@ -2346,7 +2346,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
           return Err(SystemReportError.InvalidJson(message: f"scope.${field} cannot be null"))
         }
 
-        guard let _ = value.require(JsonTextObservation) else |error| {
+        guard let _ = value.require(JsonTextObservation) else { |error|
           return Err(SystemReportError.InvalidJson(message: error.message))
         }
       }
@@ -2359,7 +2359,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
             value: null,
             raw_bytes_base64: null,
           },
-        ) else |error| {
+        ) else { |error|
           return Err(SystemReportError.InvalidJson(message: error.message))
         }
 
@@ -2370,7 +2370,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
   match json.get(normalized, ["cpu", "idle_states"]) {
     Ok(raw_states) => {
-      guard let states = raw_states.require(List[Any]) else |error| {
+      guard let states = raw_states.require(List[Any]) else { |error|
         return Err(SystemReportError.InvalidJson(message: error.message))
       }
 
@@ -2378,7 +2378,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
         match json.get(states[state_index], ["state_index"]) {
           Ok(_) => {}
           Err(_) => {
-            guard let updated = json.set(normalized, ["cpu", "idle_states", state_index, "state_index"], null) else |error| {
+            guard let updated = json.set(normalized, ["cpu", "idle_states", state_index, "state_index"], null) else { |error|
               return Err(SystemReportError.InvalidJson(message: error.message))
             }
 
@@ -2392,7 +2392,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
   match json.get(normalized, ["cpu", "frequency_policies"]) {
     Ok(raw_policies) => {
-      guard let policies = raw_policies.require(List[Any]) else |error| {
+      guard let policies = raw_policies.require(List[Any]) else { |error|
         return Err(SystemReportError.InvalidJson(message: error.message))
       }
 
@@ -2402,7 +2402,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
         match json.get(policies[policy_index], ["requested_current_khz"]) {
           Ok(raw_legacy) => {
             has_legacy_current = true
-            guard let value = raw_legacy.require(Int?) else |error| {
+            guard let value = raw_legacy.require(Int?) else { |error|
               return Err(SystemReportError.InvalidJson(message: error.message))
             }
 
@@ -2413,7 +2413,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
         match json.get(policies[policy_index], ["scaling_current_khz"]) {
           Ok(raw_current) => {
-            guard let value = raw_current.require(Int?) else |error| {
+            guard let value = raw_current.require(Int?) else { |error|
               return Err(SystemReportError.InvalidJson(message: error.message))
             }
 
@@ -2429,7 +2429,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
               normalized,
               ["cpu", "frequency_policies", policy_index, "scaling_current_khz"],
               replacement,
-            ) else |error| {
+            ) else { |error|
               return Err(SystemReportError.InvalidJson(message: error.message))
             }
 
@@ -2441,7 +2441,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
           guard let updated = json.remove(
             normalized,
             ["cpu", "frequency_policies", policy_index, "requested_current_khz"],
-          ) else |error| {
+          ) else { |error|
             return Err(SystemReportError.InvalidJson(message: error.message))
           }
 
@@ -2454,12 +2454,12 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
   match json.get(normalized, ["sensors", "thermal_zones"]) {
     Ok(raw_zones) => {
-      guard let zones = raw_zones.require(List[Any]) else |error| {
+      guard let zones = raw_zones.require(List[Any]) else { |error|
         return Err(SystemReportError.InvalidJson(message: error.message))
       }
 
       for zone_index in range(zones.len()) {
-        guard let trips = json.get(zones[zone_index], ["trips"])?.require(List[Any]) else |error| {
+        guard let trips = json.get(zones[zone_index], ["trips"])?.require(List[Any]) else { |error|
           return Err(SystemReportError.InvalidJson(message: error.message))
         }
 
@@ -2471,7 +2471,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
                 normalized,
                 ["sensors", "thermal_zones", zone_index, "trips", trip_index, "index"],
                 null,
-              ) else |error| {
+              ) else { |error|
                 return Err(SystemReportError.InvalidJson(message: error.message))
               }
 
@@ -2486,7 +2486,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
   match json.get(normalized, ["usb", "devices"]) {
     Ok(raw_devices) => {
-      guard let devices = raw_devices.require(List[Any]) else |error| {
+      guard let devices = raw_devices.require(List[Any]) else { |error|
         return Err(SystemReportError.InvalidJson(message: error.message))
       }
 
@@ -2494,7 +2494,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
         match json.get(devices[device_index], ["runtime_status"]) {
           Ok(_) => {}
           Err(_) => {
-            guard let updated = json.set(normalized, ["usb", "devices", device_index, "runtime_status"], null) else |error| {
+            guard let updated = json.set(normalized, ["usb", "devices", device_index, "runtime_status"], null) else { |error|
               return Err(SystemReportError.InvalidJson(message: error.message))
             }
 
@@ -2508,7 +2508,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
   match json.get(normalized, ["sensors", "channels"]) {
     Ok(raw_channels) => {
-      guard let channels = raw_channels.require(List[Any]) else |error| {
+      guard let channels = raw_channels.require(List[Any]) else { |error|
         return Err(SystemReportError.InvalidJson(message: error.message))
       }
 
@@ -2517,7 +2517,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
           match json.get(channels[channel_index], [field]) {
             Ok(_) => {}
             Err(_) => {
-              guard let updated = json.set(normalized, ["sensors", "channels", channel_index, field], null) else |error| {
+              guard let updated = json.set(normalized, ["sensors", "channels", channel_index, field], null) else { |error|
                 return Err(SystemReportError.InvalidJson(message: error.message))
               }
 
@@ -2532,7 +2532,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
   match json.get(normalized, ["devices", "devices"]) {
     Ok(raw_devices) => {
-      guard let devices = raw_devices.require(List[Any]) else |error| {
+      guard let devices = raw_devices.require(List[Any]) else { |error|
         return Err(SystemReportError.InvalidJson(message: error.message))
       }
 
@@ -2544,7 +2544,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
               normalized,
               ["devices", "devices", device_index, "entry_name"],
               {state: "unsupported", value: null, raw_bytes_base64: null},
-            ) else |error| {
+            ) else { |error|
               return Err(SystemReportError.InvalidJson(message: error.message))
             }
 
@@ -2558,14 +2558,14 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
 
   match json.get(normalized, ["power", "cap_zones"]) {
     Ok(raw_zones) => {
-      guard let zones = raw_zones.require(List[Any]) else |error| {
+      guard let zones = raw_zones.require(List[Any]) else { |error|
         return Err(SystemReportError.InvalidJson(message: error.message))
       }
 
       var zone_index = 0
       for raw_zone in zones {
         if json.get(raw_zone, ["entry_name"], null) == null {
-          guard let legacy = raw_zone.require(LegacyPowerCapZone) else |error| {
+          guard let legacy = raw_zone.require(LegacyPowerCapZone) else { |error|
             return Err(SystemReportError.InvalidJson(message: error.message))
           }
 
@@ -2590,7 +2590,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
             constraints: constraints,
           }
           let wire_zone: Any = zone
-          guard let updated = json.set(normalized, ["power", "cap_zones", zone_index], wire_zone) else |error| {
+          guard let updated = json.set(normalized, ["power", "cap_zones", zone_index], wire_zone) else { |error|
             return Err(SystemReportError.InvalidJson(message: error.message))
           }
 
@@ -2603,7 +2603,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
     Err(_) => {}
   }
 
-  guard let wire = normalized.require(SystemReportJson) else |error| {
+  guard let wire = normalized.require(SystemReportJson) else { |error|
     return Err(SystemReportError.InvalidJson(message: error.message))
   }
 

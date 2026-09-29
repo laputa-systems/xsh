@@ -3486,7 +3486,7 @@ pure usb_topology_decimal(value: Str) -> Result[Int] {
     }
   }
 
-  guard let number = value.parse_int() else |_| {
+  guard let number = value.parse_int() else { |_|
     return Err(check_failure("USB topology number is outside the supported range"))
   }
 
@@ -4043,7 +4043,7 @@ export pure parse_usb_power_number(value: Str, allow_negative: Bool) -> Result[I
     }
   }
 
-  guard let number = value.parse_int() else |_| {
+  guard let number = value.parse_int() else { |_|
     return Err(check_failure("USB power value is outside the integer range"))
   }
 
@@ -4606,7 +4606,7 @@ export pure parse_power_supply_number(value: Str, signed: Bool) -> Result[Int] {
     }
   }
 
-  guard let number = value.parse_int() else |_| {
+  guard let number = value.parse_int() else { |_|
     return Err(check_failure("power supply quantity is outside the integer range"))
   }
 
@@ -12245,7 +12245,7 @@ proc network_raw_number(
   }
 
   let decoded = (raw.data ?? b"").utf8()
-  guard let value = decoded else |_| {
+  guard let value = decoded else { |_|
     return Ok({value: null, complete: false})
   }
 
@@ -12266,7 +12266,7 @@ proc network_raw_number(
   }
 
   let parsed = cleaned.parse_int()
-  guard let number = parsed else |_| {
+  guard let number = parsed else { |_|
     return Ok({value: null, complete: false})
   }
 
@@ -19451,7 +19451,7 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
 
     continue unless decimal
     let parsed_pid = process_reference_number(pid_text)
-    guard let pid = parsed_pid else |_| {
+    guard let pid = parsed_pid else { |_|
       skipped_count += 1
       continue
     }
@@ -19467,7 +19467,7 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
       continue
     }
 
-    guard let first = parse_proc_stat_identity_reference(first_source ?? "") else |_| {
+    guard let first = parse_proc_stat_identity_reference(first_source ?? "") else { |_|
       skipped_count += 1
       continue
     }
@@ -19478,7 +19478,7 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
       continue
     }
 
-    guard let uid = parse_proc_status_uid_reference(status_source ?? "") else |_| {
+    guard let uid = parse_proc_status_uid_reference(status_source ?? "") else { |_|
       skipped_count += 1
       continue
     }
@@ -19489,7 +19489,7 @@ export proc read_process_identity_snapshot(root: FsRoot) [fs, error] -> Result[P
       continue
     }
 
-    guard let last = parse_proc_stat_identity_reference(last_source ?? "") else |_| {
+    guard let last = parse_proc_stat_identity_reference(last_source ?? "") else { |_|
       skipped_count += 1
       continue
     }
@@ -19539,7 +19539,7 @@ export proc read_process_resource_snapshot(
     }
 
     continue unless decimal
-    guard let pid = process_reference_number(pid_text) else |_| {
+    guard let pid = process_reference_number(pid_text) else { |_|
       skipped_count += 1
       continue
     }
@@ -19555,7 +19555,7 @@ export proc read_process_resource_snapshot(
       continue
     }
 
-    guard let first = parse_proc_stat_thread_reference(first_source ?? "") else |_| {
+    guard let first = parse_proc_stat_thread_reference(first_source ?? "") else { |_|
       skipped_count += 1
       continue
     }
@@ -19567,12 +19567,12 @@ export proc read_process_resource_snapshot(
       continue
     }
 
-    guard let memory = parse_proc_statm_reference(statm_source ?? "", page_size_bytes) else |_| {
+    guard let memory = parse_proc_statm_reference(statm_source ?? "", page_size_bytes) else { |_|
       skipped_count += 1
       continue
     }
 
-    guard let cgroup = parse_proc_cgroup_reference(cgroup_source ?? "") else |_| {
+    guard let cgroup = parse_proc_cgroup_reference(cgroup_source ?? "") else { |_|
       skipped_count += 1
       continue
     }
@@ -19583,7 +19583,7 @@ export proc read_process_resource_snapshot(
       continue
     }
 
-    guard let last = parse_proc_stat_thread_reference(last_source ?? "") else |_| {
+    guard let last = parse_proc_stat_thread_reference(last_source ?? "") else { |_|
       skipped_count += 1
       continue
     }
@@ -19649,7 +19649,7 @@ export proc capture_process_bundle(
         |> any { |part|
           part not in "0123456789"
         })
-      guard let pid = process_reference_number(pid_text) else |_| {
+      guard let pid = process_reference_number(pid_text) else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "pid", "malformed"))
         continue
       }
@@ -19724,32 +19724,32 @@ export proc capture_process_bundle(
         continue
       }
 
-      guard let first_text = (first.data ?? b"").utf8() else |_| {
+      guard let first_text = (first.data ?? b"").utf8() else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
         continue
       }
 
-      guard let last_text = (last.data ?? b"").utf8() else |_| {
+      guard let last_text = (last.data ?? b"").utf8() else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
         continue
       }
 
-      guard let first_identity = parse_proc_stat_identity_reference(first_text) else |_| {
+      guard let first_identity = parse_proc_stat_identity_reference(first_text) else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
         continue
       }
 
-      guard let last_identity = parse_proc_stat_identity_reference(last_text) else |_| {
+      guard let last_identity = parse_proc_stat_identity_reference(last_text) else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
         continue
       }
 
-      guard let first_thread = parse_proc_stat_thread_reference(first_text) else |_| {
+      guard let first_thread = parse_proc_stat_thread_reference(first_text) else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
         continue
       }
 
-      guard let last_thread = parse_proc_stat_thread_reference(last_text) else |_| {
+      guard let last_thread = parse_proc_stat_thread_reference(last_text) else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed"))
         continue
       }
@@ -19759,17 +19759,17 @@ export proc capture_process_bundle(
         continue
       }
 
-      guard let status_text = raw_fields[2].data.utf8() else |_| {
+      guard let status_text = raw_fields[2].data.utf8() else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "status", "malformed"))
         continue
       }
 
-      guard let statm_text = raw_fields[1].data.utf8() else |_| {
+      guard let statm_text = raw_fields[1].data.utf8() else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "statm", "malformed"))
         continue
       }
 
-      guard let cgroup_text = raw_fields[3].data.utf8() else |_| {
+      guard let cgroup_text = raw_fields[3].data.utf8() else { |_|
         skipped = skipped.push(process_bundle_skip(pid_text, "cgroup", "malformed"))
         continue
       }
@@ -23352,7 +23352,7 @@ proc compare_live_device_classes(
   let scratch = fs.tempdir()?
   defer fs.close_root(scratch)?
   let before_started = time.now()
-  guard let before = read_device_class_reference(source) else |_| {
+  guard let before = read_device_class_reference(source) else { |_|
     print "devices.graphics-audio-input: reference enumeration incomplete; comparison remains partial"
     return Ok({scored: false, partial: true, unavailable: false})
   }
@@ -23376,7 +23376,7 @@ proc compare_live_device_classes(
   }
 
   let after_started = time.now()
-  guard let after = read_device_class_reference(source) else |_| {
+  guard let after = read_device_class_reference(source) else { |_|
     print "devices.graphics-audio-input: later reference enumeration incomplete; comparison remains partial"
     return Ok({scored: false, partial: true, unavailable: false})
   }
@@ -23409,7 +23409,7 @@ proc compare_live_hwmon(xsh_bin: Str, script: Str) [fs, process, time, error, io
   let scratch = fs.tempdir()?
   defer fs.close_root(scratch)?
   let before_started = time.now()
-  guard let before = read_hwmon_reference(source) else |_| {
+  guard let before = read_hwmon_reference(source) else { |_|
     print "sensors.hwmon: reference enumeration incomplete; comparison remains partial"
     return Ok({scored: false, partial: true, unavailable: false})
   }
@@ -23433,7 +23433,7 @@ proc compare_live_hwmon(xsh_bin: Str, script: Str) [fs, process, time, error, io
   }
 
   let after_started = time.now()
-  guard let after = read_hwmon_reference(source) else |_| {
+  guard let after = read_hwmon_reference(source) else { |_|
     print "sensors.hwmon: later reference enumeration incomplete; comparison remains partial"
     return Ok({scored: false, partial: true, unavailable: false})
   }

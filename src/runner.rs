@@ -1013,7 +1013,7 @@ print $root
   let _ = argv
   with value = Ok(\"ok\") {
     let _seen = value
-  } else |err| {
+  } else { |err|
     let _err = err
   }
 }

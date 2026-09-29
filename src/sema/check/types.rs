@@ -14,6 +14,10 @@ impl Checker {
         if self.retry_attempt_depth > 0 {
             return self.check_attempt_propagation(ty, span);
         }
+        if let Some(errors) = &mut self.with_initializer_errors
+            && let Some((_, error)) = result_types(ty) {
+            errors.push(error.clone());
+        }
         if matches!(ty, Type::Unknown | Type::Invalid) {
             return ty.clone();
         }

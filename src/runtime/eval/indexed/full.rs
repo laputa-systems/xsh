@@ -203,6 +203,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprSelfCall,
     StmtLet,
     StmtGuard,
+    StmtWith,
     StmtLetInt,
     StmtLetBool,
     StmtAssign,
@@ -2742,7 +2743,8 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
                 | FullTag::ExprArchiveTarList
                 | FullTag::ExprArchiveTarExtract
                 | FullTag::ExprTry
-                | FullTag::StmtGuard => EFFECT_PROPAGATE | EFFECT_TRACE,
+                | FullTag::StmtGuard
+                | FullTag::StmtWith => EFFECT_PROPAGATE | EFFECT_TRACE,
                 FullTag::StmtDefer => EFFECT_DEFER | EFFECT_PROPAGATE | EFFECT_TRACE,
                 FullTag::ExprLoop
                 | FullTag::StmtLoop
@@ -3604,6 +3606,12 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
                 }
             };
             all_return && else_returns
+        }
+        FullTag::StmtWith => {
+            let body = *payload.get(1).ok_or_else(|| IrVerifyError::new("return-analysis with body is missing"))?;
+            let else_index = match payload.get(2) { Some(0) => 3, Some(1) => 4, _ => return Err(IrVerifyError::new("return-analysis with parameter is invalid")) };
+            let else_body = *payload.get(else_index).ok_or_else(|| IrVerifyError::new("return-analysis with handler is missing"))?;
+            indexed_block_can_return(store, block(body)?)? && indexed_block_can_return(store, block(else_body)?)?
         }
         FullTag::StmtMatch => {
             let arms =
@@ -5432,6 +5440,7 @@ const BLOCK_SEQUENCE_KIND_MASK: u8 = 1;
 
 impl_vec_codec!(BuildStmtId, BLOCK_STATEMENTS);
 impl_vec_codec!(BuildExprId, BLOCK_LIST);
+impl_vec_codec!((usize, BuildExprId), BLOCK_LIST);
 impl_vec_codec!((bool, BuildExprId, Span), BLOCK_LIST);
 impl_vec_codec!(BuildPatternId, BLOCK_LIST);
 impl_vec_codec!(LoweredPipelineStage, BLOCK_LIST);
@@ -7319,6 +7328,14 @@ impl_node_codec! {
             else_body,
             span,
         },
+        BuildStmtRow::With { bindings, body, else_param_slot, else_body, captures, span } => StmtWith {
+            bindings: Vec<(usize, BuildExprId)>,
+            body: Vec<BuildStmtId>,
+            else_param_slot: Option<usize>,
+            else_body: Vec<BuildStmtId>,
+            captures: Vec<usize>,
+            span: Span,
+        } => BuildStmtRow::With { bindings, body, else_param_slot, else_body, captures, span },
         BuildStmtRow::LetInt { slot, value } => StmtLetInt {
             slot: usize,
             value: BuildIntId,
@@ -8410,6 +8427,21 @@ proc main() [error] {
         let mut missing = program.clone();
         missing.store.extra[range.start + 2] = u32::MAX;
         assert!(FullVerifier::verify(&missing).is_err());
+    }
+
+    #[test]
+    fn verifier_checks_with_binding_slots_and_both_branch_returns() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/block-parameters.xsh");
+        let program = fixture("block-parameters.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let row = program.store.tags.iter().position(|tag| *tag == FullTag::StmtWith).unwrap();
+        let payload = program.store.data[row].range().bounds(program.store.extra.len()).unwrap();
+        let bindings = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
+        let bindings = program.store.blocks[bindings.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        let mut bad_slot = program.clone();
+        bad_slot.store.extra[bindings.start + 1] = u32::MAX;
+        assert!(FullVerifier::verify(&bad_slot).unwrap_err().message.contains("slot"));
+        assert!(indexed_stmt_can_return(&program.store, row).unwrap());
     }
 
     #[test]

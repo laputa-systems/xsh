@@ -1068,6 +1068,11 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.arena.block(block).params.len as usize
     }
 
+    pub fn recover_block_parameters(&mut self, block: BlockId, params: &[BlockParam]) {
+        let params = self.lowerer.lower_block_param_range(params);
+        self.lowerer.arena.blocks[block.index()].params = params;
+    }
+
     pub fn discard_block(&mut self) {
         let start = self
             .block_statement_starts
@@ -2549,7 +2554,6 @@ impl<'a> ArenaProgramBuilder<'a> {
         &mut self,
         bindings: ArenaRange,
         body: BlockId,
-        else_param: Option<Name>,
         else_block: BlockId,
         span: Span,
     ) -> StmtId {
@@ -2557,7 +2561,6 @@ impl<'a> ArenaProgramBuilder<'a> {
             ArenaStmtKind::With {
                 bindings,
                 body,
-                else_param,
                 else_block,
             },
             span,
@@ -2572,7 +2575,6 @@ impl<'a> ArenaProgramBuilder<'a> {
         target: BindingTargetId,
         ty: Option<TypeExprId>,
         initializer: ArenaExprOrRun,
-        else_param: Option<Name>,
         else_block: BlockId,
         span: Span,
     ) -> StmtId {
@@ -2581,7 +2583,6 @@ impl<'a> ArenaProgramBuilder<'a> {
                 target,
                 ty,
                 initializer,
-                else_param,
                 else_block,
             },
             span,
@@ -3793,8 +3794,7 @@ impl AstArena {
                 ArenaStmtKind::With {
                     bindings: ArenaRange::new(raw[0] as usize, raw[1] as usize),
                     body: BlockId::new(raw[2] as usize),
-                    else_param: optional_name(raw[3]),
-                    else_block: BlockId::new(raw[4] as usize),
+                    else_block: BlockId::new(raw[3] as usize),
                 }
             }
             ArenaStmtTag::Loop => ArenaStmtKind::Loop {
@@ -3806,8 +3806,7 @@ impl AstArena {
                     target: BindingTargetId::new(raw[0] as usize),
                     ty: optional_type_expr_id(raw[1]),
                     initializer: expr_or_run_from_raw(raw[2]),
-                    else_param: optional_name(raw[3]),
-                    else_block: BlockId::new(raw[4] as usize),
+                    else_block: BlockId::new(raw[3] as usize),
                 }
             }
             ArenaStmtTag::BooleanGuard => ArenaStmtKind::BooleanGuard {
@@ -4495,14 +4494,6 @@ fn optional_type_expr_id(raw: u32) -> Option<TypeExprId> {
     (raw != ARENA_ABSENT).then(|| TypeExprId::new(raw as usize))
 }
 
-fn optional_raw_name(name: Option<Name>) -> u32 {
-    name.map(|name| name.symbol().raw()).unwrap_or(ARENA_ABSENT)
-}
-
-fn optional_name(raw: u32) -> Option<Name> {
-    (raw != ARENA_ABSENT).then(|| Name::from_symbol(Symbol::from_raw(raw)))
-}
-
 fn raw_format_spec(spec: Option<&FormatSpec>) -> u32 {
     let Some(spec) = spec else {
         return ARENA_ABSENT;
@@ -4790,7 +4781,6 @@ pub enum ArenaStmtKind {
     With {
         bindings: ArenaRange,
         body: BlockId,
-        else_param: Option<Name>,
         else_block: BlockId,
     },
     Loop {
@@ -4800,7 +4790,6 @@ pub enum ArenaStmtKind {
         target: BindingTargetId,
         ty: Option<TypeExprId>,
         initializer: ArenaExprOrRun,
-        else_param: Option<Name>,
         else_block: BlockId,
     },
     GuardedStmt {
@@ -6110,14 +6099,12 @@ impl ArenaLowerer<'_> {
             ArenaStmtKind::With {
                 bindings,
                 body,
-                else_param,
                 else_block,
             } => {
                 let data = self.push_stmt_extra(&[
                     bindings.start,
                     bindings.len,
                     raw_block_id(body),
-                    optional_raw_name(else_param),
                     raw_block_id(else_block),
                 ]);
                 (ArenaStmtTag::With, data)
@@ -6130,14 +6117,12 @@ impl ArenaLowerer<'_> {
                 target,
                 ty,
                 initializer,
-                else_param,
                 else_block,
             } => {
                 let data = self.push_stmt_extra(&[
                     raw_binding_target_id(target),
                     optional_raw_type_expr_id(ty),
                     raw_expr_or_run(initializer),
-                    optional_raw_name(else_param),
                     raw_block_id(else_block),
                 ]);
                 (ArenaStmtTag::Guard, data)

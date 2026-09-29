@@ -1045,7 +1045,7 @@ enum BuildStmtRow {
         slot: usize,
         value: BuildExprId,
     },
-    /// `guard let slot = value else |else_param| { else_body }`: evaluate
+    /// `guard let slot = value else { |failure| ... }`: evaluate
     /// `value` (a `Result`); on `Ok`, bind its inner value to `slot` and
     /// continue; on `Err`, bind the error to `else_param_slot` (if present) and
     /// run `else_body`, which must diverge.
@@ -1054,6 +1054,14 @@ enum BuildStmtRow {
         value: BuildExprId,
         else_param_slot: Option<usize>,
         else_body: Vec<BuildStmtId>,
+        span: Span,
+    },
+    With {
+        bindings: Vec<(usize, BuildExprId)>,
+        body: Vec<BuildStmtId>,
+        else_param_slot: Option<usize>,
+        else_body: Vec<BuildStmtId>,
+        captures: Vec<usize>,
         span: Span,
     },
     LetInt {

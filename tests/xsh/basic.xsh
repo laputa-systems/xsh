@@ -5,7 +5,7 @@ proc test_pass() [error] {
 proc test_guard_failure_controls_enclosing_loop() [error] {
   var numbers: List[Int] = []
   for source in ["1", "invalid", "2"] {
-    guard let number = source.parse_int() else |_| {
+    guard let number = source.parse_int() else { |_|
       continue
     }
 
@@ -16,7 +16,7 @@ proc test_guard_failure_controls_enclosing_loop() [error] {
 
   numbers = []
   for source in ["1", "invalid", "2"] {
-    guard let number = source.parse_int() else |_| {
+    guard let number = source.parse_int() else { |_|
       break
     }
 

@@ -3,7 +3,7 @@ use crate::xsht::cli::{
     is_path_excluded, load_config, nearest_config_for_file, text_bytes,
 };
 use crate::xsht::config::{FileToolConfig, config_for_dir};
-use crate::xsht::edit::{SourceEdit, apply_cst_guarded_edits};
+use crate::xsht::edit::{SourceEdit, apply_cst_guarded_edits, migration_lint_code};
 use crate::xsht::lint::{LintOptions, Linter};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fs;
@@ -304,6 +304,7 @@ struct WorkspaceLoader {
     builder: ArenaProgramBuilder<'static>,
     modules: FxHashMap<String, WorkspaceModule>,
     stack: Vec<String>,
+    source_overrides: FxHashMap<String, Vec<u8>>,
 }
 
 impl WorkspaceLoader {
@@ -313,6 +314,7 @@ impl WorkspaceLoader {
             builder: ArenaProgramBuilder::with_token_capacity(4096),
             modules: FxHashMap::default(),
             stack: Vec::new(),
+            source_overrides: FxHashMap::default(),
         }
     }
 
@@ -323,6 +325,7 @@ impl WorkspaceLoader {
         module_roots: Vec<PathBuf>,
     ) -> Result<String, String> {
         let key = module_key(&path);
+        let bytes = self.source_overrides.get(&key).cloned().unwrap_or(bytes);
         if self.modules.contains_key(&key) {
             return Ok(key);
         }
@@ -610,7 +613,7 @@ fn lint_workspace_root(
             relevant_diagnostics.extend(module.diagnostics.iter().cloned());
         }
     }
-    if !relevant_diagnostics.is_empty() {
+    if relevant_diagnostics.iter().any(|diagnostic| migration_lint_code(diagnostic.code.as_deref()).is_none()) {
         return vec![LintResult {
             index: 0,
             kind: LintResultKind::Diagnostics {
@@ -631,14 +634,19 @@ fn lint_workspace_root(
             type_program.clone(),
         )
     });
-    if !fix && !checked.diagnostics.is_empty() {
+    if !checked.diagnostics.is_empty() && (!fix || !relevant_diagnostics.is_empty()) {
+        relevant_diagnostics.extend(checked.diagnostics.iter().cloned());
         return vec![LintResult {
             index: 0,
             kind: LintResultKind::Diagnostics {
                 status: 2,
-                diagnostics: render_diagnostics_with_keys(&checked.diagnostics, &workspace.sources),
+                diagnostics: render_diagnostics_with_keys(&relevant_diagnostics, &workspace.sources),
             },
         }];
+    }
+
+    if fix && !relevant_diagnostics.is_empty() {
+        return migrate_workspace_headers(workspace, root, &reachable, linted_modules);
     }
 
     let mut keys = reachable
@@ -673,11 +681,22 @@ fn lint_workspace_root(
         options.callable_effects = checked.callable_effects.clone();
         options.terminating_call_spans = checked.terminating_call_spans.clone();
         options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
-        let linted = if key == root {
+        let mut linted = if key == root {
             Linter::lint(bundle, &module.text, options)
         } else {
             Linter::lint_module(bundle, &module.text, options)
         };
+        if !module.diagnostics.is_empty() {
+            linted.diagnostics.clear();
+        }
+        for diagnostic in &module.diagnostics {
+            if let Some(code) = migration_lint_code(diagnostic.code.as_deref()) {
+                let mut diagnostic = diagnostic.clone();
+                diagnostic.severity = Severity::Warning;
+                diagnostic.code = Some(code.to_string());
+                linted.diagnostics.push(diagnostic);
+            }
+        }
         let check_diagnostics = checked
             .diagnostics
             .iter()
@@ -713,6 +732,75 @@ fn lint_workspace_root(
         results.push(result);
     }
     results
+}
+
+/// Validate the complete rewritten import graph before publishing any header
+/// edit. Multiple entries may share a module; each source is emitted once.
+fn migrate_workspace_headers(
+    workspace: &LintWorkspace,
+    root: &str,
+    reachable: &FxHashSet<String>,
+    linted_modules: &Mutex<FxHashSet<String>>,
+) -> Vec<LintResult> {
+    let failure = |diagnostics: Vec<RenderedDiagnostic>, stderr: String, status| vec![LintResult {
+        index: 0,
+        kind: LintResultKind::FixDiagnostics { status, diagnostics, stderr },
+    }];
+    let mut rewritten = FxHashMap::default();
+    let mut loader = WorkspaceLoader::new();
+    for key in reachable {
+        let module = &workspace.modules[key];
+        let text = if module.diagnostics.is_empty() {
+            module.text.clone()
+        } else {
+            let fixes = collect_fix_spans_for_source(&module.diagnostics, module.source_id);
+            let edits = fixes.into_iter().map(|(start, end, replacement)| SourceEdit { start, end, replacement }).collect::<Vec<_>>();
+            match apply_cst_guarded_edits(&module.path.to_string_lossy(), &module.text, &edits, module.config.line_width) {
+                Ok(Some(text)) => text,
+                Ok(None) | Err(_) => {
+                    let mut diagnostics = module.diagnostics.clone();
+                    for diagnostic in &mut diagnostics {
+                        diagnostic.severity = Severity::Warning;
+                        diagnostic.code = migration_lint_code(diagnostic.code.as_deref()).map(str::to_string);
+                    }
+                    return failure(render_diagnostics_with_keys(&diagnostics, &workspace.sources), String::new(), 1);
+                }
+            }
+        };
+        if text != module.text { rewritten.insert(key.clone(), text.clone()); }
+        loader.source_overrides.insert(key.clone(), text.into_bytes());
+    }
+    let root_module = &workspace.modules[root];
+    if let Err(message) = loader.load(root_module.path.clone(), root_module.text.as_bytes().to_vec(), root_module.module_roots.clone()) {
+        return failure(Vec::new(), message, 2);
+    }
+    let (sources, program, modules) = loader.finish();
+    let candidate = LintWorkspace { sources, program, modules, roots: vec![root.to_string()], input_errors: Vec::new() };
+    let diagnostics = candidate.modules.values().flat_map(|module| module.diagnostics.iter().cloned()).collect::<Vec<_>>();
+    if !diagnostics.is_empty() {
+        return failure(render_diagnostics_with_keys(&diagnostics, &candidate.sources), String::new(), 2);
+    }
+    let mut program = candidate.program.clone();
+    candidate.configure_program_for(root, &candidate.reachable_modules(root), &mut program);
+    let checked = xsh::frontend::check::Checker::check_arena_with_options_and_type_program(
+        &program, &candidate.modules[root].text, CheckOptions::default(), Arc::new(program.clone()),
+    );
+    if !checked.diagnostics.is_empty() {
+        return failure(render_diagnostics_with_keys(&checked.diagnostics, &candidate.sources), String::new(), 2);
+    }
+    let mut keys = rewritten.keys().cloned().collect::<Vec<_>>();
+    keys.sort_unstable();
+    let mut emitted = linted_modules.lock().expect("linted module set mutex poisoned");
+    keys.into_iter().filter_map(|key| {
+        if !emitted.insert(key.clone()) { return None; }
+        Some(LintResult {
+            index: 0,
+            kind: LintResultKind::Write {
+                file: workspace.modules[&key].path.to_string_lossy().into_owned(),
+                text: rewritten.remove(&key).unwrap(), status: 0, diagnostics: Vec::new(), stderr: String::new(),
+            },
+        })
+    }).collect()
 }
 
 fn worker_count(file_count: usize) -> usize {
@@ -1298,6 +1386,8 @@ fn apply_cst_fixes(
     original_check_diagnostics: &[Diagnostic],
     is_module: bool,
 ) -> Result<Option<String>, String> {
+    let migrating_headers = Parser::parse_source_arena_only(SourceId::new(0), text)
+        .diagnostics.iter().any(|diagnostic| migration_lint_code(diagnostic.code.as_deref()).is_some());
     let mut candidate = text.to_owned();
     let mut fixes = fixes.to_vec();
     let mut seen = FxHashSet::default();
@@ -1329,6 +1419,7 @@ fn apply_cst_fixes(
         if !check_diagnostics_are_preserved(original_check_diagnostics, &checked.diagnostics) {
             return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &program.sources));
         }
+        if migrating_headers { return Ok(Some(candidate)); }
         let mut options = config.lint_options.clone();
         options.function_return_types = checked.function_return_types.clone();
         options.expr_types = checked.expr_types.clone();

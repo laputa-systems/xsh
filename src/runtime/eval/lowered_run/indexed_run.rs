@@ -7270,6 +7270,50 @@ impl Evaluator {
                 }
                 Ok(StmtFlow::None)
             }
+            FullTag::StmtWith => {
+                let (_, mut binding_words) = execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, call_span))?;
+                let count = indexed_raw(&mut binding_words, call_span)? as usize;
+                let mut bindings = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let slot = indexed_decode::<usize>(&mut binding_words, execution, call_span)?;
+                    let value = indexed_raw(&mut binding_words, call_span)?;
+                    bindings.push((slot, value));
+                }
+                indexed_finish(binding_words, call_span)?;
+                let body = indexed_raw(&mut payload, call_span)?;
+                let else_param_slot = indexed_decode::<Option<usize>>(&mut payload, execution, call_span)?;
+                let else_body = indexed_raw(&mut payload, call_span)?;
+                let captures = indexed_decode::<Vec<usize>>(&mut payload, execution, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let scope_id = self.enter_owned_host_scope();
+                let result = (|| {
+                    for (slot, value) in bindings {
+                        let value = self.eval_indexed_expr(execution, value, slots, span)?;
+                        let value = match value {
+                            ControlFlow::Continue(value) => value,
+                            ControlFlow::Break(value) => {
+                                match self.pending_value_block_flow.take() {
+                                    Some(StmtFlow::Propagate(value)) => value,
+                                    Some(flow) => return Ok(flow),
+                                    None => value,
+                                }
+                            }
+                        };
+                        match value {
+                            LoweredValue::ResultErr(error) => {
+                                self.pending_traceback = None;
+                                if let Some(slot) = else_param_slot { slots[slot] = LoweredValue::Error(error); }
+                                return self.eval_indexed_statement_block(execution, else_body, header, slots, span);
+                            }
+                            LoweredValue::ResultOk(value) => slots[slot] = *value,
+                            value => slots[slot] = value,
+                        }
+                    }
+                    self.eval_indexed_statement_block(execution, body, header, slots, span)
+                })();
+                self.finish_indexed_pattern_scope(scope_id, &captures, slots, result)
+            }
             FullTag::StmtGuard => {
                 let target = indexed_decode::<LoweredCompTarget>(&mut payload, execution, call_span)?;
                 let value = indexed_raw(&mut payload, call_span)?;

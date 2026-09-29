@@ -2127,6 +2127,13 @@ fn compact_collect_stmt_call_edges(
         ArenaStmtKind::Loop { block } => {
             compact_collect_block_call_edges(program, block, namespace, index_of, edges);
         }
+        ArenaStmtKind::With { bindings, body, else_block } => {
+            for binding in program.arena.with_bindings(bindings) {
+                compact_collect_expr_call_edges(program, binding.initializer, namespace, index_of, edges);
+            }
+            compact_collect_block_call_edges(program, body, namespace, index_of, edges);
+            compact_collect_block_call_edges(program, else_block, namespace, index_of, edges);
+        }
         ArenaStmtKind::Guard {
             initializer,
             else_block,
@@ -4100,7 +4107,8 @@ impl CompactLowerConstructProbe<'_, '_> {
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
             | ArenaStmtKind::Match { .. }
-            | ArenaStmtKind::Loop { .. } => {
+            | ArenaStmtKind::Loop { .. }
+            | ArenaStmtKind::With { .. } => {
                 let mut slots = top_level_slots(known);
                 let lowered = self.lower_stmt_with_blocker_guard(id, &mut slots, None, None)?;
                 Some(lowered_top_level(
@@ -6675,10 +6683,42 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                 ))
             }
+            ArenaStmtKind::With { bindings, body, else_block } => {
+                let saved = slots.enter();
+                let result = (|| {
+                    let mut lowered_bindings = Vec::new();
+                    let mut captures = Vec::new();
+                    let mut error_ty = None;
+                    for binding in self.program.arena.with_bindings(bindings).to_vec() {
+                        let checked = self.lower_binding_checked_type(None, binding.initializer, slots);
+                        let input = match self.program.arena.expr(binding.initializer).kind { ArenaExprKind::Try(input) => input, _ => binding.initializer };
+                        if let Some(Type::Result(_, error)) = self.lower_binding_checked_type(None, input, slots) {
+                            error_ty = Some(match error_ty { None => *error, Some(previous) if previous == *error => previous, Some(_) => Type::Error });
+                        }
+                        let value = self.lower_expr(binding.initializer, slots, current_function, item_slot)?;
+                        let ty = checked.map(|ty| match ty { Type::Result(ok, _) => *ok, other => other });
+                        let slot = if binding.name.as_str() == "_" { slots.reserve("with discard") } else { slots.declare_with_type(binding.name, ty) };
+                        captures.push(slot);
+                        lowered_bindings.push((slot, value));
+                    }
+                    let body = self.lower_block(body, slots, current_function, item_slot)?;
+                    Some((lowered_bindings, body, captures, error_ty))
+                })();
+                slots.exit(saved);
+                let (bindings, body, mut captures, error_ty) = result?;
+                let error_ty = self.bodies.handler_input_types.get(&else_block).cloned().or(error_ty);
+                let saved = slots.enter();
+                let else_param_slot = self.program.arena.block_params(self.program.arena.block(else_block).params)
+                    .first().filter(|param| param.name.as_str() != "_")
+                    .map(|param| slots.declare_with_type(param.name, error_ty));
+                captures.extend(else_param_slot);
+                let else_body = self.lower_block_in_current_scope(else_block, slots, current_function, item_slot);
+                slots.exit(saved);
+                Some(push_build_row!(self, stmt, BuildStmtRow::With { bindings, body, else_param_slot, else_body: else_body?, captures, span: self.program.arena.stmt(id).span }))
+            }
             ArenaStmtKind::Guard {
                 target,
                 initializer,
-                else_param,
                 else_block,
                 ..
             } => {
@@ -6698,7 +6738,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                 // The else block runs in its own scope with the error param
                 // bound; the success binding lives in the enclosing scope.
                 let saved = slots.enter();
-                let else_param_slot = else_param.map(|name| slots.declare(name));
+                let else_param_slot = self.program.arena.block_params(self.program.arena.block(else_block).params)
+                    .first().filter(|param| param.name.as_str() != "_")
+                    .map(|param| slots.declare_with_type(param.name, checked.as_ref().and_then(|ty| match ty { Type::Result(_, error) => Some((**error).clone()), _ => None })));
                 let else_body = self.lower_block_in_current_scope(
                     else_block,
                     slots,
@@ -15258,6 +15300,7 @@ pub(super) fn lowered_body_has_defers(scratch: &BuildScratch, statements: &[Buil
                         .is_some_and(|b| lowered_body_has_defers(scratch, b))
             }
             BuildStmtRow::Guard { else_body, .. } => lowered_body_has_defers(scratch, else_body),
+            BuildStmtRow::With { body, else_body, .. } => lowered_body_has_defers(scratch, body) || lowered_body_has_defers(scratch, else_body),
             BuildStmtRow::Cd { body, .. } | BuildStmtRow::Env { body, .. } => {
                 lowered_body_has_defers(scratch, body)
             }
@@ -15340,6 +15383,7 @@ pub(super) fn lowered_body_can_return(scratch: &BuildScratch, statements: &[Buil
             // A guard's success path falls through to later statements, so the
             // guard alone never guarantees a return.
             BuildStmtRow::Guard { .. } => false,
+            BuildStmtRow::With { body, else_body, .. } => lowered_body_can_return(scratch, body) && lowered_body_can_return(scratch, else_body),
             BuildStmtRow::Let { .. }
             | BuildStmtRow::LetRecord { .. }
             | BuildStmtRow::LetInt { .. }

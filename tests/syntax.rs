@@ -3716,3 +3716,29 @@ fn parser_nested_record_update_paths_keep_labels_spans_and_comments() {
     let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
     assert_eq!(first.formatted, second.formatted);
 }
+
+#[test]
+fn error_handler_headers_have_one_authoritative_parameter_range() {
+    let source = include_str!("fixtures/frontend-indexed/block-parameters.xsh");
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let mut handlers = 0;
+    for raw in 0..parsed.arena.arena.stmt_tags.len() {
+        let statement = parsed.arena.arena.stmt(StmtId::from_index(raw));
+        let block = match statement.kind {
+            ArenaStmtKind::With { else_block, .. } | ArenaStmtKind::Guard { else_block, .. } => else_block,
+            _ => continue,
+        };
+        let params = parsed.arena.arena.block_params(parsed.arena.arena.block(block).params);
+        assert_eq!(params.len(), 1);
+        let parameter = parsed.arena.arena.span(params[0].span);
+        assert_eq!(&source[parameter.start()..parameter.end()], if handlers == 0 { "_" } else { "failure" });
+        handlers += 1;
+    }
+    assert_eq!(handlers, 2);
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_parse_and_check(SourceId::new(0), &formatted.formatted);
+    assert!(!formatted.formatted.contains("else |"));
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+}

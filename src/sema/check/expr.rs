@@ -1595,7 +1595,7 @@ mod arena_tests {
         assert_stmts_arena_match_raised("with x = Ok(1) {\n  let y = x\n} else {\n  let z = 1\n}");
         assert_stmts_arena_match_raised("guard let x = Ok(1) else {\n  let z = 1\n}\nlet y = x");
         assert_stmts_arena_match_raised(
-            "guard let x = Ok(1) else |e| {\n  let z = e\n}\nlet y = x",
+            "guard let x = Ok(1) else { |e|\n  let z = e\n}\nlet y = x",
         );
         assert_stmts_arena_match_raised("var x = 1\nx = 2 when x == 1");
         assert_stmts_arena_match_raised("var x = 1\nx = 2 unless x == 1");

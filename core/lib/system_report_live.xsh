@@ -2171,7 +2171,7 @@ proc read_process(root: FsRoot, process_path: Path, pid: Int, page_size_bytes: I
     return {processes: [], issues: issues}
   }
 
-  guard let stat = parse_proc_stat(stat_before.observation.value ?? "") else |_| {
+  guard let stat = parse_proc_stat(stat_before.observation.value ?? "") else { |_|
     issues = issues.push(issue("processes", f"${pid}.stat", report.Malformed, "invalid_process_stat", null))
     return {processes: [], issues: issues}
   }

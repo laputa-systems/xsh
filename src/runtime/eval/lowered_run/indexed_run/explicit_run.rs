@@ -1,5 +1,6 @@
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use super::LoweredMapCursor;
+use crate::runtime::eval::LoweredCompTarget;
 use super::serial_pipeline::{
     IndexedLiveSerialStage, IndexedSerialPipeline, indexed_for_pipeline_input,
 };
@@ -82,6 +83,20 @@ struct AssignPathState {
 }
 
 enum FrameContinuation {
+    WithBinding {
+        bindings: Vec<(usize, u32)>,
+        position: usize,
+        body: u32,
+        else_param_slot: Option<usize>,
+        else_body: u32,
+        span: Span,
+    },
+    GuardInput {
+        target: LoweredCompTarget,
+        else_param_slot: Option<usize>,
+        else_body: u32,
+        span: Span,
+    },
     Store(usize),
     Assign {
         slot: usize,
@@ -282,7 +297,43 @@ enum FrameContinuation {
     },
 }
 
+// Propagated initializer errors stop compound evaluation at the existing With
+// handler. Explicit returns and loop transfers retain their separate targets.
+fn with_initializer_handler(mut continuation: &FrameContinuation) -> Option<(Option<usize>, u32, Span)> {
+    loop {
+        continuation = match continuation {
+            FrameContinuation::WithBinding { else_param_slot, else_body, span, .. } => return Some((*else_param_slot, *else_body, *span)),
+            FrameContinuation::ComparisonLeft { next, .. }
+            | FrameContinuation::ComparisonRight { next, .. }
+            | FrameContinuation::BinaryLeft { next, .. }
+            | FrameContinuation::BinaryRight { next, .. }
+            | FrameContinuation::BoolBinaryRight { next, .. }
+            | FrameContinuation::If { next, .. }
+            | FrameContinuation::MatchExprValue { next, .. }
+            | FrameContinuation::MatchExprGuard { next, .. }
+            | FrameContinuation::CallArguments { next, .. }
+            | FrameContinuation::Try { next, .. }
+            | FrameContinuation::Require { next, .. }
+            | FrameContinuation::MethodReceiver { next, .. }
+            | FrameContinuation::MethodArg { next, .. }
+            | FrameContinuation::FmtValue { next, .. }
+            | FrameContinuation::ResultFallback { next, .. }
+            | FrameContinuation::ListItems { next, .. }
+            | FrameContinuation::RecordItems { next, .. }
+            | FrameContinuation::ListCompIter { next, .. }
+            | FrameContinuation::ListCompCondition { next, .. }
+            | FrameContinuation::ListCompKey { next, .. }
+            | FrameContinuation::ListCompValue { next, .. }
+            | FrameContinuation::WrapOk(next)
+            | FrameContinuation::WrapErr(next) => next,
+            _ => return None,
+        };
+    }
+}
+
 enum FrameWork {
+    ClearSlots(Vec<usize>),
+    GuardFailureEnd(Span),
     CompCleanup(CompStreams),
     Statements {
         statements: Vec<u32>,
@@ -998,6 +1049,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn step(&mut self, index: usize, work: FrameWork) -> Result<(), RuntimeError> {
         match work {
+            FrameWork::ClearSlots(slots) => {
+                for slot in slots { self.calls[index].slots[slot] = LoweredValue::Unit; }
+                Ok(())
+            }
+            FrameWork::GuardFailureEnd(span) => Err(RuntimeError::new("guard", "guard else block must diverge").with_span(span)),
             FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams),
             FrameWork::Statements {
                 mut statements,
@@ -1113,6 +1169,44 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.push_expr(index, value, span, FrameContinuation::Store(slot));
                 Ok(())
             }
+            FullTag::StmtWith => {
+                let (_, mut binding_words) = self.calls[index].execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
+                let count = indexed_raw(&mut binding_words, span)? as usize;
+                let mut bindings = Vec::with_capacity(count);
+                for _ in 0..count {
+                    bindings.push((indexed_decode::<usize>(&mut binding_words, &self.calls[index].execution, span)?, indexed_raw(&mut binding_words, span)?));
+                }
+                indexed_finish(binding_words, span)?;
+                let body = indexed_raw(&mut payload, span)?;
+                let else_param_slot = indexed_decode::<Option<usize>>(&mut payload, &self.calls[index].execution, span)?;
+                let else_body = indexed_raw(&mut payload, span)?;
+                let captures = indexed_decode::<Vec<usize>>(&mut payload, &self.calls[index].execution, span)?;
+                let span = indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                let scope_id = self.evaluator.enter_owned_host_scope();
+                let defer_offset = self.calls[index].defers.len();
+                self.calls[index].block_scopes.push(scope_id);
+                self.calls[index].block_defer_offsets.push(defer_offset);
+                self.calls[index].work.push(FrameWork::Statements { statements: Vec::new(), complete_call: false, scope_id: Some(scope_id) });
+                self.calls[index].work.push(FrameWork::ClearSlots(captures));
+                if let Some((_, value)) = bindings.first().copied() {
+                    self.push_expr(index, value, span, FrameContinuation::WithBinding { bindings, position: 0, body, else_param_slot, else_body, span });
+                    Ok(())
+                } else {
+                    self.push_statement_block(index, body, span)
+                }
+            }
+            FullTag::StmtGuard => {
+                let target = indexed_decode::<LoweredCompTarget>(&mut payload, &self.calls[index].execution, span)?;
+                let value = indexed_raw(&mut payload, span)?;
+                let else_param_slot = indexed_decode::<Option<usize>>(&mut payload, &self.calls[index].execution, span)?;
+                let else_body = indexed_raw(&mut payload, span)?;
+                let span = indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, value, span, FrameContinuation::GuardInput { target, else_param_slot, else_body, span });
+                Ok(())
+            }
+
             FullTag::StmtLetInt => {
                 let slot: usize = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let value = indexed_raw(&mut payload, span)?;
@@ -1922,6 +2016,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         value: FrameValue,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
+        if matches!(value, FrameValue::Break(LoweredValue::ResultErr(_)))
+            && matches!(self.evaluator.pending_value_block_flow, None | Some(StmtFlow::Propagate(_)))
+            && let Some((else_param_slot, else_body, span)) = with_initializer_handler(&next)
+        {
+            let FrameValue::Break(LoweredValue::ResultErr(error)) = value else { unreachable!("checked propagated Result error") };
+            self.evaluator.pending_value_block_flow = None;
+            self.evaluator.pending_traceback = None;
+            if let Some(slot) = else_param_slot { self.calls[index].slots[slot] = LoweredValue::Error(error); }
+            return self.push_statement_block(index, else_body, span);
+        }
         if let Some(flow) = self.evaluator.pending_value_block_flow.take() {
             return match flow {
                 StmtFlow::Break(_) => self.break_loop(index),
@@ -1930,6 +2034,42 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             };
         }
         match next {
+            FrameContinuation::WithBinding { bindings, position, body, else_param_slot, else_body, span } => {
+                let value = match value {
+                    FrameValue::Value(value) => value,
+                    FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+                };
+                let value = match value {
+                    LoweredValue::ResultErr(error) => {
+                        self.evaluator.pending_traceback = None;
+                        if let Some(slot) = else_param_slot { self.calls[index].slots[slot] = LoweredValue::Error(error); }
+                        return self.push_statement_block(index, else_body, span);
+                    }
+                    LoweredValue::ResultOk(value) => *value,
+                    value => value,
+                };
+                let slot = bindings[position].0;
+                self.calls[index].slots[slot] = value;
+                self.calls[index].slot_scopes[slot] = self.evaluator.current_scope_id();
+                if let Some((_, value)) = bindings.get(position + 1).copied() {
+                    self.push_expr(index, value, span, FrameContinuation::WithBinding { bindings, position: position + 1, body, else_param_slot, else_body, span });
+                } else {
+                    self.push_statement_block(index, body, span)?;
+                }
+            }
+            FrameContinuation::GuardInput { target, else_param_slot, else_body, span } => match value {
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+                FrameValue::Value(LoweredValue::ResultOk(value)) => {
+                    bind_lowered_comp_target(&target, *value, &mut self.calls[index].slots, span)?;
+                }
+                FrameValue::Value(LoweredValue::ResultErr(error)) => {
+                    if let Some(slot) = else_param_slot { self.calls[index].slots[slot] = LoweredValue::Error(error); }
+                    self.calls[index].work.push(FrameWork::GuardFailureEnd(span));
+                    self.calls[index].work.push(FrameWork::ClearSlots(else_param_slot.into_iter().collect()));
+                    self.push_statement_block(index, else_body, span)?;
+                }
+                FrameValue::Value(other) => return Err(RuntimeError::new("type-error", format!("guard expected Result, found {}", other.type_name())).with_span(span)),
+            },
             FrameContinuation::Store(slot) => match value {
                 FrameValue::Value(value) => {
                     self.calls[index].slots[slot] = value;
@@ -3060,6 +3200,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             call.call_span
         };
         let value = match flow {
+            StmtFlow::Return(LoweredValue::Unit) if call.producer => Ok(LoweredValue::Unit),
             StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
                 lowered_return_value(header.return_kind, value, return_span)
             }
@@ -3584,6 +3725,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let mut first_error = None;
         for work in discarded.into_iter().rev() {
             let result = match work {
+                FrameWork::ClearSlots(slots) => {
+                    for slot in slots { self.calls[index].slots[slot] = LoweredValue::Unit; }
+                    Ok(())
+                }
                 FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams),
                 FrameWork::Statements { scope_id: Some(scope_id), .. } => self.exit_block_scope(index, scope_id),
                 FrameWork::ForStream { mut stream, span, .. } => self.evaluator.stream_cancel(&mut stream, span),

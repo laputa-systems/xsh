@@ -8075,23 +8075,17 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             ArenaStmtKind::With {
                 bindings,
                 body,
-                else_param,
                 else_block,
             } => {
                 let bindings = self.arena().with_bindings(bindings).to_vec();
-                for binding in &bindings {
-                    self.scan_expr(binding.initializer);
-                }
                 self.push_scope();
                 for binding in &bindings {
-                    self.define(binding.name);
+                    self.scan_expr(binding.initializer);
+                    if binding.name.as_str() != "_" { self.define(binding.name); }
                 }
                 self.scan_block(body);
                 self.pop_scope();
                 self.push_scope();
-                if let Some(name) = else_param {
-                    self.define(name);
-                }
                 self.scan_block(else_block);
                 self.pop_scope();
             }
@@ -8099,15 +8093,11 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             ArenaStmtKind::Guard {
                 target,
                 initializer,
-                else_param,
                 else_block,
                 ..
             } => {
                 self.scan_expr_or_run(initializer);
                 self.push_scope();
-                if let Some(name) = else_param {
-                    self.define(name);
-                }
                 self.scan_block(else_block);
                 self.pop_scope();
                 self.define_binding_target(target);

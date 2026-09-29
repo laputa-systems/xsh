@@ -74,6 +74,9 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
             .match_arms(arms)
             .iter()
             .all(|arm| block_always_returns_arena(arena, arm.block)),
+        ArenaStmtKind::With { body, else_block, .. } => {
+            block_always_returns_arena(arena, body) && block_always_returns_arena(arena, else_block)
+        }
         _ => false,
     }
 }
@@ -513,18 +516,16 @@ impl Checker {
             ArenaStmtKind::With {
                 bindings,
                 body,
-                else_param,
                 else_block,
             } => {
                 self.check_with_arena(
-                    arena, source, bindings, body, else_param, else_block, stmt.span,
+                    arena, source, bindings, body, else_block, stmt.span,
                 );
             }
             ArenaStmtKind::Guard {
                 target,
                 ty,
                 initializer,
-                else_param,
                 else_block,
             } => {
                 self.check_guard_arena(
@@ -533,8 +534,7 @@ impl Checker {
                     target,
                     ty,
                     initializer,
-                    else_param,
-                    else_block,
+                        else_block,
                     stmt.span,
                 );
             }
@@ -901,37 +901,36 @@ impl Checker {
         source: &str,
         bindings: ArenaRange,
         body: BlockId,
-        else_param: Option<Name>,
         else_block: BlockId,
-        span: Span,
+        _span: Span,
     ) {
         self.push_scope();
+        let mut error_ty = None;
         for binding in arena.arena.with_bindings(bindings) {
+            let previous_errors = self.with_initializer_errors.replace(Vec::new());
             let ty = self.check_expr_arena(arena, source, binding.initializer, None);
-            let value_ty = match ty {
-                Type::Result(ok, _) => *ok,
-                Type::Unknown => Type::Unknown,
-                other => {
-                    let binding_span = arena.arena.span(binding.span);
-                    self.error(
-                        binding_span,
-                        "`with` bindings must produce a Result value",
-                        "check.with-binding",
-                    );
-                    other
-                }
-            };
+            let mut errors = self.with_initializer_errors.take().unwrap_or_default();
+            self.with_initializer_errors = previous_errors;
+            if let Type::Result(_, error) = &ty { errors.push((**error).clone()); }
+            for error in errors {
+                error_ty = Some(match error_ty {
+                    None => error,
+                    Some(previous) if previous == error => previous,
+                    Some(_) => Type::Error,
+                });
+            }
+            let value_ty = match ty { Type::Result(ok, _) => *ok, other => other };
             let binding_span = arena.arena.span(binding.span);
-            self.define(binding.name, Binding::new(value_ty, false), binding_span);
+            if self.current_scope().contains_key(&binding.name) {
+                self.error(binding_span, "duplicate name in scope", "check.duplicate-name");
+            }
+            if binding.name.as_str() != "_" {
+                self.define(binding.name, Binding::new(value_ty, false), binding_span);
+            }
         }
         self.check_block_arena(arena, source, body);
         self.pop_scope();
-        self.push_scope();
-        if let Some(param) = else_param {
-            self.define(param, Binding::new(Type::Error, false), span);
-        }
-        self.check_block_arena(arena, source, else_block);
-        self.pop_scope();
+        self.check_error_handler_block_arena(arena, source, else_block, &error_ty.unwrap_or(Type::Error));
     }
 
     fn check_guard_arena(
@@ -941,21 +940,16 @@ impl Checker {
         target: BindingTargetId,
         ty: Option<TypeExprId>,
         initializer: ArenaExprOrRun,
-        else_param: Option<Name>,
         else_block: BlockId,
         span: Span,
     ) {
         let init_ty = self.check_expr_or_run_arena(arena, source, initializer, None);
-        let ok_ty = match init_ty {
-            Type::Result(ok, _) => *ok,
-            Type::Unknown => Type::Unknown,
+        let (ok_ty, error_ty) = match init_ty {
+            Type::Result(ok, error) => (*ok, *error),
+            Type::Unknown => (Type::Unknown, Type::Unknown),
             other => {
-                self.error(
-                    span,
-                    "`guard let` binding must produce a Result value",
-                    "check.guard-binding",
-                );
-                other
+                self.error(span, "`guard let` binding must produce a Result value", "check.guard-binding");
+                (other, Type::Error)
             }
         };
         if record_target_requires_schema_check(arena, target, &ok_ty) {
@@ -965,16 +959,33 @@ impl Checker {
             let ann = self.type_from_arena(arena, ty_id);
             self.expect_type(&ann, &ok_ty, span);
             ann
-        } else {
-            ok_ty
-        };
-        self.push_scope();
-        if let Some(param) = else_param {
-            self.define(param, Binding::new(Type::Error, false), span);
-        }
-        self.check_block_arena(arena, source, else_block);
-        self.pop_scope();
+        } else { ok_ty };
+        self.check_error_handler_block_arena(arena, source, else_block, &error_ty);
         self.define_binding_target_arena(arena, target, &bind_ty, false, span);
+    }
+
+    fn check_error_handler_block_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        block: BlockId,
+        error_ty: &Type,
+    ) {
+        let params = arena.arena.block_params(arena.arena.block(block).params);
+        self.push_scope();
+        if params.len() > 1 {
+            self.error(arena.arena.span(params[1].span), "an error handler accepts at most one parameter", "check.handler-block-params");
+        }
+        for param in params {
+            if param.name.as_str() == "_" { continue; }
+            let span = arena.arena.span(param.span);
+            if self.current_scope().contains_key(&param.name) {
+                self.error(span, "duplicate name in scope", "check.duplicate-name");
+            }
+            self.define(param.name, Binding::new(error_ty.clone(), false), span);
+        }
+        self.check_statement_block_contents_arena(arena, source, block);
+        self.pop_scope();
     }
 
     pub(super) fn check_value_block_arena(
@@ -989,7 +1000,7 @@ impl Checker {
             let param_span = arena.arena.span(param.span);
             self.error(
                 param_span,
-                "block parameters are valid only in stream stages",
+                "this block does not receive parameters",
                 "check.block-params",
             );
         }
@@ -1052,6 +1063,7 @@ impl Checker {
             && self.function_return_types.contains_key(&body_span) {
             return;
         }
+        let previous_errors = self.with_initializer_errors.take();
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
         let previous_return = self.current_return.clone();
         let previous_pure = self.in_pure;
@@ -1148,6 +1160,7 @@ impl Checker {
         self.in_pure = previous_pure;
         self.current_effects = previous_effects;
         self.in_defer_block = previous_defer;
+        self.with_initializer_errors = previous_errors;
     }
 
     pub(super) fn check_stream_function_arena(
@@ -1156,6 +1169,7 @@ impl Checker {
         source: &str,
         def: &ArenaFunctionDef,
     ) {
+        let previous_errors = self.with_initializer_errors.take();
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
         let previous_return = self.current_return.clone();
         let previous_yield = self.current_yield.clone();
@@ -1235,6 +1249,7 @@ impl Checker {
         self.in_pure = previous_pure;
         self.current_effects = previous_effects;
         self.in_defer_block = previous_defer;
+        self.with_initializer_errors = previous_errors;
     }
 
     pub(super) fn check_signal_hook_arena(
@@ -1649,6 +1664,7 @@ impl Checker {
         if let ArenaExprOrRun::Expr(expr) = value
             && let ArenaExprKind::ValueBlock(block) = arena.arena.expr(expr).kind
         {
+            let previous_errors = self.with_initializer_errors.take();
             let previous_defer = std::mem::replace(&mut self.in_defer_block, true);
             let previous_loop = std::mem::replace(&mut self.loop_depth, 0);
             let previous_retry = std::mem::replace(&mut self.retry_attempt_depth, 0);
@@ -1684,6 +1700,7 @@ impl Checker {
             self.pop_scope();
             self.pop_scope();
             self.in_defer_block = previous_defer;
+            self.with_initializer_errors = previous_errors;
             self.loop_depth = previous_loop;
             self.retry_attempt_depth = previous_retry;
             self.expr_types.insert(arena.arena.expr(expr).span, Type::Unit);
@@ -1715,11 +1732,17 @@ impl Checker {
             let param_span = arena.arena.span(param.span);
             self.error(
                 param_span,
-                "block parameters are valid only in stream stages",
+                "this block does not receive parameters",
                 "check.block-params",
             );
         }
         self.push_scope();
+        self.check_statement_block_contents_arena(arena, source, block_id);
+        self.pop_scope();
+    }
+
+    fn check_statement_block_contents_arena(&mut self, arena: &ArenaProgram, source: &str, block_id: BlockId) {
+        let block = arena.arena.block(block_id);
         self.block_depth += 1;
         let previous_reachable = self.inference_reachable;
         for stmt_id in arena.arena.stmt_ids(block.statements) {
@@ -1731,7 +1754,6 @@ impl Checker {
             self.definitely_exiting_block_spans.insert(arena.arena.span(block.span));
         }
         self.block_depth -= 1;
-        self.pop_scope();
     }
 
     // Only checked exits count. A call that can fail still has a success continuation.
@@ -1793,7 +1815,7 @@ impl Checker {
             let param_span = arena.arena.span(param.span);
             self.error(
                 param_span,
-                "block parameters are valid only in stream stages",
+                "this block does not receive parameters",
                 "check.block-params",
             );
         }
@@ -1857,6 +1879,10 @@ impl Checker {
     fn return_inference_stmt_returns(&self, arena: &ArenaProgram, id: StmtId) -> bool {
         match arena.arena.stmt(id).kind {
             ArenaStmtKind::Return(_) => true,
+            ArenaStmtKind::With { body, else_block, .. } => {
+                self.return_inference_block_returns(arena, body)
+                    && self.return_inference_block_returns(arena, else_block)
+            }
             ArenaStmtKind::If { branches, else_block: Some(other) } => {
                 arena.arena.if_branches(branches).iter().all(|branch| self.return_inference_block_returns(arena, branch.block))
                     && self.return_inference_block_returns(arena, other)

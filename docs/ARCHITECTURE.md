@@ -380,13 +380,18 @@ The parser keeps language shape decisions local. Avoid teaching later stages to
 recover from ambiguous ASTs when the parser can represent the construct
 directly.
 
-**Block parameter conventions.** XSH has two syntactic positions for block
-parameters — inside the block (`{ |x| ... }`) for stream stages and lambdas,
-and before the block (`|e| { ... }`) for `else` clauses in `with` and
-`guard let`. These are documented in `docs/SPEC.md` §8. The parser's
-`parse_block()` reads params as the first token inside `{`, so `else`-clause
-params must be extracted before calling `parse_block()` (as `parse_with` and
-`parse_guard` do).
+Block parameters have one syntax representation: `ArenaBlock.params`.
+`Parser::parse_block_arena_only` reads the shared header, and each owner checks
+its arity and supplied input type. Error handlers use
+`Checker::check_error_handler_block_arena`; ordinary statement blocks reject
+headers. `ArenaStmtKind::With` and `Guard` retain only the handler block id.
+Indexed lowering resolves header names to immutable lexical slots, without a
+callable frame. `BuildStmtRow::With` evaluates sequential bindings once and
+selects its handler on the first Result or propagated initializer error;
+its owned scope releases successful prefix bindings on every exit.
+Rejected outside-brace headers are recovered only with a parser error and
+precise edit hints. Lint tooling accepts only those diagnosed edits and parses
+and checks the rewritten source normally before writing it.
 
 ## Semantics
 

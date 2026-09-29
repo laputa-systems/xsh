@@ -605,7 +605,7 @@ fn check_annotate_uses_xsht_config_line_width() {
 }
 
 #[test]
-fn check_reports_compact_lowerability_by_default() {
+fn check_accepts_indexed_with_error_handlers() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");
     fs::write(
@@ -617,7 +617,7 @@ fn check_reports_compact_lowerability_by_default() {
 proc main(...argv: List[Str]) [error] -> Result[Unit] {
   with value = fallible() {
     print ${value}
-  } else |err| {
+  } else { |err|
     return Err(err)
   }
   return Ok()
@@ -634,16 +634,11 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
 
     assert_eq!(
         output.status.code(),
-        Some(2),
+        Some(0),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("compact.indexed-build"), "stderr: {stderr}");
-    assert!(
-        stderr.contains("indexed IR could not encode `full_ir_function_blocker`"),
-        "stderr: {stderr}"
-    );
+    assert!(output.stderr.is_empty(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
 }
 
 #[test]
@@ -824,7 +819,7 @@ fn check_summary_groups_directory_failures_by_code() {
         "proc main(...argv: List[Str]) [error] -> Result[Unit] {
   with value = fallible() {
     print ${value}
-  } else |err| {
+  } else { |err|
     return Err(err)
   }
   return Ok()
@@ -854,20 +849,16 @@ proc fallible() [error] -> Result[Str] {
         stderr.contains("parse.expected-expression"),
         "stderr: {stderr}"
     );
-    assert!(stderr.contains("compact.indexed-build"), "stderr: {stderr}");
+    assert!(!stderr.contains("compact.indexed-build"), "stderr: {stderr}");
     assert!(stderr.contains("xsht check summary:"), "stderr: {stderr}");
     assert!(
         stderr.contains("parse.expected-expression: 1"),
         "stderr: {stderr}"
     );
-    assert!(
-        stderr.contains("compact.indexed-build: 1"),
-        "stderr: {stderr}"
-    );
 }
 
 #[test]
-fn check_directory_lowerability_failure_exits_nonzero() {
+fn check_directory_accepts_indexed_with_error_handlers() {
     let root = TempDir::new().expect("create temp root");
     let project = root.path().join("project");
     fs::create_dir_all(&project).expect("create project dir");
@@ -877,7 +868,7 @@ fn check_directory_lowerability_failure_exits_nonzero() {
         "proc main(...argv: List[Str]) [error] -> Result[Unit] {
   with value = fallible() {
     print ${value}
-  } else |err| {
+  } else { |err|
     return Err(err)
   }
   return Ok()
@@ -898,12 +889,12 @@ proc fallible() [error] -> Result[Str] {
 
     assert_eq!(
         output.status.code(),
-        Some(2),
+        Some(0),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("compact.indexed-build"), "stderr: {stderr}");
+    assert!(stderr.is_empty(), "stderr: {stderr}");
 }
 
 #[test]

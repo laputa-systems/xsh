@@ -663,3 +663,8 @@ allocation identity; `list_assignment_verifies_paths_and_executes_both_routes`
 checks malformed indexed paths and both runtime routes. The
 `linter_list_element_assignment_*` tooling tests cover exact-bound fixes,
 refusal, Unicode/comments, normal rechecking, and convergence.
+Block header unification is covered by `tests/xsh/block-parameters.xsh`:
+nominal with/guard handler types, sequential initializer short-circuiting,
+lexical scope, cleanup, invalid headers, and rejected legacy syntax. Its
+isolated tooling fixtures verify comment preservation, source rechecking,
+and migration convergence. `tests/xsh/basic.xsh` retains guard loop transfers.

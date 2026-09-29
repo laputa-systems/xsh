@@ -287,6 +287,8 @@ pub struct Checker {
     function_return_types: BTreeMap<Span, Type>,
     inferred_returns: Option<Vec<(Type, Span)>>,
     inferred_propagations: Vec<(Type, Span)>,
+    // Only propagation evaluated while initializing the current With reaches its handler.
+    with_initializer_errors: Option<Vec<Type>>,
     inference_reachable: bool,
     current_return: Option<Type>,
     current_yield: Option<Type>,
@@ -473,6 +475,7 @@ impl Checker {
             function_return_types: BTreeMap::new(),
             inferred_returns: None,
             inferred_propagations: Vec::new(),
+            with_initializer_errors: None,
             inference_reachable: true,
             current_return: None,
             current_yield: None,

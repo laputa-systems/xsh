@@ -1595,51 +1595,47 @@ with
   result = query(db, sql)?
 {
   process(result)
-} else |e| {
+} else { |e|
   print f"setup failed: ${e.message}"
 }
 ```
 
 ### Block parameter conventions
 
-XSH has two syntactic positions for block parameters. They serve different
-purposes and must not be confused:
+All parameterized blocks use `{ |parameters| ... }`. The header is recognized
+at the start of the block after whitespace and comments; it is never a pipeline
+expression. Stream stages and other existing parameterized constructs retain
+their arities and checked input types.
 
-**Inside the block (`{ |x| ... }`)** — used by stream stages (`map`, `where`,
-`sort-by`, `tee`, `group-by`, `any`, `all`, `count`, etc.) and by lambda-style
-expressions passed as arguments. The `|param|` appears immediately after the
-opening `{`:
-
-```xsh
-let doubled = numbers |> map { |n| n * 2 }
-let long    = words   |> where { |w| w.len() > 5 }
-```
-
-The implicit item shorthand `.` is also available in stream blocks as an alias
-for the first parameter. `map { . * 2 }` is equivalent to `map { |n| n * 2 }`.
-
-**Before the block (`|param| { ... }`)** — used by the `else` clause of `with`
-and `guard let`. The `|param|` appears between the `else` keyword and the
-opening `{`:
+An error handler on `with` or `guard let` accepts zero parameters or one
+immutable parameter; `_` discards that input. A guard handler receives the
+initializer's exact Result error type. A `with` handler receives the common
+error type of its sequential initializers: a shared nominal type is retained,
+and differing error families use `Error`. Bindings introduced by successful
+`with` initializers are visible to later initializers and the body, but not to
+the error handler. Handler names are local to that block, may shadow an outer
+binding, and cannot escape or be redeclared in that scope.
 
 ```xsh
 with result = fallible_op() {
   use_result(result)
-} else |e| {
-  print f"failed: ${e.message}"
+} else { |failure|
+  print f"failed: ${failure.message}"
 }
 
-guard let n = parse(input) else |e| {
-  return Err(e)
+guard let n = parse(input) else { |failure|
+  return Err(failure)
 }
 ```
 
-The before-block form exists because the bound name needs to be visible in
-the else clause but is not part of the block's general scope. The inside-block
-form exists because stream stages use `parse_block()` which reads params as the
-first thing inside the `{`. **Never mix the two**: `else { |e| ... }` will
-silently treat `|e|` as a pipeline expression inside the block, not as a
-parameter binding.
+Plain conditional branches, boolean guard failure blocks, and deferred blocks
+do not receive an input and reject parameter headers. The outside-brace
+`else |failure| { ... }` spelling is invalid source. `lint.block-header` can
+move a comment-free legacy header into its block and recheck the resulting
+program; ambiguous comment layouts receive guidance without a rewrite.
+Headers establish lexical bindings without a callable frame or a new Result
+boundary. Return, loop control, propagation, and cleanup retain their enclosing
+targets.
 
 A `guard let` else block inside a loop may use `break` or `continue`; either
 statement controls that enclosing loop.

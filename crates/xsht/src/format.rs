@@ -494,7 +494,6 @@ impl<'a> Writer<'a> {
             ArenaStmtKind::With {
                 bindings,
                 body,
-                else_param,
                 else_block,
             } => {
                 output.push_str("with\n");
@@ -513,11 +512,6 @@ impl<'a> Writer<'a> {
                 self.write_indent(indent, output);
                 self.write_block(*body, indent, output);
                 output.push_str(" else ");
-                if let Some(param) = else_param {
-                    output.push('|');
-                    output.push_str(param.as_str().as_str());
-                    output.push_str("| ");
-                }
                 self.write_block(*else_block, indent, output);
             }
             ArenaStmtKind::Loop { block } => {
@@ -528,7 +522,6 @@ impl<'a> Writer<'a> {
                 target,
                 ty,
                 initializer,
-                else_param,
                 else_block,
             } => {
                 output.push_str("guard let ");
@@ -537,11 +530,6 @@ impl<'a> Writer<'a> {
                 output.push_str(" = ");
                 self.write_expr_or_run_safe(initializer, output);
                 output.push_str(" else ");
-                if let Some(param) = else_param {
-                    output.push('|');
-                    output.push_str(param.as_str().as_str());
-                    output.push_str("| ");
-                }
                 self.write_block(*else_block, indent, output);
             }
             ArenaStmtKind::BooleanGuard { condition, else_block } => {
