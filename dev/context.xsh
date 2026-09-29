@@ -47,7 +47,11 @@ export proc create() [fs, env, error] -> Result[Context] {
   let host_os = target_policy.host_os_tag(uname.sysname)?
   let host_arch = target_policy.host_arch_tag(uname.machine)?
   let requested_target = env.get_or("TARGET", "")?.trim()
-  let target_name = if requested_target == "" { target_policy.default_triple } else { requested_target }
+  let target_name = if requested_target == "" {
+    target_policy.host_default_triple(host_os, host_arch)?
+  } else {
+    requested_target
+  }
   let target = target_policy.resolve(target_name)?
   let target_value = env.get_or("CARGO_TARGET_DIR", "")?.trim()
   let target_dir = if target_value == "" { fp"${root}/target" } else { repo_path(root, target_value) }

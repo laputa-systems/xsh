@@ -32,6 +32,23 @@ export error TargetError = Unsupported(target: Str)
 ## The ordinary local distribution target.
 export let default_triple = "x86_64-unknown-linux-musl"
 
+## Returns the host-native target triple used when TARGET is unset.
+export pure host_default_triple(os: HostOs, arch: HostArch) -> Result[Str] {
+  if os == Linux and arch == X86_64 {
+    return "x86_64-unknown-linux-musl"
+  }
+
+  if os == Linux and arch == Aarch64 {
+    return "aarch64-unknown-linux-musl"
+  }
+
+  if os == Darwin and arch == Aarch64 {
+    return "aarch64-apple-darwin"
+  }
+
+  return Err(TargetError.Unsupported(target: "host default target"))
+}
+
 ## Product binaries that belong in every distribution.
 export let products = ["xsh", "xsht", "xshi"]
 

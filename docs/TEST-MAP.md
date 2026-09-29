@@ -40,21 +40,6 @@ the built image digest and build date when comparing runs. An image build and
 exact `xsh`, `xsht`, and `xshi` debug builds exercise the resulting C, linker,
 and musl setup.
 
-Current system-report verification uses the same `Dockerfile.test` image with
-the `x86_64-unknown-linux-musl` target because ARM64 is outside this task's
-scope. The ARM64 commands below remain the repository's normal CI contract;
-amd64 results do not stand in for those gates.
-Some detailed rows below retain prebuild failure observations from the earlier
-handoff. Those observations are historical. Current-source amd64 evidence is
-the pinned-image gate summary in `plan.md`: the report, collector, checker,
-rooted filesystem, Rust library, release target, and copied-product smoke
-gates pass. The full privileged amd64 host suite also ran all seven cases,
-including loop attach/list/detach and a real unprivileged sysctl denial;
-the native Linux module suite passed 13 cases. The loop list regression came
-from accepting the `/dev/loop` directory as a numbered loop device; its name
-must have at least one decimal digit after `loop`. For this task, replace `target/debug/` in row commands with
-`target/x86_64-unknown-linux-musl/debug/` inside the pinned image.
-
 The release matrix in `.github/workflows/release.yml` matches the three
 triples in `dev/targets.xsh::resolve`: x86_64 and aarch64 Linux musl, and
 aarch64 Darwin. `dev/dist.xsh::native_dist` builds `xsh`, `xsht`, and `xshi`

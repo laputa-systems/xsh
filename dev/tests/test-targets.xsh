@@ -8,6 +8,13 @@ use targets as target_policy
 
 proc test_supported_target_records_and_default() [error] {
   test.eq(target_policy.default_triple, "x86_64-unknown-linux-musl")?
+  test.eq(target_policy.host_default_triple(target_policy.Linux, target_policy.X86_64)?, "x86_64-unknown-linux-musl")?
+  test.eq(target_policy.host_default_triple(target_policy.Linux, target_policy.Aarch64)?, "aarch64-unknown-linux-musl")?
+  test.eq(target_policy.host_default_triple(target_policy.Darwin, target_policy.Aarch64)?, "aarch64-apple-darwin")?
+  match target_policy.host_default_triple(target_policy.Darwin, target_policy.X86_64) {
+    Ok(_) => test.fail("unsupported host default resolved")?
+    Err(error) => test.eq(error.message, "TargetError.Unsupported")?
+  }
   let x86 = target_policy.resolve("x86_64-unknown-linux-musl")?
   let arm = target_policy.resolve("aarch64-unknown-linux-musl")?
   let darwin = target_policy.resolve("aarch64-apple-darwin")?
@@ -287,7 +294,7 @@ ${wrong_directory.stderr}""",
   test.contains(wrong_directory.stdout, "ContextError.WrongDirectory", wrong_directory.stdout)?
 }
 
-proc test_context_target_and_docker_platform_overrides(ctx: TestContext) [fs, error] {
+proc test_context_target_and_docker_platform_overrides(ctx: TestContext) [fs, env, error] {
   let repository = fs.cwd()?
   let module_path = fp"${repository}/dev".display()
   let context_default = test.run_script(
@@ -320,7 +327,12 @@ main()?
   )?
   test.ok(context_default.success, context_default.stderr)?
   test.ok(context_override.success, context_override.stderr)?
-  test.eq(context_default.stdout.trim(), target_policy.default_triple)?
+  let uname = system.uname()?
+  let expected_default = target_policy.host_default_triple(
+    target_policy.host_os_tag(uname.sysname)?,
+    target_policy.host_arch_tag(uname.machine)?,
+  )?
+  test.eq(context_default.stdout.trim(), expected_default)?
   test.eq(context_override.stdout.trim(), "aarch64-unknown-linux-musl")?
 
   let platform = test.run_script(

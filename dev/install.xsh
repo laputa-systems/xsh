@@ -14,6 +14,16 @@ export proc bin_dir() [fs, env, error] -> Result[Path] {
 
 ## Installs signed Darwin release products and tolerates only a missing quarantine attribute.
 export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
+  if ctx.target.triple != "aarch64-apple-darwin" {
+    return Err(
+      stages.StageError.Failed(
+        stage: "install-darwin",
+        target: ctx.target.triple,
+        detail: "Darwin installation requires aarch64-apple-darwin; unset TARGET to use the host default",
+      ),
+    )
+  }
+
   let inherited_rustflags = env.get_or("RUSTFLAGS", "")?
   let inherited_cflags = env.get_or("CFLAGS_aarch64_apple_darwin", "")?
   let environment = targets.distribution_env(
@@ -22,6 +32,13 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
     inherited_cflags,
     ctx.darwin_deployment_target,
   )?
+  let build_std_value = env.get_or("INSTALL_BUILD_STD_FLAGS", "-Z build-std=std")?
+  var build_std: List[Str] = []
+
+  if build_std_value.trim() != "" {
+    build_std = process.argv_words(build_std_value)?
+  }
+
   stages.execute(
     stages.command(
       "install-darwin-build",
@@ -33,22 +50,25 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
         "--release",
         "--target",
         ctx.target.triple,
-        "-p",
-        "xsh",
-        "-p",
-        "xsht",
-        "-p",
-        "xshi",
-        "--bin",
-        "xsh",
-        "--bin",
-        "xsht",
-        "--bin",
-        "xshi",
-        "--no-default-features",
-        "--features",
-        targets.distribution_features,
-      ],
+      ].extend(build_std).extend(
+        [
+          "-p",
+          "xsh",
+          "-p",
+          "xsht",
+          "-p",
+          "xshi",
+          "--bin",
+          "xsh",
+          "--bin",
+          "xsht",
+          "--bin",
+          "xshi",
+          "--no-default-features",
+          "--features",
+          targets.distribution_features,
+        ],
+      ),
       ctx.root,
       environment,
     ),
@@ -109,12 +129,22 @@ export proc linux_crt_object(ctx: context.Context, name: Str) [fs, process, erro
 
 ## Installs Linux products with the existing clang, llvm-ar, and lld contract.
 export proc linux_install(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
-  if ctx.target.triple != "x86_64-unknown-linux-musl" {
+  if ctx.target.triple != "x86_64-unknown-linux-musl" and ctx.target.triple != "aarch64-unknown-linux-musl" {
     return Err(
       stages.StageError.Failed(
         stage: "install-linux",
         target: ctx.target.triple,
-        detail: "Linux installation supports x86_64-unknown-linux-musl",
+        detail: "Linux installation supports x86_64-unknown-linux-musl and aarch64-unknown-linux-musl",
+      ),
+    )
+  }
+
+  if ! targets.native_execution(ctx.target, ctx.host_os, ctx.host_arch) {
+    return Err(
+      stages.StageError.Failed(
+        stage: "install-linux",
+        target: ctx.target.triple,
+        detail: "Linux installation requires the host-native target; unset TARGET to use the host default",
       ),
     )
   }

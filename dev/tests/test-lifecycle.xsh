@@ -321,7 +321,13 @@ proc test_codesign_failure_stops_darwin_installation(ctx: TestContext) [fs, erro
   let repository = fs.cwd()?
   let xsh = fp"${repository}/target/debug/xsh"
   let codesign_marker = fp"${root}/codesign-marker"
-  write_fake_tool(fp"${tools}/cargo", xsh, "let built = true")?
+  let cargo_marker = fp"${root}/cargo-argv"
+  write_fake_tool(
+    fp"${tools}/cargo",
+    xsh,
+    f"""p"${cargo_marker.display()}".write(ARGV.join("|"))?
+""",
+  )?
   write_fake_tool(
     fp"${tools}/codesign",
     xsh,
@@ -352,4 +358,133 @@ match install.darwin(ctx) {
   test.contains(result.stdout, "[install-darwin-codesign target=aarch64-apple-darwin] codesign", result.stdout)?
   test.contains(result.stdout, "StageError.Failed", result.stdout)?
   test.ok(codesign_marker.exists()?)?
+  test.contains(cargo_marker.read_text()?, "build-std", cargo_marker.read_text()?)?
+
+proc test_darwin_install_rejects_linux_target_before_building(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "darwin-rejects-linux")?
+  let tools = fp"${root}/tools"
+  tools.mkdir()?
+  let repository = fs.cwd()?
+  let xsh = fp"${repository}/target/debug/xsh"
+  let cargo_marker = fp"${root}/cargo-marker"
+  write_fake_tool(
+    fp"${tools}/cargo",
+    xsh,
+    f"""p"${cargo_marker.display()}".write("cargo")?
+""",
+  )?
+  let result = test.run_script(
+    ctx,
+    f"""
+use context
+use install
+use targets as target_policy
+
+let ctx: context.Context = {
+  root: p"${root}",
+  target_dir: p"${root}/target",
+  coverage_dir: p"${root}/target/cov",
+  artifact_dir: p"${root}/dist",
+  host_os: target_policy.Darwin,
+  host_arch: target_policy.Aarch64,
+  target: target_policy.resolve("x86_64-unknown-linux-musl")?,
+  profile: "dist",
+  darwin_deployment_target: "26.0",
+}
+match install.darwin(ctx) {
+  Ok(_) => abort(1)
+  Err(error) => print \${error.message}
+}
+""",
+    [],
+    {
+      PATH: tools.display(),
+      HOME: fp"${root}/home".display(),
+      XSH_MODULE_PATH: fp"${repository}/dev".display(),
+    },
+  )?
+  test.ok(result.success, result.stderr)?
+  test.contains(result.stdout, "StageError.Failed", result.stdout)?
+  test.ok(! cargo_marker.exists()?, "darwin install with a Linux target must fail before cargo")?
+}
+
+proc test_linux_install_requires_native_musl_target(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "linux-requires-native")?
+  let tools = fp"${root}/tools"
+  tools.mkdir()?
+  let repository = fs.cwd()?
+  let xsh = fp"${repository}/target/debug/xsh"
+  let cargo_marker = fp"${root}/cargo-marker"
+  write_fake_tool(
+    fp"${tools}/cargo",
+    xsh,
+    f"""p"${cargo_marker.display()}".write("cargo")?
+""",
+  )?
+  let cross = test.run_script(
+    ctx,
+    f"""
+use context
+use install
+use targets as target_policy
+
+let ctx: context.Context = {
+  root: p"${root}",
+  target_dir: p"${root}/target",
+  coverage_dir: p"${root}/target/cov",
+  artifact_dir: p"${root}/dist",
+  host_os: target_policy.Linux,
+  host_arch: target_policy.X86_64,
+  target: target_policy.resolve("aarch64-unknown-linux-musl")?,
+  profile: "dist",
+  darwin_deployment_target: "26.0",
+}
+match install.linux_install(ctx) {
+  Ok(_) => abort(1)
+  Err(error) => print \${error.message}
+}
+""",
+    [],
+    {
+      PATH: tools.display(),
+      HOME: fp"${root}/home".display(),
+      XSH_MODULE_PATH: fp"${repository}/dev".display(),
+    },
+  )?
+  test.ok(cross.success, cross.stderr)?
+  test.contains(cross.stdout, "StageError.Failed", cross.stdout)?
+  test.ok(! cargo_marker.exists()?, "cross-arch Linux install must fail before cargo")?
+
+  let non_linux = test.run_script(
+    ctx,
+    f"""
+use context
+use install
+use targets as target_policy
+
+let ctx: context.Context = {
+  root: p"${root}",
+  target_dir: p"${root}/target",
+  coverage_dir: p"${root}/target/cov",
+  artifact_dir: p"${root}/dist",
+  host_os: target_policy.Linux,
+  host_arch: target_policy.X86_64,
+  target: target_policy.resolve("aarch64-apple-darwin")?,
+  profile: "dist",
+  darwin_deployment_target: "26.0",
+}
+match install.linux_install(ctx) {
+  Ok(_) => abort(1)
+  Err(error) => print \${error.message}
+}
+""",
+    [],
+    {
+      PATH: tools.display(),
+      HOME: fp"${root}/home".display(),
+      XSH_MODULE_PATH: fp"${repository}/dev".display(),
+    },
+  )?
+  test.ok(non_linux.success, non_linux.stderr)?
+  test.contains(non_linux.stdout, "StageError.Failed", non_linux.stdout)?
 }
