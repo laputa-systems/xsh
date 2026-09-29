@@ -162,3 +162,11 @@ test test_constants_constructor_spreads_reject_runtime_and_erased_sources [error
     test.eq(executed.success, false)?
   }
 }
+
+test test_constants_closed_record_projections_preserve_declared_field_types [error] { |ctx|
+  const source = {nested: {value: "ready"}}
+  const selected = source.nested.value
+  test.eq(selected, "ready")?
+  let rejected = test.run_script(ctx, "type Item = {value: Str?}\nconst source: Item = {value: \"ready\"}\nconst selected: Str = source.value\n")?
+  test.eq(rejected.success, false)?
+}

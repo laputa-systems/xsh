@@ -85,6 +85,10 @@ impl LiteralConstant {
             ArenaExprKind::Bytes(value) => Self::Bytes(arena.bytes_literal(value).clone()),
             ArenaExprKind::Regex(id) => Self::Regex(arena.regex_literal(id).clone()),
             ArenaExprKind::Ident(name) => bindings.get(&name)?.clone(),
+            ArenaExprKind::Field { base, name } => {
+                let Self::Record(values) = Self::analyze_depth(arena, base, bindings, prepared, depth + 1)? else { return None; };
+                values.get(&name)?.clone()
+            }
             ArenaExprKind::Unary { op, expr } => match (op, Self::analyze_depth(arena, expr, bindings, prepared, depth + 1)?) {
                 (UnaryOp::Neg, Self::Int(value)) => Self::Int(value.checked_neg()?),
                 (UnaryOp::Neg, Self::Float(value)) => Self::Float((-f64::from_bits(value)).to_bits()),
@@ -803,6 +807,16 @@ impl ConstantPreparation<'_> {
                 }
             },
             ArenaExprKind::Field { base, name } => {
+                let module_reference = if let ArenaExprKind::Ident(alias) = arena.expr(base).kind {
+                    let mut current = Some(scope);
+                    let mut lexical = false;
+                    while let Some(scope) = current {
+                        if self.scopes[scope].bindings.contains_key(&alias) { lexical = true; break; }
+                        current = self.scopes[scope].parent;
+                    }
+                    !lexical && self.constructors.imports.contains_key(&(self.scopes[scope].namespace, alias))
+                } else { false };
+                if module_reference {
                 if let Some((family, variant, fields)) = self.tag_constructor(id, scope) {
                     if !fields.is_empty() { return Err(failure()); }
                     return Ok(LiteralConstant::Tag { family, variant, fields: Arc::new(Vec::new()) });
@@ -820,6 +834,14 @@ impl ConstantPreparation<'_> {
                     self.prepared.origins.insert(id, self.prepared.origins.get(&initializer).copied().unwrap_or(initializer));
                 }
                 value
+                } else {
+                    let value = self.expression(base, scope, None, depth + 1)?;
+                    let source_type = self.prepared.types.get(&base).cloned().unwrap_or_else(|| value.value_type());
+                    let (Type::Record(fields), LiteralConstant::Record(values)) = (source_type, value) else { return Err(failure()); };
+                    let ty = fields.get(&name).ok_or_else(failure)?.clone();
+                    self.prepared.types.insert(id, ty);
+                    values.get(&name).ok_or_else(failure)?.clone()
+                }
             }
             ArenaExprKind::Unary { op, expr: child } => {
                 let child = self.expression(child, scope, None, depth + 1)?;
