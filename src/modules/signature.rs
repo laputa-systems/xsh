@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::sync::OnceLock;
 use xsh_registry::signature as registry;
 
-pub use registry::{ApiArgCheck, ApiDocs, ImplBinding, MethodReceiver, ScriptImpl};
+pub use registry::{ApiArgCheck, ApiDocs, ImplBinding, MethodReceiver, ScriptImpl, SemanticRule};
 pub use xsh_registry::RuntimeOp;
 
 #[derive(Clone, Debug)]
@@ -237,6 +237,7 @@ pub struct ModuleFnSig {
     pub pure: bool,
     pub command: bool,
     pub arg_check: ApiArgCheck,
+    pub semantic_rule: SemanticRule,
     pub op: RuntimeOp,
     /// Implementation routing adapted from the canonical signature. `Native`
     /// entries keep their `op` dispatch; `Script` entries resolve to the named
@@ -337,6 +338,7 @@ fn convert_module_fn_sig(module: &str, function: &str, sig: &registry::ModuleFnS
         pure: sig.pure,
         command: sig.command,
         arg_check: sig.arg_check,
+        semantic_rule: sig.semantic_rule,
         op: sig.op,
         binding: sig.binding,
         effect: Effect::from_module_call(module, function),
@@ -384,6 +386,7 @@ fn convert_method_sig(receiver: MethodReceiver, sig: &registry::MethodSig) -> Me
             pure: sig.sig.pure,
             command: sig.sig.command,
             arg_check: sig.sig.arg_check,
+            semantic_rule: sig.sig.semantic_rule,
             op: sig.sig.op,
             binding: sig.sig.binding,
             effect: method_required_effect(receiver, sig.sig.op),

@@ -179,6 +179,7 @@ pub struct ModuleFnSig {
     pub pure: bool,
     pub command: bool,
     pub arg_check: ApiArgCheck,
+    pub semantic_rule: SemanticRule,
     pub op: RuntimeOp,
     pub binding: ImplBinding,
 }
@@ -210,6 +211,27 @@ pub struct ParamSig {
     pub name: &'static str,
     pub ty: Type,
     pub defaulted: bool,
+}
+
+/// Preparation facts that refine a callable beyond structural type substitution.
+/// Dynamic arguments keep the declared result when no checked fact is available.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SemanticRule {
+    Standard,
+    SchemaValidation,
+    ConstantKeyProjection,
+    CliDescriptor,
+}
+
+impl SemanticRule {
+    fn for_operation(op: RuntimeOp) -> Self {
+        match op {
+            RuntimeOp::RecordGet => Self::ConstantKeyProjection,
+            RuntimeOp::RecordRequire => Self::SchemaValidation,
+            RuntimeOp::CliParse | RuntimeOp::CliApplet | RuntimeOp::CliParseFull => Self::CliDescriptor,
+            _ => Self::Standard,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -291,6 +313,7 @@ pub fn sig(params: Vec<ParamSig>, return_ty: Type, pure: bool, op: RuntimeOp) ->
         pure,
         command,
         arg_check: ApiArgCheck::Standard,
+        semantic_rule: SemanticRule::for_operation(op),
         op,
         binding: ImplBinding::Native,
     }
@@ -315,6 +338,7 @@ pub fn script_sig(
         return_ty,
         pure,
         arg_check: ApiArgCheck::Standard,
+        semantic_rule: SemanticRule::for_operation(op),
         op,
         binding: ImplBinding::Script(ScriptImpl { module, function }),
     }
@@ -336,6 +360,7 @@ pub fn script_sig_with_arg_check(
         return_ty,
         pure,
         arg_check,
+        semantic_rule: SemanticRule::for_operation(op),
         op,
         binding: ImplBinding::Script(ScriptImpl { module, function }),
     }
@@ -354,6 +379,7 @@ fn sig_with_arg_check(
         return_ty,
         pure,
         arg_check,
+        semantic_rule: SemanticRule::for_operation(op),
         op,
         binding: ImplBinding::Native,
     }
@@ -383,6 +409,23 @@ pub fn result(ok: Type) -> Type {
 mod tests {
     use super::api_spec;
     use crate::{records, reference};
+
+    #[test]
+    fn semantic_preparation_rules_follow_canonical_operations() {
+        use super::{MethodReceiver, SemanticRule};
+        let spec = api_spec();
+        let cli = spec.modules.iter().find(|entry| entry.name == "cli").unwrap();
+        for name in ["parse", "applet", "parse_full"] {
+            let entry = cli.sig.functions.iter().find(|entry| entry.name == name).unwrap();
+            assert!(entry.overloads.iter().all(|sig| sig.semantic_rule == SemanticRule::CliDescriptor));
+        }
+        let record = spec.methods.iter().find(|entry| entry.receiver == MethodReceiver::Record).unwrap();
+        let get = record.methods.iter().find(|entry| entry.name == "get").unwrap();
+        assert!(get.overloads.iter().all(|sig| sig.sig.semantic_rule == SemanticRule::ConstantKeyProjection));
+        let list = spec.methods.iter().find(|entry| entry.receiver == MethodReceiver::List).unwrap();
+        let get = list.methods.iter().find(|entry| entry.name == "get").unwrap();
+        assert!(get.overloads.iter().all(|sig| sig.sig.semantic_rule == SemanticRule::Standard));
+    }
 
     #[test]
     fn public_api_items_have_complete_registry_docs() {
