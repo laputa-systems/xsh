@@ -43,7 +43,7 @@ test test_comparison_chain_rejects_invalid_adjacent_types [error] { |ctx|
   test.contains(numeric.stderr, "check.type-mismatch")?
   let grouped = test.run_script(ctx, "let value = (0 < 1) < 2\n")?
   test.ok(! grouped.success, grouped.stderr)?
-  test.contains(grouped.stderr, "comparison requires Int, Float, or Str")?
+  test.contains(grouped.stderr, "comparison requires Int, Float, Str, or Duration")?
 }
 
 test test_comparison_chain_requires_grouping_for_mixed_tests [error] { |ctx|

@@ -14,7 +14,7 @@ proc flaky() -> Result[Str] {
   return Ok("done")
 }
 
-let value = retry [0ms, 0ms] {
+let value = retry [1ms / 2, 0ms * 2] {
   flaky()?
 }?
 print f"\${value} \${attempts}"

@@ -163,6 +163,25 @@ pub(super) fn lowered_binary_value(
             ),
         };
     }
+    if matches!(&left, LoweredValue::Duration(_)) || matches!(&right, LoweredValue::Duration(_)) {
+        if let (LoweredValue::Duration(a), LoweredValue::Duration(b)) = (&left, &right) {
+            let ordered = match op {
+                BinaryOp::Lt => Some(a.millis < b.millis), BinaryOp::Le => Some(a.millis <= b.millis),
+                BinaryOp::Gt => Some(a.millis > b.millis), BinaryOp::Ge => Some(a.millis >= b.millis), _ => None,
+            };
+            if let Some(value) = ordered { return Ok(LoweredValue::Bool(value)); }
+        }
+        let operand = |value: &LoweredValue| match value {
+            LoweredValue::Duration(value) => Ok(crate::duration::DurationOperand::Millis(value.millis)),
+            LoweredValue::Int(value) => Ok(crate::duration::DurationOperand::Count(*value)),
+            _ => Err(RuntimeError::new("type-error", "invalid Duration arithmetic dimensions").with_span(span)),
+        };
+        return crate::duration::checked_duration_binary(op, operand(&left)?, operand(&right)?)
+            .map(|value| match value {
+                crate::duration::DurationResult::Millis(millis) => LoweredValue::Duration(crate::runtime::value::DurationValue { millis }),
+                crate::duration::DurationResult::Count(value) => LoweredValue::Int(value),
+            }).map_err(|error| { let (code, message) = error.diagnostic(); RuntimeError::new(code, message).with_span(span) });
+    }
     match (op, left, right) {
         (BinaryOp::Add, LoweredValue::Float(left), LoweredValue::Float(right)) => Ok(
             LoweredValue::Float(crate::runtime::value::FloatValue::new(left.0 + right.0)),

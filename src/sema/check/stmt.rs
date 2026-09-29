@@ -295,6 +295,12 @@ impl Checker {
         op_span: Span,
         rhs_span: Span,
     ) -> Type {
+        if left == &Type::Duration {
+            let valid = matches!((op, right), (AssignOp::Add | AssignOp::Sub, Type::Duration)
+                | (AssignOp::Mul | AssignOp::Div, Type::Int));
+            if !valid { self.error(rhs_span, "invalid Duration compound assignment dimensions", "check.operator-type"); }
+            return Type::Duration;
+        }
         if op == AssignOp::Add && matches!(left, Type::List(_)) {
             self.expect_type(left, right, rhs_span);
             return left.clone();

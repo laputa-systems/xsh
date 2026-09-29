@@ -870,3 +870,17 @@ fn api_path_interpolation_distinguishes_native_bytes_and_human_text() {
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("Compound process words retain interpolated Path bytes"), "{text}");
 }
+
+#[test]
+fn api_duration_arithmetic_explains_dimensions_and_adapter_boundaries() {
+    let output = xsht(&["api", "language:core.duration-arithmetic"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for fragment in ["nonnegative Int", "interval count", "once left to right", "pure", "clamping and saturation", "250ms * attempt"] {
+        assert!(stdout.contains(fragment), "missing {fragment}: {stdout}");
+    }
+    let output = xsht(&["api", "api:time.millis"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("Negative counts clamp to zero"), "{stdout}");
+}

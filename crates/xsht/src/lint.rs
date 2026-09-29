@@ -136,6 +136,7 @@ pub struct Linter<'a> {
     assigned_names: FxHashSet<Name>,
     regex_recovery_context: bool,
     assertion_capture_depth: usize,
+    duration_conversion_module_unshadowed: bool,
 }
 
 /// A decoded type expression node, mirroring the arena's compact type-expr
@@ -211,6 +212,11 @@ impl<'a> Linter<'a> {
         let mut linter = Self {
             record_constructors: xsh::frontend::check::RecordConstructors::collect(program),
             arena: &program.arena,
+            duration_conversion_module_unshadowed: !(0..program.arena.stmt_tags.len()).any(|index| {
+                let ArenaStmtKind::Use(id) = program.arena.stmt(StmtId::from_index(index)).kind else { return false; };
+                let import = program.arena.use_stmt(id);
+                import.alias.or_else(|| program.arena.names(import.path).last()).is_some_and(|name| name == "time")
+            }),
             prefer_inferred_pure_returns: options.prefer_inferred_pure_returns,
             return_removal_before: None,
             source,
@@ -4000,6 +4006,7 @@ impl<'a> Linter<'a> {
 
     fn lint_call_style(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
         self.lint_path_constructor(callee, args, span);
+        self.lint_duration_conversion(callee, args, span);
         self.lint_redundant_defaults(callee, args);
         self.lint_prefer_in(callee, args, span);
         self.lint_prefer_method(callee, args, span);
@@ -4234,6 +4241,29 @@ impl<'a> Linter<'a> {
             _ => None,
         }.unwrap_or_else(|| self.source[receiver.span.range()].to_string());
         Some(format!("{receiver_text}[{bounds}]"))
+    }
+
+    /// Numeric adapters clamp or saturate, so only bounded nonnegative literals
+    /// can be replaced by checked scalar multiplication without changing failures.
+    fn lint_duration_conversion(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "time")
+            || !self.duration_conversion_module_unshadowed
+            || self.is_binding_in_scope_or_assigned("time") { return; }
+        let unit = match name.as_str().as_str() { "millis" => 1, "seconds" => 1000, _ => return };
+        let [arg] = self.arena.call_args(args) else { return; };
+        let ArenaCallArgKind::Positional(value) = arg.kind else { return; };
+        let ArenaExprKind::Int(literal) = self.arena.expr(value).kind else { return; };
+        let Some(amount) = self.arena.int_literal(literal).value() else { return; };
+        if amount < 0 || (amount as u64).checked_mul(unit).is_none()
+            || self.expr_types.get(&span) != Some(&Type::Duration)
+            || self.expr_types.get(&self.arena.expr(value).span) != Some(&Type::Int)
+            || self.source[span.range()].contains('#') { return; }
+        let suffix = if unit == 1 { "1ms" } else { "1s" };
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "bounded numeric conversion can use Duration arithmetic")
+            .with_code("lint.duration-arithmetic")
+            .with_label(Label::secondary(span, "multiply by a duration unit"))
+            .with_fix_hint(FixHint::replacement(span, "use checked Duration arithmetic", format!("({amount} * {suffix})"))));
     }
 
     fn lint_path_constructor(&mut self, callee: ExprId, args: ArenaRange, span: Span) {

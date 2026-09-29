@@ -476,6 +476,9 @@ build_id!(BuildTopStmtId);
 #[derive(Clone, Debug, Default)]
 struct BuildScratch {
     expressions: Vec<BuildExprRow>,
+    /// Checked Duration operands prohibit integer-only specialization even when
+    /// the operation's result is an Int interval count.
+    duration_binary_expressions: FxHashSet<usize>,
     statements: Vec<BuildStmtRow>,
     patterns: Vec<BuildPatternRow>,
     ints: Vec<BuildIntRow>,

@@ -1146,8 +1146,8 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             &["time", "sleep", "effect"],
         )),
         ("time", "millis" | "seconds") => Some((
-            "Converts a duration to an integer time unit.",
-            "Conversion follows the declared unit and does not query the wall clock.",
+            "Converts an Int count of milliseconds or seconds into Duration.",
+            "Negative counts clamp to zero; seconds saturate at the largest representable Duration. Checked Duration arithmetic instead rejects negative factors and overflow. Conversion does not query the wall clock.",
             &["time", "duration", "conversion"],
         )),
         ("time", "measure") => Some((

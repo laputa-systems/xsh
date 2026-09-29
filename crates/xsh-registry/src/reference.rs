@@ -222,6 +222,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "list-concatenation",
     "list-splicing",
     "list-element-assignment",
+    "duration-arithmetic",
     "slicing",
     "results",
     "pattern-tests",
@@ -812,6 +813,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "list-element-assignment" => (
             "Updates existing List elements below mutable local bindings.",
             "`values[index] = replacement` and `rows[index].count += 1` retain contextual element types and collection value semantics. Paths can mix List elements, existing record fields, and Map keys. Int indices use ordinary indexing: negative and out-of-range indices fail without clipping, appending, or padding. Selectors run once in path order, then RHS once, then the current root and old selected value are read. Operand mutations survive; an invalid update exposes no partial ancestor rebuild. Immutable roots, temporary receivers, slice writes, and Str/Bytes mutation are rejected. Assignment produces Unit.",
+        ),
+        "duration-arithmetic" => (
+            "Combines Duration values with checked millisecond arithmetic.",
+            "Duration +/- Duration and Duration * nonnegative Int produce Duration; multiplication works in either order. Duration / positive Int truncates sub-millisecond remainders; Duration / positive Duration produces an Int interval count. Ordering compares milliseconds. Overflow, underflow, negative multipliers, nonpositive divisors, and interval-count overflow are source-attributed runtime errors. Operands evaluate once left to right and arithmetic is pure. Float scaling and modulo are invalid. time.millis/time.seconds retain clamping and saturation rather than checked arithmetic.",
         ),
         "list-splicing" => (
             "Builds lists from ordinary elements and explicit List splices.",

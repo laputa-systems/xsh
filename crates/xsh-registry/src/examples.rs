@@ -6,6 +6,7 @@
 
 pub(crate) fn source(id: &str) -> Option<String> {
     let source = match id {
+        "language.core.duration-arithmetic" => include_str!("../../../docs/snippets/api/duration-arithmetic.xsh"),
         "module.archive" | "module.archive.tar_list" => {
             include_str!("../../../docs/snippets/api/archive-tar-list.xsh")
         }

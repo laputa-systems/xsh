@@ -5620,6 +5620,20 @@ impl CompactLowerConstructProbe<'_, '_> {
         right: ExprId,
         known: &FxHashMap<Name, LoweredTopLevelBinding>,
     ) -> Option<LoweredType> {
+        if matches!(op, BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div) {
+            let a = self.infer_lowered_expr_type(left, known)?;
+            let b = self.infer_lowered_expr_type(right, known)?;
+            if a == LoweredType::Duration || b == LoweredType::Duration {
+                return match (op, a, b) {
+                    (BinaryOp::Add | BinaryOp::Sub, LoweredType::Duration, LoweredType::Duration)
+                    | (BinaryOp::Mul, LoweredType::Duration, LoweredType::Int)
+                    | (BinaryOp::Mul, LoweredType::Int, LoweredType::Duration)
+                    | (BinaryOp::Div, LoweredType::Duration, LoweredType::Int) => Some(LoweredType::Duration),
+                    (BinaryOp::Div, LoweredType::Duration, LoweredType::Duration) => Some(LoweredType::Int),
+                    _ => None,
+                };
+            }
+        }
         match op {
             BinaryOp::Eq
             | BinaryOp::Ne
@@ -8079,16 +8093,18 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(push_build_row!(self, expr, BuildExprRow::ComparisonChain { pairs, assertion: false }))
             }
             ArenaExprKind::Binary { op, left, right } if lowered_binary_op(op) => {
-                Some(push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::Binary {
-                        op,
-                        left: self.lower_expr(left, slots, current_function, item_slot)?,
-                        right: self.lower_expr(right, slots, current_function, item_slot)?,
-                        span,
-                    }
-                ))
+                let duration_operands = self.bodies.expr_types.get(&left) == Some(&Type::Duration)
+                    || self.bodies.expr_types.get(&right) == Some(&Type::Duration)
+                    || self.infer_checked_expr_type_with_slots(left, slots) == Some(Type::Duration)
+                    || self.infer_checked_expr_type_with_slots(right, slots) == Some(Type::Duration);
+                let value = push_build_row!(self, expr, BuildExprRow::Binary {
+                    op,
+                    left: self.lower_expr(left, slots, current_function, item_slot)?,
+                    right: self.lower_expr(right, slots, current_function, item_slot)?,
+                    span,
+                });
+                if duration_operands { self.scratch.borrow_mut().duration_binary_expressions.insert(value.index()); }
+                Some(value)
             }
             ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } => {
                 if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(right).kind {
@@ -13923,6 +13939,7 @@ fn lowered_plain_method_type(name: Name) -> Option<LoweredType> {
 
 impl CompactLowerConstructProbe<'_, '_> {
     fn lower_int_expr_candidate(&self, expr: &BuildExprId) -> Option<BuildIntId> {
+        if self.scratch.borrow().duration_binary_expressions.contains(&expr.index()) { return None; }
         let row = {
             let scratch = self.scratch.borrow();
             scratch.expressions[expr.index()].clone()

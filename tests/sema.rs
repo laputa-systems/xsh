@@ -3591,3 +3591,19 @@ fn value_pipeline_holes_preserve_record_presence_refinement() {
     assert_no_codes(&output, &["check.record-field", "check.unknown-field", "check.type-mismatch"]);
     assert!(output.is_empty(), "{output:?}");
 }
+
+#[test]
+fn duration_arithmetic_compact_and_full_checked_types_agree() {
+    let source = "pure intervals(left: Duration, right: Duration) -> Int { let count = left / right; count }\npure scale(value: Duration, factor: Int) -> Duration { let pause = value * factor + 1s; pause }\nlet scaled = 2 * 1ms\nlet quantized = 5ms / 2\nlet compared = 1ms < 1s\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    for (id, ty) in compact.expr_types {
+        if matches!(parsed.arena.arena.expr(id).kind, xsh::frontend::syntax::arena::ArenaExprKind::Binary { .. }) {
+            assert_eq!(checked.expr_types.get(&parsed.arena.arena.expr(id).span), Some(&ty), "{}", &source[parsed.arena.arena.expr(id).span.range()]);
+        }
+    }
+}

@@ -508,3 +508,14 @@ fn selective_retry_grep_and_refactor_preserve_filter_order_and_body() {
     let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
 }
+
+#[test]
+fn duration_arithmetic_grep_preserves_units_and_operand_order() {
+    let file = temp_xsh("duration_arithmetic", "let first = 250ms * 3\nlet second = 3 * 250ms\nlet other = 250s * 3\n");
+    let output = grep_scripts("250ms * COUNT", &paths(&file));
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    let stdout = output_text(&output.stdout);
+    assert!(stdout.contains("250ms * 3"), "{stdout}");
+    assert!(!stdout.contains("3 * 250ms"), "{stdout}");
+    assert!(!stdout.contains("250s * 3"), "{stdout}");
+}

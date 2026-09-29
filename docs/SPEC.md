@@ -772,8 +772,23 @@ as decimal text and renders non-finite values as `NaN`, `Infinity`, or
 `-Infinity`. Sort keys use the IEEE total order, so `NaN` values have stable
 ordering. Public JSON encoding rejects non-finite `Float` values.
 
-`Duration` is a millisecond-resolution runtime value produced by duration
-literals and accepted by timeout policy. `Digest` is a module-owned typed hash
+`Duration` stores nonnegative unsigned 64-bit milliseconds and is accepted by
+timeout policy. `Duration + Duration` and `Duration - Duration` produce a
+`Duration`; multiplication by a nonnegative `Int` works in either operand order.
+Division by a positive `Int` produces a `Duration`, discarding sub-millisecond
+remainders; division by a positive `Duration` produces an `Int` interval count.
+Duration ordering compares milliseconds. Operands evaluate once, left to right;
+these operations are pure and require no time effect. Addition and scaling
+report `duration-overflow`, subtraction below zero reports `duration-underflow`,
+negative multipliers report `duration-negative-factor`, nonpositive divisors
+report `division-by-zero`, and interval counts outside `Int` report
+`integer-overflow`, each at the operator expression. Float scaling, modulo,
+implicit numeric conversions, and timestamp arithmetic are invalid.
+`time.millis` and `time.seconds` retain their clamping and saturation conversion
+behavior, which is distinct from checked arithmetic. Compound `+=`, `-=`, `*=`,
+and `/=` preserve these rules when their result remains a Duration.
+
+`Digest` is a module-owned typed hash
 digest with `algorithm: Str`, `bytes: Bytes`, `hex() -> Str`, and
 `base64() -> Str`. `Regex` is a module-owned compiled regular expression with
 `pattern: Str`, `.matches(text: Str) -> Bool`,
@@ -3426,8 +3441,8 @@ are omitted rather than reported with partial process data.
 - `time.millis(ms: Int) -> Duration` and `time.seconds(seconds: Int) -> Duration`,
   constructing a `Duration` from a computed `Int`. Both are pure. A negative
   input clamps to a zero-length duration; `time.seconds` saturates rather than
-  overflowing. These are the only way to build a `Duration` from a runtime value
-  (literals such as `200ms` aside).
+  overflowing. Use checked multiplication by `1ms` or `1s` when a nonnegative
+  runtime count should fail on overflow rather than clamp or saturate.
 - `time.measure(command: Command, quiet: Bool = false) -> Result[Record]`, returning
   `{status: Status, duration_ms: Int, wall_ns: Int, user_ns: Int, system_ns: Int}`.
   `wall_ns` is nanosecond wall-clock time; `user_ns`/`system_ns` are the child's

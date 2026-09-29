@@ -58,6 +58,15 @@ impl LiteralConstant {
             ArenaExprKind::PathStr(value) => Self::Path(arena.string_literal(value).clone()),
             ArenaExprKind::Bytes(value) => Self::Bytes(arena.bytes_literal(value).clone()),
             ArenaExprKind::Ident(name) => bindings.get(&name)?.clone(),
+            ArenaExprKind::Binary { op, left, right } => {
+                use crate::duration::{DurationOperand as O, DurationResult as R};
+                let operand = |value| match value { Self::Duration(v) => Some(O::Millis(v)), Self::Int(v) => Some(O::Count(v)), _ => None };
+                let left = operand(Self::analyze(arena, left, bindings)?)?;
+                let right = operand(Self::analyze(arena, right, bindings)?)?;
+                match crate::duration::checked_duration_binary(op, left, right).ok()? {
+                    R::Millis(v) => Self::Duration(v), R::Count(v) => Self::Int(v),
+                }
+            }
             ArenaExprKind::Unary { op: UnaryOp::Neg, expr } => match arena.expr(expr).kind {
                 ArenaExprKind::Int(value) => Self::Int(arena.int_literal(value).value()?.checked_neg()?),
                 ArenaExprKind::Float(value) => Self::Float((-arena.float_literal(value).value()?).to_bits()),

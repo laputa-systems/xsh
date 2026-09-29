@@ -9,6 +9,7 @@ pub mod api {
 }
 /// Supported structured and rendered diagnostics.
 pub mod diagnostic;
+pub(crate) mod duration;
 pub mod execution;
 /// Tooling-only frontend statistics support for the dedicated profiling binary.
 pub mod frontend_stats;

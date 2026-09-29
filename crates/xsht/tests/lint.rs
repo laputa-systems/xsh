@@ -3751,3 +3751,54 @@ fn linter_preserves_manual_selective_loop_with_observable_counter_and_delay() {
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
     assert!(diagnostics.iter().flat_map(|diagnostic| &diagnostic.fix_hints).filter_map(|hint| hint.replacement.as_ref()).all(|replacement| !replacement.contains("retry")));
 }
+
+#[test]
+fn duration_arithmetic_conversion_fix_rechecks_and_converges() {
+    let source = "let pause = time.millis(250)\nlet budget = time.seconds(2)\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let mut fixes = output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.duration-arithmetic"))
+        .map(|d| &d.fix_hints[0]).collect::<Vec<_>>();
+    assert_eq!(fixes.len(), 2);
+    fixes.sort_by_key(|fix| std::cmp::Reverse(fix.span.unwrap().start()));
+    let mut fixed = source.to_string();
+    for fix in fixes { fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap()); }
+    assert_parse_check_standalone("Duration conversion", &fixed);
+    assert!(fixed.contains("250 * 1ms"));
+    assert!(fixed.contains("2 * 1s"));
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    let parsed = parse_lint_source(&formatted.formatted);
+    let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.duration-arithmetic")));
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+}
+
+#[test]
+fn duration_arithmetic_conversion_retains_clamping_saturation_unknowns_and_comments() {
+    let source = "pure convert(value: Int) -> Duration { time.millis(value) }\nlet negative = time.millis(-1)\nlet saturated = time.seconds(9223372036854775807)\nlet commented = time.seconds(\n  # retain conversion annotation\n  2\n)\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.duration-arithmetic")));
+    let output = Linter::lint(&parsed.arena, source, LintOptions::default());
+    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.duration-arithmetic")));
+}
+
+#[test]
+fn duration_arithmetic_conversion_refuses_custom_module_alias() {
+    let root = TempDir::new().unwrap();
+    let entry = root.path().join("entry.xsh");
+    fs::write(root.path().join("helper.xsh"), "##! Custom duration conversion.\n## Returns a fixed duration independent of the count.\nexport pure millis(count: Int) -> Duration { let _ = count; 2s }\n").unwrap();
+    let source = "use helper as time\nlet pause = time.millis(250)\n";
+    let loaded = parse_load_check_text(entry.to_str().unwrap(), source.to_string(), Vec::new(), Default::default());
+    assert!(loaded.parsed.diagnostics.is_empty(), "{:?}", loaded.parsed.diagnostics);
+    let checked = loaded.checked.unwrap();
+    assert!(checked.diagnostics.iter().any(|d| d.code.as_deref() == Some("check.standard-module-shadow")), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&loaded.parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.duration-arithmetic")));
+}

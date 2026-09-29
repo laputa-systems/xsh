@@ -228,8 +228,8 @@ impl Checker {
                     let ArenaExprKind::Binary { left, right, .. } = arena.arena.expr(pair).kind else { unreachable!() };
                     let left_ty = previous.take().unwrap_or_else(|| self.check_expr_arena(arena, source, left, None));
                     let right_ty = self.check_expr_arena(arena, source, right, Some(&left_ty));
-                    if !matches!(left_ty, Type::Int | Type::Float | Type::Str | Type::Any | Type::Unknown) {
-                        self.error(arena.arena.expr(left).span, "comparison requires Int, Float, or Str", "check.operator-type");
+                    if !matches!(left_ty, Type::Int | Type::Float | Type::Duration | Type::Str | Type::Any | Type::Unknown) {
+                        self.error(arena.arena.expr(left).span, "comparison requires Int, Float, Str, or Duration", "check.operator-type");
                     }
                     self.expect_type(&left_ty, &right_ty, arena.arena.expr(right).span);
                     previous = Some(right_ty);
@@ -1146,11 +1146,11 @@ impl Checker {
                 let right_ty = self.check_expr_arena(arena, source, right, Some(&left_ty));
                 if !matches!(
                     left_ty,
-                    Type::Int | Type::Float | Type::Str | Type::Any | Type::Unknown
+                    Type::Int | Type::Float | Type::Duration | Type::Str | Type::Any | Type::Unknown
                 ) {
                     self.error(
                         left_span,
-                        "comparison requires Int, Float, or Str",
+                        "comparison requires Int, Float, Str, or Duration",
                         "check.operator-type",
                     );
                 }
@@ -1206,6 +1206,19 @@ impl Checker {
                     Some(&left_ty)
                 };
                 let right_ty = self.check_expr_arena(arena, source, right, right_expected);
+                if left_ty == Type::Duration || right_ty == Type::Duration {
+                    return match (op, &left_ty, &right_ty) {
+                        (BinaryOp::Add | BinaryOp::Sub, Type::Duration, Type::Duration)
+                        | (BinaryOp::Mul, Type::Duration, Type::Int)
+                        | (BinaryOp::Mul, Type::Int, Type::Duration)
+                        | (BinaryOp::Div, Type::Duration, Type::Int) => Type::Duration,
+                        (BinaryOp::Div, Type::Duration, Type::Duration) => Type::Int,
+                        _ => {
+                            self.error(left_span, "invalid Duration arithmetic dimensions", "check.operator-type");
+                            Type::Unknown
+                        }
+                    };
+                }
                 match left_ty {
                     Type::Float if !matches!(op, BinaryOp::Rem) => {
                         self.expect_type(&Type::Float, &right_ty, right_span);

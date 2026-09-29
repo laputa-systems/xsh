@@ -9017,6 +9017,47 @@ proc configured() [] -> Int {
     }
 
     #[test]
+    fn duration_arithmetic_retains_checked_operands_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/duration-arithmetic.xsh");
+            let program = Arc::new(fixture("duration-arithmetic.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for recursive in [false, true] {
+                let duration = |millis| Value::Duration(crate::runtime::value::DurationValue { millis });
+                for (name, args, expected) in [
+                    ("intervals", vec![duration(7000), duration(2000)], Value::Int(3)),
+                    ("pause", vec![duration(250), Value::Int(3)], duration(751)),
+                ] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                        &args, Span::new(program.store.source_id, 0, 0),
+                    ).expect("Duration function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    assert_eq!(result.unwrap(), expected);
+                }
+                for (name, code, expression) in [
+                    ("underflow", "duration-underflow", "0ms - 1ms"),
+                    ("overflow", "duration-overflow", "18446744073709551615ms + 1ms"),
+                    ("count_overflow", "integer-overflow", "18446744073709551615ms / 1ms"),
+                ] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                        &[], Span::new(program.store.source_id, 0, 0),
+                    ).expect("Duration function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    let error = result.expect_err("checked arithmetic failure");
+                    assert_eq!(error.kind, code);
+                    assert_eq!(&source[error.span.unwrap().range()], expression);
+                }
+            }
+        });
+    }
+
+    #[test]
     fn locations_preserve_imported_source_identity() {
         let mut sources = SourceMap::new();
         let root_id = sources.add_file("root.xsh", "use module\n");

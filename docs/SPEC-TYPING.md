@@ -153,6 +153,21 @@ type. Assignments to `let` are errors. Compound assignments require operands
 accepted by the operator and produce a value assignable to the existing binding
 type.
 
+## Duration Operators
+
+Duration addition and subtraction require two Duration operands and return
+Duration. Multiplication requires one Duration and one Int in either order.
+Duration division accepts Int (Duration result) or Duration (Int interval count).
+Ordering accepts two Durations and returns Bool. Mixed numeric dimensions,
+Float scaling, and remainder are rejected; no contextual numeric coercion is
+introduced. Compound assignments require the result to retain the binding type.
+
+Full checking, compact body facts, and lowering infer the same result type.
+Runtime and bounded constant preparation use `checked_duration_binary` for the
+unsigned millisecond domain, signed scalar constraints, and checked interval
+counts. Integer specialization must inspect operand types: an Int result from
+Duration division does not make its operands Int.
+
 ## Records
 
 Record literals infer a schema from their fields. When a record literal is

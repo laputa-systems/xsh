@@ -1459,6 +1459,10 @@ impl CompactBodyProbe<'_> {
             | BinaryOp::Ge
             | BinaryOp::In
             | BinaryOp::NotIn => Type::Bool,
+            BinaryOp::Add | BinaryOp::Sub if left == Type::Duration && right == Type::Duration => Type::Duration,
+            BinaryOp::Mul if matches!((&left, &right), (Type::Duration, Type::Int) | (Type::Int, Type::Duration)) => Type::Duration,
+            BinaryOp::Div if left == Type::Duration && right == Type::Int => Type::Duration,
+            BinaryOp::Div if left == Type::Duration && right == Type::Duration => Type::Int,
             BinaryOp::Add if matches!((&left, &right), (Type::Str, Type::Str)) => Type::Str,
             BinaryOp::Add if matches!((&left, &right), (Type::List(_), Type::List(_))) => left,
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
