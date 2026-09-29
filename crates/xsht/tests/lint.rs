@@ -3622,6 +3622,8 @@ proc assertions(dynamic: Any) [io, error] {
   test.eq(dynamic, 1, "dynamic")?
   let consumed = test.ok(true, "consumed")
   consumed?
+  let captured: Result[Unit] = try { test.ok(true, "captured")? }
+  let retried: Result[Unit] = retry [] { test.eq(1, 1, "retried")? }
 }
 "#;
     let parsed = parse_lint_source(source);
@@ -3646,6 +3648,8 @@ proc assertions(dynamic: Any) [io, error] {
     assert!(fixed.contains("test.ok(true, context())?"));
     assert!(fixed.contains("test.eq(dynamic, 1, \"dynamic\")?"));
     assert!(fixed.contains("let consumed = test.ok(true, \"consumed\")"));
+    assert!(fixed.contains("try { test.ok(true, \"captured\")? }"));
+    assert!(fixed.contains("retry [] { test.eq(1, 1, \"retried\")? }"));
     assert_parse_check_standalone("core assertion migration", &fixed);
     let parsed = parse_lint_source(&fixed);
     let checked = Checker::check_arena(&parsed.arena, &fixed);

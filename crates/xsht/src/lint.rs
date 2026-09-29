@@ -133,6 +133,7 @@ pub struct Linter<'a> {
     used_type_names: FxHashSet<String>,
     assigned_names: FxHashSet<Name>,
     regex_recovery_context: bool,
+    assertion_capture_depth: usize,
 }
 
 /// A decoded type expression node, mirroring the arena's compact type-expr
@@ -232,6 +233,7 @@ impl<'a> Linter<'a> {
             used_type_names: FxHashSet::default(),
             assigned_names: FxHashSet::default(),
             regex_recovery_context: false,
+            assertion_capture_depth: 0,
         };
         linter.define(
             "args",
@@ -899,6 +901,7 @@ impl<'a> Linter<'a> {
     }
 
     fn lint_core_assert(&mut self, stmt_span: Span, expression: ExprId) {
+        if self.assertion_capture_depth != 0 { return; }
         if self.statement_positions.get(&stmt_span) != Some(&xsh::frontend::check::StatementPosition::Statement) { return; }
         let call = match self.arena.expr(expression).kind {
             ArenaExprKind::Try(call) => call,
@@ -6601,12 +6604,15 @@ impl LintExprVisitor<'_, '_> {
                 self.linter.collect_type_expr_refs(schema);
             }
             ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) => {
+                let capturing = matches!(arena.expr(expr).kind, ArenaExprKind::Capture(_));
+                if capturing { self.linter.assertion_capture_depth += 1; }
                 self.linter.push_scope();
                 for parameter in arena.block_params(arena.block(block).params) {
                     self.linter.define(parameter.name.as_str().as_str(), arena.span(parameter.span), true);
                 }
                 self.linter.lint_block_statements(block);
                 self.linter.pop_scope();
+                if capturing { self.linter.assertion_capture_depth -= 1; }
             }
             ArenaExprKind::Loop { block } => self.linter.lint_block(block),
             ArenaExprKind::Retry { delays, block } => {
@@ -6615,7 +6621,9 @@ impl LintExprVisitor<'_, '_> {
                 for delay in arena.expr_ids(delays).collect::<Vec<_>>() {
                     self.visit_expr(delay);
                 }
+                self.linter.assertion_capture_depth += 1;
                 self.linter.lint_block(block);
+                self.linter.assertion_capture_depth -= 1;
                 self.linter.regex_recovery_context = old;
             }
             ArenaExprKind::Str(_) => {
