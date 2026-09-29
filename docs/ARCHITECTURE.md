@@ -718,3 +718,11 @@ the operation's existing default accessors; a supplied null remains a value.
 The checker probes finite field sets without committing flow changes, then
 checks each spread operand at its original source position alongside ordinary
 arguments and their expected type contexts.
+
+Heap execution uses `FrameWork::ExpressionBoundary` with
+`ExpressionBoundaryPolicy::Capture`. Normal values and empty completion wrap
+in Ok; propagation consumes the nearest capture after lexical cleanup. Checked
+runtime-error transport searches the current frame and then caller frames only
+after callee defers finish. Ordinary lexical return and loop transfers retain
+their targets. These boundaries survive producer suspension and cancellation;
+recursive calls inside capture remain on the heap frame stack.

@@ -70,6 +70,16 @@ and `cargo test -p xsht --test integration core_assert --features native-tests`.
 `cargo build -p xsh --bin xsh --no-default-features` witnesses independence from
 native-test support.
 
+## Local Result capture
+
+`target/debug/xsht test --jobs 1 tests/xsh/try-capture.xsh` covers nearest
+propagation, nested Result data, nominal inference, Unit assertions, process
+error identity, lexical exits, cleanup priority, producer suspension and
+cancellation, and recursive calls through heap frames. Shared regressions also
+use `tests/xsh/retry.xsh`, `tests/xsh/error-context-blocks.xsh`, and
+`cargo test -p xsh --lib runtime::eval::indexed::full::tests --features native-tests`.
+Focused tooling uses `cargo test -p xsht --test integration try_capture`.
+
 ## Lexical error contexts
 
 `target/debug/xsht test --jobs 1 tests/xsh/error-context-blocks.xsh` covers
