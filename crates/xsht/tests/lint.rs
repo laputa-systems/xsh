@@ -2288,3 +2288,80 @@ fn linter_keeps_conditional_and_callback_lexical_returns() {
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, statement_positions: checked.statement_positions, ..LintOptions::default() }).diagnostics;
     assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return")));
 }
+
+#[test]
+fn linter_named_argument_pun_fix_preserves_resolution_comments_and_converges() {
+    let source = include_str!("../../../tests/fixtures/syntax/valid/named-argument-pun-explicit.xsh");
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let options = LintOptions {
+        expr_types: checked.expr_types,
+        ..LintOptions::default()
+    };
+    let diagnostics = Linter::lint(&parsed.arena, source, options).diagnostics;
+    let puns: Vec<_> = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-named-argument-pun"))
+        .collect();
+    assert_eq!(
+        puns.len(),
+        3,
+        "different identifiers and field expressions are not puns",
+    );
+    assert_eq!(puns[0].fix_hints.len(), 1);
+    assert_eq!(puns[1].fix_hints.len(), 1);
+    assert!(
+        puns[2].fix_hints.is_empty(),
+        "comments prevent safe replacement",
+    );
+    let fix = &puns[0].fix_hints[0];
+    let span = fix.span.unwrap();
+    assert_eq!(&source[span.range()], "value: value");
+    assert_eq!(fix.replacement.as_deref(), Some("value:"));
+    let grouped_span = puns[1].fix_hints[0].span.unwrap();
+    assert_eq!(&source[grouped_span.range()], "value: (value)");
+    let mut fixed = source.to_string();
+    for diagnostic in puns.iter().rev() {
+        for fix in &diagnostic.fix_hints {
+            fixed.replace_range(
+                fix.span.unwrap().range(),
+                fix.replacement.as_ref().unwrap(),
+            );
+        }
+    }
+    assert_parse_check_standalone("named argument pun fix", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("accept(value:)"));
+    assert!(formatted.formatted.contains("# Preserve this comment."));
+    let parsed = parse_lint_source(&formatted.formatted);
+    let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let second = Linter::lint(
+        &parsed.arena,
+        &formatted.formatted,
+        LintOptions {
+            expr_types: checked.expr_types,
+            ..LintOptions::default()
+        },
+    );
+    assert!(
+        second.diagnostics.iter()
+            .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-named-argument-pun"))
+            .all(|diagnostic| diagnostic.fix_hints.is_empty())
+    );
+}
+
+#[test]
+fn linter_named_argument_pun_requires_checked_identifier_resolution() {
+    let source = include_str!("../../../tests/fixtures/syntax/valid/named-argument-pun-explicit.xsh");
+    let parsed = parse_lint_source(source);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+    assert!(
+        !diagnostics.iter().any(|diagnostic|
+            diagnostic.code.as_deref() == Some("lint.prefer-named-argument-pun")
+        )
+    );
+}

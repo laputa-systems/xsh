@@ -2766,6 +2766,42 @@ impl<'a> Linter<'a> {
         .visit_call_arg(arg);
     }
 
+    fn lint_named_argument_pun(&mut self, arg: &ArenaCallArg) {
+        let ArenaCallArgKind::Named { name, value, span } = arg.kind else {
+            return;
+        };
+        let value = self.arena.expr(value);
+        let span = self.arena.span(span);
+        if value.span.start() == span.start()
+            || !matches!(value.kind, ArenaExprKind::Ident(identifier) if identifier == name)
+            || !matches!(
+                self.expr_types.get(&value.span),
+                Some(ty) if !matches!(ty, Type::Unknown | Type::Invalid)
+            )
+        {
+            return;
+        }
+        // Replacing the explicit identifier introduces no scope or evaluation
+        // boundary, so lexical resolution selects the same binding.
+        let mut diagnostic = Diagnostic::new(
+            Severity::Warning,
+            "named argument repeats its value's name",
+        )
+        .with_code("lint.prefer-named-argument-pun")
+        .with_label(Label::secondary(
+            span,
+            "use the lexical named-argument shorthand",
+        ));
+        if !self.source[span.range()].contains('#') {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                span,
+                "omit the repeated value name",
+                format!("{name}:"),
+            ));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
     fn lint_call_style(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
         self.lint_path_constructor(callee, args, span);
         self.lint_redundant_defaults(callee, args);
@@ -4982,6 +5018,9 @@ impl LintExprVisitor<'_, '_> {
     }
 
     fn visit_call_arg(&mut self, arg: &ArenaCallArg) {
+        if !self.suppress_expr_autofixes {
+            self.linter.lint_named_argument_pun(arg);
+        }
         match arg.kind {
             ArenaCallArgKind::Positional(expr) | ArenaCallArgKind::Named { value: expr, .. } => {
                 self.visit_expr(expr);

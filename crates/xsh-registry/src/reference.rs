@@ -757,7 +757,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "procs" => (
             "Defines procedure declarations and calls.",
-            "Procedure calls preserve lexical scope, declared effects, return types, and runtime trace containment.",
+            "Procedure calls preserve lexical scope, declared effects, return types, and runtime trace containment. In expression calls, `name:` before a comma or closing parenthesis passes the ordinary lexical value `name`, with the same named-argument checks as `name: name`.",
         ),
         "pure-functions" => (
             "Defines effect-free function declarations.",

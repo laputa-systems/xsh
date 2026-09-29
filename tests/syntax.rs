@@ -3248,3 +3248,59 @@ fn formatter_round_trips_value_branch_blocks_and_record_arms() {
     assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
     assert_eq!(first.formatted, second.formatted);
 }
+
+#[test]
+fn parser_named_argument_puns_keep_identifier_spans_and_formatting() {
+    use xsh::frontend::syntax::arena::ArenaCallArgKind;
+
+    let source = include_str!("fixtures/syntax/valid/named-argument-puns.xsh");
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_parse_and_check(SourceId::new(0), source);
+    let arena = &parsed.arena.arena;
+    let mut puns = 0;
+    for index in 0..arena.expr_tags.len() {
+        let expression = arena.expr(ExprId::from_index(index));
+        let ArenaExprKind::Call { args, .. } = expression.kind else {
+            continue;
+        };
+        for argument in arena.call_args(args) {
+            let ArenaCallArgKind::Named { name, value, span } = argument.kind else {
+                continue;
+            };
+            let value = arena.expr(value);
+            let span = arena.span(span);
+            if value.span.start() == span.start() {
+                puns += 1;
+                assert!(matches!(value.kind, ArenaExprKind::Ident(identifier) if identifier == name));
+                assert_eq!(&source[value.span.range()], name.as_str().as_str());
+                assert_eq!(&source[span.range()], format!("{name}:"));
+            }
+        }
+    }
+    assert_eq!(puns, 10);
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert_eq!(first.formatted, source);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(second.formatted, first.formatted);
+}
+
+#[test]
+fn checker_named_argument_pun_missing_name_labels_original_identifier() {
+    let source = include_str!("fixtures/sema/named-argument-pun-missing.xsh");
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    let diagnostic = checked
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code.as_deref() == Some("check.unresolved-name"))
+        .expect("the pun must resolve an ordinary lexical name");
+    assert_eq!(diagnostic.labels.len(), 1);
+    assert_eq!(&source[diagnostic.labels[0].span.range()], "value");
+    assert_eq!(
+        diagnostic.labels[0].span.start(),
+        source.rfind("value:").unwrap(),
+    );
+}

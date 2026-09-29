@@ -2,7 +2,7 @@
 error CpupowerCheckError = Invalid(message: Str)
 
 pure cpupower_failure(message: Str) -> CpupowerCheckError {
-  return CpupowerCheckError.Invalid(message: message)
+  return CpupowerCheckError.Invalid(message:)
 }
 
 ## Holds only the stable fields exported by the selected cpupower commands.

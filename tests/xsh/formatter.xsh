@@ -1,7 +1,7 @@
 proc assert_fmt_fixture(ctx: TestContext, source_path: Path, expected_path: Path, name: Str) [fs, process, error] {
   let source = source_path.read_text()?
   let expected = expected_path.read_text()?
-  let candidate = test.temp_file(ctx, name: name, contents: bytes.from_text(source))?
+  let candidate = test.temp_file(ctx, name:, contents: bytes.from_text(source))?
 
   let formatted = run.capture --text "xsht" fmt $candidate ?
   test.ok(formatted.status.exited_with(0), formatted.stderr)?

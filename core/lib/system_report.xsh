@@ -228,7 +228,7 @@ export pure frequency_policies_for_cpu(policies: List[CpuFreqPolicy], cpu_id: In
 }
 
 pure cpu_list_error(message: Str) -> SystemReportError {
-  return SystemReportError.InvalidCpuList(message: message)
+  return SystemReportError.InvalidCpuList(message:)
 }
 
 pure parse_cpu_list_integer(value: Str, decimal: Regex) -> Result[Int] {
@@ -2324,7 +2324,7 @@ pure encode_typed_report_json(report: SystemReport, sensitive: Bool, pretty: Boo
   let clean = sanitize_report_mount_options(report)
   let output_report = if sensitive { clean } else { redact_report(clean) }
   let wire: Any = report_json(output_report)
-  return json.encode(wire, pretty: pretty)
+  return json.encode(wire, pretty:)
 }
 
 ## Validates a dynamic report at the JSON boundary and emits one document.

@@ -4,7 +4,7 @@ use context
 error SensorsCheckError = Invalid(message: Str)
 
 pure sensors_check_failure(message: Str) -> SensorsCheckError {
-  return SensorsCheckError.Invalid(message: message)
+  return SensorsCheckError.Invalid(message:)
 }
 
 ## Keeps the bus-qualified chip key and raw subfeature name distinct from display labels.

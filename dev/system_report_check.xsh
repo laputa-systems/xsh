@@ -4,11 +4,11 @@ use context
 error SystemReportCheckError = Invalid(message: Str)
 
 pure check_failure(message: Str) -> SystemReportCheckError {
-  return SystemReportCheckError.Invalid(message: message)
+  return SystemReportCheckError.Invalid(message:)
 }
 
 proc capture_metadata_bytes(bundle: FsRoot, max_bytes: Int = 2097152) [fs, error] -> Result[Bytes] {
-  let raw = fs.root_read_result(bundle, p"capture.json", max_bytes: max_bytes)?
+  let raw = fs.root_read_result(bundle, p"capture.json", max_bytes:)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(check_failure("capture metadata is missing or incomplete"))
   }
@@ -3094,7 +3094,7 @@ proc reference_cache_text(
   required: Bool,
   max_bytes: Int = 4096,
 ) [fs, error] -> Result[Str?] {
-  let raw = fs.root_read_result(root, source_path, max_bytes: max_bytes)?
+  let raw = fs.root_read_result(root, source_path, max_bytes:)?
   if raw.state == "absent" and ! required {
     return Ok(null)
   }
@@ -7211,7 +7211,7 @@ proc reference_cpuidle_text(
   required: Bool,
   max_bytes: Int = 4096,
 ) [fs, error] -> Result[Str?] {
-  let raw = fs.root_read_result(root, source_path, max_bytes: max_bytes)?
+  let raw = fs.root_read_result(root, source_path, max_bytes:)?
   if raw.state == "absent" and ! required {
     return Ok(null)
   }
@@ -18707,7 +18707,7 @@ proc cgroup2_reference_text(
   max_bytes: Int,
   required: Bool,
 ) [fs, error] -> Result[Str?] {
-  let read = fs.root_read_result(root, source_path, max_bytes: max_bytes)?
+  let read = fs.root_read_result(root, source_path, max_bytes:)?
   if read.state == "absent" and ! required {
     return Ok(null)
   }
@@ -19420,7 +19420,7 @@ export pure compare_cpu_scope_cgroup(
 }
 
 proc process_reference_text(root: FsRoot, source_path: Path, max_bytes: Int) [fs, error] -> Result[Str?] {
-  let source = fs.root_read_result(root, source_path, max_bytes: max_bytes)?
+  let source = fs.root_read_result(root, source_path, max_bytes:)?
   if source.state != "observed" or source.truncated or source.data == null {
     return Ok(null)
   }

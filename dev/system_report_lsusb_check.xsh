@@ -2,7 +2,7 @@
 error LsusbCheckError = Invalid(message: Str)
 
 pure lsusb_failure(message: Str) -> LsusbCheckError {
-  return LsusbCheckError.Invalid(message: message)
+  return LsusbCheckError.Invalid(message:)
 }
 
 ## Retains numeric identity without depending on the installed USB ID database.

@@ -336,7 +336,7 @@ export proc read_source_text(
   max_bytes: Int = 65536,
   preserve_whitespace: Bool = false,
 ) [fs, error] -> SourceRead {
-  let raw = fs.root_read_result(root, source_path, max_bytes: max_bytes)?
+  let raw = fs.root_read_result(root, source_path, max_bytes:)?
   var state = source_observation_state(raw.state, raw.truncated)
   var value: Str? = null
   var raw_bytes_base64: Str? = null

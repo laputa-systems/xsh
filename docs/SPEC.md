@@ -763,7 +763,7 @@ postfix_op   = "." IDENT | "." "require" "(" type_expr ")" | "?." IDENT
 call_args    = "(" arg_list? ")" ;
 arg_list     = arg ("," arg)* ","? ;
 arg          = expr | named_arg ;
-named_arg    = IDENT ":" expr ;
+named_arg    = IDENT ":" expr? ;
 primary      = literal | IDENT | list_lit | record_lit | map_comp | if_expr | match_expr
              | retry_expr | run_form | spawn_form | wait_form | "(" expr ")" ;
 spawn_form   = "spawn" (run_form | expr) ;
@@ -774,6 +774,21 @@ match_expr   = "match" expr "{" match_expr_arm* "}" ;
 match_expr_arm = pattern guard? "=>" expr ","? ;
 retry_expr   = "retry" "[" (expr ("," expr)* ","?)? "]" block ;
 ```
+
+In expression-call argument lists, `name:` followed by a comma or closing
+parenthesis is shorthand for `name: name`. Whitespace, comments, and newlines
+may separate the colon and delimiter, including trailing commas in multiline
+calls. The
+implied identifier resolves in the caller's lexical scope at the written name;
+missing names receive the ordinary name-resolution error on that name. Punning
+preserves named-argument ordering, arity, defaults, duplicates, overloads,
+effects, and source-order evaluation. It adds no command-argument syntax or
+record-field lookup. Explicit named arguments and positional arguments can be
+mixed with puns wherever the ordinary call rules permit them.
+
+Formatting retains `name:`. `lint.prefer-named-argument-pun` replaces a checked
+`name: name` whose value resolves as the same lexical identifier, and retains
+comments by withholding fixes that would remove them.
 
 Literals:
 

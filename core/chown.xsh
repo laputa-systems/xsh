@@ -71,20 +71,20 @@ proc main(...argv: List[Str]) [fs, error] {
       fs.walk(target)
         |> each { |entry|
           if owner_name != "" {
-            fs.chown(entry.path, owner, follow_symlinks: follow_symlinks)?
+            fs.chown(entry.path, owner, follow_symlinks:)?
           }
 
           if group_name != "" {
-            fs.chgrp(entry.path, group_rec, follow_symlinks: follow_symlinks)?
+            fs.chgrp(entry.path, group_rec, follow_symlinks:)?
           }
         }
     } else {
       if owner_name != "" {
-        fs.chown(target, owner, follow_symlinks: follow_symlinks)?
+        fs.chown(target, owner, follow_symlinks:)?
       }
 
       if group_name != "" {
-        fs.chgrp(target, group_rec, follow_symlinks: follow_symlinks)?
+        fs.chgrp(target, group_rec, follow_symlinks:)?
       }
     }
   }

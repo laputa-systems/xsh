@@ -4,7 +4,7 @@ use context
 error SmbiosCheckError = Invalid(message: Str)
 
 pure smbios_check_failure(message: Str) -> SmbiosCheckError {
-  return SmbiosCheckError.Invalid(message: message)
+  return SmbiosCheckError.Invalid(message:)
 }
 
 type SmbiosSectionStatus = {state: Str, enumeration_succeeded: Bool}

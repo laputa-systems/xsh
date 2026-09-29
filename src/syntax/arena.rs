@@ -5181,6 +5181,8 @@ pub enum ArenaCallArgKind {
         value: ExprId,
         span: SpanId,
     },
+    /// Punned values are ordinary identifiers whose spans start on the argument
+    /// name. Explicit value spans start after the colon.
     Named {
         name: Name,
         value: ExprId,

@@ -1142,12 +1142,18 @@ impl<'a> Parser<'a> {
         })
     }
 
+    fn skip_call_argument_trivia(&mut self) {
+        while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
+            self.bump();
+        }
+    }
+
     pub(super) fn parse_call_args_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> crate::syntax::arena::ArenaRange {
         arena.begin_call_args();
-        self.skip_newlines();
+        self.skip_call_argument_trivia();
         while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
             if self.consume(TokenKindMatch::At).is_some() {
                 let start = self.previous_start();
@@ -1163,15 +1169,27 @@ impl<'a> Parser<'a> {
                     && self.peek_tag(1) == Some(TokenTag::Colon);
                 if named {
                     let start = self.current_start();
+                    let name_span = self.current_span();
                     let name = self.expect_ident("expected named argument").unwrap();
                     self.bump();
-                    let Some(value) = self.parse_precedence_arena_only(0, arena) else {
-                        break;
+                    let colon_end = self.previous_end();
+                    self.skip_call_argument_trivia();
+                    let (value, end) = if self.at(TokenKindMatch::Comma)
+                        || self.at(TokenKindMatch::RParen)
+                    {
+                        // The implied value is an ordinary lexical identifier; its
+                        // span stays on the written name for resolution diagnostics.
+                        (arena.push_ident_expr(name, name_span), colon_end)
+                    } else {
+                        let Some(value) = self.parse_precedence_arena_only(0, arena) else {
+                            break;
+                        };
+                        (value.id, self.previous_end())
                     };
                     arena.push_call_arg_input(ArenaCallArgInput::Named {
                         name,
-                        value: value.id,
-                        span: self.span(start, value.span.end()),
+                        value,
+                        span: self.span(start, end),
                     });
                 } else if let Some(expr) = self.parse_precedence_arena_only(0, arena) {
                     arena.push_call_arg_input(ArenaCallArgInput::Positional(expr.id));
@@ -1179,11 +1197,11 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
-            self.skip_newlines();
+            self.skip_call_argument_trivia();
             if self.consume(TokenKindMatch::Comma).is_none() {
                 break;
             }
-            self.skip_newlines();
+            self.skip_call_argument_trivia();
         }
         arena.finish_call_args()
     }

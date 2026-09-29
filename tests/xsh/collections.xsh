@@ -27,7 +27,7 @@ proc test_list_comprehension_with_record_destructuring() [error] {
 error FsError = NotFound(file: Path) : NotFound | PermissionDenied(file: Path, op: Str) : PermissionDenied
 
 proc missing(file: Path) [error] -> Result[Str, FsError] {
-  return Err(FsError.NotFound(file: file))
+  return Err(FsError.NotFound(file:))
 }
 
 proc test_nominal_error_payload_and_facet_patterns() [error] {

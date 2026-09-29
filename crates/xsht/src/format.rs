@@ -2581,10 +2581,13 @@ impl<'a> Writer<'a> {
                     output.push(')');
                 }
             }
-            ArenaCallArgKind::Named { name, value, .. } => {
+            ArenaCallArgKind::Named { name, value, span } => {
                 output.push_str(name.as_str().as_str());
-                output.push_str(": ");
-                self.write_expr_safe(*value, output);
+                output.push(':');
+                if self.arena.expr(*value).span.start() != self.arena.span(*span).start() {
+                    output.push(' ');
+                    self.write_expr_safe(*value, output);
+                }
             }
         }
     }
@@ -2609,10 +2612,13 @@ impl<'a> Writer<'a> {
                     output.push(')');
                 }
             }
-            ArenaCallArgKind::Named { name, value, .. } => {
+            ArenaCallArgKind::Named { name, value, span } => {
                 output.push_str(name.as_str().as_str());
-                output.push_str(": ");
-                self.write_expr_safe_multiline_preferred(*value, output);
+                output.push(':');
+                if self.arena.expr(*value).span.start() != self.arena.span(*span).start() {
+                    output.push(' ');
+                    self.write_expr_safe_multiline_preferred(*value, output);
+                }
             }
         }
     }

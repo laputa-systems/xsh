@@ -53,5 +53,5 @@ export proc execute(spec: contract.CommandSpec) [process, error, io] -> Result[U
   } else {
     "unknown process status"
   }
-  return Err(StageError.Failed(stage: spec.stage, target: spec.target, detail: detail))
+  return Err(StageError.Failed(stage: spec.stage, target: spec.target, detail:))
 }

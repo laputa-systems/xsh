@@ -384,7 +384,7 @@ proc test_fs_root_symlink_preserves_default_parents_with_named_overwrite(ctx: Te
   let root_dir = test.temp_dir(ctx, name: "root-symlink-overwrite-defaults")?
   let root = fs.open_root(root_dir)?
   let overwrite = false
-  fs.root_symlink(root, p"target", p"nested/link", overwrite: overwrite)?
+  fs.root_symlink(root, p"target", p"nested/link", overwrite:)?
   test.eq(fs.root_readlink(root, p"nested/link")?.display(), "target")?
   fs.close_root(root)?
 }

@@ -821,7 +821,7 @@ pure decimal_identifier(value: Str) -> Bool {
 }
 
 pure proc_stat_error(message: Str) -> Error {
-  return report.SystemReportError.InvalidProcStat(message: message)
+  return report.SystemReportError.InvalidProcStat(message:)
 }
 
 type ProcOptionalNumber = {value: Int?, issue_state: report.ObservationState?}

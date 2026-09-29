@@ -33,7 +33,7 @@ export proc require_root() [fs, error] -> Result[Path] {
 
   for required_path in required {
     if ! required_path.exists()? {
-      return Err(ContextError.WrongDirectory(root: root))
+      return Err(ContextError.WrongDirectory(root:))
     }
   }
 
