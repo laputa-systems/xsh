@@ -1806,3 +1806,28 @@ fn enum_migration_fix_retains_unrelated_checker_errors() {
     assert!(stderr.contains("check.type-mismatch"), "{stderr}");
     assert_eq!(source, fs::read_to_string(&entry).expect("read unchanged invalid source"));
 }
+
+#[test]
+fn signature_cli_safe_fix_preserves_process_results_and_is_idempotent() {
+    let root = TempDir::new().unwrap();
+    let fixture = root.path().join("entry.xsh");
+    fs::write(&fixture, "type Options = {jobs: Int, verbose: Bool}\nproc main(...argv: List[Str]) [error] {\n  let {jobs, verbose}: Options = cli.parse(argv, {jobs: {kind: \"Int\", default: 4, help: \"Int, default: 4\"}, verbose: {kind: \"Bool\", default: false, help: \"Bool, default: false\"}})?\n  let shown = Options(jobs:, verbose:)\n  print $shown.jobs $shown.verbose\n}\n").unwrap();
+    let run = |arguments: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht")).args(arguments)
+        .current_dir(root.path()).output().unwrap();
+    let cases = [vec![], vec!["--jobs=8", "--verbose"], vec!["--help"], vec!["--jobs=invalid"], vec!["--jobs=2", "--jobs=3"]];
+    let invoke = |arguments: &Vec<&str>| {
+        let mut command = vec!["trace", "entry.xsh", "--"];
+        command.extend(arguments.iter().copied());
+        let output = run(&command);
+        (output.status.code(), output.stdout)
+    };
+    let before = cases.iter().map(invoke).collect::<Vec<_>>();
+    let first = run(&["lint", "--fix", "entry.xsh"]);
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    let fixed = fs::read_to_string(&fixture).unwrap();
+    assert!(fixed.contains("cli main("), "{fixed}");
+    let second = run(&["lint", "--fix", "entry.xsh"]);
+    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    assert_eq!(fixed, fs::read_to_string(&fixture).unwrap());
+    assert_eq!(before, cases.iter().map(invoke).collect::<Vec<_>>());
+}

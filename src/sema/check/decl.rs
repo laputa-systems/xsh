@@ -283,6 +283,12 @@ impl Checker {
         let stmt_ids: Vec<StmtId> = program.module_statements(module).collect();
         self.check_test_declaration_names_arena(program, &stmt_ids, true);
         if !module.internal { self.check_public_docs(program, module.statements, &stmt_ids); }
+        for statement in &stmt_ids {
+            if matches!(program.arena.stmt(*statement).kind, ArenaStmtKind::CliMain(_)) {
+                self.error(program.arena.stmt(*statement).span,
+                    "`cli main` is only permitted in the entry module", "check.cli-entry");
+            }
+        }
         self.collect_type_imports_arena(program, stmt_ids.iter().copied());
         let mut names = FxHashSet::default();
         for stmt_id in &stmt_ids {

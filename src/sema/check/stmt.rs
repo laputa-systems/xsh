@@ -439,7 +439,7 @@ impl Checker {
             ArenaStmtKind::ErrorDef(def_id) => {
                 self.check_error_def_arena(arena, source, def_id);
             }
-            ArenaStmtKind::ProcDef(def_id) => {
+            ArenaStmtKind::ProcDef(def_id) | ArenaStmtKind::CliMain(def_id) => {
                 let def = arena.arena.function_def(def_id).clone();
                 self.check_function_arena(arena, source, &def, false);
             }

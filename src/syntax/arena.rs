@@ -516,6 +516,7 @@ pub struct ArenaDocComments {
     pub module: Option<Span>,
     pub module_ranges: Vec<(ArenaRange, Span)>,
     pub exports: Vec<(StmtId, Span)>,
+    pub cli_entries: Vec<(StmtId, Span)>,
     pub orphaned: Vec<Span>,
     pub duplicate_modules: Vec<Span>,
 }
@@ -621,6 +622,10 @@ impl ArenaProgram {
             .find_map(|(export, span)| (*export == statement).then_some(*span))
     }
 
+    pub fn cli_entry_doc(&self, statement: StmtId) -> Option<Span> {
+        self.docs.cli_entries.iter().find_map(|(entry, span)| (*entry == statement).then_some(*span))
+    }
+
     pub(crate) fn attach_doc_comments(&mut self, source: &str) {
         let statements = self.statement_ids().collect::<Vec<_>>();
         self.docs = doc_comments_for_statements(&self.arena, source, &statements);
@@ -656,15 +661,21 @@ fn doc_comments_for_statements(
             attached_export_doc_comment(source, span, &blocks).map(|doc| (statement, doc))
         })
         .collect::<Vec<_>>();
+    let cli_entries = statements.iter().copied().filter_map(|statement| {
+        if !matches!(arena.stmt(statement).kind, ArenaStmtKind::CliMain(_)) { return None; }
+        attached_export_doc_comment(source, arena.stmt(statement).span, &blocks).map(|doc| (statement, doc))
+    }).collect::<Vec<_>>();
     let attached_starts = module
         .into_iter()
         .chain(exports.iter().map(|(_, span)| *span))
+        .chain(cli_entries.iter().map(|(_, span)| *span))
         .map(Span::start)
         .collect::<Vec<_>>();
     ArenaDocComments {
         module,
         module_ranges: Vec::new(),
         exports,
+        cli_entries,
         orphaned: blocks
             .iter()
             .filter_map(|(_, span)| (!attached_starts.contains(&span.start())).then_some(*span))
@@ -989,6 +1000,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             self.docs.module_ranges.push((statements, module));
         }
         self.docs.exports.extend(docs.exports);
+        self.docs.cli_entries.extend(docs.cli_entries);
         self.docs.orphaned.extend(docs.orphaned);
         self.docs.duplicate_modules.extend(docs.duplicate_modules);
     }
@@ -2469,6 +2481,13 @@ impl<'a> ArenaProgramBuilder<'a> {
         id
     }
 
+    pub fn mark_last_function_as_cli_main(&mut self) {
+        let statement = self.pop_last_statement();
+        assert_eq!(self.lowerer.arena.stmt_tags[statement.index()], ArenaStmtTag::ProcDef);
+        self.lowerer.arena.stmt_tags[statement.index()] = ArenaStmtTag::CliMain;
+        self.push_current_statement(statement);
+    }
+
     pub fn push_while(&mut self, condition: ExprId, block: BlockId, span: Span) -> StmtId {
         let id = self
             .lowerer
@@ -3818,6 +3837,7 @@ impl AstArena {
                 value: expr_or_run_from_raw(data.rhs),
             },
             ArenaStmtTag::ProcDef => ArenaStmtKind::ProcDef(FunctionDefId::new(data.lhs as usize)),
+            ArenaStmtTag::CliMain => ArenaStmtKind::CliMain(FunctionDefId::new(data.lhs as usize)),
             ArenaStmtTag::PureDef => ArenaStmtKind::PureDef(FunctionDefId::new(data.lhs as usize)),
             ArenaStmtTag::StreamDef => {
                 ArenaStmtKind::StreamDef(FunctionDefId::new(data.lhs as usize))
@@ -4778,6 +4798,7 @@ pub enum ArenaStmtTag {
     AssignDiv,
     AssignRem,
     ProcDef,
+    CliMain,
     PureDef,
     StreamDef,
     SignalHook,
@@ -4857,6 +4878,8 @@ pub enum ArenaStmtKind {
         value: ArenaExprOrRun,
     },
     ProcDef(FunctionDefId),
+    /// A script entry body with proc effects and returns, never a callable name.
+    CliMain(FunctionDefId),
     PureDef(FunctionDefId),
     StreamDef(FunctionDefId),
     SignalHook(SignalHookId),
@@ -6143,6 +6166,10 @@ impl ArenaLowerer<'_> {
             ),
             ArenaStmtKind::ProcDef(id) => (
                 ArenaStmtTag::ProcDef,
+                ArenaStmtData::new(raw_function_def_id(id), 0),
+            ),
+            ArenaStmtKind::CliMain(id) => (
+                ArenaStmtTag::CliMain,
                 ArenaStmtData::new(raw_function_def_id(id), 0),
             ),
             ArenaStmtKind::PureDef(id) => (

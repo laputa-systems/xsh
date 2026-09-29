@@ -2,6 +2,9 @@
 #[path = "lint_callable_alias.rs"]
 mod lint_callable_alias;
 
+#[path = "lint_cli_entry.rs"]
+mod cli_entry;
+
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, BTreeSet};
 use xsh::diagnostic::{Diagnostic, FixHint, Label, Severity};
@@ -269,6 +272,7 @@ impl<'a> Linter<'a> {
         if native_test_file { linter.lint_legacy_test_declarations(&statements); }
         linter.lint_program(&statements);
         linter.lint_defer_block_helpers(&statements);
+        if include_reachability { linter.diagnostics.extend(cli_entry::signature_cli_migration(program, source)); }
         if include_reachability {
             linter.lint_declaration_reachability(program);
             linter.diagnostics.extend(lint_callable_alias::lint_callable_aliases(program, source));
@@ -452,6 +456,7 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Assign { target, .. } => self.collect_assigned_names_target(target),
             ArenaStmtKind::ProcDef(def)
+            | ArenaStmtKind::CliMain(def)
             | ArenaStmtKind::PureDef(def)
             | ArenaStmtKind::StreamDef(def) => {
                 self.collect_assigned_names_block(self.arena.function_def(def).body);
@@ -837,7 +842,7 @@ impl<'a> Linter<'a> {
                 self.lint_assign_target(target);
                 self.lint_expr_or_run(&value);
             }
-            ArenaStmtKind::ProcDef(def) => {
+            ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) => {
                 self.lint_proc_function(def, exported, stmt.span);
                 self.lint_effect_annotation(def, stmt.span);
             }
@@ -5429,7 +5434,7 @@ fn lazy_visit_stmt(
         ArenaStmtKind::Return(Some(v)) | ArenaStmtKind::Defer(v) | ArenaStmtKind::Yield(v) => {
             lazy_visit_expr_or_run(arena, &v, out);
         }
-        ArenaStmtKind::ProcDef(def) | ArenaStmtKind::PureDef(def) | ArenaStmtKind::StreamDef(def) => {
+        ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) | ArenaStmtKind::PureDef(def) | ArenaStmtKind::StreamDef(def) => {
             lazy_visit_block(arena, arena.function_def(def).body, out);
         }
         ArenaStmtKind::SignalHook(hook) => {
@@ -6688,6 +6693,7 @@ fn stmt_contains_read_text_lines_call(arena: &AstArena, stmt: StmtId) -> bool {
         | ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
         | ArenaStmtKind::PureDef(_)
         | ArenaStmtKind::StreamDef(_)
         | ArenaStmtKind::SignalHook(_)
@@ -7477,7 +7483,7 @@ fn top_level_phase(arena: &AstArena, stmt: StmtId, source: &str) -> TopLevelPhas
     match arena_stmt.kind {
         ArenaStmtKind::Use(_) => TopLevelPhase::Use,
         ArenaStmtKind::TypeDef(_) => TopLevelPhase::Type,
-        ArenaStmtKind::ProcDef(_) | ArenaStmtKind::PureDef(_) | ArenaStmtKind::SignalHook(_) => {
+        ArenaStmtKind::ProcDef(_) | ArenaStmtKind::CliMain(_) | ArenaStmtKind::PureDef(_) | ArenaStmtKind::SignalHook(_) => {
             TopLevelPhase::Function
         }
         ArenaStmtKind::Let {
@@ -8099,6 +8105,11 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
     fn scan_stmt(&mut self, stmt: StmtId) {
         match self.arena().stmt(stmt).kind {
             ArenaStmtKind::Export(inner) => self.scan_stmt(inner),
+            ArenaStmtKind::CliMain(def) => {
+                self.push_scope();
+                self.scan_callable(def);
+                self.pop_scope();
+            },
             ArenaStmtKind::Let {
                 target,
                 initializer,
@@ -8874,6 +8885,7 @@ fn stmt_flow(
         | ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
         | ArenaStmtKind::PureDef(_)
         | ArenaStmtKind::StreamDef(_)
         | ArenaStmtKind::SignalHook(_) => FlowSummary::fallthrough(),

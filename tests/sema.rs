@@ -3706,3 +3706,46 @@ fn private_proc_effects_module_helpers_use_declaring_module_identity() {
     let diagnostics = check_with_module("use helper\nproc caller() [] -> Int { helper.answer() }\n", "##! Effect helper.\nproc private_answer() -> Int { 42 }\n## Checked public boundary.\nexport proc answer() [] -> Int { private_answer() }\n");
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
+
+#[test]
+fn signature_cli_checks_body_without_registering_a_callable() {
+    let accepted = check("type Root = Path\ncli main(root: Root, jobs: Int = 4, ...paths: List[Path]) [error] { guard jobs > 0 else { return error.fail(\"positive\") }; print ${root.display()} ${paths.len()} }\n");
+    assert!(accepted.is_empty(), "{:?}", accepted);
+    let rejected = check("cli main() [] {}\nlet callable = main\nmain()\n");
+    assert!(rejected.iter().any(|diagnostic| diagnostic.as_deref() == Some("check.unresolved-name")), "{:?}", rejected);
+    let effects = check("cli main() [] { fs.read_text(p\"file\")? }\n");
+    assert!(effects.iter().any(|diagnostic| diagnostic.as_deref() == Some("check.effect-violation")), "{:?}", effects);
+}
+
+#[test]
+fn signature_cli_rejects_imported_entries_and_unprepared_defaults() {
+    let source = "##! Imported entry.\ncli main() [] {}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(1), source);
+    let entry = Parser::parse_source_arena_only(SourceId::new(0), "use module\n");
+    let output = Checker::check_arena_with_modules((&entry.arena, "use module\n"), &[("module", "module", &parsed.arena, source)]);
+    assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.cli-entry")), "{:?}", output.diagnostics);
+    for source in ["let jobs = 4\ncli main(jobs: Int = jobs) [] {}\n", "cli main(verbose: Bool = false, root: Path) [] {}\n", "type Count = UInt\ncli main(count: Count = -1) [] {}\n"] {
+        let output = check(source);
+        assert!(output.iter().any(|diagnostic| diagnostic.as_deref() == Some("check.cli-entry")), "{source}: {output:?}");
+    }
+}
+
+#[test]
+fn signature_cli_compact_metadata_keeps_typed_frames_without_callable_entries() {
+    let source = "type Count = UInt\nconst DEFAULT_COUNT = 4\ncli main(count: Count = DEFAULT_COUNT) [] { let value: Int = count + 1; print $value }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    assert_eq!(declarations.function_defs, 1);
+    assert!(declarations.procs.is_empty());
+    assert!(declarations.pures.is_empty());
+    assert!(declarations.streams.is_empty());
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    for (expression, ty) in compact.expr_types {
+        assert_eq!(checked.expr_types.get(&parsed.arena.arena.expr(expression).span), Some(&ty));
+    }
+}

@@ -820,3 +820,14 @@ Broaden with
 `tests/xsh/stdlib/fs_root_readlink_result.xsh`. Tool boundaries use
 `cargo test -p xsht --test integration fs_root_receiver --features native-tests`
 and `cargo test -p xsht --test api api_fs_root --features native-tests`.
+## Signature CLI entries
+
+`target/debug/xsht test --jobs 1 tests/xsh/signature-cli.xsh` covers typed
+positionals, options, repeated defaults, rest operands, aliases, prepared
+constants, help, and declaration rejection. The process and module initializer
+boundary uses `cargo test -p xsh --test integration signature_cli -- --test-threads=1`:
+help exits 0, invalid argv exits 2, and filesystem markers remain absent before
+successful dispatch. `cargo test -p xsht --test integration signature_cli`
+covers literal-schema migration, comment preservation, policy rejection, and
+fix convergence. Ordinary explicit CLI parsing remains covered by
+`tests/xsh/stdlib/cli.xsh`.

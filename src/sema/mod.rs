@@ -1,5 +1,6 @@
 pub mod arguments;
 pub mod check;
+pub(crate) mod cli_entry;
 pub mod constants;
 pub mod constraints;
 pub mod records;

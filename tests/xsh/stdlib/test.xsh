@@ -62,3 +62,16 @@ run true ?
 test test_skip_function_is_covered {
   test.skip("covered skip")
 }
+
+test test_native_script_arguments_preserve_a_leading_separator [error] { |ctx|
+  let source = r"""print ${args.join(",")}"""
+  let script = test.run_script(ctx, source, ["--", "one"])?
+  test.ok(script.success, script.stderr)?
+  test.eq(script.stdout, "--,one\n")?
+  let explicit = test.run_xsh(ctx, source, ["--"], ["--", "one"])?
+  test.ok(explicit.success, explicit.stderr)?
+  test.eq(explicit.stdout, "--,one\n")?
+  let traced = test.run_xsht_trace(ctx, source, [], ["--", "one"])?
+  test.ok(traced.success, traced.stderr)?
+  test.eq(traced.stdout, "--,one\n")?
+}

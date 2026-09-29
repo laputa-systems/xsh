@@ -74,7 +74,15 @@ impl<'a> Parser<'a> {
                 self.parse_export_arena_only(start, arena)
             }
             (TokenTag::Ident | TokenTag::ProcIdent, _) => {
-                if self.current_name().is_some_and(|name| name == "test")
+                if self.current_name().is_some_and(|name| name == "cli")
+                    && self.peek_tag(1) == Some(TokenTag::Ident)
+                    && self.peek_tag(2) == Some(TokenTag::LParen)
+                {
+                    self.parse_function_arena_only(start, true, arena)?;
+                    arena.mark_last_function_as_cli_main();
+                    if self.block_depth != 0 { self.diagnostic_at(self.span(start, self.previous_end()), "`cli main` must be declared at the entry module's top level", "parse.cli-entry-scope"); }
+                    Some(())
+                } else if self.current_name().is_some_and(|name| name == "test")
                     && matches!(self.peek_tag(1), Some(TokenTag::Ident | TokenTag::ProcIdent))
                 {
                     self.parse_test_declaration_arena_only(start, arena)

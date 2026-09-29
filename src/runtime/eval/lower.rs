@@ -1879,7 +1879,7 @@ fn compact_stmt_contains_function_def(
         ArenaStmtKind::Export(inner) => {
             compact_stmt_contains_function_def(program, inner, function_id)
         }
-        ArenaStmtKind::PureDef(id) | ArenaStmtKind::ProcDef(id) | ArenaStmtKind::StreamDef(id) => {
+        ArenaStmtKind::PureDef(id) | ArenaStmtKind::ProcDef(id) | ArenaStmtKind::CliMain(id) | ArenaStmtKind::StreamDef(id) => {
             id == function_id
         }
         _ => false,
@@ -2397,7 +2397,7 @@ fn collect_compact_function_def(
                 definition_span: program.arena.stmt(id).span,
             });
         }
-        ArenaStmtKind::ProcDef(def) => {
+        ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) => {
             let name = program.arena.function_def(def).name;
             functions.push(CompactFunctionDef {
                 key: compact_function_key(namespace, name),
@@ -2566,6 +2566,7 @@ fn compact_stmt_kind_index(kind: ArenaStmtKind) -> usize {
         ArenaStmtKind::Var { .. } => 5,
         ArenaStmtKind::Assign { .. } => 6,
         ArenaStmtKind::ProcDef(_) => 7,
+        ArenaStmtKind::CliMain(_) => 29,
         ArenaStmtKind::PureDef(_) => 8,
         ArenaStmtKind::StreamDef(_) => 9,
         ArenaStmtKind::SignalHook(_) => 10,
@@ -2601,6 +2602,7 @@ fn compact_stmt_kind_label(kind: ArenaStmtKind) -> &'static str {
         ArenaStmtKind::Var { .. } => "var",
         ArenaStmtKind::Assign { .. } => "assign",
         ArenaStmtKind::ProcDef(_) => "proc_def",
+        ArenaStmtKind::CliMain(_) => "cli_main",
         ArenaStmtKind::PureDef(_) => "pure_def",
         ArenaStmtKind::StreamDef(_) => "stream_def",
         ArenaStmtKind::SignalHook(_) => "signal_hook",
@@ -3001,7 +3003,7 @@ fn compact_module_exports_for_use(
     Some(exports)
 }
 
-fn lower_literal_constant(value: &crate::sema::constants::LiteralConstant, enums: Option<&crate::sema::wire_enums::PreparedWireEnums>) -> Option<LoweredValue> {
+pub(super) fn lower_literal_constant(value: &crate::sema::constants::LiteralConstant, enums: Option<&crate::sema::wire_enums::PreparedWireEnums>) -> Option<LoweredValue> {
     use crate::sema::constants::LiteralConstant as C;
     Some(match value {
         C::Regex(literal) => LoweredValue::Regex(Box::new(RegexValue { pattern: literal.pattern.to_string(), regex: literal.prepared.get()?.as_ref().ok()?.clone() })),
@@ -3188,7 +3190,7 @@ fn compact_body_tail_command_blocker(
 }
 
 const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 9];
-const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 29];
+const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 30];
 const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 45];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
@@ -3383,7 +3385,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 self.top_level_known = previous_known;
             }
-            ArenaStmtKind::ProcDef(def) => {
+            ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) => {
                 self.output.functions += 1;
                 let previous_known = std::mem::replace(
                     &mut self.top_level_known,
@@ -3585,7 +3587,10 @@ impl CompactLowerConstructProbe<'_, '_> {
             };
             let expected_default = compact_runtime_type_in_namespace(&self.program.arena, param.ty, self.declarations, self.current_namespace);
             let default = match param.default {
-                Some(expr) => match lower_const_param_default(&self.program.arena, expr, kind, Some(&expected_default)) {
+                Some(expr) => match self.declarations.prepared_constants.analyze_expression(&self.program.arena, expr)
+                    .map(|value| value.in_type(&expected_default)).as_ref().and_then(|value| lower_literal_constant(value, Some(&self.declarations.wire_enums)))
+                    .filter(|value| lowered_value_matches(kind, value))
+                    .or_else(|| lower_const_param_default(&self.program.arena, expr, kind, Some(&expected_default))) {
                     Some(default) => Some(default),
                     None => {
                         self.last_blocker_detail = Some((
@@ -13243,6 +13248,7 @@ fn construct_top_level_stmt_is_skippable(program: &ArenaProgram, id: StmtId) -> 
         ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
         | ArenaStmtKind::PureDef(_)
         | ArenaStmtKind::StreamDef(_) => true,
         _ => false,

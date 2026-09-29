@@ -781,3 +781,14 @@ its shared slot; independently opened children retain their own handles.
 
 `legacy_fs_root_method` maps removed spellings for checker diagnostics and
 `lint.fs-root-receiver` only. It adds no executable module alias.
+Signature CLI entries use `ArenaStmtKind::CliMain` and the ordinary proc body,
+parameter, return, effect, and indexed frame machinery. They are excluded from
+callable declaration tables. `sema::cli_entry::validate_cli_entry` resolves
+parameter shapes and consumes `PreparedConstants` for defaults;
+`RecordConstructors::cli_parser_type` retains unsigned parsing through aliases.
+`modules::cli::PreparedSignatureCli` derives the existing strict schema and
+parser bindings, preserving declaration order for positional arguments while
+ordinary explicit schemas retain sorted order. `CompactIndexedRunPlan` carries
+the prepared schema, and the evaluator parses argv before executing any driver
+step, including imported module initialization. Help and usage errors use the
+existing CLI stop handling before an entry frame is invoked.

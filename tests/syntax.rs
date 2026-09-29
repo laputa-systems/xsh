@@ -3933,3 +3933,18 @@ fn parser_and_formatter_preserve_wire_enum_constant_expressions() {
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
+
+#[test]
+fn signature_cli_retains_a_distinct_entry_declaration_and_contextual_cli_calls() {
+    let source = "cli main(root: Path, jobs: Int = 4) [fs, error] { print $root $jobs }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let root = parsed.arena.statement_ids().collect::<Vec<_>>();
+    assert!(matches!(parsed.arena.arena.stmt(root[0]).kind, xsh::frontend::syntax::arena::ArenaStmtKind::CliMain(_)));
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty());
+    assert!(first.formatted.starts_with("cli main("), "{}", first.formatted);
+    assert_eq!(first.formatted, Formatter::new().format_source(SourceId::new(0), &first.formatted).formatted);
+    let ordinary = Parser::parse_source_arena_only(SourceId::new(0), "let parsed = cli.parse(args, {})?\n");
+    assert!(ordinary.diagnostics.is_empty(), "{:?}", ordinary.diagnostics);
+}

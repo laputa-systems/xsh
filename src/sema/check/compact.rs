@@ -24,6 +24,7 @@ pub struct CompactDeclOutput {
     pub record_constructor_types: FxHashMap<ExprId, Type>,
     pub prepared_constants: crate::sema::constants::PreparedConstants,
     pub wire_enums: crate::sema::wire_enums::PreparedWireEnums,
+    pub(crate) cli_entry: Option<crate::sema::cli_entry::CliEntryPlan>,
     pub diagnostics: Vec<Diagnostic>,
     pub function_return_types: BTreeMap<crate::source::Span, Type>,
     pub function_effect_facts: BTreeMap<super::EffectDeclarationId, super::FunctionEffectFact>,
@@ -136,6 +137,12 @@ impl Checker {
                 output.prepared_constants.analyze_expression(&program.arena, expr));
             output.wire_enums = wire_enums;
             collector.diagnostics.extend(wire_diagnostics);
+            let (entry, diagnostics) = crate::sema::cli_entry::validate_cli_entry(program,
+                |ty| output.record_constructors.resolve_type(&program.arena, ty, None),
+                |ty| output.record_constructors.cli_parser_type(&program.arena, ty),
+                |expr| output.prepared_constants.analyze_expression(&program.arena, expr));
+            output.cli_entry = entry;
+            collector.diagnostics.extend(diagnostics);
             output.diagnostics = collector.diagnostics;
             if let Some(checked) = inferred {
                 output.diagnostics.extend(checked.diagnostics.into_iter().filter(|diagnostic|
@@ -207,6 +214,10 @@ impl CompactDeclCollector {
             ArenaStmtKind::ErrorDef(def) => self.collect_error_def(program, def, span, namespace),
             ArenaStmtKind::ProcDef(def) => {
                 self.collect_function_def(program, def, CompactFunctionKind::Proc, span, namespace);
+            }
+            ArenaStmtKind::CliMain(def) => {
+                self.output.function_defs += 1;
+                self.output.params += program.arena.params(program.arena.function_def(def).params).len();
             }
             ArenaStmtKind::PureDef(def) => {
                 self.collect_function_def(program, def, CompactFunctionKind::Pure, span, namespace);
@@ -771,6 +782,7 @@ impl CompactBodyProbe<'_> {
                 }
             }
             ArenaStmtKind::ProcDef(def)
+            | ArenaStmtKind::CliMain(def)
             | ArenaStmtKind::PureDef(def)
             | ArenaStmtKind::StreamDef(def) => {
                 self.output.supported_statements += 1;

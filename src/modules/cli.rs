@@ -35,6 +35,89 @@ struct OptionSpec {
     file: bool,
     dir: bool,
     default: Option<Value>,
+    positional_order: Option<usize>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SignatureParameter {
+    pub name: String,
+    pub type_name: String,
+    pub default: Option<Value>,
+    pub rest: bool,
+}
+
+/// A signature-derived schema uses the same conversion, help and usage-error
+/// policy as an explicit strict CLI schema. Its only ordering override is the
+/// declaration order of positional parameters.
+#[derive(Clone, Debug)]
+pub(crate) struct PreparedSignatureCli {
+    specs: BTreeMap<String, OptionSpec>,
+    parameters: Vec<SignatureParameter>,
+    description: String,
+    pub span: Span,
+}
+
+impl PreparedSignatureCli {
+    pub(crate) fn prepare(parameters: Vec<SignatureParameter>, description: String, span: Span) -> Result<Self, RuntimeError> {
+        let mut schema = RecordMap::new();
+        for parameter in &parameters {
+            let mut descriptor = RecordMap::from([
+                (Arc::from("kind"), Value::Str(parameter.type_name.clone().into())),
+                (Arc::from("positional"), Value::Bool(parameter.default.is_none())),
+                (Arc::from("required"), Value::Bool(parameter.default.is_none() && !parameter.rest)),
+                (Arc::from("help"), Value::Str(signature_parameter_help(parameter).into())),
+            ]);
+            if parameter.rest {
+                descriptor.insert(Arc::from("form"), Value::Str(format!("...{}", parameter.name.to_ascii_uppercase()).into()));
+            }
+            if let Some(default) = &parameter.default { descriptor.insert(Arc::from("default"), default.clone()); }
+            schema.insert(Arc::from(parameter.name.as_str()), Value::Record(descriptor));
+        }
+        let mut specs = parse_schema(schema, span)?;
+        for (index, parameter) in parameters.iter().enumerate() {
+            specs.get_mut(&parameter.name).expect("prepared signature has a schema entry").positional_order = Some(index);
+        }
+        long_option_specs(&specs, span)?;
+        short_option_specs(&specs, span)?;
+        Ok(Self { specs, parameters, description, span })
+    }
+
+    pub(crate) fn parse(&self, argv: &[String], command: &str) -> Result<Vec<Value>, RuntimeError> {
+        let usage = usage_text(&self.specs, command);
+        let usage = if self.description.is_empty() { usage } else { format!("{}\n\n{usage}", self.description) };
+        if argv_requests_help(argv, &self.specs, ParsePolicy::Strict) { return Err(cli_help_error(usage, self.span)); }
+        let parsed = parse_values(argv, &self.specs, &RecordMap::new(), self.span, ParsePolicy::Strict)
+            .map_err(|error| cli_usage_error(error, usage))?;
+        let mut values = parsed.values.into_iter().collect::<BTreeMap<_, _>>();
+        let mut arguments = Vec::new();
+        for parameter in &self.parameters {
+            let value = values.remove(parameter.name.as_str()).expect("checked CLI schema supplies every parameter");
+            if parameter.rest {
+                let Value::List(values) = value else { return Err(cli_error("rest parameter did not produce a List", self.span)); };
+                arguments.extend(values);
+            } else { arguments.push(value); }
+        }
+        Ok(arguments)
+    }
+}
+
+fn signature_parameter_help(parameter: &SignatureParameter) -> String {
+    let mut help = parameter.type_name.clone();
+    if let Some(default) = &parameter.default {
+        let text = match default {
+            Value::List(values) => format!("[{}]", values.iter().filter_map(value_choice_text).collect::<Vec<_>>().join(", ")),
+            Value::Str(text) => format!("{text:?}"),
+            value => value_choice_text(value).unwrap_or_default(),
+        };
+        help.push_str(&format!(", default: {text}"));
+    }
+    help
+}
+
+fn positional_specs(specs: &BTreeMap<String, OptionSpec>) -> Vec<(&String, &OptionSpec)> {
+    let mut positionals = specs.iter().filter(|(_, spec)| spec.positional).collect::<Vec<_>>();
+    positionals.sort_by_key(|(_, spec)| spec.positional_order);
+    positionals
 }
 
 #[derive(Clone, Debug, Default)]
@@ -513,6 +596,7 @@ fn parse_descriptor(name: &str, descriptor: Value, span: Span) -> Result<OptionS
                 file: false,
                 dir: false,
                 default: None,
+                positional_order: None,
             })
         }
         Value::Record(fields) => {
@@ -623,6 +707,7 @@ fn parse_descriptor(name: &str, descriptor: Value, span: Span) -> Result<OptionS
                 file,
                 dir,
                 default,
+                positional_order: None,
             })
         }
         value => Err(cli_error(
@@ -1200,8 +1285,7 @@ fn parse_values(
     span: Span,
     policy: ParsePolicy,
 ) -> Result<ParsedValues, RuntimeError> {
-    let positionals: Vec<(&String, &OptionSpec)> =
-        specs.iter().filter(|(_, spec)| spec.positional).collect();
+    let positionals = positional_specs(specs);
     let long_specs = long_option_specs(specs, span)?;
     let short_specs = short_option_specs(specs, span)?;
     let mut positional_index = 0usize;
@@ -1267,7 +1351,7 @@ fn parse_values(
             };
             let key = normalize_arg_name(raw_name);
             let name = long_specs.get(&key).cloned().unwrap_or_else(|| key.clone());
-            let Some(spec) = specs.get(&name) else {
+            let Some(spec) = specs.get(&name).filter(|spec| !spec.positional || spec.positional_order.is_none()) else {
                 return Err(cli_error(
                     format!("unknown argument at argv[{index}]: --{raw_name}"),
                     span,
@@ -1847,7 +1931,7 @@ fn usage_text_with_policy(
     policy: ParsePolicy,
 ) -> String {
     let mut usage = format!("usage: {command}");
-    for (name, spec) in specs {
+    for (name, spec) in positional_specs(specs) {
         if spec.hidden {
             continue;
         }
@@ -1871,9 +1955,9 @@ fn usage_text_with_policy(
         .iter()
         .filter(|(_, spec)| !spec.hidden && !spec.positional)
         .collect::<Vec<_>>();
-    let visible_positionals = specs
-        .iter()
-        .filter(|(_, spec)| !spec.hidden && spec.positional && spec.help.is_some())
+    let visible_positionals = positional_specs(specs)
+        .into_iter()
+        .filter(|(_, spec)| !spec.hidden && spec.help.is_some())
         .collect::<Vec<_>>();
     usage.push_str(" [OPTIONS]");
     let mut output = usage;

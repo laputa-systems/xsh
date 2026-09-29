@@ -415,6 +415,39 @@ impl RecordConstructors {
         self.instantiate(arena, definition, &[], &mut Vec::new())
     }
 
+    /// CLI conversion retains the unsigned parser spelling even though UInt
+    /// shares the checker's Int value representation. Aliases are followed in
+    /// their defining module without reading executable bindings.
+    pub(crate) fn cli_parser_type(&self, arena: &AstArena, ty: TypeExprId) -> Option<String> {
+        self.cli_parser_type_inner(arena, ty, None, 0)
+    }
+
+    fn cli_parser_type_inner(&self, arena: &AstArena, ty: TypeExprId, namespace: Option<Name>, depth: usize) -> Option<String> {
+        if depth > self.definitions.len() + arena.type_expr_tags.len() { return None; }
+        let data = arena.type_expr_data[ty.index()];
+        let definition = match arena.type_expr_tags[ty.index()] {
+            ArenaTypeExprTag::Named => {
+                let name = Name::from_symbol(Symbol::from_raw(data.lhs));
+                if matches!(name.as_str().as_str(), "Str" | "Int" | "UInt" | "Bool" | "Path" | "Duration") {
+                    return Some(name.to_string());
+                }
+                *self.definitions.get(&(namespace, name))?
+            }
+            ArenaTypeExprTag::Qualified => {
+                let alias = Name::from_symbol(Symbol::from_raw(data.lhs));
+                let name = Name::from_symbol(Symbol::from_raw(data.rhs));
+                let owner = *self.imports.get(&(namespace, alias))?;
+                if !self.exports.contains(&(Some(owner), name)) { return None; }
+                *self.definitions.get(&(Some(owner), name))?
+            }
+            ArenaTypeExprTag::List => return Some(format!("List[{}]", self.cli_parser_type_inner(arena,
+                TypeExprId::from_index(data.lhs as usize), namespace, depth + 1)?)),
+            _ => return None,
+        };
+        let ArenaTypeDefBody::Alias(target) = arena.type_def(definition).body else { return None; };
+        self.cli_parser_type_inner(arena, target, self.namespace(definition), depth + 1)
+    }
+
     pub fn schema_type(&self, arena: &AstArena, id: TypeDefId) -> Type {
         self.instantiate(arena, id, &[], &mut Vec::new()).unwrap_or(Type::Invalid)
     }

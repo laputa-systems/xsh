@@ -617,7 +617,7 @@ fn collect_statement(
     match statement.kind {
         ArenaStmtKind::Use(_) | ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_) => {}
         ArenaStmtKind::Export(inner) => collect_statement(program, sources, inner, by_source),
-        ArenaStmtKind::ProcDef(def) | ArenaStmtKind::PureDef(def) => {
+        ArenaStmtKind::ProcDef(def) | ArenaStmtKind::CliMain(def) | ArenaStmtKind::PureDef(def) => {
             add_proc_definition(program, sources, statement.span, def, by_source);
         }
         ArenaStmtKind::StreamDef(def) => {

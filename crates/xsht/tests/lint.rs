@@ -4128,3 +4128,41 @@ fn private_proc_effects_removal_retains_bounds_docs_and_entry_contracts() {
     }
 
 }
+
+#[test]
+fn signature_cli_literal_schema_fix_preserves_bindings_and_converges() {
+    let source = "type Options = {jobs: Int, verbose: Bool}\nproc main(...argv: List[Str]) [error] {\n  let {jobs, verbose}: Options = cli.parse(argv, {jobs: {kind: \"Int\", default: 4, help: \"Int, default: 4\"}, verbose: {kind: \"Bool\", default: false, help: \"Bool, default: false\"}})?\n  print $jobs $verbose\n}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-signature-cli")).expect("exact literal schema migration");
+    let fix = diagnostic.fix_hints.first().expect("safe fix");
+    let mut fixed = source.to_string();
+    fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+    assert!(fixed.contains("cli main(jobs: Int = 4, verbose: Bool = false)"), "{fixed}");
+    assert_parse_check_standalone("signature CLI", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter()
+        .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-signature-cli")));
+}
+
+#[test]
+fn signature_cli_migration_retains_comments_and_advanced_cli_policy() {
+    let simple = "type Options = {jobs: Int}\nproc main(...argv: List[Str]) [error] {\n  # Preserve the options explanation.\n  let {jobs}: Options = cli.parse(argv, {jobs: {kind: \"Int\", default: 4, help: \"Int, default: 4\"}})?\n  print $jobs\n}\n";
+    let parsed = parse_lint_source(simple);
+    let diagnostics = Linter::lint(&parsed.arena, simple, LintOptions::default()).diagnostics;
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-signature-cli")).unwrap();
+    assert!(diagnostic.fix_hints.is_empty());
+    for source in [simple.replace("# Preserve the options explanation.\n  ", "").replace("kind: \"Int\"", "kind: \"Int\", short: \"j\""),
+        simple.replace("print $jobs", "print ${argv.len()} $jobs"),
+        format!("let initialized = time.now()\n{simple}"),
+        simple.replace("Int, default: 4", "Number of workers"),
+        simple.replace("default: 4", "default: cpu.count()"),
+    ] {
+        let parsed = parse_lint_source(&source);
+        let diagnostics = Linter::lint(&parsed.arena, &source, LintOptions::default()).diagnostics;
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-signature-cli")), "{source}: {diagnostics:?}");
+    }
+}

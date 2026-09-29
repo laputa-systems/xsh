@@ -182,7 +182,7 @@ impl Checker {
             let statement = program.arena.stmt(StmtId::from_index(raw));
             let (definition, ordinary) = match statement.kind {
                 ArenaStmtKind::ProcDef(definition) => (definition, true),
-                ArenaStmtKind::StreamDef(definition) => (definition, false),
+                ArenaStmtKind::StreamDef(definition) | ArenaStmtKind::CliMain(definition) => (definition, false),
                 _ => continue,
             };
             {

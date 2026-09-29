@@ -117,6 +117,13 @@ pub(crate) struct CompactIndexedRunPlan {
     script_span: Span,
     auto_main_required: bool,
     compact_auto_main_args: Vec<Value>,
+    signature_cli: Option<SignatureCliRunPlan>,
+}
+
+#[derive(Clone)]
+struct SignatureCliRunPlan {
+    parser: crate::modules::cli::PreparedSignatureCli,
+    argv: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -283,7 +290,7 @@ impl Default for CompactLowerConstructProbeOutput {
 pub const COMPACT_TOP_LEVEL_BLOCKER_KIND_COUNT: usize = 11;
 pub const COMPACT_FUNCTION_BLOCKER_KIND_COUNT: usize = 6;
 pub const COMPACT_TYPE_EXPR_TAG_COUNT: usize = 9;
-pub const COMPACT_STMT_KIND_COUNT: usize = 29;
+pub const COMPACT_STMT_KIND_COUNT: usize = 30;
 pub const COMPACT_EXPR_KIND_COUNT: usize = 45;
 pub const COMPACT_CALL_BLOCKER_KIND_COUNT: usize = 6;
 pub const COMPACT_COMMAND_BLOCKER_KIND_COUNT: usize = 6;
@@ -3934,8 +3941,36 @@ impl Evaluator {
                 "compact.statement-count",
             ));
         }
-        let auto_main_required =
-            compact_root_proc_main_requires_auto_call_indexed(program, &root, &indexed)?;
+        let signature_cli = declarations.cli_entry.as_ref().map(|entry| {
+            debug_assert_eq!(program.arena.function_def(entry.definition).name, "main");
+            let parameters = entry.parameters.iter().map(|parameter| {
+                let default = parameter.default.as_ref().map(|constant| {
+                    debug_assert!(constant.matches_data_type(&parameter.ty));
+                    lower::lower_literal_constant(constant, Some(&declarations.wire_enums)).map(LoweredValue::into_value)
+                        .ok_or_else(|| compact_lowerability_diagnostic(program.arena.stmt(entry.statement).span,
+                            "a prepared CLI default cannot be represented", "compact.cli-default"))
+                }).transpose()?;
+                Ok(crate::modules::cli::SignatureParameter { name: parameter.name.to_string(),
+                    type_name: parameter.parser_type.clone(), default, rest: parameter.rest })
+            }).collect::<Result<Vec<_>, Diagnostic>>()?;
+            let span = program.arena.stmt(entry.statement).span;
+            let description = program.cli_entry_doc(entry.statement).or_else(|| program.module_doc_for(program.statements))
+                .and_then(|doc| self.sources.get(doc.source_id).and_then(|source| source.text().get(doc.start()..doc.end())))
+                .map(|text| text.lines().map(|line| line.trim_start().trim_start_matches('#').trim_start_matches('!').trim_start())
+                    .collect::<Vec<_>>().join("\n")).unwrap_or_default();
+            let parser = crate::modules::cli::PreparedSignatureCli::prepare(parameters, description, span)
+                .map_err(|error| compact_lowerability_diagnostic(span, &error.message, "check.cli-entry"))?;
+            let argv = self.lookup(Name::intern("args")).and_then(|binding| match &binding.value {
+                Value::List(values) => values.iter().map(|value| match value {
+                    Value::Str(text) => Some(text.to_string()), _ => None,
+                }).collect::<Option<Vec<_>>>(),
+                _ => None,
+            }).ok_or_else(|| compact_lowerability_diagnostic(span,
+                "incoming script arguments must be a List[Str]", "compact.cli-args"))?;
+            Ok(SignatureCliRunPlan { parser, argv })
+        }).transpose()?;
+        let auto_main_required = signature_cli.is_some()
+            || compact_root_proc_main_requires_auto_call_indexed(program, &root, &indexed)?;
         if auto_main_required
             && !indexed.contains_function(
                 LoweredFunctionKey::Name(Name::intern("main")),
@@ -3953,7 +3988,7 @@ impl Evaluator {
                 "compact.unlowered-main",
             ));
         }
-        if auto_main_required {
+        if auto_main_required && signature_cli.is_none() {
             let span = root
                 .iter()
                 .copied()
@@ -3979,7 +4014,7 @@ impl Evaluator {
         }
         let indexed = Arc::new(indexed);
         self.indexed_program = Some(Arc::clone(&indexed));
-        let compact_auto_main_args = if auto_main_required {
+        let compact_auto_main_args = if auto_main_required && signature_cli.is_none() {
             self.compact_auto_main_args().ok_or_else(|| {
                 compact_lowerability_diagnostic(
                     zero_span(),
@@ -4024,6 +4059,7 @@ impl Evaluator {
             statements,
             auto_main_required,
             compact_auto_main_args,
+            signature_cli,
         })
     }
 
@@ -4159,7 +4195,23 @@ impl Evaluator {
         let mut last_value = Value::Unit;
         let mut diagnostics = Vec::new();
         let mut compact_indexed_defers = Vec::new();
+        let mut main_arguments = plan.compact_auto_main_args.clone();
+        if let Some(cli) = &plan.signature_cli {
+            match cli.parser.parse(&cli.argv, &self.command_name) {
+                Ok(arguments) => main_arguments = arguments,
+                Err(error) => {
+                    let error = Value::Error(Box::new(error));
+                    if let Some(stop_status) = self.handle_cli_parse_stop(&error) { status = stop_status; }
+                    else {
+                        diagnostics.push(runtime_diagnostic(cli.parser.span, "CLI argument binding failed", "runtime.cli-args"));
+                        traceback = Some(self.traceback_for_value(cli.parser.span, "cli.parse", &error));
+                    }
+                    stopped = true;
+                }
+            }
+        }
         for (index, stmt) in plan.statements.iter().enumerate() {
+            if stopped { break; }
             let span = stmt.span;
             if let Err(error) = self.service_pending_signal(span) {
                 let pending_traceback = self.pending_traceback.take();
@@ -4376,7 +4428,7 @@ impl Evaluator {
             let call_result = self.call_indexed_direct(
                 LoweredFunctionKey::Name(Name::intern("main")),
                 LoweredFunctionKind::Proc,
-                &plan.compact_auto_main_args,
+                &main_arguments,
                 zero,
             );
             if let Some(call_result) = call_result {
@@ -6734,6 +6786,7 @@ fn compact_top_level_stmt_is_skippable(
         ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::ProcDef(_)
+        | ArenaStmtKind::CliMain(_)
         | ArenaStmtKind::PureDef(_)
         | ArenaStmtKind::StreamDef(_) => true,
         _ => false,

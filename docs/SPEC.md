@@ -431,6 +431,35 @@ instead of letting the script fail only when it is run. An empty `main()`,
 fixed scalar or defaulted parameters, and a `main` that also declares a spread
 parameter remain valid.
 
+`cli main(parameters) [effects] -> Return { ... }` declares a script entry,
+with the ordinary proc effect/return rules and default `Result[Unit]` return.
+It is neither callable nor exportable. Exactly one may occur at the entry
+module's top level, and it cannot coexist with another `main` declaration.
+Required scalar parameters are positional in declaration order; parameters with
+prepared constant defaults are named options, and a final rest `List[Str]` or
+`List[Path]` receives remaining operands. Required positionals precede options.
+The supported scalar parsers are `Str`, `Int`, `UInt`, `Bool`, `Path`, and
+`Duration`; aliases retain their resolved parser, including unsigned validation.
+Snake case option names map to kebab case.
+
+The entry derives the existing strict CLI schema and parser. Boolean options
+accept bare switches and explicit Boolean values; other options accept attached
+or following values. Defaulted Lists append repeated occurrences to their
+prepared default, preserving the existing repeated-option policy. `--` preserves
+remaining operand order, duplicate scalar options and unknown options are errors,
+and `-h`/`--help` are reserved. Path conversion performs no existence check.
+Help includes parameter types/defaults and applicable declaration/module docs.
+
+Static validation and argument parsing complete before any executable entry or
+imported initializer runs. Help exits successfully, and invalid arguments use
+the existing usage-error status without executing initializers or the body.
+Reading defaults executes no source code. `cli.parse`, `cli.parse_full`, and
+`cli.commands` remain the explicit APIs for advanced policies and dynamic schemas.
+`lint.prefer-signature-cli` fixes only literal defaulted scalar option schemas with exact
+generated help, typed direct bindings, and no executable initialization or imports.
+Comments retain the diagnostic without a fix. Positional descriptors, short aliases,
+custom help, computed defaults, and advanced parser policies remain explicit.
+
 Script arguments after `--` are available through the predeclared immutable
 binding `args: List[Str]`. The current interpreter also accepts `ARGV` as a
 compatibility alias; new examples and docs should use `args`.

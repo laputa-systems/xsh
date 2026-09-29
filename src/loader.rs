@@ -429,7 +429,7 @@ fn add_compact_file_declaration(
             }
         }
         ArenaStmtKind::ErrorDef(_) => summary.error_defs += 1,
-        ArenaStmtKind::ProcDef(_) => summary.proc_defs += 1,
+        ArenaStmtKind::ProcDef(_) | ArenaStmtKind::CliMain(_) => summary.proc_defs += 1,
         ArenaStmtKind::PureDef(_) => summary.pure_defs += 1,
         ArenaStmtKind::StreamDef(_) => summary.stream_defs += 1,
         _ => {}

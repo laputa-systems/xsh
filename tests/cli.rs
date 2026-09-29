@@ -105,3 +105,46 @@ fn temp_script(name: &str, source: &str) -> std::path::PathBuf {
     fs::write(&path, source).expect("write temp script");
     path
 }
+
+#[test]
+fn signature_cli_preflight_precedes_imported_and_entry_initializers() {
+    let root = env::temp_dir().join(format!("xsh-signature-preflight-{}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    let imported_marker = root.join("imported-marker");
+    let entry_marker = root.join("entry-marker");
+    let module = format!(
+        "##! Initializer marker module.\n## An unsigned worker count.\nexport type WorkerCount = UInt\nproc initialize() [fs, error] -> Int {{ fs.write(p\"{}\", \"ran\")?; 1 }}\nlet initialized_marker = initialize()\n## A callable exported value.\nexport pure value() -> Int {{ initialized_marker }}\n",
+        imported_marker.display(),
+    );
+    fs::write(root.join("marker.xsh"), module).unwrap();
+    let source = format!(
+        "##! A checked signature CLI.\nuse marker\nproc initialize() [fs, error] -> Int {{ fs.write(p\"{}\", \"ran\")?; 1 }}\nlet initialized = initialize()\ncli main(root: Path, jobs: marker.WorkerCount = 4) [error] {{ print ${{marker.value()}} $initialized $jobs }}\n",
+        entry_marker.display(),
+    );
+    let script = root.join("entry.xsh");
+    fs::write(&script, source).unwrap();
+    for (arguments, expected_status) in [(vec!["--help"], 0), (vec![], 2), (vec!["operand", "--jobs=nope"], 2), (vec!["operand", "--jobs=-1"], 2)] {
+        let output = Command::new(env!("CARGO_BIN_EXE_xsh")).arg(&script).args(arguments).output().unwrap();
+        assert_eq!(output.status.code(), Some(expected_status), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(!imported_marker.exists());
+        assert!(!entry_marker.exists());
+        let usage = if expected_status == 0 { &output.stdout } else { &output.stderr };
+        assert!(String::from_utf8_lossy(usage).contains("usage:"));
+    }
+    let output = Command::new(env!("CARGO_BIN_EXE_xsh")).arg(&script).args(["missing-path-is-allowed", "--jobs=8"]).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"1 1 8\n");
+    assert!(imported_marker.exists());
+    assert!(entry_marker.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn signature_cli_preserves_entry_exit_status_and_errors() {
+    for (body, effects, expected_status) in [("abort(7)", "error", 7), ("error.fail(\"entry failed\")?", "error", 3)] {
+        let script = temp_script(&format!("xsh-signature-status-{expected_status}"), &format!("cli main() [{effects}] {{ {body} }}\n"));
+        let output = Command::new(env!("CARGO_BIN_EXE_xsh")).arg(&script).output().unwrap();
+        assert_eq!(output.status.code(), Some(expected_status), "{}", String::from_utf8_lossy(&output.stderr));
+        fs::remove_file(script).unwrap();
+    }
+}

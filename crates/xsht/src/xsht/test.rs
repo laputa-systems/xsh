@@ -782,6 +782,11 @@ fn native_test_host(request: NativeTestRunRequest) -> Result<Value, RuntimeError
             command
         }
     };
+    // Fixture arguments are already script data. Protect a leading `--`
+    // from the host CLI's optional compatibility separator.
+    if request.kind != NativeTestRunKind::Xsh || request.tool_args.last().is_none_or(|arg| arg != "--") {
+        command.arg("--");
+    }
     command.args(&request.script_args);
     command.envs(&request.env);
     command.stdout(Stdio::piped());

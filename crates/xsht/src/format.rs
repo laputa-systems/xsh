@@ -453,6 +453,7 @@ impl<'a> Writer<'a> {
                 self.write_expr_or_run(value, output);
             }
             ArenaStmtKind::ProcDef(def) => self.write_function("proc", *def, indent, output),
+            ArenaStmtKind::CliMain(def) => self.write_function("cli", *def, indent, output),
             ArenaStmtKind::PureDef(def) => self.write_function("pure", *def, indent, output),
             ArenaStmtKind::StreamDef(def) => self.write_function("stream", *def, indent, output),
             ArenaStmtKind::SignalHook(hook_id) => self.write_signal_hook(*hook_id, indent, output),
@@ -3305,11 +3306,11 @@ fn needs_top_level_blank(previous: &ArenaStmtKind, current: &ArenaStmtKind) -> b
     matches!(
         (previous, current),
         (
-            ArenaStmtKind::ProcDef(_) | ArenaStmtKind::PureDef(_) | ArenaStmtKind::StreamDef(_),
+            ArenaStmtKind::ProcDef(_) | ArenaStmtKind::CliMain(_) | ArenaStmtKind::PureDef(_) | ArenaStmtKind::StreamDef(_),
             _
         ) | (
             _,
-            ArenaStmtKind::ProcDef(_) | ArenaStmtKind::PureDef(_) | ArenaStmtKind::StreamDef(_)
+            ArenaStmtKind::ProcDef(_) | ArenaStmtKind::CliMain(_) | ArenaStmtKind::PureDef(_) | ArenaStmtKind::StreamDef(_)
         ) | (ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_), _)
             | (_, ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_))
             | (ArenaStmtKind::Export(_), _)
