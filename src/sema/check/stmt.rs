@@ -492,6 +492,7 @@ impl Checker {
                 self.check_loop_control(stmt.span, false);
             }
             ArenaStmtKind::Assert { condition, message } => {
+                self.record_statement_error(&Type::Bool, stmt.span);
                 let condition_ty = self.check_expr_arena(arena, source, condition, Some(&Type::Bool));
                 if condition_ty != Type::Bool && !matches!(condition_ty, Type::Unknown | Type::Invalid) {
                     self.error(arena.arena.expr(condition).span, "assert condition requires Bool", "check.assert-condition");

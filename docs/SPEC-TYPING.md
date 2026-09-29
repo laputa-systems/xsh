@@ -367,7 +367,8 @@ A Bool in statement position asserts; a Bool in value position retains false.
 `assert condition, message` always consumes Unit and requires concrete Bool and
 Str, rejecting Any, Status, Optional, and Result wrappers. Both expressions are
 checked with ordinary effects and propagation, including a message skipped at
-runtime. The assertion establishes no continuation refinement.
+runtime. The assertion establishes no continuation refinement. Local try/retry error
+inference includes the core Error failure, as for a bare Bool statement.
 
 Value branches may contain lexical statements followed by a compatible tail.
 Every reachable value branch must agree; `if` requires `else`, and `match` must

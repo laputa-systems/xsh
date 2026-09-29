@@ -182,3 +182,14 @@ match result {
   test.ok(result.success, result.stderr)?
   test.eq(result.stdout, "invalid integer `bad`\n")?
 }
+
+proc test_assert_cannot_narrow_core_failure_to_a_nominal_error(ctx: TestContext) [error] {
+  let result = test.run_script(ctx, r"""error Narrow = Only(message: Str)
+let result: Result[Unit, Narrow] = try {
+  assert true, "checked context"
+}
+print "accepted"
+""")?
+  test.ok(! result.success, result.stderr)?
+  test.contains(result.stderr, "check.type-mismatch")?
+}

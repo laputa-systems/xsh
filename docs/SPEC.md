@@ -1442,7 +1442,9 @@ without evaluating them. Containers are reported by type rather than traversed.
 Message expressions retain ordinary type, effect, and propagation checks even
 when the condition is true. A message failure propagates as its own failure;
 otherwise the assertion emits the same core `Error` with kind
-`assertion-failed` as a bare Bool statement. Assertions use ordinary propagation,
+`assertion-failed` as a bare Bool statement. A local capture must admit this
+core Error type; an assertion cannot be narrowed to a nominal error family.
+Assertions use ordinary propagation,
 retry capture, and lexical cleanup, including in builds without native-test
 support. They are statements, and do not produce a Result value for a consumer.
 `lint.core-assert` fixes checked statement `test.ok`/`test.eq`/`test.ne` calls
