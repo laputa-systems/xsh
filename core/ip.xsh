@@ -40,9 +40,9 @@ proc main(...argv: List[Str]) [process, error] {
     print_addr(operands[3])?
   } else if operands.len() == 3 and (operands[0] == "addr" or operands[0] == "address") and operands[1] == "dev" {
     print_addr(operands[2])?
-  } else if operands.len() == 1 and operands[0] == "route" {
+  } else if operands is ["route"] {
     print_route()?
-  } else if operands.len() == 2 and operands[0] == "route" and operands[1] == "show" {
+  } else if operands is ["route", "show"] {
     print_route()?
   } else {
     return Err(AppletError.Usage("ip: expected addr or route"))

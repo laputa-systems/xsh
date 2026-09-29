@@ -676,6 +676,7 @@ impl<'a> Linter<'a> {
                 branches,
                 else_block,
             } => {
+                self.lint_list_pattern(branches, else_block, stmt.span);
                 self.lint_if_as_guard(branches, else_block, stmt.span);
                 for branch in self.arena.if_branches(branches).to_vec() {
                     self.lint_expr(branch.condition);
@@ -1373,6 +1374,77 @@ impl<'a> Linter<'a> {
     fn is_empty_collection(&self, init: &ArenaExpr) -> bool {
         matches!(&init.kind, ArenaExprKind::List(items) if items.is_empty())
             || matches!(&init.kind, ArenaExprKind::Record(fields) if fields.is_empty())
+    }
+
+    fn lint_list_pattern(&mut self, branches: ArenaRange, _else_block: Option<BlockId>, span: Span) {
+        fn conjuncts(arena: &AstArena, expr: ExprId, out: &mut Vec<ExprId>) {
+            if let ArenaExprKind::Binary { op: BinaryOp::And, left, right } = arena.expr(expr).kind {
+                conjuncts(arena, left, out);
+                conjuncts(arena, right, out);
+            } else { out.push(expr); }
+        }
+        fn integer(arena: &AstArena, expr: ExprId) -> Option<usize> {
+            let ArenaExprKind::Int(value) = arena.expr(expr).kind else { return None };
+            usize::try_from(arena.int_literal(value).value()?).ok()
+        }
+        fn index(arena: &AstArena, expr: ExprId, subject: Name) -> Option<usize> {
+            let ArenaExprKind::Index { base, index, guarded: false } = arena.expr(expr).kind else { return None };
+            if !matches!(arena.expr(base).kind, ArenaExprKind::Ident(name) if name == subject) { return None; }
+            integer(arena, index)
+        }
+        let branches = self.arena.if_branches(branches);
+        if branches.len() != 1 { return; }
+        let branch = &branches[0];
+        let mut conditions = Vec::new();
+        conjuncts(self.arena, branch.condition, &mut conditions);
+        let Some(&bound) = conditions.first() else { return };
+        let ArenaExprKind::Binary { op, left, right } = self.arena.expr(bound).kind else { return };
+        if !matches!(op, BinaryOp::Eq | BinaryOp::Ge) { return; }
+        let Some(count) = integer(self.arena, right).filter(|count| *count <= 16) else { return };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(left).kind else { return };
+        if !args.is_empty() { return; }
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return };
+        if name != "len" { return; }
+        let ArenaExprKind::Ident(subject) = self.arena.expr(base).kind else { return };
+        if !matches!(self.expr_types.get(&self.arena.expr(base).span), Some(Type::List(_))) { return; }
+        if self.assigned_names.contains(&subject) || !self.scopes.iter().rev().find_map(|scope| scope.get(subject.as_str().as_str())).is_some_and(|binding| binding.comparison_stable && !binding.mutable) { return; }
+        let Some(original) = self.source.get(span.range()) else { return };
+        if original.contains('#') { return; }
+        let mut elements = vec!["_".to_string(); count];
+        for &condition in conditions.iter().skip(1) {
+            let ArenaExprKind::Binary { op: BinaryOp::Eq, left, right } = self.arena.expr(condition).kind else { return };
+            let Some(index) = index(self.arena, left, subject).filter(|index| *index < count) else { return };
+            if !matches!(self.arena.expr(right).kind, ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Bool(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Duration(_) | ArenaExprKind::Null) { return; }
+            if elements[index] != "_" { return; }
+            let Some(text) = self.source.get(self.arena.expr(right).span.range()) else { return };
+            elements[index] = text.to_string();
+        }
+        let block = self.arena.block(branch.block);
+        let statements: Vec<_> = self.arena.stmt_ids(block.statements).collect();
+        let mut names = FxHashSet::default();
+        let mut extracted = 0;
+        let mut body_start = self.arena.span(block.span).start() + 1;
+        for statement in statements {
+            let statement = self.arena.stmt(statement);
+            let ArenaStmtKind::Let { target, ty: None, initializer: ArenaExprOrRun::Expr(value) } = statement.kind else { break };
+            let Some(index) = index(self.arena, value, subject).filter(|index| *index < count) else { break };
+            let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind else { return };
+            if elements[index] != "_" || name == subject || !names.insert(name) || self.tag_variants.contains(name.as_str().as_str()) { return; }
+            elements[index] = name.as_str().to_string();
+            body_start = statement.span.end();
+            extracted += 1;
+        }
+        if extracted == 0 { return; }
+        if op == BinaryOp::Ge { elements.push("..".to_string()); }
+        let block_span = self.arena.span(block.span);
+        let Some(body) = self.source.get(body_start..block_span.end()) else { return };
+        let Some(suffix) = self.source.get(block_span.end()..span.end()) else { return };
+        // Retaining the original branch suffix preserves its else block and value context.
+        let replacement = format!("if let [{}] = {} {{\n{}{}", elements.join(", "), subject, body, suffix);
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "prefer a list pattern for bounded element extraction")
+            .with_code("lint.prefer-list-pattern")
+            .with_label(Label::secondary(span, "length establishes every element bound before extraction"))
+            .with_fix_hint(FixHint::replacement(span, "bind the list elements after structural matching", replacement)));
     }
 
     fn lint_comparison_chain(&mut self, expr: ExprId) {
@@ -2229,6 +2301,7 @@ impl<'a> Linter<'a> {
             ArenaPatternKind::Constructor { arg, .. } => arg.is_none_or(|arg| self.pattern_test_fix_is_nonbinding(arg)),
             ArenaPatternKind::Record { fields, .. } | ArenaPatternKind::ErrorVariant { fields, .. } => self.arena.pattern_fields(fields).iter().all(|field| self.pattern_test_fix_is_nonbinding(field.pattern)),
             ArenaPatternKind::Tuple(patterns) => self.arena.pattern_ids(patterns).all(|pattern| self.pattern_test_fix_is_nonbinding(pattern)),
+            ArenaPatternKind::List { elements, rest } => self.arena.pattern_ids(elements).chain(rest).all(|pattern| self.pattern_test_fix_is_nonbinding(pattern)),
             ArenaPatternKind::Alternation(_) => false,
         }
     }
@@ -2257,6 +2330,9 @@ impl<'a> Linter<'a> {
                 for field in self.arena.pattern_fields(fields).to_vec() {
                     self.lint_pattern(field.pattern);
                 }
+            }
+            ArenaPatternKind::List { elements, rest } => {
+                for child in self.arena.pattern_ids(elements).chain(rest).collect::<Vec<_>>() { self.lint_pattern(child); }
             }
             ArenaPatternKind::Alternation(patterns) | ArenaPatternKind::Tuple(patterns) => {
                 for pat in self.arena.pattern_ids(patterns).collect::<Vec<_>>() {
@@ -7538,6 +7614,9 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                 for field in self.arena().pattern_fields(fields).to_vec() {
                     self.define_pattern(field.pattern);
                 }
+            }
+            ArenaPatternKind::List { elements, rest } => {
+                for child in self.arena().pattern_ids(elements).chain(rest).collect::<Vec<_>>() { self.define_pattern(child); }
             }
             ArenaPatternKind::Alternation(patterns) | ArenaPatternKind::Tuple(patterns) => {
                 for pattern in self.arena().pattern_ids(patterns).collect::<Vec<_>>() {

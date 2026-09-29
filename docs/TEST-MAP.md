@@ -6,6 +6,18 @@ them to the owner and report that limit. Unfiltered `cargo test` includes
 `runtime::coverage` cases and two `runtime::examples` cases that launch
 `xsht fmt` or `xsht lint`, so agents use the filtered runtime gate below.
 
+## List patterns
+
+`target/debug/xsht test --jobs 2 tests/xsh/list-pattern.xsh` covers exact and
+prefix lengths, nested captures, dynamic narrowing, rejected subjects, rest
+value semantics, guards, and conservative exhaustiveness. The shared matcher
+slot publication and invalid indexed rest boundary are covered by
+`cargo test -p xsh --lib list_pattern -- --test-threads=1` and
+`cargo test -p xsh --lib verifier_rejects_invalid_list_rest_patterns -- --test-threads=1`.
+Focused tooling acceptance uses `cargo test -p xsht --test integration list_pattern`;
+the core argument parsing migration uses
+`target/debug/xsht test --jobs 2 core/tests/test-ip.xsh`.
+
 ## Routine CI
 
 `.github/workflows/lint.yml` and `.github/workflows/test.yml` run on pull requests

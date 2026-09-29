@@ -42,10 +42,38 @@ impl Checker {
                     self.reject_pattern_test_bindings(arena, field.pattern);
                 }
             }
+            ArenaPatternKind::List { elements, rest } => {
+                for child in arena.arena.pattern_ids(*elements).chain(rest.iter().copied()) {
+                    self.reject_pattern_test_bindings(arena, child);
+                }
+            }
             ArenaPatternKind::Tuple(patterns) => {
                 for pattern in arena.arena.pattern_ids(*patterns) {
                     self.reject_pattern_test_bindings(arena, pattern);
                 }
+            }
+            _ => {}
+        }
+    }
+
+    fn check_list_capture_names(&mut self, arena: &ArenaProgram, pattern: PatternId, names: &mut FxHashSet<Name>) {
+        let node = arena.arena.pattern(pattern);
+        match node.kind {
+            ArenaPatternKind::Binding(name) if !self.tag_variants.contains_key(&name) => {
+                if !names.insert(name) { self.error(arena.arena.span(node.span), "duplicate name in list pattern", "check.pattern-binding"); }
+            }
+            ArenaPatternKind::Type { binding: Some(name), .. } => {
+                if !names.insert(name) { self.error(arena.arena.span(node.span), "duplicate name in list pattern", "check.pattern-binding"); }
+            }
+            ArenaPatternKind::List { elements, rest } => {
+                for child in arena.arena.pattern_ids(elements).chain(rest) { self.check_list_capture_names(arena, child, names); }
+            }
+            ArenaPatternKind::Record { fields, .. } | ArenaPatternKind::ErrorVariant { fields, .. } => {
+                for field in arena.arena.pattern_fields(fields) { self.check_list_capture_names(arena, field.pattern, names); }
+            }
+            ArenaPatternKind::Constructor { arg: Some(arg), .. } => self.check_list_capture_names(arena, arg, names),
+            ArenaPatternKind::Tuple(items) => {
+                for child in arena.arena.pattern_ids(items) { self.check_list_capture_names(arena, child, names); }
             }
             _ => {}
         }
@@ -165,6 +193,27 @@ impl Checker {
                 let actual = self.check_expr_arena(arena, source, *expr, Some(value_ty));
                 let expr_span = arena.arena.expr(*expr).span;
                 self.expect_type(value_ty, &actual, expr_span);
+            }
+            ArenaPatternKind::List { elements, rest } => {
+                self.check_list_capture_names(arena, pattern_id, &mut FxHashSet::default());
+                let element_ty = match value_ty {
+                    Type::List(element) => element.as_ref().clone(),
+                    Type::Any => Type::Any,
+                    Type::Unknown | Type::Invalid => Type::Unknown,
+                    _ => {
+                        self.error(span, "list patterns require a List value", "check.pattern-type");
+                        Type::Unknown
+                    }
+                };
+                for child in arena.arena.pattern_ids(*elements) {
+                    self.check_pattern_arena(arena, source, child, &element_ty);
+                }
+                if let Some(rest) = rest {
+                    if !matches!(arena.arena.pattern(*rest).kind, ArenaPatternKind::Wildcard | ArenaPatternKind::Binding(_)) {
+                        self.error(arena.arena.span(arena.arena.pattern(*rest).span), "list rest must be a wildcard or name", "check.pattern-rest");
+                    }
+                    self.check_pattern_arena(arena, source, *rest, &Type::List(Box::new(element_ty)));
+                }
             }
             ArenaPatternKind::Record { fields, .. } => {
                 let record_fields = match value_ty {
@@ -390,6 +439,25 @@ impl Checker {
                     );
                 }
             }
+        }
+    }
+
+    pub(super) fn check_list_match_coverage_arena(
+        &mut self, arena: &ArenaProgram, value_ty: &Type,
+        arms: impl Iterator<Item = (PatternId, Span, bool)>, span: Span,
+    ) {
+        if !matches!(value_ty, Type::List(_)) { return; }
+        let mut patterns = Vec::new();
+        for (pattern, arm_span, guarded) in arms {
+            if super::stmt::patterns_are_exhaustive_arena(arena, value_ty, patterns.iter().copied(), &self.type_defs, &self.tag_variants) {
+                self.diagnostics.push(Diagnostic::new(crate::diagnostic::Severity::Warning, "unreachable match arm")
+                    .with_code("check.unreachable-match-arm")
+                    .with_label(crate::diagnostic::Label::secondary(arm_span, "earlier unguarded patterns cover every list")));
+            }
+            if !guarded { patterns.push(pattern); }
+        }
+        if !super::stmt::patterns_are_exhaustive_arena(arena, value_ty, patterns.into_iter(), &self.type_defs, &self.tag_variants) {
+            self.error(span, "list match requires a catchall or complete length partition", "check.non-exhaustive-match");
         }
     }
 

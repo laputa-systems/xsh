@@ -3,7 +3,7 @@
 use rustc_hash::FxHashMap;
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
-    ArenaCallArgKind, ArenaExprKind, ArenaProgram, AstArena, ExprId,
+    ArenaCallArgKind, ArenaExprKind, ArenaPatternKind, ArenaProgram, AstArena, ExprId, PatternId,
 };
 
 /// A structural grep match from `xsht::grep::find_matches_in_program`: the
@@ -82,6 +82,8 @@ fn match_expr_structural(
         (ArenaExprKind::Str(a), ArenaExprKind::Str(b)) => {
             p.string_literal(*a) == t.string_literal(*b)
         }
+        (ArenaExprKind::Duration(a), ArenaExprKind::Duration(b)) => p.duration_literal(*a) == t.duration_literal(*b),
+        (ArenaExprKind::Bytes(a), ArenaExprKind::Bytes(b)) => p.bytes_literal(*a) == t.bytes_literal(*b),
         (ArenaExprKind::Ident(a), ArenaExprKind::Ident(b)) => a == b,
         (
             ArenaExprKind::Field { base: pb, name: pn },
@@ -174,6 +176,15 @@ fn match_expr_structural(
                 && match_expr(p, *pl, t, *tl, source, bindings)
                 && match_expr(p, *pr, t, *tr, source, bindings)
         }
+        (ArenaExprKind::PatternTest { value: pv, arms: pa }, ArenaExprKind::PatternTest { value: tv, arms: ta }) => {
+            let pa = p.match_expr_arms(*pa);
+            let ta = t.match_expr_arms(*ta);
+            let mut candidate = bindings.clone();
+            if pa.len() != ta.len() || !match_expr(p, *pv, t, *tv, source, &mut candidate) { return false; }
+            if !pa.iter().zip(ta).all(|(pa, ta)| match_pattern(p, pa.pattern, t, ta.pattern, source, &mut candidate)) { return false; }
+            *bindings = candidate;
+            true
+        }
         (ArenaExprKind::Try(pe), ArenaExprKind::Try(te)) => {
             match_expr(p, *pe, t, *te, source, bindings)
         }
@@ -192,6 +203,39 @@ fn match_expr_structural(
             }
             *bindings = b2;
             true
+        }
+        _ => false,
+    }
+}
+
+fn match_pattern(p: &AstArena, pi: PatternId, t: &AstArena, ti: PatternId, source: &str, bindings: &mut FxHashMap<String, Span>) -> bool {
+    use xsh::frontend::check::Type;
+    match (&p.pattern(pi).kind, &t.pattern(ti).kind) {
+        (ArenaPatternKind::Wildcard, ArenaPatternKind::Wildcard) => true,
+        (ArenaPatternKind::Binding(a), ArenaPatternKind::Binding(b)) | (ArenaPatternKind::Facet(a), ArenaPatternKind::Facet(b)) => a == b,
+        (ArenaPatternKind::TestName { name: a, ty: at }, ArenaPatternKind::TestName { name: b, ty: bt }) => a == b && Type::from_arena(p, *at) == Type::from_arena(t, *bt),
+        (ArenaPatternKind::Type { binding: a, ty: at }, ArenaPatternKind::Type { binding: b, ty: bt }) => a == b && Type::from_arena(p, *at) == Type::from_arena(t, *bt),
+        (ArenaPatternKind::Literal(a), ArenaPatternKind::Literal(b)) => match_expr(p, *a, t, *b, source, bindings),
+        (ArenaPatternKind::List { elements: a, rest: ar }, ArenaPatternKind::List { elements: b, rest: br }) => {
+            let a: Vec<_> = p.pattern_ids(*a).collect();
+            let b: Vec<_> = t.pattern_ids(*b).collect();
+            a.len() == b.len() && a.into_iter().zip(b).all(|(a, b)| match_pattern(p, a, t, b, source, bindings))
+                && match ar.zip(*br) { Some((a,b)) => match_pattern(p,a,t,b,source,bindings), None => ar.is_none() && br.is_none() }
+        }
+        (ArenaPatternKind::Record { fields: a, rest: ar }, ArenaPatternKind::Record { fields: b, rest: br }) => {
+            let a = p.pattern_fields(*a);
+            let b = t.pattern_fields(*b);
+            ar == br && a.len() == b.len() && a.iter().zip(b).all(|(a,b)| a.name == b.name && match_pattern(p,a.pattern,t,b.pattern,source,bindings))
+        }
+        (ArenaPatternKind::Constructor { name: a, arg: aa }, ArenaPatternKind::Constructor { name: b, arg: ba }) => a == b && match aa.zip(*ba) { Some((a,b)) => match_pattern(p,a,t,b,source,bindings), None => aa.is_none() && ba.is_none() },
+        (ArenaPatternKind::Tuple(a), ArenaPatternKind::Tuple(b)) | (ArenaPatternKind::Alternation(a), ArenaPatternKind::Alternation(b)) => {
+            let a: Vec<_> = p.pattern_ids(*a).collect();
+            let b: Vec<_> = t.pattern_ids(*b).collect();
+            a.len() == b.len() && a.into_iter().zip(b).all(|(a,b)| match_pattern(p,a,t,b,source,bindings))
+        }
+        (ArenaPatternKind::ErrorVariant { family: af, variant: av, fields: a }, ArenaPatternKind::ErrorVariant { family: bf, variant: bv, fields: b }) => {
+            let a = p.pattern_fields(*a); let b = t.pattern_fields(*b);
+            af == bf && av == bv && a.len() == b.len() && a.iter().zip(b).all(|(a,b)| a.name == b.name && match_pattern(p,a.pattern,t,b.pattern,source,bindings))
         }
         _ => false,
     }

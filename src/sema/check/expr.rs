@@ -781,6 +781,7 @@ impl Checker {
         if !super::stmt::patterns_are_exhaustive_arena(arena, &value_ty, arm_list.iter().filter(|arm| arm.guard.is_none()).map(|arm| arm.pattern), &self.type_defs, &self.tag_variants) {
             self.error(span, "value-producing match must be exhaustive", "check.match-value-exhaustive");
         }
+        self.check_list_match_coverage_arena(arena, &value_ty, arm_list.iter().map(|arm| (arm.pattern, arena.arena.span(arm.span), arm.guard.is_some())), span);
         self.check_tag_exhaustiveness_arena(
             arena,
             &value_ty,

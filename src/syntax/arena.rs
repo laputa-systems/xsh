@@ -1382,6 +1382,11 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.push_pattern_kind(ArenaPatternKind::Tuple(range), span)
     }
 
+    pub fn push_pattern_list(&mut self, elements: &[PatternId], rest: Option<PatternId>, span: Span) -> PatternId {
+        let elements = self.push_pattern_id_range(elements);
+        self.push_pattern_kind(ArenaPatternKind::List { elements, rest }, span)
+    }
+
     fn push_record_pattern_field_range(
         &mut self,
         fields: &[(Name, PatternId, Span)],
@@ -4911,6 +4916,12 @@ pub enum ArenaPatternKind {
     Record {
         fields: ArenaRange,
         rest: bool,
+    },
+    // An absent rest requires an exact length. A trailing rest is a wildcard
+    // or binding, retaining its own source span for capture diagnostics.
+    List {
+        elements: ArenaRange,
+        rest: Option<PatternId>,
     },
     Alternation(ArenaRange),
     Constructor {

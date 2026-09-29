@@ -242,3 +242,22 @@ fn grep_list_splicing_distinguishes_spliced_and_nested_elements() {
         assert!(!stdout.contains(excluded), "{stdout}");
     }
 }
+
+#[test]
+fn grep_list_pattern_tests_distinguish_exact_lengths_rest_and_nested_elements() {
+    let root = TempDir::new().unwrap();
+    let file = root.path().join("list-pattern.xsh");
+    fs::write(&file, include_str!("../../../tests/fixtures/syntax/list-pattern.xsh")).unwrap();
+    let exact = grep_scripts("SUBJECT is [\"build\", _]", &paths(&file));
+    assert_eq!(exact.status, 0, "{}", output_text(&exact.stderr));
+    let stdout = output_text(&exact.stdout);
+    assert!(stdout.contains("values is [\"build\", _]"));
+    assert!(!stdout.contains("_, ..]"));
+    assert!(!stdout.contains("clean"));
+    let prefix = grep_scripts("SUBJECT is [\"build\", _, ..]", &paths(&file));
+    assert_eq!(prefix.status, 0, "{}", output_text(&prefix.stderr));
+    assert!(output_text(&prefix.stdout).contains("values is [\"build\", _, ..]"));
+    let nested = grep_scripts("SUBJECT is [[_], [_]]", &paths(&file));
+    assert_eq!(nested.status, 0, "{}", output_text(&nested.stderr));
+    assert!(output_text(&nested.stdout).contains("[[1], [2]] is [[_], [_]]"));
+}

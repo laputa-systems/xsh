@@ -1041,12 +1041,25 @@ impl Evaluator {
         Ok(decoded)
     }
 
-    fn indexed_pattern_matches(
+    // Structural validation precedes capture publication throughout the pattern tree.
+    // Failed nested patterns leave every capture slot untouched and allocate no list rest.
+    pub(in crate::runtime::eval) fn indexed_pattern_matches(
+        execution: &FullExecution<'_>, pattern: u32, value: &LoweredValue,
+        slots: &mut [LoweredValue], span: Span,
+    ) -> Result<bool, RuntimeError> {
+        if !Self::indexed_pattern_match_pass(execution, pattern, value, slots, span, false)? {
+            return Ok(false);
+        }
+        Self::indexed_pattern_match_pass(execution, pattern, value, slots, span, true)
+    }
+
+    fn indexed_pattern_match_pass(
         execution: &FullExecution<'_>,
         pattern: u32,
         value: &LoweredValue,
         slots: &mut [LoweredValue],
         span: Span,
+        bind: bool,
     ) -> Result<bool, RuntimeError> {
         let (tag, mut payload) = execution
             .pattern(pattern)
@@ -1061,7 +1074,7 @@ impl Evaluator {
                 let mut matched = matches!(value, LoweredValue::Record(_) | LoweredValue::RecordVec(_));
                 for (name, pattern) in fields.iter() {
                     let Some(field) = lowered_record_field(value, &name.as_str()) else { matched = false; break; };
-                    if !Self::indexed_pattern_matches(execution, *pattern, field, slots, span)? { matched = false; break; }
+                    if !Self::indexed_pattern_match_pass(execution, *pattern, field, slots, span, bind)? { matched = false; break; }
                 }
                 matched
             }
@@ -1069,10 +1082,10 @@ impl Evaluator {
                 let ok = indexed_decode::<bool>(&mut payload, execution, span)?;
                 let inner = indexed_raw(&mut payload, span)?;
                 match value {
-                    LoweredValue::ResultOk(value) if ok => Self::indexed_pattern_matches(execution, inner, value, slots, span)?,
+                    LoweredValue::ResultOk(value) if ok => Self::indexed_pattern_match_pass(execution, inner, value, slots, span, bind)?,
                     LoweredValue::ResultErr(value) if !ok => {
                         if let Some(value) = lowered_value_from_runtime_any(value) {
-                            Self::indexed_pattern_matches(execution, inner, &value, slots, span)?
+                            Self::indexed_pattern_match_pass(execution, inner, &value, slots, span, bind)?
                         } else { false }
                     }
                     _ => false,
@@ -1089,7 +1102,7 @@ impl Evaluator {
                     let mut matched = value.name.as_ref() == name.as_str() && value.fields.len() == fields.len();
                     if matched {
                         for (pattern, value) in fields.iter().zip(&value.fields) {
-                            if !Self::indexed_pattern_matches(execution, *pattern, value, slots, span)? { matched = false; break; }
+                            if !Self::indexed_pattern_match_pass(execution, *pattern, value, slots, span, bind)? { matched = false; break; }
                         }
                     }
                     matched
@@ -1109,16 +1122,46 @@ impl Evaluator {
                         let mut matched = true;
                         for (name, pattern) in fields.iter() {
                             let Some(value) = values.get(&name.as_str()).and_then(lowered_value_from_runtime_any) else { matched = false; break; };
-                            if !Self::indexed_pattern_matches(execution, *pattern, &value, slots, span)? { matched = false; break; }
+                            if !Self::indexed_pattern_match_pass(execution, *pattern, &value, slots, span, bind)? { matched = false; break; }
                         }
                         matched
                     } else { false }
                 } else { false }
             }
+            FullPatternTag::List => {
+                let (_, mut patterns) = execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
+                let count = indexed_raw(&mut patterns, span)? as usize;
+                let mut elements = Vec::with_capacity(count);
+                for _ in 0..count { elements.push(indexed_raw(&mut patterns, span)?); }
+                indexed_finish(patterns, span)?;
+                let rest = if indexed_decode::<bool>(&mut payload, execution, span)? { Some(indexed_raw(&mut payload, span)?) } else { None };
+                let items = match value {
+                    LoweredValue::List(items) => Some(items.as_slice()),
+                    LoweredValue::SharedList(items) => Some(items.as_slice()),
+                    _ => None,
+                };
+                if let Some(items) = items {
+                    let mut matched = items.len() >= count && (rest.is_some() || items.len() == count);
+                    if matched {
+                        for (pattern, item) in elements.iter().zip(items) {
+                            if !Self::indexed_pattern_match_pass(execution, *pattern, item, slots, span, bind)? { matched = false; break; }
+                        }
+                    }
+                    if matched && bind && let Some(rest) = rest {
+                        let (tag, mut rest_payload) = execution.pattern(rest).map_err(|error| indexed_error(error, span))?;
+                        if tag == FullPatternTag::Bind {
+                            let slot = indexed_decode::<usize>(&mut rest_payload, execution, span)?;
+                            slots[slot] = LoweredValue::List(items[count..].to_vec());
+                        }
+                        indexed_finish(rest_payload, span)?;
+                    }
+                    matched
+                } else { false }
+            }
             FullPatternTag::Wildcard => true,
             FullPatternTag::Bind => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
-                slots[slot] = value.clone();
+                if bind { slots[slot] = value.clone(); }
                 true
             }
             FullPatternTag::Type => {
@@ -1128,7 +1171,7 @@ impl Evaluator {
                     false
                 } else {
                     if let Some(slot) = slot {
-                        slots[slot] = value.clone();
+                        if bind { slots[slot] = value.clone(); }
                     }
                     true
                 }
@@ -1144,7 +1187,7 @@ impl Evaluator {
                         false
                     } else {
                         if let Some(slot) = slot {
-                            slots[slot] = inner.as_ref().clone();
+                            if bind { slots[slot] = inner.as_ref().clone(); }
                         }
                         true
                     }
@@ -1163,7 +1206,7 @@ impl Evaluator {
                             indexed_finish(payload, span)?;
                             return Ok(false);
                         };
-                        slots[slot] = inner;
+                        if bind { slots[slot] = inner; }
                         true
                     } else {
                         true
@@ -1194,7 +1237,7 @@ impl Evaluator {
                     };
                     error.as_ref()
                 };
-                lowered_error_variant_matches(&family, &variant, &fields, error, slots)
+                lowered_error_variant_matches(&family, &variant, &fields, error, slots, bind)
             }
             FullPatternTag::Facet => {
                 let facet = indexed_decode::<Name>(&mut payload, execution, span)?;
@@ -1234,7 +1277,7 @@ impl Evaluator {
                 } else {
                     for (slot, field) in field_slots.iter().zip(&value.fields) {
                         if let Some(slot) = slot {
-                            slots[*slot] = field.clone();
+                            if bind { slots[*slot] = field.clone(); }
                         }
                     }
                     true

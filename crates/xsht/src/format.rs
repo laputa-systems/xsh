@@ -1003,6 +1003,12 @@ impl<'a> Writer<'a> {
     }
 
     fn write_pattern(&mut self, pattern_id: PatternId, output: &mut String) {
+        let span = self.arena.span(self.arena.pattern(pattern_id).span);
+        if self.comments[self.next_comment..].iter().any(|comment| span.range().contains(&comment.span.start())) {
+            if let Some(raw) = self.source.get(span.range()) { output.push_str(raw); }
+            while self.comments.get(self.next_comment).is_some_and(|comment| comment.span.start() < span.end()) { self.next_comment += 1; }
+            return;
+        }
         let kind = self.arena.pattern(pattern_id).kind.clone();
         match &kind {
             ArenaPatternKind::Wildcard => output.push('_'),
@@ -1017,6 +1023,22 @@ impl<'a> Writer<'a> {
                 self.write_type(*ty, output);
             }
             ArenaPatternKind::Literal(expr) => self.write_expr(*expr, 0, output),
+            ArenaPatternKind::List { elements, rest } => {
+                output.push('[');
+                let elements: Vec<_> = self.arena.pattern_ids(*elements).collect();
+                for (index, element) in elements.iter().enumerate() {
+                    if index != 0 { output.push_str(", "); }
+                    self.write_pattern(*element, output);
+                }
+                if let Some(rest) = rest {
+                    if !elements.is_empty() { output.push_str(", "); }
+                    output.push_str("..");
+                    if !matches!(self.arena.pattern(*rest).kind, ArenaPatternKind::Wildcard) {
+                        self.write_pattern(*rest, output);
+                    }
+                }
+                output.push(']');
+            }
             ArenaPatternKind::Record { fields, rest } => {
                 output.push('{');
                 let fields = self.arena.pattern_fields(*fields).to_vec();

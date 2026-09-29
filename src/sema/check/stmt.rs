@@ -172,8 +172,22 @@ pub(super) fn patterns_are_exhaustive_arena(
     }
     let mut constructors = FxHashSet::default();
     let mut booleans = [false; 2];
-    for pattern in patterns { if covered(arena, pattern, tag_variants, &mut constructors, &mut booleans) { return true; } }
+    let mut empty_list = false;
+    let mut nonempty_list = false;
+    for pattern in patterns {
+        if covered(arena, pattern, tag_variants, &mut constructors, &mut booleans) { return true; }
+        if matches!(value_ty, Type::List(_)) && let ArenaPatternKind::List { elements, rest } = arena.arena.pattern(pattern).kind {
+            let count = arena.arena.pattern_ids(elements).count();
+            if count == 0 {
+                if rest.is_some() { return true; }
+                empty_list = true;
+            } else if count == 1 && rest.is_some() && arena.arena.pattern_ids(elements).all(|child| matches!(arena.arena.pattern(child).kind, ArenaPatternKind::Wildcard) || matches!(arena.arena.pattern(child).kind, ArenaPatternKind::Binding(name) if !tag_variants.contains_key(&name))) {
+                nonempty_list = true;
+            }
+        }
+    }
     match value_ty {
+        Type::List(_) => empty_list && nonempty_list,
         Type::Bool => booleans.iter().all(|value| *value),
         Type::Result(_, _) => constructors.contains(&Name::intern("Ok")) && constructors.contains(&Name::intern("Err")),
         Type::Tag(name) => match type_defs.get(name) {
@@ -824,6 +838,7 @@ impl Checker {
             self.pop_scope();
         }
         let value_span = arena.arena.expr(value).span;
+        self.check_list_match_coverage_arena(arena, &value_ty, arm_list.iter().map(|arm| (arm.pattern, arena.arena.span(arm.span), arm.guard.is_some())), value_span);
         self.check_tag_exhaustiveness_arena(
             arena,
             &value_ty,
@@ -1722,6 +1737,7 @@ impl Checker {
             self.pop_scope();
         }
         let value_span = arena.arena.expr(value).span;
+        self.check_list_match_coverage_arena(arena, &value_ty, arm_list.iter().map(|arm| (arm.pattern, arena.arena.span(arm.span), arm.guard.is_some())), value_span);
         self.check_tag_exhaustiveness_arena(
             arena,
             &value_ty,

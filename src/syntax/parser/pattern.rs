@@ -232,6 +232,40 @@ impl<'a> Parser<'a> {
                     None,
                 ))
             }
+            TokenTag::LBracket => {
+                let start = self.current_start();
+                self.bump();
+                while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                let mut elements = Vec::new();
+                let mut rest = None;
+                while !self.at(TokenKindMatch::RBracket) && !self.at(TokenKindMatch::Eof) {
+                    if rest.is_some() {
+                        self.diagnostic_here("list rest must occur once, at the end", "parse.list-pattern-rest");
+                        return None;
+                    }
+                    if self.at(TokenKindMatch::Dot) && self.peek_tag(1) == Some(TokenTag::Dot) {
+                        let rest_start = self.current_start();
+                        self.bump();
+                        self.bump();
+                        let name = if matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent) {
+                            Some(self.expect_ident("expected rest binding")?)
+                        } else { None };
+                        let rest_span = self.span(rest_start, self.previous_end());
+                        rest = Some(match name {
+                            Some(name) if name != "_" => arena.push_pattern_binding(name, rest_span),
+                            _ => arena.push_pattern_wildcard(rest_span),
+                        });
+                    } else {
+                        elements.push(self.parse_pattern_arena_only(arena)?.0);
+                    }
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                    if self.consume(TokenKindMatch::Comma).is_none() { break; }
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                }
+                let end = self.expect(TokenKindMatch::RBracket, "expected `]` after list pattern")?.end();
+                let span = self.span(start, end);
+                Some((arena.push_pattern_list(&elements, rest, span), span, None))
+            }
             TokenTag::LBrace => {
                 let (fields, rest, span) = self.parse_record_pattern_fields_arena_only(arena)?;
                 Some((arena.push_pattern_record(&fields, rest, span), span, None))

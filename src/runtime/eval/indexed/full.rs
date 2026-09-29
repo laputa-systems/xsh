@@ -239,6 +239,7 @@ pub(in crate::runtime::eval) enum FullTag {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(in crate::runtime::eval) enum FullPatternTag {
+    List,
     TagType,
     RecordTest,
     ResultTest,
@@ -6059,6 +6060,11 @@ impl FullCodec for BuildPatternRow {
                 fields.encode(builder, &mut payload)?;
                 FullPatternTag::ErrorTest
             }
+            Self::List { elements, rest } => {
+                elements.encode(builder, &mut payload)?;
+                rest.encode(builder, &mut payload)?;
+                FullPatternTag::List
+            }
             Self::Wildcard => FullPatternTag::Wildcard,
             Self::Bind { slot } => {
                 slot.encode(builder, &mut payload)?;
@@ -6134,6 +6140,10 @@ impl FullCodec for BuildPatternRow {
             FullPatternTag::ResultTest => Self::ResultTest { ok: bool::decode(decoder, &mut payload)?, inner: BuildPatternId::decode(decoder, &mut payload)? },
             FullPatternTag::TagTest => Self::TagTest { name: Name::decode(decoder, &mut payload)?, fields: Vec::decode(decoder, &mut payload)? },
             FullPatternTag::ErrorTest => Self::ErrorTest { family: Name::decode(decoder, &mut payload)?, variant: Name::decode(decoder, &mut payload)?, fields: Box::decode(decoder, &mut payload)? },
+            FullPatternTag::List => Self::List {
+                elements: Vec::decode(decoder, &mut payload)?,
+                rest: Option::decode(decoder, &mut payload)?,
+            },
             FullPatternTag::Wildcard => Self::Wildcard,
             FullPatternTag::Bind => Self::Bind {
                 slot: usize::decode(decoder, &mut payload)?,
@@ -6202,6 +6212,17 @@ impl FullCodec for BuildPatternRow {
                 Name::verify(decoder, &mut payload)?;
                 Name::verify(decoder, &mut payload)?;
                 Box::<Vec<(Name, BuildPatternId)>>::verify(decoder, &mut payload)?;
+            }
+            FullPatternTag::List => {
+                Vec::<BuildPatternId>::verify(decoder, &mut payload)?;
+                let mut rest_payload = payload;
+                if bool::decode(decoder, &mut rest_payload)? {
+                    let rest = rest_payload.raw()? as usize;
+                    if !matches!(decoder.store.patterns.get(rest), Some(FullPatternTag::Wildcard | FullPatternTag::Bind)) {
+                        return Err(IrVerifyError::new("list rest must be a wildcard or binding"));
+                    }
+                }
+                Option::<BuildPatternId>::verify(decoder, &mut payload)?;
             }
             FullPatternTag::Wildcard => {}
             FullPatternTag::Bind => usize::verify(decoder, &mut payload)?,
@@ -8162,6 +8183,40 @@ proc main() [error] {
             "function {function}: {}",
             error.message
         );
+    }
+
+    #[test]
+    fn list_patterns_validate_before_publishing_capture_slots() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/list-patterns.xsh");
+        let program = fixture("list-patterns.xsh", source);
+        program.symbol_owner().with_current(|| {
+            let view = program.function_view(LoweredFunctionKey::Name(Name::intern("nested")), LoweredFunctionKind::Pure).unwrap().unwrap();
+            let execution = view.execution().unwrap();
+            let count = view.header().unwrap().slot_count;
+            let pattern = program.store.patterns.iter().rposition(|tag| *tag == FullPatternTag::List).unwrap() as u32;
+            let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+            let list = |last| LoweredValue::List(vec![LoweredValue::List(vec![LoweredValue::Int(1), LoweredValue::Int(2)]), LoweredValue::List(vec![LoweredValue::Int(last)])]);
+            let mut slots = vec![LoweredValue::Unit; count];
+            assert!(!Evaluator::indexed_pattern_matches(&execution, pattern, &list(3), &mut slots, span).unwrap());
+            assert!(slots.iter().all(|value| matches!(value, LoweredValue::Unit)));
+            assert!(Evaluator::indexed_pattern_matches(&execution, pattern, &list(99), &mut slots, span).unwrap());
+            assert!(slots.iter().any(|value| *value == LoweredValue::Int(1)));
+            assert!(slots.iter().any(|value| *value == LoweredValue::List(vec![LoweredValue::Int(2)])));
+        });
+    }
+
+    #[test]
+    fn verifier_rejects_invalid_list_rest_patterns() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/list-patterns.xsh");
+        let program = fixture("list-patterns.xsh", source);
+        let parent = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::List).unwrap();
+        let range = program.store.pattern_data[parent].range().bounds(program.store.extra.len()).unwrap();
+        let mut invalid = program.clone();
+        invalid.store.extra[range.start + 2] = parent as u32;
+        assert!(FullVerifier::verify(&invalid).unwrap_err().message.contains("list rest"));
+        let mut missing = program.clone();
+        missing.store.extra[range.start + 2] = u32::MAX;
+        assert!(FullVerifier::verify(&missing).is_err());
     }
 
     #[test]

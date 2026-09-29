@@ -525,12 +525,31 @@ match_stmt   = "match" expr "{" match_arm* "}" ;
 match_arm    = pattern guard? "=>" (statement | block) ","? ;
 guard        = "if" expr ;
 pattern      = "_" | IDENT | type_pattern | literal | constructor_pattern
-             | record_pattern | pattern "|" pattern ;
+             | record_pattern | list_pattern | pattern "|" pattern ;
 type_pattern = ("_" | IDENT) "is" type ;
 constructor_pattern = IDENT "(" pattern? ")" ;
 record_pattern = "{" record_pattern_field ("," record_pattern_field)* ","? "}" ;
 record_pattern_field = IDENT (":" pattern)? | ".." ;
+list_pattern = "[" (pattern ("," pattern)* ("," list_rest)? | list_rest)? ","? "]" ;
+list_rest = ".." IDENT? ;
 ```
+
+List patterns match exact lengths (`[]`, `[first, second]`) or a prefix with
+one trailing rest (`[head, ..tail]`, `["build", target, ..]`). Elements may
+contain nested list, record, constructor, literal, or dynamic type patterns.
+Only List subjects and explicit dynamic pattern boundaries are accepted;
+Streams, Str, Bytes, and wrapped Result values are not coerced. Known List[T]
+elements retain T and named rest bindings have List[T]. Ordinary `let` targets
+do not accept refutable list patterns. Nonbinding `is` rejects names inside
+both elements and rest.
+
+Length is checked before any element access. Mismatch continues to the next
+arm without publishing captures. Captures become visible only after the full
+nested pattern succeeds; a named rest preserves list value semantics and is
+copied only for successful matches. Exhaustiveness recognizes catchalls,
+`[..]`/`[..tail]`, and the partition `[]` plus `[_, ..]` for known List subjects.
+Guards and literal element tests cannot establish general coverage; uncertain
+value matches require a catchall.
 
 `break` and `continue` affect the nearest `while` or `for`. They are checker
 errors inside structured stream stage blocks.

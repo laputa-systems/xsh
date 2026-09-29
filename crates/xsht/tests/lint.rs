@@ -2888,3 +2888,57 @@ fn linter_list_splicing_preserves_comments_without_a_fix() {
     let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-splicing")).expect("construction warning");
     assert!(diagnostic.fix_hints.is_empty());
 }
+
+#[test]
+fn formatter_list_pattern_nested_rest_and_comments_are_stable() {
+    let source = include_str!("../../../tests/fixtures/syntax/list-pattern.xsh");
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("[\"build\", _, ..]"));
+    assert!(formatted.formatted.contains("# Keep the selected command explanation."));
+    let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(again.formatted, formatted.formatted);
+}
+
+#[test]
+fn linter_list_pattern_preserves_unsafe_bounds_mutability_annotations_and_comments() {
+    let source = include_str!("../../../tests/fixtures/lint/list-pattern-unsafe.xsh");
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-pattern")));
+}
+
+#[test]
+fn linter_list_pattern_rewrites_stable_bounded_extraction_and_converges() {
+    let source = include_str!("../../../tests/fixtures/lint/list-pattern.xsh");
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    let selected: Vec<_> = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-pattern")).collect();
+    assert_eq!(selected.len(), 2);
+    let mut fixed = source.to_string();
+    for diagnostic in selected.into_iter().rev() {
+        let hint = &diagnostic.fix_hints[0];
+        fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+    }
+    assert!(fixed.contains("if let [\"build\", target] = values"));
+    assert!(fixed.contains("if let [7, target, ..] = values"));
+    assert_parse_check_standalone("list patterns", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let diagnostics = Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics;
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-pattern")));
+}
+
+#[test]
+fn checker_list_pattern_reachability_uses_unguarded_coverage() {
+    let source = include_str!("../../../tests/fixtures/frontend-indexed/list-pattern-unreachable.xsh");
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert_eq!(checked.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("check.unreachable-match-arm")).count(), 1);
+}

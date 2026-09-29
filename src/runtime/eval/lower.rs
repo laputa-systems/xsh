@@ -12139,6 +12139,23 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                 }
             }
+            ArenaPatternKind::List { elements, rest } => {
+                let children: Vec<_> = self.program.arena.pattern_ids(*elements).collect();
+                let rest_id = *rest;
+                let mut elements = Vec::new();
+                let mut cleanup = Vec::new();
+                for child in children {
+                    let (pattern, bindings) = self.lower_pattern(child, slots, None, None)?;
+                    elements.push(pattern);
+                    cleanup.extend(bindings);
+                }
+                let rest = if let Some(child) = rest_id {
+                    let (pattern, bindings) = self.lower_pattern(child, slots, None, None)?;
+                    cleanup.extend(bindings);
+                    Some(pattern)
+                } else { None };
+                Some((push_build_row!(self, pattern, BuildPatternRow::List { elements, rest }), cleanup))
+            }
             ArenaPatternKind::Record { fields, .. } => {
                 let mut lowered = Vec::new();
                 let mut cleanup = Vec::new();
@@ -14926,19 +14943,20 @@ pub(super) fn lowered_error_variant_matches(
     fields: &LoweredErrorPatternFields,
     value: &Value,
     slots: &mut [LoweredValue],
+    bind: bool,
 ) -> bool {
     match value {
         Value::Error(error) => {
             error.family_name() == *family
                 && error.variant_name() == *variant
-                && lowered_error_pattern_fields_match(&error.payload, fields, slots)
+                && lowered_error_pattern_fields_match(&error.payload, fields, slots, bind)
         }
         Value::RunError(error) if *family == Name::PROCESS_ERROR => {
             if error.variant_name() != variant.as_str() {
                 return false;
             }
             let payload = error.payload();
-            lowered_error_pattern_fields_match(&payload, fields, slots)
+            lowered_error_pattern_fields_match(&payload, fields, slots, bind)
         }
         _ => false,
     }
@@ -14948,6 +14966,7 @@ fn lowered_error_pattern_fields_match(
     payload: &RecordMap,
     fields: &LoweredErrorPatternFields,
     slots: &mut [LoweredValue],
+    bind: bool,
 ) -> bool {
     for (name, slot) in fields {
         let Some(value) = payload.get(&name.as_str()) else {
@@ -14957,7 +14976,7 @@ fn lowered_error_pattern_fields_match(
             let Some(value) = lowered_value_from_runtime_any(value) else {
                 return false;
             };
-            slots[*slot] = value;
+            if bind { slots[*slot] = value; }
         }
     }
     true
