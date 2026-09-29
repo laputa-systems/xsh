@@ -140,9 +140,15 @@ The checker retains ordinary gradual `Any` behavior, with runtime domain checks.
 
 ## Bindings And Annotations
 
-For `let` and `var`, an explicit annotation supplies the expected type for the
+For `const`, `let` and `var`, an explicit annotation supplies the expected type for the
 initializer. The initializer must match that type. Without an annotation, the
 binding receives the initializer type.
+
+`const` additionally requires a concrete preparation-time data type. Its value
+and dependency graph are checked before runtime; ordinary let/var bindings and
+parameters cannot supply a constant. Context reaches empty containers and
+constructor fields. `Any`, recovery types, callable values, and handles are not
+constant data. Exported constants remain `ModuleExportType::Value` entries.
 
 Destructuring requires a record-like value. If the record schema is known and
 non-empty, destructuring an unknown field is a checker error. Empty `Record`,

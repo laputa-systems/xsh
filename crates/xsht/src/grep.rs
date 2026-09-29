@@ -560,6 +560,9 @@ pub fn parse_pattern_expr(pattern: &str) -> Result<PatternExpr, String> {
         ArenaStmtKind::Let {
             initializer: ArenaExprOrRun::Expr(expr),
             ..
+        } | ArenaStmtKind::Const {
+            initializer: ArenaExprOrRun::Expr(expr),
+            ..
         } => expr,
         _ => {
             return Err(format!(

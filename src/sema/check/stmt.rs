@@ -405,7 +405,7 @@ impl Checker {
             }
             ArenaStmtKind::Export(inner_id) => {
                 let inner = arena.arena.stmt(inner_id);
-                if let ArenaStmtKind::Let { target, .. } = inner.kind
+                if let ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } = inner.kind
                     && matches!(
                         arena.arena.binding_target(target).kind,
                         ArenaBindingTargetKind::Record { .. }
@@ -446,6 +446,10 @@ impl Checker {
                 self.check_signal_hook_arena(arena, source, &hook, stmt.span);
             }
             ArenaStmtKind::Let {
+                target,
+                ty,
+                initializer,
+            } | ArenaStmtKind::Const {
                 target,
                 ty,
                 initializer,

@@ -3856,3 +3856,31 @@ fn try_capture_migration_does_not_erase_retry_metadata_or_lexical_returns() {
         }
     }
 }
+
+#[test]
+fn prepared_constant_fix_preserves_comments_and_converges() {
+    let source = "# protocol\nlet version = 1 # stable\nlet values: List[Int] = []\nlet runtime = 1 / 0\nlet ordinary = version\npure helper(input: Int) -> Int { let local = 2; input + local }\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let fixes: Vec<_> = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-const")).collect();
+    assert_eq!(fixes.len(), 2);
+    let mut fixed = source.to_string();
+    for diagnostic in fixes.iter().rev() {
+        let fix = &diagnostic.fix_hints[0];
+        fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_deref().unwrap());
+    }
+    assert!(fixed.contains("const version = 1 # stable"));
+    assert!(fixed.contains("let runtime = 1 / 0"));
+    assert!(fixed.contains("let ordinary = version"));
+    assert!(fixed.contains("let local = 2"));
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty());
+    assert!(formatted.formatted.contains("const version = 1 # stable"));
+    let second = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&second.arena, &fixed);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&second.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-const")));
+}

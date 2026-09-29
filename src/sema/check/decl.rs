@@ -382,6 +382,10 @@ impl Checker {
                             target,
                             ty,
                             initializer,
+                        } | ArenaStmtKind::Const {
+                            target,
+                            ty,
+                            initializer,
                         } => {
                             if matches!(
                                 program.arena.binding_target(target).kind,
@@ -475,6 +479,10 @@ impl Checker {
                     );
                 }
                 ArenaStmtKind::Let {
+                    target,
+                    ty,
+                    initializer,
+                } | ArenaStmtKind::Const {
                     target,
                     ty,
                     initializer,
@@ -772,7 +780,7 @@ fn module_top_level_allowed_arena(program: &ArenaProgram, stmt_id: StmtId) -> bo
     matches!(
         &program.arena.stmt(stmt_id).kind,
         ArenaStmtKind::Use(_)
-            | ArenaStmtKind::Let { .. }
+            | ArenaStmtKind::Let { .. } | ArenaStmtKind::Const { .. }
             | ArenaStmtKind::ProcDef(_)
             | ArenaStmtKind::PureDef(_)
             | ArenaStmtKind::StreamDef(_)

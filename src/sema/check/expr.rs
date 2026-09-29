@@ -145,6 +145,11 @@ impl Checker {
     ) -> Type {
         if let Some(ty) = self.argument_projection_types.get(&id) { return ty.clone(); }
         let expr = arena.arena.expr(id);
+        if let Some(ty) = self.prepared_constants.types.get(&id) {
+            let ty = ty.clone();
+            self.expr_types.insert(expr.span, ty.clone());
+            return ty;
+        }
         let ty = match &expr.kind {
             ArenaExprKind::Null => Type::Null,
             ArenaExprKind::Bool(_) => Type::Bool,
@@ -1594,7 +1599,7 @@ mod arena_tests {
         for id in program.arena.stmt_ids(program.statements) {
             let stmt = program.arena.stmt(id);
             let initializer = match stmt.kind {
-                ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
+                ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Const { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
                     initializer
                 }
                 _ => continue,

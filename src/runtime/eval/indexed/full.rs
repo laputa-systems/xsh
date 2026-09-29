@@ -16,7 +16,7 @@ use crate::runtime::eval::{
     LoweredRunArgKind, LoweredRunCapture, LoweredRunEnv, LoweredRunPipelineSegment,
     LoweredRunRedirection, LoweredSpawnRun, LoweredStatsValue, LoweredStrPredicate,
     LoweredTagValue, LoweredTopLevelSlot, LoweredTopLevelSlots, LoweredType, LoweredTypeCheck,
-    LoweredValue, ProgramBuild, ReduceByOp, ScanBytes, ScanCheck, ScanCondition,
+    LoweredValue, PreparedConstantValue, ProgramBuild, ReduceByOp, ScanBytes, ScanCheck, ScanCondition,
 };
 use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue, RegexValue};
 use crate::sema::check::{CompactBodyProbeOutput, CompactDeclOutput};
@@ -500,6 +500,7 @@ struct FullStore {
     bytes: Vec<IrRange>,
     byte_data: Vec<u8>,
     prepared_regexes: Vec<RegexValue>,
+    prepared_constants: Vec<PreparedConstantValue>,
     locations: Vec<IrLocation>,
     location_sources: Vec<SourceId>,
     runtime_ops: Vec<RuntimeOp>,
@@ -542,6 +543,7 @@ impl Default for FullStore {
             bytes: Vec::new(),
             byte_data: Vec::new(),
             prepared_regexes: Vec::new(),
+            prepared_constants: Vec::new(),
             locations: Vec::new(),
             location_sources: Vec::new(),
             runtime_ops: Vec::new(),
@@ -671,6 +673,7 @@ impl FullStore {
             + self.string_bytes.capacity()
             + self.bytes.capacity() * size_of::<IrRange>()
             + self.byte_data.capacity()
+            + self.prepared_constants.capacity() * size_of::<PreparedConstantValue>()
             + self.prepared_regexes.capacity() * size_of::<RegexValue>()
             + self.prepared_regexes.iter().map(|value| value.pattern.capacity()).sum::<usize>()
             + self.locations.capacity() * size_of::<IrLocation>()
@@ -723,6 +726,7 @@ impl FullStore {
         self.bytes.shrink_to_fit();
         self.byte_data.shrink_to_fit();
         self.prepared_regexes.shrink_to_fit();
+        self.prepared_constants.shrink_to_fit();
         self.locations.shrink_to_fit();
         self.location_sources.shrink_to_fit();
         self.runtime_ops.shrink_to_fit();
@@ -1490,6 +1494,7 @@ struct FullCheckpoint {
     bytes: usize,
     byte_data: usize,
     prepared_regexes: usize,
+    prepared_constants: usize,
     locations: usize,
     runtime_ops: usize,
     assign_ops: usize,
@@ -2610,6 +2615,7 @@ impl FullBuilder {
             bytes: self.store.bytes.len(),
             byte_data: self.store.byte_data.len(),
             prepared_regexes: self.store.prepared_regexes.len(),
+            prepared_constants: self.store.prepared_constants.len(),
             locations: self.store.locations.len(),
             runtime_ops: self.store.runtime_ops.len(),
             assign_ops: self.store.assign_ops.len(),
@@ -2649,6 +2655,7 @@ impl FullBuilder {
         self.store.bytes.truncate(checkpoint.bytes);
         self.store.byte_data.truncate(checkpoint.byte_data);
         self.store.prepared_regexes.truncate(checkpoint.prepared_regexes);
+        self.store.prepared_constants.truncate(checkpoint.prepared_constants);
         self.store.locations.truncate(checkpoint.locations);
         self.store.location_sources.truncate(checkpoint.locations);
         self.store.runtime_ops.truncate(checkpoint.runtime_ops);
@@ -4771,6 +4778,41 @@ impl_copy_pool_codec!(BinaryOp, binary_ops, "binary operation");
 impl_copy_pool_codec!(RunKind, run_kinds, "run kind");
 impl_copy_pool_codec!(RedirectionKind, redirection_kinds, "redirection kind");
 
+impl FullCodec for PreparedConstantValue {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        let index = u32::try_from(builder.store.prepared_constants.len())
+            .map_err(|_| IrBuildError::format("constant pool overflow", None, 0, 0))?;
+        builder.store.prepared_constants.push(self.clone());
+        output.push(index);
+        Ok(())
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        decoder.store.prepared_constants.get(input.raw()? as usize).cloned()
+            .ok_or_else(|| IrVerifyError::new("prepared constant is out of bounds"))
+    }
+    fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
+        let value = decoder.store.prepared_constants.get(input.raw()? as usize)
+            .ok_or_else(|| IrVerifyError::new("prepared constant is out of bounds"))?;
+        if prepared_constant_is_data(&value.0, 0) { Ok(()) }
+        else { Err(IrVerifyError::new("prepared constant contains a runtime value")) }
+    }
+}
+
+fn prepared_constant_is_data(value: &LoweredValue, depth: usize) -> bool {
+    if depth > 128 { return false; }
+    match value {
+        LoweredValue::Null | LoweredValue::Bool(_) | LoweredValue::Int(_) | LoweredValue::Float(_)
+        | LoweredValue::Duration(_) | LoweredValue::Str(_) | LoweredValue::Bytes(_)
+        | LoweredValue::Path(_) | LoweredValue::Regex(_) => true,
+        LoweredValue::List(values) => values.iter().all(|value| prepared_constant_is_data(value, depth + 1)),
+        LoweredValue::SharedList(values) => values.iter().all(|value| prepared_constant_is_data(value, depth + 1)),
+        LoweredValue::Record(values) => values.values().all(|value| prepared_constant_is_data(value, depth + 1)),
+        LoweredValue::Map(values) => values.values().all(|value| prepared_constant_is_data(value, depth + 1)),
+        LoweredValue::Tag(value) => value.fields.iter().all(|value| prepared_constant_is_data(value, depth + 1)),
+        _ => false,
+    }
+}
+
 impl FullCodec for RegexValue {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let index = u32::try_from(builder.store.prepared_regexes.len())
@@ -6801,7 +6843,7 @@ impl_node_codec! {
             value: Arc<str>,
         } => BuildExprRow::Str(value),
         BuildExprRow::PreparedConstant(value) => ExprPreparedConstant {
-            value: LoweredValue,
+            value: PreparedConstantValue,
         } => BuildExprRow::PreparedConstant(value),
         BuildExprRow::PreparedRegex(value) => ExprPreparedRegex {
             value: RegexValue,
@@ -8110,6 +8152,39 @@ proc main() [error] {
             std::mem::take(&mut evaluator.stdout),
             normalize_traces(&evaluator.trace_events),
         )
+    }
+
+    #[test]
+    fn prepared_constant_pool_reuses_data_and_rejects_invalid_values() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("prepared-constant.xsh", "const data: List[Int] = [1, 2]\nproc constant() -> List[Int] { data }\n"));
+            program.symbol_owner().with_current(|| {
+                let header = program.function_view(LoweredFunctionKey::Name(Name::intern("constant")), LoweredFunctionKind::Proc).unwrap().unwrap().header().unwrap();
+                assert!(header.captures.iter().all(|capture| capture.name != Name::intern("data")));
+            });
+            let (result, _, _) = run_full(Arc::clone(&program), program_name(&program, "constant"));
+            assert_eq!(result.unwrap(), Value::List(vec![Value::Int(1), Value::Int(2)]));
+            let shared = program.store.prepared_constants.iter().find_map(|constant| match &constant.0 {
+                LoweredValue::SharedList(values) => Some(Arc::clone(values)), _ => None,
+            }).expect("prepared list pool");
+            let decoder = FullDecoder { store: &program.store, owner: 0, instruction_range: 0..0, instruction_states: None, block_states: None, slot_count: 0, pattern_ceiling: Cell::new(usize::MAX), verified: false };
+            let mut words = vec![0];
+            let mut cursor = FullCursor::new(&words);
+            let decoded = PreparedConstantValue::decode(&decoder, &mut cursor).unwrap();
+            let LoweredValue::SharedList(values) = decoded.0 else { panic!("shared list"); };
+            assert!(Arc::ptr_eq(&shared, &values));
+            let mut broken = (*program).clone();
+            broken.store.prepared_constants.clear();
+            assert!(FullVerifier::verify(&broken).is_err());
+            let mut broken = (*program).clone();
+            broken.store.prepared_constants[0] = PreparedConstantValue(LoweredValue::Unit);
+            assert!(FullVerifier::verify(&broken).is_err());
+            let mut builder = FullBuilder::new(SourceId::new(0));
+            let checkpoint = builder.checkpoint();
+            PreparedConstantValue(LoweredValue::Int(1)).encode(&mut builder, &mut words).unwrap();
+            builder.rewind(checkpoint);
+            assert!(builder.store.prepared_constants.is_empty());
+        });
     }
 
     #[test]

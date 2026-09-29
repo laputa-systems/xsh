@@ -265,7 +265,7 @@ blocks are checker errors. Ordinary `#` comments remain non-semantic.
 Reserved keywords:
 
 ```text
-and assert break continue defer else enum false for if in let match not null or proc pure
+and assert break const continue defer else enum false for if in let match not null or proc pure
 retry return run spawn stream test true try type use var wait while yield
 ```
 
@@ -452,6 +452,7 @@ program      = statement* EOF ;
 
 statement    = use_stmt
              | export_stmt
+             | const_stmt
              | let_stmt
              | var_stmt
              | assign_stmt
@@ -486,8 +487,9 @@ Declarations:
 use_stmt     = "use" module_path ("as" IDENT)? terminator ;
 module_path  = module_segment ("." module_segment)* ;
 module_segment = IDENT | PROC_IDENT ;
-export_stmt  = "export" (let_stmt | proc_def | pure_def | stream_def | type_def | enum_def) ;
+export_stmt  = "export" (const_stmt | let_stmt | proc_def | pure_def | stream_def | type_def | enum_def) ;
 
+const_stmt   = "const" IDENT (":" type_expr)? "=" expression terminator ;
 let_stmt     = "let" binding_target type_ann? "=" expr_or_run terminator ;
 var_stmt     = "var" binding_target type_ann? "=" expr_or_run terminator ;
 binding_target = IDENT | record_binding_target ;
@@ -661,6 +663,30 @@ the pipeline input inserted, and builder syntax to module-owned builder calls.
 Explicit pipeline holes retain the input and ordinary call through checking,
 then bind that input to hygienic temporary storage before the call.
 Formatting preserves the readable surface form.
+
+### Prepared immutable data
+
+`const` declarations are checked data in the program, including exported module
+values and local constants. Their finite lexical dependency graph may reference
+other constants, including qualified exported constants; cycles are preparation
+errors. Runtime bindings, parameters, ambient names, arbitrary calls or methods,
+blocks, comprehensions, retry, and propagation are rejected. Record and tag
+constructors may consume prepared constant arguments and schema defaults.
+
+The bounded data subset includes scalar, path, and regex literals, homogeneous
+constant containers, and checked primitive operations. Invalid integer arithmetic
+is diagnosed during preparation. Empty List and Map values need concrete type
+context; `Any` and resource values cannot enter constant data. Preparation admits
+at most 128 nested expressions, 100,000 analysis steps, and 1,048,576 data units
+per constant (container entries and literal bytes contribute to this bound).
+Paths preserve their bytes without consulting cwd. Regex literals share their
+already prepared pattern. Indexed reads reuse immutable container backing under
+ordinary value semantics, so writes to a derived `var` preserve the constant.
+
+An exported constant satisfies the ordinary read-only module value contract.
+`let` retains runtime initialization. `lint.prefer-const` offers a keyword-only
+edit for inert module literal data; runtime calculations and local bindings keep
+their initialization boundary.
 
 ## 5. Types And Values
 

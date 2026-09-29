@@ -440,7 +440,7 @@ fn test_top_level_diagnostics(program: &ArenaProgram) -> Vec<Diagnostic> {
 fn test_top_level_allowed(program: &ArenaProgram, id: StmtId) -> bool {
     match program.arena.stmt(id).kind {
         ArenaStmtKind::Use(_)
-        | ArenaStmtKind::Let { .. }
+        | ArenaStmtKind::Let { .. } | ArenaStmtKind::Const { .. }
         | ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)
         | ArenaStmtKind::ProcDef(_)

@@ -10527,7 +10527,7 @@ impl Evaluator {
             else {
                 continue;
             };
-            if let crate::syntax::arena::ArenaStmtKind::Let { target, .. } =
+            if let crate::syntax::arena::ArenaStmtKind::Let { target, .. } | crate::syntax::arena::ArenaStmtKind::Const { target, .. } =
                 arena.arena.stmt(inner).kind
                 && let crate::syntax::arena::ArenaBindingTargetKind::Name(name) =
                     arena.arena.binding_target(target).kind

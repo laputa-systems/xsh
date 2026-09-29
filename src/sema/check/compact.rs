@@ -20,6 +20,7 @@ use crate::syntax::node::{Effect, EnvGetKind};
 #[derive(Clone, Debug, Default)]
 pub struct CompactDeclOutput {
     pub record_constructors: super::RecordConstructors,
+    pub prepared_constants: crate::sema::constants::PreparedConstants,
     pub diagnostics: Vec<Diagnostic>,
     pub function_return_types: BTreeMap<crate::source::Span, Type>,
     pub types: FxHashMap<Name, CompactTypeDefInfo>,
@@ -114,6 +115,9 @@ impl Checker {
             collector.collect_program(program);
             let mut output = collector.output;
             output.record_constructors = super::RecordConstructors::collect(program);
+            output.prepared_constants = crate::sema::constants::PreparedConstants::collect(program, &output.record_constructors);
+            collector.diagnostics.extend(output.prepared_constants.diagnostics.clone());
+            output.record_constructors.apply_prepared_defaults(program, &output.prepared_constants);
             output.diagnostics = collector.diagnostics;
             if let Some(checked) = inferred {
                 output.diagnostics.extend(checked.diagnostics.into_iter().filter(|diagnostic|
@@ -706,6 +710,10 @@ impl CompactBodyProbe<'_> {
                 target,
                 ty,
                 initializer,
+            } | ArenaStmtKind::Const {
+                target,
+                ty,
+                initializer,
             }
             | ArenaStmtKind::Var {
                 target,
@@ -1009,7 +1017,10 @@ impl CompactBodyProbe<'_> {
         let tail = self.program.arena.stmt_ids(self.program.arena.block(block).statements).last();
         match tail.map(|id| self.program.arena.stmt(id).kind) {
             Some(ArenaStmtKind::Expr(expr)) => self.output.expr_types.get(&expr).cloned().unwrap_or(Type::Unknown),
-            Some(ArenaStmtKind::TailBareIdent(name)) => self.lookup_name(name),
+            Some(ArenaStmtKind::TailBareIdent(name)) => self.declarations.prepared_constants.tail_bindings
+                .get(&self.program.arena.stmt(tail.unwrap()).span)
+                .and_then(|expr| self.declarations.prepared_constants.types.get(expr)).cloned()
+                .unwrap_or_else(|| self.lookup_name(name)),
             Some(ArenaStmtKind::If { branches, else_block: Some(block) }) => {
                 let mut ty = Some(self.compact_block_tail_type(block));
                 for branch in self.program.arena.if_branches(branches) { ty = Some(merge_types(ty, self.compact_block_tail_type(branch.block))); }
@@ -1064,6 +1075,10 @@ impl CompactBodyProbe<'_> {
 
     fn check_compact_expr_inner(&mut self, id: ExprId, expected: Option<&Type>) -> Type {
         self.output.expressions += 1;
+        if let Some(ty) = self.declarations.prepared_constants.types.get(&id) {
+            self.output.expr_types.insert(id, ty.clone());
+            return ty.clone();
+        }
         let ty = match self.program.arena.expr(id).kind {
             ArenaExprKind::Null => Type::Null,
             ArenaExprKind::Bool(_) => Type::Bool,

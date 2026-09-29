@@ -2732,9 +2732,9 @@ impl Evaluator {
                 ControlFlow::Continue(LoweredValue::Str(value))
             }
             FullTag::ExprPreparedConstant => {
-                let value = indexed_decode::<LoweredValue>(&mut payload, execution, call_span)?;
+                let value = indexed_decode::<crate::runtime::eval::PreparedConstantValue>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                ControlFlow::Continue(value)
+                ControlFlow::Continue(value.0)
             }
             FullTag::ExprPreparedRegex => {
                 let value = indexed_decode::<RegexValue>(&mut payload, execution, call_span)?;

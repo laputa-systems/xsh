@@ -18,7 +18,7 @@ impl<'a> Parser<'a> {
         self.skip_comments();
         let start = self.current_start();
         match (self.current_tag(), self.current_keyword()) {
-            (TokenTag::Keyword, Some(Keyword::Let)) => {
+            (TokenTag::Keyword, Some(Keyword::Let | Keyword::Const)) => {
                 self.parse_binding_arena_only(start, true, arena)
             }
             (TokenTag::Keyword, Some(Keyword::Var)) => {
@@ -156,7 +156,7 @@ impl<'a> Parser<'a> {
     ) -> Option<()> {
         self.bump();
         match (self.current_tag(), self.current_keyword()) {
-            (TokenTag::Keyword, Some(Keyword::Let)) => {
+            (TokenTag::Keyword, Some(Keyword::Let | Keyword::Const)) => {
                 self.parse_binding_arena_only(start, true, arena)?
             }
             (TokenTag::Keyword, Some(Keyword::Proc)) => {
@@ -192,7 +192,7 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 self.diagnostic_here(
-                    "`export` applies only to let, proc, pure, stream, type, enum, or error definitions",
+                    "`export` applies only to const, let, proc, pure, stream, type, enum, or error definitions",
                     "parse.export-target",
                 );
                 return None;
@@ -614,6 +614,7 @@ impl<'a> Parser<'a> {
         immutable: bool,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
+        let constant = self.at_keyword(Keyword::Const);
         self.bump();
         let target = self.parse_binding_target_arena_only("expected binding name", arena)?;
         let ty = if self.consume(TokenKindMatch::Colon).is_some() {
@@ -624,7 +625,11 @@ impl<'a> Parser<'a> {
         self.expect(TokenKindMatch::Equals, "expected `=` in binding");
         let initializer = self.parse_expr_or_run_arena_only(arena)?;
         let end = self.expect_terminator();
-        arena.push_binding_parts(immutable, target, ty, initializer, self.span(start, end));
+        if constant {
+            arena.push_const_binding_parts(target, ty, initializer, self.span(start, end));
+        } else {
+            arena.push_binding_parts(immutable, target, ty, initializer, self.span(start, end));
+        }
         Some(())
     }
 
@@ -1632,6 +1637,7 @@ impl<'a> Parser<'a> {
                 TokenTag::Keyword,
                 Some(
                     Keyword::Let
+                    | Keyword::Const
                     | Keyword::Var
                     | Keyword::Return
                     | Keyword::Defer

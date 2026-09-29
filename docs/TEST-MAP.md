@@ -727,3 +727,15 @@ interpolation source slices; `tests/syntax.rs` covers original diagnostic spans
 and formatter round trips. Run the native module with `xsht test --jobs 1`,
 `cargo test -p xsh --lib block_string`, and the focused xsht `block_string` tests
 before the ordinary syntax/tooling gates.
+
+## Prepared constants
+
+`target/debug/xsht test --jobs 1 tests/xsh/constants.xsh` covers lexical and
+qualified references, forward dependencies, concrete empty containers, schema
+and tag construction, immutable aliases, and rejected runtime initialization.
+`cargo test -p xsh --lib prepared_constant_pool --features native-tests -- --test-threads=1`
+checks pool reuse, checkpoint rewind, and verifier rejection. Tooling acceptance
+uses `cargo test -p xsht --test integration prepared_constant_fix`; it checks
+keyword preservation, inert migration boundaries, comments, and convergence
+through library APIs. Broaden with the syntax/checker integration gates and the
+indexed verifier suite; formatting and lint CLI gates remain owner-run.

@@ -673,3 +673,12 @@ unchanged and shift arena and diagnostic spans back into the enclosing source.
 The command-word reader consumes the same chunks while retaining shorthand
 versus braced interpolation. Formatter serialization escapes a leading value
 newline to avoid accidentally turning value bytes into structural layout.
+
+`sema/constants.rs::PreparedConstants` owns lexical preparation for `const`.
+`LiteralConstant` is shared with schema defaults, preserving the separate rule
+that earlier immutable literal `let` bindings may supply those defaults.
+`CompactDeclOutput::prepared_constants` supplies values, concrete types, and
+constant origins to full checking and indexed lowering. `BuildScratch` caches
+converted values by origin; `FullStore` retains a verified immutable constant
+pool, including shared List/Map/Record backing and prepared regex handles.
+Constant reads create no runtime initializer evaluations or parameter captures.

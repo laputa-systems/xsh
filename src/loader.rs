@@ -468,7 +468,7 @@ fn collect_exported_top_level_binding_name(
         return;
     };
     match program.arena.stmt(inner).kind {
-        ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. } => {
+        ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } | ArenaStmtKind::Var { target, .. } => {
             if let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind {
                 names.insert(name);
             }

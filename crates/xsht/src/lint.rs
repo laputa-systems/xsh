@@ -363,6 +363,7 @@ impl<'a> Linter<'a> {
         self.collect_assigned_names(statements);
         self.lint_import_blocks(statements);
         self.lint_top_level_const_order(statements);
+        self.lint_prepared_constants(statements);
         for &stmt_id in statements {
             let stmt = self.arena.stmt(stmt_id);
             let (inner_id, inner, is_exported) = match &stmt.kind {
@@ -477,7 +478,7 @@ impl<'a> Linter<'a> {
             ArenaStmtKind::Use(_)
             | ArenaStmtKind::TypeDef(_)
             | ArenaStmtKind::ErrorDef(_)
-            | ArenaStmtKind::Let { .. }
+            | ArenaStmtKind::Let { .. } | ArenaStmtKind::Const { .. }
             | ArenaStmtKind::Var { .. }
             | ArenaStmtKind::Return(_)
             | ArenaStmtKind::YieldDelegate(_)
@@ -570,6 +571,27 @@ impl<'a> Linter<'a> {
             ));
         }
         self.diagnostics.push(diagnostic);
+    }
+
+    fn lint_prepared_constants(&mut self, statements: &[StmtId]) {
+        for &statement in statements {
+            let statement = match self.arena.stmt(statement).kind {
+                ArenaStmtKind::Export(inner) => inner, _ => statement,
+            };
+            let stmt = self.arena.stmt(statement);
+            let ArenaStmtKind::Let { target, initializer: ArenaExprOrRun::Expr(value), .. } = stmt.kind else { continue; };
+            if !matches!(self.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(name) if name.as_str() != "_")
+                || !inert_constant_initializer(self.arena, value) { continue; }
+            let Some(expected) = self.expr_types.get(&self.arena.expr(value).span) else { continue; };
+            let Some(constant) = xsh::frontend::check::LiteralConstant::analyze(self.arena, value, &FxHashMap::default()) else { continue; };
+            if !constant.in_type(expected).matches_data_type(expected) { continue; }
+            let span = Span::new(stmt.span.source_id, stmt.span.start(), stmt.span.start() + 3);
+            if self.source.get(span.range()) != Some("let") { continue; }
+            self.diagnostics.push(Diagnostic::new(Severity::Warning, "module data can be declared as const")
+                .with_code("lint.prefer-const")
+                .with_label(Label::secondary(span, "this initializer is inert and can be prepared"))
+                .with_fix_hint(FixHint::replacement(span, "declare prepared immutable data", "const")));
+        }
     }
 
     fn lint_top_level_const_order(&mut self, statements: &[StmtId]) {
@@ -743,6 +765,10 @@ impl<'a> Linter<'a> {
             ArenaStmtKind::Use(_) | ArenaStmtKind::TypeDef(_) | ArenaStmtKind::ErrorDef(_) => {}
             ArenaStmtKind::Export(inner) => self.lint_stmt(inner, true),
             ArenaStmtKind::Let {
+                target,
+                ty,
+                initializer,
+            } | ArenaStmtKind::Const {
                 target,
                 ty,
                 initializer,
@@ -2288,6 +2314,10 @@ impl<'a> Linter<'a> {
         let return_stmt = self.arena.stmt(stmts[len - 1]);
         let (target, ty, initializer) = match binding_stmt.kind {
             ArenaStmtKind::Let {
+                target,
+                ty,
+                initializer: ArenaExprOrRun::Expr(initializer),
+            } | ArenaStmtKind::Const {
                 target,
                 ty,
                 initializer: ArenaExprOrRun::Expr(initializer),
@@ -5259,7 +5289,7 @@ fn lazy_visit_stmt(
         // Old visitor::walk_stmt treats Break (with or without value) as a leaf.
         | ArenaStmtKind::Break { .. } => {}
         ArenaStmtKind::Export(inner) => lazy_visit_stmt(arena, inner, out),
-        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
+        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Const { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
             lazy_visit_expr_or_run(arena, &initializer, out);
         }
         ArenaStmtKind::Assign { target, value, .. } => {
@@ -6445,7 +6475,7 @@ fn block_contains_read_text_lines_call(arena: &AstArena, block: BlockId) -> bool
 
 fn stmt_contains_read_text_lines_call(arena: &AstArena, stmt: StmtId) -> bool {
     match arena.stmt(stmt).kind {
-        ArenaStmtKind::Let { initializer, .. }
+        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Const { initializer, .. }
         | ArenaStmtKind::Var { initializer, .. }
         | ArenaStmtKind::Assign {
             value: initializer, ..
@@ -7318,11 +7348,19 @@ fn top_level_phase(arena: &AstArena, stmt: StmtId, source: &str) -> TopLevelPhas
             target,
             initializer,
             ..
+        } | ArenaStmtKind::Const {
+            target,
+            initializer,
+            ..
         } if is_safe_top_level_const(arena, target, &initializer, arena_stmt.span, source) => {
             TopLevelPhase::SafeConst
         }
         ArenaStmtKind::Export(inner) => match arena.stmt(inner).kind {
             ArenaStmtKind::Let {
+                target,
+                initializer,
+                ..
+            } | ArenaStmtKind::Const {
                 target,
                 initializer,
                 ..
@@ -7598,7 +7636,7 @@ fn collect_stmt_effects(
     proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
 ) {
     match arena.stmt(stmt).kind {
-        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
+        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Const { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
             collect_expr_or_run_effects(arena, &initializer, effects, proc_effects);
         }
         ArenaStmtKind::Assign { value, .. } => {
@@ -7964,7 +8002,7 @@ fn collect_retry_stmt_effects(
     proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
 ) {
     match arena.stmt(stmt).kind {
-        ArenaStmtKind::Let { initializer, .. }
+        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Const { initializer, .. }
         | ArenaStmtKind::Var { initializer, .. }
         | ArenaStmtKind::Assign {
             value: initializer, ..
@@ -8431,6 +8469,10 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
         match self.arena().stmt(stmt).kind {
             ArenaStmtKind::Export(inner) => self.scan_stmt(inner),
             ArenaStmtKind::Let {
+                target,
+                initializer,
+                ..
+            } | ArenaStmtKind::Const {
                 target,
                 initializer,
                 ..
@@ -9095,7 +9137,7 @@ fn stmt_flow(
 ) -> FlowSummary {
     match arena.stmt(stmt).kind {
         ArenaStmtKind::Export(inner) => stmt_flow(arena, inner, terminating_call_spans),
-        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
+        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Const { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
             expr_or_run_flow(arena, &initializer, terminating_call_spans)
         }
         ArenaStmtKind::Assign { target, value, .. } => assign_target_flow(
@@ -9735,5 +9777,18 @@ fn checked_return_type_shape(ty: &Type) -> String {
         Type::Optional(inner) => format!("Optional[{}]", checked_return_type_shape(inner)),
         Type::Result(ok, error) => format!("Result[{}, {}]", checked_return_type_shape(ok), checked_return_type_shape(error)),
         _ => ty.to_string(),
+    }
+}
+
+fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> bool {
+    match arena.expr(value).kind {
+        ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_)
+        | ArenaExprKind::Duration(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) => true,
+        ArenaExprKind::List(items) => arena.list_elements(items).all(|item| item.splice_span.is_none() && inert_constant_initializer(arena, item.value)),
+        ArenaExprKind::Record(fields) => arena.record_fields(fields).iter().all(|field| match field.kind {
+            ArenaRecordFieldKind::Named { value, .. } => inert_constant_initializer(arena, value),
+            _ => false,
+        }),
+        _ => false,
     }
 }

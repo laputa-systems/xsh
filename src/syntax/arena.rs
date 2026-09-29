@@ -2129,6 +2129,12 @@ impl<'a> ArenaProgramBuilder<'a> {
         }
     }
 
+    pub fn push_const_binding_parts(&mut self, target: BindingTargetId, ty: Option<TypeExprId>, initializer: ArenaExprOrRun, span: Span) -> StmtId {
+        let id = self.lowerer.push_stmt_kind(ArenaStmtKind::Const { target, ty, initializer }, span);
+        self.push_current_statement(id);
+        id
+    }
+
     pub fn push_binding_parts(
         &mut self,
         immutable: bool,
@@ -3744,6 +3750,14 @@ impl AstArena {
                 ty: None,
                 initializer: ArenaExprOrRun::Expr(ExprId::new(data.rhs as usize)),
             },
+            ArenaStmtTag::Const => {
+                let raw = range_slice(&self.extra, range_from_stmt_data(data));
+                ArenaStmtKind::Const {
+                    target: BindingTargetId::new(raw[0] as usize),
+                    ty: optional_type_expr_id(raw[1]),
+                    initializer: expr_or_run_from_raw(raw[2]),
+                }
+            }
             ArenaStmtTag::Let => {
                 let raw = range_slice(&self.extra, range_from_stmt_data(data));
                 ArenaStmtKind::Let {
@@ -4719,6 +4733,7 @@ pub enum ArenaStmtTag {
     ErrorDef,
     LetExprNoTy,
     Let,
+    Const,
     VarExprNoTy,
     Var,
     AssignSet,
@@ -4786,6 +4801,11 @@ pub enum ArenaStmtKind {
     Export(StmtId),
     TypeDef(TypeDefId),
     ErrorDef(ErrorDefId),
+    Const {
+        target: BindingTargetId,
+        ty: Option<TypeExprId>,
+        initializer: ArenaExprOrRun,
+    },
     Let {
         target: BindingTargetId,
         ty: Option<TypeExprId>,
@@ -6033,6 +6053,11 @@ impl ArenaLowerer<'_> {
                 ArenaStmtTag::ErrorDef,
                 ArenaStmtData::new(raw_error_def_id(id), 0),
             ),
+            ArenaStmtKind::Const { target, ty, initializer } => {
+                let data = self.push_stmt_extra(&[raw_binding_target_id(target),
+                    optional_raw_type_expr_id(ty), raw_expr_or_run(initializer)]);
+                (ArenaStmtTag::Const, data)
+            }
             ArenaStmtKind::Let {
                 target,
                 ty: None,

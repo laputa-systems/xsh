@@ -72,6 +72,7 @@ pub enum StatementPosition {
 
 #[derive(Clone, Debug, Default)]
 pub struct CheckOutput {
+    pub prepared_constants: super::constants::PreparedConstants,
     pub diagnostics: Vec<Diagnostic>,
     pub annotation_facts: Vec<AnnotationFact>,
     pub function_return_types: BTreeMap<Span, Type>,
@@ -260,6 +261,7 @@ pub(super) struct UserModuleSig {
 pub struct Checker {
     argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
     record_constructors: RecordConstructors,
+    prepared_constants: super::constants::PreparedConstants,
     current_namespace: Option<Name>,
     scopes: Vec<FxHashMap<Name, Binding>>,
     procs: FxHashMap<Name, FunctionSig>,
@@ -350,6 +352,7 @@ impl Checker {
             checker.check_program_arena_with_type_program(program, source, type_program);
             let callable_effects = checker.callable_effects();
             CheckOutput {
+                prepared_constants: checker.prepared_constants,
                 diagnostics: checker.diagnostics,
                 annotation_facts: checker.annotation_facts,
                 function_return_types: checker.function_return_types,
@@ -433,6 +436,7 @@ impl Checker {
             checker.check_program_arena(&main_program, main.1);
             let callable_effects = checker.callable_effects();
             CheckOutput {
+                prepared_constants: checker.prepared_constants,
                 diagnostics: checker.diagnostics,
                 annotation_facts: checker.annotation_facts,
                 function_return_types: checker.function_return_types,
@@ -458,6 +462,7 @@ impl Checker {
             type_defs: FxHashMap::default(),
             argument_projection_types: FxHashMap::default(),
             record_constructors: RecordConstructors::default(),
+            prepared_constants: super::constants::PreparedConstants::default(),
             current_namespace: None,
             type_namespaces: FxHashMap::default(),
             tag_variants: FxHashMap::default(),
@@ -557,6 +562,9 @@ impl Checker {
     ) {
         self.diagnostics.extend(Self::prepare_regex_literals(program));
         self.record_constructors = RecordConstructors::collect(program);
+        self.prepared_constants = super::constants::PreparedConstants::collect(program, &self.record_constructors);
+        self.diagnostics.extend(self.prepared_constants.diagnostics.clone());
+        self.record_constructors.apply_prepared_defaults(program, &self.prepared_constants);
         self.collect_user_modules_arena(program, type_program.clone(), source);
         self.collect_type_imports_arena(program, program.statement_ids());
         self.collect_definitions_arena(program, type_program, source, program.statement_ids());

@@ -421,8 +421,12 @@ impl<'a> Writer<'a> {
                 target,
                 ty,
                 initializer,
+            } | ArenaStmtKind::Const {
+                target,
+                ty,
+                initializer,
             } => {
-                output.push_str("let ");
+                output.push_str(if matches!(stmt.kind, ArenaStmtKind::Const { .. }) { "const " } else { "let " });
                 self.write_binding_target(*target, output);
                 self.write_optional_type(*ty, output);
                 output.push_str(" = ");
@@ -981,8 +985,12 @@ impl<'a> Writer<'a> {
                 target,
                 ty,
                 initializer,
+            } | ArenaStmtKind::Const {
+                target,
+                ty,
+                initializer,
             } => {
-                output.push_str("let ");
+                output.push_str(if matches!(kind, ArenaStmtKind::Const { .. }) { "const " } else { "let " });
                 self.write_binding_target(*target, output);
                 self.write_optional_type(*ty, output);
                 output.push_str(" = ");

@@ -695,7 +695,7 @@ fn collect_statement(
                 collect_block(program, sources, arm.block, by_source);
             }
         }
-        ArenaStmtKind::Let { .. }
+        ArenaStmtKind::Let { .. } | ArenaStmtKind::Const { .. }
         | ArenaStmtKind::Var { .. }
         | ArenaStmtKind::Assign { .. }
         | ArenaStmtKind::Return(_)

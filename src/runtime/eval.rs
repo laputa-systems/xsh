@@ -475,6 +475,7 @@ build_id!(BuildTopStmtId);
 
 #[derive(Clone, Debug, Default)]
 struct BuildScratch {
+    prepared_constants: FxHashMap<crate::syntax::arena::ExprId, LoweredValue>,
     expressions: Vec<BuildExprRow>,
     /// Checked Duration operands prohibit integer-only specialization even when
     /// the operation's result is an Int interval count.
@@ -1345,7 +1346,7 @@ enum BuildExprRow {
     Str(Arc<str>),
     Bytes(Arc<[u8]>),
     PreparedRegex(RegexValue),
-    PreparedConstant(LoweredValue),
+    PreparedConstant(PreparedConstantValue),
     Path(PathValue),
     FunctionRef {
         function: FunctionName,
@@ -6783,7 +6784,7 @@ fn compact_root_binds_name_before(
 fn compact_stmt_binds_name(program: &ArenaProgram, id: StmtId, name: Name) -> bool {
     match program.arena.stmt(id).kind {
         ArenaStmtKind::Export(inner) => compact_stmt_binds_name(program, inner, name),
-        ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. } => {
+        ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } | ArenaStmtKind::Var { target, .. } => {
             compact_binding_target_binds_name(program, target, name)
         }
         _ => false,
@@ -6985,3 +6986,6 @@ fn debug_test_eval_stack_size(default: usize) -> usize {
 fn next_event_id(events: &[TraceEvent]) -> u64 {
     events.last().map_or(1, |event| event.event_id + 1)
 }
+
+#[derive(Clone, Debug)]
+struct PreparedConstantValue(LoweredValue);

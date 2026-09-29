@@ -1107,10 +1107,21 @@ fn lower_command_word_reference(
     slots: &SlotScope,
     span: Span,
     scratch: &Rc<RefCell<BuildScratch>>,
+    constants: &crate::sema::constants::PreparedConstants,
+    namespace: Option<Name>,
 ) -> Option<BuildExprId> {
     let (root, segments) = parse_command_word_reference(text)?;
     let mut value = if let Some(slot) = slots.resolve(Name::intern(root)) {
         build_expr(scratch, BuildExprRow::Param(slot))
+    } else if let Some(initializer) = constants.global_bindings.get(&(namespace, Name::intern(root))) {
+        let origin = constants.origins.get(initializer).copied().unwrap_or(*initializer);
+        let cached = scratch.borrow().prepared_constants.get(&origin).cloned();
+        let value = if let Some(value) = cached { value } else {
+            let value = lower_literal_constant(constants.values.get(initializer)?)?;
+            scratch.borrow_mut().prepared_constants.insert(origin, value.clone());
+            value
+        };
+        build_expr(scratch, BuildExprRow::PreparedConstant(super::PreparedConstantValue(value)))
     } else if root == "env" && !segments.is_empty() {
         return lower_env_command_word_reference(&segments, span, scratch);
     } else {
@@ -2088,7 +2099,7 @@ fn compact_collect_stmt_call_edges(
         ArenaStmtKind::Export(inner) => {
             compact_collect_stmt_call_edges(program, inner, namespace, index_of, edges)
         }
-        ArenaStmtKind::Let { initializer, .. }
+        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Const { initializer, .. }
         | ArenaStmtKind::Var { initializer, .. }
         | ArenaStmtKind::Defer(initializer)
         | ArenaStmtKind::Yield(initializer) => {
@@ -2593,7 +2604,7 @@ fn compact_stmt_kind_index(kind: ArenaStmtKind) -> usize {
         ArenaStmtKind::Export(_) => 1,
         ArenaStmtKind::TypeDef(_) => 2,
         ArenaStmtKind::ErrorDef(_) => 3,
-        ArenaStmtKind::Let { .. } => 4,
+        ArenaStmtKind::Let { .. } | ArenaStmtKind::Const { .. } => 4,
         ArenaStmtKind::Var { .. } => 5,
         ArenaStmtKind::Assign { .. } => 6,
         ArenaStmtKind::ProcDef(_) => 7,
@@ -2628,7 +2639,7 @@ fn compact_stmt_kind_label(kind: ArenaStmtKind) -> &'static str {
         ArenaStmtKind::Export(_) => "export",
         ArenaStmtKind::TypeDef(_) => "type_def",
         ArenaStmtKind::ErrorDef(_) => "error_def",
-        ArenaStmtKind::Let { .. } => "let",
+        ArenaStmtKind::Let { .. } | ArenaStmtKind::Const { .. } => "let",
         ArenaStmtKind::Var { .. } => "var",
         ArenaStmtKind::Assign { .. } => "assign",
         ArenaStmtKind::ProcDef(_) => "proc_def",
@@ -2994,7 +3005,7 @@ fn compact_module_exports_for_use(
             continue;
         };
         match program.arena.stmt(inner).kind {
-            ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. } => {
+            ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } | ArenaStmtKind::Var { target, .. } => {
                 let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind
                 else {
                     return None;
@@ -3033,6 +3044,8 @@ fn compact_module_exports_for_use(
 fn lower_literal_constant(value: &crate::sema::constants::LiteralConstant) -> Option<LoweredValue> {
     use crate::sema::constants::LiteralConstant as C;
     Some(match value {
+        C::Regex(literal) => LoweredValue::Regex(Box::new(RegexValue { pattern: literal.pattern.to_string(), regex: literal.prepared.get()?.as_ref().ok()?.clone() })),
+        C::Tag { variant, fields, .. } => LoweredValue::Tag(Box::new(super::LoweredTagValue { name: Arc::from(variant.as_str().as_str()), fields: fields.iter().map(lower_literal_constant).collect::<Option<Vec<_>>>()? })),
         C::Null => LoweredValue::Null,
         C::Bool(value) => LoweredValue::Bool(*value),
         C::Int(value) => LoweredValue::Int(*value),
@@ -3043,7 +3056,7 @@ fn lower_literal_constant(value: &crate::sema::constants::LiteralConstant) -> Op
         C::Path(value) => LoweredValue::Path(PathValue::from_text(value).ok()?),
         C::EmptyMap => LoweredValue::Map(Arc::new(BTreeMap::new())),
         C::Map(values) => LoweredValue::Map(Arc::new(values.iter().map(|(key, value)| Some((key.to_string(), lower_literal_constant(value)?))).collect::<Option<BTreeMap<_, _>>>()?)),
-        C::List(values) => LoweredValue::List(values.iter().map(lower_literal_constant).collect::<Option<Vec<_>>>()?),
+        C::List(values) => LoweredValue::SharedList(Arc::new(values.iter().map(lower_literal_constant).collect::<Option<Vec<_>>>()?)),
         C::Record(values) => LoweredValue::Record(Arc::new(values.iter().map(|(name, value)| Some((Arc::<str>::from(name.as_str().as_str()), lower_literal_constant(value)?))).collect::<Option<BTreeMap<_, _>>>()?)),
     })
 }
@@ -3187,6 +3200,9 @@ fn compact_body_tail_call_blocker_callee(program: &ArenaProgram, block: BlockId)
         ArenaStmtKind::Let {
             initializer: ArenaExprOrRun::Expr(expr),
             ..
+        } | ArenaStmtKind::Const {
+            initializer: ArenaExprOrRun::Expr(expr),
+            ..
         }
         | ArenaStmtKind::Var {
             initializer: ArenaExprOrRun::Expr(expr),
@@ -3314,7 +3330,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         let mut bindings = self
             .top_level_known
             .iter()
-            .filter(|(name, binding)| binding.slot && slots.resolve(**name).is_none())
+            .filter(|(name, binding)| binding.slot && slots.resolve(**name).is_none()
+                && !self.declarations.prepared_constants.global_bindings.contains_key(&(self.current_namespace, **name)))
             .map(|(name, binding)| (*name, binding.kind, binding.mutable))
             .collect::<Vec<_>>();
         bindings.sort_unstable_by_key(|(name, _, _)| *name);
@@ -3745,6 +3762,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ty,
                 initializer: ArenaExprOrRun::Expr(value),
                 ..
+            } | ArenaStmtKind::Const {
+                ty,
+                initializer: ArenaExprOrRun::Expr(value),
+                ..
             }
             | ArenaStmtKind::Var {
                 ty,
@@ -3822,6 +3843,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 target,
                 ty,
                 initializer: ArenaExprOrRun::Expr(value),
+            } | ArenaStmtKind::Const {
+                target,
+                ty,
+                initializer: ArenaExprOrRun::Expr(value),
             }
             | ArenaStmtKind::Var {
                 target,
@@ -3837,6 +3862,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 CompactTopLevelBlocker::BindingExpression
             }
             ArenaStmtKind::Let {
+                target,
+                ty,
+                initializer: ArenaExprOrRun::Run(run),
+            } | ArenaStmtKind::Const {
                 target,
                 ty,
                 initializer: ArenaExprOrRun::Run(run),
@@ -3960,6 +3989,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 target,
                 ty,
                 initializer: initializer @ ArenaExprOrRun::Expr(value),
+            } | ArenaStmtKind::Const {
+                target,
+                ty,
+                initializer: initializer @ ArenaExprOrRun::Expr(value),
             }
             | ArenaStmtKind::Var {
                 target,
@@ -4052,6 +4085,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ))
             }
             ArenaStmtKind::Let {
+                target,
+                ty,
+                initializer: ArenaExprOrRun::Run(run),
+            } | ArenaStmtKind::Const {
                 target,
                 ty,
                 initializer: ArenaExprOrRun::Run(run),
@@ -4292,6 +4329,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                                 target,
                                 ty,
                                 initializer: ArenaExprOrRun::Expr(value),
+                            } | ArenaStmtKind::Const {
+                                target,
+                                ty,
+                                initializer: ArenaExprOrRun::Expr(value),
                             }
                             | ArenaStmtKind::Var {
                                 target,
@@ -4362,6 +4403,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 target,
                 ty,
                 initializer: ArenaExprOrRun::Expr(value),
+            } | ArenaStmtKind::Const {
+                target,
+                ty,
+                initializer: ArenaExprOrRun::Expr(value),
             }
             | ArenaStmtKind::Var {
                 target,
@@ -4409,6 +4454,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 );
             }
             ArenaStmtKind::Let {
+                target,
+                ty,
+                initializer: ArenaExprOrRun::Run(run),
+            } | ArenaStmtKind::Const {
                 target,
                 ty,
                 initializer: ArenaExprOrRun::Run(run),
@@ -5077,7 +5126,10 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
         let ty = match self.program.arena.stmt(tail).kind {
             ArenaStmtKind::Expr(expr) => self.infer_checked_expr_type_with_slots(expr, &scoped),
-            ArenaStmtKind::TailBareIdent(name) => scoped.binding_type(name).cloned(),
+            ArenaStmtKind::TailBareIdent(name) => self.declarations.prepared_constants.tail_bindings
+                .get(&self.program.arena.stmt(tail).span)
+                .and_then(|expr| self.declarations.prepared_constants.types.get(expr)).cloned()
+                .or_else(|| scoped.binding_type(name).cloned()),
             _ => None,
         };
         scoped.exit(saved);
@@ -5983,7 +6035,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 stmt,
                 BuildStmtRow::Return {
                     value: self
-                        .lower_bare_ident(name, slots)
+                        .lower_bare_ident_stmt(tail, name, slots)
                         .unwrap_or(push_build_row!(self, expr, BuildExprRow::Unit)),
                 }
             ),
@@ -6178,6 +6230,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 target,
                 ty,
                 initializer: ArenaExprOrRun::Expr(value),
+            } | ArenaStmtKind::Const {
+                target,
+                ty,
+                initializer: ArenaExprOrRun::Expr(value),
             }
             | ArenaStmtKind::Var {
                 target,
@@ -6278,6 +6334,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
             }
             ArenaStmtKind::Let {
+                target,
+                ty,
+                initializer: ArenaExprOrRun::Run(run),
+            } | ArenaStmtKind::Const {
                 target,
                 ty,
                 initializer: ArenaExprOrRun::Run(run),
@@ -6960,9 +7020,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(push_build_row!(self, stmt, BuildStmtRow::Defer { value }))
             }
             ArenaStmtKind::TailBareIdent(name) => {
-                let asserts = slots.binding_type(name) == Some(&Type::Bool);
                 let span = self.program.arena.stmt(id).span;
-                let value = self.lower_bare_ident(name, slots)?;
+                let prepared_type = self.declarations.prepared_constants.tail_bindings.get(&span)
+                    .and_then(|expr| self.declarations.prepared_constants.types.get(expr));
+                let asserts = prepared_type.or_else(|| slots.binding_type(name)) == Some(&Type::Bool);
+                let value = self.lower_bare_ident_stmt(id, name, slots)?;
                 if asserts { self.mark_comparison_chain_assertion(value); }
                 Some(if asserts { push_build_row!(self, stmt, BuildStmtRow::Assert { value, message: None, span }) }
                     else { push_build_row!(self, stmt, BuildStmtRow::Expr { value, span }) })
@@ -7221,7 +7283,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if let [ArenaWordPart::Bare(text)] = parts.as_slice() {
                     let text = self.bare_text_value_in_span(text, span)?;
                     if let Some(value) =
-                        lower_command_word_reference(text, slots, span, &self.scratch)
+                        lower_command_word_reference(text, slots, span, &self.scratch, &self.declarations.prepared_constants, self.current_namespace)
                     {
                         return Some(value);
                     }
@@ -7816,6 +7878,16 @@ impl CompactLowerConstructProbe<'_, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
+        if let Some(value) = self.declarations.prepared_constants.values.get(&id) {
+            let origin = self.declarations.prepared_constants.origins.get(&id).copied().unwrap_or(id);
+            let cached = self.scratch.borrow().prepared_constants.get(&origin).cloned();
+            let value = if let Some(value) = cached { value } else {
+                let value = lower_literal_constant(value)?;
+                self.scratch.borrow_mut().prepared_constants.insert(origin, value.clone());
+                value
+            };
+            return Some(push_build_row!(self, expr, BuildExprRow::PreparedConstant(super::PreparedConstantValue(value))));
+        }
         if let Some(receiver) = slots.postfix_receivers.get(&id) {
             return Some(*receiver);
         }
@@ -9318,6 +9390,7 @@ impl CompactLowerConstructProbe<'_, '_> {
     fn lower_record_default(&mut self, value: &crate::sema::constants::LiteralConstant) -> Option<BuildExprId> {
         use crate::sema::constants::LiteralConstant as C;
         let row = match value {
+            C::Regex(_) | C::Tag { .. } => BuildExprRow::PreparedConstant(super::PreparedConstantValue(lower_literal_constant(value)?)),
             C::Null => BuildExprRow::Null,
             C::Bool(value) => BuildExprRow::Bool(*value),
             C::Int(value) => BuildExprRow::Int(*value),
@@ -9327,7 +9400,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             C::Bytes(value) => BuildExprRow::Bytes(value.clone()),
             C::Path(value) => BuildExprRow::Path(PathValue::from_text(value).ok()?),
             C::EmptyMap => BuildExprRow::EmptyMap,
-            C::Map(_) => BuildExprRow::PreparedConstant(lower_literal_constant(value)?),
+            C::Map(_) => BuildExprRow::PreparedConstant(super::PreparedConstantValue(lower_literal_constant(value)?)),
             C::List(values) => BuildExprRow::List(values.iter().map(|value| self.lower_record_default(value)).collect::<Option<Vec<_>>>()?),
             C::Record(values) => BuildExprRow::Record(values.iter().map(|(name, value)| Some(LoweredRecordEntry::Field(*name, self.lower_record_default(value)?))).collect::<Option<Vec<_>>>()?),
         };
@@ -11100,6 +11173,20 @@ impl CompactLowerConstructProbe<'_, '_> {
         })
     }
 
+    fn lower_bare_ident_stmt(&self, statement: StmtId, name: Name, slots: &SlotScope) -> Option<BuildExprId> {
+        let prepared = &self.declarations.prepared_constants;
+        if let Some(origin) = prepared.tail_bindings.get(&self.program.arena.stmt(statement).span) {
+            let cached = self.scratch.borrow().prepared_constants.get(origin).cloned();
+            let value = if let Some(value) = cached { value } else {
+                let value = lower_literal_constant(prepared.values.get(origin)?)?;
+                self.scratch.borrow_mut().prepared_constants.insert(*origin, value.clone());
+                value
+            };
+            return Some(push_build_row!(self, expr, BuildExprRow::PreparedConstant(super::PreparedConstantValue(value))));
+        }
+        self.lower_bare_ident(name, slots)
+    }
+
     fn lower_bare_ident(&self, name: Name, slots: &SlotScope) -> Option<BuildExprId> {
         slots
             .resolve(name)
@@ -12278,7 +12365,7 @@ impl CompactLowerConstructProbe<'_, '_> {
     ) -> Option<BuildExprId> {
         match self.program.arena.stmt(stmt).kind {
             ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
-            ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident(name, slots),
+            ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident_stmt(stmt, name, slots),
             _ => None,
         }
     }
@@ -12343,7 +12430,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         let span = self.program.arena.stmt(stmt).span;
         match self.program.arena.stmt(stmt).kind {
             ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
-            ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident(name, slots),
+            ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident_stmt(stmt, name, slots),
             ArenaStmtKind::If {
                 branches,
                 else_block,

@@ -31,7 +31,7 @@ impl Checker {
                         parameters: program.arena.params(def.params).iter().map(|param| param.name).collect(),
                     });
                 }
-                ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. } => {
+                ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } | ArenaStmtKind::Var { target, .. } => {
                     let names = binding_names(program, target).into_iter().filter(|name| *name != "_").collect::<Vec<_>>();
                     if let Some(&name) = names.first() {
                         declarations.push(ReturnDeclaration { name, names, span: stmt.span, function: None, statement, exported, parameters: FxHashSet::default() });
@@ -51,7 +51,7 @@ impl Checker {
             for id in program.arena.stmt_ids(block.statements) {
                 let stmt = program.arena.stmt(id);
                 match stmt.kind {
-                    ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. }
+                    ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Const { target, .. } | ArenaStmtKind::Var { target, .. }
                     | ArenaStmtKind::Guard { target, .. } => {
                         add_shadow(target, Span::new(stmt.span.source_id, stmt.span.end(), block_span.end()));
                     }
@@ -163,7 +163,7 @@ impl Checker {
             // Binding target spellings are declarations, not dependencies.
             // Parser speculation may retain nodes with those source spans.
             let dependency_span = match program.arena.stmt(decl.statement).kind {
-                ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Var { initializer, .. } =>
+                ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Const { initializer, .. } | ArenaStmtKind::Var { initializer, .. } =>
                     super::expr::expr_or_run_span_arena(program, initializer),
                 _ => decl.span,
             };
@@ -199,7 +199,7 @@ impl Checker {
             let Some(id) = decl.function else {
                 if !cyclic.contains(&index) {
                     let kind = program.arena.stmt(decl.statement).kind;
-                    if let ArenaStmtKind::Let { target, ty, initializer } | ArenaStmtKind::Var { target, ty, initializer } = kind {
+                    if let ArenaStmtKind::Let { target, ty, initializer } | ArenaStmtKind::Const { target, ty, initializer } | ArenaStmtKind::Var { target, ty, initializer } = kind {
                         let before = self.annotation_facts.len();
                         let actual = self.check_expr_or_run_arena(program, source, initializer, None);
                         let ty = ty.map(|id| self.type_from_arena(program, id)).unwrap_or(actual);
