@@ -906,6 +906,44 @@ export type BlockQueueSourceComparison = {
   candidate_field_missing: Bool,
   exact: Bool,
 }
+type BlockRawDevice = {
+  name: Str, major: Int, minor: Int, kind: Str, size_bytes: Int,
+  logical_sector_bytes: Int?, physical_sector_bytes: Int?, removable: Bool?,
+  rotational: Bool?, read_only: Bool?, parent_name: Str?,
+  holders: List[Str], slaves: List[Str],
+}
+type BlockRawReference = {
+  devices: List[BlockRawDevice], edges: List[BlockReferenceEdge], queue: List[BlockQueueReference],
+}
+## Separates raw block identity and relationship agreement from queue and counter checks.
+export type BlockRawComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int, matched_edges: Int,
+  missing_names: List[Str], unexpected_names: List[Str], field_mismatches: List[Str],
+  missing_edges: Int, unexpected_edges: Int, exact: Bool,
+}
+type BlockBundleLink = {name: Str, target: Str?}
+type BlockBundleEntry = {
+  name: Str, class_target: Str?, storage_path: Str,
+  holders_state: Str, slaves_state: Str,
+  holders: List[BlockBundleLink], slaves: List[BlockBundleLink],
+}
+type BlockBundleLayout = {
+  listing_state: Str, entries: List[BlockBundleEntry], source_paths: List[Str], complete: Bool,
+}
+type BlockSourceObservation = {
+  path: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+type BlockBundleCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  layout: BlockBundleLayout, stable_static: Bool, changing_stats: List[Str], scoreable: Bool,
+  sources: List[BlockSourceObservation], reference: BlockRawReference?,
+  counters: List[BlockQueueSources]?,
+}
+## Keeps saved block identity, queue, and counter replay results independent.
+export type BlockBundleComparison = {
+  identity: BlockRawComparison, queue: BlockQueueFieldComparison, sources: BlockQueueSourceComparison,
+}
 
 type CandidateQueueCounter = {name: Str, value: Int, unit: Str}
 type CandidateQueueSourceDevice = {
@@ -1338,6 +1376,8 @@ type CheckOptions = {
   replay_thermal_bundle: Str,
   capture_hwmon_bundle: Str,
   replay_hwmon_bundle: Str,
+  capture_block_bundle: Str,
+  replay_block_bundle: Str,
   capture_powercap_bundle: Str,
   replay_powercap_bundle: Str,
   capture_pci_bundle: Str,
@@ -9571,6 +9611,523 @@ export proc read_block_queue_sources(root: FsRoot, queue: List[BlockQueueReferen
   return sources
 }
 
+pure block_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
+  let parts = target.split("/")
+  if parts.len() < 4 or parts[0] != ".." or parts[1] != ".." or
+      parts[2] != "devices" or parts[parts.len() - 1] != name {
+    return Err(check_failure("block class entry has an invalid devices target"))
+  }
+  var components = ["sys"]
+  for index in range(2, parts.len()) {
+    let part = parts[index]
+    if part in ["", ".", ".."] {return Err(check_failure("block class target escapes the devices tree"))}
+    components = components.push(part)
+  }
+  return components.join("/")
+}
+
+pure block_bundle_link_path(storage: Str, directory: Str, target: Str) -> Str? {
+  if target == "" or target.starts_with("/") {return null}
+  var components = f"${storage}/${directory}".split("/")
+  for part in target.split("/") {
+    if part == ".." {
+      if components.len() <= 1 {return null}
+      components = components |> take(components.len() - 1) |> collect()
+    } else if part in ["", "."] {
+      return null
+    } else {
+      components = components.push(part)
+    }
+  }
+  if components.len() < 2 or components[0] != "sys" {return null}
+  return components.join("/")
+}
+
+# Preserves class identity and both block-layer relation directories.
+proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] {
+  let listing = fs.root_children(root, p"sys/class/block", max_entries: 4096)?
+  var entries: List[BlockBundleEntry] = []
+  var source_paths: List[Str] = []
+  var complete = listing.state == "complete" or listing.state == "absent"
+  if listing.state != "complete" {
+    return {listing_state: listing.state, entries: entries, source_paths: source_paths, complete: complete}
+  }
+  for entry in listing.children {
+    let name = entry.name()
+    if name == "" or name in [".", ".."] or name.contains("/") {
+      return Err(check_failure("block class entry has an unsafe name"))
+    }
+    let class_link = fs.root_readlink_result(root, entry)?
+    var class_target: Str? = null
+    var storage = entry.display()
+    if class_link.state == "observed" {
+      class_target = class_link.target.require(Path)?.display()
+      storage = block_bundle_storage_path(name, class_target ?? "")?
+    } else if fs.root_metadata(root, entry)?.kind != "dir" {complete = false}
+    let partition = fs.root_exists(root, fp"${entry}/partition")?
+    let holders_listing = fs.root_children(root, fp"${entry}/holders", max_entries: 4096)?
+    let slaves_listing = fs.root_children(root, fp"${entry}/slaves", max_entries: 4096)?
+    if holders_listing.state != "complete" or
+        (slaves_listing.state != "complete" and !(partition and slaves_listing.state == "absent")) {
+      complete = false
+    }
+    var holders: List[BlockBundleLink] = []
+    var slaves: List[BlockBundleLink] = []
+    for relation in [
+      {kind: "holders", children: holders_listing.children},
+      {kind: "slaves", children: slaves_listing.children},
+    ] {
+      for child in relation.children {
+        let child_name = child.name()
+        if child_name == "" or child_name in [".", ".."] or child_name.contains("/") {
+          return Err(check_failure("block relation has an unsafe name"))
+        }
+        let link = fs.root_readlink_result(root, child)?
+        var target: Str? = null
+        if link.state == "observed" {
+          target = link.target.require(Path)?.display()
+          if block_bundle_link_path(storage, relation.kind, target ?? "") == null {
+            return Err(check_failure("block relation link escapes the source tree"))
+          }
+          let target_parts = (target ?? "").split("/")
+          if target_parts[target_parts.len() - 1] != child_name {
+            return Err(check_failure("block relation link targets a different device"))
+          }
+        } else if fs.root_metadata(root, child)?.kind != "dir" {complete = false}
+        if relation.kind == "holders" {
+          holders = holders.push({name: child_name, target: target})
+        } else {
+          slaves = slaves.push({name: child_name, target: target})
+        }
+      }
+    }
+    entries = entries.push({name: name, class_target: class_target, storage_path: storage,
+      holders_state: holders_listing.state, slaves_state: slaves_listing.state,
+      holders: holders |> sort-by .name, slaves: slaves |> sort-by .name})
+    for attribute in [
+      "dev", "size", "partition", "queue/logical_block_size", "queue/physical_block_size",
+      "removable", "queue/rotational", "ro", "queue/scheduler", "queue/read_ahead_kb",
+      "queue/discard_granularity", "queue/discard_max_bytes", "device/model",
+      "device/firmware_rev", "device/rev", "stat",
+    ] {
+      source_paths = source_paths.push(f"${storage}/${attribute}")
+    }
+    if source_paths.len() > 8192 {return Err(check_failure("block capture exceeds its source path bound"))}
+  }
+  var storage_by_name: Map[Str] = {}
+  for entry in entries {storage_by_name = storage_by_name.set(entry.name, entry.storage_path)}
+  for entry in entries {
+    for relation in [
+      {kind: "holders", links: entry.holders},
+      {kind: "slaves", links: entry.slaves},
+    ] {
+      for link in relation.links {
+        if !storage_by_name.has(link.name) {
+          return Err(check_failure("block relation peer is not listed"))
+        }
+        if link.target != null and
+            block_bundle_link_path(entry.storage_path, relation.kind, link.target ?? "") != storage_by_name.get(link.name)? {
+          return Err(check_failure("block relation link targets a different device path"))
+        }
+      }
+    }
+  }
+  return {listing_state: listing.state, entries: entries |> sort-by .name,
+    source_paths: source_paths |> sort-by ., complete: complete}
+}
+
+pure block_raw_decimal(raw: Str, label: Str) -> Result[Int] {
+  if raw == "" {return Err(check_failure(f"block ${label} source is empty"))}
+  for digit in raw.split("") {
+    if !"0123456789".contains(digit) {return Err(check_failure(f"block ${label} source is not decimal"))}
+  }
+  let value = raw.parse_int()?
+  if value > 9007199254740991 {return Err(check_failure(f"block ${label} source exceeds exact JSON range"))}
+  return value
+}
+
+pure block_raw_optional_number(raw: Str?, label: Str) -> Result[Int?] {
+  if raw == null {return null}
+  return block_raw_decimal(raw ?? "", label)?
+}
+
+pure block_raw_optional_bool(raw: Str?, label: Str) -> Result[Bool?] {
+  if raw == null {return null}
+  if raw == "0" {return false}
+  if raw == "1" {return true}
+  return Err(check_failure(f"block ${label} source is not zero or one"))
+}
+
+pure block_raw_scheduler(raw: Str?) -> Result[Str?] {
+  if raw == null {return null}
+  let words = (raw ?? "").split(" ") |> where .trim() != "" |> collect()
+  var selected: Str? = null
+  for word in words {
+    if word.starts_with("[") or word.ends_with("]") {
+      if !word.starts_with("[") or !word.ends_with("]") or word.count_chars() < 3 or selected != null {
+        return Err(check_failure("block scheduler source has an invalid selected token"))
+      }
+      selected = (word.split("") |> drop(1) |> take(word.count_chars() - 2)).join("")
+    }
+  }
+  if selected == null {return Err(check_failure("block scheduler source has no selected token"))}
+  return selected
+}
+
+## Decodes block identities and relationships independently from the saved sysfs tree.
+export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRawReference] {
+  let layout = block_bundle_layout(root)?
+  if layout.listing_state != "complete" or !layout.complete {
+    return Err(check_failure("block raw source enumeration is incomplete"))
+  }
+  var listed = set.empty()
+  for entry in layout.entries {listed = set.add(listed, entry.name)}
+  var devices: List[BlockRawDevice] = []
+  var edges: List[BlockReferenceEdge] = []
+  var edge_seen = set.empty()
+  var queue: List[BlockQueueReference] = []
+  for entry in layout.entries {
+    let name = entry.name
+    let source_path = fp"${entry.storage_path}"
+    let dev = bounded_block_reference_text(root, fp"${source_path}/dev")?
+    let size = bounded_block_reference_text(root, fp"${source_path}/size")?
+    if dev == null or size == null {return Err(check_failure(f"block ${name} identity or size is absent"))}
+    let numbers = parse_major_minor_reference(dev ?? "", "block-sysfs")?
+    let sectors = block_raw_decimal(size ?? "", "size")?
+    if sectors > 17592186044415 {return Err(check_failure("block byte size exceeds exact JSON range"))}
+    let partition_source = bounded_block_reference_text(root, fp"${source_path}/partition")?
+    let partition = partition_source != null
+    if partition {
+      let number = block_raw_decimal(partition_source ?? "", "partition")?
+      if number == 0 {return Err(check_failure("block partition number is zero"))}
+    }
+    let logical = block_raw_optional_number(bounded_block_reference_text(root, fp"${source_path}/queue/logical_block_size")?, "logical sector")?
+    let physical = block_raw_optional_number(bounded_block_reference_text(root, fp"${source_path}/queue/physical_block_size")?, "physical sector")?
+    if (logical != null and logical == 0) or (physical != null and physical == 0) {
+      return Err(check_failure("block sector size is zero"))
+    }
+    let removable = block_raw_optional_bool(bounded_block_reference_text(root, fp"${source_path}/removable")?, "removable")?
+    let rotational = block_raw_optional_bool(bounded_block_reference_text(root, fp"${source_path}/queue/rotational")?, "rotational")?
+    let read_only = block_raw_optional_bool(bounded_block_reference_text(root, fp"${source_path}/ro")?, "read-only")?
+    let class_target = entry.class_target ?? ""
+    let kind = if partition {"partition"} else if class_target == "" {"unknown"} else if class_target.contains("/virtual/") {"virtual"} else {"disk"}
+    var parent_name: Str? = null
+    if partition {
+      let parts = class_target.split("/")
+      if parts.len() < 2 {return Err(check_failure("block partition lacks a parent class path"))}
+      let parent = parts[parts.len() - 2]
+      if !set.has(listed, parent) {return Err(check_failure("block partition parent is not listed"))}
+      parent_name = parent
+      let edge: BlockReferenceEdge = {parent_name: parent, child_name: name, partition: true}
+      let key = block_edge_key(edge)
+      if !set.has(edge_seen, key) {edges = edges.push(edge); edge_seen = set.add(edge_seen, key)}
+    }
+    for relation in [
+      {links: entry.holders, holder: true},
+      {links: entry.slaves, holder: false},
+    ] {
+      for link in relation.links {
+        if !set.has(listed, link.name) {return Err(check_failure("block layer peer is not listed"))}
+        let edge: BlockReferenceEdge = if relation.holder {
+          {parent_name: name, child_name: link.name, partition: false}
+        } else {
+          {parent_name: link.name, child_name: name, partition: false}
+        }
+        let key = block_edge_key(edge)
+        if !set.has(edge_seen, key) {edges = edges.push(edge); edge_seen = set.add(edge_seen, key)}
+      }
+    }
+    devices = devices.push({name: name, major: numbers[0], minor: numbers[1], kind: kind,
+      size_bytes: sectors * 512, logical_sector_bytes: logical, physical_sector_bytes: physical,
+      removable: removable, rotational: rotational, read_only: read_only, parent_name: parent_name,
+      holders: entry.holders |> map .name |> sort-by .,
+      slaves: entry.slaves |> map .name |> sort-by .})
+    queue = queue.push({name: name, kind: if partition {"part"} else {kind},
+      scheduler: block_raw_scheduler(bounded_block_reference_text(root, fp"${source_path}/queue/scheduler")?)?,
+      read_ahead_kb: block_raw_optional_number(bounded_block_reference_text(root, fp"${source_path}/queue/read_ahead_kb")?, "read ahead")?,
+      discard_granularity_bytes: block_raw_optional_number(bounded_block_reference_text(root, fp"${source_path}/queue/discard_granularity")?, "discard granularity")?,
+      discard_max_bytes: block_raw_optional_number(bounded_block_reference_text(root, fp"${source_path}/queue/discard_max_bytes")?, "discard maximum")?,
+      model: bounded_block_reference_text(root, fp"${source_path}/device/model")?, revision_hint: null})
+  }
+  return {devices: devices |> sort-by .name, edges: edges |> sort-by { |edge| block_edge_key(edge) },
+    queue: queue |> sort-by .name}
+}
+
+## Checks exact raw sysfs identities and graph edges without partition queue projection.
+export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference) -> Result[BlockRawComparison] {
+  let data = json.decode(candidate_json)?
+  let raw = json.get(data, ["storage", "devices"], null)
+  if raw == null {
+    return {reference_count: reference.devices.len(), candidate_count: 0, matched_count: 0,
+      matched_edges: 0, missing_names: reference.devices |> map .name |> sort-by .,
+      unexpected_names: [], field_mismatches: [], missing_edges: reference.edges.len(),
+      unexpected_edges: 0, exact: false}
+  }
+  let candidates = raw.require(List[CandidateBlockDevice])?
+  var reference_by_name: Map[Int] = {}
+  for index in range(reference.devices.len()) {
+    let name = reference.devices[index].name
+    if reference_by_name.has(name) {return Err(check_failure("block raw reference repeats a device"))}
+    reference_by_name = reference_by_name.set(name, index)
+  }
+  var candidate_by_name: Map[Int] = {}
+  var missing_names: List[Str] = []
+  var unexpected_names: List[Str] = []
+  var field_mismatches: List[Str] = []
+  var matched_count = 0
+  for index in range(candidates.len()) {
+    let device = candidates[index]
+    if device.name == null or device.name == "" {return Err(check_failure("candidate block device lacks a name"))}
+    let name = device.name ?? ""
+    if candidate_by_name.has(name) {return Err(check_failure("candidate block report repeats a device"))}
+    candidate_by_name = candidate_by_name.set(name, index)
+    if !reference_by_name.has(name) {unexpected_names = unexpected_names.push(name); continue}
+    matched_count += 1
+    let expected = reference.devices[reference_by_name.get(name)?]
+    if device.major != expected.major or device.minor != expected.minor {field_mismatches = field_mismatches.push(f"${name}.major_minor")}
+    if device.size_bytes != expected.size_bytes {field_mismatches = field_mismatches.push(f"${name}.size_bytes")}
+    if device.kind != expected.kind {field_mismatches = field_mismatches.push(f"${name}.kind")}
+    if device.logical_sector_bytes != expected.logical_sector_bytes {field_mismatches = field_mismatches.push(f"${name}.logical_sector_bytes")}
+    if device.physical_sector_bytes != expected.physical_sector_bytes {field_mismatches = field_mismatches.push(f"${name}.physical_sector_bytes")}
+    if device.removable != expected.removable {field_mismatches = field_mismatches.push(f"${name}.removable")}
+    if device.rotational != expected.rotational {field_mismatches = field_mismatches.push(f"${name}.rotational")}
+    if device.read_only != expected.read_only {field_mismatches = field_mismatches.push(f"${name}.read_only")}
+    var holders: List[Str] = []
+    for peer_index in device.holder_indices {
+      if peer_index < 0 or peer_index >= candidates.len() or candidates[peer_index].name == null or
+          candidates[peer_index].name == device.name {
+        return Err(check_failure("candidate block holder index is invalid"))
+      }
+      holders = holders.push(candidates[peer_index].name ?? "")
+    }
+    var slaves: List[Str] = []
+    for peer_index in device.slave_indices {
+      if peer_index < 0 or peer_index >= candidates.len() or candidates[peer_index].name == null or
+          candidates[peer_index].name == device.name {
+        return Err(check_failure("candidate block slave index is invalid"))
+      }
+      slaves = slaves.push(candidates[peer_index].name ?? "")
+    }
+    if (holders |> sort-by .) != expected.holders {
+      field_mismatches = field_mismatches.push(f"${name}.holders")
+    }
+    if (slaves |> sort-by .) != expected.slaves {
+      field_mismatches = field_mismatches.push(f"${name}.slaves")
+    }
+  }
+  for expected in reference.devices {
+    if !candidate_by_name.has(expected.name) {missing_names = missing_names.push(expected.name)}
+  }
+  var candidate_edges = set.empty()
+  var candidate_edge_keys: List[Str] = []
+  for child in candidates {
+    let child_name = child.name ?? ""
+    if child.parent_device_index != null {
+      let index = child.parent_device_index ?? -1
+      if index < 0 or index >= candidates.len() or candidates[index].name == null or
+          candidates[index].name == child.name {
+        return Err(check_failure("candidate block partition parent index is invalid"))
+      }
+      let edge = {parent_name: candidates[index].name ?? "", child_name: child_name, partition: true}
+      let key = block_edge_key(edge)
+      if !set.has(candidate_edges, key) {candidate_edges = set.add(candidate_edges, key); candidate_edge_keys = candidate_edge_keys.push(key)}
+    }
+    for parent_index in child.slave_indices {
+      if parent_index < 0 or parent_index >= candidates.len() or candidates[parent_index].name == null or
+          candidates[parent_index].name == child.name {
+        return Err(check_failure("candidate block slave index is invalid"))
+      }
+      let edge = {parent_name: candidates[parent_index].name ?? "", child_name: child_name, partition: false}
+      let key = block_edge_key(edge)
+      if !set.has(candidate_edges, key) {candidate_edges = set.add(candidate_edges, key); candidate_edge_keys = candidate_edge_keys.push(key)}
+    }
+    for holder_index in child.holder_indices {
+      if holder_index < 0 or holder_index >= candidates.len() or candidates[holder_index].name == null or
+          candidates[holder_index].name == child.name {
+        return Err(check_failure("candidate block holder index is invalid"))
+      }
+      let edge = {parent_name: child_name, child_name: candidates[holder_index].name ?? "", partition: false}
+      let key = block_edge_key(edge)
+      if !set.has(candidate_edges, key) {candidate_edges = set.add(candidate_edges, key); candidate_edge_keys = candidate_edge_keys.push(key)}
+    }
+  }
+  var reference_edges = set.empty()
+  var matched_edges = 0
+  var missing_edges = 0
+  for edge in reference.edges {
+    let key = block_edge_key(edge)
+    if set.has(reference_edges, key) {return Err(check_failure("block raw reference repeats an edge"))}
+    reference_edges = set.add(reference_edges, key)
+    if set.has(candidate_edges, key) {matched_edges += 1} else {missing_edges += 1}
+  }
+  var unexpected_edges = 0
+  for key in candidate_edge_keys {if !set.has(reference_edges, key) {unexpected_edges += 1}}
+  let exact = missing_names.len() == 0 and unexpected_names.len() == 0 and
+    field_mismatches.len() == 0 and missing_edges == 0 and unexpected_edges == 0
+  return {reference_count: reference.devices.len(), candidate_count: candidates.len(),
+    matched_count: matched_count, matched_edges: matched_edges,
+    missing_names: missing_names |> sort-by ., unexpected_names: unexpected_names |> sort-by .,
+    field_mismatches: field_mismatches |> sort-by ., missing_edges: missing_edges,
+    unexpected_edges: unexpected_edges, exact: exact}
+}
+
+## Saves bounded block sysfs bytes, class links, and layer relationships.
+export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {return Err(check_failure("block capture origin is invalid"))}
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/class/block")? {
+    return Err(check_failure("block capture destination is not empty"))
+  }
+  let layout = block_bundle_layout(source)?
+  if layout.listing_state == "complete" {
+    fs.root_mkdir(bundle, p"sys/class/block", mode: 0o700, parents: true)?
+    for entry in layout.entries {
+      let storage = fp"${entry.storage_path}"
+      if !fs.root_exists(bundle, storage)? {fs.root_mkdir(bundle, storage, mode: 0o700, parents: true)?}
+      for nested in ["queue", "device"] {
+        if !fs.root_exists(bundle, fp"${storage}/${nested}")? {
+          fs.root_mkdir(bundle, fp"${storage}/${nested}", mode: 0o700, parents: true)?
+        }
+      }
+      for relation in [
+        {kind: "holders", state: entry.holders_state, links: entry.holders},
+        {kind: "slaves", state: entry.slaves_state, links: entry.slaves},
+      ] {
+        if relation.state != "complete" {continue}
+        let directory = fp"${storage}/${relation.kind}"
+        fs.root_mkdir(bundle, directory, mode: 0o700)?
+        for link in relation.links {
+          let destination = fp"${directory}/${link.name}"
+          if link.target == null {
+            fs.root_mkdir(bundle, destination, mode: 0o700)?
+          } else {
+            fs.root_symlink(bundle, fp"${link.target ?? ""}", destination)?
+          }
+        }
+      }
+      if entry.class_target != null {
+        fs.root_symlink(bundle, fp"${entry.class_target ?? ""}", fp"sys/class/block/${entry.name}")?
+      }
+    }
+  }
+  var sources: List[BlockSourceObservation] = []
+  var saved_bytes: List[Bytes?] = []
+  var complete = layout.complete
+  for relative in layout.source_paths {
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    var sha256_hex: Str? = null
+    var byte_count = 0
+    if raw.data != null {
+      let data = raw.data ?? b""
+      fs.root_write(bundle, fp"${relative}", data)?
+      sha256_hex = hash.sha256(data).hex()
+      byte_count = data.len()
+    }
+    if raw.truncated or raw.state not in ["observed", "absent"] or
+        ((relative.ends_with("/dev") or relative.ends_with("/size")) and raw.state != "observed") {
+      complete = false
+    }
+    saved_bytes = saved_bytes.push(raw.data)
+    sources = sources.push({path: relative, state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind, byte_count: byte_count, sha256_hex: sha256_hex})
+  }
+  let later_layout = block_bundle_layout(source)?
+  var stable_static = layout == later_layout
+  var changing_stats: List[Str] = []
+  for index in range(layout.source_paths.len()) {
+    let relative = layout.source_paths[index]
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    let first = sources[index]
+    if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or
+        raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
+      if relative.ends_with("/stat") {changing_stats = changing_stats.push(relative)} else {stable_static = false}
+    }
+  }
+  var reference: BlockRawReference? = null
+  var counters: List[BlockQueueSources]? = null
+  if complete {
+    match read_block_raw_reference(bundle) {
+      Ok(value) => {
+        reference = value
+        match read_block_queue_sources(bundle, value.queue) {Ok(rows) => counters = rows; Err(_) => {}}
+      }
+      Err(_) => {}
+    }
+  }
+  let scoreable = complete and stable_static and reference != null and counters != null and
+    (reference ?? {devices: [], edges: [], queue: []}).devices.len() > 0
+  let capture: BlockBundleCapture = {schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "block-sysfs-raw-v1", layout: layout, stable_static: stable_static,
+    changing_stats: changing_stats, scoreable: scoreable, sources: sources,
+    reference: reference, counters: counters}
+  let wire: Any = capture
+  let encoded = json.encode(wire, pretty: true)?
+  if encoded.count_bytes() > 16777216 {return Err(check_failure("block capture metadata exceeds its replay bound"))}
+  fs.root_write_atomic(bundle, p"capture.json", encoded)?
+  return Ok()
+}
+
+## Rejects altered block links, source bytes, absences, and independent references.
+export proc validate_block_bundle(bundle: FsRoot) [fs, error] -> Result[BlockBundleCapture] {
+  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(BlockBundleCapture)?
+  if capture.schema_version != 1 or capture.reference_adapter != "block-sysfs-raw-v1" or
+      capture.origin not in ["synthetic_fixture", "live_capture"] or !capture.stable_static or
+      !capture.scoreable or capture.reference == null or capture.counters == null {
+    return Err(check_failure("block capture has no stable scoreable reference"))
+  }
+  let layout = block_bundle_layout(bundle)?
+  if layout != capture.layout or capture.sources.len() != layout.source_paths.len() {
+    return Err(check_failure("block capture layout differs from metadata"))
+  }
+  var changed_seen = set.empty()
+  for relative in capture.changing_stats {
+    if !relative.ends_with("/stat") or relative not in layout.source_paths or set.has(changed_seen, relative) {
+      return Err(check_failure("block changing stat metadata is invalid"))
+    }
+    changed_seen = set.add(changed_seen, relative)
+  }
+  for index in range(layout.source_paths.len()) {
+    let relative = layout.source_paths[index]
+    let expected = capture.sources[index]
+    if expected.path != relative or expected.truncated {return Err(check_failure("block source identity differs"))}
+    if expected.state == "absent" {
+      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+        return Err(check_failure(f"block absent source ${relative} differs"))
+      }
+      continue
+    }
+    if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
+      return Err(check_failure(f"block capture cannot score ${relative}"))
+    }
+    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 4096)?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"block capture ${relative} bytes differ"))
+    }
+  }
+  let reference = read_block_raw_reference(bundle)?
+  if reference != (capture.reference ?? {devices: [], edges: [], queue: []}) or
+      read_block_queue_sources(bundle, reference.queue)? != (capture.counters ?? []) {
+    return Err(check_failure("block reference differs from raw sources"))
+  }
+  return capture
+}
+
+## Runs the production storage collector over the validated block tree.
+export proc replay_block_bundle(bundle: FsRoot) [fs, time, error] -> Result[BlockBundleComparison] {
+  let metadata = capture_metadata_bytes(bundle, max_bytes: 16777216)?
+  let capture = validate_block_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "storage", true, false)?
+  if validate_block_bundle(bundle)? != capture {return Err(check_failure("block capture changed during replay"))}
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)?
+  let report_json = encode_replayed_report(candidate, true)?
+  let reference = capture.reference ?? {devices: [], edges: [], queue: []}
+  return {identity: compare_block_raw(report_json, reference)?,
+    queue: compare_block_queue_fields(report_json, reference.queue)?,
+    sources: compare_block_queue_sources(report_json, capture.counters ?? [], capture.counters ?? [])?}
+}
+
 ## Compares monotonic counters inside their source bracket and requires a stable in-flight gauge.
 export pure compare_block_queue_sources(candidate_json: Str, before: List[BlockQueueSources], after: List[BlockQueueSources]) -> Result[BlockQueueSourceComparison] {
   let data = json.decode(candidate_json)?
@@ -17027,6 +17584,14 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
       form: "--replay-hwmon-bundle DIR",
       default: "",
     },
+    capture_block_bundle: {
+      form: "--capture-block-bundle DIR",
+      default: "",
+    },
+    replay_block_bundle: {
+      form: "--replay-block-bundle DIR",
+      default: "",
+    },
     capture_powercap_bundle: {
       form: "--capture-powercap-bundle DIR",
       default: "",
@@ -17178,6 +17743,8 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     replay_thermal_bundle: parsed.replay_thermal_bundle,
     capture_hwmon_bundle: parsed.capture_hwmon_bundle,
     replay_hwmon_bundle: parsed.replay_hwmon_bundle,
+    capture_block_bundle: parsed.capture_block_bundle,
+    replay_block_bundle: parsed.replay_block_bundle,
     capture_powercap_bundle: parsed.capture_powercap_bundle,
     replay_powercap_bundle: parsed.replay_powercap_bundle,
     capture_pci_bundle: parsed.capture_pci_bundle,
@@ -17223,6 +17790,7 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     options.capture_kernel_parameters_bundle, options.replay_kernel_parameters_bundle,
     options.capture_thermal_bundle, options.replay_thermal_bundle,
     options.capture_hwmon_bundle, options.replay_hwmon_bundle,
+    options.capture_block_bundle, options.replay_block_bundle,
     options.capture_powercap_bundle, options.replay_powercap_bundle,
     options.capture_pci_bundle, options.replay_pci_bundle,
     options.capture_usb_bundle, options.replay_usb_bundle,
@@ -17806,6 +18374,36 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     print f"hwmon raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}; partial=${result.unstable_fields.len()}"
     if mismatch {
       return Err(check_failure("hwmon raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_block_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_block_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {return Err(check_failure("block capture destination already exists"))}
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_block_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(BlockBundleCapture)?
+    print f"block raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; devices=${capture.layout.entries.len()}; changing_stats=${capture.changing_stats.len()}"
+    print f"Replay with --replay-block-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_block_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_block_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_block_bundle(bundle)?
+    let identity = if result.identity.exact {"exact"} else {"mismatch"}
+    let queue = if result.queue.exact {"exact"} else {"mismatch"}
+    let counters = if result.sources.exact {"exact"} else if result.sources.unstable {"partial"} else {"mismatch"}
+    print f"block raw replay: identity=${identity}; queue=${queue}; counters=${counters}; devices=${result.identity.reference_count}; edges=${result.identity.matched_edges}"
+    if !result.identity.exact or !result.queue.exact or (!result.sources.exact and !result.sources.unstable) {
+      return Err(check_failure("block raw replay differs from its independent reference"))
     }
     return Ok()
   }

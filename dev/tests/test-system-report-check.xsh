@@ -657,6 +657,125 @@ proc test_system_report_hwmon_capture_keeps_absent_class_unscoreable() [fs, time
   test.error_kind(report_checks.validate_hwmon_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
+proc test_system_report_block_bundle_replays_sparse_partition_and_layered_edges() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  let disk = p"sys/devices/pci0000:00/0000:00:01.0/block/sda"
+  let partition = fp"${disk}/sda3"
+  let stacked = p"sys/devices/virtual/block/dm-0"
+  fs.root_mkdir(source, p"sys/class/block", parents: true)?
+  for device in [disk, partition, stacked] {
+    fs.root_mkdir(source, fp"${device}/holders", parents: true)?
+    fs.root_write(source, fp"${device}/ro", "0\n")?
+  }
+  for device in [disk, stacked] {
+    fs.root_mkdir(source, fp"${device}/slaves", parents: true)?
+  }
+  fs.root_symlink(source, p"../../devices/pci0000:00/0000:00:01.0/block/sda", p"sys/class/block/sda")?
+  fs.root_symlink(source, p"../../devices/pci0000:00/0000:00:01.0/block/sda/sda3", p"sys/class/block/sda3")?
+  fs.root_symlink(source, p"../../devices/virtual/block/dm-0", p"sys/class/block/dm-0")?
+  fs.root_symlink(source, p"../../../../../virtual/block/dm-0", fp"${disk}/holders/dm-0")?
+  fs.root_symlink(source, p"../../../../pci0000:00/0000:00:01.0/block/sda", fp"${stacked}/slaves/sda")?
+  for item in [
+    {device: disk, dev: "8:0\n", size: "1024\n"},
+    {device: partition, dev: "8:3\n", size: "128\n"},
+    {device: stacked, dev: "253:0\n", size: "512\n"},
+  ] {
+    fs.root_write(source, fp"${item.device}/dev", item.dev)?
+    fs.root_write(source, fp"${item.device}/size", item.size)?
+  }
+  fs.root_write(source, fp"${partition}/partition", "3\n")?
+  fs.root_mkdir(source, fp"${disk}/queue", parents: true)?
+  for item in [
+    {name: "logical_block_size", value: "512\n"},
+    {name: "physical_block_size", value: "4096\n"},
+    {name: "rotational", value: "1\n"},
+    {name: "scheduler", value: "none [mq-deadline]\n"},
+    {name: "read_ahead_kb", value: "128\n"},
+    {name: "discard_granularity", value: "4096\n"},
+    {name: "discard_max_bytes", value: "1048576\n"},
+  ] {
+    fs.root_write(source, fp"${disk}/queue/${item.name}", item.value)?
+  }
+  fs.root_write(source, fp"${disk}/removable", "0\n")?
+  fs.root_write(source, fp"${disk}/stat", "10 0 8 1 2 0 16 2 0 3 4\n")?
+  report_checks.capture_block_bundle(source, bundle, "synthetic_fixture")?
+  let replay = report_checks.replay_block_bundle(bundle)?
+  test.ok(replay.identity.exact)?
+  test.ok(replay.queue.exact)?
+  test.ok(replay.sources.exact)?
+  test.eq(replay.identity.reference_count, 3)?
+  test.eq(replay.identity.matched_edges, 2)?
+  fs.root_write(bundle, fp"${partition}/size", "129\n")?
+  test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")?
+  fs.root_write(bundle, fp"${partition}/size", "128\n")?
+  fs.root_write(bundle, fp"${partition}/queue/logical_block_size", "512\n")?
+  test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")?
+  fs.root_remove(bundle, fp"${partition}/queue/logical_block_size")?
+  fs.root_remove(bundle, fp"${disk}/holders/dm-0")?
+  fs.root_symlink(bundle, p"../../dm-1", fp"${disk}/holders/dm-0")?
+  test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")?
+}
+
+proc test_system_report_block_bundle_rejects_escaping_class_link() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  fs.root_mkdir(source, p"sys/class/block", parents: true)?
+  fs.root_symlink(source, p"../../devices/../rogue/sda", p"sys/class/block/sda")?
+  test.error_kind(report_checks.capture_block_bundle(source, bundle, "synthetic_fixture"), "SystemReportCheckError.Invalid")?
+}
+
+proc test_system_report_block_bundle_rejects_misdirected_layer_link() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  fs.root_mkdir(source, p"sys/class/block/sda/holders", parents: true)?
+  fs.root_mkdir(source, p"sys/class/block/sda/slaves")?
+  fs.root_mkdir(source, p"sys/class/block/dm-0/holders", parents: true)?
+  fs.root_mkdir(source, p"sys/class/block/dm-0/slaves")?
+  fs.root_symlink(source, p"../../dm-1", p"sys/class/block/sda/holders/dm-0")?
+  test.error_kind(report_checks.capture_block_bundle(source, bundle, "synthetic_fixture"), "SystemReportCheckError.Invalid")?
+  fs.root_remove(source, p"sys/class/block/sda/holders/dm-0")?
+  fs.root_symlink(source, p"../../rogue/dm-0", p"sys/class/block/sda/holders/dm-0")?
+  test.error_kind(report_checks.capture_block_bundle(source, bundle, "synthetic_fixture"), "SystemReportCheckError.Invalid")?
+}
+
+proc test_system_report_block_bundle_keeps_absent_class_unscoreable() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  report_checks.capture_block_bundle(source, bundle, "synthetic_fixture")?
+  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  test.contains(metadata, "\"listing_state\": \"absent\"")?
+  test.contains(metadata, "\"scoreable\": false")?
+  test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")?
+}
+
+proc test_system_report_block_raw_reference_checks_each_layer_direction() [error] {
+  let reference = {
+    devices: [
+      {name: "sda", major: 8, minor: 0, kind: "disk", size_bytes: 8192,
+        logical_sector_bytes: null, physical_sector_bytes: null, removable: null,
+        rotational: null, read_only: null, parent_name: null,
+        holders: ["dm-0"], slaves: []},
+      {name: "dm-0", major: 253, minor: 0, kind: "virtual", size_bytes: 8192,
+        logical_sector_bytes: null, physical_sector_bytes: null, removable: null,
+        rotational: null, read_only: null, parent_name: null,
+        holders: [], slaves: ["sda"]},
+    ],
+    edges: [{parent_name: "sda", child_name: "dm-0", partition: false}], queue: [],
+  }
+  let candidate = """{"storage":{"devices":[{"name":"sda","major":8,"minor":0,"kind":"disk","size_bytes":8192,"logical_sector_bytes":null,"physical_sector_bytes":null,"removable":null,"rotational":null,"read_only":null,"parent_device_index":null,"holder_indices":[],"slave_indices":[]},{"name":"dm-0","major":253,"minor":0,"kind":"virtual","size_bytes":8192,"logical_sector_bytes":null,"physical_sector_bytes":null,"removable":null,"rotational":null,"read_only":null,"parent_device_index":null,"holder_indices":[],"slave_indices":[0]}]}}"""
+  let compared = report_checks.compare_block_raw(candidate, reference)?
+  test.ok(!compared.exact)?
+}
+
 proc test_system_report_pci_capture_rejects_bus_link_outside_devices_tree() [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
@@ -1418,6 +1537,10 @@ proc test_system_report_capture_rejects_simultaneous_live_comparison(ctx: TestCo
   test.ok(!bundle.exists()?)?
   let hwmon_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-hwmon-bundle $bundle --compare-hwmon 2> $stderr
   test.ok(!hwmon_status.exited_with(0))?
+  test.contains(stderr.read_text()?, "bundle operations cannot be combined")?
+  test.ok(!bundle.exists()?)?
+  let block_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-block-bundle $bundle --compare-storage 2> $stderr
+  test.ok(!block_status.exited_with(0))?
   test.contains(stderr.read_text()?, "bundle operations cannot be combined")?
   test.ok(!bundle.exists()?)?
   let identity_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-os-release-bundle $bundle --compare-identity 2> $stderr

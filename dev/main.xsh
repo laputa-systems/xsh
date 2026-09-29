@@ -108,6 +108,7 @@ commands:
                       [--capture-kernel-parameters-bundle NEW_DIRECTORY | --replay-kernel-parameters-bundle DIRECTORY]
                       [--capture-thermal-bundle NEW_DIRECTORY | --replay-thermal-bundle DIRECTORY]
                       [--capture-hwmon-bundle NEW_DIRECTORY | --replay-hwmon-bundle DIRECTORY]
+                      [--capture-block-bundle NEW_DIRECTORY | --replay-block-bundle DIRECTORY]
                       [--capture-powercap-bundle NEW_DIRECTORY | --replay-powercap-bundle DIRECTORY]
                       [--capture-pci-bundle NEW_DIRECTORY | --replay-pci-bundle DIRECTORY]
                       [--capture-usb-bundle NEW_DIRECTORY | --replay-usb-bundle DIRECTORY]
