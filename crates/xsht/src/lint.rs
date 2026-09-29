@@ -2429,6 +2429,79 @@ impl<'a> Linter<'a> {
         self.diagnostics.push(diagnostic);
     }
 
+    fn lint_error_fallback_block(&mut self, expr: ExprId) {
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::Match { value, arms } = expression.kind else { return; };
+        let [first, second] = self.arena.match_expr_arms(arms) else { return; };
+        if first.guard.is_some() || second.guard.is_some() { return; }
+        let constructor = |pattern| match self.arena.pattern(pattern).kind {
+            ArenaPatternKind::Constructor { name, arg: Some(argument) } => Some((name, argument)),
+            _ => None,
+        };
+        let (Some((first_name, first_arg)), Some((second_name, second_arg))) = (constructor(first.pattern), constructor(second.pattern)) else { return; };
+        let (success, success_arg, handler, error_arg) = if first_name == "Ok" && second_name == "Err" {
+            (first, first_arg, second, second_arg)
+        } else if first_name == "Err" && second_name == "Ok" {
+            (second, second_arg, first, first_arg)
+        } else { return; };
+        let ArenaPatternKind::Binding(success_name) = self.arena.pattern(success_arg).kind else { return; };
+        let identity = match self.arena.expr(success.value).kind {
+            ArenaExprKind::Ident(name) => name == success_name,
+            ArenaExprKind::ValueBlock(block) => {
+                let statements = self.arena.stmt_ids(self.arena.block(block).statements).collect::<Vec<_>>();
+                matches!(statements.as_slice(), [stmt] if match self.arena.stmt(*stmt).kind {
+                    ArenaStmtKind::TailBareIdent(name) => name == success_name,
+                    ArenaStmtKind::Expr(value) => matches!(self.arena.expr(value).kind, ArenaExprKind::Ident(name) if name == success_name),
+                    _ => false,
+                })
+            }
+            _ => false,
+        };
+        if !identity { return; }
+        let error_name = match self.arena.pattern(error_arg).kind {
+            ArenaPatternKind::Binding(name) if !self.tag_variants.contains(name.as_str().as_str()) => name.to_string(),
+            ArenaPatternKind::Wildcard => "_".to_string(),
+            _ => return,
+        };
+        let Some(Type::Result(success_type, _)) = self.expr_types.get(&self.arena.expr(value).span) else { return; };
+        if success_type.contains_any() || **success_type == Type::Unknown
+            || self.expr_types.get(&expression.span) != Some(success_type.as_ref()) { return; }
+        let Some(original) = self.source.get(expression.span.range()) else { return; };
+        if original.contains('#') { return; }
+        let Some(subject) = self.source.get(self.arena.expr(value).span.range()) else { return; };
+        let Some(handler_source) = self.source.get(self.arena.expr(handler.value).span.range()) else { return; };
+        let line_indent = |offset: usize| {
+            self.source[..offset].rsplit('\n').next().unwrap_or("")
+                .chars().take_while(|character| *character == ' ').count()
+        };
+        let indent = line_indent(expression.span.start());
+        let handler = if matches!(self.arena.expr(handler.value).kind, ArenaExprKind::ValueBlock(_)) {
+            let Some(rest) = handler_source.strip_prefix('{') else { return; };
+            let removed_indent = line_indent(self.arena.expr(handler.value).span.start()).saturating_sub(indent);
+            let mut lines = rest.split('\n');
+            let mut body = lines.next().unwrap_or("").to_string();
+            for line in lines {
+                body.push('\n');
+                let trim = line.bytes().take(removed_indent).take_while(|byte| *byte == b' ').count();
+                body.push_str(&line[trim..]);
+            }
+            format!("{{ |{error_name}|{body}")
+        } else {
+            if handler_source.contains('\n') { return; }
+            format!("{{ |{error_name}|\n{}{handler_source}\n{}}}", " ".repeat(indent + 2), " ".repeat(indent))
+        };
+        let subject = match self.arena.expr(value).kind {
+            ArenaExprKind::Ident(_) | ArenaExprKind::Call { .. }
+            | ArenaExprKind::Field { .. } | ArenaExprKind::Index { .. } | ArenaExprKind::Try(_) => subject.to_string(),
+            _ => format!("({subject})"),
+        };
+        let replacement = format!("{subject} ?? {handler}");
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "identity success match can use an error fallback block")
+            .with_code("lint.error-fallback-block")
+            .with_label(Label::secondary(expression.span, "retain the lazy error handler with `??`"))
+            .with_fix_hint(FixHint::replacement(expression.span, "use an error fallback block", replacement)));
+    }
+
     fn lint_boolean_match(&mut self, expr: ExprId) {
         let expression = self.arena.expr(expr);
         let ArenaExprKind::Match { value, arms } = expression.kind else { return; };
@@ -5638,6 +5711,7 @@ impl LintExprVisitor<'_, '_> {
             self.linter.lint_optional_postfix(expr);
             self.linter.lint_boolean_match(expr);
             self.linter.lint_pattern_conditional_expr(expr);
+            self.linter.lint_error_fallback_block(expr);
             self.linter.lint_path_roundtrip(expr);
             self.linter.lint_redundant_require(expr);
             self.linter.lint_redundant_single_interpolation(expr);
@@ -5775,7 +5849,15 @@ impl LintExprVisitor<'_, '_> {
                 self.visit_expr(value);
                 self.linter.collect_type_expr_refs(schema);
             }
-            ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => self.linter.lint_block(block),
+            ArenaExprKind::ValueBlock(block) => {
+                self.linter.push_scope();
+                for parameter in arena.block_params(arena.block(block).params) {
+                    self.linter.define(parameter.name.as_str().as_str(), arena.span(parameter.span), true);
+                }
+                self.linter.lint_block_statements(block);
+                self.linter.pop_scope();
+            }
+            ArenaExprKind::Loop { block } => self.linter.lint_block(block),
             ArenaExprKind::Retry { delays, block } => {
                 let old = self.linter.regex_recovery_context;
                 self.linter.regex_recovery_context = true;
@@ -8356,6 +8438,10 @@ fn expr_flow(
             let mut flow = first.then(second);
             for operand in operands { flow = flow.then(FlowSummary::fallthrough().union(expr_flow(arena, operand, terminating_call_spans))); }
             flow
+        }
+        ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } => {
+            expr_flow(arena, left, terminating_call_spans)
+                .then(expr_flow(arena, right, terminating_call_spans).union(FlowSummary::fallthrough()))
         }
         ArenaExprKind::Binary { left, right, .. } => expr_flow(arena, left, terminating_call_spans)
             .then(expr_flow(arena, right, terminating_call_spans)),

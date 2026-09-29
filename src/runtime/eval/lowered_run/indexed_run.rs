@@ -270,6 +270,13 @@ impl Evaluator {
 
     // Expression transport retains the statement target separately from its payload.
     // In particular, callback returns and loop controls must cross retry and cleanup.
+    fn indexed_driver_expression_escape(&mut self, value: LoweredValue, span: Span) -> Flow {
+        match self.pending_value_block_flow.take().unwrap_or(StmtFlow::Propagate(value)) {
+            StmtFlow::Propagate(value) => self.question_flow(value.into_value(), span),
+            flow => lowered_stmt_flow_to_flow(flow),
+        }
+    }
+
     fn preserve_lexical_expression_flow<T>(&mut self, flow: StmtFlow) -> ControlFlow<LoweredValue, T> {
         let value = match &flow {
             StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => value.clone(),
@@ -1550,7 +1557,7 @@ impl Evaluator {
                     match self.eval_indexed_expr(&execution, value, &mut slots, call_span)? {
                         ControlFlow::Continue(value) => value.into_value(),
                         ControlFlow::Break(value) => {
-                            return Ok(Some(self.question_flow(value.into_value(), call_span)));
+                            return Ok(Some(self.indexed_driver_expression_escape(value, call_span)));
                         }
                     };
                 if let Some(check) = &validation {
@@ -1596,7 +1603,7 @@ impl Evaluator {
                     match self.eval_indexed_expr(&execution, value, &mut slots, call_span)? {
                         ControlFlow::Continue(value) => value.into_value(),
                         ControlFlow::Break(value) => {
-                            return Ok(Some(self.question_flow(value.into_value(), call_span)));
+                            return Ok(Some(self.indexed_driver_expression_escape(value, call_span)));
                         }
                     };
                 let value = if op == AssignOp::Set {
@@ -1624,7 +1631,7 @@ impl Evaluator {
                     match self.eval_indexed_expr(&execution, source, &mut slots, call_span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => {
-                            return Ok(Some(self.question_flow(value.into_value(), call_span)));
+                            return Ok(Some(self.indexed_driver_expression_escape(value, call_span)));
                         }
                     };
                 bind_lowered_comp_target(&target, source, &mut slots, span)?;
@@ -1640,7 +1647,7 @@ impl Evaluator {
                 match self.eval_indexed_expr(&execution, value, &mut slots, span)? {
                     ControlFlow::Continue(_) => Flow::Continue(Value::Unit),
                     ControlFlow::Break(value) => {
-                        return Ok(Some(self.question_flow(value.into_value(), span)));
+                        return Ok(Some(self.indexed_driver_expression_escape(value, span)));
                     }
                 }
             }
@@ -1659,7 +1666,7 @@ impl Evaluator {
                     }
                 }
                 match flow {
-                    StmtFlow::Propagate(value) => self.question_flow(value.into_value(), call_span),
+                    StmtFlow::Propagate(value) => self.indexed_driver_expression_escape(value, call_span),
                     flow => lowered_stmt_flow_to_flow(flow),
                 }
             }
@@ -1670,7 +1677,7 @@ impl Evaluator {
                     match self.eval_indexed_expr(&execution, value, &mut slots, call_span)? {
                         ControlFlow::Continue(value) => value.into_value(),
                         ControlFlow::Break(value) => {
-                            return Ok(Some(self.question_flow(value.into_value(), call_span)));
+                            return Ok(Some(self.indexed_driver_expression_escape(value, call_span)));
                         }
                     };
                 if matches!(value, Value::Result(_)) {
@@ -5203,10 +5210,7 @@ impl Evaluator {
                 match self.eval_indexed_statement_block(execution, body, &header, slots, span)? {
                     StmtFlow::Value(value) => ControlFlow::Continue(value),
                     StmtFlow::None => ControlFlow::Continue(LoweredValue::Unit),
-                    flow => {
-                        self.pending_value_block_flow = Some(flow);
-                        ControlFlow::Break(LoweredValue::Unit)
-                    }
+                    flow => self.preserve_lexical_expression_flow(flow),
                 }
             }
             FullTag::ExprLoop => {

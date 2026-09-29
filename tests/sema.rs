@@ -3395,3 +3395,27 @@ fn checker_deferred_block_rejects_yield_delegation() {
     let diagnostics = check("stream values() [] -> Stream[Int] { if false { defer { yield @[1] } }; yield 2 }\n");
     assert!(has_code(&diagnostics, "check.defer-control-flow"), "{:?}", diagnostics);
 }
+
+#[test]
+fn error_fallback_checked_facts_keep_nominal_error_and_value_tail() {
+    let source = "error Failure = invalid(message: Str)\nlet outcome: Result[Bool, Failure] = Err(Failure.invalid(message: \"bad\"))\nlet value = outcome ?? { |failure|\n  let message = failure.message\n  let _ = message\n  false\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    for (id, position) in &compact.statement_positions {
+        assert_eq!(checked.statement_positions.get(&parsed.arena.arena.stmt(*id).span), Some(position));
+    }
+    let mut exact_error = false;
+    for (id, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(id).span;
+        if &source[span.range()] == "failure" {
+            assert!(matches!(ty, xsh::frontend::check::Type::ErrorFamily(_)));
+            assert_eq!(checked.expr_types.get(&span), Some(&ty));
+            exact_error = true;
+        }
+    }
+    assert!(exact_error);
+}

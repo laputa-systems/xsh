@@ -727,6 +727,12 @@ impl<'a> Parser<'a> {
         self.parse_primary_arena_only(arena)
     }
 
+    fn brace_starts_parameter_block(&self) -> bool {
+        let mut offset = 1;
+        while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
+        self.peek_tag(offset) == Some(TokenTag::Pipe)
+    }
+
     pub(super) fn parse_primary_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
@@ -952,6 +958,16 @@ impl<'a> Parser<'a> {
                 })
             }
             (TokenTag::LBracket, _) => self.parse_list_arena_only(arena),
+            (TokenTag::LBrace, _) if self.brace_starts_parameter_block() => {
+                let block = self.parse_block_arena_only(arena)?;
+                let span = self.span(span.start(), self.previous_end());
+                if arena.block_parameter_count(block) == 0 {
+                    self.diagnostics.push(Diagnostic::error("error fallback block requires an error parameter")
+                        .with_code("parse.fallback-block-params")
+                        .with_label(Label::primary(span, "use one name or `_` between the pipes")));
+                }
+                Some(ArenaOnlyExpr { id: arena.push_value_block_expr(block, span), span, bare_ident: None })
+            }
             (TokenTag::LBrace, _) => self.parse_record_arena_only(arena),
             (TokenTag::LParen, _) => {
                 self.bump();

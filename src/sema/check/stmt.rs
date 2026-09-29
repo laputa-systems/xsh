@@ -1658,6 +1658,17 @@ impl Checker {
                 "check.block-params",
             );
         }
+        self.check_tail_block_contents_arena(arena, source, block_id, expected)
+    }
+
+    pub(super) fn check_tail_block_contents_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        block_id: BlockId,
+        expected: Option<&Type>,
+    ) -> Type {
+        let block = arena.arena.block(block_id);
         self.block_depth += 1;
         let stmt_ids: Vec<StmtId> = arena.arena.stmt_ids(block.statements).collect();
         let result = if let Some((&tail, non_tail)) = stmt_ids.split_last() {

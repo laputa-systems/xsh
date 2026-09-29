@@ -52,12 +52,16 @@ pure empty_config() -> Config {
 }
 
 proc default_interfaces_path() [env] -> Result[Path] {
-  let raw = match env("XSH_IFUP_INTERFACES") { Ok(path_value) => path_value, Err(_) => "/etc/network/interfaces" }
+  let raw = env("XSH_IFUP_INTERFACES") ?? { |_|
+    "/etc/network/interfaces"
+  }
   return fp"${raw}"
 }
 
 proc default_state_path() [env] -> Result[Path] {
-  let raw = match env("XSH_IFUP_STATE") { Ok(path_value) => path_value, Err(_) => "/run/network/ifstate" }
+  let raw = env("XSH_IFUP_STATE") ?? { |_|
+    "/run/network/ifstate"
+  }
   return fp"${raw}"
 }
 

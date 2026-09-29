@@ -815,7 +815,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "fallback" => (
             "Defines fallback expressions for recoverable values.",
-            "Fallback applies only to the documented missing/failed shape and does not erase unrelated errors.",
+            "?? lazily unwraps Result success or Optional presence and is right-associative. A Result may use { |failure| statements; tail_value } with exactly one immutable parameter containing the exact error. Handler tails match the success type and retain lexical return, loop, propagation, and cleanup targets. Optional fallback has no error parameter. lint.error-fallback-block preserves a complete unguarded Err handler when replacing a checked identity-Ok expression match.",
         ),
         "run" => (
             "Defines process run forms and status boundaries.",

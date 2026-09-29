@@ -3099,3 +3099,55 @@ fn formatter_preserves_yield_delegation_and_postfix_guards() {
     let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
     assert_eq!(again.formatted, formatted.formatted);
 }
+
+#[test]
+fn error_fallback_fix_preserves_handler_effects_and_converges() {
+    let source = "pure recover(outcome: Result[Str]) -> Str {\n  let selected = match outcome { Ok(value) => value, Err(failure) => failure.message }\n  selected\n}\n".to_string();
+    let parsed = parse_lint_source(&source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, &source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, &source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.error-fallback-block")).expect("identity fallback fix");
+    let hint = &diagnostic.fix_hints[0];
+    let mut fixed = source.clone();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
+    assert_parse_check_standalone("error fallback block", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty());
+    assert!(formatted.formatted.contains("outcome ?? { |failure|"));
+    assert!(formatted.formatted.contains("failure.message"));
+    let reparsed = parse_lint_source(&formatted.formatted);
+    let rechecked = Checker::check_arena(&reparsed.arena, &formatted.formatted);
+    let second = Linter::lint(&reparsed.arena, &formatted.formatted, LintOptions { expr_types: rechecked.expr_types, ..LintOptions::default() });
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.error-fallback-block")));
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+}
+
+#[test]
+fn error_fallback_fix_refuses_success_transforms_guards_and_error_patterns() {
+    for source in [
+        "pure recover(outcome: Result[Str]) -> Str { let selected = match outcome { Ok(value) => value.trim(), Err(failure) => failure.message }; selected }\n",
+        "pure recover(outcome: Result[Str]) -> Str { let selected = match outcome { Ok(value) if true => value, _ => \"other\" }; selected }\n",
+        "pure recover(outcome: Result[Str]) -> Str { let selected = match outcome { Ok(value) => value, Err(is NotFound) => \"missing\", _ => \"other\" }; selected }\n",
+        "pure recover(outcome: Result[Str]) -> Str { let selected = match outcome { Ok(value) => value, Err(failure) => {\n# retain this explanation\nfailure.message\n} }; selected }\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.error-fallback-block")), "{source}");
+    }
+}
+
+#[test]
+fn error_fallback_flow_keeps_success_path_reachable() {
+    let source = "pure choose(outcome: Result[Int]) -> Int {\n  let selected = outcome ?? { |_| return 7 }\n  selected\n}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty());
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.unreachable")), "{:?}", output.diagnostics);
+}

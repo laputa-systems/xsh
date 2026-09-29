@@ -699,6 +699,24 @@ fn api_core_procs_demonstrates_lexical_named_argument_puns() {
 }
 
 #[test]
+fn api_core_fallback_explains_error_parameter_and_lexical_targets() {
+    let output = xsht(&["api", "language:core.fallback"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for fragment in [
+        "{ |failure| statements; tail_value }",
+        "exactly one immutable parameter containing the exact error",
+        "Handler tails match the success type",
+        "lexical return, loop, propagation, and cleanup targets",
+        "right-associative",
+        "lint.error-fallback-block",
+    ] {
+        assert!(stdout.contains(fragment), "{stdout}");
+    }
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
 fn api_slicing_documents_bounds_units_and_retained_count_method() {
     let output = xsht(&["api", "language:core.slicing", "method:Bytes.slice"]);
     assert!(output.status.success());

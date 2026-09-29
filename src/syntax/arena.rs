@@ -1064,6 +1064,10 @@ impl<'a> ArenaProgramBuilder<'a> {
         id
     }
 
+    pub fn block_parameter_count(&self, block: BlockId) -> usize {
+        self.lowerer.arena.block(block).params.len as usize
+    }
+
     pub fn discard_block(&mut self) {
         let start = self
             .block_statement_starts

@@ -3590,3 +3590,19 @@ fn parser_yield_delegation_retains_source_expression_and_unicode_byte_span() {
     assert_eq!(&source[parsed.arena.arena.expr(expr).span.range()], "[\"β\", \"γ\"]");
     assert!(matches!(parsed.arena.arena.expr(expr).kind, ArenaExprKind::List(_)));
 }
+
+#[test]
+fn error_fallback_blocks_round_trip_without_record_ambiguity() {
+    let source = "let recovered = Ok(false) ?? { |failure|\n  let _ = failure\n  false\n}\nlet record = Ok({name: \"original\"}) ?? {name: \"record\"}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let ArenaExprKind::Binary { op: BinaryOp::ResultFallback, right, .. } = parsed.arena.arena.expr(root_let_init_expr(&parsed, 0)).kind else { panic!("fallback"); };
+    let ArenaExprKind::ValueBlock(block) = parsed.arena.arena.expr(right).kind else { panic!("error block"); };
+    assert_eq!(parsed.arena.arena.block_params(parsed.arena.arena.block(block).params).len(), 1);
+    let ArenaExprKind::Binary { right, .. } = parsed.arena.arena.expr(root_let_init_expr(&parsed, 1)).kind else { panic!("fallback"); };
+    assert!(matches!(parsed.arena.arena.expr(right).kind, ArenaExprKind::Record(_)));
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, source);
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, source);
+}

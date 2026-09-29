@@ -180,6 +180,14 @@ Ignoring a value-producing `Result` is a checker error. A statement-position
 `value` has the success type. In an `Err(error)` arm, `error` has the error
 type.
 
+For `Result[T, E] ?? { |failure| ... }`, the immutable parameter has exactly `E`
+and a reachable handler tail must have `T`. Explicit handler Results remain
+Results; this expression adds no implicit Ok wrapper or propagation boundary.
+The block always uses value-tail classification, including Bool and Unit success
+types. A Result literal with an unknown success shape may use the checked handler
+or enclosing expected type to establish that shape. Optional fallback retains its
+existing payload-only form.
+
 ## Optional Values
 
 `T?` accepts either `Null` or `T`. It is a type-level optional shape, not a

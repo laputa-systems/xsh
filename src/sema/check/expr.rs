@@ -178,6 +178,9 @@ impl Checker {
                 self.check_record_arena(arena, source, *fields, expected, expr.span)
             }
             ArenaExprKind::ValueBlock(block) => {
+                if let Some(param) = arena.arena.block_params(arena.arena.block(*block).params).first() {
+                    self.error(arena.arena.span(param.span), "parameter value blocks require a Result fallback", "check.fallback-block-context");
+                }
                 self.push_scope();
                 let ty = self.check_tail_block_arena(arena, source, *block, expected);
                 self.pop_scope();
@@ -834,6 +837,46 @@ impl Checker {
         }
     }
 
+    fn check_result_fallback_block_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        expression: ExprId,
+        block: BlockId,
+        result_ty: &Type,
+        left_span: Span,
+        expected: Option<&Type>,
+    ) -> Type {
+        let params = arena.arena.block_params(arena.arena.block(block).params);
+        if params.len() != 1 {
+            self.error(arena.arena.expr(expression).span, "error fallback block requires exactly one parameter", "check.fallback-block-params");
+        }
+        let (value_ty, error_ty) = match result_ty {
+            Type::Result(value, error) => (value.as_ref().clone(), error.as_ref().clone()),
+            _ => {
+                self.error(left_span, "error fallback block requires a Result value", "check.fallback-block-result");
+                (Type::Unknown, Type::Unknown)
+            }
+        };
+        let value_ty = if value_ty == Type::Unknown { expected.cloned().unwrap_or(value_ty) } else { value_ty };
+        self.push_scope();
+        if let [param] = params {
+            if param.name != "_" {
+                self.define(param.name, super::Binding::new(error_ty, false), arena.arena.span(param.span));
+            }
+        }
+        // Every handler tail is a value; Unit-success handlers still require Unit.
+        let context = (!matches!(value_ty, Type::Unit) && !value_ty.is_result_unit()).then_some(&value_ty);
+        let actual = self.check_tail_block_contents_arena(arena, source, block, context);
+        if !matches!(actual, Type::Unknown) {
+            self.expect_type(&value_ty, &actual, arena.arena.expr(expression).span);
+        }
+        self.pop_scope();
+        let result = if value_ty == Type::Unknown { actual.clone() } else { value_ty };
+        self.expr_types.insert(arena.arena.expr(expression).span, actual);
+        result
+    }
+
     #[allow(clippy::too_many_lines)]
     fn check_binary_arena(
         &mut self,
@@ -849,6 +892,9 @@ impl Checker {
         match op {
             BinaryOp::ResultFallback => {
                 let left_ty = self.check_expr_arena(arena, source, left, None);
+                if let ArenaExprKind::ValueBlock(block) = arena.arena.expr(right).kind {
+                    return self.check_result_fallback_block_arena(arena, source, right, block, &left_ty, left_span, expected);
+                }
                 let value_ty = if let Some(ok_ty) = left_ty.result_ok().cloned() {
                     ok_ty
                 } else if let Some(inner) = left_ty.optional_inner().cloned() {

@@ -349,7 +349,12 @@ branches. Its scope creates no callable, propagation, or loop target.
 through lowering and tooling. Compact `block_types` retain inferred tail types
 before branch scopes disappear. The indexed value-block instruction evaluates its
 selected tail before defers and resource cleanup; lexical transfers keep their
-original targets.
+original targets. A parameter block as the RHS of `BinaryOp::ResultFallback`
+binds the checked Result error type before checking its statements. Full checking
+uses `check_tail_block_contents_arena` after validating the single parameter;
+compact checking retains that binding and records the same value-tail positions.
+Lowering creates a lazy indexed `MatchExpr` with an Ok payload arm and an Err
+binding arm whose value is the ordinary lexical `ValueBlock`.
 
 Guarded index and slice expressions retain a `guarded` flag in
 `ArenaExprKind::Index` and `ArenaExprKind::Slice`, with distinct arena tags.

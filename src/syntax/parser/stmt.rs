@@ -1408,6 +1408,7 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<crate::syntax::arena::BlockId> {
         let start = self.expect(TokenKindMatch::LBrace, "expected `{` to start block")?;
+        self.skip_separators();
         let params = self.parse_block_params();
         arena.begin_block();
         self.block_depth += 1;

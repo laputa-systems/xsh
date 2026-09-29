@@ -463,6 +463,7 @@ impl<'a> Parser<'a> {
                     | (TokenTag::Star, _)
                     | (TokenTag::Slash, _)
                     | (TokenTag::Percent, _)
+                    | (TokenTag::QuestionQuestion, _)
                     | (TokenTag::Keyword, Some(Keyword::And))
                     | (TokenTag::Keyword, Some(Keyword::Or))
                     | (TokenTag::Keyword, Some(Keyword::In))

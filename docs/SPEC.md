@@ -1542,6 +1542,22 @@ unwinding by default. `abort(status, force: true)` skips deferred cleanup.
 `??` is right-associative. `or` remains Bool-only; use `??` for Result and
 Optional fallback.
 
+`result ?? { |failure| statements; tail_value }` selects a lexical error handler
+only for `Err`; `Ok` returns its payload without evaluating the handler. The
+parameter is required, exactly one, immutable, and scoped to the handler; `_`
+discards it. Its type and runtime value retain the Result's nominal error.
+The `{ |...|` prefix distinguishes this form from an ordinary record fallback.
+Optional values have no error payload and cannot use a parameter block.
+
+Handler tails must match the success type, including nested Results. Boolean
+tails are values. The handler creates no function, loop, or Result boundary:
+`return`, legal loop transfers, and `?` retain their enclosing targets, including
+retry-local propagation. Values are selected before scope cleanup; handler
+failures retain their own error identity and source. `??` remains lazy and
+right-associative. `lint.error-fallback-block` replaces checked identity-Ok
+expression matches only when the complete unguarded Err arm can be retained;
+it leaves success transformations, error-case distinctions, and comments intact.
+
 Ignoring a value-producing `Result` is a checker error. A `Result[Unit]`
 statement propagates failure by default. Assign to `_` only when an ignored
 value-producing result is intentional:

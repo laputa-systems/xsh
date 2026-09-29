@@ -4397,11 +4397,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                     Box::new(Type::ProcessHandle),
                     Box::new(Type::ProcessError),
                 )),
-                ArenaExprKind::EnvGet { kind, .. } => match kind {
-                    EnvGetKind::Str => Some(Type::Str),
-                    EnvGetKind::Path => Some(Type::Path),
-                    EnvGetKind::PathList => Some(Type::EnvPathList),
-                },
+                ArenaExprKind::EnvGet { kind, .. } => Some(Type::Result(Box::new(match kind {
+                    EnvGetKind::Str => Type::Str,
+                    EnvGetKind::Path => Type::Path,
+                    EnvGetKind::PathList => Type::EnvPathList,
+                }), Box::new(Type::Error))),
                 ArenaExprKind::EnvPathList => Some(Type::EnvPathList),
                 _ => None,
             })
@@ -7917,6 +7917,26 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ))
             }
             ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } => {
+                if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(right).kind {
+                    let [parameter] = self.program.arena.block_params(self.program.arena.block(block).params) else { return None; };
+                    let parameter = parameter.name;
+                    let result_ty = self.bodies.expr_types.get(&left).filter(|ty| compact_checked_type_is_concrete(ty)).cloned()
+                        .or_else(|| self.infer_checked_expr_type_with_slots(left, slots))?;
+                    let Type::Result(_, error_ty) = result_ty else { return None; };
+                    let left = self.lower_expr(left, slots, current_function, item_slot)?;
+                    let saved = slots.enter();
+                    let error_slot = slots.declare_with_type(parameter, Some(*error_ty));
+                    let handler = self.lower_block_value_expr(block, slots, current_function, item_slot);
+                    slots.exit(saved);
+                    let handler = handler?;
+                    let success_slot = slots.reserve("fallback.success");
+                    let success = push_build_row!(self, expr, BuildExprRow::Param(success_slot));
+                    let error_pattern = push_build_row!(self, pattern, BuildPatternRow::ResultErr { slot: Some(error_slot), unit_only: false });
+                    let success_pattern = push_build_row!(self, pattern, BuildPatternRow::ResultOk { slot: Some(success_slot), unit_only: false });
+                    return Some(push_build_row!(self, expr, BuildExprRow::MatchExpr {
+                        value: left, arms: vec![(success_pattern, None, success), (error_pattern, None, handler)], span,
+                    }));
+                }
                 let left_ty = self.infer_checked_expr_type_with_slots(left, slots)
                     .or_else(|| self.bodies.expr_types.get(&left).filter(|ty| compact_checked_type_is_concrete(ty)).cloned())
                     .or_else(|| self.infer_checked_expr_type(left, &self.top_level_known));

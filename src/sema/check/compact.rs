@@ -55,6 +55,7 @@ pub enum CompactTypeDefInfo {
 pub struct CompactFunctionSig {
     pub params: Vec<CallableParamType>,
     pub return_ty: Type,
+    pub return_type_expr: TypeExprId,
     pub effects: Option<Vec<Effect>>,
 }
 
@@ -457,6 +458,7 @@ impl CompactDeclCollector {
         CompactFunctionSig {
             params,
             return_ty,
+            return_type_expr: def.return_ty,
             effects,
         }
     }
@@ -624,14 +626,7 @@ impl CompactBodyProbe<'_> {
                 self.output.bindings += 1;
                 let expected = ty.map(|ty| self.type_from_arena(ty));
                 let actual = self.check_compact_expr_or_run(initializer);
-                let binding_ty = match expected {
-                    Some(expected)
-                        if !matches!(actual, Type::Any | Type::Unknown | Type::Invalid) =>
-                    {
-                        expected
-                    }
-                    Some(_) | None => actual,
-                };
+                let binding_ty = expected.unwrap_or(actual);
                 let mutable = matches!(self.program.arena.stmt(id).kind, ArenaStmtKind::Var { .. });
                 self.define_binding_target(target, binding_ty, mutable);
             }
@@ -819,7 +814,7 @@ impl CompactBodyProbe<'_> {
         } = self.program.arena.block(id);
         for param in self.program.arena.block_params(*params) {
             self.current_scope_mut()
-                .insert(param.name, CompactBinding::new(Type::Any, false));
+                .entry(param.name).or_insert_with(|| CompactBinding::new(Type::Any, false));
         }
         for stmt in self.program.arena.stmt_ids(*statements) {
             self.check_compact_stmt(stmt);
@@ -855,7 +850,7 @@ impl CompactBodyProbe<'_> {
         let tail = self.program.arena.stmt_ids(self.program.arena.block(block).statements).last();
         match tail.map(|id| self.program.arena.stmt(id).kind) {
             Some(ArenaStmtKind::Expr(expr)) => self.output.expr_types.get(&expr).cloned().unwrap_or(Type::Unknown),
-            Some(ArenaStmtKind::TailBareIdent(name)) => self.lookup_binding(name).map(|binding| binding.ty.clone()).unwrap_or(Type::Unknown),
+            Some(ArenaStmtKind::TailBareIdent(name)) => self.lookup_name(name),
             Some(ArenaStmtKind::If { branches, else_block: Some(block) }) => {
                 let mut ty = Some(self.compact_block_tail_type(block));
                 for branch in self.program.arena.if_branches(branches) { ty = Some(merge_types(ty, self.compact_block_tail_type(branch.block))); }
@@ -960,11 +955,11 @@ impl CompactBodyProbe<'_> {
                 };
                 compact_postfix_result(result, lift)
             }
-            ArenaExprKind::EnvGet { kind, .. } => match kind {
+            ArenaExprKind::EnvGet { kind, .. } => Type::Result(Box::new(match kind {
                 EnvGetKind::Str => Type::Str,
                 EnvGetKind::Path => Type::Path,
                 EnvGetKind::PathList => Type::EnvPathList,
-            },
+            }), Box::new(Type::Error)),
             ArenaExprKind::EnvPathList => Type::EnvPathList,
             ArenaExprKind::Try(expr) => self
                 .check_compact_expr(expr)
@@ -1131,7 +1126,20 @@ impl CompactBodyProbe<'_> {
 
     fn check_compact_binary(&mut self, op: BinaryOp, left: ExprId, right: ExprId) -> Type {
         let left = self.check_compact_expr(left);
-        let right = self.check_compact_expr(right);
+        let right = if op == BinaryOp::ResultFallback {
+            if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(right).kind {
+                self.push_scope();
+                if let ([param], Type::Result(_, error)) = (self.program.arena.block_params(self.program.arena.block(block).params), &left) {
+                    self.current_scope_mut().insert(param.name, CompactBinding::new(error.as_ref().clone(), false));
+                }
+                self.check_compact_block_in_current_scope(block);
+                let ty = self.compact_block_tail_type(block);
+                self.mark_tail_position(block, true);
+                self.output.expr_types.insert(right, ty.clone());
+                self.pop_scope();
+                ty
+            } else { self.check_compact_expr(right) }
+        } else { self.check_compact_expr(right) };
         match op {
             BinaryOp::Or
             | BinaryOp::And
@@ -1148,7 +1156,7 @@ impl CompactBodyProbe<'_> {
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
                 numeric_result_type(left, right)
             }
-            BinaryOp::ResultFallback => match left { Type::Optional(inner) | Type::Result(inner, _) => *inner, other => other },
+            BinaryOp::ResultFallback => match left { Type::Result(inner, _) if *inner == Type::Unknown => right, Type::Optional(inner) | Type::Result(inner, _) => *inner, other => other },
         }
     }
 
@@ -1169,11 +1177,30 @@ impl CompactBodyProbe<'_> {
             }
         }
         if let ArenaExprKind::Ident(name) = callee_expr.kind {
-            if let Some(sig) = self.declarations.pures.get(&name) {
-                return sig.return_ty.clone();
+            if name == "env" { return Type::Result(Box::new(Type::Str), Box::new(Type::Error)); }
+            if name == "Ok" || name == "Err" {
+                let value = self.program.arena.call_args(args).first().and_then(|arg| match arg.kind {
+                    crate::syntax::arena::ArenaCallArgKind::Positional(value) => self.output.expr_types.get(&value).cloned(),
+                    _ => None,
+                }).unwrap_or(Type::Unit);
+                return if name == "Ok" { Type::Result(Box::new(value), Box::new(Type::Error)) }
+                    else { Type::Result(Box::new(Type::Unknown), Box::new(value)) };
             }
-            if let Some(sig) = self.declarations.procs.get(&name) {
-                return sig.return_ty.clone();
+        }
+        if let ArenaExprKind::Field { base, name: variant } = callee_expr.kind {
+            if let ArenaExprKind::Ident(family) = self.program.arena.expr(base).kind {
+                if self.declarations.error_families_by_name.get(&family).is_some_and(|info| info.variants.contains_key(&variant)) {
+                    return Type::ErrorVariant { family, variant };
+                }
+            }
+        }
+        if let ArenaExprKind::Ident(name) = callee_expr.kind {
+            if let Some(sig) = self.declarations.pures.get(&name).or_else(|| self.declarations.procs.get(&name)) {
+                return match &sig.return_ty {
+                    Type::Unknown => self.type_from_arena(sig.return_type_expr),
+                    Type::Result(_, error) if **error == Type::Unknown => self.type_from_arena(sig.return_type_expr),
+                    _ => sig.return_ty.clone(),
+                };
             }
             if let Some(variant) = self.declarations.tag_variants_by_name.get(&name) {
                 return Type::Tag(variant.type_name);
@@ -1254,6 +1281,9 @@ impl CompactBodyProbe<'_> {
 
     fn check_compact_field(&mut self, base: ExprId, name: Name) -> Type {
         match self.check_compact_expr(base) {
+            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } if name == "message" => Type::Str,
+            Type::ErrorVariant { family, variant } => self.declarations.error_families_by_name.get(&family)
+                .and_then(|info| info.variants.get(&variant)).and_then(|info| info.fields.get(&name)).cloned().unwrap_or(Type::Unknown),
             Type::Record(fields) => fields.get(&name).cloned().unwrap_or(Type::Unknown),
             Type::Module(exports) => exports
                 .get(&name)
@@ -1573,6 +1603,7 @@ fn compact_probe_type_from_arena(
     match tag {
         ArenaTypeExprTag::Named => {
             let name = Name::from_symbol(Symbol::from_raw(data.lhs));
+            if declarations.error_families_by_name.contains_key(&name) { return Type::ErrorFamily(name); }
             match Type::from_name(&name.as_str()) {
                 Type::Unknown => match declarations.types.get(&name) {
                     Some(CompactTypeDefInfo::Alias(alias)) => {
@@ -1590,6 +1621,10 @@ fn compact_probe_type_from_arena(
         }
         ArenaTypeExprTag::Qualified => {
             let name = Name::from_symbol(Symbol::from_raw(data.rhs));
+            let namespace = Name::from_symbol(Symbol::from_raw(data.lhs));
+            if declarations.qualified_error_families.contains_key(&QualifiedName::new(namespace, name)) {
+                return Type::ErrorFamily(Name::intern(format!("{namespace}.{name}")));
+            }
             match declarations.types.get(&name) {
                 Some(CompactTypeDefInfo::Alias(alias)) => {
                     compact_probe_type_from_arena(arena, *alias, declarations, depth + 1)
