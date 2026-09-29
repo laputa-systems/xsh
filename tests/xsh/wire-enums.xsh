@@ -143,3 +143,24 @@ proc main(source: Path) [fs, error] {
   test.ok(executed.success, executed.stderr)?
   test.eq(executed.stdout, "true\n\"ready\"\nsame constructor\n")?
 }
+
+test test_wire_enum_imported_generic_records_keep_declaring_mapping [fs, error] { |ctx|
+  let root = test.temp_dir(ctx, name: "wire-enum-generic-records")?
+  fp"${root}/state.xsh".write_atomic("##! Generic state schema.\n## Stable external spelling.\nexport const spelling = \"ready\"\n## Declared state.\nexport enum State: Str { Ready = spelling, Empty = \"\" }\n## Generic packet.\nexport type Packet[T] = {state: State, values: List[T], optional: State?}\n## Concrete packet alias.\nexport type States = Packet[State]\n")?
+  let executed = test.run_script(ctx, r"""use state as model
+type Box[T] = {value: T}
+type Nested = Box[model.States]
+let raw = json.decode("{\"value\":{\"state\":\"ready\",\"values\":[\"\",\"ready\"],\"optional\":null}}")?
+let packet = raw.require(Nested)?
+print (packet.value.state == model.Ready)
+print (packet.value.values[0] == model.Empty)
+print json.encode(packet)?
+let invalid = json.decode("{\"value\":{\"state\":\"ready\",\"values\":[\"\",\"unknown\"],\"optional\":null}}")?
+match invalid.require(Nested) { Err(failure) => print $failure.message; Ok(_) => print "unexpected success" }
+print json.encode(invalid)?
+""", [], {XSH_MODULE_PATH: root.display()})?
+  test.ok(executed.success, executed.stderr)?
+  test.contains(executed.stdout, "true\ntrue\n{\"value\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\",\"ready\"]}}\n")?
+  test.contains(executed.stdout, "value.values[1]")?
+  test.contains(executed.stdout, "{\"value\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\",\"unknown\"]}}")?
+}

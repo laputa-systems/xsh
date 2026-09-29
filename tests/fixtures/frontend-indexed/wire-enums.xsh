@@ -9,3 +9,10 @@ pure wire_round_trip(source: Str) -> Result[Str] {
 pure wire_direct() -> Result[Str] {
   return json.encode(Ready)
 }
+
+type WireBox[T] = {packet: T}
+type WireNested = WireBox[WireRow]
+pure wire_nested(source: Str) -> Result[Str] {
+  let nested = json.decode(source)?.require(WireNested)?
+  return json.encode(nested)
+}

@@ -9545,6 +9545,7 @@ proc configured() [] -> Int {
                 for (name, arguments, expected) in [
                     ("wire_direct", Vec::new(), "\"ready\""),
                     ("wire_round_trip", vec![Value::Str(Arc::from(raw))], "{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}"),
+                    ("wire_nested", vec![Value::Str(Arc::from(format!("{{\"packet\":{raw}}}")))], "{\"packet\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}}"),
                 ] {
                     let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
                     evaluator.indexed_program = Some(Arc::clone(&program));
