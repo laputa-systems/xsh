@@ -6,7 +6,7 @@ use super::{
     Parser, StreamStageKind, TokenKindMatch, TokenTag, UnaryOp, decode_bytes_literal_for, literal,
 };
 use crate::syntax::arena::{
-    ArenaCallArgInput, ArenaExprKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgramBuilder,
+    ArenaCompQualifier, ArenaCallArgInput, ArenaExprKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgramBuilder,
     ArenaRange, ArenaRecordFieldInput, ArenaStreamStage, BlockId, ExprId,
 };
 use std::sync::Arc;
@@ -941,7 +941,7 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaOnlyExpr> {
         let start = self.current_start();
         self.bump();
-        self.skip_newlines();
+        self.skip_comp_layout();
         if self.at(TokenKindMatch::RBracket) || self.at(TokenKindMatch::Eof) {
             let end = self
                 .expect(TokenKindMatch::RBracket, "expected `]` after list")
@@ -955,14 +955,14 @@ impl<'a> Parser<'a> {
             });
         }
         let first = self.parse_precedence_arena_only(0, arena)?;
-        self.skip_newlines();
+        self.skip_comp_layout();
         if self.at_keyword(Keyword::For) {
             return self.parse_list_comp_arena_only(arena, start, first.id);
         }
         arena.begin_expr_ids();
         arena.push_expr_id_input(first.id);
         while self.consume(TokenKindMatch::Comma).is_some() {
-            self.skip_newlines();
+            self.skip_comp_layout();
             if self.at(TokenKindMatch::RBracket) || self.at(TokenKindMatch::Eof) {
                 break;
             }
@@ -971,9 +971,9 @@ impl<'a> Parser<'a> {
                 return None;
             };
             arena.push_expr_id_input(item.id);
-            self.skip_newlines();
+            self.skip_comp_layout();
         }
-        self.skip_newlines();
+        self.skip_comp_layout();
         let end = self
             .expect(TokenKindMatch::RBracket, "expected `]` after list")
             .map(|span| span.end())
@@ -993,20 +993,7 @@ impl<'a> Parser<'a> {
         start: usize,
         expr: ExprId,
     ) -> Option<ArenaOnlyExpr> {
-        self.bump(); // consume `for`
-        let target = self.parse_binding_target_arena_only(
-            "expected binding target in list comprehension",
-            arena,
-        )?;
-        self.expect_keyword(Keyword::In, "expected `in` in list comprehension");
-        let iter = self.parse_expr_id_arena_only(arena)?;
-        self.skip_newlines();
-        let condition = if self.consume_keyword(Keyword::If).is_some() {
-            Some(self.parse_expr_id_arena_only(arena)?)
-        } else {
-            None
-        };
-        self.skip_newlines();
+        let qualifiers = self.parse_comp_qualifiers_arena_only(arena)?;
         let end = self
             .expect(
                 TokenKindMatch::RBracket,
@@ -1016,7 +1003,7 @@ impl<'a> Parser<'a> {
             .unwrap_or_else(|| self.previous_end());
         let span = self.span(start, end);
         Some(ArenaOnlyExpr {
-            id: arena.push_list_comp_expr(expr, target, iter, condition, span),
+            id: arena.push_list_comp_expr(expr, qualifiers, span),
             span,
             bare_ident: None,
         })
@@ -1028,7 +1015,7 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaOnlyExpr> {
         let start = self.current_start();
         self.bump();
-        self.skip_newlines();
+        self.skip_comp_layout();
         arena.begin_record_fields();
         while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
             let field_start = self.current_start();
@@ -1047,11 +1034,11 @@ impl<'a> Parser<'a> {
                     expr: expr.id,
                     span: self.span(field_start, expr.span.end()),
                 });
-                self.skip_newlines();
+                self.skip_comp_layout();
                 if self.consume(TokenKindMatch::Comma).is_none() {
                     break;
                 }
-                self.skip_newlines();
+                self.skip_comp_layout();
                 continue;
             }
             let name = match self.current_tag() {
@@ -1100,7 +1087,7 @@ impl<'a> Parser<'a> {
                     arena.discard_record_fields();
                     return None;
                 };
-                self.skip_newlines();
+                self.skip_comp_layout();
                 if self.at_keyword(Keyword::For) {
                     arena.discard_record_fields();
                     return self.parse_map_comp_tail_arena_only(arena, start, key_id, value.id);
@@ -1130,13 +1117,13 @@ impl<'a> Parser<'a> {
                     span: self.span(field_start, self.previous_end()),
                 });
             }
-            self.skip_newlines();
+            self.skip_comp_layout();
             if self.consume(TokenKindMatch::Comma).is_none() {
                 break;
             }
-            self.skip_newlines();
+            self.skip_comp_layout();
         }
-        self.skip_newlines();
+        self.skip_comp_layout();
         let end = self
             .expect(TokenKindMatch::RBrace, "expected `}` after record")
             .map(|span| span.end())
@@ -1157,20 +1144,7 @@ impl<'a> Parser<'a> {
         key: ExprId,
         value: ExprId,
     ) -> Option<ArenaOnlyExpr> {
-        self.expect_keyword(Keyword::For, "expected `for` in map comprehension");
-        let target = self.parse_binding_target_arena_only(
-            "expected binding target in map comprehension",
-            arena,
-        )?;
-        self.expect_keyword(Keyword::In, "expected `in` in map comprehension");
-        let iter = self.parse_expr_id_arena_only(arena)?;
-        self.skip_newlines();
-        let condition = if self.consume_keyword(Keyword::If).is_some() {
-            Some(self.parse_expr_id_arena_only(arena)?)
-        } else {
-            None
-        };
-        self.skip_newlines();
+        let qualifiers = self.parse_comp_qualifiers_arena_only(arena)?;
         let end = self
             .expect(
                 TokenKindMatch::RBrace,
@@ -1180,7 +1154,7 @@ impl<'a> Parser<'a> {
             .unwrap_or_else(|| self.previous_end());
         let span = self.span(start, end);
         Some(ArenaOnlyExpr {
-            id: arena.push_map_comp_expr(key, value, target, iter, condition, span),
+            id: arena.push_map_comp_expr(key, value, qualifiers, span),
             span,
             bare_ident: None,
         })
@@ -1190,6 +1164,28 @@ impl<'a> Parser<'a> {
         while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
             self.bump();
         }
+    }
+
+    fn skip_comp_layout(&mut self) {
+        while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+    }
+
+    fn parse_comp_qualifiers_arena_only(&mut self, arena: &mut ArenaProgramBuilder<'_>) -> Option<ArenaRange> {
+        let mut qualifiers = Vec::new();
+        loop {
+            self.skip_comp_layout();
+            let start = self.current_start();
+            if self.consume_keyword(Keyword::For).is_some() {
+                let target = self.parse_binding_target_arena_only("expected binding target in comprehension", arena)?;
+                self.expect_keyword(Keyword::In, "expected `in` in comprehension");
+                let iter = self.parse_expr_id_arena_only(arena)?;
+                qualifiers.push(ArenaCompQualifier::For { target, iter, span: self.span(start, self.previous_end()) });
+            } else if self.consume_keyword(Keyword::If).is_some() {
+                let condition = self.parse_expr_id_arena_only(arena)?;
+                qualifiers.push(ArenaCompQualifier::If { condition, span: self.span(start, self.previous_end()) });
+            } else { break; }
+        }
+        Some(arena.push_comp_qualifiers(qualifiers))
     }
 
     pub(super) fn parse_call_args_arena_only(

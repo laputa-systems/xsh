@@ -2816,44 +2816,19 @@ impl<'a> ArenaProgramBuilder<'a> {
             .push_expr_kind(ArenaExprKind::List(items), span)
     }
 
-    pub fn push_list_comp_expr(
-        &mut self,
-        expr: ExprId,
-        target: BindingTargetId,
-        iter: ExprId,
-        condition: Option<ExprId>,
-        span: Span,
-    ) -> ExprId {
-        self.lowerer.push_expr_kind(
-            ArenaExprKind::ListComp {
-                expr,
-                target,
-                iter,
-                condition,
-            },
-            span,
-        )
+    pub fn push_comp_qualifiers(&mut self, qualifiers: Vec<ArenaCompQualifier>) -> ArenaRange {
+        let start = self.lowerer.arena.comp_qualifiers.len();
+        let len = qualifiers.len();
+        self.lowerer.arena.comp_qualifiers.extend(qualifiers);
+        ArenaRange::new(start, len)
     }
 
-    pub fn push_map_comp_expr(
-        &mut self,
-        key: ExprId,
-        value: ExprId,
-        target: BindingTargetId,
-        iter: ExprId,
-        condition: Option<ExprId>,
-        span: Span,
-    ) -> ExprId {
-        self.lowerer.push_expr_kind(
-            ArenaExprKind::MapComp {
-                key,
-                value,
-                target,
-                iter,
-                condition,
-            },
-            span,
-        )
+    pub fn push_list_comp_expr(&mut self, expr: ExprId, qualifiers: ArenaRange, span: Span) -> ExprId {
+        self.lowerer.push_expr_kind(ArenaExprKind::ListComp { expr, qualifiers }, span)
+    }
+
+    pub fn push_map_comp_expr(&mut self, key: ExprId, value: ExprId, qualifiers: ArenaRange, span: Span) -> ExprId {
+        self.lowerer.push_expr_kind(ArenaExprKind::MapComp { key, value, qualifiers }, span)
     }
 
     pub fn push_unary_expr(&mut self, op: UnaryOp, expr: ExprId, span: Span) -> ExprId {
@@ -3160,6 +3135,7 @@ pub struct AstArena {
     pub if_expr_branches: Vec<ArenaIfExprBranch>,
     pub match_expr_arms: Vec<ArenaMatchExprArm>,
     pub record_fields: Vec<ArenaRecordField>,
+    pub comp_qualifiers: Vec<ArenaCompQualifier>,
     pub call_args: Vec<ArenaCallArg>,
     pub pipe_stages: Vec<ArenaPipeStage>,
     pub stream_stages: Vec<ArenaStreamStage>,
@@ -3294,6 +3270,7 @@ impl AstArena {
     pub fn call_record_storage_bytes(&self) -> usize {
         self.fmt_part_storage_bytes()
             + vec_capacity_bytes(&self.record_fields)
+            + vec_capacity_bytes(&self.comp_qualifiers)
             + vec_capacity_bytes(&self.call_args)
             + vec_capacity_bytes(&self.pipe_stages)
             + vec_capacity_bytes(&self.stream_stages)
@@ -3411,6 +3388,7 @@ impl AstArena {
             table!(if_expr_branches),
             table!(match_expr_arms),
             table!(record_fields),
+            table!(comp_qualifiers),
             table!(call_args),
             table!(pipe_stages),
             table!(stream_stages),
@@ -3466,6 +3444,7 @@ impl AstArena {
             + vec_capacity_bytes(&self.if_expr_branches)
             + vec_capacity_bytes(&self.match_expr_arms)
             + vec_capacity_bytes(&self.record_fields)
+            + vec_capacity_bytes(&self.comp_qualifiers)
             + vec_capacity_bytes(&self.call_args)
             + vec_capacity_bytes(&self.pipe_stages)
             + vec_capacity_bytes(&self.stream_stages)
@@ -3496,6 +3475,7 @@ impl AstArena {
             + self.if_expr_branches.len()
             + self.match_expr_arms.len()
             + self.record_fields.len()
+            + self.comp_qualifiers.len()
             + self.call_args.len()
             + self.pipe_stages.len()
             + self.stream_stages.len()
@@ -3735,9 +3715,7 @@ impl AstArena {
                 let raw = range_slice(&self.extra, range_from_data(data));
                 ArenaExprKind::ListComp {
                     expr: ExprId::new(raw[0] as usize),
-                    target: BindingTargetId::new(raw[1] as usize),
-                    iter: ExprId::new(raw[2] as usize),
-                    condition: optional_expr_id(raw[3]),
+                    qualifiers: ArenaRange::new(raw[1] as usize, raw[2] as usize),
                 }
             }
             ArenaExprTag::MapComp => {
@@ -3745,9 +3723,7 @@ impl AstArena {
                 ArenaExprKind::MapComp {
                     key: ExprId::new(raw[0] as usize),
                     value: ExprId::new(raw[1] as usize),
-                    target: BindingTargetId::new(raw[2] as usize),
-                    iter: ExprId::new(raw[3] as usize),
-                    condition: optional_expr_id(raw[4]),
+                    qualifiers: ArenaRange::new(raw[2] as usize, raw[3] as usize),
                 }
             }
             ArenaExprTag::Record => ArenaExprKind::Record(range_from_data(data)),
@@ -4068,6 +4044,10 @@ impl AstArena {
 
     pub fn match_expr_arms(&self, range: ArenaRange) -> &[ArenaMatchExprArm] {
         range_slice(&self.match_expr_arms, range)
+    }
+
+    pub fn comp_qualifiers(&self, range: ArenaRange) -> &[ArenaCompQualifier] {
+        range_slice(&self.comp_qualifiers, range)
     }
 
     pub fn record_fields(&self, range: ArenaRange) -> &[ArenaRecordField] {
@@ -4934,6 +4914,21 @@ pub struct ArenaExpr {
     pub span: Span,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArenaCompQualifier {
+    For { target: BindingTargetId, iter: ExprId, span: Span },
+    If { condition: ExprId, span: Span },
+}
+
+impl ArenaCompQualifier {
+    pub fn expr(self) -> ExprId {
+        match self { Self::For { iter, .. } => iter, Self::If { condition, .. } => condition }
+    }
+    pub fn span(self) -> Span {
+        match self { Self::For { span, .. } | Self::If { span, .. } => span }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaExprKind {
     Null,
@@ -4953,16 +4948,12 @@ pub enum ArenaExprKind {
     List(ArenaRange),
     ListComp {
         expr: ExprId,
-        target: BindingTargetId,
-        iter: ExprId,
-        condition: Option<ExprId>,
+        qualifiers: ArenaRange,
     },
     MapComp {
         key: ExprId,
         value: ExprId,
-        target: BindingTargetId,
-        iter: ExprId,
-        condition: Option<ExprId>,
+        qualifiers: ArenaRange,
     },
     Record(ArenaRange),
     If {
@@ -6022,31 +6013,25 @@ impl ArenaLowerer<'_> {
             ArenaExprKind::List(range) => (ArenaExprTag::List, range_data(range)),
             ArenaExprKind::ListComp {
                 expr,
-                target,
-                iter,
-                condition,
+                qualifiers,
             } => {
                 let data = self.push_expr_extra(&[
                     raw_expr_id(expr),
-                    raw_binding_target_id(target),
-                    raw_expr_id(iter),
-                    optional_raw_expr_id(condition),
+                    qualifiers.start,
+                    qualifiers.len,
                 ]);
                 (ArenaExprTag::ListComp, data)
             }
             ArenaExprKind::MapComp {
                 key,
                 value,
-                target,
-                iter,
-                condition,
+                qualifiers,
             } => {
                 let data = self.push_expr_extra(&[
                     raw_expr_id(key),
                     raw_expr_id(value),
-                    raw_binding_target_id(target),
-                    raw_expr_id(iter),
-                    optional_raw_expr_id(condition),
+                    qualifiers.start,
+                    qualifiers.len,
                 ]);
                 (ArenaExprTag::MapComp, data)
             }

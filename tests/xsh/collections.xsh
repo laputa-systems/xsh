@@ -123,3 +123,173 @@ proc test_ergonomic_sugar_pass_forms(ctx: TestContext) [fs, error] {
   test.eq(metadata.name, "demo")?
   test.eq(metadata.jobs, "1")?
 }
+
+proc test_multi_clause_list_comprehension_encounter_order() [error] {
+  let pairs = [
+    outer * 10 + inner
+    for outer in [1, 2, 3]
+    if outer != 2
+    for inner in range(outer)
+    if inner != 1
+    if outer + inner < 5
+  ]
+  test.eq(pairs, [10, 30])?
+  let empty = [
+    inner
+    for outer in [1]
+    if false
+    for inner in [outer]
+  ]
+  test.eq(empty, [])?
+}
+
+proc test_multi_clause_comprehension_bindings_are_lexical(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    r"""
+proc main() [io] {
+  let value = 10
+  let values = [value for value in [1, 2] for value in [value + 1]]
+  print f"${values[0]},${values[1]},${value}"
+}
+""",
+  )?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "2,3,10\n")?
+}
+
+proc test_multi_clause_map_comprehension_later_entries_win() [error] {
+  let entries = [{key: "a", values: [1, 2]}, {key: "b", values: [3]}, {key: "a", values: [4]}]
+  let by_key = {
+    entry.key: number
+    for entry in entries
+    for number in entry.values
+    if number != 2
+  }
+  test.eq(by_key.get("a", 0), 4)?
+  test.eq(by_key.get("b", 0), 3)?
+}
+
+proc test_multi_clause_comprehension_evaluates_only_reached_clauses(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    r"""
+proc inner(outer: Int) [io] -> List[Int] {
+  print f"iter ${outer}"
+  return [1, 2]
+}
+proc project(outer: Int, inner: Int) [io] -> Int {
+  print f"value ${outer}:${inner}"
+  return outer * 10 + inner
+}
+proc main() [io] {
+  let values = [project(outer, item) for outer in [1, 2, 3] if outer != 2 for item in inner(outer) if item == 1]
+  print f"${values.len()}"
+}
+""",
+  )?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "iter 1\nvalue 1:1\niter 3\nvalue 3:1\n2\n")?
+}
+
+proc test_multi_clause_comprehension_pulls_streams_lazily_and_closes(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    r"""
+proc closed(label: Str) [io] { print f"close ${label}" }
+stream numbers(label: Str) [io] -> Stream[Int] {
+  defer closed(label)
+  for number in [1, 2] {
+    print f"pull ${label}:${number}"
+    yield number
+  }
+}
+proc project(outer: Int, inner: Int) [io] -> Int {
+  print f"value ${outer}:${inner}"
+  return outer * 10 + inner
+}
+proc main() [io] {
+  let values = [project(outer, inner) for outer in numbers("outer") if outer == 1 for inner in numbers("inner")]
+  print f"${values.len()}"
+}
+""",
+  )?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "pull outer:1\npull inner:1\nvalue 1:1\npull inner:2\nvalue 1:2\nclose inner\npull outer:2\nclose outer\n2\n")?
+}
+
+proc test_multi_clause_comprehension_failure_closes_nested_streams(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    r"""
+proc closed(label: Str) [io] { print f"close ${label}" }
+stream numbers(label: Str) [io] -> Stream[Int] {
+  defer closed(label)
+  for number in [1, 2] {
+    print f"pull ${label}:${number}"
+    yield number
+  }
+}
+error FixtureError = Failure(message: Str)
+proc failed() [error] -> Result[List[Int], FixtureError] {
+  return Err(FixtureError.Failure(message: "failure"))
+}
+proc main() [io, error] {
+  let values = [value for outer in numbers("outer") for inner in numbers("inner") for value in failed()]
+  print f"${values.len()}"
+}
+""",
+  )?
+  test.eq(output.success, false)?
+  test.eq(output.stdout, "pull outer:1\npull inner:1\nclose inner\nclose outer\n")?
+  test.contains(output.stderr, "failure")?
+}
+
+proc test_multi_clause_comprehension_rejects_forward_bindings(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, "let values = [inner for outer in [1] if inner == 1 for inner in [outer]]\n")?
+  test.eq(output.success, false)?
+  test.contains(output.stderr, "inner")?
+}
+
+pure comprehension_values(number: Int) -> Result[List[Int]] {
+  return Ok([number, number + 1])
+}
+
+proc test_multi_clause_comprehension_accepts_fallible_iterables() [error] {
+  let values = [
+    inner
+    for outer in comprehension_values(1)
+    for inner in comprehension_values(outer)
+    if inner != 2
+  ]
+  test.eq(values, [1, 3])?
+}
+
+proc test_multi_clause_comprehension_propagation_retains_result_and_cleanup(ctx: TestContext) [error] {
+  let output = test.run_script(
+    ctx,
+    r"""
+error FixtureError = Failure(message: Str)
+proc closed(label: Str) [io] { print f"close ${label}" }
+stream numbers(label: Str) [io] -> Stream[Int] {
+  defer closed(label)
+  yield 1
+  yield 2
+}
+proc project() [error] -> Result[Int, FixtureError] {
+  return Err(FixtureError.Failure(message: "failure"))
+}
+proc collect() [io, error] -> Result[List[Int], FixtureError] {
+  return [project()? for outer in numbers("outer") for inner in numbers("inner")]
+}
+proc main() [io, error] {
+  match collect() {
+    Ok(_) => print "unexpected"
+    Err(FixtureError.Failure {message: message}) => print $message
+  }
+}
+""",
+  )?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "close inner\nclose outer\nfailure\n")?
+}

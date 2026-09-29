@@ -814,25 +814,41 @@ literal      = "null" | "true" | "false" | INT | FLOAT | DURATION
              | STRING | FMT_STRING | BYTES | PATH | PATH_FMT | GLOB ;
 list_lit     = "[" list_body "]" ;
 list_body    = (expr ("," expr)* ","?)?
-             | expr "for" binding_target "in" expr ("if" expr)? ;
+             | expr comp_qualifiers ;
 record_lit   = "{" (record_field ("," record_field)* ","?)? "}" ;
 record_field = IDENT ":" expr | STRING ":" expr | IDENT ;
 
 A reserved word cannot be used as an unquoted record field name. Use a quoted
 string field name, such as `{"run": 0}`, when the record must retain that key.
-map_comp     = "{" field_path ":" expr "for" binding_target "in" expr
-               ("if" expr)? "}" ;
+map_comp     = "{" field_path ":" expr comp_qualifiers "}" ;
+comp_qualifiers = "for" binding_target "in" expr comp_qualifier* ;
+comp_qualifier = "for" binding_target "in" expr | "if" expr ;
 field_path   = IDENT ("." IDENT)* ;
 ```
 
-List comprehensions use `[expr for target in iterable]`, with an optional
-`if condition` guard after the iterable. Map comprehensions use
-`{item.key: value for item in iterable}` and follow the same iterable, binding,
-and guard rules. The iterable must be a `List[T]`, `Stream[T]`,
+List and map comprehensions share a textual sequence of one or more `for`
+clauses with interleaved `if` filters. Each later clause and the projection
+see earlier loop bindings; each loop introduces its own lexical scope.
+Execution follows nested ordinary for/if control flow: an inner iterable is
+evaluated anew for each reached outer binding, a false filter skips every
+subsequent clause and the projection, and each surviving combination evaluates
+the projection once. List results retain encounter order. Filters consume
+boolean values and never assert.
+
+List comprehensions use `[expr for target in iterable]`; map comprehensions
+use `{item.key: value for item in iterable}` with the existing key syntax. The iterable must be a `List[T]`, `Stream[T]`,
 `Result[List[T], E]`, or `Result[Stream[T], E]`; result iterables are unwrapped
 like `?` before iteration. Comprehension guards must be `Bool` or `Status`.
 Map comprehension keys must be `Str`. When two items produce the same key, the
-later value replaces the earlier value.
+later value replaces the earlier value. Each surviving map entry evaluates
+its key before its value. Streams are pulled lazily in nested encounter order
+and closed on exhaustion, propagation, or early return. Failed comprehensions
+do not expose a partial collection. `ArenaCompQualifier`,
+`Checker::check_comp_qualifiers_arena`, and the indexed comprehension frames
+own this shared contract. `lint.prefer-list-comp` and `lint.prefer-map-comp`
+retain annotations and conservatively recognize adjacent fresh accumulators
+with a single nested loop/filter path; accumulator-dependent clauses, shadowed
+accumulators, extra statements, transfers, and comments prevent an autofix.
 
 Empty `{}` remains an empty record unless it appears in a context that expects
 `Map[T]`; in a map-typed context, `{}` is sugar for an empty map.

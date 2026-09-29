@@ -124,6 +124,13 @@ cwd/env state, defers, signals, and trace events. Process forms and other
 OS-facing operations remain explicit indexed host-operation boundaries. The
 normal script runner and native-test harness execute the same verified indexed
 representation. There is no arena execution mode or compatibility interpreter.
+
+List and map comprehensions retain one ordered `ArenaCompQualifier` range.
+`LoweredCompQualifiers` verifies that the sequence starts with a loop;
+`explicit_run.rs::ListCompState` holds nested iterators and resumes clauses in
+textual order. Active stream ownership is shared with a work-stack cleanup
+entry, so propagation and runtime failure cancel suspended producers without
+collecting their remaining values.
 Runtime changes should preserve source-visible order, explicit boundaries, and
 traceable failure paths before pursuing cleverness. List compound assignment
 uses the ordinary indexed assignment route. A singleton list right side is

@@ -3414,3 +3414,52 @@ fn grouped_run_payload_preserves_adjacent_propagation_before_guard() {
     let second = Formatter::new().format_source(source_id, &formatted.formatted);
     assert_eq!(formatted.formatted, second.formatted);
 }
+
+#[test]
+fn parser_multi_clause_comprehensions_share_qualifiers_and_source_spans() {
+    use xsh::frontend::syntax::arena::ArenaCompQualifier;
+    let source = "let list = [inner for outer in [1] if outer > 0 for inner in [outer] if inner < 2]\nlet map = {entry.key: inner for entry in entries if entry.ok for inner in entry.values}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let arena = &parsed.arena.arena;
+    let qualifiers = parsed.arena.statement_ids().map(|stmt| {
+        let ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(expr), .. } = arena.stmt(stmt).kind else { panic!("expected let") };
+        let range = match arena.expr(expr).kind {
+            ArenaExprKind::ListComp { qualifiers, .. } | ArenaExprKind::MapComp { qualifiers, .. } => qualifiers,
+            _ => panic!("expected comprehension"),
+        };
+        arena.comp_qualifiers(range)
+    }).collect::<Vec<_>>();
+    assert_eq!(qualifiers[0].len(), 4);
+    assert_eq!(qualifiers[1].len(), 3);
+    assert!(matches!(qualifiers[0][0], ArenaCompQualifier::For { .. }));
+    assert!(matches!(qualifiers[0][1], ArenaCompQualifier::If { .. }));
+    assert!(matches!(qualifiers[0][2], ArenaCompQualifier::For { .. }));
+    for sequence in qualifiers {
+        for qualifier in sequence {
+            assert!(source[qualifier.span().range()].starts_with(match qualifier { ArenaCompQualifier::For { .. } => "for ", ArenaCompQualifier::If { .. } => "if " }));
+        }
+    }
+}
+
+#[test]
+fn formatter_multi_clause_comprehensions_are_readable_and_idempotent() {
+    let source = "let values = [inner for outer in [1] if outer > 0 for inner in [outer] if inner < 2]\nlet by_key = {entry.key: inner for entry in entries if entry.ok for inner in entry.values}\n";
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert!(first.formatted.contains("\n  for outer in [1]\n  if outer > 0\n  for inner in [outer]\n  if inner < 2\n"), "{}", first.formatted);
+    assert!(first.formatted.contains("\n  for entry in entries\n  if entry.ok\n  for inner in entry.values\n"), "{}", first.formatted);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+    assert_eq!(first.formatted, second.formatted);
+}
+
+#[test]
+fn formatter_multi_clause_comprehensions_retain_unicode_comments() {
+    let source = "let values = [\n  # sélection\n  inner\n  for outer in [1]\n  # répétition\n  for inner in [outer]\n  # filtre\n  if inner > 0\n]\n";
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert_eq!(first.formatted, source);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(second.formatted, first.formatted);
+}

@@ -1063,7 +1063,7 @@ for item in items {
 
     assert_eq!(
         hint.replacement.as_deref(),
-        Some("var names = [item.trim() for item in items if item != \"\"]\n")
+        Some("var names: List[Str] = [item.trim() for item in items if item != \"\"]\n")
     );
 }
 
@@ -1136,7 +1136,7 @@ for bucket in buckets {
 
     assert_eq!(
         hint.replacement.as_deref(),
-        Some("var by_key = {bucket.key: bucket.items for bucket in buckets}\n")
+        Some("var by_key: Map[List[Str]] = {bucket.key: bucket.items for bucket in buckets}\n")
     );
 }
 
@@ -2684,4 +2684,48 @@ fn linter_guarded_return_keeps_following_statements_reachable() {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
     assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code")), "{diagnostics:?}");
+}
+
+#[test]
+fn linter_multi_clause_accumulators_have_safe_idempotent_fixes() {
+    let source = "let groups = [[1, 2], [3]]\nvar values: List[Int] = []\nfor batch in groups {\n  if batch.len() > 0 {\n    for value in batch {\n      if value > 1 {\n        values = values.push(value)\n      }\n    }\n  }\n}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let hint = diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-list-comp")).and_then(|d| d.fix_hints.first()).expect("nested accumulator fix");
+    let mut fixed = source.to_owned();
+    fixed.replace_range(hint.span.expect("fix span").range(), hint.replacement.as_deref().expect("replacement"));
+    assert_parse_check_standalone("multi clause fix", &fixed);
+    let reparsed = parse_lint_source(&fixed);
+    let second = Linter::lint(&reparsed.arena, &fixed, LintOptions::default());
+    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-list-comp")));
+}
+
+#[test]
+fn linter_multi_clause_map_accumulator_retains_annotation_and_filters() {
+    let source = "let entries = [{key: \"a\", values: [1, 2]}]\nvar values: Map[Int] = {}\nfor entry in entries {\n  for value in entry.values {\n    if value > 1 {\n      values[entry.key] = value\n    }\n  }\n}\n";
+    let parsed = parse_lint_source(source);
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
+    let hint = diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-map-comp")).and_then(|d| d.fix_hints.first()).expect("nested map fix");
+    assert!(hint.replacement.as_deref().unwrap().contains("var values: Map[Int] = {\n"));
+}
+
+#[test]
+fn linter_multi_clause_accumulators_keep_uncertain_loops() {
+    for body in [
+        "for batch in groups {\n  for value in values {\n    values = values.push(value)\n  }\n}",
+        "for batch in groups {\n  for values in batch {\n    values = values.push(1)\n  }\n}",
+        "for batch in groups {\n  for value in batch {\n    print $value\n    values = values.push(value)\n  }\n}",
+        "for batch in groups {\n  for value in batch {\n    # résumé\n    values = values.push(value)\n  }\n}",
+        "for batch in groups {\n  for value in batch {\n    if values.len() == 0 {\n      values = values.push(value)\n    }\n  }\n}",
+        "for batch in groups {\n  for value in batch {\n    return\n  }\n}",
+    ] {
+        let source = format!("let groups = [[1, 2]]\nvar values: List[Int] = []\n{body}\n");
+        let parsed = parse_lint_source(&source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let output = Linter::lint(&parsed.arena, &source, LintOptions::default());
+        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-list-comp")), "unsafe fix for {source}: {:?}", output.diagnostics);
+    }
 }

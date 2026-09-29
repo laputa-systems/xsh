@@ -188,6 +188,42 @@ fn indexed_optional_raw(
     }
 }
 
+#[derive(Clone)]
+enum IndexedCompQualifier {
+    For { target: LoweredCompTarget, iter: u32, span: Span },
+    If { condition: u32, span: Span },
+}
+
+impl IndexedCompQualifier {
+    fn span(&self) -> Span { match self { Self::For { span, .. } | Self::If { span, .. } => *span } }
+}
+
+fn decode_comp_qualifiers<'a>(execution: &FullExecution<'a>, payload: &mut FullPayload<'a>, span: Span) -> Result<Vec<IndexedCompQualifier>, RuntimeError> {
+    let (_, mut entries) = execution.block(payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
+    let count = indexed_raw(&mut entries, span)?;
+    let mut qualifiers = Vec::new();
+    for _ in 0..count {
+        qualifiers.push(match indexed_raw(&mut entries, span)? {
+            0 => IndexedCompQualifier::For { target: indexed_decode(&mut entries, execution, span)?, iter: indexed_raw(&mut entries, span)?, span: indexed_decode(&mut entries, execution, span)? },
+            1 => IndexedCompQualifier::If { condition: indexed_raw(&mut entries, span)?, span: indexed_decode(&mut entries, execution, span)? },
+            _ => return Err(RuntimeError::new("indexed-ir", "invalid comprehension qualifier").with_span(span)),
+        });
+    }
+    indexed_finish(entries, span)?;
+    if !matches!(qualifiers.first(), Some(IndexedCompQualifier::For { .. })) {
+        return Err(RuntimeError::new("indexed-ir", "comprehension qualifiers must start with for").with_span(span));
+    }
+    Ok(qualifiers)
+}
+
+fn lowered_comp_iterable(value: LoweredValue, span: Span) -> Result<LoweredValue, RuntimeError> {
+    match value {
+        LoweredValue::ResultOk(value) => lowered_comp_iterable(*value, span),
+        LoweredValue::ResultErr(error) => Err(super::runtime_error_from_value(*error, span)),
+        value => Ok(value),
+    }
+}
+
 impl Evaluator {
     /// The index `function`/`kind` resolves to inside `program`.
     ///
@@ -2273,6 +2309,51 @@ impl Evaluator {
         }
     }
 
+    fn eval_indexed_comp_qualifiers(&mut self, execution: &FullExecution<'_>, qualifiers: &[IndexedCompQualifier], position: usize, key: Option<u32>, value: u32, slots: &mut [LoweredValue], values: &mut Vec<LoweredValue>, map_values: &mut BTreeMap<String, LoweredValue>, span: Span) -> Result<ControlFlow<LoweredValue, ()>, RuntimeError> {
+        if let Some(qualifier) = qualifiers.get(position) {
+            match qualifier {
+                IndexedCompQualifier::If { condition, span } => {
+                    match self.eval_indexed_bool(execution, *condition, slots, *span)? {
+                        ControlFlow::Continue(false) => return Ok(ControlFlow::Continue(())),
+                        ControlFlow::Continue(true) => {},
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    }
+                    return self.eval_indexed_comp_qualifiers(execution, qualifiers, position + 1, key, value, slots, values, map_values, span.to_owned());
+                }
+                IndexedCompQualifier::For { target, iter, span } => {
+                    let iterable = match self.eval_indexed_expr(execution, *iter, slots, *span)? {
+                        ControlFlow::Continue(value) => lowered_comp_iterable(value, *span)?,
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                    if let LoweredValue::Stream(mut stream) = iterable {
+                        let result = (|| {
+                            while let Some(item) = self.stream_next(&mut stream, *span)? {
+                                let item = lowered_value_from_runtime_any(&item).ok_or_else(|| RuntimeError::new("type-error", "stream produced unsupported comprehension item").with_span(*span))?;
+                                bind_lowered_comp_target(target, item, slots, *span)?;
+                                if let ControlFlow::Break(value) = self.eval_indexed_comp_qualifiers(execution, qualifiers, position + 1, key, value, slots, values, map_values, *span)? { return Ok(ControlFlow::Break(value)); }
+                            }
+                            Ok(ControlFlow::Continue(()))
+                        })();
+                        let cleanup = self.stream_cancel(&mut stream, *span);
+                        return match result { Ok(value) => cleanup.map(|()| value), Err(error) => Err(error) };
+                    }
+                    for item in self.lowered_list_items(iterable, *span, "comprehension expected List or Stream")? {
+                        bind_lowered_comp_target(target, item, slots, *span)?;
+                        if let ControlFlow::Break(value) = self.eval_indexed_comp_qualifiers(execution, qualifiers, position + 1, key, value, slots, values, map_values, *span)? { return Ok(ControlFlow::Break(value)); }
+                    }
+                    return Ok(ControlFlow::Continue(()));
+                }
+            }
+        }
+        let key = if let Some(key) = key {
+            let key = match self.eval_indexed_expr(execution, key, slots, span)? { ControlFlow::Continue(value) => value, ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)) };
+            Some(lowered_str_value(&key).ok_or_else(|| RuntimeError::new("type-error", "map comprehension key expected Str").with_span(span))?.to_owned())
+        } else { None };
+        let value = match self.eval_indexed_expr(execution, value, slots, span)? { ControlFlow::Continue(value) => value, ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)) };
+        if let Some(key) = key { map_values.insert(key, value); } else { values.push(value); }
+        Ok(ControlFlow::Continue(()))
+    }
+
     pub(super) fn eval_indexed_expr(
         &mut self,
         execution: &FullExecution<'_>,
@@ -2839,90 +2920,17 @@ impl Evaluator {
             }
             FullTag::ExprListComp | FullTag::ExprMapComp => {
                 let map = tag == FullTag::ExprMapComp;
-                let key = map
-                    .then(|| indexed_raw(&mut payload, call_span))
-                    .transpose()?;
+                let key = map.then(|| indexed_raw(&mut payload, call_span)).transpose()?;
                 let value = indexed_raw(&mut payload, call_span)?;
-                let target =
-                    indexed_decode::<LoweredCompTarget>(&mut payload, execution, call_span)?;
-                let iter = indexed_raw(&mut payload, call_span)?;
-                let condition = indexed_optional_raw(&mut payload, call_span)?;
+                let qualifiers = decode_comp_qualifiers(execution, &mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let iter = match self.eval_indexed_expr(execution, iter, slots, span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let items = self.lowered_list_items(
-                    iter,
-                    span,
-                    if map {
-                        "map comprehension expected List"
-                    } else {
-                        "list comprehension expected List"
-                    },
-                )?;
-                if map {
-                    let mut values = BTreeMap::new();
-                    for item in items {
-                        bind_lowered_comp_target(&target, item, slots, span)?;
-                        if let Some(condition) = condition {
-                            match self.eval_indexed_bool(execution, condition, slots, span)? {
-                                ControlFlow::Continue(true) => {}
-                                ControlFlow::Continue(false) => continue,
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                            }
-                        }
-                        let key = match self.eval_indexed_expr(
-                            execution,
-                            key.expect("map comprehension key"),
-                            slots,
-                            span,
-                        )? {
-                            ControlFlow::Continue(value) => value,
-                            ControlFlow::Break(value) => {
-                                return Ok(ControlFlow::Break(value));
-                            }
-                        };
-                        let Some(key) = lowered_str_value(&key) else {
-                            return Err(RuntimeError::new(
-                                "type-error",
-                                "map comprehension key expected Str",
-                            )
-                            .with_span(span));
-                        };
-                        let value = match self.eval_indexed_expr(execution, value, slots, span)? {
-                            ControlFlow::Continue(value) => value,
-                            ControlFlow::Break(value) => {
-                                return Ok(ControlFlow::Break(value));
-                            }
-                        };
-                        values.insert(key.to_string(), value);
-                    }
-                    ControlFlow::Continue(LoweredValue::Map(Arc::new(values)))
-                } else {
-                    let mut values = Vec::new();
-                    for item in items {
-                        bind_lowered_comp_target(&target, item, slots, span)?;
-                        if let Some(condition) = condition {
-                            match self.eval_indexed_bool(execution, condition, slots, span)? {
-                                ControlFlow::Continue(true) => {}
-                                ControlFlow::Continue(false) => continue,
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                            }
-                        }
-                        match self.eval_indexed_expr(execution, value, slots, span)? {
-                            ControlFlow::Continue(value) => values.push(value),
-                            ControlFlow::Break(value) => {
-                                return Ok(ControlFlow::Break(value));
-                            }
-                        }
-                    }
-                    ControlFlow::Continue(LoweredValue::List(values))
+                let mut values = Vec::new();
+                let mut map_values = BTreeMap::new();
+                let flow = self.eval_indexed_comp_qualifiers(execution, &qualifiers, 0, key, value, slots, &mut values, &mut map_values, span)?;
+                match flow {
+                    ControlFlow::Break(value) => ControlFlow::Break(value),
+                    ControlFlow::Continue(()) => ControlFlow::Continue(if map { LoweredValue::Map(Arc::new(map_values)) } else { LoweredValue::List(values) }),
                 }
             }
             FullTag::ExprPipeline => {

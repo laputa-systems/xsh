@@ -945,6 +945,15 @@ enum LoweredCompTarget {
 }
 
 #[derive(Clone, Debug)]
+enum LoweredCompQualifier {
+    For { target: Box<LoweredCompTarget>, iter: BuildExprId, span: Span },
+    If { condition: BuildExprId, span: Span },
+}
+
+#[derive(Clone, Debug)]
+struct LoweredCompQualifiers(Vec<LoweredCompQualifier>);
+
+#[derive(Clone, Debug)]
 enum LoweredRecordEntry {
     Field(Name, BuildExprId),
     Spread(BuildExprId),
@@ -1368,24 +1377,8 @@ enum BuildExprRow {
         name: Arc<str>,
         fields: Vec<BuildExprId>,
     },
-    ListComp {
-        value: BuildExprId,
-        // Boxed because `LoweredCompTarget::Record` inlines a 4-element
-        // `SmallVec` (~176 bytes) that would otherwise size every `BuildExprId`
-        // variant, not just the rare destructuring-comprehension case.
-        target: Box<LoweredCompTarget>,
-        iter: BuildExprId,
-        condition: Option<BuildExprId>,
-        span: Span,
-    },
-    MapComp {
-        key: BuildExprId,
-        value: BuildExprId,
-        target: Box<LoweredCompTarget>,
-        iter: BuildExprId,
-        condition: Option<BuildExprId>,
-        span: Span,
-    },
+    ListComp { value: BuildExprId, qualifiers: LoweredCompQualifiers, span: Span },
+    MapComp { key: BuildExprId, value: BuildExprId, qualifiers: LoweredCompQualifiers, span: Span },
     ListPipeline {
         input: BuildExprId,
         stages: Vec<LoweredPipelineStage>,

@@ -3319,3 +3319,19 @@ fn checker_guarded_value_control_retains_lexical_targets_and_effects() {
         assert!(!check(source).is_empty(), "unexpected acceptance: {source}");
     }
 }
+
+#[test]
+fn checker_multi_clause_comprehensions_retain_nested_item_types() {
+    let output = check("type Entry = {key: Str, values: List[Int]}\nlet entries: List[Entry] = []\nlet values: List[Int] = [number for entry in entries if entry.key != \"\" for number in entry.values if number > 0]\nlet by_key: Map[Int] = {entry.key: number for entry in entries for number in entry.values if number > 0}\n");
+    assert!(output.is_empty(), "{output:?}");
+}
+
+#[test]
+fn checker_multi_clause_comprehensions_reject_invalid_inner_domains_and_filters() {
+    let output = check("let values = [inner for outer in [1] for inner in outer]\n");
+    assert!(has_code(&output, "check.listcomp-iterator"), "{output:?}");
+    let output = check("let values = [inner for outer in [1] for inner in [outer] if inner]\n");
+    assert!(has_code(&output, "check.listcomp-condition"), "{output:?}");
+    let output = check("let by_key = {entry.key: inner for entry in [{key: \"a\"}] for inner in 1}\n");
+    assert!(has_code(&output, "check.mapcomp-iterator"), "{output:?}");
+}

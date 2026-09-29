@@ -219,6 +219,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "run",
     "captures",
     "streams",
+    "comprehensions",
     "native-tests",
     "command-interpolation",
     "path-literals",
@@ -805,6 +806,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "streams" => (
             "Defines lazy structured stream values.",
             "A stream owns source cleanup until a terminal, cancellation, or failure consumes that lifecycle.",
+        ),
+        "comprehensions" => (
+            "Builds lists and maps through ordered nested iteration and filtering.",
+            "List and map comprehensions share interleaved for/if clauses. Later clauses see earlier bindings; each inner iterable is evaluated anew for each reached outer item. False filters skip subsequent clauses and the projection. Streams are pulled lazily and closed on exhaustion, propagation, or early return. Maps evaluate each key before its value and later duplicate keys win.",
         ),
         "native-tests" => (
             "Defines native XSH test declarations and harness context.",

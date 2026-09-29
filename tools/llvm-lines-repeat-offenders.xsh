@@ -291,17 +291,12 @@ pure total_from_llvm_lines(text: Str) -> Result[Int] {
 }
 
 pure filter_offenders(rows: List[Offender], filter: Str, min_duplicated: Int) -> List[Offender] {
-  var out: List[Offender] = []
-
-  for row in rows {
-    if row.duplicated_lines >= min_duplicated {
-      if filter == "" or filter in row.name {
-        out = out.push(row)
-      }
-    }
-  }
-
-  return out
+  return [
+    row
+    for row in rows
+    if row.duplicated_lines >= min_duplicated
+    if filter == "" or filter in row.name
+  ]
 }
 
 pure bounded_llvm_lines_artifact(text: Str, artifact_rows: Int) -> Str {

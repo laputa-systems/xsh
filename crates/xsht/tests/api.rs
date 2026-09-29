@@ -715,3 +715,13 @@ fn api_slicing_documents_bounds_units_and_retained_count_method() {
         assert!(stdout.contains(fragment), "missing {fragment}: {stdout}");
     }
 }
+
+#[test]
+fn api_comprehensions_reference_exposes_order_cleanup_and_example() {
+    let output = xsht(&["api", "language:core.comprehensions"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).expect("UTF-8 API output");
+    assert!(stdout.contains("later duplicate keys win"), "{stdout}");
+    assert!(stdout.contains("Streams are pulled lazily"), "{stdout}");
+    assert!(stdout.contains("for package in packages"), "{stdout}");
+}

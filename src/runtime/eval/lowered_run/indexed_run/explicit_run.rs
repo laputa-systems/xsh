@@ -2,9 +2,9 @@ use super::serial_pipeline::{
     IndexedLiveSerialStage, IndexedSerialPipeline, indexed_for_pipeline_input,
 };
 use super::{
-    Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
+    IndexedCompQualifier, decode_comp_qualifiers, lowered_comp_iterable, Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
     FormatSpec, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader,
-    LoweredCompTarget, LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
+    LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
     LoweredTypeCheck, LoweredValue, Name, PathValue, RuntimeError, Span, StmtFlow, StreamValue,
     TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, indexed_decode, indexed_error,
@@ -30,14 +30,25 @@ enum FrameRecordEntry {
     Spread(u32),
 }
 
+// Pending projections and the work stack share producer ownership so error and
+// return unwinding can cancel every active producer from innermost to outermost.
+// The mutex keeps frame state movable between evaluator threads; only the
+// active evaluator pulls the streams.
+type CompStreams = Arc<std::sync::Mutex<Vec<Option<(StreamValue, Span)>>>>;
+
+enum CompIterator {
+    Items { items: std::vec::IntoIter<LoweredValue>, clause: usize },
+    Stream { stream: usize, clause: usize },
+}
+
 struct ListCompState {
     map: bool,
     key: Option<u32>,
     value: u32,
-    target: LoweredCompTarget,
-    condition: Option<u32>,
-    items: Vec<LoweredValue>,
-    index: usize,
+    qualifiers: Vec<IndexedCompQualifier>,
+    cursor: usize,
+    iterators: Vec<CompIterator>,
+    streams: CompStreams,
     values: Vec<LoweredValue>,
     map_values: BTreeMap<String, LoweredValue>,
     span: Span,
@@ -239,6 +250,7 @@ enum FrameContinuation {
 }
 
 enum FrameWork {
+    CompCleanup(CompStreams),
     Statements {
         statements: Vec<u32>,
         complete_call: bool,
@@ -926,6 +938,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
 
     fn step(&mut self, index: usize, work: FrameWork) -> Result<(), RuntimeError> {
         match work {
+            FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams),
             FrameWork::Statements {
                 mut statements,
                 complete_call,
@@ -1569,32 +1582,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let map = tag == FullTag::ExprMapComp;
                 let key = map.then(|| indexed_raw(&mut payload, span)).transpose()?;
                 let value = indexed_raw(&mut payload, span)?;
-                let target = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
-                let iter = indexed_raw(&mut payload, span)?;
-                let condition = indexed_optional_raw(&mut payload, span)?;
+                let qualifiers = decode_comp_qualifiers(&self.calls[index].execution, &mut payload, span)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                let state = ListCompState {
-                    map,
-                    key,
-                    value,
-                    target,
-                    condition,
-                    items: Vec::new(),
-                    index: 0,
-                    values: Vec::new(),
-                    map_values: BTreeMap::new(),
-                    span: value_span,
-                };
-                self.push_expr(
-                    index,
-                    iter,
-                    value_span,
-                    FrameContinuation::ListCompIter {
-                        state: Box::new(state),
-                        next: Box::new(next),
-                    },
-                );
+                let streams = Arc::new(std::sync::Mutex::new(Vec::new()));
+                self.calls[index].work.push(FrameWork::CompCleanup(streams.clone()));
+                let state = ListCompState { map, key, value, qualifiers, cursor: 0, iterators: Vec::new(), streams, values: Vec::new(), map_values: BTreeMap::new(), span: value_span };
+                self.step_comp_qualifier(index, state, next)?;
             }
             FullTag::ExprFmtString | FullTag::ExprPathFmtString => {
                 let path = tag == FullTag::ExprPathFmtString;
@@ -2498,34 +2492,33 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::ListCompIter { mut state, next } => match value {
                 FrameValue::Value(value) => {
-                    state.items = self.evaluator.lowered_list_items(
-                        value,
-                        state.span,
-                        if state.map {
-                            "map comprehension expected List"
-                        } else {
-                            "list comprehension expected List"
-                        },
-                    )?;
+                    let iterable = lowered_comp_iterable(value, state.span)?;
+                    let clause = state.cursor;
+                    if let LoweredValue::Stream(stream) = iterable {
+                        let stream_index = {
+                            let mut streams = state.streams.lock().expect("comprehension stream state poisoned");
+                            let slot = streams.iter().position(Option::is_none).unwrap_or(streams.len());
+                            if slot == streams.len() { streams.push(None); }
+                            streams[slot] = Some((*stream, state.qualifiers[clause].span()));
+                            slot
+                        };
+                        state.iterators.push(CompIterator::Stream { stream: stream_index, clause });
+                    } else {
+                        let items = self.evaluator.lowered_list_items(iterable, state.qualifiers[clause].span(), "comprehension expected List or Stream")?;
+                        state.iterators.push(CompIterator::Items { items: items.into_iter(), clause });
+                    }
                     self.step_list_comp(index, *state, *next)?;
                 }
-                FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
-                }
+                FrameValue::Break(value) => { return self.complete_call(index, StmtFlow::Return(value)); }
             },
-            FrameContinuation::ListCompCondition { state, next } => match value {
+            FrameContinuation::ListCompCondition { mut state, next } => match value {
                 FrameValue::Value(value) => {
-                    if frame_condition_bool(value, state.span)? {
-                        self.push_list_comp_projection(index, *state, *next)?;
-                    } else {
-                        let mut state = *state;
-                        state.index += 1;
-                        self.step_list_comp(index, state, *next)?;
-                    }
+                    if frame_condition_bool(value, state.qualifiers[state.cursor].span())? {
+                        state.cursor += 1;
+                        self.step_comp_qualifier(index, *state, *next)?;
+                    } else { self.step_list_comp(index, *state, *next)?; }
                 }
-                FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
-                }
+                FrameValue::Break(value) => { return self.complete_call(index, StmtFlow::Return(value)); }
             },
             FrameContinuation::ListCompKey { state, next } => match value {
                 FrameValue::Value(LoweredValue::Str(key)) => {
@@ -2578,7 +2571,6 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     } else {
                         state.values.push(value);
                     }
-                    state.index += 1;
                     self.step_list_comp(index, *state, *next)?;
                 }
                 FrameValue::Break(value) => {
@@ -2631,39 +2623,50 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         first_error.map_or(Ok(()), Err)
     }
 
-    fn step_list_comp(
-        &mut self,
-        index: usize,
-        state: ListCompState,
-        next: FrameContinuation,
-    ) -> Result<(), RuntimeError> {
-        if state.index < state.items.len() {
-            let item = state.items[state.index].clone();
-            bind_lowered_comp_target(
-                &state.target,
-                item,
-                &mut self.calls[index].slots,
-                state.span,
-            )?;
-            if let Some(condition) = state.condition {
-                self.push_expr(
-                    index,
-                    condition,
-                    state.span,
-                    FrameContinuation::ListCompCondition {
-                        state: Box::new(state),
-                        next: Box::new(next),
-                    },
-                );
-                return Ok(());
+    fn cleanup_comp_streams(&mut self, streams: CompStreams) -> Result<(), RuntimeError> {
+        let mut first_error = None;
+        for stream in streams.lock().expect("comprehension stream state poisoned").iter_mut().rev() {
+            if let Some((mut stream, span)) = stream.take() {
+                if let Err(error) = self.evaluator.stream_cancel(&mut stream, span) {
+                    if first_error.is_none() { first_error = Some(error); }
+                }
             }
-            return self.push_list_comp_projection(index, state, next);
         }
-        let value = if state.map {
-            LoweredValue::Map(Arc::new(state.map_values))
-        } else {
-            LoweredValue::List(state.values)
-        };
+        first_error.map_or(Ok(()), Err)
+    }
+
+    fn step_comp_qualifier(&mut self, index: usize, state: ListCompState, next: FrameContinuation) -> Result<(), RuntimeError> {
+        match state.qualifiers.get(state.cursor).cloned() {
+            Some(IndexedCompQualifier::For { iter, span, .. }) => self.push_expr(index, iter, span, FrameContinuation::ListCompIter { state: Box::new(state), next: Box::new(next) }),
+            Some(IndexedCompQualifier::If { condition, span }) => self.push_expr(index, condition, span, FrameContinuation::ListCompCondition { state: Box::new(state), next: Box::new(next) }),
+            None => return self.push_list_comp_projection(index, state, next),
+        }
+        Ok(())
+    }
+
+    fn step_list_comp(&mut self, index: usize, mut state: ListCompState, next: FrameContinuation) -> Result<(), RuntimeError> {
+        while let Some(iterator) = state.iterators.last_mut() {
+            let (item, clause) = match iterator {
+                CompIterator::Items { items, clause } => (items.next(), *clause),
+                CompIterator::Stream { stream, clause } => {
+                    self.evaluator.service_pending_signal(state.qualifiers[*clause].span())?;
+                    let mut streams = state.streams.lock().expect("comprehension stream state poisoned");
+                    let (producer, span) = streams[*stream].as_mut().expect("active comprehension stream");
+                    let item = self.evaluator.stream_next(producer, *span)?;
+                    let item = item.map(|item| lowered_value_from_runtime_any(&item).ok_or_else(|| RuntimeError::new("type-error", "stream produced unsupported comprehension item").with_span(*span))).transpose()?;
+                    if item.is_none() { streams[*stream] = None; }
+                    (item, *clause)
+                }
+            };
+            if let Some(item) = item {
+                let IndexedCompQualifier::For { target, span, .. } = &state.qualifiers[clause] else { unreachable!("iterator belongs to for clause") };
+                bind_lowered_comp_target(target, item, &mut self.calls[index].slots, *span)?;
+                state.cursor = clause + 1;
+                return self.step_comp_qualifier(index, state, next);
+            }
+            state.iterators.pop();
+        }
+        let value = if state.map { LoweredValue::Map(Arc::new(state.map_values)) } else { LoweredValue::List(state.values) };
         self.push_value(index, FrameValue::Value(value), next);
         Ok(())
     }
@@ -3360,6 +3363,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let discarded = self.calls[index].work.split_off(keep);
         for work in discarded.into_iter().rev() {
             match work {
+                FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams)?,
                 FrameWork::Statements {
                     scope_id: Some(scope_id),
                     ..

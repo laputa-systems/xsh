@@ -7,9 +7,9 @@ use xsh::frontend::source::{SourceId, Span};
 use xsh::frontend::symbols::{Name, Symbol};
 use xsh::frontend::syntax::arena::{
     ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCommand, ArenaCommandArg,
-    ArenaCommandArgKind, ArenaEnvAssignment, ArenaEnvAssignmentValue, ArenaExprKind,
+    ArenaCompQualifier, ArenaCommandArgKind, ArenaEnvAssignment, ArenaEnvAssignmentValue, ArenaExprKind,
     ArenaExprOrRun, ArenaFmtPart, ArenaModuleContractEntryKind, ArenaPatternKind,
-    ArenaPipeStageKind, ArenaProgram, ArenaRecordField, ArenaRecordFieldKind,
+    ArenaPipeStageKind, ArenaProgram, ArenaRange, ArenaRecordField, ArenaRecordFieldKind,
     ArenaRedirectionTarget, ArenaSpawnForm, ArenaSpawnTarget, ArenaStmtKind, ArenaStreamStage,
     ArenaText, ArenaTypeExprTag, ArenaWordPart, AstArena, BindingTargetId, BlockId, ExprId,
     FunctionDefId, PatternId, StmtId, TypeExprId,
@@ -1547,43 +1547,18 @@ impl<'a> Writer<'a> {
             ArenaExprKind::Item => output.push('.'),
             ArenaExprKind::LastStatus => output.push_str("$?"),
             ArenaExprKind::List(items) => self.write_list(expr_id, *items, output),
-            ArenaExprKind::ListComp {
-                expr,
-                target,
-                iter,
-                condition,
-            } => {
+            ArenaExprKind::ListComp { expr, qualifiers } => {
                 output.push('[');
                 self.write_expr(*expr, 0, output);
-                output.push_str(" for ");
-                self.write_binding_target(*target, output);
-                output.push_str(" in ");
-                self.write_expr(*iter, 0, output);
-                if let Some(cond) = condition {
-                    output.push_str(" if ");
-                    self.write_expr(*cond, 0, output);
-                }
+                self.write_comp_qualifiers(*qualifiers, None, output);
                 output.push(']');
             }
-            ArenaExprKind::MapComp {
-                key,
-                value,
-                target,
-                iter,
-                condition,
-            } => {
+            ArenaExprKind::MapComp { key, value, qualifiers } => {
                 output.push('{');
                 self.write_expr(*key, 0, output);
                 output.push_str(": ");
                 self.write_expr(*value, 0, output);
-                output.push_str(" for ");
-                self.write_binding_target(*target, output);
-                output.push_str(" in ");
-                self.write_expr(*iter, 0, output);
-                if let Some(cond) = condition {
-                    output.push_str(" if ");
-                    self.write_expr(*cond, 0, output);
-                }
+                self.write_comp_qualifiers(*qualifiers, None, output);
                 output.push('}');
             }
             ArenaExprKind::Record(fields) => self.write_record(*fields, output),
@@ -2707,26 +2682,30 @@ impl<'a> Writer<'a> {
                     self.write_match_expr_multiline(value, arms, output);
                 }
             }
-            ArenaExprKind::ListComp { .. } => {
+            ArenaExprKind::ListComp { qualifiers, .. } => {
                 let inline = self.render_inline(|writer, inline| {
                     writer.write_expr(expr_id, 0, inline);
                 });
                 if self.inline_only
                     || (self.fits_inline(output, &inline)
-                        && !self.expr_source_is_multiline(expr_id))
+                        && !self.expr_source_is_multiline(expr_id)
+                        && self.arena.comp_qualifiers(*qualifiers).iter().filter(|q| matches!(q, ArenaCompQualifier::For { .. })).count() == 1
+                        && self.arena.comp_qualifiers(*qualifiers).len() <= 2)
                 {
                     output.push_str(&inline);
                 } else {
                     self.write_list_comp_multiline(expr_id, output);
                 }
             }
-            ArenaExprKind::MapComp { .. } => {
+            ArenaExprKind::MapComp { qualifiers, .. } => {
                 let inline = self.render_inline(|writer, inline| {
                     writer.write_expr(expr_id, 0, inline);
                 });
                 if self.inline_only
                     || (self.fits_inline(output, &inline)
-                        && !self.expr_source_is_multiline(expr_id))
+                        && !self.expr_source_is_multiline(expr_id)
+                        && self.arena.comp_qualifiers(*qualifiers).iter().filter(|q| matches!(q, ArenaCompQualifier::For { .. })).count() == 1
+                        && self.arena.comp_qualifiers(*qualifiers).len() <= 2)
                 {
                     output.push_str(&inline);
                 } else {
@@ -2753,67 +2732,51 @@ impl<'a> Writer<'a> {
         }
     }
 
+    fn write_comp_qualifiers(&mut self, range: ArenaRange, indent: Option<usize>, output: &mut String) {
+        for qualifier in self.arena.comp_qualifiers(range).to_vec() {
+            if let Some(indent) = indent {
+                output.push('\n');
+                self.write_comments_before(qualifier.span().start(), indent, output);
+                self.write_indent(indent, output);
+            } else { output.push(' '); }
+            match qualifier {
+                ArenaCompQualifier::For { target, iter, .. } => {
+                    output.push_str("for ");
+                    self.write_binding_target(target, output);
+                    output.push_str(" in ");
+                    self.write_expr(iter, 0, output);
+                }
+                ArenaCompQualifier::If { condition, .. } => { output.push_str("if "); self.write_expr(condition, 0, output); }
+            }
+        }
+    }
+
     fn write_list_comp_multiline(&mut self, expr_id: ExprId, output: &mut String) {
-        let ArenaExprKind::ListComp {
-            expr,
-            target,
-            iter,
-            condition,
-        } = self.arena.expr(expr_id).kind
-        else {
-            return self.write_expr(expr_id, 0, output);
-        };
+        let ArenaExprKind::ListComp { expr, qualifiers } = self.arena.expr(expr_id).kind else { return self.write_expr(expr_id, 0, output); };
         let indent = indent_for_expr(output);
         output.push_str("[\n");
+        self.write_comments_before(self.arena.expr(expr).span.start(), indent + 1, output);
         self.write_indent(indent + 1, output);
         self.write_expr_safe(expr, output);
+        self.write_comp_qualifiers(qualifiers, Some(indent + 1), output);
         output.push('\n');
-        self.write_indent(indent + 1, output);
-        output.push_str("for ");
-        self.write_binding_target(target, output);
-        output.push_str(" in ");
-        self.write_expr(iter, 0, output);
-        if let Some(condition) = condition {
-            output.push('\n');
-            self.write_indent(indent + 1, output);
-            output.push_str("if ");
-            self.write_expr(condition, 0, output);
-        }
-        output.push('\n');
+        self.write_comments_before(self.arena.expr(expr_id).span.end(), indent + 1, output);
         self.write_indent(indent, output);
         output.push(']');
     }
 
     fn write_map_comp_multiline(&mut self, expr_id: ExprId, output: &mut String) {
-        let ArenaExprKind::MapComp {
-            key,
-            value,
-            target,
-            iter,
-            condition,
-        } = self.arena.expr(expr_id).kind
-        else {
-            return self.write_expr(expr_id, 0, output);
-        };
+        let ArenaExprKind::MapComp { key, value, qualifiers } = self.arena.expr(expr_id).kind else { return self.write_expr(expr_id, 0, output); };
         let indent = indent_for_expr(output);
         output.push_str("{\n");
+        self.write_comments_before(self.arena.expr(key).span.start(), indent + 1, output);
         self.write_indent(indent + 1, output);
         self.write_expr_safe(key, output);
         output.push_str(": ");
         self.write_expr_safe(value, output);
+        self.write_comp_qualifiers(qualifiers, Some(indent + 1), output);
         output.push('\n');
-        self.write_indent(indent + 1, output);
-        output.push_str("for ");
-        self.write_binding_target(target, output);
-        output.push_str(" in ");
-        self.write_expr(iter, 0, output);
-        if let Some(condition) = condition {
-            output.push('\n');
-            self.write_indent(indent + 1, output);
-            output.push_str("if ");
-            self.write_expr(condition, 0, output);
-        }
-        output.push('\n');
+        self.write_comments_before(self.arena.expr(expr_id).span.end(), indent + 1, output);
         self.write_indent(indent, output);
         output.push('}');
     }

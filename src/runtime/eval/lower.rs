@@ -2246,31 +2246,18 @@ fn compact_collect_expr_call_edges(
                 }
             }
         }
-        ArenaExprKind::ListComp {
-            expr,
-            iter,
-            condition,
-            ..
-        } => {
-            compact_collect_expr_call_edges(program, expr, namespace, index_of, edges);
-            compact_collect_expr_call_edges(program, iter, namespace, index_of, edges);
-            if let Some(condition) = condition {
-                compact_collect_expr_call_edges(program, condition, namespace, index_of, edges);
+        ArenaExprKind::ListComp { expr, qualifiers } => {
+            for qualifier in program.arena.comp_qualifiers(qualifiers) {
+                compact_collect_expr_call_edges(program, qualifier.expr(), namespace, index_of, edges);
             }
+            compact_collect_expr_call_edges(program, expr, namespace, index_of, edges);
         }
-        ArenaExprKind::MapComp {
-            key,
-            value,
-            iter,
-            condition,
-            ..
-        } => {
+        ArenaExprKind::MapComp { key, value, qualifiers } => {
+            for qualifier in program.arena.comp_qualifiers(qualifiers) {
+                compact_collect_expr_call_edges(program, qualifier.expr(), namespace, index_of, edges);
+            }
             compact_collect_expr_call_edges(program, key, namespace, index_of, edges);
             compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
-            compact_collect_expr_call_edges(program, iter, namespace, index_of, edges);
-            if let Some(condition) = condition {
-                compact_collect_expr_call_edges(program, condition, namespace, index_of, edges);
-            }
         }
         ArenaExprKind::Loop { block } | ArenaExprKind::Retry { block, .. } => {
             compact_collect_block_call_edges(program, block, namespace, index_of, edges);
@@ -4676,28 +4663,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     unified
                 })))
             }
-            ArenaExprKind::ListComp {
-                expr: value_expr,
-                iter,
-                ..
-            } => {
-                let item_ty = self
-                    .infer_checked_expr_type_with_slots(value_expr, slots)
-                    .or_else(|| {
-                        let iter_ty = self
-                            .infer_checked_expr_type_with_slots(iter, slots)
-                            .or_else(|| {
-                                self.infer_checked_expr_type(iter, &self.top_level_known)
-                            })?;
-                        match iter_ty {
-                            Type::List(item) | Type::Stream(item) => Some(*item),
-                            _ => None,
-                        }
-                    });
-                item_ty
-                    .map(|item_ty| Type::List(Box::new(item_ty)))
-                    .or_else(|| Some(Type::List(Box::new(Type::Any))))
-            }
+            ArenaExprKind::ListComp { expr: value_expr, .. } => Some(Type::List(Box::new(self.infer_checked_expr_type(value_expr, &self.top_level_known).or_else(|| self.infer_checked_expr_type_with_slots(value_expr, slots)).unwrap_or(Type::Any)))),
             ArenaExprKind::MapComp { .. } => Some(Type::Map(Box::new(Type::Any))),
             ArenaExprKind::Record(fields) => {
                 let mut record = BTreeMap::new();
@@ -7607,68 +7573,20 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 Some(push_build_row!(self, expr, BuildExprRow::List(lowered)))
             }
-            ArenaExprKind::ListComp {
-                expr,
-                target,
-                iter,
-                condition,
-            } => {
-                let item_ty = self.infer_loop_item_checked_type(iter, slots);
-                let iter = self.lower_expr(iter, slots, current_function, item_slot)?;
+            ArenaExprKind::ListComp { expr: body, qualifiers } => {
                 let saved = slots.enter();
-                let target = self.lower_comp_target_typed(target, slots, item_ty.as_ref())?;
-                let condition = match condition {
-                    Some(condition) => {
-                        Some(self.lower_expr(condition, slots, current_function, item_slot)?)
-                    }
-                    None => None,
-                };
-                let value = self.lower_expr(expr, slots, current_function, item_slot)?;
+                let qualifiers = self.lower_comp_qualifiers(qualifiers, slots, current_function, item_slot)?;
+                let value = self.lower_expr(body, slots, current_function, item_slot)?;
                 slots.exit(saved);
-                Some(push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::ListComp {
-                        value,
-                        target: Box::new(target),
-                        iter,
-                        condition,
-                        span,
-                    }
-                ))
+                Some(push_build_row!(self, expr, BuildExprRow::ListComp { value, qualifiers, span }))
             }
-            ArenaExprKind::MapComp {
-                key,
-                value,
-                target,
-                iter,
-                condition,
-            } => {
-                let item_ty = self.infer_loop_item_checked_type(iter, slots);
-                let iter = self.lower_expr(iter, slots, current_function, item_slot)?;
+            ArenaExprKind::MapComp { key, value, qualifiers } => {
                 let saved = slots.enter();
-                let target = self.lower_comp_target_typed(target, slots, item_ty.as_ref())?;
-                let condition = match condition {
-                    Some(condition) => {
-                        Some(self.lower_expr(condition, slots, current_function, item_slot)?)
-                    }
-                    None => None,
-                };
+                let qualifiers = self.lower_comp_qualifiers(qualifiers, slots, current_function, item_slot)?;
                 let key = self.lower_expr(key, slots, current_function, item_slot)?;
                 let value = self.lower_expr(value, slots, current_function, item_slot)?;
                 slots.exit(saved);
-                Some(push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::MapComp {
-                        key,
-                        value,
-                        target: Box::new(target),
-                        iter,
-                        condition,
-                        span,
-                    }
-                ))
+                Some(push_build_row!(self, expr, BuildExprRow::MapComp { key, value, qualifiers, span }))
             }
             ArenaExprKind::Pipeline { input, stages } => {
                 let pipe_stages = self.program.arena.pipe_stages(stages).to_vec();
@@ -12715,6 +12633,27 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             _ => None,
         }
+    }
+
+    fn lower_comp_qualifiers(&mut self, range: crate::syntax::arena::ArenaRange, slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>) -> Option<super::LoweredCompQualifiers> {
+        let mut qualifiers = Vec::new();
+        for qualifier in self.program.arena.comp_qualifiers(range).to_vec() {
+            match qualifier {
+                crate::syntax::arena::ArenaCompQualifier::For { target, iter, span } => {
+                    let item_ty = self.infer_loop_item_checked_type(iter, slots);
+                    let iter = self.lower_expr(iter, slots, current_function, item_slot)?;
+                    slots.enter();
+                    let target = Box::new(self.lower_comp_target_typed(target, slots, item_ty.as_ref())?);
+                    qualifiers.push(super::LoweredCompQualifier::For { target, iter, span });
+                }
+                crate::syntax::arena::ArenaCompQualifier::If { condition, span } => {
+                    let condition = self.lower_expr(condition, slots, current_function, item_slot)?;
+                    qualifiers.push(super::LoweredCompQualifier::If { condition, span });
+                }
+            }
+        }
+        if !matches!(qualifiers.first(), Some(super::LoweredCompQualifier::For { .. })) { return None; }
+        Some(super::LoweredCompQualifiers(qualifiers))
     }
 
     fn lower_comp_target_typed(&self, id: BindingTargetId, slots: &mut SlotScope, ty: Option<&Type>) -> Option<LoweredCompTarget> {

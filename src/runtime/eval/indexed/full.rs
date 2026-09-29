@@ -9,7 +9,7 @@ use crate::runtime::eval::{
     BuildBoolId, BuildBoolRow, BuildExprId, BuildExprRow, BuildIntId, BuildIntRow, BuildPatternId,
     BuildPatternIdSlots, BuildPatternRow, BuildScratch, BuildStmtId, BuildStmtRow, BuildTopKind,
     BuildTopStmtId, BuildTopStmtRow, FunctionBuild, FunctionHeader, LoweredCallArg,
-    LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields, LoweredFmtPart,
+    LoweredCompQualifier, LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields, LoweredFmtPart,
     LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, LoweredModuleExport,
     LoweredModuleExportKind, LoweredPipelineStage, LoweredProcessCommandArgv,
     LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredReturnKind, LoweredRunArg,
@@ -5517,6 +5517,37 @@ impl FullCodec for LoweredCompTarget {
     }
 }
 
+impl FullCodec for LoweredCompQualifiers {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        self.0.encode(builder, output)
+    }
+
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        let qualifiers = Vec::<LoweredCompQualifier>::decode(decoder, input)?;
+        if !matches!(qualifiers.first(), Some(LoweredCompQualifier::For { .. })) {
+            return Err(IrVerifyError::new("comprehension qualifiers must start with for"));
+        }
+        Ok(Self(qualifiers))
+    }
+}
+
+impl FullCodec for LoweredCompQualifier {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        match self {
+            Self::For { target, iter, span } => { output.push(0); target.encode(builder, output)?; iter.encode(builder, output)?; span.encode(builder, output) }
+            Self::If { condition, span } => { output.push(1); condition.encode(builder, output)?; span.encode(builder, output) }
+        }
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        match input.raw()? {
+            0 => Ok(Self::For { target: Box::decode(decoder, input)?, iter: BuildExprId::decode(decoder, input)?, span: Span::decode(decoder, input)? }),
+            1 => Ok(Self::If { condition: BuildExprId::decode(decoder, input)?, span: Span::decode(decoder, input)? }),
+            _ => Err(IrVerifyError::new("comprehension qualifier tag is invalid")),
+        }
+    }
+}
+impl_vec_codec!(LoweredCompQualifier, BLOCK_LIST);
+
 impl FullCodec for LoweredRecordEntry {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
@@ -6591,47 +6622,17 @@ impl_node_codec! {
             name: Arc<str>,
             fields: Vec<BuildExprId>,
         } => BuildExprRow::Tag { name, fields },
-        BuildExprRow::ListComp {
-            value,
-            target,
-            iter,
-            condition,
-            span,
-        } => ExprListComp {
+        BuildExprRow::ListComp { value, qualifiers, span } => ExprListComp {
             value: BuildExprId,
-            target: Box<LoweredCompTarget>,
-            iter: BuildExprId,
-            condition: Option<BuildExprId>,
+            qualifiers: LoweredCompQualifiers,
             span: Span,
-        } => BuildExprRow::ListComp {
-            value,
-            target,
-            iter,
-            condition,
-            span,
-        },
-        BuildExprRow::MapComp {
-            key,
-            value,
-            target,
-            iter,
-            condition,
-            span,
-        } => ExprMapComp {
+        } => BuildExprRow::ListComp { value, qualifiers, span },
+        BuildExprRow::MapComp { key, value, qualifiers, span } => ExprMapComp {
             key: BuildExprId,
             value: BuildExprId,
-            target: Box<LoweredCompTarget>,
-            iter: BuildExprId,
-            condition: Option<BuildExprId>,
+            qualifiers: LoweredCompQualifiers,
             span: Span,
-        } => BuildExprRow::MapComp {
-            key,
-            value,
-            target,
-            iter,
-            condition,
-            span,
-        },
+        } => BuildExprRow::MapComp { key, value, qualifiers, span },
         BuildExprRow::ListPipeline {
             input,
             stages,
@@ -8018,6 +8019,26 @@ proc main() [error] {
         )
         .unwrap_err();
         assert_eq!(error.construct, "top_level_boundary_blocker");
+    }
+
+    #[test]
+    fn verifier_rejects_empty_or_unknown_comprehension_qualifiers() {
+        let program = fixture("indexed-comprehension.xsh", "pure values() -> List[Int] { return [inner for outer in [1] if outer > 0 for inner in [outer]] }\n");
+        let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprListComp).unwrap();
+        let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+        let block = IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
+        let entries = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+
+        let mut empty = program.clone();
+        empty.store.extra[entries.start] = 0;
+        empty.store.blocks[block.index()].instructions.len = 1;
+        let error = FullVerifier::verify(&empty).unwrap_err();
+        assert!(error.message.contains("must start with for"), "{}", error.message);
+
+        let mut unknown = program;
+        unknown.store.extra[entries.start + 1] = u32::MAX;
+        let error = FullVerifier::verify(&unknown).unwrap_err();
+        assert!(error.message.contains("qualifier tag is invalid"), "{}", error.message);
     }
 
     #[test]

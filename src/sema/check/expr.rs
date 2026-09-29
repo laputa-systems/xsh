@@ -5,8 +5,8 @@ use super::{
     api_spec, block_has_exit_point_arena, collection_item_ty,
 };
 use crate::syntax::arena::{
-    ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaProgram, ArenaRange, ArenaRecordFieldKind,
-    ArenaSpawnForm, ArenaSpawnTarget, ArenaWaitForm, BindingTargetId, BlockId, ExprId, RunFormId,
+    ArenaCompQualifier, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaProgram, ArenaRange, ArenaRecordFieldKind,
+    ArenaSpawnForm, ArenaSpawnTarget, ArenaWaitForm, BlockId, ExprId, RunFormId,
 };
 use crate::syntax::node::EnvGetKind;
 
@@ -246,22 +246,8 @@ impl Checker {
             ArenaExprKind::Match { value, arms } => {
                 self.check_match_expr_arena(arena, source, *value, *arms, expected, expr.span)
             }
-            ArenaExprKind::ListComp {
-                expr: body,
-                target,
-                iter,
-                condition,
-            } => self
-                .check_list_comp_arena(arena, source, *body, *target, *iter, *condition, expr.span),
-            ArenaExprKind::MapComp {
-                key,
-                value,
-                target,
-                iter,
-                condition,
-            } => self.check_map_comp_arena(
-                arena, source, *key, *value, *target, *iter, *condition, expr.span,
-            ),
+            ArenaExprKind::ListComp { expr: body, qualifiers } => self.check_list_comp_arena(arena, source, *body, *qualifiers, expr.span),
+            ArenaExprKind::MapComp { key, value, qualifiers } => self.check_map_comp_arena(arena, source, *key, *value, *qualifiers, expr.span),
             ArenaExprKind::Loop { block } => {
                 self.check_loop_arena(arena, source, *block, expr.span)
             }
@@ -525,109 +511,49 @@ impl Checker {
         expected.cloned().or(inferred).unwrap_or(else_ty)
     }
 
-    fn check_list_comp_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        body: ExprId,
-        target: BindingTargetId,
-        iter: ExprId,
-        condition: Option<ExprId>,
-        span: Span,
-    ) -> Type {
-        let iter_ty = self.check_expr_arena(arena, source, iter, None);
-        let item_ty = match iter_ty {
-            Type::List(item) => *item,
-            Type::Stream(item) => *item,
-            Type::Any | Type::Unknown => Type::Any,
-            Type::Result(ok, _) => match *ok {
-                Type::List(item) => *item,
-                Type::Stream(item) => *item,
-                _ => Type::Unknown,
-            },
-            _ => {
-                let iter_span = arena.arena.expr(iter).span;
-                self.error(
-                    iter_span,
-                    "list comprehension iterates over List or Stream values",
-                    "check.listcomp-iterator",
-                );
-                Type::Unknown
-            }
-        };
-        self.push_scope();
-        self.define_binding_target_arena(arena, target, &item_ty, false, span);
-        if let Some(cond) = condition {
-            let cond_ty = self.check_expr_arena(arena, source, cond, None);
-            if !matches!(
-                cond_ty,
-                Type::Bool | Type::Status | Type::Any | Type::Unknown
-            ) {
-                let cond_span = arena.arena.expr(cond).span;
-                self.error(
-                    cond_span,
-                    "list comprehension condition must be Bool",
-                    "check.listcomp-condition",
-                );
+    fn check_comp_qualifiers_arena(&mut self, arena: &ArenaProgram, source: &str, qualifiers: ArenaRange, map: bool) -> usize {
+        let mut scopes = 0;
+        for qualifier in arena.arena.comp_qualifiers(qualifiers) {
+            match *qualifier {
+                ArenaCompQualifier::For { target, iter, span } => {
+                    let iter_ty = self.check_expr_arena(arena, source, iter, None);
+                    let item_ty = match iter_ty {
+                        Type::List(item) | Type::Stream(item) => *item,
+                        Type::Any | Type::Unknown => Type::Any,
+                        Type::Result(ok, _) => match *ok {
+                            Type::List(item) | Type::Stream(item) => *item,
+                            _ => { self.error(arena.arena.expr(iter).span, "comprehension iterates over List or Stream values", if map { "check.mapcomp-iterator" } else { "check.listcomp-iterator" }); Type::Unknown }
+                        },
+                        _ => { self.error(arena.arena.expr(iter).span, "comprehension iterates over List or Stream values", if map { "check.mapcomp-iterator" } else { "check.listcomp-iterator" }); Type::Unknown }
+                    };
+                    self.push_scope();
+                    scopes += 1;
+                    self.define_binding_target_arena(arena, target, &item_ty, false, span);
+                }
+                ArenaCompQualifier::If { condition, .. } => {
+                    let ty = self.check_expr_arena(arena, source, condition, None);
+                    if !matches!(ty, Type::Bool | Type::Status | Type::Any | Type::Unknown) {
+                        self.error(arena.arena.expr(condition).span, "comprehension condition must be Bool or Status", if map { "check.mapcomp-condition" } else { "check.listcomp-condition" });
+                    }
+                }
             }
         }
+        scopes
+    }
+
+    fn check_list_comp_arena(&mut self, arena: &ArenaProgram, source: &str, body: ExprId, qualifiers: ArenaRange, _span: Span) -> Type {
+        let scopes = self.check_comp_qualifiers_arena(arena, source, qualifiers, false);
         let elem_ty = self.check_expr_arena(arena, source, body, None);
-        self.pop_scope();
+        for _ in 0..scopes { self.pop_scope(); }
         Type::List(Box::new(elem_ty))
     }
 
-    fn check_map_comp_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        key: ExprId,
-        value: ExprId,
-        target: BindingTargetId,
-        iter: ExprId,
-        condition: Option<ExprId>,
-        span: Span,
-    ) -> Type {
-        let iter_ty = self.check_expr_arena(arena, source, iter, None);
-        let item_ty = match iter_ty {
-            Type::List(item) => *item,
-            Type::Stream(item) => *item,
-            Type::Any | Type::Unknown => Type::Any,
-            Type::Result(ok, _) => match *ok {
-                Type::List(item) => *item,
-                Type::Stream(item) => *item,
-                _ => Type::Unknown,
-            },
-            _ => {
-                let iter_span = arena.arena.expr(iter).span;
-                self.error(
-                    iter_span,
-                    "map comprehension iterates over List or Stream values",
-                    "check.mapcomp-iterator",
-                );
-                Type::Unknown
-            }
-        };
-        self.push_scope();
-        self.define_binding_target_arena(arena, target, &item_ty, false, span);
-        if let Some(cond) = condition {
-            let cond_ty = self.check_expr_arena(arena, source, cond, None);
-            if !matches!(
-                cond_ty,
-                Type::Bool | Type::Status | Type::Any | Type::Unknown
-            ) {
-                let cond_span = arena.arena.expr(cond).span;
-                self.error(
-                    cond_span,
-                    "map comprehension condition must be Bool",
-                    "check.mapcomp-condition",
-                );
-            }
-        }
+    fn check_map_comp_arena(&mut self, arena: &ArenaProgram, source: &str, key: ExprId, value: ExprId, qualifiers: ArenaRange, _span: Span) -> Type {
+        let scopes = self.check_comp_qualifiers_arena(arena, source, qualifiers, true);
         let key_ty = self.check_expr_arena(arena, source, key, Some(&Type::Str));
-        let key_span = arena.arena.expr(key).span;
-        self.expect_type(&Type::Str, &key_ty, key_span);
+        self.expect_type(&Type::Str, &key_ty, arena.arena.expr(key).span);
         let value_ty = self.check_expr_arena(arena, source, value, None);
-        self.pop_scope();
+        for _ in 0..scopes { self.pop_scope(); }
         Type::Map(Box::new(value_ty))
     }
 

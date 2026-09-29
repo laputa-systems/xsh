@@ -864,6 +864,22 @@ impl CompactBodyProbe<'_> {
         }
     }
 
+    fn check_comp_qualifiers(&mut self, qualifiers: crate::syntax::arena::ArenaRange) -> usize {
+        let mut scopes = 0;
+        for qualifier in self.program.arena.comp_qualifiers(qualifiers).to_vec() {
+            match qualifier {
+                crate::syntax::arena::ArenaCompQualifier::For { target, iter, .. } => {
+                    let iter_ty = self.check_compact_expr(iter);
+                    self.push_scope();
+                    scopes += 1;
+                    self.define_binding_target(target, collection_item_type(&iter_ty), false);
+                }
+                crate::syntax::arena::ArenaCompQualifier::If { condition, .. } => { self.check_compact_expr(condition); }
+            }
+        }
+        scopes
+    }
+
     fn check_compact_expr(&mut self, id: ExprId) -> Type {
         self.output.expressions += 1;
         let ty = match self.program.arena.expr(id).kind {
@@ -992,38 +1008,17 @@ impl CompactBodyProbe<'_> {
                 self.pop_scope();
                 Type::Result(Box::new(ty), Box::new(Type::Error))
             }
-            ArenaExprKind::ListComp {
-                expr,
-                target,
-                iter,
-                condition,
-            } => {
-                let iter_ty = self.check_compact_expr(iter);
-                self.push_scope();
-                self.define_binding_target(target, collection_item_type(&iter_ty), false);
-                if let Some(condition) = condition {
-                    self.check_compact_expr(condition);
-                }
+            ArenaExprKind::ListComp { expr, qualifiers } => {
+                let scopes = self.check_comp_qualifiers(qualifiers);
                 let item = self.check_compact_expr(expr);
-                self.pop_scope();
+                for _ in 0..scopes { self.pop_scope(); }
                 Type::List(Box::new(item))
             }
-            ArenaExprKind::MapComp {
-                key,
-                value,
-                target,
-                iter,
-                condition,
-            } => {
-                let iter_ty = self.check_compact_expr(iter);
-                self.push_scope();
-                self.define_binding_target(target, collection_item_type(&iter_ty), false);
+            ArenaExprKind::MapComp { key, value, qualifiers } => {
+                let scopes = self.check_comp_qualifiers(qualifiers);
                 self.check_compact_expr(key);
-                if let Some(condition) = condition {
-                    self.check_compact_expr(condition);
-                }
                 let item = self.check_compact_expr(value);
-                self.pop_scope();
+                for _ in 0..scopes { self.pop_scope(); }
                 Type::Map(Box::new(item))
             }
             ArenaExprKind::Match { value, arms } => {
