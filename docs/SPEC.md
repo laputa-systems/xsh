@@ -971,6 +971,10 @@ side is explicitly converted with `.float()`. Comparisons follow the same rule:
 `Float` may be compared with `Float`, `Int` with `Int`, and mixed numeric
 comparisons require explicit conversion. `%` is integer-only.
 
+An identifier followed by a spaced subtraction operator, such as `value - 1`,
+is an expression statement, including in branch tails. Adjacent negative command
+arguments such as `command -1` retain command parsing.
+
 Ordering sequences such as `0 <= offset < limit` compare adjacent operands from
 left to right. Each reached operand is evaluated once; a false pair skips all
 later operands. Every pair uses the ordinary ordering type rules, including

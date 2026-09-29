@@ -325,3 +325,17 @@ proc test_value_branches_preserve_tags_dotted_pipelines_and_tee() [error] {
   } |> collect
   test.eq(rows, [1])?
 }
+
+pure value_block_subtract(depth: Int) -> Int {
+  if depth > 0 {
+    let value = depth
+    value - 1
+  } else {
+    0
+  }
+}
+
+proc test_value_branch_identifier_subtraction_is_a_value() [error] {
+  test.eq(value_block_subtract(3), 2)?
+  test.eq(value_block_subtract(0), 0)?
+}

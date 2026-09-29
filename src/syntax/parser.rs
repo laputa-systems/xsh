@@ -468,7 +468,11 @@ impl<'a> Parser<'a> {
                     | (TokenTag::Keyword, Some(Keyword::In))
                     | (TokenTag::Keyword, Some(Keyword::Not))
             )
-        }) || self.peek_name(1).is_some_and(|name| name == "is") || self.lookahead_past_newlines_is_pipe_gt()
+        }) || (self.peek_tag(1) == Some(TokenTag::Minus)
+            && (self.peek_start(1) == Some(self.current_end())
+                || self.peek_start(2) != self.peek_end(1)))
+            || self.peek_name(1).is_some_and(|name| name == "is")
+            || self.lookahead_past_newlines_is_pipe_gt()
     }
 
     pub(in crate::syntax::parser) fn lookahead_past_newlines_is_pipe_gt(&self) -> bool {
