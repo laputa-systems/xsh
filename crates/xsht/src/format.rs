@@ -1833,9 +1833,19 @@ impl<'a> Writer<'a> {
                 output.push_str("loop ");
                 self.write_block(*block, 0, output);
             }
-            ArenaExprKind::Retry { delays, block } => {
+            ArenaExprKind::Retry { delays, pattern, block } => {
                 output.push_str("retry ");
                 self.write_list_inline(*delays, output);
+                if let Some(pattern) = pattern {
+                    output.push_str(" on ");
+                    if matches!(self.arena.pattern(*pattern).kind, ArenaPatternKind::Group(_)) {
+                        self.write_pattern(*pattern, output);
+                    } else {
+                        output.push('(');
+                        self.write_pattern(*pattern, output);
+                        output.push(')');
+                    }
+                }
                 output.push(' ');
                 let indent = indent_for_expr(output);
                 self.write_block(*block, indent, output);

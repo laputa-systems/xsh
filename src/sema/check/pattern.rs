@@ -82,6 +82,17 @@ impl Checker {
         self.define(name, Binding::new(ty, false), span);
     }
 
+    fn check_error_facet_applicability(&mut self, facet: Name, value_ty: &Type, span: Span) {
+        // Qualification resolves the module; facets retain their declared identity.
+        let facet = facet.as_str().rsplit_once('.').map_or(facet, |(_, member)| Name::intern(member));
+        let applicable = match value_ty {
+            Type::ErrorFamily(family) => self.error_families.get(family).is_none_or(|family| family.variants.values().any(|variant| variant.facets.contains(&facet))),
+            Type::ErrorVariant { family, variant } => self.error_families.get(family).and_then(|family| family.variants.get(variant)).is_none_or(|variant| variant.facets.contains(&facet)),
+            _ => true,
+        };
+        if !applicable { self.error(span, "error facet pattern does not match value type", "check.pattern-type"); }
+    }
+
     pub(super) fn check_pattern_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -154,6 +165,7 @@ impl Checker {
                 } else {
                     let tested = self.type_from_arena(arena, *ty);
                     self.pattern_test_types.insert(pattern_id, tested.clone());
+                    if let Type::ErrorFacet(facet) = tested { self.check_error_facet_applicability(facet, value_ty, span); }
                     if !matches!(tested, Type::ErrorFacet(_)) && !type_pattern_input_is_dynamic(value_ty) {
                         self.error(span, "type patterns require a dynamic value", "check.pattern-type");
                     }
@@ -435,6 +447,7 @@ impl Checker {
                 }
             }
             ArenaPatternKind::Facet(name) => {
+                self.check_error_facet_applicability(*name, value_ty, span);
                 if !self.error_facets.contains(name) {
                     self.error(
                         span,

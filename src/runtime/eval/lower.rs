@@ -8402,7 +8402,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     span,
                 }
             )),
-            ArenaExprKind::Retry { delays, block } => {
+            ArenaExprKind::Retry { delays, pattern, block } => {
                 let delays = self.program.arena.expr_ids(delays).collect::<Vec<_>>();
                 let mut lowered_delays = Vec::with_capacity(delays.len());
                 for delay in delays {
@@ -8418,6 +8418,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     expr,
                     BuildExprRow::Retry {
                         delays: lowered_delays,
+                        pattern: match pattern { Some(pattern) => Some(self.lower_pattern(pattern, slots, None, None)?.0), None => None },
                         body: self.lower_retry_block(block, slots, current_function, item_slot)?,
                         span,
                     }

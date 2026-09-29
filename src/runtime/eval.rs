@@ -1516,6 +1516,7 @@ enum BuildExprRow {
     },
     Retry {
         delays: Vec<BuildExprId>,
+        pattern: Option<BuildPatternId>,
         body: Vec<BuildStmtId>,
         span: Span,
     },

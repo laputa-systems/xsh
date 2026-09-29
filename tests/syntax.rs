@@ -1960,7 +1960,7 @@ let once = retry [] {
     let ArenaExprKind::Try(inner) = arena.expr(root_let_init_expr(&parsed, 0)).kind else {
         panic!("expected retry result propagation");
     };
-    let ArenaExprKind::Retry { delays, block } = arena.expr(inner).kind else {
+    let ArenaExprKind::Retry { delays, block, .. } = arena.expr(inner).kind else {
         panic!("expected retry expression");
     };
     assert_eq!(arena.expr_ids(delays).count(), 3);
@@ -3817,4 +3817,28 @@ fn parser_enum_singleton_is_nominal_and_identifier_rhs_stays_alias() {
     assert_eq!(parsed.arena.arena.tag_variants(variants).len(), 1);
     let ArenaStmtKind::TypeDef(alias) = kinds[1] else { panic!("alias declaration"); };
     assert!(matches!(parsed.arena.arena.type_def(alias).body, ArenaTypeDefBody::Alias(_)));
+}
+
+#[test]
+fn parser_and_formatter_preserve_selective_retry() {
+    let source = "let result=retry [0ms] on (FetchError.Busy | FetchError.Timeout) {\n  fetch()?\n}\n";
+    let expected = "let result = retry [0ms] on (FetchError.Busy | FetchError.Timeout) {\n  fetch()?\n}\n";
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, expected);
+    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+    assert_eq!(second.formatted, expected);
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), expected);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let ArenaExprKind::Retry { pattern, .. } = parsed.arena.arena.expr(root_let_init_expr(&parsed, 0)).kind else { panic!("expected retry") };
+    assert!(pattern.is_some());
+}
+
+#[test]
+fn selective_retry_requires_parenthesized_clause_and_retains_on_names() {
+    let invalid = Parser::parse_source_arena_only(SourceId::new(0), "let result = retry [] on FetchError.Busy { fetch()? }");
+    assert!(invalid.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("parse.expected-token")));
+    let ordinary = Parser::parse_source_arena_only(SourceId::new(0), "let on = 1\nlet result = retry [] { on }\nrun echo on\n");
+    assert!(ordinary.diagnostics.is_empty(), "{:?}", ordinary.diagnostics);
 }

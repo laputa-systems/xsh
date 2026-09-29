@@ -3729,3 +3729,25 @@ fn formatter_enum_comments_remain_with_their_variants() {
     let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
     assert_eq!(first.formatted, second.formatted);
 }
+
+#[test]
+fn linter_does_not_add_selective_filters_to_unconditional_retry() {
+    let source = "error FetchError = Busy(message: Str) | Fatal(message: Str)\nproc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: \"busy\")) }\nlet result = retry [0ms] { attempt()? }\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == xsh::diagnostic::Severity::Error), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    assert!(diagnostics.iter().flat_map(|diagnostic| &diagnostic.fix_hints).filter_map(|hint| hint.replacement.as_ref()).all(|replacement| !replacement.contains(" on (")));
+}
+
+#[test]
+fn linter_preserves_manual_selective_loop_with_observable_counter_and_delay() {
+    let source = "error FetchError = Busy(message: Str) | Fatal(message: Str)\nproc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: \"busy\")) }\nvar attempts = 0\nlet result = loop {\n  attempts += 1\n  let result = attempt()\n  match result {\n    Ok(value) => break Ok(value)\n    Err(error) => {\n      break Err(error) unless error is FetchError.Busy\n      break Err(error) when attempts == 2\n      time.sleep(0ms)\n    }\n  }\n}\nprint ${attempts}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(!checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == xsh::diagnostic::Severity::Error), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    assert!(diagnostics.iter().flat_map(|diagnostic| &diagnostic.fix_hints).filter_map(|hint| hint.replacement.as_ref()).all(|replacement| !replacement.contains("retry")));
+}

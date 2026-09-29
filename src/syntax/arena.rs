@@ -3141,9 +3141,9 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.push_expr_kind(ArenaExprKind::Capture(block), span)
     }
 
-    pub fn push_retry_expr(&mut self, delays: ArenaRange, block: BlockId, span: Span) -> ExprId {
+    pub fn push_retry_expr(&mut self, delays: ArenaRange, pattern: Option<PatternId>, block: BlockId, span: Span) -> ExprId {
         self.lowerer
-            .push_expr_kind(ArenaExprKind::Retry { delays, block }, span)
+            .push_expr_kind(ArenaExprKind::Retry { delays, pattern, block }, span)
     }
 
     pub fn push_try_expr(&mut self, value: ExprId, span: Span) -> ExprId {
@@ -4090,6 +4090,7 @@ impl AstArena {
                 let raw = range_slice(&self.extra, range_from_data(data));
                 ArenaExprKind::Retry {
                     delays: ArenaRange::new(raw[0] as usize, raw[1] as usize),
+                    pattern: (raw[3] != ARENA_ABSENT).then(|| PatternId::new(raw[3] as usize)),
                     block: BlockId::new(raw[2] as usize),
                 }
             }
@@ -5313,6 +5314,7 @@ pub enum ArenaExprKind {
     },
     Retry {
         delays: ArenaRange,
+        pattern: Option<PatternId>,
         block: BlockId,
     },
     ValueBlock(BlockId),
@@ -6451,8 +6453,8 @@ impl ArenaLowerer<'_> {
                 ArenaExprTag::Loop,
                 ArenaExprData::new(raw_block_id(block), 0),
             ),
-            ArenaExprKind::Retry { delays, block } => {
-                let data = self.push_expr_extra(&[delays.start, delays.len, raw_block_id(block)]);
+            ArenaExprKind::Retry { delays, pattern, block } => {
+                let data = self.push_expr_extra(&[delays.start, delays.len, raw_block_id(block), pattern.map(|id| id.index() as u32).unwrap_or(ARENA_ABSENT)]);
                 (ArenaExprTag::Retry, data)
             }
         }

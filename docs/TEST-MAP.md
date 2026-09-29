@@ -594,7 +594,7 @@ stack boundaries.
 | OS-facing runtime behavior | `tests/xsh/stdlib/unix.xsh`, `tests/runtime/os.rs`, `tests/runtime/unix.rs`, `tests/runtime/linux.rs` |
 | `run_capture`, `spawn_managed`, and process execution | `tests/xsh/run.xsh`, `tests/xsh/stdlib/process.xsh`, `tests/runtime/process.rs`, `tests/runtime/run.rs` |
 | local Result capture, nested Result data, lexical exits, assertion and cleanup failures | `tests/xsh/try-capture.xsh` |
-| retry blocks | `tests/xsh/retry.xsh` |
+| retry blocks, selective nominal/facet patterns, error identity, cleanup and selection trace | `tests/xsh/retry.xsh` |
 | stack depth and explicit lowered frames | `tests/runtime/stack_depth.rs` |
 | structured stream behavior | `tests/xsh/stdlib/streams.xsh` |
 | Structured stage named configuration, spreads, modes, entry timing, and migration | `tests/xsh/stream-options.xsh`, `tests/syntax.rs::stream_stage_flags_are_fatal_migration_diagnostics_with_exact_fixes`, and xsht CLI migration tests |

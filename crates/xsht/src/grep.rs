@@ -3,7 +3,7 @@
 use rustc_hash::FxHashMap;
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
-    ArenaCallArgKind, ArenaExprKind, ArenaRecordFieldKind, ArenaPatternKind, ArenaProgram, AstArena, ExprId, PatternId,
+    ArenaCallArgKind, ArenaExprKind, ArenaRecordFieldKind, ArenaPatternKind, ArenaProgram, AstArena, BlockId, ExprId, PatternId,
 };
 
 /// A structural grep match from `xsht::grep::find_matches_in_program`: the
@@ -204,26 +204,17 @@ fn match_expr_structural(
             *bindings = candidate;
             true
         }
-        (ArenaExprKind::Capture(pb), ArenaExprKind::Capture(tb)) => {
-            let ps = p.stmt_ids(p.block(*pb).statements).collect::<Vec<_>>();
-            let ts = t.stmt_ids(t.block(*tb).statements).collect::<Vec<_>>();
-            if ps.len() != ts.len() || !p.block(*pb).params.is_empty() || !t.block(*tb).params.is_empty() { return false; }
+        (ArenaExprKind::Capture(pb), ArenaExprKind::Capture(tb)) => match_value_block(p, *pb, t, *tb, source, bindings),
+        (ArenaExprKind::Retry { delays: pd, pattern: pp, block: pb }, ArenaExprKind::Retry { delays: td, pattern: tp, block: tb }) => {
+            let pd = p.expr_ids(*pd).collect::<Vec<_>>();
+            let td = t.expr_ids(*td).collect::<Vec<_>>();
             let mut candidate = bindings.clone();
-            for (ps, ts) in ps.into_iter().zip(ts) {
-                match (p.stmt(ps).kind, t.stmt(ts).kind) {
-                    (xsh::frontend::syntax::arena::ArenaStmtKind::Expr(pe), xsh::frontend::syntax::arena::ArenaStmtKind::Expr(te)) => {
-                        if !match_expr(p, pe, t, te, source, &mut candidate) { return false; }
-                    }
-                    (xsh::frontend::syntax::arena::ArenaStmtKind::TailBareIdent(name), xsh::frontend::syntax::arena::ArenaStmtKind::Expr(te)) if is_metavar(name.as_str().as_str()) => {
-                        let target = t.expr(te).span;
-                        if let Some(previous) = candidate.get(name.as_str().as_str()) {
-                            if source.get(previous.start()..previous.end()) != source.get(target.start()..target.end()) { return false; }
-                        } else { candidate.insert(name.to_string(), target); }
-                    }
-                    (xsh::frontend::syntax::arena::ArenaStmtKind::TailBareIdent(a), xsh::frontend::syntax::arena::ArenaStmtKind::TailBareIdent(b)) if a == b => {}
-                    _ => return false,
-                }
-            }
+            if pd.len() != td.len() || !pd.into_iter().zip(td).all(|(pd, td)| match_expr(p, pd, t, td, source, &mut candidate)) { return false; }
+            if !match (pp, tp) {
+                (Some(pp), Some(tp)) => match_pattern(p, *pp, t, *tp, source, &mut candidate),
+                (None, None) => true,
+                _ => false,
+            } || !match_value_block(p, *pb, t, *tb, source, &mut candidate) { return false; }
             *bindings = candidate;
             true
         }
@@ -452,12 +443,28 @@ fn build_replacement_text(
             for (start, end, replacement) in edits { text.replace_range(start..end, &replacement); }
             Some(text)
         }
+        ArenaExprKind::Try(value) => Some(format!("{}?", build_replacement_text(arena, *value, m, target_source, pattern_source)?)),
         ArenaExprKind::PatternTest { value, arms } => {
             let subject = build_replacement_text(arena, *value, m, target_source, pattern_source)?;
             let selected = arena.match_expr_arms(*arms).first()?;
             let pattern_span = arena.span(arena.pattern(selected.pattern).span);
             let pattern = pattern_source.get(pattern_span.range())?;
             Some(format!("({subject}) is {pattern}"))
+        }
+        ArenaExprKind::Retry { delays, block, .. } => {
+            let mut text = pattern_source.get(expr.span.range())?.to_string();
+            let mut children = arena.expr_ids(*delays).collect::<Vec<_>>();
+            for statement in arena.stmt_ids(arena.block(*block).statements) {
+                let xsh::frontend::syntax::arena::ArenaStmtKind::Expr(value) = arena.stmt(statement).kind else { return None };
+                children.push(value);
+            }
+            children.sort_by_key(|child| std::cmp::Reverse(arena.expr(*child).span.start()));
+            for child in children {
+                let replacement = build_replacement_text(arena, child, m, target_source, pattern_source)?;
+                let span = arena.expr(child).span;
+                text.replace_range(span.start() - expr.span.start()..span.end() - expr.span.start(), &replacement);
+            }
+            Some(text)
         }
         ArenaExprKind::Match { value, arms } => {
             let mut text = pattern_source.get(expr.span.range())?.to_string();
@@ -480,6 +487,33 @@ fn build_replacement_text(
             Some(text.to_string())
         }
     }
+}
+
+fn match_value_block(
+    p: &AstArena, pb: BlockId, t: &AstArena, tb: BlockId,
+    source: &str, bindings: &mut FxHashMap<String, Span>,
+) -> bool {
+    let ps = p.stmt_ids(p.block(pb).statements).collect::<Vec<_>>();
+    let ts = t.stmt_ids(t.block(tb).statements).collect::<Vec<_>>();
+    if ps.len() != ts.len() || !p.block(pb).params.is_empty() || !t.block(tb).params.is_empty() { return false; }
+    let mut candidate = bindings.clone();
+            for (ps, ts) in ps.into_iter().zip(ts) {
+                match (p.stmt(ps).kind, t.stmt(ts).kind) {
+                    (xsh::frontend::syntax::arena::ArenaStmtKind::Expr(pe), xsh::frontend::syntax::arena::ArenaStmtKind::Expr(te)) => {
+                        if !match_expr(p, pe, t, te, source, &mut candidate) { return false; }
+                    }
+                    (xsh::frontend::syntax::arena::ArenaStmtKind::TailBareIdent(name), xsh::frontend::syntax::arena::ArenaStmtKind::Expr(te)) if is_metavar(name.as_str().as_str()) => {
+                        let target = t.expr(te).span;
+                        if let Some(previous) = candidate.get(name.as_str().as_str()) {
+                            if source.get(previous.start()..previous.end()) != source.get(target.start()..target.end()) { return false; }
+                        } else { candidate.insert(name.to_string(), target); }
+                    }
+                    (xsh::frontend::syntax::arena::ArenaStmtKind::TailBareIdent(a), xsh::frontend::syntax::arena::ArenaStmtKind::TailBareIdent(b)) if a == b => {}
+                    _ => return false,
+                }
+            }
+    *bindings = candidate;
+    true
 }
 
 /// Extract the line number (1-based) containing byte offset `offset` from `source`.

@@ -646,3 +646,10 @@ header; preparation derives the zero or one `TestContext` frame parameter.
 adding tests to the callable namespace. `xsht::test::discover_native_tests`
 registers explicit declarations while the evaluator prepares and calls the same
 verified indexed program used by scripts.
+
+
+Selective retry retains `ArenaExprKind::Retry` and `BuildExprRow::Retry`, with an
+optional shared pattern ID. `FullTag::ExprRetry` evaluates delays once, runs each
+attempt through the ordinary block cleanup boundary, then tests the failure
+without publishing bindings. `RetryStopReason` extends the existing
+`TracePayload::RetryAttempt` rather than establishing another event stream.

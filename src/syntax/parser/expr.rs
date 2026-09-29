@@ -1730,6 +1730,20 @@ impl<'a> Parser<'a> {
             arena.discard_expr_ids();
             return None;
         }
+        let pattern = if self.current_name().is_some_and(|name| name == "on") {
+            self.bump();
+            let parsed = (|| {
+                if !self.at(TokenKindMatch::LParen) {
+                    self.expect(TokenKindMatch::LParen, "expected `(` after retry `on`")?;
+                }
+                self.parse_pattern_test_arena_only(arena)
+            })();
+            let Some((pattern, _)) = parsed else {
+                arena.discard_expr_ids();
+                return None;
+            };
+            Some(pattern)
+        } else { None };
         let Some(block_id) = self.parse_block_arena_only(arena) else {
             arena.discard_expr_ids();
             return None;
@@ -1737,7 +1751,7 @@ impl<'a> Parser<'a> {
         let span = self.span(start, self.previous_end());
         let delays = arena.finish_expr_ids();
         Some(ArenaOnlyExpr {
-            id: arena.push_retry_expr(delays, block_id, span),
+            id: arena.push_retry_expr(delays, pattern, block_id, span),
             span,
             bare_ident: None,
         })

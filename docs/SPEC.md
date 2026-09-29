@@ -887,7 +887,7 @@ if_expr      = "if" condition "{" expr "}" ("else" "if" condition "{" expr "}")*
 match_expr   = "match" expr "{" match_expr_arm* "}" ;
 match_expr_arm = pattern guard? "=>" expr ","? ;
 capture_expr = "try" block ;
-retry_expr   = "retry" "[" (expr ("," expr)* ","?)? "]" block ;
+retry_expr   = "retry" "[" (expr ("," expr)* ","?)? "]" ("on" "(" pattern ")")? block ;
 ```
 
 In expression-call argument lists, `name:` followed by a comma or closing
@@ -1181,6 +1181,22 @@ delay expression must produce `Duration`. The block is evaluated once, then
 again after each delay while attempts fail. An empty delay list performs exactly
 one attempt. A zero-duration delay is valid and retries immediately.
 
+An optional `on (PATTERN)` clause selects retryable errors through the shared
+non-binding pattern rules. Exact nominal variants, applicable facets, wildcard
+and grouped alternatives are checked against the attempt's error type. Captures
+and aliases are invalid. A nonmatching failure returns that original `Err`
+immediately, without consuming a delay or starting another attempt. Matching
+failures consume the next delay, or return the final original `Err` on exhaustion.
+The delay list still evaluates once at entry, even when the first failure does
+not match. Omitting `on` retries every failed attempt.
+
+A manual selective loop can be migrated only when its attempt count, original
+error identity, cleanup order, and delay effects are equivalent. A delay computed
+only after failure cannot generally move to retry entry; observable counters
+cannot disappear. Tooling preserves these loops when equivalence is unproved,
+and never adds a filter to an unconditional retry. The maintained
+`showcase/run-retry.xsh` uses unconditional retry and retains that policy.
+
 The retry expression returns `Result[T]`, or `Result[T, E]` when the attempt
 body produces a more specific error type. On success, `Ok(value)` contains the
 successful block value. If every attempt fails, the retry expression returns
@@ -1195,7 +1211,8 @@ targets.
 
 Each attempt has an ordinary block scope. `defer` actions registered during an
 attempt run before the next attempt begins and before a successful retry
-returns.
+returns. Selection happens after attempt cleanup, using the error selected by
+the existing primary/secondary cleanup-failure rules.
 
 Effects are the union of the delay expressions and the attempt body. A
 non-empty delay list additionally requires the `time` effect because the runtime
@@ -1203,7 +1220,9 @@ sleeps between failed attempts.
 
 Each attempt emits a structured `retry.attempt` trace event with the source
 span, attempt number, maximum attempts, next delay when another attempt will be
-made, and the failed error kind/message when the attempt failed.
+made, and the failed error kind/message when the attempt failed. `selected` is
+present for filtered failures; `stop_reason` identifies success, nonmatching
+failure, or delay exhaustion. Continuing failures have no stop reason.
 
 ## 7. Pure Functions And Procs
 

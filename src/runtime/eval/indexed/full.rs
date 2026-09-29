@@ -3536,6 +3536,14 @@ impl<'a> FullDecoder<'a> {
         pairs.finish()
     }
 
+    fn verify_retry_selection(&self, mut payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
+        payload.raw()?;
+        if bool::decode(self, &mut payload)? && !self.pattern_capture_slots(payload.raw()? as usize)?.is_empty() {
+            return Err(IrVerifyError::new("retry selection pattern cannot bind slots"));
+        }
+        Ok(())
+    }
+
     fn finish_instruction(&self, index: usize) {
         if let Some(states) = &self.instruction_states {
             states.borrow_mut()[index - self.instruction_range.start] = 2;
@@ -5333,6 +5341,10 @@ macro_rules! impl_node_codec {
                     _ => return Err(IrVerifyError::new("full IR instruction tag has the wrong category")),
                 }
                 payload.finish()?;
+                if tag == FullTag::ExprRetry {
+                    let payload = decoder.cursor(decoder.store.payload(decoder.store.data[instruction].range())?);
+                    decoder.verify_retry_selection(payload)?;
+                }
                 decoder.finish_instruction(instruction);
                 Ok(())
             }
@@ -7094,11 +7106,12 @@ impl_node_codec! {
             body: Vec<BuildStmtId>,
             span: Span,
         } => BuildExprRow::Loop { body, span },
-        BuildExprRow::Retry { delays, body, span } => ExprRetry {
+        BuildExprRow::Retry { delays, pattern, body, span } => ExprRetry {
             delays: Vec<BuildExprId>,
+            pattern: Option<BuildPatternId>,
             body: Vec<BuildStmtId>,
             span: Span,
-        } => BuildExprRow::Retry { delays, body, span },
+        } => BuildExprRow::Retry { delays, pattern, body, span },
         BuildExprRow::FsFiles {
             root,
             gitignore,
@@ -8580,6 +8593,22 @@ proc main() [error] {
             assert!(slots.iter().any(|value| *value == LoweredValue::Int(1)));
             assert!(slots.iter().any(|value| *value == LoweredValue::List(vec![LoweredValue::Int(2)])));
         });
+    }
+
+    #[test]
+    fn verifier_rejects_binding_and_missing_retry_selection_patterns() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/selective-retry.xsh");
+        let program = fixture("selective-retry.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let retry = program.store.tags.iter().position(|tag| *tag == FullTag::ExprRetry).unwrap();
+        let payload = program.store.data[retry].range().bounds(program.store.extra.len()).unwrap();
+        let binding = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::ResultOk).unwrap();
+        let mut invalid = program.clone();
+        invalid.store.extra[payload.start + 2] = binding as u32;
+        assert!(FullVerifier::verify(&invalid).unwrap_err().message.contains("cannot bind"));
+        let mut missing = program.clone();
+        missing.store.extra[payload.start + 2] = u32::MAX;
+        assert!(FullVerifier::verify(&missing).is_err());
     }
 
     #[test]

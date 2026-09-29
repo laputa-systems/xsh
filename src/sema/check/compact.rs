@@ -1224,7 +1224,7 @@ impl CompactBodyProbe<'_> {
                 self.pop_scope();
                 Type::Result(Box::new(ty), Box::new(Type::Error))
             }
-            ArenaExprKind::Retry { delays, block } => {
+            ArenaExprKind::Retry { delays, block, .. } => {
                 for delay in self.program.arena.expr_ids(delays) {
                     self.check_compact_expr(delay);
                 }

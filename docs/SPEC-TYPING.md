@@ -184,6 +184,11 @@ signatures produce `check.contract-type` warnings.
 `Result[T, E]` has an `Ok(T)` success value and an `Err(E)` error value.
 `Result[T]` uses `Error` as the error type.
 
+`retry [delays] on (PATTERN) { ... }` checks its non-binding pattern against the
+attempt's inferred error type. Nominal variants from an unrelated family are
+impossible; error identity is retained through selection. The pattern adds no
+captures, effects, conversion, or dynamic widening.
+
 Postfix `?` may be applied only to `Result` values. It produces the `Ok` type
 and propagates the `Err` value from a `Result`-returning context. In effectful
 procs, `?` also requires the `error` effect unless the context is unrestricted.

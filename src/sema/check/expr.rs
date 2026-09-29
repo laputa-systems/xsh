@@ -6,7 +6,7 @@ use super::{
 };
 use crate::syntax::arena::{
     ArenaCompQualifier, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaProgram, ArenaRange, ArenaRecordFieldKind,
-    ArenaSpawnForm, ArenaSpawnTarget, ArenaWaitForm, BlockId, ExprId, RunFormId,
+    ArenaSpawnForm, ArenaSpawnTarget, ArenaWaitForm, BlockId, ExprId, PatternId, RunFormId,
 };
 use crate::syntax::node::EnvGetKind;
 
@@ -305,8 +305,8 @@ impl Checker {
                 self.check_loop_arena(arena, source, *block, expr.span)
             }
             ArenaExprKind::Capture(block) => self.check_capture_arena(arena, source, *block, expected, expr.span),
-            ArenaExprKind::Retry { delays, block } => {
-                self.check_retry_arena(arena, source, *delays, *block, expr.span)
+            ArenaExprKind::Retry { delays, pattern, block } => {
+                self.check_retry_arena(arena, source, *delays, *pattern, *block, expr.span)
             }
             ArenaExprKind::Run(run_id) => self.check_run_expr_arena(arena, source, *run_id),
             ArenaExprKind::Spawn(form) => self.check_spawn_form_arena(arena, source, form),
@@ -776,6 +776,7 @@ impl Checker {
         arena: &ArenaProgram,
         source: &str,
         delays: ArenaRange,
+        pattern: Option<PatternId>,
         block: BlockId,
         span: Span,
     ) -> Type {
@@ -809,10 +810,31 @@ impl Checker {
         let error_ty = self.end_error_boundary(None);
         self.pop_scope();
 
-        match body_ty {
+        let result_ty = match body_ty {
             Type::Result(ok, err) => Type::Result(ok, err),
             Type::Invalid | Type::Unknown => Type::Result(Box::new(body_ty), Box::new(Type::Error)),
             ty => Type::Result(Box::new(ty), Box::new(error_ty)),
+        };
+        if let Some(pattern) = pattern {
+            let Type::Result(_, error_ty) = &result_ty else { unreachable!() };
+            self.check_nonbinding_pattern_arena(arena, source, pattern, error_ty);
+            self.check_retry_selection_shape(arena, pattern);
+        }
+        result_ty
+    }
+
+    fn check_retry_selection_shape(&mut self, arena: &ArenaProgram, pattern: PatternId) {
+        use crate::syntax::arena::ArenaPatternKind;
+        let node = arena.arena.pattern(pattern);
+        match node.kind {
+            ArenaPatternKind::Group(child) => self.check_retry_selection_shape(arena, child),
+            ArenaPatternKind::Alternation(children) => {
+                for child in arena.arena.pattern_ids(children) { self.check_retry_selection_shape(arena, child); }
+            }
+            ArenaPatternKind::Literal(_) | ArenaPatternKind::Record { .. } | ArenaPatternKind::List { .. } | ArenaPatternKind::Tuple(_) | ArenaPatternKind::Constructor { .. } => {
+                self.error(arena.arena.span(node.span), "retry selection requires a nominal error, facet, type or wildcard pattern", "check.retry-pattern");
+            }
+            _ => {}
         }
     }
 

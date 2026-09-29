@@ -6315,7 +6315,7 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
         }
         ArenaExprKind::Require { value, .. } => rec(value),
         ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => block_contains_read_text_lines_call(arena, block),
-        ArenaExprKind::Retry { delays, block } => {
+        ArenaExprKind::Retry { delays, block, .. } => {
             arena.expr_ids(delays).any(rec) || block_contains_read_text_lines_call(arena, block)
         }
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
@@ -6662,7 +6662,8 @@ impl LintExprVisitor<'_, '_> {
                 if capturing { self.linter.assertion_capture_depth -= 1; }
             }
             ArenaExprKind::Loop { block } => self.linter.lint_block(block),
-            ArenaExprKind::Retry { delays, block } => {
+            ArenaExprKind::Retry { delays, pattern, block } => {
+                if let Some(pattern) = pattern { self.linter.lint_pattern(pattern); }
                 let old = self.linter.regex_recovery_context;
                 self.linter.regex_recovery_context = true;
                 for delay in arena.expr_ids(delays).collect::<Vec<_>>() {
@@ -7835,7 +7836,7 @@ fn collect_expr_effects(
         }
         ArenaExprKind::Capture(block) => collect_retry_block_effects(arena, block, effects, proc_effects),
         ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => collect_block_effects(arena, block, effects, proc_effects),
-        ArenaExprKind::Retry { delays, block } => {
+        ArenaExprKind::Retry { delays, block, .. } => {
             for delay in arena.expr_ids(delays).collect::<Vec<_>>() {
                 collect_expr_effects(arena, delay, effects, proc_effects);
             }
@@ -8629,7 +8630,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                 self.scan_builder_block(block);
             }
             ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => self.scan_block(block),
-            ArenaExprKind::Retry { delays, block } => {
+            ArenaExprKind::Retry { delays, block, .. } => {
                 for delay in self.arena().expr_ids(delays).collect::<Vec<_>>() {
                     self.scan_expr(delay);
                 }
@@ -9355,7 +9356,7 @@ fn expr_flow(
         ArenaExprKind::Loop { block } => loop_flow(arena, block, terminating_call_spans),
         // A retry retries failed attempts, but a normally-completing attempt
         // produces the expression's `Result`; it is not an infinite loop.
-        ArenaExprKind::Retry { delays, block } => arena
+        ArenaExprKind::Retry { delays, block, .. } => arena
             .expr_ids(delays)
             .fold(FlowSummary::fallthrough(), |flow, delay| {
                 flow.then(expr_flow(arena, delay, terminating_call_spans))

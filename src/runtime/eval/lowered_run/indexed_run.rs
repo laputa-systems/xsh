@@ -5568,6 +5568,7 @@ impl Evaluator {
                     .block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, call_span))?;
                 let delay_count = indexed_raw(&mut delays, call_span)? as usize;
+                let pattern = indexed_optional_raw(&mut payload, call_span)?;
                 let body = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
@@ -5619,24 +5620,39 @@ impl Evaluator {
                                 max_attempts,
                                 None,
                                 None,
+                                None,
+                                Some(crate::trace::RetryStopReason::Success),
                             );
                             return Ok(ControlFlow::Continue(LoweredValue::ResultOk(Box::new(
                                 value,
                             ))));
                         }
                         LoweredRetryAttemptValue::Failed { error, traceback } => {
-                            let next_delay =
-                                delay_values.get(attempt_index).map(|delay| delay.millis);
+                            let selected = match pattern {
+                                Some(pattern) => Some(Self::indexed_pattern_match_pass(execution, pattern, &LoweredValue::Error(Box::new(error.clone())), slots, span, false)?),
+                                None => None,
+                            };
+                            let next_delay = if selected == Some(false) { None } else {
+                                delay_values.get(attempt_index).map(|delay| delay.millis)
+                            };
+                            let stop_reason = if selected == Some(false) {
+                                Some(crate::trace::RetryStopReason::Nonmatching)
+                            } else if next_delay.is_none() {
+                                Some(crate::trace::RetryStopReason::Exhausted)
+                            } else { None };
                             self.trace_lowered_retry_attempt(
                                 span,
                                 attempt_index + 1,
                                 max_attempts,
                                 next_delay,
                                 Some(lowered_trace_error_from_value(&error)),
+                                selected,
+                                stop_reason,
                             );
                             final_error = Some(error);
                             final_traceback = traceback;
                             self.pending_traceback = None;
+                            if stop_reason.is_some() { break; }
                         }
                         LoweredRetryAttemptValue::ControlBreak => {
                             return Ok(ControlFlow::Continue(LoweredValue::Unit));

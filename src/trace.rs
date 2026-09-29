@@ -317,6 +317,8 @@ pub enum TracePayload {
         max_attempts: usize,
         next_delay_ms: Option<u64>,
         error: Option<TraceError>,
+        selected: Option<bool>,
+        stop_reason: Option<RetryStopReason>,
     },
     Cwd {
         previous: TraceArg,
@@ -563,4 +565,14 @@ fn quote_bytes(bytes: &[u8]) -> String {
     }
     output.push('"');
     output
+}
+
+/// Why a retry region finished after its most recent attempt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RetryStopReason { Success, Nonmatching, Exhausted }
+
+impl RetryStopReason {
+    pub fn as_str(self) -> &'static str {
+        match self { Self::Success => "success", Self::Nonmatching => "nonmatching", Self::Exhausted => "exhausted" }
+    }
 }

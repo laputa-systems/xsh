@@ -802,8 +802,12 @@ fn render_payload_text(payload: &TracePayload, output: &mut String) {
             max_attempts,
             next_delay_ms,
             error,
+            selected,
+            stop_reason,
         } => {
             let _ = write!(output, " attempt={attempt} max_attempts={max_attempts}");
+            if let Some(selected) = selected { let _ = write!(output, " selected={selected}"); }
+            if let Some(reason) = stop_reason { let _ = write!(output, " stop_reason={}", reason.as_str()); }
             if let Some(delay) = next_delay_ms {
                 let _ = write!(output, " next_delay_ms={delay}");
             }
@@ -1194,6 +1198,8 @@ enum TracePayloadJson {
         max_attempts: usize,
         next_delay_ms: Option<u64>,
         error: Option<TraceErrorJson>,
+        selected: Option<bool>,
+        stop_reason: Option<String>,
     },
     Cwd {
         previous: TraceArgJson,
@@ -1383,11 +1389,15 @@ impl TracePayloadJson {
                 max_attempts,
                 next_delay_ms,
                 error,
+                selected,
+                stop_reason,
             } => Self::RetryAttempt {
                 attempt: *attempt,
                 max_attempts: *max_attempts,
                 next_delay_ms: *next_delay_ms,
                 error: error.as_ref().map(TraceErrorJson::from_error),
+                selected: *selected,
+                stop_reason: stop_reason.map(|reason| reason.as_str().to_string()),
             },
             TracePayload::Cwd { previous, current } => Self::Cwd {
                 previous: TraceArgJson::from_arg(previous),
@@ -1998,11 +2008,15 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
             max_attempts,
             next_delay_ms,
             error,
+            selected,
+            stop_reason,
         } => typed_payload_json_value(
             "retry.attempt",
             vec![
                 ("attempt".to_string(), raw_json_usize(attempt)),
                 ("max_attempts".to_string(), raw_json_usize(max_attempts)),
+                ("selected".to_string(), option_json_value(selected.map(raw_json_bool))),
+                ("stop_reason".to_string(), option_json_value(stop_reason.map(raw_json_string))),
                 (
                     "next_delay_ms".to_string(),
                     option_u64_json_value(next_delay_ms),

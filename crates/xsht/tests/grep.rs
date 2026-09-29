@@ -490,3 +490,21 @@ fn core_assert_structural_search_finds_condition_and_message_calls() {
     assert!(stdout.contains("observed(3)"), "{stdout}");
     assert!(stdout.contains("3 matches"), "{stdout}");
 }
+
+#[test]
+fn selective_retry_grep_and_refactor_preserve_filter_order_and_body() {
+    let root = TempDir::new().unwrap();
+    let file = root.path().join("selective-retry.xsh");
+    fs::write(&file, "let result = retry [0ms] on (FetchError.Busy | FetchError.Timeout) { fetch(\"café\")? }\nlet all = retry [0ms] { fetch(\"all\")? }\n").unwrap();
+    let pattern = "retry [DELAY] on (FetchError.Busy | FetchError.Timeout) { fetch(ARG)? }";
+    let output = grep_scripts(pattern, &paths(&file));
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    assert!(output_text(&output.stdout).contains("1 match"));
+    let output = refactor_scripts(pattern, "retry [DELAY] on (FetchError.Busy | FetchError.Timeout) { load(ARG)? }", &paths(&file), false);
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert!(fixed.contains("load(\"café\")?"));
+    assert!(fixed.contains("retry [0ms] { fetch(\"all\")? }"));
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+}

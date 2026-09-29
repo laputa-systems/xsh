@@ -10008,6 +10008,8 @@ impl Evaluator {
         max_attempts: usize,
         next_delay_ms: Option<u64>,
         error: Option<TraceError>,
+        selected: Option<bool>,
+        stop_reason: Option<crate::trace::RetryStopReason>,
     ) {
         self.trace_leaf(
             TraceKind::RetryAttempt,
@@ -10018,6 +10020,8 @@ impl Evaluator {
                 max_attempts,
                 next_delay_ms,
                 error,
+                selected,
+                stop_reason,
             },
         );
     }
