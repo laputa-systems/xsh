@@ -4801,6 +4801,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     };
                     let contract = compact_call_arg_expr(arg)?;
                     let contract_ty = match self.program.arena.expr(contract).kind {
+                        ArenaExprKind::Ident(name) if name == "FsRoot" => Type::FsRoot,
                         ArenaExprKind::Ident(name) => match self.declarations.types.get(&name) {
                             Some(CompactTypeDefInfo::Module(exports)) => {
                                 Type::Module(exports.clone())
@@ -5227,6 +5228,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             };
             let contract = compact_call_arg_expr(arg)?;
             let contract_ty = match self.program.arena.expr(contract).kind {
+                ArenaExprKind::Ident(name) if name == "FsRoot" => Type::FsRoot,
                 ArenaExprKind::Ident(name) => match self.declarations.types.get(&name) {
                     Some(CompactTypeDefInfo::Module(exports)) => Type::Module(exports.clone()),
                     _ => self.infer_checked_expr_type(contract, known)?,
@@ -9497,6 +9499,37 @@ impl CompactLowerConstructProbe<'_, '_> {
             let callee = self.lower_expr(callee, slots, current_function, item_slot)?;
             return Some(push_build_row!(self, expr, BuildExprRow::DynamicCall { callee, args, span }));
         }
+        if let ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } = self.program.arena.expr(callee).kind
+            && self.infer_checked_expr_type_with_slots(base, slots)
+                .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known)).is_some_and(|ty| {
+                ty == Type::FsRoot
+                    || matches!(ty, Type::Result(ref inner, _) if **inner == Type::FsRoot)
+                    || matches!(ty, Type::Optional(ref inner) if **inner == Type::FsRoot && slots.postfix_receivers.contains_key(&base))
+            })
+        {
+            let methods = api_spec().method_overloads(crate::modules::MethodReceiver::FsRoot, &name.as_str())?;
+            let (method, order) = methods.iter().find_map(|method| {
+                compact_module_bindings(&args_vec, &method.sig).map(|order| (method, order))
+            })?;
+            let receiver = if matches!(self.infer_checked_expr_type_with_slots(base, slots), Some(Type::Result(_, _))) {
+                self.lower_postfix_receiver(base, slots, current_function, item_slot)?
+            } else { self.lower_expr(base, slots, current_function, item_slot)? };
+            let receiver_slot = slots.reserve("filesystem root receiver");
+            let mut bindings = vec![(receiver, receiver_slot)];
+            let mut evaluated = Vec::with_capacity(args_vec.len());
+            // Evaluate the receiver and argument entries in source order before
+            // arranging host slots. Named arguments never reorder effects.
+            for arg in &args_vec {
+                let value = self.lower_expr(compact_call_arg_expr(arg)?, slots, current_function, item_slot)?;
+                let slot = slots.reserve("filesystem root argument");
+                bindings.push((value, slot));
+                evaluated.push(push_build_row!(self, expr, BuildExprRow::Param(slot)));
+            }
+            let mut arguments = vec![Some(push_build_row!(self, expr, BuildExprRow::Param(receiver_slot)))];
+            arguments.extend(order.into_iter().map(|argument| argument.map(|index| evaluated[index])));
+            let call = push_build_row!(self, expr, BuildExprRow::ModuleCall { op: method.sig.op, args: arguments, span });
+            return Some(self.wrap_argument_bindings(call, bindings, span));
+        }
         if let Some(definition) = self.declarations.record_constructors.resolve_call(
             &self.program.arena, callee, self.current_namespace,
         ) {
@@ -13551,6 +13584,7 @@ fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
         Type::Command => Some(LoweredType::Command),
         Type::ProcessHandle => Some(LoweredType::ProcessHandle),
         Type::NetJob => Some(LoweredType::NetJob),
+        Type::FsRoot => Some(LoweredType::FsRoot),
         Type::Pure => Some(LoweredType::Pure),
         Type::Proc => Some(LoweredType::Proc),
         Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => Some(LoweredType::Error),
@@ -13665,6 +13699,9 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             _ => false,
         },
         Type::ProcessHandle => name == "cancel" && arg_count <= 2,
+        Type::FsRoot => api_spec().method_overloads(crate::modules::MethodReceiver::FsRoot, &name.as_str())
+            .is_some_and(|methods| methods.iter().any(|method| arg_count <= method.sig.params.len()
+                && arg_count >= method.sig.params.iter().filter(|param| !param.defaulted).count())),
         Type::NetJob => matches!(name.as_str().as_str(), "wait" | "cancel") && arg_count == 0,
         Type::Stream(_) => name == "collect" && arg_count == 0,
         _ => false,
@@ -13794,6 +13831,8 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
         Type::ProcessHandle if name == "cancel" => {
             Some(Type::Result(Box::new(Type::Unit), Box::new(Type::Error)))
         }
+        Type::FsRoot => api_spec().method_overloads(crate::modules::MethodReceiver::FsRoot, &name.as_str())
+            .and_then(|methods| methods.first()).map(|method| method.concrete_return_ty(receiver)),
         Type::NetJob if name == "wait" => standard_record_type("NetResponse")
             .map(|response| Type::Result(Box::new(response), Box::new(Type::Error))),
         Type::NetJob if name == "cancel" => {
@@ -13838,6 +13877,7 @@ fn lowered_builtin_type_name(name: &str) -> Option<LoweredType> {
         BuiltinTypeName::Command => Some(LoweredType::Command),
         BuiltinTypeName::ProcessHandle => Some(LoweredType::ProcessHandle),
         BuiltinTypeName::NetJob => Some(LoweredType::NetJob),
+        BuiltinTypeName::FsRoot => Some(LoweredType::FsRoot),
         BuiltinTypeName::Pure => Some(LoweredType::Pure),
         BuiltinTypeName::Proc => Some(LoweredType::Proc),
         BuiltinTypeName::Error => Some(LoweredType::Error),
@@ -13903,6 +13943,7 @@ fn type_for_lowered_type(kind: LoweredType) -> Option<Type> {
         LoweredType::Command => Some(Type::Command),
         LoweredType::ProcessHandle => Some(Type::ProcessHandle),
         LoweredType::NetJob => Some(Type::NetJob),
+        LoweredType::FsRoot => Some(Type::FsRoot),
         LoweredType::Pure => Some(Type::Pure),
         LoweredType::Proc => Some(Type::Proc),
         LoweredType::Error => Some(Type::Error),
@@ -13964,6 +14005,7 @@ fn lowerable_top_level_annotation(ty: LoweredType) -> bool {
             | LoweredType::Command
             | LoweredType::ProcessHandle
             | LoweredType::NetJob
+            | LoweredType::FsRoot
             | LoweredType::Stream
             | LoweredType::Pure
             | LoweredType::Proc

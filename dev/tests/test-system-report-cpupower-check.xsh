@@ -70,9 +70,8 @@ Available idle states: C1
 
 test test_system_report_cpupower_live_reference_runs_only_selected_forms [fs, process, time, error] {
   let tools_root = fs.tempdir()?
-  defer fs.close_root(tools_root)?
-  fs.root_write(
-    tools_root,
+  defer tools_root.close()?
+  tools_root.write(
     p"cpupower",
     """#!/bin/sh
 case "$*" in
@@ -84,16 +83,15 @@ case "$*" in
 esac
 """,
   )?
-  fs.root_write(
-    tools_root,
+  tools_root.write(
     p"xsh",
     """#!/bin/sh
 printf '{"source_mode":"live_linux","cpu":{"frequency_policies":[{"name":"policy7","related_cpus":[0,2],"driver":"fixture-driver","hardware_min_khz":100,"hardware_max_khz":200}],"global_idle_driver":"fixture-idle","global_idle_governor":"fixture-governor","idle_states":[{"cpu_id":0,"state_index":0,"name":"C1"}]}}\n'
 """,
   )?
-  fs.root_chmod(tools_root, p"cpupower", 0o700)?
-  fs.root_chmod(tools_root, p"xsh", 0o700)?
-  let root_path = fs.root_path(tools_root)?
+  tools_root.chmod(p"cpupower", 0o700)?
+  tools_root.chmod(p"xsh", 0o700)?
+  let root_path = tools_root.host_path()?
   let result = cpupower_reference.compare_live_cpupower(
     fp"${root_path}/xsh".display(),
     fp"${root_path}/script".display(),

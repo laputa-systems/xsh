@@ -769,3 +769,15 @@ The index is used only for lookup, never serialized or traversed for presentatio
 its negative sentinel is a value, and target counts and the string Set used for
 cycle detection retain their textual contracts. This migration removes an
 internal decimal encoding without changing graph traversal or output order.
+
+## Rooted filesystem receivers
+
+`FsRoot` is a concrete opaque runtime type. `FsRootValue` carries a private slot
+identity and evaluator owner token; `Evaluator::fs_roots` owns the existing
+confined directory handles. Receiver methods lower to indexed `ModuleCall` with
+the same `RuntimeOp` IDs as the former module calls. Argument bindings retain
+source evaluation order before host slots are arranged. Closing an alias clears
+its shared slot; independently opened children retain their own handles.
+
+`legacy_fs_root_method` maps removed spellings for checker diagnostics and
+`lint.fs-root-receiver` only. It adds no executable module alias.

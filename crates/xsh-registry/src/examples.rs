@@ -5,6 +5,9 @@
 //! being hidden in Rust string literals.
 
 pub(crate) fn source(id: &str) -> Option<String> {
+    if id.starts_with("method.FsRoot.") {
+        return Some(include_str!("../../../docs/snippets/api/fs-root-methods.xsh").to_string());
+    }
     let source = match id {
         "language.core.duration-arithmetic" => include_str!("../../../docs/snippets/api/duration-arithmetic.xsh"),
         "module.archive" | "module.archive.tar_list" => {

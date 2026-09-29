@@ -52,6 +52,7 @@ pub enum Type {
     Command,
     ProcessHandle,
     NetJob,
+    FsRoot,
     Unit,
     Tag(Name),
     Optional(Box<Type>),
@@ -267,6 +268,7 @@ impl Type {
             BuiltinTypeName::Command => Self::Command,
             BuiltinTypeName::ProcessHandle => Self::ProcessHandle,
             BuiltinTypeName::NetJob => Self::NetJob,
+            BuiltinTypeName::FsRoot => Self::FsRoot,
             BuiltinTypeName::Result => Self::Result(Box::new(Self::Unknown), Box::new(Self::Error)),
             BuiltinTypeName::Unit => Self::Unit,
         }
@@ -299,6 +301,7 @@ impl Type {
             Self::Command => Some(BuiltinTypeName::Command),
             Self::ProcessHandle => Some(BuiltinTypeName::ProcessHandle),
             Self::NetJob => Some(BuiltinTypeName::NetJob),
+            Self::FsRoot => Some(BuiltinTypeName::FsRoot),
             Self::Result(_, _) => Some(BuiltinTypeName::Result),
             Self::Unit => Some(BuiltinTypeName::Unit),
             Self::ReceiverMapKey | Self::ReceiverMapValue | Self::ReceiverMapListItem
@@ -590,6 +593,7 @@ impl Type {
             Self::Command => Some("Command".to_string()),
             Self::ProcessHandle => Some("ProcessHandle".to_string()),
             Self::NetJob => Some("NetJob".to_string()),
+            Self::FsRoot => Some("FsRoot".to_string()),
             Self::Tag(name) => Some(name.to_string()),
             Self::Optional(inner) => Some(format!("{}?", inner.annotation_source()?)),
         }
@@ -636,6 +640,7 @@ impl fmt::Display for Type {
             Self::Command => write!(f, "Command"),
             Self::ProcessHandle => write!(f, "ProcessHandle"),
             Self::NetJob => write!(f, "NetJob"),
+            Self::FsRoot => write!(f, "FsRoot"),
             Self::Unit => write!(f, "Unit"),
             Self::Tag(name) => write!(f, "{name}"),
             Self::Optional(inner) => write!(f, "{inner}?"),

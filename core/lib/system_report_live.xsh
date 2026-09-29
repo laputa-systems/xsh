@@ -954,7 +954,7 @@ proc collect_storage(
   pci_functions: List[report.PciFunction],
   include_local_mount_usage: Bool,
 ) [fs, error] -> StorageCollection {
-  let listing = fs.root_children(root, p"sys/class/block", max_entries: 4096)?
+  let listing = root.children(p"sys/class/block", max_entries: 4096)?
   let pci_indices = pci_function_indices(pci_functions)
   var issues: List[report.CollectionIssue] = []
   var candidates: List[BlockCandidate] = []
@@ -1222,7 +1222,7 @@ proc collect_storage(
     }
 
     var is_partition = false
-    match fs.root_exists(root, fp"${device_path}/partition") {
+    match root.exists(fp"${device_path}/partition") {
       Ok(present) => is_partition = present
       Err(is PermissionDenied) => issues = issues.push(
         issue("storage", f"devices.${name}.partition", report.PermissionDenied, "permission_denied", null),
@@ -1255,8 +1255,8 @@ proc collect_storage(
       parent_pci_function_index = pci_function_index(pci_indices, pci_address_in_target(target_path))
     }
 
-    let holders_listing = fs.root_children(root, fp"${device_path}/holders", max_entries: 4096)?
-    let slaves_listing = fs.root_children(root, fp"${device_path}/slaves", max_entries: 4096)?
+    let holders_listing = root.children(fp"${device_path}/holders", max_entries: 4096)?
+    let slaves_listing = root.children(fp"${device_path}/slaves", max_entries: 4096)?
     if holders_listing.state != "complete" {
       issues = issues.push(
         issue(
@@ -1504,7 +1504,7 @@ proc collect_storage(
               ),
             )
           } else {
-            let usage = fs.root_filesystem_stats(root, usage_path)?
+            let usage = root.filesystem_stats(usage_path)?
             usage_state = match usage.state { "observed" => report.Observed, "absent" => report.Disappeared, "permission_denied" => report.PermissionDenied, "malformed" => report.Malformed, "range_failure" => report.RangeFailure, _ => report.ReadFailure }
             usage_total_bytes = usage.total_bytes
             usage_used_bytes = usage.used_bytes
@@ -1655,8 +1655,8 @@ proc collect_sensors(
 ) [fs, error] -> SensorCollection {
   let pci_indices = pci_function_indices(pci_functions)
   let usb_indices = usb_device_indices(usb_devices)
-  let hwmon_listing = fs.root_children(root, p"sys/class/hwmon", max_entries: 1024)?
-  let thermal_listing = fs.root_children(root, p"sys/class/thermal", max_entries: 1024)?
+  let hwmon_listing = root.children(p"sys/class/hwmon", max_entries: 1024)?
+  let thermal_listing = root.children(p"sys/class/thermal", max_entries: 1024)?
   var channels: List[report.SensorChannel] = []
   var zones: List[report.ThermalZone] = []
   var issues: List[report.CollectionIssue] = []
@@ -1692,7 +1692,7 @@ proc collect_sensors(
       parent_usb_index = usb_device_index_from_target(usb_indices, target)
     }
 
-    let attribute_listing = fs.root_children(root, chip_path, max_entries: 1024)?
+    let attribute_listing = root.children(chip_path, max_entries: 1024)?
     if attribute_listing.state != "complete" {
       issues = issues.push(
         issue(
@@ -1792,7 +1792,7 @@ proc collect_sensors(
     let temperature = read_value(root, fp"${zone_path}/temp", max_bytes: 4096)
     let temperature_number = collectors.bounded_number(temperature, false)
     issues = append_number_issue(issues, "sensors", f"thermal_zones.${zone_path.name()}.temp", temperature_number)
-    let attributes = fs.root_children(root, zone_path, max_entries: 256)?
+    let attributes = root.children(zone_path, max_entries: 256)?
     if attributes.state != "complete" {
       issues = issues.push(
         issue(
@@ -1892,8 +1892,8 @@ proc collect_sensors(
 }
 
 proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
-  let supply_listing = fs.root_children(root, p"sys/class/power_supply", max_entries: 1024)?
-  let cap_listing = fs.root_children(root, p"sys/class/powercap", max_entries: 1024)?
+  let supply_listing = root.children(p"sys/class/power_supply", max_entries: 1024)?
+  let cap_listing = root.children(p"sys/class/powercap", max_entries: 1024)?
   var supplies: List[report.PowerSupply] = []
   var cap_zones: List[report.PowerCapZone] = []
   var issues: List[report.CollectionIssue] = []
@@ -1993,7 +1993,7 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
     let range_number = collectors.bounded_number(range, true)
     issues = append_number_issue(issues, "power", f"cap_zones.${zone_path.name()}.energy_uj", energy_number)
     issues = append_number_issue(issues, "power", f"cap_zones.${zone_path.name()}.max_energy_range_uj", range_number)
-    let cap_attributes = fs.root_children(root, zone_path, max_entries: 256)?
+    let cap_attributes = root.children(zone_path, max_entries: 256)?
     if cap_attributes.state != "complete" {
       issues = issues.push(
         issue(
@@ -2064,7 +2064,7 @@ proc collect_power(root: FsRoot) [fs, error] -> PowerCollection {
     }
 
     var parent_name: Str? = null
-    let link = fs.root_readlink_result(root, zone_path)?
+    let link = root.readlink_result(zone_path)?
     if link.state == "observed" {
       let candidate = (link.target ?? p"").parent().name()
       if cap_paths |> any .path.name() == candidate {
@@ -2361,7 +2361,7 @@ proc read_process(root: FsRoot, process_path: Path, pid: Int, page_size_bytes: I
 }
 
 proc collect_processes(root: FsRoot, page_size_bytes: Int) [fs, error] -> ProcessCollection {
-  let listing = fs.root_children(root, p"proc", max_entries: 8192)?
+  let listing = root.children(p"proc", max_entries: 8192)?
   var processes: List[report.ProcessRecord] = []
   var issues: List[report.CollectionIssue] = []
   if listing.state != "complete" {
@@ -2590,7 +2590,7 @@ proc collect_device_classes(
   ] {
     let class_name = class_source.name
     let source_path = class_source.source_path
-    let listing = fs.root_children(root, source_path, max_entries: 4096)?
+    let listing = root.children(source_path, max_entries: 4096)?
     if listing.state != "absent" {
       available_classes += 1
     }
@@ -2706,7 +2706,7 @@ proc collect_device_classes(
 }
 
 proc collect_firmware(root: FsRoot) [fs, error] -> FirmwareCollection {
-  let source = fs.root_read_result(root, p"sys/firmware/dmi/tables/DMI", max_bytes: 1048576)?
+  let source = root.read_result(p"sys/firmware/dmi/tables/DMI", max_bytes: 1048576)?
   var records: List[report.FirmwareRecord] = []
   var issues: List[report.CollectionIssue] = []
   if source.state == "observed" and source.data != null and ! source.truncated {
@@ -3305,14 +3305,14 @@ export pure usb_parent_address(target: Path) -> Str? {
 }
 
 proc usb_source_is_directory(root: FsRoot, device_path: Path) [fs, error] -> Bool {
-  match fs.root_metadata(root, device_path) {
+  match root.metadata(device_path) {
     Ok(metadata) => return metadata.kind == "dir"
     Err(_) => return false
   }
 }
 
 proc class_entry_target(root: FsRoot, entry: Path) [fs, error] -> ClassParentObservation {
-  match fs.root_readlink_result(root, entry) {
+  match root.readlink_result(entry) {
     Ok(observed) => {
       if observed.state == "observed" {
         return {target: observed.target, state: report.Observed, errno: observed.errno, error_kind: observed.error_kind}
@@ -3340,7 +3340,7 @@ proc class_entry_target(root: FsRoot, entry: Path) [fs, error] -> ClassParentObs
 ## Prefers a device link and keeps a class-entry link as independent parent evidence.
 export proc class_parent_target(root: FsRoot, entry: Path) [fs, error] -> ClassParentObservation {
   let fallback = class_entry_target(root, entry)
-  match fs.root_readlink_result(root, fp"${entry}/device") {
+  match root.readlink_result(fp"${entry}/device") {
     Ok(observed) => {
       if observed.state == "observed" {
         if observed.target != null {
@@ -3372,7 +3372,7 @@ export proc class_parent_target(root: FsRoot, entry: Path) [fs, error] -> ClassP
 
 ## Reads a USB bus-entry link and accepts direct directories in rooted fixtures.
 export proc usb_controller_address(root: FsRoot, device_path: Path) [fs, error] -> UsbControllerObservation {
-  match fs.root_readlink_result(root, device_path) {
+  match root.readlink_result(device_path) {
     Ok(observed) => {
       if observed.state == "observed" {
         if observed.target == null {
@@ -3408,7 +3408,7 @@ export proc usb_controller_address(root: FsRoot, device_path: Path) [fs, error] 
 
 ## Reads an optional driver binding while retaining failures separate from an unbound device.
 export proc optional_driver_name(root: FsRoot, source_path: Path) [fs, error] -> collectors.SourceRead {
-  match fs.root_readlink_result(root, source_path) {
+  match root.readlink_result(source_path) {
     Ok(observed) => {
       let state = live_source_observation_state(observed.state, false)
       var value: Str? = null
@@ -3472,7 +3472,7 @@ pure usb_decimal_optional(value: Str?, minimum: Int) -> Int? {
 }
 
 proc collect_usb(root: FsRoot, pci_functions: List[report.PciFunction]) [fs, error] -> UsbCollection {
-  let listing = fs.root_children(root, p"sys/bus/usb/devices", max_entries: 4096)?
+  let listing = root.children(p"sys/bus/usb/devices", max_entries: 4096)?
   let pci_indices = pci_function_indices(pci_functions)
   var devices: List[report.UsbDevice] = []
   var issues: List[report.CollectionIssue] = []
@@ -3651,7 +3651,7 @@ proc collect_usb(root: FsRoot, pci_functions: List[report.PciFunction]) [fs, err
       )
     }
 
-    let raw_descriptors = fs.root_read_result(root, fp"${device_path}/descriptors", max_bytes: 1048576)?
+    let raw_descriptors = root.read_result(fp"${device_path}/descriptors", max_bytes: 1048576)?
     var descriptor_alternates: List[UsbDescriptorAlternate] = []
     if raw_descriptors.truncated {
       issues = issues.push(
@@ -4023,7 +4023,7 @@ proc collect_identity(root: FsRoot, base: report.SystemReport) [fs, error] -> re
 }
 
 proc namespace_observation(root: FsRoot, source_path: Path) [fs, error] -> Result[collectors.SourceRead] {
-  let result = fs.root_readlink_result(root, source_path)?
+  let result = root.readlink_result(source_path)?
   let state = live_source_observation_state(result.state, false)
   var value: Str? = null
   if result.target != null {
@@ -4230,7 +4230,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
       )
     }
 
-    let node_listing = fs.root_children(root, cpu_path, max_entries: 256)?
+    let node_listing = root.children(cpu_path, max_entries: 256)?
     if node_listing.state != "complete" {
       issues = issues.push(
         issue(
@@ -4272,7 +4272,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
       policy: null,
     })
 
-    let cache_listing = fs.root_children(root, fp"${cpu_path}/cache", max_entries: 64)?
+    let cache_listing = root.children(fp"${cpu_path}/cache", max_entries: 64)?
     if cache_listing.state != "complete" and cache_listing.state != "absent" {
       issues = issues.push(
         issue(
@@ -4434,7 +4434,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
     })
   }
 
-  let vulnerabilities_listing = fs.root_children(root, p"sys/devices/system/cpu/vulnerabilities", max_entries: 256)?
+  let vulnerabilities_listing = root.children(p"sys/devices/system/cpu/vulnerabilities", max_entries: 256)?
   if vulnerabilities_listing.state != "complete" and vulnerabilities_listing.state != "absent" {
     issues = issues.push(
       issue(
@@ -4505,7 +4505,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
 
   var idle_states: List[report.CpuIdleState] = []
   for cpu_id in present {
-    let cpuidle = fs.root_children(root, fp"sys/devices/system/cpu/cpu${cpu_id}/cpuidle", max_entries: 256)?
+    let cpuidle = root.children(fp"sys/devices/system/cpu/cpu${cpu_id}/cpuidle", max_entries: 256)?
     if cpuidle.state != "complete" and cpuidle.state != "absent" {
       issues = issues.push(
         issue(
@@ -4628,7 +4628,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
 type PolicyCollection = {policies: List[report.CpuFreqPolicy], issues: List[report.CollectionIssue]}
 
 proc collect_frequency_policies(root: FsRoot, issues: List[report.CollectionIssue]) [fs, error] -> PolicyCollection {
-  let listing = fs.root_children(root, p"sys/devices/system/cpu/cpufreq", max_entries: 1024)?
+  let listing = root.children(p"sys/devices/system/cpu/cpufreq", max_entries: 1024)?
   var policies: List[report.CpuFreqPolicy] = []
   var collected_issues = issues
   if listing.state == "absent" {
@@ -5134,7 +5134,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
   }
 
   var huge_pages: List[report.HugePagePool] = []
-  let huge_listing = fs.root_children(root, p"sys/kernel/mm/hugepages", max_entries: 1024)?
+  let huge_listing = root.children(p"sys/kernel/mm/hugepages", max_entries: 1024)?
   if huge_listing.state != "complete" and huge_listing.state != "absent" {
     issues = issues.push(
       issue(
@@ -5156,7 +5156,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
     }
   }
 
-  let node_listing = fs.root_children(root, p"sys/devices/system/node", max_entries: 1024)?
+  let node_listing = root.children(p"sys/devices/system/node", max_entries: 1024)?
   if node_listing.state != "complete" and node_listing.state != "absent" {
     issues = issues.push(
       issue(
@@ -5178,7 +5178,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
       continue
     }
 
-    let node_huge_listing = fs.root_children(root, fp"${node_path}/hugepages", max_entries: 1024)?
+    let node_huge_listing = root.children(fp"${node_path}/hugepages", max_entries: 1024)?
     if node_huge_listing.state != "complete" and node_huge_listing.state != "absent" {
       issues = issues.push(
         issue(
@@ -6408,7 +6408,7 @@ pure source_error_kind(failure: Error) -> Str {
 }
 
 proc network_link_target(root: FsRoot, source_path: Path, field: Str) [fs, error] -> NetworkLinkTarget {
-  match fs.root_readlink_result(root, source_path) {
+  match root.readlink_result(source_path) {
     Ok(observed) => {
       if observed.state == "observed" {
         if observed.target != null {
@@ -6858,7 +6858,7 @@ export proc collect_live(
   }
 
   let root = fs.open_root(/)?
-  defer fs.close_root(root)?
+  defer root.close()?
   let units = system.execution_units()?
   var collected = collect_from_root(
     root,

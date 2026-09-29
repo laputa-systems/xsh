@@ -804,6 +804,7 @@ pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> 
             | (LoweredType::Command, LoweredValue::Command(_))
             | (LoweredType::ProcessHandle, LoweredValue::ProcessHandle(_))
             | (LoweredType::NetJob, LoweredValue::NetJob(_))
+            | (LoweredType::FsRoot, LoweredValue::FsRoot(_))
             | (LoweredType::Stream, LoweredValue::Stream(_))
             | (LoweredType::Pure, LoweredValue::Pure(_))
             | (LoweredType::Proc, LoweredValue::Proc(_))
@@ -840,6 +841,7 @@ pub(super) fn lowered_type_name(kind: LoweredType) -> &'static str {
         LoweredType::Command => "Command",
         LoweredType::ProcessHandle => "ProcessHandle",
         LoweredType::NetJob => "NetJob",
+        LoweredType::FsRoot => "FsRoot",
         LoweredType::Stream => "Stream",
         LoweredType::Pure => "Pure",
         LoweredType::Proc => "Proc",
@@ -886,6 +888,7 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
             Some(LoweredValue::ProcessHandle(value.clone()))
         }
         (LoweredType::NetJob, Value::NetJob(value)) => Some(LoweredValue::NetJob(value.clone())),
+        (LoweredType::FsRoot, Value::FsRoot(value)) => Some(LoweredValue::FsRoot(value.clone())),
         (LoweredType::Stream, Value::Stream(value)) => Some(LoweredValue::Stream(value.clone())),
         (LoweredType::Pure, Value::Pure(value)) => Some(LoweredValue::Pure(*value)),
         (LoweredType::Proc, Value::Proc(value)) => Some(LoweredValue::Proc(*value)),
@@ -929,6 +932,7 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
         Value::Command(value) => Some(LoweredValue::Command(Box::new((**value).clone()))),
         Value::ProcessHandle(value) => Some(LoweredValue::ProcessHandle(value.clone())),
         Value::NetJob(value) => Some(LoweredValue::NetJob(value.clone())),
+        Value::FsRoot(value) => Some(LoweredValue::FsRoot(value.clone())),
         Value::Stream(value) => Some(LoweredValue::Stream(value.clone())),
         Value::Pure(value) => Some(LoweredValue::Pure(*value)),
         Value::Proc(value) => Some(LoweredValue::Proc(*value)),

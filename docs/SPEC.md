@@ -2769,29 +2769,29 @@ files are written through a temporary file in the destination directory.
 - `fs.group_executable(mode: Int) -> Bool`.
 - `fs.other_executable(mode: Int) -> Bool`.
 - `fs.open_root(path: Path) -> Result[FsRoot]`.
-- `fs.close_root(root: FsRoot) -> Result[Unit]`.
-- `fs.root_path(root: FsRoot) -> Result[Path]`.
-- `fs.root(root: FsRoot, path: Path) -> Result[FsRoot]`.
-- `fs.root_read(root: FsRoot, path: Path) -> Result[Bytes]`.
-- `fs.root_read_result(root: FsRoot, path: Path,
+- `FsRoot.close() -> Result[Unit]`.
+- `FsRoot.host_path() -> Result[Path]`.
+- `FsRoot.open_root(path: Path) -> Result[FsRoot]`.
+- `FsRoot.read_bytes(path: Path) -> Result[Bytes]`.
+- `FsRoot.read_result(path: Path,
   max_bytes: Int = 1048576) -> Result[FsRootReadResult]`.
-- `fs.root_filesystem_stats(root: FsRoot, path: Path) -> Result[FsRootFilesystemStats]`.
-- `fs.root_read_text(root: FsRoot, path: Path) -> Result[Str]`.
-- `fs.root_children(root: FsRoot, path: Path,
+- `FsRoot.filesystem_stats(path: Path) -> Result[FsRootFilesystemStats]`.
+- `FsRoot.read_text(path: Path) -> Result[Str]`.
+- `FsRoot.children(path: Path,
   max_entries: Int = 65536) -> Result[FsRootChildrenResult]`.
-- `fs.root_write(root: FsRoot, path: Path, data: Bytes) -> Result[Unit]`.
-- `fs.root_write(root: FsRoot, path: Path, data: Str) -> Result[Unit]`.
-- `fs.root_write_atomic(root: FsRoot, path: Path, data: Bytes) -> Result[Unit]`.
-- `fs.root_write_atomic(root: FsRoot, path: Path, data: Str) -> Result[Unit]`.
-- `fs.root_metadata(root: FsRoot, path: Path) -> Result[FsEntry]`.
-- `fs.root_exists(root: FsRoot, path: Path) -> Result[Bool]`.
-- `fs.root_mkdir(root: FsRoot, path: Path, mode: Int = 0o777, parents: Bool = false) -> Result[Unit]`.
-- `fs.root_remove(root: FsRoot, path: Path, dir: Bool = false) -> Result[Unit]`.
-- `fs.root_readlink(root: FsRoot, path: Path) -> Result[Path]`.
-- `fs.root_readlink_result(root: FsRoot, path: Path) -> Result[FsRootReadlinkResult]`.
-- `fs.root_symlink(root: FsRoot, target: Path, path: Path, parents: Bool = true,
+- `FsRoot.write(path: Path, data: Bytes) -> Result[Unit]`.
+- `FsRoot.write(path: Path, data: Str) -> Result[Unit]`.
+- `FsRoot.write_atomic(path: Path, data: Bytes) -> Result[Unit]`.
+- `FsRoot.write_atomic(path: Path, data: Str) -> Result[Unit]`.
+- `FsRoot.metadata(path: Path) -> Result[FsEntry]`.
+- `FsRoot.exists(path: Path) -> Result[Bool]`.
+- `FsRoot.mkdir(path: Path, mode: Int = 0o777, parents: Bool = false) -> Result[Unit]`.
+- `FsRoot.remove(path: Path, dir: Bool = false) -> Result[Unit]`.
+- `FsRoot.readlink(path: Path) -> Result[Path]`.
+- `FsRoot.readlink_result(path: Path) -> Result[FsRootReadlinkResult]`.
+- `FsRoot.symlink(target: Path, path: Path, parents: Bool = true,
   overwrite: Bool = false) -> Result[Unit]`.
-- `fs.root_chmod(root: FsRoot, path: Path, mode: Int) -> Result[Unit]`.
+- `FsRoot.chmod(path: Path, mode: Int) -> Result[Unit]`.
 - `fs.root_install_file(source_root: FsRoot, source: Path, dest_root: FsRoot,
   dest: Path, mode: Int, parents: Bool = true,
   overwrite: Bool = false) -> Result[Unit]`.
@@ -2856,24 +2856,34 @@ directories under `root`, then prunes empty parent directories when requested.
 `group` modules instead of string names. `fs.lock` returns a lock record held by
 the current XSH process until `fs.unlock` or process exit.
 `fs.open_root`, `fs.tempdir`, `fs.project_root`, and `fs.user_root` return an
-opaque `FsRoot` record `{id: Int}` backed by an open directory handle owned by
-the evaluator. `fs.tempfile` returns `{root: FsRoot, path: Path}` where `path`
-is relative to the returned root. `fs.root_path` is an explicit escape hatch for
+opaque `FsRoot` capability backed by an open directory handle owned by
+the evaluator. A record containing an `id` cannot construct or validate as a
+capability. Aliases share close state; opening a child creates an independent
+handle that remains active after its parent closes. No implicit destructor is
+introduced. `fs.tempfile` returns `{root: FsRoot, path: Path}` where `path`
+is relative to the returned root. `FsRoot.host_path` is an explicit escape hatch for
 APIs or subprocesses that still require host paths; it returns `Err` when the
-root is closed or the platform cannot expose the path. `fs.root_*` operations
+root is closed or the platform cannot expose the path. `FsRoot` methods
 resolve relative paths from the handle rather than by joining strings. Their
 filesystem opens are kernel-confined below the root: absolute paths, `..`
 traversal that escapes the root, symlinks that escape the root, and concurrent
 pathname manipulation fail. Relative symlinks whose final resolution remains
-below the root work normally. `fs.root_readlink` and `fs.root_symlink` operate
+below the root work normally. `FsRoot.readlink` and `FsRoot.symlink` operate
 on symlink target text without traversing it. This makes the rooted APIs the
 preferred surface when a trusted root directory is combined with untrusted
 relative names. `FsRoot` confines pathname resolution; it is not a process
 sandbox and does not restrict mounts or device nodes below the root.
-`fs.root_readlink_result` rejects a relative path whose `..` components cross
+Receiver and argument entries evaluate once in source order, including reordered
+named arguments. Each method retains its original filesystem effect, error kind,
+and host operation. Factories stay in `fs`; `fs.root_install_file` retains its two
+capabilities. The old single-root module names are rejected and recognized only
+for checked migration guidance. Automatic promotion requires the receiver to be
+the first evaluated argument and preserves the remaining named argument text;
+comments, spreads, and reordered receivers require a manual rewrite.
+`FsRoot.readlink_result` rejects a relative path whose `..` components cross
 the root as invalid input; a missing parent within the root remains an absent
 source result.
-`fs.root_children` returns child paths relative to the root, ordered by their
+`FsRoot.children` returns child paths relative to the root, ordered by their
 raw filename bytes so non-UTF-8 names remain lossless. `max_entries` may be
 between zero and 65,536. `FsRootChildrenResult` carries `state`,
 `enumeration_succeeded`, `children`, `errno`, and `error_kind`; state is one of
@@ -2885,7 +2895,7 @@ reaches either bound, and an empty `complete` result means the directory was
 successfully enumerated and contained no entries.
 The confined open requires a readable directory, so a file or FIFO at the
 requested path is a `read_failure` observation rather than an iterable source.
-`fs.root_read_result` reads at most `max_bytes` and permits values from zero
+`FsRoot.read_result` reads at most `max_bytes` and permits values from zero
 through 16,777,216. Its result records `state`, optional `data`, optional
 `errno`, optional stable `error_kind`, and `truncated`; expected missing and
 permission-denied paths are observations, while an invalid bound is an error.
@@ -2896,14 +2906,14 @@ such as `not_found`, `permission_denied`, `interrupted`, and `other`.
 optional `target`, `errno`, and `error_kind` distinguish an existing non-link
 or failed read from an absent entry; state uses the same four values as
 `FsRootReadResult`. Invalid or escaping rooted paths remain errors.
-`fs.root_filesystem_stats` queries capacity through a directory opened below
+`FsRoot.filesystem_stats` queries capacity through a directory opened below
 the root, without converting the path back to an ambient host path. Its path
 must be relative to the root. `FsRootFilesystemStats.state` is `observed`,
 `absent`, `permission_denied`, `malformed`, `read_failure`, or `range_failure`; byte fields
 are exact signed integers when observed, and remain null when the platform
 counters cannot fit that representation. The record preserves `errno` and a
 stable `error_kind` for filesystem-query failures.
-`fs.root_mkdir` applies the requested mode to the created directory through a
+`FsRoot.mkdir` applies the requested mode to the created directory through a
 handle resolved below the root, so the caller's umask does not change the final
 mode.
 

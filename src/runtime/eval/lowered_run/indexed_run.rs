@@ -13,7 +13,7 @@ use super::{
     Value, api_spec, assign_lowered_bytes_view, assign_lowered_str_view, bind_lowered_comp_target,
     btree_map, bytes_contains, bytes_module, check_env_name, checked_int_binary,
     compare_lowered_sort_keys, compound_assignment_value, error_constructor,
-    execute_run_with_policy, exit_status, fs_module, fs_root_record, json_module,
+    execute_run_with_policy, exit_status, fs_module, json_module,
     append_lowered_list_element, append_lowered_map_literal, lowered_map_literal_key, lowered_assign_value, lowered_binary_value, lowered_bool_arg_or, lowered_bool_builder_field,
     lowered_bytes_or_str_owned, lowered_bytes_parts, lowered_bytes_value,
     lowered_command_plan_value, lowered_command_redirections, lowered_contains_value,
@@ -5876,7 +5876,7 @@ impl Evaluator {
                     Ok(root) => {
                         let id = self.fs_roots.len() as i64 + 1;
                         self.fs_roots.push(Some(root));
-                        lowered_result_ok(fs_root_record(id))
+                        lowered_result_ok(LoweredValue::FsRoot(super::super::FsRootValue { id, owner: self.fs_root_owner.clone() }))
                     }
                     Err(error) => lowered_result_err_value(error),
                 })
@@ -5977,7 +5977,7 @@ impl Evaluator {
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
                 let value = if tag == FullTag::ExprFsCloseRoot {
-                    match lowered_root_id(&root, span)
+                    match lowered_root_id(&root, &self.fs_root_owner, span)
                         .ok()
                         .and_then(|id| {
                             id.checked_sub(1)
@@ -6001,7 +6001,7 @@ impl Evaluator {
                         ),
                     }
                 } else {
-                    match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                    match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                         .and_then(|dir| root_path_from_dir(dir, span))
                     {
                         Ok(path) => lowered_result_ok(LoweredValue::Path(path)),
@@ -6282,15 +6282,16 @@ impl Evaluator {
                 let trace_name = crate::modules::signature::api_spec()
                     .op_trace_name(op)
                     .map(str::to_string);
+                let rooted = trace_name.as_deref().is_some_and(|name| name.starts_with("FsRoot."));
                 self.trace_enter(
-                    TraceKind::ModuleCall,
+                    if rooted { TraceKind::MethodCall } else { TraceKind::ModuleCall },
                     Some(span),
                     trace_name.as_deref(),
                     TracePayload::None,
                 );
                 let result = self.eval_lowered_module_call_values(op, values, span);
                 self.trace_exit(
-                    TraceKind::ModuleResult,
+                    if rooted { TraceKind::MethodResult } else { TraceKind::ModuleResult },
                     Some(span),
                     trace_name.as_deref(),
                     TracePayload::None,

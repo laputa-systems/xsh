@@ -55,6 +55,7 @@ builtin_type_names!(
     (Command, "Command"),
     (ProcessHandle, "ProcessHandle"),
     (NetJob, "NetJob"),
+    (FsRoot, "FsRoot"),
     (Result, "Result"),
 );
 
@@ -91,6 +92,7 @@ pub enum Type {
     Command,
     ProcessHandle,
     NetJob,
+    FsRoot,
     Unit,
     Optional(Box<Type>),
 }

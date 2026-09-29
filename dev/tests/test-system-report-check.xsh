@@ -396,7 +396,7 @@ test test_system_report_usb_topology_name_parser_keeps_root_hubs_and_sparse_port
 
 test test_system_report_usb_topology_rooted_reference_reads_devices_without_interfaces [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   for device in [
     {
       name: "usb4",
@@ -418,36 +418,32 @@ test test_system_report_usb_topology_rooted_reference_reads_devices_without_inte
     },
   ] {
     let device_path = fp"sys/bus/usb/devices/${device.name}"
-    fs.root_mkdir(root, device_path, parents: true)?
-    fs.root_write(
-      root,
+    root.mkdir(device_path, parents: true)?
+    root.write(
       fp"${device_path}/busnum",
       f"""${device.bus}
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${device_path}/devnum",
       f"""${device.number}
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${device_path}/speed",
       f"""${device.speed}
 """,
     )?
   }
 
-  fs.root_mkdir(root, p"sys/bus/usb/devices/4-2:1.0")?
+  root.mkdir(p"sys/bus/usb/devices/4-2:1.0")?
   let devices = report_checks.read_usb_topology_reference(root)?
   test.eq(devices.len(), 3)?
   test.eq(devices[0].name, "4-2")?
   test.eq(devices[1].parent_name, "4-2")?
   test.eq(devices[1].port_path, "2.9")?
   test.eq(devices[2].is_root_hub, true)?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/bus/usb/devices/4-2/busnum",
     """5
 """,
@@ -540,53 +536,45 @@ test test_system_report_usb_ids_reference_scores_raw_ids_and_observed_labels [er
 
 test test_system_report_usb_ids_rooted_reference_reads_fixed_width_values [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   let device_path = p"sys/bus/usb/devices/4-2"
-  fs.root_mkdir(root, device_path, parents: true)?
-  fs.root_write(
-    root,
+  root.mkdir(device_path, parents: true)?
+  root.write(
     fp"${device_path}/idVendor",
     """05e3
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${device_path}/idProduct",
     """0625
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${device_path}/bcdDevice",
     """9406
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${device_path}/bDeviceClass",
     """09
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${device_path}/bDeviceSubClass",
     """00
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${device_path}/bDeviceProtocol",
     """03
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${device_path}/manufacturer",
     """GenesysLogic
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${device_path}/product",
     """USB3.2 Hub
 """,
@@ -598,8 +586,7 @@ test test_system_report_usb_ids_rooted_reference_reads_fixed_width_values [fs, e
   test.eq(devices[0].device_version, {value: "9406", complete: true})?
   test.eq(devices[0].class_code, {value: 9, complete: true})?
   test.eq(devices[0].manufacturer, {value: "GenesysLogic", complete: true})?
-  fs.root_write(
-    root,
+  root.write(
     fp"${device_path}/bDeviceClass",
     """9
 """,
@@ -667,35 +654,30 @@ test test_system_report_usb_power_number_reference_keeps_signed_autosuspend_dela
 
 test test_system_report_usb_power_rooted_reference_reads_runtime_and_configuration [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   let device_path = p"sys/bus/usb/devices/4-2"
-  fs.root_mkdir(root, fp"${device_path}/power", parents: true)?
-  fs.root_write(
-    root,
+  root.mkdir(fp"${device_path}/power", parents: true)?
+  root.write(
     fp"${device_path}/power/control",
     """auto
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${device_path}/power/autosuspend_delay_ms",
     """-1
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${device_path}/power/runtime_status",
     """active
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${device_path}/bNumConfigurations",
     """2
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${device_path}/bConfigurationValue",
     """1
 """,
@@ -706,8 +688,7 @@ test test_system_report_usb_power_rooted_reference_reads_runtime_and_configurati
   test.eq(devices[0].autosuspend_delay_ms, {value: -1, complete: true})?
   test.eq(devices[0].runtime_status, {value: "active", complete: true})?
   test.eq(devices[0].configuration_count, {value: 2, complete: true})?
-  fs.root_write(
-    root,
+  root.write(
     fp"${device_path}/bNumConfigurations",
     """-1
 """,
@@ -846,61 +827,53 @@ test test_system_report_usb_interface_reference_selects_active_alternate_from_av
 
 test test_system_report_usb_interface_rooted_reference_reads_driver_active_class_and_descriptors [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   let device_path = p"sys/bus/usb/devices/4-2"
   let interface_path = p"sys/bus/usb/devices/4-2:1.0"
-  fs.root_mkdir(root, device_path, parents: true)?
-  fs.root_mkdir(root, interface_path, parents: true)?
-  fs.root_write(
-    root,
+  root.mkdir(device_path, parents: true)?
+  root.mkdir(interface_path, parents: true)?
+  root.write(
     fp"${device_path}/descriptors",
     b"\t\x02\x19\0\x01\x01\0\x802\t\x04\0\0\x01\xff\0\0\0\x07\x05\x81\x02@\0\0",
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${interface_path}/bInterfaceNumber",
     """00
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${interface_path}/bAlternateSetting",
     """0
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${interface_path}/bInterfaceClass",
     """ff
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${interface_path}/bInterfaceSubClass",
     """00
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${interface_path}/bInterfaceProtocol",
     """00
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${interface_path}/bNumEndpoints",
     """01
 """,
   )?
-  fs.root_symlink(root, ../../drivers/usbhid, fp"${interface_path}/driver")?
+  root.symlink(../../drivers/usbhid, fp"${interface_path}/driver")?
   let rows = report_checks.read_usb_interface_reference(root)?
   test.eq(rows.len(), 1)?
   test.eq(rows[0].driver, {value: "usbhid", complete: true})?
   test.eq(rows[0].active_class, {value: 255, complete: true})?
   test.eq(rows[0].active_endpoint_count, {value: 1, complete: true})?
   test.eq(rows[0].settings[0].endpoints[0].address, 129)?
-  fs.root_write(
-    root,
+  root.write(
     fp"${interface_path}/bInterfaceNumber",
     """01
 """,
@@ -991,23 +964,20 @@ test test_system_report_power_supply_number_reference_keeps_signed_current_and_e
 
 test test_system_report_power_supply_rooted_reference_reads_signed_current_and_missing_fields [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   let battery = p"sys/class/power_supply/BAT0"
-  fs.root_mkdir(root, battery, parents: true)?
-  fs.root_write(
-    root,
+  root.mkdir(battery, parents: true)?
+  root.write(
     fp"${battery}/type",
     """Battery
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${battery}/capacity",
     """68
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${battery}/current_now",
     """-250000
 """,
@@ -1018,8 +988,7 @@ test test_system_report_power_supply_rooted_reference_reads_signed_current_and_m
   test.eq(supplies[0].capacity_percent, {value: 68, complete: true})?
   test.eq(supplies[0].current_now_ua, {value: -250000, complete: true})?
   test.eq(supplies[0].energy_now_uwh, {value: null, complete: true})?
-  fs.root_write(
-    root,
+  root.write(
     fp"${battery}/capacity",
     """101
 """,
@@ -1029,13 +998,13 @@ test test_system_report_power_supply_rooted_reference_reads_signed_current_and_m
 
 test test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_tampering [fs, process, time, error] { |ctx|
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let battery = p"sys/devices/platform/example/power_supply/BAT0"
-  fs.root_mkdir(source, battery, parents: true)?
-  fs.root_mkdir(source, p"sys/class/power_supply", parents: true)?
-  fs.root_symlink(source, ../../devices/platform/example/power_supply/BAT0, p"sys/class/power_supply/BAT0")?
+  source.mkdir(battery, parents: true)?
+  source.mkdir(p"sys/class/power_supply", parents: true)?
+  source.symlink(../../devices/platform/example/power_supply/BAT0, p"sys/class/power_supply/BAT0")?
   for item in [
     {
       name: "type",
@@ -1093,21 +1062,20 @@ test test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_t
 """,
     },
   ] {
-    fs.root_write(source, fp"${battery}/${item.name}", item.value)?
+    source.write(fp"${battery}/${item.name}", item.value)?
   }
 
   report_checks.capture_power_supply_bundle(source, bundle, "synthetic_fixture")?
   let replay = report_checks.replay_power_supply_bundle(bundle)?
   test.ok(replay.exact)?
   test.eq(replay.matched_count, 1)?
-  let bundle_path = fs.root_path(bundle)?
+  let bundle_path = bundle.host_path()?
   let output = test.temp_path(ctx, name: "power-supply-replay.stdout")
   let stderr = test.temp_path(ctx, name: "power-supply-replay.stderr")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-power-supply-bundle $bundle_path > $output 2> $stderr
   test.ok(status.exited_with(0), stderr.read_text()?)?
   test.contains(output.read_text()?, "power supply raw replay: exact")?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${battery}/energy_now",
     """51000000
 """,
@@ -1117,11 +1085,11 @@ test test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_t
 
 test test_system_report_power_supply_bundle_keeps_absent_class_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   report_checks.capture_power_supply_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"listing_state\": \"absent\"")?
   test.contains(metadata, "\"scoreable\": false")?
   test.error_kind(report_checks.validate_power_supply_bundle(bundle), "SystemReportCheckError.Invalid")?
@@ -1129,29 +1097,28 @@ test test_system_report_power_supply_bundle_keeps_absent_class_unscoreable [fs, 
 
 test test_system_report_power_supply_bundle_keeps_missing_type_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/class/power_supply/BAT0", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"sys/class/power_supply/BAT0", parents: true)?
+  source.write(
     p"sys/class/power_supply/BAT0/status",
     """Charging
 """,
   )?
   report_checks.capture_power_supply_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"scoreable\": false")?
   test.error_kind(report_checks.validate_power_supply_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_power_supply_bundle_rejects_escaping_class_link [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/class/power_supply", parents: true)?
-  fs.root_symlink(source, ../../devices/../rogue/BAT0, p"sys/class/power_supply/BAT0")?
+  defer bundle.close()?
+  source.mkdir(p"sys/class/power_supply", parents: true)?
+  source.symlink(../../devices/../rogue/BAT0, p"sys/class/power_supply/BAT0")?
   test.error_kind(
     report_checks.capture_power_supply_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -1282,59 +1249,51 @@ test test_system_report_powercap_reference_scores_nested_zones_constraints_and_c
 
 test test_system_report_powercap_rooted_reference_keeps_zone_parent_and_sparse_constraint_indices [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   let package = p"sys/class/powercap/intel-rapl:0"
   let core = fp"${package}/intel-rapl:0:0"
-  fs.root_mkdir(root, core, parents: true)?
-  fs.root_write(
-    root,
+  root.mkdir(core, parents: true)?
+  root.write(
     fp"${package}/name",
     """package-0
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${package}/energy_uj",
     """100
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${package}/max_energy_range_uj",
     """1000
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${package}/constraint_0_power_limit_uw",
     """45000000
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${package}/constraint_0_name",
     """long_term
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${package}/constraint_0_time_window_us",
     """1000000
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${package}/constraint_10_power_limit_uw",
     """80000000
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${core}/name",
     """core-0
 """,
   )?
-  fs.root_symlink(root, p"intel-rapl:0/intel-rapl:0:0", p"sys/class/powercap/intel-rapl:0:0")?
+  root.symlink(p"intel-rapl:0/intel-rapl:0:0", p"sys/class/powercap/intel-rapl:0:0")?
   let zones = report_checks.read_powercap_reference(root)?
   test.eq(zones.len(), 2)?
   let package_zone = (zones
@@ -1345,8 +1304,7 @@ test test_system_report_powercap_rooted_reference_keeps_zone_parent_and_sparse_c
     |> first())?
   test.eq(package_zone.constraints |> map .index, [0, 10])?
   test.eq(core_zone.parent, {value: "intel-rapl:0", complete: true})?
-  fs.root_write(
-    root,
+  root.write(
     fp"${package}/constraint_10_power_limit_uw",
     """-1
 """,
@@ -1356,62 +1314,54 @@ test test_system_report_powercap_rooted_reference_keeps_zone_parent_and_sparse_c
 
 test test_system_report_powercap_capture_replays_nested_zones_and_rejects_tampering [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let package = p"sys/devices/virtual/powercap/intel-rapl/intel-rapl:0"
   let core = fp"${package}/intel-rapl:0:0"
-  fs.root_mkdir(source, core, parents: true)?
-  fs.root_mkdir(source, p"sys/class/powercap", parents: true)?
-  fs.root_write(
-    source,
+  source.mkdir(core, parents: true)?
+  source.mkdir(p"sys/class/powercap", parents: true)?
+  source.write(
     fp"${package}/name",
     """package-0
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${package}/energy_uj",
     """100
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${package}/max_energy_range_uj",
     """1000
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${package}/constraint_10_power_limit_uw",
     """80000000
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${package}/constraint_10_name",
     """long_term
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${core}/name",
     """core-0
 """,
   )?
-  fs.root_symlink(source, ../../devices/virtual/powercap/intel-rapl/intel-rapl:0, p"sys/class/powercap/intel-rapl:0")?
-  fs.root_symlink(
-    source,
+  source.symlink(../../devices/virtual/powercap/intel-rapl/intel-rapl:0, p"sys/class/powercap/intel-rapl:0")?
+  source.symlink(
     ../../devices/virtual/powercap/intel-rapl/intel-rapl:0/intel-rapl:0:0,
     p"sys/class/powercap/intel-rapl:0:0",
   )?
   report_checks.capture_powercap_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"reference_adapter\": \"powercap-raw-v1\"")?
   test.ok(report_checks.replay_powercap_bundle(bundle)?.exact)?
   test.eq(report_checks.validate_powercap_bundle(bundle)?.len(), 2)?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${package}/constraint_10_power_limit_uw",
     """80000001
 """,
@@ -1421,28 +1371,27 @@ test test_system_report_powercap_capture_replays_nested_zones_and_rejects_tamper
 
 test test_system_report_powercap_capture_preserves_absence_and_rejects_unrelated_links [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   report_checks.capture_powercap_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"listing_state\": \"absent\"")?
   test.contains(metadata, "\"scoreable\": false")?
-  test.ok(! fs.root_exists(bundle, p"sys/class/powercap")?)?
+  test.ok(! bundle.exists(p"sys/class/powercap")?)?
   test.error_kind(report_checks.validate_powercap_bundle(bundle), "SystemReportCheckError.Invalid")?
   let rogue = p"sys/devices/virtual/rogue"
-  fs.root_mkdir(source, rogue, parents: true)?
-  fs.root_mkdir(source, p"sys/devices/virtual/powercap", parents: true)?
-  fs.root_write(
-    source,
+  source.mkdir(rogue, parents: true)?
+  source.mkdir(p"sys/devices/virtual/powercap", parents: true)?
+  source.write(
     fp"${rogue}/name",
     """rogue
 """,
   )?
-  fs.root_mkdir(source, p"sys/class/powercap", parents: true)?
-  fs.root_symlink(source, ../../devices/virtual/powercap/../rogue, p"sys/class/powercap/rogue")?
+  source.mkdir(p"sys/class/powercap", parents: true)?
+  source.symlink(../../devices/virtual/powercap/../rogue, p"sys/class/powercap/rogue")?
   let second_bundle = fs.tempdir()?
-  defer fs.close_root(second_bundle)?
+  defer second_bundle.close()?
   test.error_kind(
     report_checks.capture_powercap_bundle(source, second_bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -1451,13 +1400,13 @@ test test_system_report_powercap_capture_preserves_absence_and_rejects_unrelated
 
 test test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampering [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let device = p"sys/devices/pci0000:00/0000:00:1f.0"
-  fs.root_mkdir(source, device, parents: true)?
-  fs.root_mkdir(source, p"sys/bus/pci/devices", parents: true)?
-  fs.root_symlink(source, ../../../devices/pci0000:00/0000:00:1f.0, p"sys/bus/pci/devices/0000:00:1f.0")?
+  source.mkdir(device, parents: true)?
+  source.mkdir(p"sys/bus/pci/devices", parents: true)?
+  source.symlink(../../../devices/pci0000:00/0000:00:1f.0, p"sys/bus/pci/devices/0000:00:1f.0")?
   for item in [
     {
       name: "vendor",
@@ -1515,94 +1464,84 @@ test test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampe
 """,
     },
   ] {
-    fs.root_write(source, fp"${device}/${item.name}", item.value)?
+    source.write(fp"${device}/${item.name}", item.value)?
   }
 
-  fs.root_symlink(source, ../../../bus/pci/drivers/example, fp"${device}/driver")?
-  fs.root_symlink(source, ../../../kernel/iommu_groups/7, fp"${device}/iommu_group")?
+  source.symlink(../../../bus/pci/drivers/example, fp"${device}/driver")?
+  source.symlink(../../../kernel/iommu_groups/7, fp"${device}/iommu_group")?
   report_checks.capture_pci_bundle(source, bundle, "synthetic_fixture")?
   let replay = report_checks.replay_pci_bundle(bundle)?
   test.ok(replay.identity.exact_static)?
   test.ok(replay.binding.exact)?
   test.ok(replay.link.exact)?
   test.eq(replay.identity.matched_count, 1)?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${device}/vendor",
     """0x8087
 """,
   )?
   test.error_kind(report_checks.validate_pci_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${device}/vendor",
     """0x8086
 """,
   )?
-  fs.root_remove(bundle, fp"${device}/current_link_width")?
+  bundle.remove(fp"${device}/current_link_width")?
   test.error_kind(report_checks.validate_pci_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_hwmon_capture_replays_raw_channels_and_rejects_tampering [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let chip = p"sys/devices/platform/example/hwmon/hwmon3"
-  fs.root_mkdir(source, chip, parents: true)?
-  fs.root_mkdir(source, p"sys/class/hwmon", parents: true)?
-  fs.root_symlink(source, ../../devices/platform/example/hwmon/hwmon3, p"sys/class/hwmon/hwmon3")?
-  fs.root_write(
-    source,
+  source.mkdir(chip, parents: true)?
+  source.mkdir(p"sys/class/hwmon", parents: true)?
+  source.symlink(../../devices/platform/example/hwmon/hwmon3, p"sys/class/hwmon/hwmon3")?
+  source.write(
     fp"${chip}/name",
     """example
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${chip}/temp1_input",
     """42000
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${chip}/temp1_label",
     """package
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${chip}/temp1_min",
     """10000
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${chip}/temp1_max",
     """75000
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${chip}/temp1_crit",
     """95000
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${chip}/temp1_alarm",
     """0
 """,
   )?
   report_checks.capture_hwmon_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"reference_adapter\": \"hwmon-sysfs-raw-v1\"")?
   test.contains(metadata, "\"scoreable\": true")?
   let replay = report_checks.replay_hwmon_bundle(bundle)?
   test.ok(replay.exact)?
   test.eq(replay.matched_count, 1)?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${chip}/temp1_input",
     """43000
 """,
@@ -1612,18 +1551,18 @@ test test_system_report_hwmon_capture_replays_raw_channels_and_rejects_tampering
 
 test test_system_report_hwmon_capture_rejects_escaping_class_link [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/class/hwmon", parents: true)?
-  fs.root_symlink(source, ../../devices/../rogue/hwmon3, p"sys/class/hwmon/hwmon3")?
+  defer bundle.close()?
+  source.mkdir(p"sys/class/hwmon", parents: true)?
+  source.symlink(../../devices/../rogue/hwmon3, p"sys/class/hwmon/hwmon3")?
   test.error_kind(
     report_checks.capture_hwmon_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
   )?
-  fs.root_remove(source, p"sys/class/hwmon/hwmon3")?
-  fs.root_mkdir(source, p"sys/class/hwmon/hwmon3")?
-  fs.root_symlink(source, ../../../etc, p"sys/class/hwmon/hwmon3/device")?
+  source.remove(p"sys/class/hwmon/hwmon3")?
+  source.mkdir(p"sys/class/hwmon/hwmon3")?
+  source.symlink(../../../etc, p"sys/class/hwmon/hwmon3/device")?
   test.error_kind(
     report_checks.capture_hwmon_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -1632,30 +1571,29 @@ test test_system_report_hwmon_capture_rejects_escaping_class_link [fs, time, err
 
 test test_system_report_hwmon_capture_keeps_absent_class_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   report_checks.capture_hwmon_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"listing_state\": \"absent\"")?
   test.contains(metadata, "\"scoreable\": false")?
-  test.ok(! fs.root_exists(bundle, p"sys/class/hwmon")?)?
+  test.ok(! bundle.exists(p"sys/class/hwmon")?)?
   test.error_kind(report_checks.validate_hwmon_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let disk = p"sys/devices/pci0000:00/0000:00:01.0/block/sda"
   let partition = fp"${disk}/sda3"
   let stacked = p"sys/devices/virtual/block/dm-0"
-  fs.root_mkdir(source, p"sys/class/block", parents: true)?
+  source.mkdir(p"sys/class/block", parents: true)?
   for device in [disk, partition, stacked] {
-    fs.root_mkdir(source, fp"${device}/holders", parents: true)?
-    fs.root_write(
-      source,
+    source.mkdir(fp"${device}/holders", parents: true)?
+    source.write(
       fp"${device}/ro",
       """0
 """,
@@ -1663,14 +1601,14 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
   }
 
   for device in [disk, stacked] {
-    fs.root_mkdir(source, fp"${device}/slaves", parents: true)?
+    source.mkdir(fp"${device}/slaves", parents: true)?
   }
 
-  fs.root_symlink(source, ../../devices/pci0000:00/0000:00:01.0/block/sda, p"sys/class/block/sda")?
-  fs.root_symlink(source, ../../devices/pci0000:00/0000:00:01.0/block/sda/sda3, p"sys/class/block/sda3")?
-  fs.root_symlink(source, ../../devices/virtual/block/dm-0, p"sys/class/block/dm-0")?
-  fs.root_symlink(source, ../../../../../virtual/block/dm-0, fp"${disk}/holders/dm-0")?
-  fs.root_symlink(source, ../../../../pci0000:00/0000:00:01.0/block/sda, fp"${stacked}/slaves/sda")?
+  source.symlink(../../devices/pci0000:00/0000:00:01.0/block/sda, p"sys/class/block/sda")?
+  source.symlink(../../devices/pci0000:00/0000:00:01.0/block/sda/sda3, p"sys/class/block/sda3")?
+  source.symlink(../../devices/virtual/block/dm-0, p"sys/class/block/dm-0")?
+  source.symlink(../../../../../virtual/block/dm-0, fp"${disk}/holders/dm-0")?
+  source.symlink(../../../../pci0000:00/0000:00:01.0/block/sda, fp"${stacked}/slaves/sda")?
   for item in [
     {
       device: disk,
@@ -1694,17 +1632,16 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
 """,
     },
   ] {
-    fs.root_write(source, fp"${item.device}/dev", item.dev)?
-    fs.root_write(source, fp"${item.device}/size", item.size)?
+    source.write(fp"${item.device}/dev", item.dev)?
+    source.write(fp"${item.device}/size", item.size)?
   }
 
-  fs.root_write(
-    source,
+  source.write(
     fp"${partition}/partition",
     """3
 """,
   )?
-  fs.root_mkdir(source, fp"${disk}/queue", parents: true)?
+  source.mkdir(fp"${disk}/queue", parents: true)?
   for item in [
     {
       name: "logical_block_size",
@@ -1742,17 +1679,15 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
 """,
     },
   ] {
-    fs.root_write(source, fp"${disk}/queue/${item.name}", item.value)?
+    source.write(fp"${disk}/queue/${item.name}", item.value)?
   }
 
-  fs.root_write(
-    source,
+  source.write(
     fp"${disk}/removable",
     """0
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${disk}/stat",
     """10 0 8 1 2 0 16 2 0 3 4
 """,
@@ -1764,39 +1699,36 @@ test test_system_report_block_bundle_replays_sparse_partition_and_layered_edges 
   test.ok(replay.sources.exact)?
   test.eq(replay.identity.reference_count, 3)?
   test.eq(replay.identity.matched_edges, 2)?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${partition}/size",
     """129
 """,
   )?
   test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${partition}/size",
     """128
 """,
   )?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${partition}/queue/logical_block_size",
     """512
 """,
   )?
   test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_remove(bundle, fp"${partition}/queue/logical_block_size")?
-  fs.root_remove(bundle, fp"${disk}/holders/dm-0")?
-  fs.root_symlink(bundle, ../../dm-1, fp"${disk}/holders/dm-0")?
+  bundle.remove(fp"${partition}/queue/logical_block_size")?
+  bundle.remove(fp"${disk}/holders/dm-0")?
+  bundle.symlink(../../dm-1, fp"${disk}/holders/dm-0")?
   test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_block_bundle_rejects_escaping_class_link [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/class/block", parents: true)?
-  fs.root_symlink(source, ../../devices/../rogue/sda, p"sys/class/block/sda")?
+  defer bundle.close()?
+  source.mkdir(p"sys/class/block", parents: true)?
+  source.symlink(../../devices/../rogue/sda, p"sys/class/block/sda")?
   test.error_kind(
     report_checks.capture_block_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -1805,20 +1737,20 @@ test test_system_report_block_bundle_rejects_escaping_class_link [fs, time, erro
 
 test test_system_report_block_bundle_rejects_misdirected_layer_link [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/class/block/sda/holders", parents: true)?
-  fs.root_mkdir(source, p"sys/class/block/sda/slaves")?
-  fs.root_mkdir(source, p"sys/class/block/dm-0/holders", parents: true)?
-  fs.root_mkdir(source, p"sys/class/block/dm-0/slaves")?
-  fs.root_symlink(source, ../../dm-1, p"sys/class/block/sda/holders/dm-0")?
+  defer bundle.close()?
+  source.mkdir(p"sys/class/block/sda/holders", parents: true)?
+  source.mkdir(p"sys/class/block/sda/slaves")?
+  source.mkdir(p"sys/class/block/dm-0/holders", parents: true)?
+  source.mkdir(p"sys/class/block/dm-0/slaves")?
+  source.symlink(../../dm-1, p"sys/class/block/sda/holders/dm-0")?
   test.error_kind(
     report_checks.capture_block_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
   )?
-  fs.root_remove(source, p"sys/class/block/sda/holders/dm-0")?
-  fs.root_symlink(source, ../../rogue/dm-0, p"sys/class/block/sda/holders/dm-0")?
+  source.remove(p"sys/class/block/sda/holders/dm-0")?
+  source.symlink(../../rogue/dm-0, p"sys/class/block/sda/holders/dm-0")?
   test.error_kind(
     report_checks.capture_block_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -1827,11 +1759,11 @@ test test_system_report_block_bundle_rejects_misdirected_layer_link [fs, time, e
 
 test test_system_report_block_bundle_keeps_absent_class_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   report_checks.capture_block_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"listing_state\": \"absent\"")?
   test.contains(metadata, "\"scoreable\": false")?
   test.error_kind(report_checks.validate_block_bundle(bundle), "SystemReportCheckError.Invalid")?
@@ -1891,11 +1823,11 @@ test test_system_report_block_raw_reference_checks_each_layer_direction [error] 
 
 test test_system_report_pci_capture_rejects_bus_link_outside_devices_tree [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/bus/pci/devices", parents: true)?
-  fs.root_symlink(source, ../../../devices/../rogue/0000:00:1f.0, p"sys/bus/pci/devices/0000:00:1f.0")?
+  defer bundle.close()?
+  source.mkdir(p"sys/bus/pci/devices", parents: true)?
+  source.symlink(../../../devices/../rogue/0000:00:1f.0, p"sys/bus/pci/devices/0000:00:1f.0")?
   test.error_kind(
     report_checks.capture_pci_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -1904,13 +1836,13 @@ test test_system_report_pci_capture_rejects_bus_link_outside_devices_tree [fs, t
 
 test test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored [fs, process, time, error] { |ctx|
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let device = p"sys/devices/pci0000:00/0000:00:1f.0"
-  fs.root_mkdir(source, device, parents: true)?
-  fs.root_mkdir(source, p"sys/bus/pci/devices", parents: true)?
-  fs.root_symlink(source, ../../../devices/pci0000:00/0000:00:1f.0, p"sys/bus/pci/devices/0000:00:1f.0")?
+  source.mkdir(device, parents: true)?
+  source.mkdir(p"sys/bus/pci/devices", parents: true)?
+  source.symlink(../../../devices/pci0000:00/0000:00:1f.0, p"sys/bus/pci/devices/0000:00:1f.0")?
   for item in [
     {
       name: "vendor",
@@ -1943,7 +1875,7 @@ test test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored [fs, p
 """,
     },
   ] {
-    fs.root_write(source, fp"${device}/${item.name}", item.value)?
+    source.write(fp"${device}/${item.name}", item.value)?
   }
 
   report_checks.capture_pci_bundle(source, bundle, "synthetic_fixture")?
@@ -1952,7 +1884,7 @@ test test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored [fs, p
   test.ok(replay.binding.exact)?
   test.ok(! replay.link.eligible)?
   test.ok(! replay.link.exact)?
-  let bundle_path = fs.root_path(bundle)?
+  let bundle_path = bundle.host_path()?
   let output = test.temp_path(ctx, name: "pci-unavailable.stdout")
   let stderr = test.temp_path(ctx, name: "pci-unavailable.stderr")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-pci-bundle $bundle_path > $output 2> $stderr
@@ -1962,19 +1894,19 @@ test test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored [fs, p
 
 test test_system_report_usb_capture_replays_raw_devices_interfaces_and_rejects_tampering [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let device = p"sys/devices/pci0000:00/0000:00:14.0/usb1"
   let interface = p"sys/devices/pci0000:00/0000:00:14.0/usb1/usb1:1.0"
   let root_interface = p"sys/devices/pci0000:00/0000:00:14.0/usb1/1-0:1.0"
-  fs.root_mkdir(source, interface, parents: true)?
-  fs.root_mkdir(source, root_interface)?
-  fs.root_mkdir(source, p"sys/bus/usb/devices", parents: true)?
-  fs.root_mkdir(source, fp"${device}/power", parents: true)?
-  fs.root_symlink(source, ../../../devices/pci0000:00/0000:00:14.0/usb1, p"sys/bus/usb/devices/usb1")?
-  fs.root_symlink(source, ../../../devices/pci0000:00/0000:00:14.0/usb1/usb1:1.0, p"sys/bus/usb/devices/usb1:1.0")?
-  fs.root_symlink(source, ../../../devices/pci0000:00/0000:00:14.0/usb1/1-0:1.0, p"sys/bus/usb/devices/1-0:1.0")?
+  source.mkdir(interface, parents: true)?
+  source.mkdir(root_interface)?
+  source.mkdir(p"sys/bus/usb/devices", parents: true)?
+  source.mkdir(fp"${device}/power", parents: true)?
+  source.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1, p"sys/bus/usb/devices/usb1")?
+  source.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1/usb1:1.0, p"sys/bus/usb/devices/usb1:1.0")?
+  source.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1/1-0:1.0, p"sys/bus/usb/devices/1-0:1.0")?
   for item in [
     {
       name: "busnum",
@@ -2057,53 +1989,49 @@ test test_system_report_usb_capture_replays_raw_devices_interfaces_and_rejects_t
 """,
     },
   ] {
-    fs.root_write(source, fp"${device}/${item.name}", item.value)?
+    source.write(fp"${device}/${item.name}", item.value)?
   }
 
-  fs.root_write(source, fp"${device}/descriptors", b"")?
-  fs.root_write(
-    source,
+  source.write(fp"${device}/descriptors", b"")?
+  source.write(
     fp"${interface}/bInterfaceNumber",
     """00
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${interface}/bAlternateSetting",
     """0
 """,
   )?
-  fs.root_symlink(source, ../../../bus/usb/drivers/hub, fp"${interface}/driver")?
+  source.symlink(../../../bus/usb/drivers/hub, fp"${interface}/driver")?
   report_checks.capture_usb_bundle(source, bundle, "synthetic_fixture")?
   let replay = report_checks.replay_usb_bundle(bundle)?
   test.ok(replay.topology.exact)?
   test.ok(replay.ids.exact)?
   test.ok(replay.power.exact)?
   test.ok(replay.interface.exact)?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${device}/idVendor",
     """1d6c
 """,
   )?
   test.error_kind(report_checks.validate_usb_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${device}/idVendor",
     """1d6b
 """,
   )?
-  fs.root_write(bundle, fp"${device}/descriptors", b"corrupt")?
+  bundle.write(fp"${device}/descriptors", b"corrupt")?
   test.error_kind(report_checks.validate_usb_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_usb_capture_rejects_bus_link_outside_devices_tree [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/bus/usb/devices", parents: true)?
-  fs.root_symlink(source, ../../../devices/../rogue/usb1, p"sys/bus/usb/devices/usb1")?
+  defer bundle.close()?
+  source.mkdir(p"sys/bus/usb/devices", parents: true)?
+  source.symlink(../../../devices/../rogue/usb1, p"sys/bus/usb/devices/usb1")?
   test.error_kind(
     report_checks.capture_usb_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -2112,21 +2040,19 @@ test test_system_report_usb_capture_rejects_bus_link_outside_devices_tree [fs, t
 
 test test_system_report_usb_capture_keeps_unavailable_power_and_interfaces_unscored [fs, process, time, error] { |ctx|
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let device = p"sys/devices/pci0000:00/0000:00:14.0/usb1"
-  fs.root_mkdir(source, device, parents: true)?
-  fs.root_mkdir(source, p"sys/bus/usb/devices", parents: true)?
-  fs.root_symlink(source, ../../../devices/pci0000:00/0000:00:14.0/usb1, p"sys/bus/usb/devices/usb1")?
-  fs.root_write(
-    source,
+  source.mkdir(device, parents: true)?
+  source.mkdir(p"sys/bus/usb/devices", parents: true)?
+  source.symlink(../../../devices/pci0000:00/0000:00:14.0/usb1, p"sys/bus/usb/devices/usb1")?
+  source.write(
     fp"${device}/idVendor",
     """1d6b
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${device}/idProduct",
     """0002
 """,
@@ -2137,7 +2063,7 @@ test test_system_report_usb_capture_keeps_unavailable_power_and_interfaces_unsco
   test.ok(replay.ids.exact)?
   test.ok(! replay.power.eligible)?
   test.ok(! replay.interface.eligible)?
-  let bundle_path = fs.root_path(bundle)?
+  let bundle_path = bundle.host_path()?
   let output = test.temp_path(ctx, name: "usb-unavailable.stdout")
   let stderr = test.temp_path(ctx, name: "usb-unavailable.stderr")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-usb-bundle $bundle_path > $output 2> $stderr
@@ -2190,11 +2116,10 @@ test test_system_report_device_class_reference_scores_duplicate_labels_and_paren
 
 test test_system_report_device_class_rooted_reference_keeps_sysfs_entry_identity [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   for entry in ["card0", "card1"] {
-    fs.root_mkdir(root, fp"sys/class/sound/${entry}", parents: true)?
-    fs.root_write(
-      root,
+    root.mkdir(fp"sys/class/sound/${entry}", parents: true)?
+    root.write(
       fp"sys/class/sound/${entry}/id",
       """Shared label
 """,
@@ -2288,28 +2213,24 @@ test test_system_report_hwmon_reference_scores_duplicate_chip_names_and_raw_unit
 
 test test_system_report_hwmon_rooted_reference_reads_channel_attributes [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
-  fs.root_mkdir(root, p"sys/class/hwmon/hwmon0", parents: true)?
-  fs.root_write(
-    root,
+  defer root.close()?
+  root.mkdir(p"sys/class/hwmon/hwmon0", parents: true)?
+  root.write(
     p"sys/class/hwmon/hwmon0/name",
     """fixture
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/hwmon/hwmon0/temp1_input",
     """-5000
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/hwmon/hwmon0/temp1_max",
     """100000
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/hwmon/hwmon0/temp1_alarm",
     """1
 """,
@@ -2507,12 +2428,12 @@ End Of Table
 
 test test_system_report_smbios_rooted_reference_reads_only_exported_table [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   let absent = smbios_reference.read_smbios_reference(root)?
   test.ok(absent.absent)?
   let table = b"\x90\x06E#\xaa\xbb\0\0\x7f\x04\0\0\0\0"
-  fs.root_mkdir(root, p"sys/firmware/dmi/tables", parents: true)?
-  fs.root_write(root, p"sys/firmware/dmi/tables/DMI", table)?
+  root.mkdir(p"sys/firmware/dmi/tables", parents: true)?
+  root.write(p"sys/firmware/dmi/tables/DMI", table)?
   let observed = smbios_reference.read_smbios_reference(root)?
   test.ok(observed.complete)?
   test.eq(observed.data, table)?
@@ -2521,33 +2442,33 @@ test test_system_report_smbios_rooted_reference_reads_only_exported_table [fs, e
 
 test test_system_report_smbios_capture_validates_saved_raw_table_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let table = b"\x10\x0f\x01\0\0\0\0\0\0\0\0\0\0\x02\0\0\0\x7f\x04\0\0\0\0"
-  fs.root_mkdir(source, p"sys/firmware/dmi/tables", parents: true)?
-  fs.root_write(source, p"sys/firmware/dmi/tables/DMI", table)?
-  fs.root_write(source, p"sys/firmware/dmi/tables/smbios_entry_point", b"_SM_\x1f\0")?
+  source.mkdir(p"sys/firmware/dmi/tables", parents: true)?
+  source.write(p"sys/firmware/dmi/tables/DMI", table)?
+  source.write(p"sys/firmware/dmi/tables/smbios_entry_point", b"_SM_\x1f\0")?
   let captured = smbios_reference.capture_smbios_bundle(source, bundle, "synthetic_fixture")?
   test.ok(captured.stable)?
   test.ok(captured.scoreable)?
   test.eq(smbios_reference.validate_smbios_bundle(bundle)?.records[0].fields[1].value, 2)?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   let contradictory = json.set(json.decode(metadata)?, ["source", "error_kind"], "permission_denied")?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(contradictory)?)?
+  bundle.write_atomic(p"capture.json", json.encode(contradictory)?)?
   test.error_kind(smbios_reference.validate_smbios_bundle(bundle), "SmbiosCheckError.Invalid")?
-  fs.root_write_atomic(bundle, p"capture.json", metadata)?
+  bundle.write_atomic(p"capture.json", metadata)?
   let bad_entry = json.set(json.decode(metadata)?, ["entry_point", "errno"], 13)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(bad_entry)?)?
+  bundle.write_atomic(p"capture.json", json.encode(bad_entry)?)?
   test.error_kind(smbios_reference.validate_smbios_bundle(bundle), "SmbiosCheckError.Invalid")?
-  fs.root_write_atomic(bundle, p"capture.json", metadata)?
-  test.eq(fs.root_read_result(bundle, p"sys/firmware/dmi/tables/smbios_entry_point")?.data, b"_SM_\x1f\0")?
-  fs.root_write(source, p"sys/firmware/dmi/tables/DMI", b"changed")?
+  bundle.write_atomic(p"capture.json", metadata)?
+  test.eq(bundle.read_result(p"sys/firmware/dmi/tables/smbios_entry_point")?.data, b"_SM_\x1f\0")?
+  source.write(p"sys/firmware/dmi/tables/DMI", b"changed")?
   test.eq(smbios_reference.validate_smbios_bundle(bundle)?.records.len(), 2)?
-  fs.root_write(bundle, p"sys/firmware/dmi/tables/DMI", b"changed")?
+  bundle.write(p"sys/firmware/dmi/tables/DMI", b"changed")?
   test.error_kind(smbios_reference.validate_smbios_bundle(bundle), "SmbiosCheckError.Invalid")?
-  fs.root_write(bundle, p"sys/firmware/dmi/tables/DMI", table)?
-  fs.root_write(bundle, p"sys/firmware/dmi/tables/smbios_entry_point", b"changed")?
+  bundle.write(p"sys/firmware/dmi/tables/DMI", table)?
+  bundle.write(p"sys/firmware/dmi/tables/smbios_entry_point", b"changed")?
   test.error_kind(smbios_reference.validate_smbios_bundle(bundle), "SmbiosCheckError.Invalid")?
   test.error_kind(
     smbios_reference.capture_smbios_bundle(source, bundle, "synthetic_fixture"),
@@ -2557,53 +2478,52 @@ test test_system_report_smbios_capture_validates_saved_raw_table_and_oracle [fs,
 
 test test_system_report_smbios_capture_scores_table_without_optional_entry_point [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/firmware/dmi/tables", parents: true)?
-  fs.root_write(source, p"sys/firmware/dmi/tables/DMI", b"\x7f\x04\0\0\0\0")?
+  defer bundle.close()?
+  source.mkdir(p"sys/firmware/dmi/tables", parents: true)?
+  source.write(p"sys/firmware/dmi/tables/DMI", b"\x7f\x04\0\0\0\0")?
   test.ok(smbios_reference.capture_smbios_bundle(source, bundle, "synthetic_fixture")?.scoreable)?
   test.eq(smbios_reference.validate_smbios_bundle(bundle)?.records.len(), 1)?
-  test.contains(fs.root_read_text(bundle, p"capture.json")?, "\"path\": \"sys/firmware/dmi/tables/smbios_entry_point\"")?
+  test.contains(bundle.read_text(p"capture.json")?, "\"path\": \"sys/firmware/dmi/tables/smbios_entry_point\"")?
 }
 
 test test_system_report_smbios_capture_preserves_absent_source_without_scoring [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let captured = smbios_reference.capture_smbios_bundle(source, bundle, "synthetic_fixture")?
   test.ok(captured.stable)?
   test.eq(captured.scoreable, false)?
-  test.contains(fs.root_read_text(bundle, p"capture.json")?, "\"state\": \"absent\"")?
+  test.contains(bundle.read_text(p"capture.json")?, "\"state\": \"absent\"")?
   test.error_kind(smbios_reference.validate_smbios_bundle(bundle), "SmbiosCheckError.Invalid")?
 }
 
 test test_system_report_smbios_capture_replays_production_collector_from_raw_table [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/firmware/dmi/tables", parents: true)?
-  fs.root_write(source, p"sys/firmware/dmi/tables/DMI", b"\x90\x06E#\xaa\xbb\0\0\x7f\x04\0\0\0\0")?
+  defer bundle.close()?
+  source.mkdir(p"sys/firmware/dmi/tables", parents: true)?
+  source.write(p"sys/firmware/dmi/tables/DMI", b"\x90\x06E#\xaa\xbb\0\0\x7f\x04\0\0\0\0")?
   let _ = smbios_reference.capture_smbios_bundle(source, bundle, "synthetic_fixture")?
   test.ok(smbios_reference.replay_smbios_bundle(bundle)?.exact)?
 }
 
 test test_system_report_dmidecode_corroboration_records_opt_in_utility_provenance [fs, process, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let tool_root = fs.tempdir()?
-  defer fs.close_root(tool_root)?
+  defer tool_root.close()?
   let entry = bytes.from_ints([95, 83, 77, 51, 95, 59, 24, 3, 2, 0, 1, 0, 6, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0])?
-  fs.root_mkdir(source, p"sys/firmware/dmi/tables", parents: true)?
-  fs.root_write(source, p"sys/firmware/dmi/tables/DMI", b"\x7f\x04\0\0\0\0")?
-  fs.root_write(source, p"sys/firmware/dmi/tables/smbios_entry_point", entry)?
+  source.mkdir(p"sys/firmware/dmi/tables", parents: true)?
+  source.write(p"sys/firmware/dmi/tables/DMI", b"\x7f\x04\0\0\0\0")?
+  source.write(p"sys/firmware/dmi/tables/smbios_entry_point", entry)?
   let _ = smbios_reference.capture_smbios_bundle(source, bundle, "synthetic_fixture")?
-  fs.root_write(
-    tool_root,
+  tool_root.write(
     p"dmidecode",
     """#!/bin/sh
 if [ "$1" = "--version" ]; then
@@ -2616,17 +2536,17 @@ fi
 printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n    7F 04 00 00\n'
 """,
   )?
-  fs.root_chmod(tool_root, p"dmidecode", 0o700)?
-  let tool_path = fs.root_path(tool_root)?
+  tool_root.chmod(p"dmidecode", 0o700)?
+  let tool_path = tool_root.host_path()?
   let result = smbios_reference.corroborate_smbios_bundle(bundle, fp"${tool_path}/dmidecode".display())?
   test.ok(result.comparison.exact)?
   test.eq(result.comparison.reference_count, 1)?
-  let metadata = fs.root_read_text(bundle, p"dmidecode-reference.json")?
+  let metadata = bundle.read_text(p"dmidecode-reference.json")?
   test.contains(metadata, "\"reference_adapter\": \"dmidecode-hex-v1\"")?
   test.contains(metadata, "\"source_mode\": \"captured_replay\"")?
   test.contains(metadata, "\"origin\": \"synthetic_fixture\"")?
   test.contains(metadata, "\"exit_status\": 0")?
-  test.contains(fs.root_read_text(bundle, p"dmidecode-output.txt")?, "Handle 0x0000")?
+  test.contains(bundle.read_text(p"dmidecode-output.txt")?, "Handle 0x0000")?
   test.error_kind(
     smbios_reference.corroborate_smbios_bundle(bundle, fp"${tool_path}/dmidecode".display()),
     "SmbiosCheckError.Invalid",
@@ -2635,23 +2555,22 @@ printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n
 
 test test_system_report_dmidecode_corroboration_rejects_changed_capture_origin [fs, process, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let tool_root = fs.tempdir()?
-  defer fs.close_root(tool_root)?
+  defer tool_root.close()?
   let entry = bytes.from_ints([95, 83, 77, 51, 95, 59, 24, 3, 2, 0, 1, 0, 6, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0])?
-  fs.root_mkdir(source, p"sys/firmware/dmi/tables", parents: true)?
-  fs.root_write(source, p"sys/firmware/dmi/tables/DMI", b"\x7f\x04\0\0\0\0")?
-  fs.root_write(source, p"sys/firmware/dmi/tables/smbios_entry_point", entry)?
+  source.mkdir(p"sys/firmware/dmi/tables", parents: true)?
+  source.write(p"sys/firmware/dmi/tables/DMI", b"\x7f\x04\0\0\0\0")?
+  source.write(p"sys/firmware/dmi/tables/smbios_entry_point", entry)?
   let _ = smbios_reference.capture_smbios_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = json.decode(fs.root_read_text(bundle, p"capture.json")?)?
+  let metadata = json.decode(bundle.read_text(p"capture.json")?)?
   let changed = json.set(metadata, ["origin"], "live_capture")?
-  fs.root_write_atomic(tool_root, p"changed-capture.json", json.encode(changed)?)?
-  let bundle_path = fs.root_path(bundle)?
-  let tool_path = fs.root_path(tool_root)?
-  fs.root_write(
-    tool_root,
+  tool_root.write_atomic(p"changed-capture.json", json.encode(changed)?)?
+  let bundle_path = bundle.host_path()?
+  let tool_path = tool_root.host_path()?
+  tool_root.write(
     p"dmidecode",
     f"""#!/bin/sh
 if [ "$1" = "--version" ]; then
@@ -2662,59 +2581,57 @@ fi
 printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n    7F 04 00 00\n'
 """,
   )?
-  fs.root_chmod(tool_root, p"dmidecode", 0o700)?
+  tool_root.chmod(p"dmidecode", 0o700)?
   test.error_kind(
     smbios_reference.corroborate_smbios_bundle(bundle, fp"${tool_path}/dmidecode".display()),
     "SmbiosCheckError.Invalid",
   )?
-  test.ok(! fs.root_exists(bundle, p"dmidecode-comparison.json")?)?
+  test.ok(! bundle.exists(p"dmidecode-comparison.json")?)?
 }
 
 test test_system_report_dmidecode_version_failure_keeps_reference_provenance [fs, process, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let tool_root = fs.tempdir()?
-  defer fs.close_root(tool_root)?
+  defer tool_root.close()?
   let entry = bytes.from_ints([95, 83, 77, 51, 95, 59, 24, 3, 2, 0, 1, 0, 6, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0])?
-  fs.root_mkdir(source, p"sys/firmware/dmi/tables", parents: true)?
-  fs.root_write(source, p"sys/firmware/dmi/tables/DMI", b"\x7f\x04\0\0\0\0")?
-  fs.root_write(source, p"sys/firmware/dmi/tables/smbios_entry_point", entry)?
+  source.mkdir(p"sys/firmware/dmi/tables", parents: true)?
+  source.write(p"sys/firmware/dmi/tables/DMI", b"\x7f\x04\0\0\0\0")?
+  source.write(p"sys/firmware/dmi/tables/smbios_entry_point", entry)?
   let _ = smbios_reference.capture_smbios_bundle(source, bundle, "synthetic_fixture")?
-  fs.root_write(
-    tool_root,
+  tool_root.write(
     p"dmidecode",
     """#!/bin/sh
 printf 'unsupported version probe\n' >&2
 exit 2
 """,
   )?
-  fs.root_chmod(tool_root, p"dmidecode", 0o700)?
-  let tool_path = fs.root_path(tool_root)?
+  tool_root.chmod(p"dmidecode", 0o700)?
+  let tool_path = tool_root.host_path()?
   test.error_kind(
     smbios_reference.corroborate_smbios_bundle(bundle, fp"${tool_path}/dmidecode".display()),
     "SmbiosCheckError.Invalid",
   )?
-  test.contains(fs.root_read_text(bundle, p"dmidecode-probe.json")?, "\"version_exit_status\": 2")?
-  test.contains(fs.root_read_text(bundle, p"dmidecode-version-error.txt")?, "unsupported version probe")?
-  test.ok(! fs.root_exists(bundle, p"dmidecode-comparison.json")?)?
+  test.contains(bundle.read_text(p"dmidecode-probe.json")?, "\"version_exit_status\": 2")?
+  test.contains(bundle.read_text(p"dmidecode-version-error.txt")?, "unsupported version probe")?
+  test.ok(! bundle.exists(p"dmidecode-comparison.json")?)?
 }
 
 test test_system_report_dmidecode_cli_runs_only_on_explicit_captured_bundle [fs, process, time, error] { |ctx|
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let tool_root = fs.tempdir()?
-  defer fs.close_root(tool_root)?
+  defer tool_root.close()?
   let entry = bytes.from_ints([95, 83, 77, 51, 95, 59, 24, 3, 2, 0, 1, 0, 6, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0])?
-  fs.root_mkdir(source, p"sys/firmware/dmi/tables", parents: true)?
-  fs.root_write(source, p"sys/firmware/dmi/tables/DMI", b"\x7f\x04\0\0\0\0")?
-  fs.root_write(source, p"sys/firmware/dmi/tables/smbios_entry_point", entry)?
+  source.mkdir(p"sys/firmware/dmi/tables", parents: true)?
+  source.write(p"sys/firmware/dmi/tables/DMI", b"\x7f\x04\0\0\0\0")?
+  source.write(p"sys/firmware/dmi/tables/smbios_entry_point", entry)?
   let _ = smbios_reference.capture_smbios_bundle(source, bundle, "synthetic_fixture")?
-  fs.root_write(
-    tool_root,
+  tool_root.write(
     p"dmidecode",
     """#!/bin/sh
 if [ "$1" = "--version" ]; then
@@ -2724,44 +2641,40 @@ fi
 printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n    7F 04 00 00\n'
 """,
   )?
-  fs.root_chmod(tool_root, p"dmidecode", 0o700)?
-  let bundle_path = fs.root_path(bundle)?
-  let tool_root_path = fs.root_path(tool_root)?
+  tool_root.chmod(p"dmidecode", 0o700)?
+  let bundle_path = bundle.host_path()?
+  let tool_root_path = tool_root.host_path()?
   let executable = fp"${tool_root_path}/dmidecode"
   let output = test.temp_path(ctx, name: "system-report-dmidecode.stdout")
   let stderr = test.temp_path(ctx, name: "system-report-dmidecode.stderr")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --corroborate-smbios-bundle $bundle_path --dmidecode-bin $executable > $output 2> $stderr
   test.ok(status.exited_with(0), stderr.read_text()?)?
   test.contains(output.read_text()?, "firmware.dmidecode:")?
-  test.contains(fs.root_read_text(bundle, p"dmidecode-comparison.json")?, "\"exact\": true")?
+  test.contains(bundle.read_text(p"dmidecode-comparison.json")?, "\"exact\": true")?
 }
 
 test test_system_report_cpufreq_rooted_reference_reads_every_policy [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   for policy_name in ["policy3", "policy9"] {
     let base = fp"sys/devices/system/cpu/cpufreq/${policy_name}"
-    fs.root_mkdir(root, base, parents: true)?
-    fs.root_write(
-      root,
+    root.mkdir(base, parents: true)?
+    root.write(
       fp"${base}/related_cpus",
       """0 2
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/affected_cpus",
       """0
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/scaling_driver",
       """fixture-driver
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/scaling_governor",
       if policy_name == "policy9" {
   """userspace
@@ -2771,72 +2684,62 @@ test test_system_report_cpufreq_rooted_reference_reads_every_policy [fs, error] 
 """
 },
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/cpuinfo_min_freq",
       """800000
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/cpuinfo_max_freq",
       """4000000
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/scaling_min_freq",
       """1000000
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/scaling_max_freq",
       """3000000
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/cpuinfo_cur_freq",
       """1800000
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/scaling_cur_freq",
       """1700000
 """,
     )?
     if policy_name == "policy9" {
-      fs.root_write(
-        root,
+      root.write(
         fp"${base}/scaling_setspeed",
         """1900000
 """,
       )?
     }
 
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/energy_performance_preference",
       """balance_performance
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/energy_performance_available_preferences",
       """performance balance_performance
 """,
     )?
   }
 
-  fs.root_write(
-    root,
+  root.write(
     p"sys/devices/system/cpu/cpufreq/boost",
     """1
 """,
   )?
-  test.eq(fs.root_children(root, p"sys/devices/system/cpu/cpufreq", max_entries: 1024)?.state, "complete")?
+  test.eq(root.children(p"sys/devices/system/cpu/cpufreq", max_entries: 1024)?.state, "complete")?
   let reference = report_checks.read_cpufreq_policy_reference(root)?
   test.eq(reference.len(), 2)?
   test.eq(reference[0].name, "policy3")?
@@ -2852,10 +2755,9 @@ test test_system_report_cpufreq_rooted_reference_reads_every_policy [fs, error] 
   test.eq(reference[0].available_energy_performance_preferences, ["performance", "balance_performance"])?
   test.eq(reference[1].boost_allowed, true)?
   test.eq(reference[1].boost_scope, "system")?
-  fs.root_remove(root, p"sys/devices/system/cpu/cpufreq/boost")?
-  fs.root_mkdir(root, p"sys/devices/system/cpu/intel_pstate", parents: true)?
-  fs.root_write(
-    root,
+  root.remove(p"sys/devices/system/cpu/cpufreq/boost")?
+  root.mkdir(p"sys/devices/system/cpu/intel_pstate", parents: true)?
+  root.write(
     p"sys/devices/system/cpu/intel_pstate/no_turbo",
     """1
 """,
@@ -2863,21 +2765,18 @@ test test_system_report_cpufreq_rooted_reference_reads_every_policy [fs, error] 
   let intel_reference = report_checks.read_cpufreq_policy_reference(root)?
   test.eq(intel_reference[0].boost_allowed, false)?
   test.eq(intel_reference[0].boost_scope, "intel_pstate")?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/devices/system/cpu/intel_pstate/no_turbo",
     """invalid
 """,
   )?
   test.error_kind(report_checks.read_cpufreq_policy_reference(root), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/devices/system/cpu/intel_pstate/no_turbo",
     """0
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/devices/system/cpu/cpufreq/policy9/scaling_max_freq",
     """invalid
 """,
@@ -2887,12 +2786,12 @@ test test_system_report_cpufreq_rooted_reference_reads_every_policy [fs, error] 
 
 test test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tampering [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let cpu_root = p"sys/devices/system/cpu"
   let policy = p"sys/devices/system/cpu/cpufreq/policy0"
-  fs.root_mkdir(source, policy, parents: true)?
+  source.mkdir(policy, parents: true)?
   for item in [
     {
       name: "possible",
@@ -2914,7 +2813,7 @@ test test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tamperi
       value: "\n",
     },
   ] {
-    fs.root_write(source, fp"${cpu_root}/${item.name}", item.value)?
+    source.write(fp"${cpu_root}/${item.name}", item.value)?
   }
 
   for item in [
@@ -2979,11 +2878,10 @@ test test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tamperi
 """,
     },
   ] {
-    fs.root_write(source, fp"${policy}/${item.name}", item.value)?
+    source.write(fp"${policy}/${item.name}", item.value)?
   }
 
-  fs.root_write(
-    source,
+  source.write(
     fp"${cpu_root}/cpufreq/boost",
     """1
 """,
@@ -2994,21 +2892,18 @@ test test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tamperi
   test.ok(replay.policies.exact_policies)?
   test.ok(replay.policies.exact_bounds)?
   test.ok(replay.policies.exact_controls)?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${policy}/related_cpus",
     """1
 """,
   )?
   test.error_kind(report_checks.validate_cpufreq_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${policy}/related_cpus",
     """0
 """,
   )?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${cpu_root}/intel_pstate/no_turbo",
     """1
 """,
@@ -3018,10 +2913,10 @@ test test_system_report_cpufreq_capture_replays_raw_policies_and_rejects_tamperi
 
 test test_system_report_cpufreq_capture_rejects_noncanonical_policy_directory [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/devices/system/cpu/cpufreq/policy01", parents: true)?
+  defer bundle.close()?
+  source.mkdir(p"sys/devices/system/cpu/cpufreq/policy01", parents: true)?
   test.error_kind(
     report_checks.capture_cpufreq_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -3030,11 +2925,11 @@ test test_system_report_cpufreq_capture_rejects_noncanonical_policy_directory [f
 
 test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let cpu_root = p"sys/devices/system/cpu"
-  fs.root_mkdir(source, cpu_root, parents: true)?
+  source.mkdir(cpu_root, parents: true)?
   for item in [
     {
       name: "possible",
@@ -3056,12 +2951,12 @@ test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes [fs,
       value: "\n",
     },
   ] {
-    fs.root_write(source, fp"${cpu_root}/${item.name}", item.value)?
+    source.write(fp"${cpu_root}/${item.name}", item.value)?
   }
 
   for id in [0, 1] {
     let cpu_path = fp"${cpu_root}/cpu${id}"
-    fs.root_mkdir(source, fp"${cpu_path}/topology", parents: true)?
+    source.mkdir(fp"${cpu_path}/topology", parents: true)?
     for item in [
       {
         name: "physical_package_id",
@@ -3084,10 +2979,10 @@ test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes [fs,
 """,
       },
     ] {
-      fs.root_write(source, fp"${cpu_path}/topology/${item.name}", item.value)?
+      source.write(fp"${cpu_path}/topology/${item.name}", item.value)?
     }
 
-    fs.root_symlink(source, ../../node/node0, fp"${cpu_path}/node0")?
+    source.symlink(../../node/node0, fp"${cpu_path}/node0")?
   }
 
   report_checks.capture_cpu_topology_bundle(source, bundle, "synthetic_fixture")?
@@ -3095,30 +2990,28 @@ test test_system_report_cpu_topology_capture_replays_raw_siblings_and_nodes [fs,
   test.ok(replay.sets.exact)?
   test.ok(replay.topology.exact)?
   test.eq(replay.topology.matched_count, 2)?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${cpu_root}/cpu1/topology/core_id",
     """1
 """,
   )?
   test.error_kind(report_checks.validate_cpu_topology_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${cpu_root}/cpu1/topology/core_id",
     """0
 """,
   )?
-  fs.root_remove(bundle, fp"${cpu_root}/cpu1/node0")?
+  bundle.remove(fp"${cpu_root}/cpu1/node0")?
   test.error_kind(report_checks.validate_cpu_topology_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_cpu_topology_capture_rejects_escaping_numa_link [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let cpu_root = p"sys/devices/system/cpu"
-  fs.root_mkdir(source, fp"${cpu_root}/cpu0/topology", parents: true)?
+  source.mkdir(fp"${cpu_root}/cpu0/topology", parents: true)?
   for item in [
     {
       name: "possible",
@@ -3140,10 +3033,10 @@ test test_system_report_cpu_topology_capture_rejects_escaping_numa_link [fs, tim
       value: "\n",
     },
   ] {
-    fs.root_write(source, fp"${cpu_root}/${item.name}", item.value)?
+    source.write(fp"${cpu_root}/${item.name}", item.value)?
   }
 
-  fs.root_symlink(source, ../../node/../rogue, fp"${cpu_root}/cpu0/node0")?
+  source.symlink(../../node/../rogue, fp"${cpu_root}/cpu0/node0")?
   test.error_kind(
     report_checks.capture_cpu_topology_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
@@ -3222,28 +3115,24 @@ test test_system_report_cpuidle_reference_scores_state_indices_and_bracketed_cou
 
 test test_system_report_cpuidle_rooted_reference_reads_each_present_cpu_state [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
-  fs.root_mkdir(root, p"sys/devices/system/cpu/cpuidle", parents: true)?
-  fs.root_write(
-    root,
+  defer root.close()?
+  root.mkdir(p"sys/devices/system/cpu/cpuidle", parents: true)?
+  root.write(
     p"sys/devices/system/cpu/present",
     """0,2
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/devices/system/cpu/cpuidle/current_driver",
     """intel_idle
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/devices/system/cpu/cpuidle/current_governor_ro",
     """menu
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/devices/system/cpu/cpuidle/available_governors",
     """menu teo
 """,
@@ -3251,39 +3140,33 @@ test test_system_report_cpuidle_rooted_reference_reads_each_present_cpu_state [f
   for cpu_id in [0, 2] {
     for state_index in [0, 1] {
       let base = fp"sys/devices/system/cpu/cpu${cpu_id}/cpuidle/state${state_index}"
-      fs.root_mkdir(root, base, parents: true)?
-      fs.root_write(
-        root,
+      root.mkdir(base, parents: true)?
+      root.write(
         fp"${base}/name",
         """C1
 """,
       )?
-      fs.root_write(
-        root,
+      root.write(
         fp"${base}/disable",
         """0
 """,
       )?
-      fs.root_write(
-        root,
+      root.write(
         fp"${base}/latency",
         """8
 """,
       )?
-      fs.root_write(
-        root,
+      root.write(
         fp"${base}/residency",
         """20
 """,
       )?
-      fs.root_write(
-        root,
+      root.write(
         fp"${base}/usage",
         """12
 """,
       )?
-      fs.root_write(
-        root,
+      root.write(
         fp"${base}/time",
         """40
 """,
@@ -3296,20 +3179,18 @@ test test_system_report_cpuidle_rooted_reference_reads_each_present_cpu_state [f
   test.eq(reference.available_governors, ["menu", "teo"])?
   test.eq(reference.states.len(), 4)?
   test.ok(reference.states |> any .cpu_id == 2 and .state_index == 1 and .name == "C1")?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/devices/system/cpu/cpu2/cpuidle/state1/disable",
     """2
 """,
   )?
   test.error_kind(report_checks.read_cpuidle_reference(root), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/devices/system/cpu/cpu2/cpuidle/state1/disable",
     """0
 """,
   )?
-  fs.root_mkdir(root, p"sys/devices/system/cpu/cpu2/cpuidle/state9007199254740992")?
+  root.mkdir(p"sys/devices/system/cpu/cpu2/cpuidle/state9007199254740992")?
   test.error_kind(report_checks.read_cpuidle_reference(root), "SystemReportCheckError.Invalid")?
 }
 
@@ -3529,55 +3410,47 @@ test test_system_report_cache_reference_parses_sizes_without_candidate_rules [er
 
 test test_system_report_cache_rooted_reference_reads_shared_instance_sources [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
-  fs.root_mkdir(root, p"sys/devices/system/cpu", parents: true)?
-  fs.root_write(
-    root,
+  defer root.close()?
+  root.mkdir(p"sys/devices/system/cpu", parents: true)?
+  root.write(
     p"sys/devices/system/cpu/present",
     """0,2
 """,
   )?
   for cpu_id in [0, 2] {
     let base = fp"sys/devices/system/cpu/cpu${cpu_id}/cache/index7"
-    fs.root_mkdir(root, base, parents: true)?
-    fs.root_write(
-      root,
+    root.mkdir(base, parents: true)?
+    root.write(
       fp"${base}/level",
       """2
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/type",
       """Unified
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/size",
       """1M
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/coherency_line_size",
       """64
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/number_of_sets",
       """16384
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/shared_cpu_list",
       """0,2
 """,
     )?
-    fs.root_write(
-      root,
+    root.write(
       fp"${base}/id",
       """9
 """,
@@ -3591,8 +3464,7 @@ test test_system_report_cache_rooted_reference_reads_shared_instance_sources [fs
   test.eq(reference[0].size_bytes, 1048576)?
   test.eq(reference[0].shared_cpus, [0, 2])?
   test.eq(reference[0].kernel_id, 9)?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/devices/system/cpu/cpu2/cache/index7/shared_cpu_list",
     """0,,2
 """,
@@ -3656,34 +3528,29 @@ test test_system_report_network_link_raw_reference_scores_flags_type_and_stable_
 
 test test_system_report_network_link_raw_reference_reads_bounded_sysfs_attributes [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
-  fs.root_mkdir(root, p"sys/class/net/eth0/statistics", parents: true)?
-  fs.root_write(
-    root,
+  defer root.close()?
+  root.mkdir(p"sys/class/net/eth0/statistics", parents: true)?
+  root.write(
     p"sys/class/net/eth0/ifindex",
     """2
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/net/eth0/type",
     """1
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/net/eth0/flags",
     """0x1003
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/net/eth0/statistics/rx_bytes",
     """100
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/net/eth0/statistics/tx_bytes",
     """200
 """,
@@ -3695,8 +3562,7 @@ test test_system_report_network_link_raw_reference_reads_bounded_sysfs_attribute
   test.eq(reference[0].flags, 4099)?
   test.eq(reference[0].rx_bytes, 100)?
   test.ok(reference[0].complete)?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/net/eth0/statistics/tx_bytes",
     """invalid
 """,
@@ -3704,14 +3570,12 @@ test test_system_report_network_link_raw_reference_reads_bounded_sysfs_attribute
   let incomplete = report_checks.read_network_link_raw_reference(root)?
   test.ok(! incomplete[0].complete)?
   test.eq(incomplete[0].tx_bytes, null)?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/net/eth0/statistics/tx_bytes",
     """200
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/net/eth0/flags",
     """1003
 """,
@@ -4247,40 +4111,35 @@ test test_system_report_ip_route_reference_preserves_unknown_numeric_enums [erro
 
 test test_system_report_cpu_set_capture_validates_saved_reference [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/devices/system/cpu", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"sys/devices/system/cpu", parents: true)?
+  source.write(
     p"sys/devices/system/cpu/possible",
     """0-2
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/devices/system/cpu/present",
     """0,2
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/devices/system/cpu/online",
     """0
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/devices/system/cpu/offline",
     """2
 """,
   )?
   report_checks.capture_cpu_set_bundle(source, bundle, "synthetic_fixture")?
   test.eq(report_checks.validate_cpu_set_bundle(bundle)?.present, [0, 2])?
-  fs.root_write(bundle, p"sys/devices/system/cpu/present", "0,2 ")?
+  bundle.write(p"sys/devices/system/cpu/present", "0,2 ")?
   test.error_kind(report_checks.validate_cpu_set_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    bundle,
+  bundle.write(
     p"sys/devices/system/cpu/present",
     """0,2
 """,
@@ -4289,10 +4148,9 @@ test test_system_report_cpu_set_capture_validates_saved_reference [fs, time, err
     report_checks.capture_cpu_set_bundle(source, bundle, "synthetic_fixture"),
     "SystemReportCheckError.Invalid",
   )?
-  fs.root_write(source, p"sys/devices/system/cpu/present", "1")?
+  source.write(p"sys/devices/system/cpu/present", "1")?
   test.eq(report_checks.validate_cpu_set_bundle(bundle)?.present, [0, 2])?
-  fs.root_write(
-    bundle,
+  bundle.write(
     p"sys/devices/system/cpu/present",
     """0,1
 """,
@@ -4302,65 +4160,58 @@ test test_system_report_cpu_set_capture_validates_saved_reference [fs, time, err
 
 test test_system_report_cpu_set_capture_rejects_observed_error_metadata [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/devices/system/cpu", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"sys/devices/system/cpu", parents: true)?
+  source.write(
     p"sys/devices/system/cpu/possible",
     """0
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/devices/system/cpu/present",
     """0
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/devices/system/cpu/online",
     """0
 """,
   )?
-  fs.root_write(source, p"sys/devices/system/cpu/offline", "\n")?
+  source.write(p"sys/devices/system/cpu/offline", "\n")?
   report_checks.capture_cpu_set_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = json.decode(fs.root_read_text(bundle, p"capture.json")?)?
+  let metadata = json.decode(bundle.read_text(p"capture.json")?)?
   let errno = json.set(metadata, ["sources", 0, "errno"], 13)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(errno)?)?
+  bundle.write_atomic(p"capture.json", json.encode(errno)?)?
   test.error_kind(report_checks.validate_cpu_set_bundle(bundle), "SystemReportCheckError.Invalid")?
   let error_kind = json.set(metadata, ["sources", 0, "error_kind"], "permission_denied")?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(error_kind)?)?
+  bundle.write_atomic(p"capture.json", json.encode(error_kind)?)?
   test.error_kind(report_checks.validate_cpu_set_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_cpu_set_capture_replays_raw_sources [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/devices/system/cpu", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"sys/devices/system/cpu", parents: true)?
+  source.write(
     p"sys/devices/system/cpu/possible",
     """0-4
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/devices/system/cpu/present",
     """2,4
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/devices/system/cpu/online",
     """2
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/devices/system/cpu/offline",
     """4
 """,
@@ -4370,12 +4221,11 @@ test test_system_report_cpu_set_capture_replays_raw_sources [fs, time, error] {
   test.ok(replay.exact)?
   test.eq(replay.present.reference_count, 2)?
   test.eq(replay.present.candidate_count, 2)?
-  let raw = fs.root_read_result(bundle, p"sys/devices/system/cpu/present")?
+  let raw = bundle.read_result(p"sys/devices/system/cpu/present")?
   test.eq(raw.data, b"2,4\n")?
-  fs.root_write(source, p"sys/devices/system/cpu/present", "0")?
+  source.write(p"sys/devices/system/cpu/present", "0")?
   test.ok(report_checks.replay_cpu_set_bundle(bundle)?.exact)?
-  fs.root_write(
-    bundle,
+  bundle.write(
     p"sys/devices/system/cpu/present",
     """0,4
 """,
@@ -4385,33 +4235,31 @@ test test_system_report_cpu_set_capture_replays_raw_sources [fs, time, error] {
 
 test test_system_report_cpu_set_capture_records_missing_source [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/devices/system/cpu", parents: true)?
-  fs.root_write(source, p"sys/devices/system/cpu/possible", "0")?
+  defer bundle.close()?
+  source.mkdir(p"sys/devices/system/cpu", parents: true)?
+  source.write(p"sys/devices/system/cpu/possible", "0")?
   report_checks.capture_cpu_set_bundle(source, bundle, "synthetic_fixture")?
-  test.contains(fs.root_read_text(bundle, p"capture.json")?, "\"state\": \"absent\"")?
-  test.contains(fs.root_read_text(bundle, p"capture.json")?, "\"reference\": null")?
+  test.contains(bundle.read_text(p"capture.json")?, "\"state\": \"absent\"")?
+  test.contains(bundle.read_text(p"capture.json")?, "\"reference\": null")?
   test.error_kind(report_checks.replay_cpu_set_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_memory_capture_validates_raw_sources_and_oracles [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc", parents: true)?
-  fs.root_mkdir(source, p"sys/kernel/mm/transparent_hugepage", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc", parents: true)?
+  source.mkdir(p"sys/kernel/mm/transparent_hugepage", parents: true)?
+  source.write(
     p"proc/meminfo",
     """MemTotal: 16 kB
 MemFree: 4 kB
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/kernel/mm/transparent_hugepage/enabled",
     """always [madvise] never
 """,
@@ -4421,35 +4269,31 @@ MemFree: 4 kB
   test.eq(reference.meminfo.len(), 2)?
   test.eq(reference.thp.len(), 1)?
   test.eq(reference.thp[0].name, "enabled")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"stable\": true")?
-  fs.root_write(bundle, p"capture.json", metadata.replace("\"stable\": true", "\"stable\": false"))?
+  bundle.write(p"capture.json", metadata.replace("\"stable\": true", "\"stable\": false"))?
   test.eq(report_checks.validate_memory_bundle(bundle)?.meminfo.len(), 2)?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/meminfo",
     """MemTotal: 64 kB
 """,
   )?
   test.eq(report_checks.validate_memory_bundle(bundle)?.meminfo[0].value, reference.meminfo[0].value)?
-  fs.root_write(
-    bundle,
+  bundle.write(
     p"proc/meminfo",
     """MemTotal: 16 kB
 MemFree: 5 kB
 """,
   )?
   test.error_kind(report_checks.validate_memory_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    bundle,
+  bundle.write(
     p"proc/meminfo",
     """MemTotal: 16 kB
 MemFree: 4 kB
 """,
   )?
   test.eq(report_checks.validate_memory_bundle(bundle)?.thp.len(), 1)?
-  fs.root_write(
-    bundle,
+  bundle.write(
     p"sys/kernel/mm/transparent_hugepage/defrag",
     """[always] never
 """,
@@ -4459,43 +4303,40 @@ MemFree: 4 kB
 
 test test_system_report_memory_capture_rejects_observed_error_metadata [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc", parents: true)?
+  source.write(
     p"proc/meminfo",
     """MemTotal: 16 kB
 MemFree: 4 kB
 """,
   )?
   report_checks.capture_memory_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = json.decode(fs.root_read_text(bundle, p"capture.json")?)?
+  let metadata = json.decode(bundle.read_text(p"capture.json")?)?
   let errno = json.set(metadata, ["sources", 0, "errno"], 13)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(errno)?)?
+  bundle.write_atomic(p"capture.json", json.encode(errno)?)?
   test.error_kind(report_checks.validate_memory_bundle(bundle), "SystemReportCheckError.Invalid")?
   let error_kind = json.set(metadata, ["sources", 0, "error_kind"], "permission_denied")?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(error_kind)?)?
+  bundle.write_atomic(p"capture.json", json.encode(error_kind)?)?
   test.error_kind(report_checks.validate_memory_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_memory_capture_replays_raw_sources [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc", parents: true)?
-  fs.root_mkdir(source, p"sys/kernel/mm/transparent_hugepage", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc", parents: true)?
+  source.mkdir(p"sys/kernel/mm/transparent_hugepage", parents: true)?
+  source.write(
     p"proc/meminfo",
     """MemTotal: 16 kB
 MemFree: 4 kB
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/kernel/mm/transparent_hugepage/enabled",
     """always [madvise] never
 """,
@@ -4508,12 +4349,11 @@ MemFree: 4 kB
 
 test test_system_report_os_release_capture_validates_selected_raw_source [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"usr/lib", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"usr/lib", parents: true)?
+  source.write(
     p"usr/lib/os-release",
     """ID=vendor
 VERSION_ID=2
@@ -4523,16 +4363,14 @@ VERSION_ID=2
   let reference = report_checks.validate_os_release_bundle(bundle)?
   test.eq(reference.id, "vendor")?
   test.eq(reference.version_id, "2")?
-  test.contains(fs.root_read_text(bundle, p"capture.json")?, "\"selected_path\": \"usr/lib/os-release\"")?
-  fs.root_write(
-    bundle,
+  test.contains(bundle.read_text(p"capture.json")?, "\"selected_path\": \"usr/lib/os-release\"")?
+  bundle.write(
     p"etc/os-release",
     """ID=inserted
 """,
   )?
   test.error_kind(report_checks.validate_os_release_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    bundle,
+  bundle.write(
     p"usr/lib/os-release",
     """ID=tampered
 VERSION_ID=2
@@ -4543,49 +4381,45 @@ VERSION_ID=2
 
 test test_system_report_os_release_capture_rejects_observed_error_metadata [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"etc", parents: true)?
-  fs.root_mkdir(source, p"usr/lib", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"etc", parents: true)?
+  source.mkdir(p"usr/lib", parents: true)?
+  source.write(
     p"etc/os-release",
     """ID=local
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"usr/lib/os-release",
     """ID=vendor
 """,
   )?
   report_checks.capture_os_release_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = json.decode(fs.root_read_text(bundle, p"capture.json")?)?
+  let metadata = json.decode(bundle.read_text(p"capture.json")?)?
   let errno = json.set(metadata, ["sources", 1, "errno"], 13)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(errno)?)?
+  bundle.write_atomic(p"capture.json", json.encode(errno)?)?
   test.error_kind(report_checks.validate_os_release_bundle(bundle), "SystemReportCheckError.Invalid")?
   let error_kind = json.set(metadata, ["sources", 0, "error_kind"], "permission_denied")?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(error_kind)?)?
+  bundle.write_atomic(p"capture.json", json.encode(error_kind)?)?
   test.error_kind(report_checks.validate_os_release_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_os_release_capture_replays_product_identity [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"etc", parents: true)?
-  fs.root_mkdir(source, p"usr/lib", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"etc", parents: true)?
+  source.mkdir(p"usr/lib", parents: true)?
+  source.write(
     p"etc/os-release",
     """ID=local
 VERSION_ID=1
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"usr/lib/os-release",
     """ID=vendor
 VERSION_ID=2
@@ -4598,13 +4432,12 @@ VERSION_ID=2
 
 test test_system_report_os_release_capture_ignores_unselected_vendor_read_failure [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"etc", parents: true)?
-  fs.root_mkdir(source, p"usr/lib/os-release", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"etc", parents: true)?
+  source.mkdir(p"usr/lib/os-release", parents: true)?
+  source.write(
     p"etc/os-release",
     """ID=local
 """,
@@ -4615,25 +4448,23 @@ test test_system_report_os_release_capture_ignores_unselected_vendor_read_failur
 
 test test_system_report_os_release_capture_does_not_fallback_from_malformed_local_source [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"etc", parents: true)?
-  fs.root_mkdir(source, p"usr/lib", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"etc", parents: true)?
+  source.mkdir(p"usr/lib", parents: true)?
+  source.write(
     p"etc/os-release",
     """ID=bad value
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"usr/lib/os-release",
     """ID=vendor
 """,
   )?
   report_checks.capture_os_release_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"selected_path\": \"etc/os-release\"")?
   test.contains(metadata, "\"reference\": null")?
   test.error_kind(report_checks.validate_os_release_bundle(bundle), "SystemReportCheckError.Invalid")?
@@ -4641,27 +4472,25 @@ test test_system_report_os_release_capture_does_not_fallback_from_malformed_loca
 
 test test_system_report_kernel_command_line_capture_validates_raw_bytes [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc", parents: true)?
-  fs.root_write(source, p"proc/cmdline", b"quiet secret=fixture\0\xff\n")?
+  defer bundle.close()?
+  source.mkdir(p"proc", parents: true)?
+  source.write(p"proc/cmdline", b"quiet secret=fixture\0\xff\n")?
   report_checks.capture_kernel_command_line_bundle(source, bundle, "synthetic_fixture")?
   test.eq(report_checks.validate_kernel_command_line_bundle(bundle)?, b"quiet secret=fixture\0\xff\n")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   let contradictory = json.set(json.decode(metadata)?, ["errno"], 13)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(contradictory)?)?
+  bundle.write_atomic(p"capture.json", json.encode(contradictory)?)?
   test.error_kind(report_checks.validate_kernel_command_line_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write_atomic(bundle, p"capture.json", metadata)?
-  fs.root_write(
-    source,
+  bundle.write_atomic(p"capture.json", metadata)?
+  source.write(
     p"proc/cmdline",
     """changed
 """,
   )?
   test.eq(report_checks.validate_kernel_command_line_bundle(bundle)?, b"quiet secret=fixture\0\xff\n")?
-  fs.root_write(
-    bundle,
+  bundle.write(
     p"proc/cmdline",
     """quiet secret=changed
 """,
@@ -4671,12 +4500,11 @@ test test_system_report_kernel_command_line_capture_validates_raw_bytes [fs, tim
 
 test test_system_report_kernel_command_line_capture_replays_redaction [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc", parents: true)?
+  source.write(
     p"proc/cmdline",
     """quiet secret=fixture
 """,
@@ -4690,11 +4518,11 @@ test test_system_report_kernel_command_line_capture_replays_redaction [fs, time,
 
 test test_system_report_kernel_command_line_capture_records_absence_without_scoring [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   report_checks.capture_kernel_command_line_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"source_state\": \"absent\"")?
   test.contains(metadata, "\"reference_base64\": null")?
   test.error_kind(report_checks.validate_kernel_command_line_bundle(bundle), "SystemReportCheckError.Invalid")?
@@ -4908,41 +4736,35 @@ test test_system_report_cpu_scope_reference_parses_exact_quota_period [error] {
 
 test test_system_report_cpu_scope_rooted_reference_reads_current_and_visible_ancestors [fs, time, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
-  fs.root_mkdir(root, p"proc/self", parents: true)?
-  fs.root_mkdir(root, p"sys/fs/cgroup/worker", parents: true)?
-  fs.root_write(
-    root,
+  defer root.close()?
+  root.mkdir(p"proc/self", parents: true)?
+  root.mkdir(p"sys/fs/cgroup/worker", parents: true)?
+  root.write(
     p"proc/self/cgroup",
     """0::/tenant/worker
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/self/mountinfo",
     """31 20 0:25 /tenant /sys/fs/cgroup rw - cgroup2 cgroup rw
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/worker/cpuset.cpus.effective",
     """0,2
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/worker/cpu.max",
     """50000 100000
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/cpuset.cpus.effective",
     """0-3
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/cpu.max",
     """max 100000
 """,
@@ -4983,61 +4805,53 @@ test test_system_report_cpu_scope_rooted_reference_reads_current_and_visible_anc
       },
     },
   )?
-  fs.root_remove(root, p"sys/fs/cgroup/worker/cpu.max")?
+  root.remove(p"sys/fs/cgroup/worker/cpu.max")?
   let missing = report_checks.read_cpu_scope_cgroup_reference(root)?
   test.eq(missing.ancestors[0].quota, null)?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/worker/cpu.max",
     """50000 0
 """,
   )?
   test.error_kind(report_checks.read_cpu_scope_cgroup_reference(root), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/self/cgroup",
     """2:cpu:/legacy
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/self/mountinfo",
     """31 20 0:25 / /sys/fs/cgroup/cpu rw - cgroup cgroup rw,cpu
 """,
   )?
   test.eq(report_checks.read_cpu_scope_cgroup_reference(root)?.ancestors, [])?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/self/cgroup",
     """0::/tenant/worker
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/self/mountinfo",
     """31 20 0:25 /outside /sys/fs/cgroup rw - cgroup2 cgroup rw
 """,
   )?
   test.eq(report_checks.read_cpu_scope_cgroup_reference(root)?.ancestors, [])?
   test.eq(report_checks.read_cgroup2_resource_reference(root)?.resources, [])?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/self/mountinfo",
     """31 20 0:25 /tenant /sys/fs/cgroup rw - cgroup2
 """,
   )?
   test.error_kind(report_checks.read_cpu_scope_cgroup_reference(root), "SystemReportCheckError.Invalid")?
   test.error_kind(report_checks.read_cgroup2_resource_reference(root), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/self/mountinfo",
     """31 20 0:25 /tenant /sys/fs/cgroup rw cgroup2 cgroup rw
 """,
   )?
   test.error_kind(report_checks.read_cpu_scope_cgroup_reference(root), "SystemReportCheckError.Invalid")?
   test.error_kind(report_checks.read_cgroup2_resource_reference(root), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/self/mountinfo",
     """31 20 0:25 /tenant /sys/fs/cgroup rw -
 """,
@@ -5214,84 +5028,71 @@ usage_usec 10
 
 test test_system_report_cgroup_v2_rooted_reference_reads_all_visible_resource_families [fs, time, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
-  fs.root_mkdir(root, p"proc/self", parents: true)?
-  fs.root_mkdir(root, p"sys/fs/cgroup/worker", parents: true)?
-  fs.root_write(
-    root,
+  defer root.close()?
+  root.mkdir(p"proc/self", parents: true)?
+  root.mkdir(p"sys/fs/cgroup/worker", parents: true)?
+  root.write(
     p"proc/self/cgroup",
     """0::/tenant/worker
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/self/mountinfo",
     """31 20 0:25 /tenant /sys/fs/cgroup rw - cgroup2 cgroup rw
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/worker/memory.max",
     """8192
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/worker/memory.current",
     """4096
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/worker/memory.swap.max",
     """max
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/worker/memory.swap.current",
     """0
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/worker/pids.max",
     """32
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/worker/pids.current",
     """2
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/worker/cpu.max",
     """50000 100000
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/worker/cpu.stat",
     """usage_usec 9
 nr_periods 2
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/worker/cpuset.cpus.effective",
     """0,2
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/worker/io.stat",
     """8:0 rbytes=100 rios=3
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/cpu.max",
     """max 100000
 """,
@@ -5315,8 +5116,7 @@ nr_periods 2
   test.ok(snapshot.resources |> any .resource == "cpuset.cpus.effective" and .effective_cpus == [0, 2])?
   test.ok(snapshot.resources |> any .resource == "io.stat.8:0.rbytes" and .current_value == 100 and .unit == "bytes")?
   test.ok(snapshot.resources |> any .path == "/tenant" and .resource == "cpu.max" and .maximum_unlimited == true)?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/fs/cgroup/worker/memory.current",
     """broken
 """,
@@ -5326,56 +5126,48 @@ nr_periods 2
 
 test test_system_report_cgroup_v2_bundle_replays_visible_ancestors_and_rejects_tampering [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc/self", parents: true)?
-  fs.root_mkdir(source, p"sys/fs/cgroup/worker", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc/self", parents: true)?
+  source.mkdir(p"sys/fs/cgroup/worker", parents: true)?
+  source.write(
     p"proc/self/cgroup",
     """0::/tenant/worker
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/self/mountinfo",
     """31 20 0:25 /tenant /sys/fs/cgroup rw - cgroup2 cgroup rw
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/fs/cgroup/worker/memory.max",
     """8192
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/fs/cgroup/worker/memory.current",
     """4096
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/fs/cgroup/worker/cpu.max",
     """50000 100000
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/fs/cgroup/worker/cpu.stat",
     """usage_usec 9
 nr_periods 2
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/fs/cgroup/worker/cpuset.cpus.effective",
     """0,2
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/fs/cgroup/cpu.max",
     """max 100000
 """,
@@ -5384,8 +5176,7 @@ nr_periods 2
   let replay = report_checks.replay_cgroup2_bundle(bundle)?
   test.ok(replay.exact_scored)?
   test.eq(replay.reference_count, 6)?
-  fs.root_write(
-    bundle,
+  bundle.write(
     p"sys/fs/cgroup/worker/memory.max",
     """4096
 """,
@@ -5395,42 +5186,39 @@ nr_periods 2
 
 test test_system_report_cgroup_v2_bundle_keeps_missing_mount_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc/self", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc/self", parents: true)?
+  source.write(
     p"proc/self/cgroup",
     """0::/
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/self/mountinfo",
     """31 20 8:0 / / rw - ext4 /dev/sda rw
 """,
   )?
   report_checks.capture_cgroup2_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"scoreable\": false")?
   test.error_kind(report_checks.validate_cgroup2_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_cgroup_v2_bundle_records_missing_membership_source [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc/self", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc/self", parents: true)?
+  source.write(
     p"proc/self/mountinfo",
     """31 20 0:25 / /sys/fs/cgroup rw - cgroup2 cgroup rw
 """,
   )?
   report_checks.capture_cgroup2_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"path\": \"proc/self/cgroup\"")?
   test.contains(metadata, "\"state\": \"absent\"")?
   test.contains(metadata, "\"scoreable\": false")?
@@ -5695,19 +5483,17 @@ test test_system_report_vulnerability_reference_requires_complete_stable_named_v
 
 test test_system_report_vulnerability_capture_validates_saved_files_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let directory = p"sys/devices/system/cpu/vulnerabilities"
-  fs.root_mkdir(source, directory, parents: true)?
-  fs.root_write(
-    source,
+  source.mkdir(directory, parents: true)?
+  source.write(
     fp"${directory}/spectre_v1",
     """Mitigation: custom policy
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${directory}/mmio_stale_data",
     """Not affected
 """,
@@ -5718,26 +5504,23 @@ test test_system_report_vulnerability_capture_validates_saved_files_and_oracle [
   test.eq(reference[0].name, "mmio_stale_data")?
   test.eq(reference[0].description, "Not affected")?
   test.eq(reference[1].description, "Mitigation: custom policy")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   let contradictory = json.set(json.decode(metadata)?, ["sources", 0, "errno"], 13)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(contradictory)?)?
+  bundle.write_atomic(p"capture.json", json.encode(contradictory)?)?
   test.error_kind(report_checks.validate_vulnerabilities_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write_atomic(bundle, p"capture.json", metadata)?
-  fs.root_write(
-    bundle,
+  bundle.write_atomic(p"capture.json", metadata)?
+  bundle.write(
     fp"${directory}/spectre_v1",
     """Vulnerable
 """,
   )?
   test.error_kind(report_checks.validate_vulnerabilities_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${directory}/spectre_v1",
     """Mitigation: custom policy
 """,
   )?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${directory}/extra",
     """Not affected
 """,
@@ -5747,12 +5530,11 @@ test test_system_report_vulnerability_capture_validates_saved_files_and_oracle [
 
 test test_system_report_vulnerability_capture_replays_production_cpu_collector [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/devices/system/cpu/vulnerabilities", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"sys/devices/system/cpu/vulnerabilities", parents: true)?
+  source.write(
     p"sys/devices/system/cpu/vulnerabilities/spectre_v1",
     """Mitigation: custom policy
 """,
@@ -5763,21 +5545,21 @@ test test_system_report_vulnerability_capture_replays_production_cpu_collector [
 
 test test_system_report_vulnerability_capture_preserves_absent_class_without_scoring [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   report_checks.capture_vulnerabilities_bundle(source, bundle, "synthetic_fixture")?
-  test.contains(fs.root_read_text(bundle, p"capture.json")?, "\"listing_state\": \"absent\"")?
+  test.contains(bundle.read_text(p"capture.json")?, "\"listing_state\": \"absent\"")?
   test.error_kind(report_checks.validate_vulnerabilities_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_bundle_replay_rejects_changed_capture_metadata [fs, error] {
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_write(bundle, p"capture.json", "{\"origin\":\"synthetic_fixture\"}")?
-  let original = fs.root_read_result(bundle, p"capture.json")?.data ?? b""
+  defer bundle.close()?
+  bundle.write(p"capture.json", "{\"origin\":\"synthetic_fixture\"}")?
+  let original = bundle.read_result(p"capture.json")?.data ?? b""
   report_checks.require_capture_metadata_unchanged(bundle, original)?
-  fs.root_write(bundle, p"capture.json", "{\"origin\":\"live_capture\"}")?
+  bundle.write(p"capture.json", "{\"origin\":\"live_capture\"}")?
   test.error_kind(report_checks.require_capture_metadata_unchanged(bundle, original), "SystemReportCheckError.Invalid")?
 }
 
@@ -5854,23 +5636,20 @@ test test_system_report_huge_page_reference_parses_complete_decimal_counters [er
 
 test test_system_report_huge_page_reference_reads_visible_global_and_numa_sources [fs, time, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
-  fs.root_mkdir(root, p"sys/kernel/mm/hugepages/hugepages-2048kB", parents: true)?
-  fs.root_mkdir(root, p"sys/devices/system/node/node0/hugepages/hugepages-1048576kB", parents: true)?
-  fs.root_write(
-    root,
+  defer root.close()?
+  root.mkdir(p"sys/kernel/mm/hugepages/hugepages-2048kB", parents: true)?
+  root.mkdir(p"sys/devices/system/node/node0/hugepages/hugepages-1048576kB", parents: true)?
+  root.write(
     p"sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages",
     """4
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/kernel/mm/hugepages/hugepages-2048kB/free_hugepages",
     """3
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/devices/system/node/node0/hugepages/hugepages-1048576kB/nr_hugepages",
     """2
 """,
@@ -5946,18 +5725,16 @@ full avg10=0.00 avg60=0.00 avg300=0.00 total=2
 
 test test_system_report_pressure_capture_validates_saved_sources_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc/pressure", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc/pressure", parents: true)?
+  source.write(
     p"proc/pressure/cpu",
     """some avg10=0.10 avg60=0.20 avg300=0.30 total=10
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/pressure/memory",
     """some avg10=0.00 avg60=0.00 avg300=0.00 total=20
 full avg10=0.00 avg60=0.00 avg300=0.00 total=2
@@ -5968,35 +5745,32 @@ full avg10=0.00 avg60=0.00 avg300=0.00 total=2
   test.eq(reference.len(), 3)?
   test.eq(reference[0].resource, "cpu")?
   test.eq(reference[2].total_us, 2)?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"state\": \"absent\"")?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/pressure/cpu",
     """changed
 """,
   )?
   test.eq(report_checks.validate_pressure_bundle(bundle)?[0].total_us, 10)?
   let changed_oracle = json.set(json.decode(metadata)?, ["reference", 0, "total_us"], 11)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(changed_oracle)?)?
+  bundle.write_atomic(p"capture.json", json.encode(changed_oracle)?)?
   test.error_kind(report_checks.validate_pressure_bundle(bundle), "SystemReportCheckError.Invalid")?
   let contradictory = json.set(json.decode(metadata)?, ["sources", 0, "errno"], 13)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(contradictory)?)?
+  bundle.write_atomic(p"capture.json", json.encode(contradictory)?)?
   test.error_kind(report_checks.validate_pressure_bundle(bundle), "SystemReportCheckError.Invalid")?
   let error_kind = json.set(json.decode(metadata)?, ["sources", 1, "error_kind"], "permission_denied")?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(error_kind)?)?
+  bundle.write_atomic(p"capture.json", json.encode(error_kind)?)?
   test.error_kind(report_checks.validate_pressure_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write_atomic(bundle, p"capture.json", metadata)?
-  fs.root_write(
-    bundle,
+  bundle.write_atomic(p"capture.json", metadata)?
+  bundle.write(
     p"proc/pressure/io",
     """some avg10=0.00 avg60=0.00 avg300=0.00 total=1
 """,
   )?
   test.error_kind(report_checks.validate_pressure_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_remove(bundle, p"proc/pressure/io")?
-  fs.root_write(
-    bundle,
+  bundle.remove(p"proc/pressure/io")?
+  bundle.write(
     p"proc/pressure/cpu",
     """some avg10=0.10 avg60=0.20 avg300=0.30 total=11
 """,
@@ -6006,20 +5780,19 @@ full avg10=0.00 avg60=0.00 avg300=0.00 total=2
 
 test test_system_report_pressure_capture_keeps_incomplete_sources_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let absent = fs.tempdir()?
-  defer fs.close_root(absent)?
+  defer absent.close()?
   report_checks.capture_pressure_bundle(source, absent, "synthetic_fixture")?
   test.error_kind(report_checks.validate_pressure_bundle(absent), "SystemReportCheckError.Invalid")?
-  fs.root_mkdir(source, p"proc/pressure", parents: true)?
-  fs.root_write(
-    source,
+  source.mkdir(p"proc/pressure", parents: true)?
+  source.write(
     p"proc/pressure/cpu",
     """some avg10=nan avg60=0.00 avg300=0.00 total=1
 """,
   )?
   let malformed = fs.tempdir()?
-  defer fs.close_root(malformed)?
+  defer malformed.close()?
   report_checks.capture_pressure_bundle(source, malformed, "synthetic_fixture")?
   test.error_kind(report_checks.validate_pressure_bundle(malformed), "SystemReportCheckError.Invalid")?
   var padding = "x"
@@ -6027,21 +5800,20 @@ test test_system_report_pressure_capture_keeps_incomplete_sources_unscoreable [f
     padding = f"${padding}${padding}"
   }
 
-  fs.root_write(source, p"proc/pressure/cpu", padding)?
+  source.write(p"proc/pressure/cpu", padding)?
   let truncated = fs.tempdir()?
-  defer fs.close_root(truncated)?
+  defer truncated.close()?
   report_checks.capture_pressure_bundle(source, truncated, "synthetic_fixture")?
   test.error_kind(report_checks.validate_pressure_bundle(truncated), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_pressure_capture_replays_production_collector [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc/pressure", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc/pressure", parents: true)?
+  source.write(
     p"proc/pressure/cpu",
     """some avg10=0.10 avg60=0.20 avg300=0.30 total=10
 """,
@@ -6052,24 +5824,21 @@ test test_system_report_pressure_capture_replays_production_collector [fs, time,
 
 test test_system_report_process_identity_snapshot_keeps_complete_stable_sources [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
-  fs.root_mkdir(root, p"proc/123", parents: true)?
-  fs.root_mkdir(root, p"proc/124", parents: true)?
-  fs.root_write(
-    root,
+  defer root.close()?
+  root.mkdir(p"proc/123", parents: true)?
+  root.mkdir(p"proc/124", parents: true)?
+  root.write(
     p"proc/123/stat",
     """123 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/123/status",
     """Name:	worker
 Uid:	1000	1000	1000	1000
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/124/stat",
     """124 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 101 8192 2
 """,
@@ -6083,41 +5852,35 @@ Uid:	1000	1000	1000	1000
 
 test test_system_report_process_resource_snapshot_requires_complete_per_pid_sources [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
-  fs.root_mkdir(root, p"proc/123", parents: true)?
-  fs.root_mkdir(root, p"proc/124", parents: true)?
-  fs.root_write(
-    root,
+  defer root.close()?
+  root.mkdir(p"proc/123", parents: true)?
+  root.mkdir(p"proc/124", parents: true)?
+  root.write(
     p"proc/123/stat",
     """123 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/123/statm",
     """2 1 0 0 0 0 0
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/123/cgroup",
     """0::/tenant
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/124/stat",
     """124 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 101 8192 2
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/124/statm",
     """2 1
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"proc/124/cgroup",
     """0::/tenant
 """,
@@ -6133,103 +5896,92 @@ test test_system_report_process_resource_snapshot_requires_complete_per_pid_sour
 
 test test_system_report_process_bundle_replays_complete_pid_and_records_skips [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc/123", parents: true)?
-  fs.root_mkdir(source, p"proc/124", parents: true)?
-  fs.root_mkdir(source, p"proc/9", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc/123", parents: true)?
+  source.mkdir(p"proc/124", parents: true)?
+  source.mkdir(p"proc/9", parents: true)?
+  source.write(
     p"proc/123/stat",
     """123 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/123/statm",
     """2 1 0 0 0 0 0
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/123/status",
     """Name:	worker
 Uid:	1000	1000	1000	1000
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/123/cgroup",
     """0::/tenant
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/9/stat",
     """9 (helper) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 1 0 99 4096 1
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/9/statm",
     """1 1 0 0 0 0 0
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/9/status",
     """Name:	helper
 Uid:	1001	1001	1001	1001
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/9/cgroup",
     """0::/tenant
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/124/stat",
     """124 (short-lived) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 101 8192 2
 """,
   )?
   report_checks.capture_process_bundle(source, bundle, "synthetic_fixture", 4096)?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"skipped_count\": 1")?
   test.contains(metadata, "\"name\": \"124\"")?
   test.contains(metadata, "\"source\": \"statm\"")?
   test.contains(metadata, "\"state\": \"absent\"")?
-  test.ok(! fs.root_exists(bundle, p"proc/124")?)?
+  test.ok(! bundle.exists(p"proc/124")?)?
   let replay = report_checks.replay_process_bundle(bundle)?
   test.ok(replay.identity.exact_static)?
   test.ok(replay.resources.exact_scored)?
   test.eq(replay.identity.matched_count, 2)?
-  fs.root_write(
-    bundle,
+  bundle.write(
     p"proc/123/statm",
     """3 1 0 0 0 0 0
 """,
   )?
   test.error_kind(report_checks.validate_process_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    bundle,
+  bundle.write(
     p"proc/123/statm",
     """2 1 0 0 0 0 0
 """,
   )?
-  fs.root_mkdir(bundle, p"proc/125")?
+  bundle.mkdir(p"proc/125")?
   test.error_kind(report_checks.validate_process_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_process_bundle_keeps_absent_proc_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   report_checks.capture_process_bundle(source, bundle, "synthetic_fixture", 4096)?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"listing_state\": \"absent\"")?
   test.contains(metadata, "\"scoreable\": false")?
   test.error_kind(report_checks.validate_process_bundle(bundle), "SystemReportCheckError.Invalid")?
@@ -7611,12 +7363,11 @@ test test_system_report_proc_swaps_raw_reference_decodes_units_paths_and_empty_i
 
 test test_system_report_proc_swaps_capture_validates_saved_source_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc", parents: true)?
+  source.write(
     p"proc/swaps",
     """Filename Type Size Used Priority
 /dev/zram0 partition 4 1 42
@@ -7624,23 +7375,21 @@ test test_system_report_proc_swaps_capture_validates_saved_source_and_oracle [fs
   )?
   report_checks.capture_proc_swaps_bundle(source, bundle, "synthetic_fixture")?
   test.eq(report_checks.validate_proc_swaps_bundle(bundle)?[0].size_bytes, 4096)?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/swaps",
     """changed
 """,
   )?
   test.eq(report_checks.validate_proc_swaps_bundle(bundle)?[0].used_bytes, 1024)?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   let changed_oracle = json.encode(json.set(json.decode(metadata)?, ["reference", 0, "size_bytes"], 1)?)?
-  fs.root_write(bundle, p"capture.json", changed_oracle)?
+  bundle.write(p"capture.json", changed_oracle)?
   test.error_kind(report_checks.validate_proc_swaps_bundle(bundle), "SystemReportCheckError.Invalid")?
   let contradictory = json.encode(json.set(json.decode(metadata)?, ["errno"], 13)?)?
-  fs.root_write(bundle, p"capture.json", contradictory)?
+  bundle.write(p"capture.json", contradictory)?
   test.error_kind(report_checks.validate_proc_swaps_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(bundle, p"capture.json", metadata)?
-  fs.root_write(
-    bundle,
+  bundle.write(p"capture.json", metadata)?
+  bundle.write(
     p"proc/swaps",
     """Filename Type Size Used Priority
 /dev/zram0 partition 8 1 42
@@ -7651,20 +7400,19 @@ test test_system_report_proc_swaps_capture_validates_saved_source_and_oracle [fs
 
 test test_system_report_proc_swaps_capture_marks_absent_malformed_and_truncated_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let absent = fs.tempdir()?
-  defer fs.close_root(absent)?
+  defer absent.close()?
   report_checks.capture_proc_swaps_bundle(source, absent, "synthetic_fixture")?
   test.error_kind(report_checks.validate_proc_swaps_bundle(absent), "SystemReportCheckError.Invalid")?
-  fs.root_mkdir(source, p"proc", parents: true)?
-  fs.root_write(
-    source,
+  source.mkdir(p"proc", parents: true)?
+  source.write(
     p"proc/swaps",
     """broken row
 """,
   )?
   let malformed = fs.tempdir()?
-  defer fs.close_root(malformed)?
+  defer malformed.close()?
   report_checks.capture_proc_swaps_bundle(source, malformed, "synthetic_fixture")?
   test.error_kind(report_checks.validate_proc_swaps_bundle(malformed), "SystemReportCheckError.Invalid")?
   var padding = "x"
@@ -7672,36 +7420,33 @@ test test_system_report_proc_swaps_capture_marks_absent_malformed_and_truncated_
     padding = f"${padding}${padding}"
   }
 
-  fs.root_write(
-    source,
+  source.write(
     p"proc/swaps",
     f"""Filename Type Size Used Priority
 ${padding}""",
   )?
   let truncated = fs.tempdir()?
-  defer fs.close_root(truncated)?
+  defer truncated.close()?
   report_checks.capture_proc_swaps_bundle(source, truncated, "synthetic_fixture")?
   test.error_kind(report_checks.validate_proc_swaps_bundle(truncated), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/swaps",
     """Filename Type Size Used Priority
 """,
   )?
   let empty = fs.tempdir()?
-  defer fs.close_root(empty)?
+  defer empty.close()?
   report_checks.capture_proc_swaps_bundle(source, empty, "synthetic_fixture")?
   test.eq(report_checks.validate_proc_swaps_bundle(empty)?, [])?
 }
 
 test test_system_report_proc_swaps_capture_replays_production_collector [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc", parents: true)?
+  source.write(
     p"proc/swaps",
     """Filename Type Size Used Priority
 /dev/zram0 partition 4 1 42
@@ -7934,23 +7679,21 @@ test test_system_report_pci_binding_parent_reference_requires_own_bdf_and_keeps_
 
 test test_system_report_pci_binding_rooted_reference_reads_links_and_unknown_numa [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   let bridge = p"sys/devices/pci0001:02/0001:02:01.0"
   let child = p"sys/devices/pci0001:02/0001:02:01.0/0001:03:00.0"
-  fs.root_mkdir(root, child, parents: true)?
-  fs.root_mkdir(root, p"sys/bus/pci/devices", parents: true)?
-  fs.root_symlink(root, ../../../devices/pci0001:02/0001:02:01.0, p"sys/bus/pci/devices/0001:02:01.0")?
-  fs.root_symlink(root, ../../../devices/pci0001:02/0001:02:01.0/0001:03:00.0, p"sys/bus/pci/devices/0001:03:00.0")?
-  fs.root_symlink(root, ../../../../bus/pci/drivers/pcieport, fp"${bridge}/driver")?
-  fs.root_symlink(root, ../../../../kernel/iommu_groups/42, fp"${bridge}/iommu_group")?
-  fs.root_write(
-    root,
+  root.mkdir(child, parents: true)?
+  root.mkdir(p"sys/bus/pci/devices", parents: true)?
+  root.symlink(../../../devices/pci0001:02/0001:02:01.0, p"sys/bus/pci/devices/0001:02:01.0")?
+  root.symlink(../../../devices/pci0001:02/0001:02:01.0/0001:03:00.0, p"sys/bus/pci/devices/0001:03:00.0")?
+  root.symlink(../../../../bus/pci/drivers/pcieport, fp"${bridge}/driver")?
+  root.symlink(../../../../kernel/iommu_groups/42, fp"${bridge}/iommu_group")?
+  root.write(
     fp"${bridge}/numa_node",
     """0
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${child}/numa_node",
     """-1
 """,
@@ -7963,8 +7706,7 @@ test test_system_report_pci_binding_rooted_reference_reads_links_and_unknown_num
   test.eq(reference[1].parent_address, "0001:02:01.0")?
   test.eq(reference[1].driver, null)?
   test.eq(reference[1].numa_node, null)?
-  fs.root_write(
-    root,
+  root.write(
     fp"${child}/numa_node",
     """0x1
 """,
@@ -8017,41 +7759,35 @@ test test_system_report_thermal_reference_preserves_sparse_trip_indexes_and_brac
 
 test test_system_report_thermal_rooted_reference_reads_indexed_sources [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   let zone = p"sys/class/thermal/thermal_zone3"
-  fs.root_mkdir(root, zone, parents: true)?
-  fs.root_write(
-    root,
+  root.mkdir(zone, parents: true)?
+  root.write(
     fp"${zone}/type",
     """cpu_thermal
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${zone}/temp",
     """-500
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${zone}/trip_point_2_type",
     """passive
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${zone}/trip_point_2_temp",
     """85000
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${zone}/trip_point_0_type",
     """critical
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${zone}/trip_point_0_temp",
     """95000
 """,
@@ -8061,8 +7797,7 @@ test test_system_report_thermal_rooted_reference_reads_indexed_sources [fs, erro
   test.eq(zones[0].temperature_millidegrees, -500)?
   test.eq(zones[0].trips |> map .index, [0, 2])?
   test.eq(zones[0].trips[1].hysteresis_millidegrees, null)?
-  fs.root_write(
-    root,
+  root.write(
     fp"${zone}/trip_point_02_temp",
     """85000
 """,
@@ -8072,54 +7807,48 @@ test test_system_report_thermal_rooted_reference_reads_indexed_sources [fs, erro
 
 test test_system_report_thermal_capture_replays_raw_zone_and_rejects_tampering [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let zone = p"sys/class/thermal/thermal_zone3"
-  fs.root_mkdir(source, zone, parents: true)?
-  fs.root_write(
-    source,
+  source.mkdir(zone, parents: true)?
+  source.write(
     fp"${zone}/type",
     """cpu_thermal
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${zone}/temp",
     """42000
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${zone}/trip_point_2_type",
     """passive
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${zone}/trip_point_2_temp",
     """85000
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     fp"${zone}/trip_point_2_hyst",
     """2000
 """,
   )?
   report_checks.capture_thermal_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"origin\": \"synthetic_fixture\"")?
   test.contains(metadata, "\"reference_adapter\": \"thermal-raw-v1\"")?
   test.ok("\"scoreable\": true" in metadata, metadata)?
-  fs.root_write(bundle, p"capture.json", metadata.replace("\"stable\": true", "\"stable\": false"))?
+  bundle.write(p"capture.json", metadata.replace("\"stable\": true", "\"stable\": false"))?
   test.eq(report_checks.validate_thermal_bundle(bundle)?.len(), 1)?
-  fs.root_write(bundle, p"capture.json", metadata.replace("\"errno\": null", "\"errno\": 13"))?
+  bundle.write(p"capture.json", metadata.replace("\"errno\": null", "\"errno\": 13"))?
   test.error_kind(report_checks.validate_thermal_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(bundle, p"capture.json", metadata)?
+  bundle.write(p"capture.json", metadata)?
   test.ok(report_checks.replay_thermal_bundle(bundle)?.exact)?
-  fs.root_write(
-    bundle,
+  bundle.write(
     fp"${zone}/trip_point_2_temp",
     """86000
 """,
@@ -8129,44 +7858,40 @@ test test_system_report_thermal_capture_replays_raw_zone_and_rejects_tampering [
 
 test test_system_report_thermal_capture_preserves_absent_class_without_scoring [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   report_checks.capture_thermal_bundle(source, bundle, "synthetic_fixture")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"listing_state\": \"absent\"")?
   test.contains(metadata, "\"scoreable\": false")?
-  test.ok(! fs.root_exists(bundle, p"sys/class/thermal")?)?
+  test.ok(! bundle.exists(p"sys/class/thermal")?)?
   test.error_kind(report_checks.validate_thermal_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_pci_link_rooted_reference_reads_bounded_attributes [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   let first = p"sys/bus/pci/devices/0000:00:1f.6"
   let second = p"sys/bus/pci/devices/0001:02:03.0"
-  fs.root_mkdir(root, first, parents: true)?
-  fs.root_mkdir(root, second, parents: true)?
-  fs.root_write(
-    root,
+  root.mkdir(first, parents: true)?
+  root.mkdir(second, parents: true)?
+  root.write(
     fp"${first}/current_link_speed",
     """8.0 GT/s PCIe
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${first}/current_link_width",
     """4
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${first}/max_link_speed",
     """16.0 GT/s PCIe
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     fp"${first}/max_link_width",
     """8
 """,
@@ -8176,15 +7901,13 @@ test test_system_report_pci_link_rooted_reference_reads_bounded_attributes [fs, 
   test.eq(reference[0].address, "0000:00:1f.6")?
   test.eq(reference[0].current_width, 4)?
   test.eq(reference[1].current_width, null)?
-  fs.root_write(
-    root,
+  root.write(
     fp"${first}/current_link_width",
     """0x4
 """,
   )?
   test.error_kind(report_checks.read_pci_link_reference(root), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    root,
+  root.write(
     fp"${first}/current_link_width",
     """9007199254740992
 """,
@@ -8253,16 +7976,14 @@ test test_system_report_block_queue_raw_sources_bracket_counters_and_firmware [f
   let output = """{"blockdevices":[{"kname":"sda","sched":"none","ra":128,"disc-gran":4096,"disc-max":1048576,"model":"Fixture Disk","rev":null}]}"""
   let queue = report_checks.parse_lsblk_queue_json(output)?
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
-  fs.root_mkdir(root, p"sys/class/block/sda/device", parents: true)?
-  fs.root_write(
-    root,
+  defer root.close()?
+  root.mkdir(p"sys/class/block/sda/device", parents: true)?
+  root.write(
     p"sys/class/block/sda/device/firmware_rev",
     """firmware-7
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/block/sda/stat",
     """10 0 8 1 2 0 16 2 0 3 4
 """,
@@ -8270,8 +7991,7 @@ test test_system_report_block_queue_raw_sources_bracket_counters_and_firmware [f
   let before = report_checks.read_block_queue_sources(root, queue)?
   test.eq(before[0].firmware, "firmware-7")?
   test.eq(before[0].counters.len(), 11)?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/block/sda/stat",
     """12 0 8 1 2 0 16 2 0 3 4
 """,
@@ -8293,8 +8013,7 @@ test test_system_report_block_queue_raw_sources_bracket_counters_and_firmware [f
     json.set(json.decode(candidate)?, ["storage", "devices", 0, "io_counters", 8, "value"], 1)?,
   )?
   test.ok(report_checks.compare_block_queue_sources(gauge_changed, before, after)?.unstable)?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/block/sda/stat",
     """12 0 8 1 2 0 16 2 0 3 4 5 6 7 8 9 10
 """,
@@ -8307,17 +8026,15 @@ test test_system_report_block_queue_raw_sources_reject_incomplete_and_unsafe_sta
     """{"blockdevices":[{"kname":"sda","sched":null,"ra":null,"disc-gran":null,"disc-max":null,"model":null,"rev":null}]}""",
   )?
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
-  fs.root_mkdir(root, p"sys/class/block/sda", parents: true)?
-  fs.root_write(
-    root,
+  defer root.close()?
+  root.mkdir(p"sys/class/block/sda", parents: true)?
+  root.write(
     p"sys/class/block/sda/stat",
     """1 0 8 1 2 0 16 2 0 3 4 5 6
 """,
   )?
   test.error_kind(report_checks.read_block_queue_sources(root, queue), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/block/sda/stat",
     """9007199254740992 0 8 1 2 0 16 2 0 3 4
 """,
@@ -8426,52 +8143,51 @@ test test_system_report_mountinfo_raw_reference_preserves_ids_escapes_and_option
 
 test test_system_report_mountinfo_capture_validates_saved_bytes_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   let raw = """12 1 8:1 / /mnt/data rw,relatime shared:8 - ext4 /dev/sda1 rw
 13 12 0:2 / /mnt/shared rw - tmpfs tmpfs rw
 """
-  fs.root_mkdir(source, p"proc/self", parents: true)?
-  fs.root_write(source, p"proc/self/mountinfo", raw)?
+  source.mkdir(p"proc/self", parents: true)?
+  source.write(p"proc/self/mountinfo", raw)?
   report_checks.capture_mountinfo_bundle(source, bundle, "synthetic_fixture")?
   test.eq(report_checks.validate_mountinfo_bundle(bundle)?.len(), 2)?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   let changed_stability = json.set(json.decode(metadata)?, ["stable"], false)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(changed_stability)?)?
+  bundle.write_atomic(p"capture.json", json.encode(changed_stability)?)?
   test.eq(report_checks.validate_mountinfo_bundle(bundle)?.len(), 2)?
   let legacy = json.set(json.decode(metadata)?, ["schema_version"], 1)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(legacy)?)?
+  bundle.write_atomic(p"capture.json", json.encode(legacy)?)?
   test.error_kind(report_checks.validate_mountinfo_bundle(bundle), "SystemReportCheckError.Invalid")?
   let changed_group = json.set(json.decode(metadata)?, ["reference", 0, "optional_fields", 0], "shared:9")?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(changed_group)?)?
+  bundle.write_atomic(p"capture.json", json.encode(changed_group)?)?
   test.error_kind(report_checks.validate_mountinfo_bundle(bundle), "SystemReportCheckError.Invalid")?
   let contradictory = json.set(json.decode(metadata)?, ["errno"], 13)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(contradictory)?)?
+  bundle.write_atomic(p"capture.json", json.encode(contradictory)?)?
   test.error_kind(report_checks.validate_mountinfo_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write_atomic(bundle, p"capture.json", metadata)?
-  fs.root_write(bundle, p"proc/self/mountinfo", raw.replace("/mnt/shared", "/mnt/other"))?
+  bundle.write_atomic(p"capture.json", metadata)?
+  bundle.write(p"proc/self/mountinfo", raw.replace("/mnt/shared", "/mnt/other"))?
   test.error_kind(report_checks.validate_mountinfo_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_mountinfo_capture_preserves_absent_source_without_scoring [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   report_checks.capture_mountinfo_bundle(source, bundle, "synthetic_fixture")?
-  test.contains(fs.root_read_text(bundle, p"capture.json")?, "\"source_state\": \"absent\"")?
+  test.contains(bundle.read_text(p"capture.json")?, "\"source_state\": \"absent\"")?
   test.error_kind(report_checks.validate_mountinfo_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_mountinfo_capture_replays_production_storage_collector [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc/self", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc/self", parents: true)?
+  source.write(
     p"proc/self/mountinfo",
     """12 1 8:1 / /mnt/data rw - ext4 /dev/sda1 rw
 """,
@@ -8705,12 +8421,11 @@ test test_system_report_proc_modules_preserves_unavailable_use_count [error] {
 
 test test_system_report_kernel_modules_capture_validates_raw_source_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc", parents: true)?
+  source.write(
     p"proc/modules",
     """alpha 4096 0 - Live 0x0
 beta 8192 1 alpha Live 0x1
@@ -8720,24 +8435,22 @@ beta 8192 1 alpha Live 0x1
   let reference = report_checks.validate_kernel_modules_bundle(bundle)?
   test.eq(reference.len(), 2)?
   test.eq(reference[1].name, "beta")?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/modules",
     """changed 1 0 - Live 0x0
 """,
   )?
   test.eq(report_checks.validate_kernel_modules_bundle(bundle)?.len(), 2)?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   test.contains(metadata, "\"users\": 1")?
-  fs.root_write(bundle, p"capture.json", metadata.replace("\"users\": 1", "\"users\": 2"))?
+  bundle.write(p"capture.json", metadata.replace("\"users\": 1", "\"users\": 2"))?
   test.error_kind(report_checks.validate_kernel_modules_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(bundle, p"capture.json", metadata)?
+  bundle.write(p"capture.json", metadata)?
   test.contains(metadata, "\"errno\": null")?
-  fs.root_write(bundle, p"capture.json", metadata.replace("\"errno\": null", "\"errno\": 13"))?
+  bundle.write(p"capture.json", metadata.replace("\"errno\": null", "\"errno\": 13"))?
   test.error_kind(report_checks.validate_kernel_modules_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(bundle, p"capture.json", metadata)?
-  fs.root_write(
-    bundle,
+  bundle.write(p"capture.json", metadata)?
+  bundle.write(
     p"proc/modules",
     """alpha 4096 0 - Live 0x0
 beta 8192 2 alpha Live 0x1
@@ -8745,9 +8458,8 @@ beta 8192 2 alpha Live 0x1
   )?
   test.error_kind(report_checks.validate_kernel_modules_bundle(bundle), "SystemReportCheckError.Invalid")?
   let unavailable_bundle = fs.tempdir()?
-  defer fs.close_root(unavailable_bundle)?
-  fs.root_write(
-    source,
+  defer unavailable_bundle.close()?
+  source.write(
     p"proc/modules",
     """permanent 4096 - - Live 0x0
 """,
@@ -8758,39 +8470,37 @@ beta 8192 2 alpha Live 0x1
 
 test test_system_report_kernel_modules_capture_marks_absent_and_malformed_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let absent_bundle = fs.tempdir()?
-  defer fs.close_root(absent_bundle)?
+  defer absent_bundle.close()?
   report_checks.capture_kernel_modules_bundle(source, absent_bundle, "synthetic_fixture")?
-  test.contains(fs.root_read_text(absent_bundle, p"capture.json")?, "\"source_state\": \"absent\"")?
+  test.contains(absent_bundle.read_text(p"capture.json")?, "\"source_state\": \"absent\"")?
   test.error_kind(report_checks.validate_kernel_modules_bundle(absent_bundle), "SystemReportCheckError.Invalid")?
-  fs.root_mkdir(source, p"proc", parents: true)?
-  fs.root_write(
-    source,
+  source.mkdir(p"proc", parents: true)?
+  source.write(
     p"proc/modules",
     """broken row
 """,
   )?
   let malformed_bundle = fs.tempdir()?
-  defer fs.close_root(malformed_bundle)?
+  defer malformed_bundle.close()?
   report_checks.capture_kernel_modules_bundle(source, malformed_bundle, "synthetic_fixture")?
-  test.contains(fs.root_read_text(malformed_bundle, p"capture.json")?, "\"reference\": null")?
+  test.contains(malformed_bundle.read_text(p"capture.json")?, "\"reference\": null")?
   test.error_kind(report_checks.validate_kernel_modules_bundle(malformed_bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(source, p"proc/modules", "")?
+  source.write(p"proc/modules", "")?
   let empty_bundle = fs.tempdir()?
-  defer fs.close_root(empty_bundle)?
+  defer empty_bundle.close()?
   report_checks.capture_kernel_modules_bundle(source, empty_bundle, "synthetic_fixture")?
   test.eq(report_checks.validate_kernel_modules_bundle(empty_bundle)?.len(), 0)?
 }
 
 test test_system_report_kernel_modules_capture_replays_production_collector [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc", parents: true)?
+  source.write(
     p"proc/modules",
     """alpha 4096 0 - Live 0x0
 beta 8192 1 alpha Live 0x1
@@ -8909,19 +8619,17 @@ test test_system_report_kernel_parameter_reference_rejects_duplicate_or_unexpect
 
 test test_system_report_kernel_parameter_capture_validates_observed_absent_and_tampered_sources [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc/sys/kernel", parents: true)?
-  fs.root_mkdir(source, p"sys/module/usbcore/parameters", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc/sys/kernel", parents: true)?
+  source.mkdir(p"sys/module/usbcore/parameters", parents: true)?
+  source.write(
     p"proc/sys/kernel/pid_max",
     """4194304
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/module/usbcore/parameters/autosuspend",
     """2
 """,
@@ -8934,37 +8642,33 @@ test test_system_report_kernel_parameter_capture_validates_observed_absent_and_t
   test.eq(reference[1].state, "absent")?
   test.eq(reference[6].name, "usbcore.autosuspend")?
   test.eq(reference[6].value, "2")?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/sys/kernel/pid_max",
     """changed
 """,
   )?
   test.eq(report_checks.validate_kernel_parameters_bundle(bundle)?[0].value, "4194304")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   let changed_oracle = json.encode(json.set(json.decode(metadata)?, ["reference", 0, "value"], "1")?)?
-  fs.root_write(bundle, p"capture.json", changed_oracle)?
+  bundle.write(p"capture.json", changed_oracle)?
   test.error_kind(report_checks.validate_kernel_parameters_bundle(bundle), "SystemReportCheckError.Invalid")?
   let contradictory = json.encode(json.set(json.decode(metadata)?, ["sources", 0, "errno"], 13)?)?
-  fs.root_write(bundle, p"capture.json", contradictory)?
+  bundle.write(p"capture.json", contradictory)?
   test.error_kind(report_checks.validate_kernel_parameters_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(bundle, p"capture.json", metadata)?
-  fs.root_write(
-    bundle,
+  bundle.write(p"capture.json", metadata)?
+  bundle.write(
     p"proc/sys/kernel/pid_max",
     """1
 """,
   )?
   test.error_kind(report_checks.validate_kernel_parameters_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write(
-    bundle,
+  bundle.write(
     p"proc/sys/kernel/pid_max",
     """4194304
 """,
   )?
-  fs.root_mkdir(bundle, p"proc/sys/vm", parents: true)?
-  fs.root_write(
-    bundle,
+  bundle.mkdir(p"proc/sys/vm", parents: true)?
+  bundle.write(
     p"proc/sys/vm/swappiness",
     """60
 """,
@@ -8974,11 +8678,11 @@ test test_system_report_kernel_parameter_capture_validates_observed_absent_and_t
 
 test test_system_report_kernel_parameter_capture_preserves_malformed_utf8_and_rejects_truncation [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
-  fs.root_mkdir(source, p"proc/sys/kernel", parents: true)?
-  fs.root_write(source, p"proc/sys/kernel/pid_max", b"\xff\n")?
+  defer source.close()?
+  source.mkdir(p"proc/sys/kernel", parents: true)?
+  source.write(p"proc/sys/kernel/pid_max", b"\xff\n")?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
+  defer bundle.close()?
   report_checks.capture_kernel_parameters_bundle(source, bundle, "synthetic_fixture")?
   let reference = report_checks.validate_kernel_parameters_bundle(bundle)?
   test.eq(reference[0].state, "malformed")?
@@ -8988,21 +8692,20 @@ test test_system_report_kernel_parameter_capture_preserves_malformed_utf8_and_re
     padding = f"${padding}${padding}"
   }
 
-  fs.root_write(source, p"proc/sys/kernel/pid_max", padding)?
+  source.write(p"proc/sys/kernel/pid_max", padding)?
   let truncated = fs.tempdir()?
-  defer fs.close_root(truncated)?
+  defer truncated.close()?
   report_checks.capture_kernel_parameters_bundle(source, truncated, "synthetic_fixture")?
   test.error_kind(report_checks.validate_kernel_parameters_bundle(truncated), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_kernel_parameter_capture_replays_production_collector [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc/sys/kernel", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc/sys/kernel", parents: true)?
+  source.write(
     p"proc/sys/kernel/pid_max",
     """4194304
 """,
@@ -9212,47 +8915,47 @@ test test_system_report_device_tree_reference_requires_exact_terminated_bytes_an
 
 test test_system_report_device_tree_capture_validates_saved_sources_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/firmware/devicetree/base", parents: true)?
-  fs.root_write(source, p"sys/firmware/devicetree/base/model", b"ARM Board\0")?
-  fs.root_write(source, p"sys/firmware/devicetree/base/compatible", b"vendor,board\0arm,v8\0")?
+  defer bundle.close()?
+  source.mkdir(p"sys/firmware/devicetree/base", parents: true)?
+  source.write(p"sys/firmware/devicetree/base/model", b"ARM Board\0")?
+  source.write(p"sys/firmware/devicetree/base/compatible", b"vendor,board\0arm,v8\0")?
   report_checks.capture_device_tree_bundle(source, bundle, "synthetic_fixture")?
   let reference = report_checks.validate_device_tree_bundle(bundle)?
   test.eq(reference.model, "ARM Board")?
   test.eq(reference.compatible, ["vendor,board", "arm,v8"])?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   let changed_oracle = json.set(json.decode(metadata)?, ["reference", "model"], "other")?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(changed_oracle)?)?
+  bundle.write_atomic(p"capture.json", json.encode(changed_oracle)?)?
   test.error_kind(report_checks.validate_device_tree_bundle(bundle), "SystemReportCheckError.Invalid")?
   let contradictory = json.set(json.decode(metadata)?, ["sources", 0, "errno"], 13)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(contradictory)?)?
+  bundle.write_atomic(p"capture.json", json.encode(contradictory)?)?
   test.error_kind(report_checks.validate_device_tree_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write_atomic(bundle, p"capture.json", metadata)?
-  fs.root_write(bundle, p"sys/firmware/devicetree/base/model", b"Changed\0")?
+  bundle.write_atomic(p"capture.json", metadata)?
+  bundle.write(p"sys/firmware/devicetree/base/model", b"Changed\0")?
   test.error_kind(report_checks.validate_device_tree_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_device_tree_capture_keeps_unavailable_sources_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let absent = fs.tempdir()?
-  defer fs.close_root(absent)?
+  defer absent.close()?
   report_checks.capture_device_tree_bundle(source, absent, "synthetic_fixture")?
   test.error_kind(report_checks.validate_device_tree_bundle(absent), "SystemReportCheckError.Invalid")?
-  fs.root_mkdir(source, p"sys/firmware/devicetree/base", parents: true)?
-  fs.root_write(source, p"sys/firmware/devicetree/base/compatible", b"vendor,board\0")?
+  source.mkdir(p"sys/firmware/devicetree/base", parents: true)?
+  source.write(p"sys/firmware/devicetree/base/compatible", b"vendor,board\0")?
   let compatible_only = fs.tempdir()?
-  defer fs.close_root(compatible_only)?
+  defer compatible_only.close()?
   report_checks.capture_device_tree_bundle(source, compatible_only, "synthetic_fixture")?
   test.eq(report_checks.validate_device_tree_bundle(compatible_only)?.model, null)?
-  fs.root_write(compatible_only, p"sys/firmware/devicetree/base/model", b"invented\0")?
+  compatible_only.write(p"sys/firmware/devicetree/base/model", b"invented\0")?
   test.error_kind(report_checks.validate_device_tree_bundle(compatible_only), "SystemReportCheckError.Invalid")?
-  fs.root_remove(compatible_only, p"sys/firmware/devicetree/base/model")?
-  fs.root_write(source, p"sys/firmware/devicetree/base/model", b"unterminated")?
+  compatible_only.remove(p"sys/firmware/devicetree/base/model")?
+  source.write(p"sys/firmware/devicetree/base/model", b"unterminated")?
   let malformed = fs.tempdir()?
-  defer fs.close_root(malformed)?
+  defer malformed.close()?
   report_checks.capture_device_tree_bundle(source, malformed, "synthetic_fixture")?
   test.error_kind(report_checks.validate_device_tree_bundle(malformed), "SystemReportCheckError.Invalid")?
   var padding = "x"
@@ -9260,21 +8963,21 @@ test test_system_report_device_tree_capture_keeps_unavailable_sources_unscoreabl
     padding = f"${padding}${padding}"
   }
 
-  fs.root_write(source, p"sys/firmware/devicetree/base/model", padding)?
+  source.write(p"sys/firmware/devicetree/base/model", padding)?
   let truncated = fs.tempdir()?
-  defer fs.close_root(truncated)?
+  defer truncated.close()?
   report_checks.capture_device_tree_bundle(source, truncated, "synthetic_fixture")?
   test.error_kind(report_checks.validate_device_tree_bundle(truncated), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_device_tree_capture_replays_production_collector [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/firmware/devicetree/base", parents: true)?
-  fs.root_write(source, p"sys/firmware/devicetree/base/model", b"ARM Board\0")?
-  fs.root_write(source, p"sys/firmware/devicetree/base/compatible", b"vendor,board\0arm,v8\0")?
+  defer bundle.close()?
+  source.mkdir(p"sys/firmware/devicetree/base", parents: true)?
+  source.write(p"sys/firmware/devicetree/base/model", b"ARM Board\0")?
+  source.write(p"sys/firmware/devicetree/base/compatible", b"vendor,board\0arm,v8\0")?
   report_checks.capture_device_tree_bundle(source, bundle, "synthetic_fixture")?
   test.ok(report_checks.replay_device_tree_bundle(bundle)?.exact)?
 }
@@ -9395,22 +9098,19 @@ test test_system_report_dmi_identity_reference_scores_raw_fields_and_sensitive_o
 
 test test_system_report_dmi_identity_rooted_reference_reads_optional_fields [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
-  fs.root_mkdir(root, p"sys/class/dmi/id", parents: true)?
-  fs.root_write(
-    root,
+  defer root.close()?
+  root.mkdir(p"sys/class/dmi/id", parents: true)?
+  root.write(
     p"sys/class/dmi/id/sys_vendor",
     """Example Vendor
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/dmi/id/product_name",
     """Example Host
 """,
   )?
-  fs.root_write(
-    root,
+  root.write(
     p"sys/class/dmi/id/product_serial",
     """serial-123
 """,
@@ -9423,24 +9123,21 @@ test test_system_report_dmi_identity_rooted_reference_reads_optional_fields [fs,
 
 test test_system_report_dmi_identity_capture_validates_saved_sources_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/class/dmi/id", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"sys/class/dmi/id", parents: true)?
+  source.write(
     p"sys/class/dmi/id/sys_vendor",
     """Example Vendor
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/class/dmi/id/product_name",
     """Example Host
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/class/dmi/id/product_serial",
     """serial-123
 """,
@@ -9450,44 +9147,42 @@ test test_system_report_dmi_identity_capture_validates_saved_sources_and_oracle 
   test.eq(reference.vendor.value, "Example Vendor")?
   test.eq(reference.serial.value, "serial-123")?
   test.eq(reference.uuid, {value: null, complete: true})?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/class/dmi/id/sys_vendor",
     """changed
 """,
   )?
   test.eq(report_checks.validate_dmi_identity_bundle(bundle)?.vendor.value, "Example Vendor")?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   let changed_oracle = json.set(json.decode(metadata)?, ["reference", "vendor", "value"], "other")?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(changed_oracle)?)?
+  bundle.write_atomic(p"capture.json", json.encode(changed_oracle)?)?
   test.error_kind(report_checks.validate_dmi_identity_bundle(bundle), "SystemReportCheckError.Invalid")?
   let contradictory = json.set(json.decode(metadata)?, ["sources", 0, "errno"], 13)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(contradictory)?)?
+  bundle.write_atomic(p"capture.json", json.encode(contradictory)?)?
   test.error_kind(report_checks.validate_dmi_identity_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write_atomic(bundle, p"capture.json", metadata)?
-  fs.root_write(
-    bundle,
+  bundle.write_atomic(p"capture.json", metadata)?
+  bundle.write(
     p"sys/class/dmi/id/product_uuid",
     """invented
 """,
   )?
   test.error_kind(report_checks.validate_dmi_identity_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_remove(bundle, p"sys/class/dmi/id/product_uuid")?
-  fs.root_write(bundle, p"sys/class/dmi/id/sys_vendor", "Example Vendor ")?
+  bundle.remove(p"sys/class/dmi/id/product_uuid")?
+  bundle.write(p"sys/class/dmi/id/sys_vendor", "Example Vendor ")?
   test.error_kind(report_checks.validate_dmi_identity_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_dmi_identity_capture_keeps_unavailable_sources_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let absent = fs.tempdir()?
-  defer fs.close_root(absent)?
+  defer absent.close()?
   report_checks.capture_dmi_identity_bundle(source, absent, "synthetic_fixture")?
   test.error_kind(report_checks.validate_dmi_identity_bundle(absent), "SystemReportCheckError.Invalid")?
-  fs.root_mkdir(source, p"sys/class/dmi/id", parents: true)?
-  fs.root_write(source, p"sys/class/dmi/id/sys_vendor", b"\xff")?
+  source.mkdir(p"sys/class/dmi/id", parents: true)?
+  source.write(p"sys/class/dmi/id/sys_vendor", b"\xff")?
   let malformed = fs.tempdir()?
-  defer fs.close_root(malformed)?
+  defer malformed.close()?
   report_checks.capture_dmi_identity_bundle(source, malformed, "synthetic_fixture")?
   test.error_kind(report_checks.validate_dmi_identity_bundle(malformed), "SystemReportCheckError.Invalid")?
   var padding = "x"
@@ -9495,33 +9190,30 @@ test test_system_report_dmi_identity_capture_keeps_unavailable_sources_unscoreab
     padding = f"${padding}${padding}"
   }
 
-  fs.root_write(source, p"sys/class/dmi/id/sys_vendor", padding)?
+  source.write(p"sys/class/dmi/id/sys_vendor", padding)?
   let truncated = fs.tempdir()?
-  defer fs.close_root(truncated)?
+  defer truncated.close()?
   report_checks.capture_dmi_identity_bundle(source, truncated, "synthetic_fixture")?
   test.error_kind(report_checks.validate_dmi_identity_bundle(truncated), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_dmi_identity_capture_replays_production_collector [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"sys/class/dmi/id", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"sys/class/dmi/id", parents: true)?
+  source.write(
     p"sys/class/dmi/id/sys_vendor",
     """Example Vendor
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/class/dmi/id/product_name",
     """Example Host
 """,
   )?
-  fs.root_write(
-    source,
+  source.write(
     p"sys/class/dmi/id/product_serial",
     """serial-123
 """,
@@ -9534,22 +9226,22 @@ test test_system_report_dmi_identity_capture_replays_production_collector [fs, t
 
 test test_system_report_device_tree_od_reference_reads_bounded_raw_source [fs, process, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
-  fs.root_write(source, p"model", b"ARM\0")?
-  let source_root = fs.root_path(source)?
+  defer scratch.close()?
+  source.write(p"model", b"ARM\0")?
+  let source_root = source.host_path()?
   let source_path = fp"${source_root}/model"
   let observed = report_checks.read_device_tree_raw_reference(scratch, source_path, 4, "model-before")?
   test.eq(observed.state, "observed")?
   test.eq(observed.data, b"ARM\0")?
   test.ok(observed.ended >= observed.started)?
-  fs.root_write(source, p"model", b"ARM\0X")?
+  source.write(p"model", b"ARM\0X")?
   test.error_kind(
     report_checks.read_device_tree_raw_reference(scratch, source_path, 4, "model-oversize"),
     "SystemReportCheckError.Invalid",
   )?
-  fs.root_remove(source, p"model")?
+  source.remove(p"model")?
   let absent = report_checks.read_device_tree_raw_reference(scratch, source_path, 4, "model-absent")?
   test.eq(absent.state, "absent")?
   test.eq(absent.data, null)?
@@ -9614,35 +9306,32 @@ test test_system_report_uptime_reference_requires_a_bracketed_integer_second [er
 
 test test_system_report_uptime_capture_validates_saved_source_and_oracle [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc", parents: true)?
+  source.write(
     p"proc/uptime",
     """73.50 12.00
 """,
   )?
   report_checks.capture_uptime_bundle(source, bundle, "synthetic_fixture")?
   test.eq(report_checks.validate_uptime_bundle(bundle)?, 73)?
-  fs.root_write(
-    source,
+  source.write(
     p"proc/uptime",
     """74.00 12.50
 """,
   )?
   test.eq(report_checks.validate_uptime_bundle(bundle)?, 73)?
-  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  let metadata = bundle.read_text(p"capture.json")?
   let changed_oracle = json.set(json.decode(metadata)?, ["reference_seconds"], 74)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(changed_oracle)?)?
+  bundle.write_atomic(p"capture.json", json.encode(changed_oracle)?)?
   test.error_kind(report_checks.validate_uptime_bundle(bundle), "SystemReportCheckError.Invalid")?
   let contradictory = json.set(json.decode(metadata)?, ["errno"], 13)?
-  fs.root_write_atomic(bundle, p"capture.json", json.encode(contradictory)?)?
+  bundle.write_atomic(p"capture.json", json.encode(contradictory)?)?
   test.error_kind(report_checks.validate_uptime_bundle(bundle), "SystemReportCheckError.Invalid")?
-  fs.root_write_atomic(bundle, p"capture.json", metadata)?
-  fs.root_write(
-    bundle,
+  bundle.write_atomic(p"capture.json", metadata)?
+  bundle.write(
     p"proc/uptime",
     """74.00 12.50
 """,
@@ -9652,20 +9341,19 @@ test test_system_report_uptime_capture_validates_saved_source_and_oracle [fs, ti
 
 test test_system_report_uptime_capture_keeps_absent_malformed_and_truncated_unscoreable [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let absent = fs.tempdir()?
-  defer fs.close_root(absent)?
+  defer absent.close()?
   report_checks.capture_uptime_bundle(source, absent, "synthetic_fixture")?
   test.error_kind(report_checks.validate_uptime_bundle(absent), "SystemReportCheckError.Invalid")?
-  fs.root_mkdir(source, p"proc", parents: true)?
-  fs.root_write(
-    source,
+  source.mkdir(p"proc", parents: true)?
+  source.write(
     p"proc/uptime",
     """73.50 12.00 extra
 """,
   )?
   let malformed = fs.tempdir()?
-  defer fs.close_root(malformed)?
+  defer malformed.close()?
   report_checks.capture_uptime_bundle(source, malformed, "synthetic_fixture")?
   test.error_kind(report_checks.validate_uptime_bundle(malformed), "SystemReportCheckError.Invalid")?
   var padding = "x"
@@ -9673,26 +9361,24 @@ test test_system_report_uptime_capture_keeps_absent_malformed_and_truncated_unsc
     padding = f"${padding}${padding}"
   }
 
-  fs.root_write(
-    source,
+  source.write(
     p"proc/uptime",
     f"""73.50 12.00
 ${padding}""",
   )?
   let truncated = fs.tempdir()?
-  defer fs.close_root(truncated)?
+  defer truncated.close()?
   report_checks.capture_uptime_bundle(source, truncated, "synthetic_fixture")?
   test.error_kind(report_checks.validate_uptime_bundle(truncated), "SystemReportCheckError.Invalid")?
 }
 
 test test_system_report_uptime_capture_replays_production_identity [fs, time, error] {
   let source = fs.tempdir()?
-  defer fs.close_root(source)?
+  defer source.close()?
   let bundle = fs.tempdir()?
-  defer fs.close_root(bundle)?
-  fs.root_mkdir(source, p"proc", parents: true)?
-  fs.root_write(
-    source,
+  defer bundle.close()?
+  source.mkdir(p"proc", parents: true)?
+  source.write(
     p"proc/uptime",
     """73.50 12.00
 """,

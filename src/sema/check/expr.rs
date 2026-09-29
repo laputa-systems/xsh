@@ -554,7 +554,7 @@ impl Checker {
         }
         if matches!(
             expected,
-            Some(Type::Status | Type::ProcessHandle | Type::NetJob)
+            Some(Type::Status | Type::ProcessHandle | Type::NetJob | Type::FsRoot)
         ) {
             for field in fields {
                 match &field.kind {
@@ -576,6 +576,10 @@ impl Checker {
                     "`ProcessHandle` is a runtime-only type and cannot be constructed with a record literal; obtain it from `spawn`",
                     "check.type-mismatch",
                 );
+                return Type::Unknown;
+            }
+            if matches!(expected, Some(Type::FsRoot)) {
+                self.error(span, "`FsRoot` is an opaque runtime capability and cannot be constructed with a record literal; obtain it from a filesystem root factory", "check.type-mismatch");
                 return Type::Unknown;
             }
             if matches!(expected, Some(Type::NetJob)) {

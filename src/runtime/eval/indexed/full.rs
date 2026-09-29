@@ -2808,6 +2808,7 @@ fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
         LoweredType::Command => Type::Command,
         LoweredType::ProcessHandle => Type::ProcessHandle,
         LoweredType::NetJob => Type::NetJob,
+        LoweredType::FsRoot => Type::FsRoot,
         LoweredType::Stream => Type::Stream(Box::new(Type::Any)),
         LoweredType::Pure => Type::Pure,
         LoweredType::Proc => Type::Proc,
@@ -2901,6 +2902,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Command => LoweredType::Command,
         Type::ProcessHandle => LoweredType::ProcessHandle,
         Type::NetJob => LoweredType::NetJob,
+        Type::FsRoot => LoweredType::FsRoot,
         Type::Stream(_) => LoweredType::Stream,
         Type::Pure => LoweredType::Pure,
         Type::Proc => LoweredType::Proc,
@@ -5274,6 +5276,7 @@ impl FullCodec for LoweredValue {
             | Self::Command(_)
             | Self::ProcessHandle(_)
             | Self::NetJob(_)
+            | Self::FsRoot(_)
             | Self::Stream(_)
             | Self::Pure(_)
             | Self::Proc(_)
@@ -8629,6 +8632,25 @@ proc main() [error] {
                 ).expect("update function exists");
                 let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
                 assert_eq!(result.unwrap(), Value::Int(2));
+            }
+        });
+    }
+
+    #[test]
+    fn fs_root_methods_keep_opaque_identity_and_defaults_on_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/fs-root-methods.xsh");
+            let program = Arc::new(fixture("fs-root-methods.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "root_methods")),
+                    LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("filesystem root fixture exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("payload"))));
             }
         });
     }

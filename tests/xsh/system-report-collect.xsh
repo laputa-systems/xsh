@@ -18,14 +18,13 @@ type SystemReportCgroupParser = module {
 
 test test_system_report_bounded_text_reader_withholds_truncated_prefix [fs, error] {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   var padding = " "
   while padding.count_chars() < 4096 {
     padding = f"${padding}${padding}"
   }
 
-  fs.root_write(
-    root,
+  root.write(
     p"source",
     f"""42
 ${padding}""",

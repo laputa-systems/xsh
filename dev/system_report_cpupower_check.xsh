@@ -213,7 +213,7 @@ export pure compare_cpupower(candidate_json: Str, reference: CpupowerReference) 
 }
 
 proc cpupower_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) [fs, process, error] -> Result[Str] {
-  let scratch_path = fs.root_path(root)?
+  let scratch_path = root.host_path()?
   let status = process.run(
     process.command_argv(
       executable,
@@ -228,7 +228,7 @@ proc cpupower_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) 
     return Err(cpupower_failure(f"cpupower ${name} command failed"))
   }
 
-  let raw = fs.root_read_result(root, fp"${name}", max_bytes: 65536)?
+  let raw = root.read_result(fp"${name}", max_bytes: 65536)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(cpupower_failure(f"cpupower ${name} output is incomplete"))
   }
@@ -247,7 +247,7 @@ export proc compare_live_cpupower(
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let version_output = cpupower_output(scratch, executable, "version", [executable, "--version"])?
   let version = version_output.lines().get(0, "").trim()
   if ! version.starts_with("cpupower ") {
@@ -279,7 +279,7 @@ export proc compare_live_cpupower(
     idle_state_names: idle.names,
   }
   let candidate_started = time.now()
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let candidate_status = process.run(
     process.command_argv(
       xsh_bin,
@@ -294,7 +294,7 @@ export proc compare_live_cpupower(
     return Err(cpupower_failure("candidate CPU collection failed"))
   }
 
-  let candidate_raw = fs.root_read_result(scratch, p"candidate", max_bytes: 8388608)?
+  let candidate_raw = scratch.read_result(p"candidate", max_bytes: 8388608)?
   if candidate_raw.state != "observed" or candidate_raw.truncated or candidate_raw.data == null {
     return Err(cpupower_failure("candidate CPU output is incomplete"))
   }

@@ -4167,6 +4167,7 @@ impl<'a> Linter<'a> {
         self.lint_duration_conversion(callee, args, span);
         self.lint_redundant_defaults(callee, args);
         self.lint_prefer_in(callee, args, span);
+        self.lint_fs_root_receiver(callee, args, span);
         self.lint_prefer_method(callee, args, span);
         self.lint_join_to_concat(callee, args, span);
         self.lint_prefer_slice(callee, args, span);
@@ -4699,12 +4700,11 @@ impl<'a> Linter<'a> {
 
     fn lint_redundant_defaults(&mut self, callee: ExprId, args: ArenaRange) {
         if is_fs_call(self.arena, callee, "mkdir") || is_method_call(self.arena, callee, "mkdir") {
-            self.lint_redundant_named_bool(
-                args,
-                "parents",
-                true,
-                "`mkdir` creates parent directories by default",
-            );
+            let rooted = matches!(self.arena.expr(callee).kind, ArenaExprKind::Field { base, .. }
+                if self.expr_types.get(&self.arena.expr(base).span) == Some(&Type::FsRoot));
+            self.lint_redundant_named_bool(args, "parents", !rooted,
+                if rooted { "rooted mkdir does not create parent directories by default" }
+                else { "mkdir creates parent directories by default" });
         } else if is_fs_call(self.arena, callee, "touch")
             || is_method_call(self.arena, callee, "touch")
         {
@@ -4758,6 +4758,44 @@ impl<'a> Linter<'a> {
                 "`copy_tree` creates parent directories by default",
             );
         }
+    }
+
+    fn lint_fs_root_receiver(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        let ArenaExprKind::Ident(module) = self.arena.expr(base).kind else { return; };
+        if module != "fs" || self.scopes.iter().any(|scope| scope.contains_key("fs")) { return; }
+        let Some(method) = xsh_registry::signature::legacy_fs_root_method(&name.as_str()) else { return; };
+        let entries = self.arena.call_args(args);
+        let Some(first) = entries.first() else { return; };
+        let receiver = match first.kind {
+            ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { name: _, value, .. } => value,
+            _ => return,
+        };
+        if self.expr_types.get(&self.arena.expr(receiver).span) != Some(&Type::FsRoot) { return; }
+        let receiver_span = self.arena.expr(receiver).span;
+        let mut diagnostic = Diagnostic::new(Severity::Warning, format!("use FsRoot.{method} for this removed filesystem operation"))
+            .with_code("lint.fs-root-receiver").with_label(Label::secondary(span, "preserve receiver and argument evaluation order"));
+        let safe_receiver = match first.kind { ArenaCallArgKind::Positional(_) => true, ArenaCallArgKind::Named { name, .. } => name == "root", _ => false };
+        let safe_args = entries.iter().all(|entry| !matches!(entry.kind, ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }));
+        let lexed = xsh::frontend::syntax::lexer::Lexer::new(span.source_id, &self.source[span.range()]).lex_compact();
+        let comments = (0..lexed.token_table.len()).any(|index| lexed.token_table.tag_at(index) == Some(xsh::frontend::syntax::token::TokenTag::Comment));
+        if safe_receiver && safe_args && lexed.diagnostics.is_empty() && !comments {
+            let receiver_text = &self.source[receiver_span.range()];
+            let receiver_text = match self.arena.expr(receiver).kind {
+                ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. } | ArenaExprKind::Call { .. } => receiver_text.to_string(),
+                _ => format!("({receiver_text})"),
+            };
+            let first_end = call_arg_span(self.arena, first).expect("ordinary capability argument").end();
+            let suffix = &self.source[first_end..span.end()];
+            let suffix = if entries.len() > 1 {
+                let Some(comma) = suffix.find(',') else { return; };
+                let suffix = &suffix[comma + 1..];
+                if suffix.starts_with('\n') { suffix } else { suffix.trim_start() }
+            } else { ")" };
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "promote the first evaluated capability to its receiver", format!("{receiver_text}.{method}({suffix}")));
+
+        }
+        self.diagnostics.push(diagnostic);
     }
 
     fn lint_prefer_method(&mut self, callee: ExprId, args: ArenaRange, span: Span) {

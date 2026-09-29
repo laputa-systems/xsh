@@ -803,3 +803,20 @@ enum rejection, and constructor-only defaults. Run the indexed verifier gate
 and `cargo test -p xsht --test api api_core_enums` for pool validity, both runtime
 routes after frontend drop, and API example lookup. System report codec changes
 also require the JSON golden and rejection cases in `tests/xsh/system-report.xsh`.
+
+### FsRoot receiver methods
+
+Nearest gate: `target/debug/xsht test --jobs 1 tests/xsh/stdlib/fs_root_methods.xsh`.
+The native cases cover all receiver methods, parent/child close independence,
+bounded observations, raw byte names, symlink confinement, named argument order,
+forged records, removed aliases, lazy optional receivers, method trace IDs, and
+filesystem effects. The opaque owner identity is covered by
+`cargo test -p xsh --lib opaque_fs_root_identity --features native-tests`; both
+indexed execution routes and missing default slots are covered by
+`cargo test -p xsh --lib fs_root_methods_keep_opaque_identity --features native-tests`.
+Broaden with
+`target/debug/xsht test --jobs 1 tests/xsh/stdlib/fs.xsh`,
+`tests/xsh/stdlib/fs_root_children.xsh`, and
+`tests/xsh/stdlib/fs_root_readlink_result.xsh`. Tool boundaries use
+`cargo test -p xsht --test integration fs_root_receiver --features native-tests`
+and `cargo test -p xsht --test api api_fs_root --features native-tests`.

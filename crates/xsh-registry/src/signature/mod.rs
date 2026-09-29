@@ -262,6 +262,7 @@ pub enum MethodReceiver {
     Regex,
     ProcessHandle,
     NetJob,
+    FsRoot,
 }
 
 #[derive(Clone, Debug)]
@@ -274,6 +275,23 @@ pub struct MethodReceiverSig {
 pub struct NamedMethodSigs {
     pub name: &'static str,
     pub overloads: Vec<MethodSig>,
+}
+
+/// Removed module spellings used only for checked migration diagnostics.
+/// Receiver promotion must preserve source evaluation order and capability identity.
+pub fn legacy_fs_root_method(function: &str) -> Option<&'static str> {
+    match function {
+        "close_root" => Some("close"), "root_path" => Some("host_path"),
+        "root" => Some("open_root"), "root_read" => Some("read_bytes"),
+        "root_read_text" => Some("read_text"), "root_read_result" => Some("read_result"),
+        "root_filesystem_stats" => Some("filesystem_stats"), "root_children" => Some("children"),
+        "root_write" => Some("write"), "root_write_atomic" => Some("write_atomic"),
+        "root_metadata" => Some("metadata"), "root_exists" => Some("exists"),
+        "root_mkdir" => Some("mkdir"), "root_remove" => Some("remove"),
+        "root_readlink" => Some("readlink"), "root_readlink_result" => Some("readlink_result"),
+        "root_symlink" => Some("symlink"), "root_chmod" => Some("chmod"),
+        _ => None,
+    }
 }
 
 pub fn api_spec() -> &'static ApiSpec {

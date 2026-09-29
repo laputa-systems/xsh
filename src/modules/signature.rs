@@ -112,6 +112,15 @@ impl ApiSpec {
                 }
             }
         }
+        for receiver in &methods {
+            if receiver.receiver == MethodReceiver::FsRoot {
+                for method in &receiver.methods {
+                    for overload in &method.overloads {
+                        op_names.entry(overload.sig.op).or_insert_with(|| format!("FsRoot.{}", method.name));
+                    }
+                }
+            }
+        }
         Self {
             modules,
             module_index,
@@ -121,8 +130,8 @@ impl ApiSpec {
         }
     }
 
-    /// The `module.function` spelling for a `RuntimeOp`, if it originates from a
-    /// standard module function (used as the `module.call` trace name).
+    /// The public callable spelling for a native operation. Root receiver
+    /// methods retain operation IDs while publishing their receiver API identity.
     pub fn op_trace_name(&self, op: RuntimeOp) -> Option<&str> {
         self.op_names.get(&op).map(String::as_str)
     }
@@ -451,6 +460,7 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::Command => Type::Command,
         xsh_registry::types::Type::ProcessHandle => Type::ProcessHandle,
         xsh_registry::types::Type::NetJob => Type::NetJob,
+        xsh_registry::types::Type::FsRoot => Type::FsRoot,
         xsh_registry::types::Type::Unit => Type::Unit,
         xsh_registry::types::Type::Optional(inner) => Type::Optional(Box::new(convert_type(inner))),
     }
@@ -483,6 +493,7 @@ fn method_required_effect(receiver: MethodReceiver, op: RuntimeOp) -> Option<Eff
         },
         MethodReceiver::ProcessHandle => Some(Effect::Process),
         MethodReceiver::NetJob => Some(Effect::Net),
+        MethodReceiver::FsRoot => Some(Effect::Fs),
         _ => None,
     }
 }

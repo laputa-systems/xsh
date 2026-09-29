@@ -219,12 +219,12 @@ export proc compare_live_sensors_json(
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   for name in ["version", "version-error", "before", "before-error", "candidate", "after", "after-error"] {
-    fs.root_write(scratch, fp"${name}", "")?
+    scratch.write(fp"${name}", "")?
   }
 
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let version_status = process.run(
     process.command_argv(
       executable,
@@ -239,7 +239,7 @@ export proc compare_live_sensors_json(
     return Err(sensors_check_failure("sensors version probe failed"))
   }
 
-  let version_source = fs.root_read_result(scratch, p"version", max_bytes: 4096)?
+  let version_source = scratch.read_result(p"version", max_bytes: 4096)?
   if version_source.state != "observed" or version_source.truncated or version_source.data == null {
     return Err(sensors_check_failure("sensors version probe output is incomplete"))
   }
@@ -290,9 +290,9 @@ export proc compare_live_sensors_json(
     return Err(sensors_check_failure("candidate sensor collection failed"))
   }
 
-  let before_source = fs.root_read_result(scratch, p"before", max_bytes: 8388608)?
-  let after_source = fs.root_read_result(scratch, p"after", max_bytes: 8388608)?
-  let candidate_source = fs.root_read_result(scratch, p"candidate", max_bytes: 8388608)?
+  let before_source = scratch.read_result(p"before", max_bytes: 8388608)?
+  let after_source = scratch.read_result(p"after", max_bytes: 8388608)?
+  let candidate_source = scratch.read_result(p"candidate", max_bytes: 8388608)?
   if before_source.truncated or after_source.truncated or candidate_source.truncated or before_source.data == null or after_source.data == null or candidate_source.data == null {
     return Err(sensors_check_failure("sensor comparison output exceeds its bound"))
   }

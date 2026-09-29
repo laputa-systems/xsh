@@ -207,14 +207,14 @@ test test_bare_blocks_do_not_expand_module_or_integer_exit_permissions [fs, erro
 test test_bare_block_resource_escape_keeps_explicit_cleanup_validity [error] { |ctx|
   let output = test.run_script(ctx, r"""
 let live = { fs.tempdir()? }
-print ${fs.root_exists(live, p".")?}
-fs.close_root(live)?
+print ${live.exists(p".")?}
+live.close()?
 let closed = {
   let root = fs.tempdir()?
-  defer fs.close_root(root)?
+  defer root.close()?
   root
 }
-let inspected = fs.root_exists(closed, p".")
+let inspected = closed.exists(p".")
 print ${inspected ?? false}
 """)?
   test.ok(output.success, output.stderr)?

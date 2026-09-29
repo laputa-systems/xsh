@@ -206,9 +206,9 @@ proc header_open_root(root_path: Path) [fs, error] -> Result[FsRoot] {
 test test_with_headers_preserve_escaping_owned_prefix_values [fs, error] { |ctx|
   let root_path = test.temp_dir(ctx, name: "header-root")?
   let root = header_open_root(root_path)?
-  fs.root_write(root, p"value", "retained")?
-  test.eq(fs.root_read_text(root, p"value")?, "retained")?
-  fs.close_root(root)?
+  root.write(p"value", "retained")?
+  test.eq(root.read_text(p"value")?, "retained")?
+  root.close()?
 }
 
 test test_block_header_migration_rechecks_imports_and_deduplicates_edits [fs, process, error] { |ctx|

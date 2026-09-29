@@ -421,7 +421,7 @@ export pure compare_lsusb(
 }
 
 proc lsusb_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) [fs, process, error] -> Result[Str] {
-  let scratch_path = fs.root_path(root)?
+  let scratch_path = root.host_path()?
   let status = process.run(
     process.command_argv(
       executable,
@@ -436,7 +436,7 @@ proc lsusb_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) [fs
     return Err(lsusb_failure(f"lsusb ${name} command failed"))
   }
 
-  let raw = fs.root_read_result(root, fp"${name}", max_bytes: 1048576)?
+  let raw = root.read_result(fp"${name}", max_bytes: 1048576)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(lsusb_failure(f"lsusb ${name} output is incomplete"))
   }
@@ -455,7 +455,7 @@ export proc compare_live_lsusb(
   }
 
   let scratch = fs.tempdir()?
-  defer fs.close_root(scratch)?
+  defer scratch.close()?
   let version = lsusb_output(scratch, executable, "version", [executable, "--version"])?.lines().get(0, "").trim()
   if ! version.starts_with("lsusb ") {
     return Err(lsusb_failure("lsusb version is unsupported"))
@@ -475,7 +475,7 @@ export proc compare_live_lsusb(
   let verbose_output = lsusb_output(scratch, executable, "verbose", [executable, "-v", "-s", selector])?
   let descriptor = parse_lsusb_verbose(verbose_output, selected.bus, selected.device)?
   let candidate_started = time.now()
-  let scratch_path = fs.root_path(scratch)?
+  let scratch_path = scratch.host_path()?
   let status = process.run(
     process.command_argv(
       xsh_bin,
@@ -490,7 +490,7 @@ export proc compare_live_lsusb(
     return Err(lsusb_failure("candidate USB collection failed"))
   }
 
-  let candidate_raw = fs.root_read_result(scratch, p"candidate", max_bytes: 8388608)?
+  let candidate_raw = scratch.read_result(p"candidate", max_bytes: 8388608)?
   if candidate_raw.state != "observed" or candidate_raw.truncated or candidate_raw.data == null {
     return Err(lsusb_failure("candidate USB output is incomplete"))
   }

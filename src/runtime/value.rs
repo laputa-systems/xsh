@@ -881,6 +881,7 @@ pub enum Value {
     Command(Box<CommandPlan>),
     ProcessHandle(Box<ProcessHandleValue>),
     NetJob(Box<NetJobValue>),
+    FsRoot(FsRootValue),
     Unit,
     Tag {
         type_name: Name,
@@ -934,6 +935,7 @@ impl Value {
             Self::Command(_) => "Command",
             Self::ProcessHandle(_) => "ProcessHandle",
             Self::NetJob(_) => "NetJob",
+            Self::FsRoot(_) => "FsRoot",
             Self::Unit => "Unit",
             Self::Tag { .. } => "Tag",
         }
@@ -1075,6 +1077,22 @@ pub struct ProcessHandleValue {
     pub argv: Arc<[Arc<str>]>,
     pub detached: bool,
 }
+
+/// Opaque filesystem capability identity. Aliases share explicit close state;
+/// child roots retain their own open directory handle. The owner token prevents
+/// a capability passed between evaluators from selecting an unrelated slot.
+#[derive(Clone, Debug)]
+pub struct FsRootValue {
+    pub(crate) id: i64,
+    pub(crate) owner: Arc<()>,
+}
+
+impl PartialEq for FsRootValue {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id && Arc::ptr_eq(&self.owner, &other.owner)
+    }
+}
+impl Eq for FsRootValue {}
 
 /// Opaque evaluator-owned network job identity.
 ///

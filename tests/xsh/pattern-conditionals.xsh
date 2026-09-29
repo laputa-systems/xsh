@@ -236,9 +236,9 @@ proc pattern_conditional_open_root(root_path: Path) [fs, error] -> Result[FsRoot
 test test_pattern_conditionals_preserve_escaping_owned_resources [fs, error] { |ctx|
   let root_path = test.temp_dir(ctx, name: "pattern-root")?
   let root = pattern_conditional_open_root(root_path)?
-  fs.root_write(root, p"value", "retained")?
-  test.eq(fs.root_read_text(root, p"value")?, "retained")?
-  fs.close_root(root)?
+  root.write(p"value", "retained")?
+  test.eq(root.read_text(p"value")?, "retained")?
+  root.close()?
 }
 
 enum PatternSiblingValue { SiblingWord(Str), SiblingNumber(Int) }

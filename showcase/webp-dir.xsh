@@ -34,8 +34,8 @@ proc main(...argv: List[Str]) [fs, process, error] {
   )?
 
   let tmp = fs.tempdir()?
-  defer fs.close_root(tmp)?
-  let tmp_dir = fs.root_path(tmp)?
+  defer tmp.close()?
+  let tmp_dir = tmp.host_path()?
 
   let entries = fs.files(opts.root, gitignore: false)
     |> where .kind == "file"

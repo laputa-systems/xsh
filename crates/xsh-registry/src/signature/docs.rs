@@ -16,6 +16,7 @@ pub fn associated_module_functions(
 ) -> &'static [(&'static str, &'static str)] {
     match receiver {
         MethodReceiver::Map => &[("map", "empty")],
+        MethodReceiver::FsRoot => &[("fs", "open_root"), ("fs", "tempdir"), ("fs", "project_root"), ("fs", "user_root")],
         _ => &[],
     }
 }
@@ -39,6 +40,7 @@ pub fn receiver_name(receiver: MethodReceiver) -> &'static str {
         MethodReceiver::Regex => "Regex",
         MethodReceiver::ProcessHandle => "ProcessHandle",
         MethodReceiver::NetJob => "NetJob",
+        MethodReceiver::FsRoot => "FsRoot",
     }
 }
 
@@ -1265,6 +1267,18 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
 }
 
 fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
+    if receiver == "FsRoot" {
+        let legacy = match method {
+            "close" => "close_root", "host_path" => "root_path", "open_root" => "root",
+            "read_bytes" => "root_read", "read_text" => "root_read_text", "read_result" => "root_read_result",
+            "filesystem_stats" => "root_filesystem_stats", "children" => "root_children",
+            "write" => "root_write", "write_atomic" => "root_write_atomic", "metadata" => "root_metadata",
+            "exists" => "root_exists", "mkdir" => "root_mkdir", "remove" => "root_remove",
+            "readlink" => "root_readlink", "readlink_result" => "root_readlink_result",
+            "symlink" => "root_symlink", "chmod" => "root_chmod", _ => return None,
+        };
+        return function_doc("fs", legacy);
+    }
     let docs: Option<(&'static str, &'static str, &'static [&'static str])> = match (
         receiver, method,
     ) {

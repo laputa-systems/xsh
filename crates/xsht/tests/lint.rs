@@ -44,6 +44,63 @@ fn callable_alias_forwarder_fix_retains_policy_comments_and_argument_order() {
 }
 
 #[test]
+fn fs_root_receiver_cli_fix_checks_an_isolated_fixture_and_converges() {
+    let temp = TempDir::new().unwrap();
+    let path = temp.path().join("root-receiver.xsh");
+    fs::write(&path, "proc old(root: FsRoot) [fs, error] {\n  fs.root_mkdir(root, p\"nested\", parents: true)?\n}\n").unwrap();
+    let files = vec![path.to_string_lossy().into_owned()];
+    let result = xsht::lint_files(&files, true, false);
+    assert_eq!(result.status, 0, "{}", String::from_utf8_lossy(&result.stderr));
+    let first = fs::read_to_string(&path).unwrap();
+    assert!(first.contains("root.mkdir(p\"nested\", parents: true)?"), "{first}");
+    let second = xsht::lint_files(&files, true, false);
+    assert!(second.status <= 1, "{}", String::from_utf8_lossy(&second.stderr));
+    assert!(!String::from_utf8_lossy(&second.stderr).contains("lint.fs-root-receiver"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), first);
+}
+
+#[test]
+fn fs_root_receiver_fix_preserves_named_argument_text_and_refuses_reordered_receiver() {
+    for (source, expected) in [
+        ("proc old(root: FsRoot) [fs, error] {\n  fs.root_mkdir(root, p\"nested\", parents: true)?\n}\n", Some("root.mkdir(p\"nested\", parents: true)")),
+        ("proc old(root: FsRoot) [fs, error] {\n  fs.root_write(data: \"text\", root: root, path: p\"data\")?\n}\n", None),
+        ("proc old(root: FsRoot) [fs, error] {\n  fs.root_write(\n    root,\n    p\"data\",\n    b\"#bytes\",\n  )?\n}\n", Some("root.write(\n    p\"data\",\n    b\"#bytes\",\n  )")),
+        ("proc old(root: FsRoot) [fs, error] {\n  fs.root_mkdir(root, # retain this ownership comment\n    p\"nested\")?\n}\n", None),
+    ] {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.unsupported-api")));
+        let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+        let fixes = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.fs-root-receiver"))
+            .flat_map(|diagnostic| diagnostic.fix_hints.iter()).collect::<Vec<_>>();
+        if let Some(expected) = expected {
+            assert_eq!(fixes.len(), 1);
+            assert_eq!(fixes[0].replacement.as_deref(), Some(expected));
+            let mut fixed = source.to_string();
+            fixed.replace_range(fixes[0].span.unwrap().range(), expected);
+            assert_parse_check_standalone("root receiver", &fixed);
+            let parsed = parse_lint_source(&fixed);
+            let checked = Checker::check_arena(&parsed.arena, &fixed);
+            assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics.iter()
+                .any(|diagnostic| diagnostic.code.as_deref() == Some("lint.fs-root-receiver")));
+        } else { assert!(fixes.is_empty()); }
+    }
+}
+
+#[test]
+fn fs_root_receiver_refuses_user_record_methods_and_forged_capabilities() {
+    for source in [
+        "proc old(root: {id: Int}) [fs, error] { fs.root_read(root, p\"data\")? }\n",
+        "let fs = {root_read: pure(root: Int, path: Path) -> Int { root }}\nlet _ = fs.root_read(1, p\"data\")\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.fs-root-receiver")));
+    }
+}
+
+#[test]
 fn boolean_guard_fix_keeps_failure_body_comments_and_converges() {
     let source = "proc validate(jobs: Int) [error] {\n  if jobs <= 0 {\n    # Preserve domain error identity.\n    return error.fail(\"jobs must be positive\")\n  }\n\n  let _ = jobs\n}\n";
     let parsed = parse_lint_source(source);

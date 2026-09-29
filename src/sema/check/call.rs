@@ -926,7 +926,18 @@ impl Checker {
             );
             return Type::Str;
         }
-        let Some(overloads) = module_sig.function_overloads(name) else {
+        let migration = if module == "fs" {
+            xsh_registry::signature::legacy_fs_root_method(name).map(|method| {
+                self.error(span, &format!("`fs.{name}` was removed; use an FsRoot receiver's `{method}` method"), "check.unsupported-api");
+                api_spec().method_overloads(MethodReceiver::FsRoot, method).expect("root receiver registry")
+                    .iter().map(|method| {
+                        let mut sig = method.sig.clone();
+                        sig.params.insert(0, crate::modules::signature::ParamSig { name: "root", ty: Type::FsRoot, defaulted: false });
+                        sig
+                    }).collect::<Vec<_>>()
+            })
+        } else { None };
+        let Some(overloads) = module_sig.function_overloads(name).or(migration.as_deref()) else {
             self.error(span, "unknown module API", "check.unknown-module-api");
             return Type::Unknown;
         };

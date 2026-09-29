@@ -9,6 +9,26 @@ fn workspace_root() -> std::path::PathBuf {
 }
 
 #[test]
+fn api_fs_root_inventory_exposes_native_receiver_operations_and_retains_factories() {
+    let output = xsht(&["api", "method:FsRoot.read_bytes", "method:FsRoot.mkdir", "method:FsRoot.close"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let text = String::from_utf8(output.stdout).unwrap();
+    for fragment in ["method.FsRoot.read_bytes", "method.FsRoot.mkdir", "method.FsRoot.close", "root.write", "payload"] {
+        assert!(text.contains(fragment), "{text}");
+    }
+    let registry = xsh_registry::signature::api_spec();
+    let methods = &registry.methods.iter().find(|entry| entry.receiver == xsh_registry::signature::MethodReceiver::FsRoot).unwrap().methods;
+    assert_eq!(methods.len(), 18);
+    assert_eq!(methods.iter().map(|method| method.overloads.len()).sum::<usize>(), 20);
+    for name in ["open_root", "tempdir", "project_root", "user_root", "root_install_file"] {
+        assert!(registry.modules.iter().find(|module| module.name == "fs").unwrap().sig.functions.iter().any(|function| function.name == name));
+    }
+    for name in ["close_root", "root_path", "root", "root_read", "root_mkdir"] {
+        assert!(!registry.modules.iter().find(|module| module.name == "fs").unwrap().sig.functions.iter().any(|function| function.name == name));
+    }
+}
+
+#[test]
 fn api_boolean_guards_explains_exits_refinements_and_no_error_input() {
     let output = xsht(&["api", "language:core.boolean-guards"]);
     assert!(output.status.success());

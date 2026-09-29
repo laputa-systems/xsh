@@ -3,7 +3,8 @@
 use super::{
     ApiArgCheck, MethodReceiver, MethodReceiverSig, MethodReturn, MethodSig, NamedMethodSigs,
     ParamSig, RuntimeOp, Type, btree_map, default_param, fs_entry_type, net_response_type, param,
-    regex_match_type, result, sig_with_arg_check,
+    regex_match_type, result, sig_with_arg_check, fs_root_type, fs_root_read_result_type,
+    fs_root_filesystem_stats_type, fs_root_children_result_type, fs_root_readlink_result_type,
 };
 pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
     vec![
@@ -1057,6 +1058,184 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 false,
                 RuntimeOp::ProcessHandleCancel,
             )]),
+        },
+        MethodReceiverSig {
+            receiver: MethodReceiver::FsRoot,
+            methods: method_map(vec![
+                method(
+                    "close",
+                    Vec::new(),
+                    MethodReturn::Type(result(Type::Unit)),
+                    false,
+                    RuntimeOp::FsCloseRoot,
+                ),
+                method(
+                    "host_path",
+                    Vec::new(),
+                    MethodReturn::Type(result(Type::Path)),
+                    false,
+                    RuntimeOp::FsRootPath,
+                ),
+                method(
+                    "open_root",
+                    vec![param("path", Type::Path)],
+                    MethodReturn::Type(result(fs_root_type())),
+                    false,
+                    RuntimeOp::FsRootOpenRoot,
+                ),
+                method(
+                    "read_bytes",
+                    vec![param("path", Type::Path)],
+                    MethodReturn::Type(result(Type::Bytes)),
+                    false,
+                    RuntimeOp::FsRootRead,
+                ),
+                method(
+                    "read_result",
+                    vec![
+                        param("path", Type::Path),
+                        default_param("max_bytes", Type::Int),
+                        ],
+                    MethodReturn::Type(result(fs_root_read_result_type())),
+                    false,
+                    RuntimeOp::FsRootReadResult,
+                ),
+                method(
+                    "filesystem_stats",
+                    vec![param("path", Type::Path)],
+                    MethodReturn::Type(result(fs_root_filesystem_stats_type())),
+                    false,
+                    RuntimeOp::FsRootFilesystemStats,
+                ),
+                method(
+                    "children",
+                    vec![
+                        param("path", Type::Path),
+                        default_param("max_entries", Type::Int),
+                        ],
+                    MethodReturn::Type(result(fs_root_children_result_type())),
+                    false,
+                    RuntimeOp::FsRootChildren,
+                ),
+                method(
+                    "read_text",
+                    vec![param("path", Type::Path)],
+                    MethodReturn::Type(result(Type::Str)),
+                    false,
+                    RuntimeOp::FsRootReadText,
+                ),
+                method(
+                    "write",
+                    vec![
+                        param("path", Type::Path),
+                        param("data", Type::Bytes),
+                        ],
+                    MethodReturn::Type(result(Type::Unit)),
+                    false,
+                    RuntimeOp::FsRootWrite,
+                ),
+                method(
+                    "write",
+                    vec![
+                        param("path", Type::Path),
+                        param("data", Type::Str),
+                        ],
+                    MethodReturn::Type(result(Type::Unit)),
+                    false,
+                    RuntimeOp::FsRootWrite,
+                ),
+                method(
+                    "write_atomic",
+                    vec![
+                        param("path", Type::Path),
+                        param("data", Type::Bytes),
+                        ],
+                    MethodReturn::Type(result(Type::Unit)),
+                    false,
+                    RuntimeOp::FsRootWriteAtomic,
+                ),
+                method(
+                    "write_atomic",
+                    vec![
+                        param("path", Type::Path),
+                        param("data", Type::Str),
+                        ],
+                    MethodReturn::Type(result(Type::Unit)),
+                    false,
+                    RuntimeOp::FsRootWriteAtomic,
+                ),
+                method(
+                    "metadata",
+                    vec![param("path", Type::Path)],
+                    MethodReturn::Type(result(fs_entry_type())),
+                    false,
+                    RuntimeOp::FsRootMetadata,
+                ),
+                method(
+                    "exists",
+                    vec![param("path", Type::Path)],
+                    MethodReturn::Type(result(Type::Bool)),
+                    false,
+                    RuntimeOp::FsRootExists,
+                ),
+                method(
+                    "mkdir",
+                    vec![
+                        param("path", Type::Path),
+                        default_param("mode", Type::Int),
+                        default_param("parents", Type::Bool),
+                        ],
+                    MethodReturn::Type(result(Type::Unit)),
+                    false,
+                    RuntimeOp::FsRootMkdir,
+                ),
+                method(
+                    "remove",
+                    vec![
+                        param("path", Type::Path),
+                        default_param("dir", Type::Bool),
+                        ],
+                    MethodReturn::Type(result(Type::Unit)),
+                    false,
+                    RuntimeOp::FsRootRemove,
+                ),
+                method(
+                    "readlink",
+                    vec![param("path", Type::Path)],
+                    MethodReturn::Type(result(Type::Path)),
+                    false,
+                    RuntimeOp::FsRootReadlink,
+                ),
+                method(
+                    "readlink_result",
+                    vec![param("path", Type::Path)],
+                    MethodReturn::Type(result(fs_root_readlink_result_type())),
+                    false,
+                    RuntimeOp::FsRootReadlinkResult,
+                ),
+                method(
+                    "symlink",
+                    vec![
+                        param("target", Type::Path),
+                        param("path", Type::Path),
+                        default_param("parents", Type::Bool),
+                        default_param("overwrite", Type::Bool),
+                        ],
+                    MethodReturn::Type(result(Type::Unit)),
+                    false,
+                    RuntimeOp::FsRootSymlink,
+                ),
+                method(
+                    "chmod",
+                    vec![
+                        param("path", Type::Path),
+                        param("mode", Type::Int),
+                        ],
+                    MethodReturn::Type(result(Type::Unit)),
+                    false,
+                    RuntimeOp::FsRootChmod,
+                ),
+            ]),
         },
         MethodReceiverSig {
             receiver: MethodReceiver::NetJob,

@@ -42,6 +42,7 @@ pub(super) enum TypeTag {
     Command,
     ProcessHandle,
     NetJob,
+    FsRoot,
     Unit,
     Tag,
     Optional,
@@ -73,6 +74,7 @@ impl TypeTag {
                 | Self::Command
                 | Self::ProcessHandle
                 | Self::NetJob
+                | Self::FsRoot
                 | Self::Unit
         )
     }
@@ -302,6 +304,7 @@ impl SemanticPools {
             TypeTag::Command => Type::Command,
             TypeTag::ProcessHandle => Type::ProcessHandle,
             TypeTag::NetJob => Type::NetJob,
+            TypeTag::FsRoot => Type::FsRoot,
             TypeTag::Unit => Type::Unit,
             TypeTag::Tag => Type::Tag(Name::from_symbol(Symbol::from_raw(data.lhs))),
             TypeTag::Optional => Type::Optional(Box::new(child(data.lhs)?)),
@@ -388,6 +391,7 @@ impl SemanticPools {
             TypeTag::Command => Some("Command"),
             TypeTag::ProcessHandle => Some("ProcessHandle"),
             TypeTag::NetJob => Some("NetJob"),
+            TypeTag::FsRoot => Some("FsRoot"),
             TypeTag::Unit => Some("Unit"),
             _ => None,
         };
@@ -835,6 +839,7 @@ impl SemanticPoolBuilder {
             Type::Command => scalar(TypeTag::Command),
             Type::ProcessHandle => scalar(TypeTag::ProcessHandle),
             Type::NetJob => scalar(TypeTag::NetJob),
+            Type::FsRoot => scalar(TypeTag::FsRoot),
             Type::Unit => scalar(TypeTag::Unit),
             Type::Tag(name) => named(TypeTag::Tag, *name),
             Type::Optional(inner) => self.unary(pools, TypeTag::Optional, inner)?,

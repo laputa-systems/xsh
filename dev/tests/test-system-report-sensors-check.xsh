@@ -58,9 +58,8 @@ test test_system_report_sensors_json_corrob_keeps_ambiguous_and_changing_reading
 
 test test_system_report_sensors_json_live_reference_runs_only_explicit_tools [fs, process, time, error] {
   let tools_root = fs.tempdir()?
-  defer fs.close_root(tools_root)?
-  fs.root_write(
-    tools_root,
+  defer tools_root.close()?
+  tools_root.write(
     p"sensors",
     """#!/bin/sh
 if [ "$1" = "-v" ]; then
@@ -73,16 +72,15 @@ fi
 printf '{"coretemp-isa-0000":{"Core 0":{"temp2_input":41.125}}}\n'
 """,
   )?
-  fs.root_write(
-    tools_root,
+  tools_root.write(
     p"xsh",
     """#!/bin/sh
 printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"hwmon0","chip":"coretemp","channel":"temp2","value":41125}]}}\n'
 """,
   )?
-  fs.root_chmod(tools_root, p"sensors", 0o700)?
-  fs.root_chmod(tools_root, p"xsh", 0o700)?
-  let root_path = fs.root_path(tools_root)?
+  tools_root.chmod(p"sensors", 0o700)?
+  tools_root.chmod(p"xsh", 0o700)?
+  let root_path = tools_root.host_path()?
   let result = sensors_reference.compare_live_sensors_json(
     fp"${root_path}/xsh".display(),
     fp"${root_path}/script".display(),
@@ -96,9 +94,8 @@ printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"h
 
 test test_system_report_sensors_json_cli_dispatch_requires_explicit_utility [fs, process, error] { |ctx|
   let tools_root = fs.tempdir()?
-  defer fs.close_root(tools_root)?
-  fs.root_write(
-    tools_root,
+  defer tools_root.close()?
+  tools_root.write(
     p"sensors",
     """#!/bin/sh
 if [ "$1" = "-v" ]; then
@@ -108,16 +105,15 @@ else
 fi
 """,
   )?
-  fs.root_write(
-    tools_root,
+  tools_root.write(
     p"xsh",
     """#!/bin/sh
 printf '{"source_mode":"live_linux","sensors":{"channels":[{"chip_entry_name":"hwmon0","chip":"coretemp","channel":"temp2","value":41125}]}}\n'
 """,
   )?
-  fs.root_chmod(tools_root, p"sensors", 0o700)?
-  fs.root_chmod(tools_root, p"xsh", 0o700)?
-  let root_path = fs.root_path(tools_root)?
+  tools_root.chmod(p"sensors", 0o700)?
+  tools_root.chmod(p"xsh", 0o700)?
+  let root_path = tools_root.host_path()?
   let sensors_path = fp"${root_path}/sensors"
   let xsh_path = fp"${root_path}/xsh"
   let output = test.temp_path(ctx, name: "system-report-sensors-json.stdout")

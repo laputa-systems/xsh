@@ -2899,26 +2899,12 @@ fn lowered_env_key_arg(
     }
 }
 
-fn lowered_root_id(root: &LoweredValue, span: Span) -> Result<i64, RuntimeError> {
-    let LoweredValue::Record(record) = root else {
-        return Err(RuntimeError::new("type-error", "fs root expected Record").with_span(span));
-    };
-    match record.get("id") {
-        Some(LoweredValue::Int(id)) => Ok(*id),
-        Some(value) => Err(RuntimeError::new(
-            "type-error",
-            format!("expected `id` to be Int, found {}", value.type_name()),
-        )
-        .with_span(span)),
-        None => Err(RuntimeError::new("fs-root", "missing `id` field").with_span(span)),
+fn lowered_root_id(root: &LoweredValue, owner: &Arc<()>, span: Span) -> Result<i64, RuntimeError> {
+    match root {
+        LoweredValue::FsRoot(handle) if Arc::ptr_eq(&handle.owner, owner) => Ok(handle.id),
+        LoweredValue::FsRoot(_) => Err(RuntimeError::new("fs-root", "root handle is not active").with_span(span)),
+        _ => Err(RuntimeError::new("type-error", "expected FsRoot capability").with_span(span)),
     }
-}
-
-fn fs_root_record(id: i64) -> LoweredValue {
-    LoweredValue::Record(Arc::new(BTreeMap::from([(
-        Arc::from("id"),
-        LoweredValue::Int(id),
-    )])))
 }
 
 fn lowered_fs_root_children_result(
@@ -3148,10 +3134,11 @@ fn lowered_status_segment_record(segment: &ProcessSegmentStatus) -> LoweredValue
 
 fn lowered_fs_root_dir<'a>(
     roots: &'a [Option<FsRootHandle>],
+    owner: &Arc<()>,
     root: &LoweredValue,
     span: Span,
 ) -> Result<&'a Root, RuntimeError> {
-    let id = lowered_root_id(root, span)?;
+    let id = lowered_root_id(root, owner, span)?;
     let Some(slot) = id
         .checked_sub(1)
         .and_then(|index| usize::try_from(index).ok())
@@ -3475,7 +3462,7 @@ impl Evaluator {
     fn push_lowered_fs_root(&mut self, root: FsRootHandle) -> LoweredValue {
         let id = self.fs_roots.len() as i64 + 1;
         self.fs_roots.push(Some(root));
-        fs_root_record(id)
+        LoweredValue::FsRoot(super::FsRootValue { id, owner: self.fs_root_owner.clone() })
     }
 
     fn lowered_create_temp_file_root(&mut self, span: Span) -> Result<LoweredValue, RuntimeError> {
@@ -4302,7 +4289,7 @@ impl Evaluator {
             RuntimeOp::FsCloseRoot if values.len() == 1 => {
                 let root = values.pop().expect("checked value length");
 
-                match lowered_root_id(&root, span)
+                match lowered_root_id(&root, &self.fs_root_owner, span)
                     .ok()
                     .and_then(|id| {
                         id.checked_sub(1)
@@ -4327,7 +4314,7 @@ impl Evaluator {
             }
             RuntimeOp::FsRootPath if values.len() == 1 => {
                 let root = values.pop().expect("checked value length");
-                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                     .and_then(|dir| root_path_from_dir(dir, span))
                 {
                     Ok(path) => lowered_result_ok(LoweredValue::Path(path)),
@@ -4339,7 +4326,7 @@ impl Evaluator {
                     lowered_path_arg(values.pop().expect("checked value length"), "fs.root", span)?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_open_root(dir, &rel, span))
                 {
                     Ok(dir) => lowered_result_ok(self.push_lowered_fs_root(FsRootHandle::Dir(dir))),
@@ -4356,7 +4343,7 @@ impl Evaluator {
                 )?;
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_children(dir, &rel, max_entries, span))
                 {
                     Ok(result) => lowered_result_ok(lowered_fs_root_children_result(result, span)?),
@@ -4371,7 +4358,7 @@ impl Evaluator {
                 )?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_read(dir, &rel, span))
                 {
                     Ok(bytes) => lowered_result_ok(LoweredValue::Bytes(bytes.into())),
@@ -4392,7 +4379,7 @@ impl Evaluator {
                 )?;
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_read_result(dir, &rel, max_bytes, span))
                 {
                     Ok(result) => lowered_result_ok(lowered_fs_root_read_result(result)),
@@ -4407,7 +4394,7 @@ impl Evaluator {
                 )?;
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_filesystem_stats(dir, &rel, span))
                 {
                     Ok(result) => lowered_result_ok(lowered_fs_root_filesystem_stats(result)),
@@ -4422,7 +4409,7 @@ impl Evaluator {
                 )?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_read(dir, &rel, span))
                 {
                     Ok(bytes) => match String::from_utf8(bytes) {
@@ -4456,7 +4443,7 @@ impl Evaluator {
                     lowered_path_arg(values.pop().expect("checked value length"), operation, span)?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                let result = lowered_fs_root_dir(&self.fs_roots, &root, span).and_then(|dir| {
+                let result = lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span).and_then(|dir| {
                     if op == RuntimeOp::FsRootWriteAtomic {
                         fs_module::rooted_write_atomic(dir, &rel, &data, span)
                     } else {
@@ -4473,7 +4460,7 @@ impl Evaluator {
                 )?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_metadata(dir, &rel, span))
                 {
                     Ok(record) => match lowered_value_from_runtime_any(&record) {
@@ -4500,7 +4487,7 @@ impl Evaluator {
                 )?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_exists(dir, &rel, span))
                 {
                     Ok(exists) => lowered_result_ok(LoweredValue::Bool(exists)),
@@ -4518,7 +4505,7 @@ impl Evaluator {
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
                 lowered_unit_result(
-                    lowered_fs_root_dir(&self.fs_roots, &root, span)
+                    lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                         .and_then(|dir| fs_module::rooted_mkdir(dir, &rel, mode, parents, span)),
                 )
             }
@@ -4533,7 +4520,7 @@ impl Evaluator {
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
                 lowered_unit_result(
-                    lowered_fs_root_dir(&self.fs_roots, &root, span)
+                    lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                         .and_then(|root| fs_module::rooted_remove(root, &rel, dir, span)),
                 )
             }
@@ -4545,7 +4532,7 @@ impl Evaluator {
                 )?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_readlink(dir, &rel, span))
                     .and_then(|path| {
                         path_value_from_pathbuf(path).map_err(|error| error.with_span(span))
@@ -4562,7 +4549,7 @@ impl Evaluator {
                 )?;
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                match lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                     .and_then(|dir| fs_module::rooted_readlink_result(dir, &rel, span))
                 {
                     Ok(result) => lowered_result_ok(lowered_fs_root_readlink_result(result, span)?),
@@ -4585,7 +4572,7 @@ impl Evaluator {
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
                 let target_rel = pathbuf_from_path_value(&target);
-                lowered_unit_result(lowered_fs_root_dir(&self.fs_roots, &root, span).and_then(
+                lowered_unit_result(lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span).and_then(
                     |dir| {
                         fs_module::rooted_symlink(dir, &target_rel, &rel, parents, overwrite, span)
                     },
@@ -4601,7 +4588,7 @@ impl Evaluator {
                 let root = values.pop().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
                 lowered_unit_result(
-                    lowered_fs_root_dir(&self.fs_roots, &root, span)
+                    lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &root, span)
                         .and_then(|dir| fs_module::rooted_chmod(dir, &rel, mode, span)),
                 )
             }
@@ -4624,8 +4611,8 @@ impl Evaluator {
                 let dest_rel = pathbuf_from_path_value(&dest);
                 let source_rel = pathbuf_from_path_value(&source);
                 let result = match (
-                    lowered_fs_root_dir(&self.fs_roots, &source_root, span),
-                    lowered_fs_root_dir(&self.fs_roots, &dest_root, span),
+                    lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &source_root, span),
+                    lowered_fs_root_dir(&self.fs_roots, &self.fs_root_owner, &dest_root, span),
                 ) {
                     (Ok(source_dir), Ok(dest_dir)) => fs_module::rooted_install_file(
                         source_dir,
@@ -11104,5 +11091,22 @@ mod record_binding_tests {
             assert_eq!(error.kind, "missing-field");
             assert_eq!(slots, [LoweredValue::Int(1), LoweredValue::Int(2)]);
         });
+    }
+}
+
+#[cfg(test)]
+mod fs_root_identity_tests {
+    use super::*;
+
+    #[test]
+    fn opaque_fs_root_identity_rejects_records_and_foreign_evaluator_owners() {
+        let span = Span::new(crate::source::SourceId::new(0), 0, 1);
+        let owner = Arc::new(());
+        let capability = LoweredValue::FsRoot(super::super::FsRootValue { id: 1, owner: owner.clone() });
+        assert_eq!(lowered_root_id(&capability, &owner, span).unwrap(), 1);
+        assert_eq!(lowered_root_id(&capability.clone(), &owner, span).unwrap(), 1);
+        assert_eq!(lowered_root_id(&capability, &Arc::new(()), span).unwrap_err().kind, "fs-root");
+        let forged = LoweredValue::Record(Arc::new(BTreeMap::from([(Arc::from("id"), LoweredValue::Int(1))])));
+        assert_eq!(lowered_root_id(&forged, &owner, span).unwrap_err().kind, "type-error");
     }
 }
