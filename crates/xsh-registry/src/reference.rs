@@ -815,7 +815,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "comprehensions" => (
             "Builds lists and maps through ordered nested iteration and filtering.",
-            "List and map comprehensions share interleaved for/if clauses. Later clauses see earlier bindings; each inner iterable is evaluated anew for each reached outer item. False filters skip subsequent clauses and the projection. Streams are pulled lazily and closed on exhaustion, propagation, or early return. Maps evaluate each key before its value and later duplicate keys win.",
+            "List and map comprehensions share interleaved for/if clauses. Direct Map[T] iteration supplies {key: Str, value: T} entries in key order from retained snapshot storage; source Result[Map[T], E] failures propagate with E and the ordinary error effect. Later clauses see earlier bindings; each inner iterable is evaluated anew for each reached outer item. False filters skip subsequent clauses and the projection. Streams are pulled lazily and closed on exhaustion, propagation, or early return. Maps evaluate each key before its value and later duplicate keys win.",
         ),
         "native-tests" => (
             "Defines native XSH test declarations and harness context.",

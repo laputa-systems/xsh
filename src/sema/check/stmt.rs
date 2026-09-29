@@ -784,26 +784,17 @@ impl Checker {
         span: Span,
     ) {
         let iter_ty = self.check_expr_arena(arena, source, iter, None);
-        let item_ty = match iter_ty {
-            Type::List(item) => *item,
-            Type::Stream(item) => *item,
+        if matches!(&iter_ty, Type::Result(ok, _) if matches!(ok.as_ref(), Type::Map(_))) {
+            self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
+        }
+        let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| match iter_ty {
             Type::Any => Type::Any,
             Type::Unknown => Type::Unknown,
-            Type::Result(ok, _) => match *ok {
-                Type::List(item) => *item,
-                Type::Stream(item) => *item,
-                _ => Type::Unknown,
-            },
             _ => {
-                let iter_span = arena.arena.expr(iter).span;
-                self.error(
-                    iter_span,
-                    "`for` iterates over List or Stream values",
-                    "check.for-iterator",
-                );
+                self.error(arena.arena.expr(iter).span, "`for` iterates over List, Stream, or Map values", "check.for-iterator");
                 Type::Unknown
             }
-        };
+        });
         self.push_scope();
         self.define_binding_target_arena(arena, target, &item_ty, false, span);
         self.loop_depth += 1;

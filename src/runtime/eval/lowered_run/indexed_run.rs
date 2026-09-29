@@ -1,7 +1,7 @@
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, Binding, CommandPlan, ControlFlow, Duration, DurationValue,
     Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
-    LoweredCompTarget, LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind,
+    LoweredMapCursor, LoweredCompTarget, LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind,
     LoweredProjectedReduceState, LoweredReduceProjection, LoweredRetryAttemptValue,
     LoweredReturnKind, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredValue, Name,
     PathValue, ProcessEnd, ProcessInvocation, ProcessRedirection, ProcessStatus, QualifiedName,
@@ -2414,6 +2414,14 @@ impl Evaluator {
                         })();
                         let cleanup = self.stream_cancel(&mut stream, *span);
                         return match result { Ok(value) => cleanup.map(|()| value), Err(error) => Err(error) };
+                    }
+                    if let LoweredValue::Map(entries) = iterable {
+                        let mut cursor = LoweredMapCursor::new(entries);
+                        while let Some(item) = cursor.next() {
+                            bind_lowered_comp_target(target, item, slots, *span)?;
+                            if let ControlFlow::Break(value) = self.eval_indexed_comp_qualifiers(execution, qualifiers, position + 1, key, value, slots, values, map_values, *span)? { return Ok(ControlFlow::Break(value)); }
+                        }
+                        return Ok(ControlFlow::Continue(()));
                     }
                     for item in self.lowered_list_items(iterable, *span, "comprehension expected List or Stream")? {
                         bind_lowered_comp_target(target, item, slots, *span)?;
@@ -7500,6 +7508,20 @@ impl Evaluator {
                             }
                         }
                     }
+                }
+                if let LoweredValue::Map(entries) = iter {
+                    let mut cursor = LoweredMapCursor::new(entries);
+                    while let Some(item) = cursor.next() {
+                        self.service_pending_signal(span)?;
+                        if self.signal_state.shutdown_complete { return Ok(StmtFlow::None); }
+                        bind_lowered_comp_target(&target, item, slots, span)?;
+                        match self.eval_indexed_statement_block(execution, body, header, slots, call_span)? {
+                            StmtFlow::None | StmtFlow::Continue => {},
+                            StmtFlow::Break(_) => break,
+                            flow => return Ok(flow),
+                        }
+                    }
+                    return Ok(StmtFlow::None);
                 }
                 let items = self.lowered_list_items(iter, span, "lowered for expected List")?;
                 for item in items {

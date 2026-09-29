@@ -485,3 +485,11 @@ field against its enclosing schema. Indexed execution shares
 bindings; it selects every required field before writing any slot or exposing
 any top-level name. Mutable selections are ordinary local values. Tooling uses
 the same recursive target to resolve bound names and preserve renamed fields.
+
+Direct map iteration uses `Type::iteration_item_type` to retain the structural
+entry shape in both checker paths and lowering. `LoweredMapCursor` holds an
+`Arc` to the evaluated map storage and a key-range position, constructing only
+the next entry. Ordinary loop frames and comprehension qualifier cursors share
+that entry representation. `Result[Map]` iterable sources lower through one
+existing propagation operation before cursor creation, preserving nominal errors
+and lexical cleanup. Pipeline map-source conversion has its own owner.

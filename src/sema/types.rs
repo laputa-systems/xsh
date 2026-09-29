@@ -117,6 +117,19 @@ impl CallableType {
 }
 
 impl Type {
+    pub(crate) fn iteration_item_type(&self) -> Option<Type> {
+        match self {
+            Self::List(item) | Self::Stream(item) => Some((**item).clone()),
+            Self::Map(item) => Some(Self::Record(BTreeMap::from([
+                (Name::intern("key"), Self::Str),
+                (Name::intern("value"), (**item).clone()),
+            ]))),
+            Self::Result(ok, _) if matches!(ok.as_ref(), Self::List(_) | Self::Stream(_) | Self::Map(_)) => ok.iteration_item_type(),
+            _ => None,
+        }
+    }
+
+
     /// Conservative owned-heap estimate for one semantic type tree.
     pub fn retained_bytes(&self) -> usize {
         use std::mem::size_of;

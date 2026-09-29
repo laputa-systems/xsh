@@ -572,3 +572,11 @@ are covered by `tests/xsh/optional-postfix.xsh`. Run
 syntax, semantic, tooling, and native stdlib gates. The null-branch migration
 rule is `lint.prefer-optional-postfix`; it refuses mutation, lost comments,
 and results whose null value would change fallback behavior.
+
+Direct typed map iteration is covered in `tests/xsh/stdlib/map.xsh` by the
+`test_map_iteration_*` procedures. These pin entry types/order, snapshot value
+semantics, nested destructuring and qualifiers, nominal Result propagation,
+break/continue, and lexical restoration. `lint.prefer-map-entry-iteration` has
+focused fix, refusal, Unicode-span, formatter, and convergence coverage in
+`crates/xsht/tests/lint.rs`; mutable sources, annotations, comments on the
+lookup, and nonstandard receivers remain manual transformations.

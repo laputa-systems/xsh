@@ -3356,3 +3356,18 @@ fn guarded_postfix_rejects_guessed_wrappers_and_unguarded_nullable_hops() {
         assert!(!output.is_empty(), "accepted {source}: {:?}", output);
     }
 }
+
+#[test]
+fn checker_map_iteration_preserves_entry_types_and_error_boundaries() {
+    let cases = [
+        ("pure wrong(values: Map[Int]) -> Unit { for entry in values { let bad: Int = entry.key } }\n", "check.type-mismatch"),
+        ("pure wrong(values: Map[Int]) -> Unit { for entry in values { let bad: Str = entry.value } }\n", "check.type-mismatch"),
+        ("pure wrong(values: Map[Int]) -> Unit { for {missing} in values {} }\n", "check.destructure-field"),
+        ("proc wrong(values: Result[Map[Int]]) [] { for entry in values {} }\n", "check.effect-violation"),
+        ("error MapError = Missing(code: Int)\nerror OtherError = Failed(code: Int)\npure wrong(values: Result[Map[Int], MapError]) -> Result[List[Str], OtherError] { [entry.key for entry in values] }\n", "check.try-error"),
+    ];
+    for (source, code) in cases {
+        let diagnostics = check(source);
+        assert!(has_code(&diagnostics, code), "{source}: {diagnostics:?}");
+    }
+}

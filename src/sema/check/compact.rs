@@ -1664,6 +1664,7 @@ fn compact_probe_record_type(
 }
 
 fn collection_item_type(ty: &Type) -> Type {
+    if let Some(item) = ty.iteration_item_type() { return item; }
     match ty {
         Type::List(item) | Type::Stream(item) | Type::Map(item) => item.as_ref().clone(),
         Type::Str => Type::Str,

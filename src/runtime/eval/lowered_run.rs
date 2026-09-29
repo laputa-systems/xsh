@@ -3230,6 +3230,36 @@ fn lowered_splice_arg_items(
     }
 }
 
+// Retaining the source storage keeps keys and values stable across body updates.
+// A range cursor holds only the last key and constructs one structural entry.
+struct LoweredMapCursor {
+    entries: Arc<BTreeMap<String, LoweredValue>>,
+    previous: Option<String>,
+    key_field: Name,
+    value_field: Name,
+}
+
+impl LoweredMapCursor {
+    fn new(entries: Arc<BTreeMap<String, LoweredValue>>) -> Self {
+        Self { entries, previous: None, key_field: Name::intern("key"), value_field: Name::intern("value") }
+    }
+
+    fn next(&mut self) -> Option<LoweredValue> {
+        use std::ops::Bound::{Excluded, Unbounded};
+        let selected = match self.previous.as_deref() {
+            Some(previous) => self.entries.range::<str, _>((Excluded(previous), Unbounded)).next(),
+            None => self.entries.iter().next(),
+        };
+        let (key, value) = selected?;
+        let entry = LoweredValue::RecordVec(Arc::new(vec![
+            (self.key_field, LoweredValue::Str(Arc::from(key.as_str()))),
+            (self.value_field, value.clone()),
+        ]));
+        self.previous = Some(key.clone());
+        Some(entry)
+    }
+}
+
 fn bind_lowered_comp_target(
     target: &LoweredCompTarget,
     value: LoweredValue,

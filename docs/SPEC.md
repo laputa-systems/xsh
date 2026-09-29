@@ -1304,8 +1304,20 @@ complement. Its safe fix preserves one subject evaluation, rejects binding
 patterns and guards, and retains matches containing comments. Explicit Result
 Ok/Err complements are eligible only when the checked subject is a Result.
 
-`for` iterates over `List[T]`, `Stream[T]`, `Result[List[T]]`, or
-`Result[Stream[T]]`. `Result` wrappers are auto-unwrapped; an `Err` propagates
+`for` and comprehension clauses iterate over `List[T]`, `Stream[T]`, and
+`Map[T]`, including their supported outer `Result` wrappers. A map item has
+structural type `{key: Str, value: T}` for both simple and destructured targets.
+Entries follow the same deterministic key order as `Map.keys()` and
+`Map.values()`. The receiver is evaluated once; a cursor retains its storage as
+a snapshot, so later assignments to the original map do not change the keys or
+values encountered. Only the current entry record is constructed. Nested record
+and Result values remain the entry's `value` without further unwrapping.
+`Result[Map[T], E]` propagates its outer failure through the surrounding lexical
+Result boundary, preserving `E` and checking the required error effect.
+`.keys()`, `.values()`, and `.get()` remain available for their distinct uses.
+This entry iteration rule does not change pipeline map-source semantics.
+
+For existing fallible list and stream sources, `Result` wrappers are auto-unwrapped; an `Err` propagates
 as a runtime error. The loop target is bound immutably for each iteration
 unless copied into a `var`. Structured pipeline expressions are valid as the
 iterator; they evaluate to `List[T]` and iterate without materialising an

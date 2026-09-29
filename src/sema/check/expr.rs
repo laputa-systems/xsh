@@ -523,15 +523,15 @@ impl Checker {
             match *qualifier {
                 ArenaCompQualifier::For { target, iter, span } => {
                     let iter_ty = self.check_expr_arena(arena, source, iter, None);
-                    let item_ty = match iter_ty {
-                        Type::List(item) | Type::Stream(item) => *item,
-                        Type::Any | Type::Unknown => Type::Any,
-                        Type::Result(ok, _) => match *ok {
-                            Type::List(item) | Type::Stream(item) => *item,
-                            _ => { self.error(arena.arena.expr(iter).span, "comprehension iterates over List or Stream values", if map { "check.mapcomp-iterator" } else { "check.listcomp-iterator" }); Type::Unknown }
-                        },
-                        _ => { self.error(arena.arena.expr(iter).span, "comprehension iterates over List or Stream values", if map { "check.mapcomp-iterator" } else { "check.listcomp-iterator" }); Type::Unknown }
-                    };
+                    if matches!(&iter_ty, Type::Result(ok, _) if matches!(ok.as_ref(), Type::Map(_))) {
+                        self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
+                    }
+                    let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| {
+                        if matches!(iter_ty, Type::Any | Type::Unknown) { Type::Any } else {
+                            self.error(arena.arena.expr(iter).span, "comprehension iterates over List, Stream, or Map values", if map { "check.mapcomp-iterator" } else { "check.listcomp-iterator" });
+                            Type::Unknown
+                        }
+                    });
                     self.push_scope();
                     scopes += 1;
                     self.define_binding_target_arena(arena, target, &item_ty, false, span);

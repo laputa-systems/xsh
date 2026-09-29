@@ -686,6 +686,7 @@ impl<'a> Linter<'a> {
                 iter,
                 block,
             } => {
+                self.lint_map_entry_iteration(stmt_id, target, iter, block);
                 self.lint_prefer_file_lines(iter);
                 self.lint_expr(iter);
                 self.push_scope();
@@ -2371,6 +2372,43 @@ impl<'a> Linter<'a> {
                 flow = flow.then(stmt_flow(self.arena, stmt, &self.terminating_call_spans));
             }
         }
+    }
+
+    fn lint_map_entry_iteration(&mut self, stmt_id: StmtId, target: BindingTargetId, iter: ExprId, block: BlockId) {
+        let ArenaBindingTargetKind::Name(key) = self.arena.binding_target(target).kind else { return; };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(iter).kind else { return; };
+        if !self.arena.call_args(args).is_empty() { return; }
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if name.as_str() != "keys" { return; }
+        let ArenaExprKind::Ident(map) = self.arena.expr(base).kind else { return; };
+        if self.assigned_names.contains(&map) || key == map || !matches!(self.expr_types.get(&self.arena.expr(base).span), Some(Type::Map(_))) { return; }
+        let statements: Vec<_> = self.arena.stmt_ids(self.arena.block(block).statements).collect();
+        if statements.len() < 2 { return; }
+        let first = self.arena.stmt(statements[0]);
+        let ArenaStmtKind::Let { target: value_target, ty: None, initializer: ArenaExprOrRun::Expr(lookup) } = first.kind else { return; };
+        let ArenaBindingTargetKind::Name(value) = self.arena.binding_target(value_target).kind else { return; };
+        if value == map || value == key || value.as_str() == "_" { return; }
+        let ArenaExprKind::Try(lookup) = self.arena.expr(lookup).kind else { return; };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(lookup).kind else { return; };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if name.as_str() != "get" || !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(name) if name == map) { return; }
+        let arguments = self.arena.call_args(args);
+        if arguments.len() != 1 || !matches!(arguments[0].kind, ArenaCallArgKind::Positional(expr) if matches!(self.arena.expr(expr).kind, ArenaExprKind::Ident(name) if name == key)) { return; }
+        let header = Span::new(first.span.source_id, self.arena.stmt(stmt_id).span.start(), self.arena.expr(iter).span.end());
+        let line_start = self.source[..first.span.start()].rfind('\n').map_or(0, |index| index + 1);
+        if !self.source[line_start..first.span.start()].trim().is_empty() { return; }
+        let deletion = Span::new(first.span.source_id, line_start, span_end_after_following_newlines(self.source, first.span.end()));
+        if [header, deletion].iter().any(|span| self.source.get(span.range()).is_none_or(|source| source.contains('#'))) { return; }
+        let line_end = self.source[first.span.start()..].find('\n').map_or(self.source.len(), |offset| first.span.start() + offset);
+        if self.source[first.span.start()..line_end].contains('#') { return; }
+        let key_field = if key.as_str() == "key" { "key".to_string() } else { format!("key: {key}") };
+        let value_field = if value.as_str() == "value" { "value".to_string() } else { format!("value: {value}") };
+        let edit = Span::new(header.source_id, header.start(), deletion.end());
+        let replacement = format!("for {{{key_field}, {value_field}}} in {map}{}", &self.source[header.end()..line_start]);
+        self.diagnostics.push(Diagnostic::warning("iterate over map entries instead of keys followed by a lookup")
+            .with_code("lint.prefer-map-entry-iteration")
+            .with_label(Label::secondary(header, "this checked map stays stable across the loop"))
+            .with_fix_hint(FixHint::replacement(edit, "bind the map entry and remove its redundant lookup", replacement)));
     }
 
     fn lint_list_comp_suggestions(&mut self, stmts: &[StmtId]) {

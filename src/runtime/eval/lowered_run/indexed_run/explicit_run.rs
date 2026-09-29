@@ -1,3 +1,4 @@
+use super::LoweredMapCursor;
 use super::serial_pipeline::{
     IndexedLiveSerialStage, IndexedSerialPipeline, indexed_for_pipeline_input,
 };
@@ -37,6 +38,7 @@ enum FrameRecordEntry {
 type CompStreams = Arc<std::sync::Mutex<Vec<Option<(StreamValue, Span)>>>>;
 
 enum CompIterator {
+    Map { cursor: LoweredMapCursor, clause: usize },
     Items { items: std::vec::IntoIter<LoweredValue>, clause: usize },
     Stream { stream: usize, clause: usize },
 }
@@ -266,6 +268,7 @@ enum FrameWork {
         value: FrameValue,
         next: FrameContinuation,
     },
+    ForMap { slot: usize, cursor: LoweredMapCursor, body: u32, span: Span },
     ForItems {
         slot: usize,
         items: Vec<LoweredValue>,
@@ -991,6 +994,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 next,
             } => self.eval_expr(index, instruction, span, next),
             FrameWork::Value { value, next } => self.continue_value(index, value, next),
+            FrameWork::ForMap { slot, mut cursor, body, span } => {
+                self.evaluator.service_pending_signal(span)?;
+                if self.evaluator.signal_state.shutdown_complete { return Ok(()); }
+                if let Some(item) = cursor.next() {
+                    self.calls[index].slots[slot] = item;
+                    self.calls[index].work.push(FrameWork::ForMap { slot, cursor, body, span });
+                    self.push_statement_block(index, body, span)?;
+                }
+                Ok(())
+            }
             FrameWork::ForItems {
                 slot,
                 items,
@@ -2040,6 +2053,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         });
                         return Ok(());
                     }
+                    if let LoweredValue::Map(entries) = value {
+                        self.calls[index].work.push(FrameWork::ForMap { slot, cursor: LoweredMapCursor::new(entries), body, span });
+                        return Ok(());
+                    }
                     let items = self.evaluator.lowered_list_items(
                         value,
                         span,
@@ -2503,6 +2520,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             slot
                         };
                         state.iterators.push(CompIterator::Stream { stream: stream_index, clause });
+                    } else if let LoweredValue::Map(entries) = iterable {
+                        state.iterators.push(CompIterator::Map { cursor: LoweredMapCursor::new(entries), clause });
                     } else {
                         let items = self.evaluator.lowered_list_items(iterable, state.qualifiers[clause].span(), "comprehension expected List or Stream")?;
                         state.iterators.push(CompIterator::Items { items: items.into_iter(), clause });
@@ -2648,6 +2667,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         while let Some(iterator) = state.iterators.last_mut() {
             let (item, clause) = match iterator {
                 CompIterator::Items { items, clause } => (items.next(), *clause),
+                CompIterator::Map { cursor, clause } => (cursor.next(), *clause),
                 CompIterator::Stream { stream, clause } => {
                     self.evaluator.service_pending_signal(state.qualifiers[*clause].span())?;
                     let mut streams = state.streams.lock().expect("comprehension stream state poisoned");
@@ -3139,7 +3159,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let Some(loop_index) = self.calls[index].work.iter().rposition(|work| {
             matches!(
                 work,
-                FrameWork::ForItems { .. }
+                FrameWork::ForMap { .. } | FrameWork::ForItems { .. }
                     | FrameWork::ForStream { .. }
                     | FrameWork::ForPipeline { .. }
                     | FrameWork::ForStrLines { .. }
@@ -3279,7 +3299,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let Some(loop_index) = self.calls[index].work.iter().rposition(|work| {
             matches!(
                 work,
-                FrameWork::ForItems { .. }
+                FrameWork::ForMap { .. } | FrameWork::ForItems { .. }
                     | FrameWork::ForStream { .. }
                     | FrameWork::ForPipeline { .. }
                     | FrameWork::ForStrLines { .. }

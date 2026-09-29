@@ -2670,8 +2670,8 @@ export pure select_present_lscpu_topology(
 
 pure topology_group_signatures(groups: Map[List[Int]]) -> List[Str] {
   var signatures: List[Str] = []
-  for key in groups.keys() {
-    let members = groups.get(key, []) |> sort-by .
+  for {value: group_members, ..} in groups {
+    let members = group_members |> sort-by .
     var parts = [f"${member}" for member in members]
     signatures = signatures.push(parts.join(","))
   }
@@ -2946,8 +2946,7 @@ export pure compare_cpu_cache_sharing(
   var field_mismatches: List[Str] = []
   var matched_count = 0
   var expected_by_cpu: Map[List[Str]] = {}
-  for key in reference_by_key.keys() {
-    let source = reference_by_key.get(key)?
+  for {key, value: source} in reference_by_key {
     for cpu_id in source.shared_cpus {
       let cpu_key = f"${cpu_id}"
       expected_by_cpu = expected_by_cpu.set(cpu_key, expected_by_cpu.get(cpu_key, []).push(key))

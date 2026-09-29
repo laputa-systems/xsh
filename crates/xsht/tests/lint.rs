@@ -2787,3 +2787,44 @@ fn formatter_retains_guarded_postfix_and_unicode_spans() {
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
     assert_parse_check_standalone("guarded postfix round trip", &formatted.formatted);
 }
+
+#[test]
+fn linter_map_entry_iteration_fix_preserves_spans_and_converges() {
+    let source = "# 源\nproc render(counts: Map[Int]) [error] -> List[Str] {\n  var output: List[Str] = []\n  for key in counts.keys() {\n    let count = counts.get(key)?\n    output += [f\"${key}=${count}\"]\n  }\n\n  return output\n}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-map-entry-iteration")).unwrap();
+    let hint = &diagnostic.fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
+    assert!(fixed.contains("for {key, value: count} in counts"));
+    assert!(!fixed.contains("counts.get(key)"));
+    assert_parse_check_standalone("map iteration fix", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let again = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!again.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-map-entry-iteration")));
+}
+
+#[test]
+fn linter_map_entry_iteration_keeps_mutation_annotations_comments_and_unknown_methods() {
+    for body in [
+        "let count = counts.get(key)?\n    counts[\"other\"] = count",
+        "let count: Int = counts.get(key)?\n    print $count",
+        "let count = counts.get(key)? # explains lookup\n    print $count",
+        "let count = counts.get(key, 0)\n    print $count",
+    ] {
+        let source = format!("var counts = map.empty().set(\"one\", 1)\nfor key in counts.keys() {{\n    {body}\n}}\n");
+        let parsed = parse_lint_source(&source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        let output = Linter::lint(&parsed.arena, &source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-map-entry-iteration")), "{source}");
+    }
+}
