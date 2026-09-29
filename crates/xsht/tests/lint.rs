@@ -3550,3 +3550,51 @@ fn pattern_aliases_formatter_preserves_group_precedence_and_comments() {
     assert_parse_check_standalone("formatted alias", &formatted.formatted);
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
 }
+
+#[test]
+fn value_pipeline_hole_lint_rewrites_safe_nested_and_linear_calls() {
+    for source in [
+        "pure inner(value: Int) -> Int { value + 1 }\npure outer(prefix: Int, value: Int) -> Int { prefix + value }\nlet selected = outer(10, inner(2))\n",
+        "pure inner(value: Int) -> Int { value + 1 }\npure outer(prefix: Int, value: Int) -> Int { prefix + value }\nlet temporary = inner(2)\nlet selected = outer(10, value: temporary)\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let linted = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+        let diagnostic = linted.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-value-pipeline")).expect("pipeline suggestion");
+        let fix = &diagnostic.fix_hints[0];
+        let mut fixed = source.to_string();
+        fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+        assert!(fixed.contains("inner(2) |> outer(10,"), "{fixed}");
+        assert_parse_check_standalone("value pipeline fix", &fixed);
+        let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+        assert!(formatted.diagnostics.is_empty());
+        assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+        let parsed = parse_lint_source(&fixed);
+        let checked = Checker::check_arena(&parsed.arena, &fixed);
+        let again = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+        assert!(!again.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-value-pipeline")), "{fixed}");
+    }
+}
+
+#[test]
+fn value_pipeline_hole_lint_retains_effect_order_optional_calls_and_context() {
+    for source in [
+        "proc mark(value: Int) [] -> Int { print $value; value }\npure outer(prefix: Int, value: Int) -> Int { prefix + value }\nlet selected = outer(mark(1), mark(2))\n",
+        "pure inner(value: Int) -> Int { value + 1 }\npure outer(prefix: Int, value: Int) -> Int { prefix + value }\nvar prefix = 1\nlet selected = outer(prefix, inner(2))\n",
+        "pure other() -> Str { \"other\" }\nlet receiver: Str? = null\nlet selected = receiver?.replace(\"x\", other())\n",
+        "pure inner() -> Str { \".\" }\npure converted(value: Path) -> Path { value }\nlet selected = converted(inner())\n",
+        "pure inner(value: Int) -> Int { value + 1 }\npure outer(prefix: Int, value: Int) -> Int { prefix + value }\nlet temporary: Int = inner(2)\nlet selected = outer(10, temporary)\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let linted = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+        assert!(!linted.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-value-pipeline")), "{source}");
+    }
+    let source = "pure inner(value: Int) -> Int { value + 1 }\npure outer(prefix: Int, value: Int) -> Int { prefix + value }\nlet selected = outer(10, # keep this explanation\n  inner(2))\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    let linted = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let diagnostic = linted.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-value-pipeline")).expect("manual pipeline suggestion");
+    assert!(diagnostic.fix_hints.is_empty());
+}

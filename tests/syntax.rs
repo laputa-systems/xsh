@@ -3756,3 +3756,31 @@ fn try_capture_parser_formatter_preserves_value_body_and_result_tail() {
     let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &formatted.formatted);
     assert!(reparsed.diagnostics.is_empty(), "{:?}", reparsed.diagnostics);
 }
+
+#[test]
+fn parser_value_pipeline_holes_retain_immediate_call_shape_and_formatting() {
+    let source = "pure render(prefix: Str, value: Str) -> Str { prefix + value }\nlet rendered = \"é\" |> render(\"[\", value: (_))\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let value = root_let_init_expr(&parsed, 1);
+    let ArenaExprKind::ValuePipelineCall { input, call, hole } = parsed.arena.arena.expr(value).kind else { panic!("explicit pipeline call"); };
+    assert_eq!(&source[parsed.arena.arena.expr(input).span.range()], "\"é\"");
+    assert_eq!(&source[parsed.arena.arena.expr(hole).span.range()], "_");
+    assert!(matches!(parsed.arena.arena.expr(call).kind, ArenaExprKind::Call { .. }));
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert!(first.formatted.contains("|> render(\"[\", value: _)"), "{}", first.formatted);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(first.formatted, second.formatted);
+    assert_parse_and_check(SourceId::new(0), &first.formatted);
+}
+
+#[test]
+fn parser_value_pipeline_holes_reject_nested_multiple_and_spread_arguments() {
+    for source in ["1 |> render(_, _)\n", "1 |> render(_ + 1)\n", "1 |> render(nested(_))\n", "1 |> render(@_)\n", "1 |> render(if true { _ } else { 0 })\n"] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("parse.pipeline-hole")), "{source}: {:?}", parsed.diagnostics);
+    }
+}

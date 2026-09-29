@@ -598,3 +598,11 @@ and defer execution while preserving `StmtFlow::Return`, `Break`, and
 `Continue` separately from `Propagate`. Checked cleanup propagation carries
 an internal origin marker across runtime-error transport; defects and abort
 never acquire that marker.
+Explicit value pipeline arguments retain `ArenaExprKind::ValuePipelineCall`
+with the input, ordinary call, and sole immediate hole. Full and compact checkers
+bind the hole to the checked input type while checking that ordinary call.
+`CompactLowerConstructProbe::lower_expr` reserves a temporary slot and emits an
+existing `MatchExpr` binding before the call. Hole reads use the exact `ExprId`,
+so the temporary cannot collide with a user name. Formatter and structural-tool
+visitors retain the pipeline's written argument position; indexed execution and
+verification use the ordinary match and call instructions.

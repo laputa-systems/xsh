@@ -1668,3 +1668,23 @@ fn private_pure_return_annotation_removal_cli_is_opt_in_and_idempotent() {
     assert!(run().status.success());
     assert_eq!(fs::read_to_string(&script).unwrap(), fixed);
 }
+
+#[test]
+fn value_pipeline_hole_lint_cli_converges_without_changing_execution() {
+    let root = TempDir::new().unwrap();
+    let script = root.path().join("main.xsh");
+    fs::write(&script, "pure first(value: Int) -> Int { value + 1 }\npure second(prefix: Int, value: Int) -> Int { prefix + value }\npure third(value: Int) -> Int { value * 2 }\nlet initial = first(2)\nlet next = second(10, value: initial)\nlet final_value = third(next)\nprint $final_value\n").unwrap();
+    let run = |arguments: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht")).args(arguments).current_dir(root.path()).output().unwrap();
+    let before = run(&["trace", "main.xsh"]);
+    assert!(before.status.success(), "{}", String::from_utf8_lossy(&before.stderr));
+    let output = run(&["lint", "--fix", "main.xsh"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let fixed = fs::read_to_string(&script).unwrap();
+    assert!(fixed.contains("first(2) |> second(10, value: _) |> third(_)"), "{fixed}");
+    let output = run(&["lint", "--fix", "main.xsh"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(fixed, fs::read_to_string(&script).unwrap());
+    let after = run(&["trace", "main.xsh"]);
+    assert!(after.status.success(), "{}", String::from_utf8_lossy(&after.stderr));
+    assert_eq!(before.stdout, after.stdout);
+}

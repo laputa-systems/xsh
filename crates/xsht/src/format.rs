@@ -1789,6 +1789,11 @@ impl<'a> Writer<'a> {
                 self.write_block(*block, indent_for_expr(output), output);
             }
             ArenaExprKind::ValueBlock(block) => self.write_block_contents(*block, indent_for_expr(output), output, true),
+            ArenaExprKind::ValuePipelineCall { input, call, .. } => {
+                self.write_expr(*input, 0, output);
+                output.push_str(" |> ");
+                self.write_expr(*call, 0, output);
+            }
             ArenaExprKind::Loop { block } => {
                 output.push_str("loop ");
                 self.write_block(*block, 0, output);
@@ -3258,7 +3263,7 @@ fn expr_precedence(kind: &ArenaExprKind) -> u8 {
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Require { .. }
         | ArenaExprKind::Try(_) => 8,
-        ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. } => 0,
+        ArenaExprKind::ValuePipelineCall { .. } | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. } => 0,
         ArenaExprKind::Run(_) | ArenaExprKind::Spawn(_) | ArenaExprKind::Wait(_) => 9,
         _ => 9,
     }

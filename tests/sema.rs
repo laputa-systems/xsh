@@ -3563,3 +3563,31 @@ fn checker_try_capture_rejects_underconstrained_success_and_outer_effects() {
     assert!(has_code(&output, "check.try-success-type"), "{output:?}");
     assert!(has_code(&output, "check.effect-violation"), "{output:?}");
 }
+
+#[test]
+fn value_pipeline_holes_publish_the_checked_input_and_ordinary_call_types() {
+    let source = "pure wrapped(value: Int) { value |> increment(_) }\npure increment(value: Int) -> Int { value + 1 }\nlet selected: Int = wrapped(2)\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
+    for raw in 0..parsed.arena.arena.expr_tags.len() {
+        let id = xsh::frontend::syntax::arena::ExprId::from_index(raw);
+        if let xsh::frontend::syntax::arena::ArenaExprKind::ValuePipelineCall { input, call, hole } = parsed.arena.arena.expr(id).kind {
+            for expr in [id, input, call, hole] {
+                assert_eq!(checked.expr_types[&parsed.arena.arena.expr(expr).span], xsh::frontend::check::Type::Int);
+                assert_eq!(bodies.expr_types[&expr], xsh::frontend::check::Type::Int);
+            }
+        }
+    }
+}
+
+#[test]
+fn value_pipeline_holes_preserve_record_presence_refinement() {
+    let output = check_strict("type Row = {name: Str}\npure version(row: Row) -> Any { if \"version\" |> row.has(_) { row.version } else { null } }\n");
+    assert_no_codes(&output, &["check.record-field", "check.unknown-field", "check.type-mismatch"]);
+    assert!(output.is_empty(), "{output:?}");
+}

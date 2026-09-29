@@ -681,7 +681,13 @@ impl Checker {
                 }
             }
             ArenaExprKind::Call { callee, args } => {
-                self.infer_record_has_narrowing_arena(arena, callee, args)
+                self.infer_record_has_narrowing_arena(arena, callee, args, None)
+            }
+            ArenaExprKind::ValuePipelineCall { input, call, hole } => {
+                let call = match arena.arena.expr(call).kind { ArenaExprKind::Try(inner) => inner, _ => call };
+                if let ArenaExprKind::Call { callee, args } = arena.arena.expr(call).kind {
+                    self.infer_record_has_narrowing_arena(arena, callee, args, Some((hole, input)))
+                } else { ConditionNarrowings::default() }
             }
             _ => ConditionNarrowings::default(),
         }
@@ -741,6 +747,7 @@ impl Checker {
         arena: &ArenaProgram,
         callee: ExprId,
         args: ArenaRange,
+        pipeline_input: Option<(ExprId, ExprId)>,
     ) -> ConditionNarrowings {
         let ArenaExprKind::Field { base, name } = arena.arena.expr(callee).kind else {
             return ConditionNarrowings::default();
@@ -749,11 +756,14 @@ impl Checker {
             return ConditionNarrowings::default();
         }
         let call_args = arena.arena.call_args(args);
+        // A pipeline hole reads the retained input. Presence checks refine
+        // that original binding or literal just as an ordinary call does.
+        let retained_input = |value| pipeline_input.filter(|(hole, _)| *hole == value).map_or(value, |(_, input)| input);
 
         let (record_name, field_expr) = if matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "record")
             && call_args.len() == 2
         {
-            let record_expr_id = call_arg_expr_id_arena(&call_args[0].kind);
+            let record_expr_id = retained_input(call_arg_expr_id_arena(&call_args[0].kind));
             let ArenaExprKind::Ident(record_name) = arena.arena.expr(record_expr_id).kind else {
                 return ConditionNarrowings::default();
             };
@@ -769,7 +779,7 @@ impl Checker {
         if record_name == "record" {
             return ConditionNarrowings::default();
         };
-        let ArenaExprKind::Str(field_name_id) = arena.arena.expr(field_expr).kind else {
+        let ArenaExprKind::Str(field_name_id) = arena.arena.expr(retained_input(field_expr)).kind else {
             return ConditionNarrowings::default();
         };
         let field_name = arena.arena.string_literal(field_name_id).clone();

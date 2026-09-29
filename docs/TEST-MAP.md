@@ -682,3 +682,13 @@ nominal with/guard handler types, sequential initializer short-circuiting,
 lexical scope, cleanup, invalid headers, and rejected legacy syntax. Its
 isolated tooling fixtures verify comment preservation, source rechecking,
 and migration convergence. `tests/xsh/basic.xsh` retains guard loop transfers.
+
+Explicit value pipeline holes are covered by `tests/xsh/value-pipeline-holes.xsh`
+for positional/named placement, input and argument order, optional laziness,
+Result boundaries, and rejected contexts. `tests/sema.rs::value_pipeline_holes_*`
+pins full/compact facts and record presence refinement. `tests/syntax.rs::parser_value_pipeline_holes_*`
+checks arena spans and formatter convergence; the matching xsht grep/refactor
+and lint tests check structural retention, safe migration, refusal, and a stable
+second fix pass, including the isolated CLI convergence/execution test. Run the
+native module, syntax/checker integration suites, and
+focused xsht integration tests before the full relevant gates.

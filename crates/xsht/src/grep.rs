@@ -155,6 +155,12 @@ fn match_expr_structural(
             *bindings = b2;
             true
         }
+        (ArenaExprKind::ValuePipelineCall { input: pi, call: pc, .. }, ArenaExprKind::ValuePipelineCall { input: ti, call: tc, .. }) => {
+            let mut next = bindings.clone();
+            if match_expr(p, *pi, t, *ti, source, &mut next) && match_expr(p, *pc, t, *tc, source, &mut next) {
+                *bindings = next; true
+            } else { false }
+        }
         (ArenaExprKind::Unary { op: po, expr: pe }, ArenaExprKind::Unary { op: to, expr: te }) => {
             po == to && match_expr(p, *pe, t, *te, source, bindings)
         }
@@ -307,18 +313,21 @@ fn match_args(
     source: &str,
     bindings: &mut FxHashMap<String, Span>,
 ) -> bool {
-    let pargs: Vec<ExprId> = p
-        .call_args(pattern_args)
-        .iter()
-        .map(call_arg_expr)
-        .collect();
-    let targs: Vec<ExprId> = t.call_args(target_args).iter().map(call_arg_expr).collect();
+    let pargs = p.call_args(pattern_args);
+    let targs = t.call_args(target_args);
     if pargs.len() != targs.len() {
         return false;
     }
     let mut b2 = bindings.clone();
-    for (pe, te) in pargs.into_iter().zip(targs) {
-        if !match_expr(p, pe, t, te, source, &mut b2) {
+    for (pa, ta) in pargs.iter().zip(targs) {
+        let same_position = match (&pa.kind, &ta.kind) {
+            (ArenaCallArgKind::Positional(_), ArenaCallArgKind::Positional(_))
+            | (ArenaCallArgKind::Splice { .. }, ArenaCallArgKind::Splice { .. })
+            | (ArenaCallArgKind::NamedSpread { .. }, ArenaCallArgKind::NamedSpread { .. }) => true,
+            (ArenaCallArgKind::Named { name: pn, .. }, ArenaCallArgKind::Named { name: tn, .. }) => pn == tn,
+            _ => false,
+        };
+        if !same_position || !match_expr(p, call_arg_expr(pa), t, call_arg_expr(ta), source, &mut b2) {
             return false;
         }
     }
@@ -389,9 +398,22 @@ fn build_replacement_text(
             let span = m.bindings.get(name.as_str().as_str())?;
             Some(target_source.get(span.start()..span.end())?.to_string())
         }
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => {
+            let input = build_replacement_text(arena, *input, m, target_source, pattern_source)?;
+            let call = build_replacement_text(arena, *call, m, target_source, pattern_source)?;
+            Some(format!("{input} |> {call}"))
+        }
         ArenaExprKind::Field { base, name } => {
             let base_text = build_replacement_text(arena, *base, m, target_source, pattern_source)?;
             Some(format!("{base_text}.{name}"))
+        }
+        ArenaExprKind::NullSafeField { base, name } => {
+            let base = build_replacement_text(arena, *base, m, target_source, pattern_source)?;
+            Some(format!("({base})?.{name}"))
+        }
+        ArenaExprKind::Try(inner) => {
+            let inner = build_replacement_text(arena, *inner, m, target_source, pattern_source)?;
+            Some(format!("({inner})?"))
         }
         ArenaExprKind::Call { callee, args } => {
             let callee_text =
@@ -399,13 +421,13 @@ fn build_replacement_text(
             let mut arg_parts = Vec::new();
             for arg in arena.call_args(*args) {
                 let e = call_arg_expr(arg);
-                arg_parts.push(build_replacement_text(
-                    arena,
-                    e,
-                    m,
-                    target_source,
-                    pattern_source,
-                )?);
+                let value = build_replacement_text(arena, e, m, target_source, pattern_source)?;
+                arg_parts.push(match arg.kind {
+                    ArenaCallArgKind::Positional(_) => value,
+                    ArenaCallArgKind::Named { name, .. } => format!("{name}: {value}"),
+                    ArenaCallArgKind::Splice { .. } => format!("@({value})"),
+                    ArenaCallArgKind::NamedSpread { .. } => format!("...({value})"),
+                });
             }
             Some(format!("{callee_text}({})", arg_parts.join(", ")))
         }

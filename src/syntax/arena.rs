@@ -1984,6 +1984,48 @@ impl<'a> ArenaProgramBuilder<'a> {
         }
     }
 
+    /// Locate exactly one whole argument hole in an immediate ordinary call.
+    /// Named record labels are not expression reads, even when speculative
+    /// parser rows retain an identifier at the label's source position.
+    pub fn value_pipeline_hole(&self, stage: ExprId) -> Result<Option<ExprId>, Span> {
+        let arena = &self.lowerer.arena;
+        let span = arena.expr(stage).span;
+        let mut holes = Vec::new();
+        for raw in (0..arena.stmt_tags.len()).rev() {
+            let stmt = arena.stmt(StmtId::from_index(raw));
+            if stmt.span.source_id != span.source_id || stmt.span.start() < span.start() { break; }
+            if stmt.span.end() <= span.end() && matches!(stmt.kind, ArenaStmtKind::TailBareIdent(name) if name == "_") {
+                return Err(stmt.span);
+            }
+        }
+        // Stage rows are appended together after their input. Stop at the
+        // preceding expression instead of rescanning the whole program.
+        for raw in (0..=stage.index()).rev() {
+            let id = ExprId::from_index(raw);
+            let expr = arena.expr(id);
+            if expr.span.source_id != span.source_id || expr.span.start() < span.start() { break; }
+            if matches!(expr.kind, ArenaExprKind::Ident(name) if name == "_")
+                && expr.span.end() <= span.end()
+                && !arena.record_fields.iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Named { name, span, .. }
+                    if name == "_" && arena.span(span).start() == expr.span.start())) {
+                holes.push(id);
+            }
+        }
+        if holes.is_empty() { return Ok(None); }
+        if holes.len() != 1 { return Err(arena.expr(holes[1]).span); }
+        let call = match arena.expr(stage).kind { ArenaExprKind::Try(inner) => inner, _ => stage };
+        if let ArenaExprKind::Call { args, .. } = arena.expr(call).kind {
+            for arg in arena.call_args(args) {
+                let value = match arg.kind {
+                    ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => value,
+                    ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => continue,
+                };
+                if value == holes[0] { return Ok(Some(value)); }
+            }
+        }
+        Err(arena.expr(holes[0]).span)
+    }
+
     /// Lower a value-expression pipeline stage to the ordinary call shape it
     /// denotes. A bare call such as `value |> split(",")` is method sugar;
     /// qualified calls retain their callee and receive the value as their first
@@ -1995,6 +2037,11 @@ impl<'a> ArenaProgramBuilder<'a> {
         stage: ExprId,
         span: Span,
     ) -> Option<ExprId> {
+        if let Ok(Some(hole)) = self.value_pipeline_hole(stage) {
+            let input_span = self.lowerer.arena.expr(input).span;
+            let whole_span = Span::new(span.source_id, input_span.start(), span.end());
+            return Some(self.lowerer.push_expr_kind(ArenaExprKind::ValuePipelineCall { input, call: stage, hole }, whole_span));
+        }
         let (call, needs_try) = match self.lowerer.arena.expr(stage).kind {
             ArenaExprKind::Try(inner) => (inner, true),
             _ => (stage, false),
@@ -3971,6 +4018,10 @@ impl AstArena {
                 left: ExprId::new(data.lhs as usize),
                 right: ExprId::new(data.rhs as usize),
             },
+            ArenaExprTag::ValuePipelineCall => {
+                let raw = range_slice(&self.extra, range_from_data(data));
+                ArenaExprKind::ValuePipelineCall { input: ExprId::new(raw[0] as usize), call: ExprId::new(raw[1] as usize), hole: ExprId::new(raw[2] as usize) }
+            }
             ArenaExprTag::Call => {
                 let raw = range_slice(&self.extra, range_from_data(data));
                 ArenaExprKind::Call {
@@ -5102,6 +5153,7 @@ pub enum ArenaExprTag {
     BinaryDiv,
     BinaryRem,
     Call,
+    ValuePipelineCall,
     Field,
     NullSafeField,
     NullSafeIndex,
@@ -5224,6 +5276,9 @@ pub enum ArenaExprKind {
         callee: ExprId,
         args: ArenaRange,
     },
+    /// The input is retained before evaluating the ordinary call. The hole
+    /// identifies its sole immediate argument, preserving source spelling.
+    ValuePipelineCall { input: ExprId, call: ExprId, hole: ExprId },
     Field {
         base: ExprId,
         name: Name,
@@ -6338,6 +6393,10 @@ impl ArenaLowerer<'_> {
                 binary_expr_tag(op),
                 ArenaExprData::new(raw_expr_id(left), raw_expr_id(right)),
             ),
+            ArenaExprKind::ValuePipelineCall { input, call, hole } => {
+                let data = self.push_expr_extra(&[raw_expr_id(input), raw_expr_id(call), raw_expr_id(hole)]);
+                (ArenaExprTag::ValuePipelineCall, data)
+            }
             ArenaExprKind::Call { callee, args } => {
                 let data = self.push_expr_extra(&[raw_expr_id(callee), args.start, args.len]);
                 (ArenaExprTag::Call, data)

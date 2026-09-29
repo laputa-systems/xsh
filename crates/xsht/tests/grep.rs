@@ -427,3 +427,34 @@ fn pattern_alternatives_refactor_uses_original_subject_span_and_converges() {
     assert_eq!(again.status, 1);
     assert_eq!(fs::read_to_string(&file).unwrap(), fixed);
 }
+
+#[test]
+fn grep_and_refactor_value_pipeline_holes_preserve_explicit_argument_placement() {
+    let source = "let text = \"é\" |> render(\"[\", value: _)\n";
+    let file = temp_xsh("pipeline_hole", source);
+    let output = grep_scripts("INPUT |> render(PREFIX, value: _)", &paths(&file));
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    assert!(output_text(&output.stdout).contains("\"é\" |> render(\"[\", value: _)"));
+    let wrong_name = grep_scripts("INPUT |> render(PREFIX, alternate: _)", &paths(&file));
+    assert_eq!(wrong_name.status, 1, "{}", output_text(&wrong_name.stdout));
+    let output = refactor_scripts("INPUT |> render(PREFIX, value: _)", "INPUT |> render(PREFIX, value: _)", &paths(&file), false);
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    assert_eq!(fs::read_to_string(file).unwrap(), source);
+}
+
+#[test]
+fn refactor_value_pipeline_holes_retains_optional_calls_and_result_boundaries() {
+    for (name, source, pattern) in [
+        ("pipeline_result", "let value = \"3\" |> parse(_, radix: 10)?\n", "INPUT |> parse(_, radix: RADIX)?"),
+        ("pipeline_optional", "let value = \"a\" |> maybe?.replace(_, \"b\")\n", "INPUT |> RECEIVER?.replace(_, OTHER)"),
+    ] {
+        let file = temp_xsh(name, source);
+        let output = refactor_scripts(pattern, pattern, &paths(&file), false);
+        assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+        let fixed = fs::read_to_string(&file).unwrap();
+        assert!(!fixed.contains("INPUT") && !fixed.contains("RADIX") && !fixed.contains("RECEIVER") && !fixed.contains("OTHER"), "{fixed}");
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        assert!(fixed.contains("|>") && fixed.contains('_') && fixed.contains('?'), "{fixed}");
+    }
+}

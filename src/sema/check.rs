@@ -285,6 +285,7 @@ pub struct Checker {
     definitely_exiting_block_spans: BTreeSet<Span>,
     options: CheckOptions,
     function_return_types: BTreeMap<Span, Type>,
+    pipeline_hole_types: BTreeMap<Span, Type>,
     inferred_returns: Option<Vec<(Type, Span)>>,
     inferred_propagations: Vec<(Type, Span)>,
     // Only propagation evaluated while initializing the current With reaches its handler.
@@ -474,6 +475,7 @@ impl Checker {
             definitely_exiting_block_spans: BTreeSet::new(),
             options,
             function_return_types: BTreeMap::new(),
+            pipeline_hole_types: BTreeMap::new(),
             inferred_returns: None,
             inferred_propagations: Vec::new(),
             with_initializer_errors: None,

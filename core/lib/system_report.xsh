@@ -2616,7 +2616,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
     )
   }
 
-  let parsed = sanitize_report_mount_options(report_xsh(wire)?)
+  let parsed = report_xsh(wire)? |> sanitize_report_mount_options(_)
   require_report_v1(parsed)?
   return Ok(parsed)
 }

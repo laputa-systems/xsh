@@ -628,8 +628,10 @@ the complete `policy.Target` schema when `Context` is imported elsewhere.
 
 Surface-only conveniences are lowered before checking and evaluation. The core
 lowering includes path literals and p-strings, typed environment fields to an
-environment lookup node, value pipeline calls to ordinary calls with the
-pipeline input inserted, and builder syntax to module-owned builder calls.
+environment lookup node, implicit value pipeline calls to ordinary calls with
+the pipeline input inserted, and builder syntax to module-owned builder calls.
+Explicit pipeline holes retain the input and ordinary call through checking,
+then bind that input to hygienic temporary storage before the call.
 Formatting preserves the readable surface form.
 
 ## 5. Types And Values
@@ -3476,10 +3478,26 @@ rather than a stream stage. A bare method name uses the previous value as its
 receiver (`value |> split(",")` is the same call shape as
 `value.split(",")`). A qualified function call uses the previous value as its
 first argument. The stage may end in `?`, which propagates a `Result` returned
-by that call. These forms are lowered to ordinary calls before semantic
-checking, so a local value, a method receiver, and a Result-returning tail obey
-the same contract. Without an explicit `.` placeholder, the previous
-pipeline value is inserted as the first argument for qualified calls:
+by that call. Stages without an argument hole keep this call and receiver
+insertion behavior.
+
+An immediate ordinary call may contain exactly one `_` as a whole positional
+argument or named argument value. `data |> render(template, data: _)` performs
+an ordinary call to `render` with the input at that position, without additional
+receiver or first-argument insertion. A bare callable with a hole resolves as an
+ordinary function, even when its name is also a method name. Parentheses around
+a whole hole normalize to `_`; nested, embedded, spread, multiple, or free holes
+are rejected. Discard bindings, wildcard patterns, and discard block parameters
+retain their existing meanings.
+
+Input evaluation completes once before the stage's callee/receiver and other
+arguments. Those arguments retain ordinary source order. Optional calls still
+skip their other arguments when the receiver is absent, after the input has
+already been evaluated. Explicit `?` keeps its normal propagation boundary.
+Recognized structured stage names keep their stage dispatch: holes do not add
+per-item mapping, collection, or implicit unwrapping. Use an ordinary `map` block
+for per-item work. Qualified stages without a hole still receive the previous
+value as their first argument:
 
 ```xsh
 let readme_text = p"README.md".read_bytes()?.utf8()?
@@ -3963,6 +3981,13 @@ It removes provably needless local binding annotations and rewrites simple
 `value not in receiver` for negated calls) when the checker proves that
 membership syntax has the same semantics and the rewrite does not move
 effectful expressions.
+
+`lint.prefer-value-pipeline` offers explicit argument placement for a checked
+nested call at a whole statement value or a single-use linear temporary chain.
+It requires stable reads before any moved input and a full-source recheck with
+unchanged concrete input and result types. Guarded receivers, spreads, ambiguous
+or contextual types, and changing mutable reads keep their ordinary calls.
+Comments in the proposed edit produce a warning without a fix.
 
 `lint.prefer-guard` rewrites a single-action `if` without `else` to a guarded
 `return`, `break`, `continue`, or `yield`. It preserves condition-first payload

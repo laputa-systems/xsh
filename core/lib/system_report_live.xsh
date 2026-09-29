@@ -1134,7 +1134,7 @@ proc collect_storage(
       )
     }
 
-    let stats_values = parse_words(observed_source_text(stats))
+    let stats_values = observed_source_text(stats) |> parse_words(_)
     let stat_field_count_valid = stats_values.len() in [11, 15, 17] or stats_values.len() > 17
     if stats.observation.state == report.Observed and ! stat_field_count_valid {
       issues = issues.push(

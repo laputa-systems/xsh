@@ -41,7 +41,8 @@ use super::{
 pub(super) struct SlotScope {
     pattern_slots: Option<FxHashMap<Name, usize>>,
     indices: FxHashMap<Name, usize>,
-    // A guarded postfix binds its receiver once before lowering the selected arm.
+    // Guarded receivers and explicit pipeline inputs bind once before their
+    // selected operation; exact expression IDs reuse that retained value.
     postfix_receivers: FxHashMap<ExprId, BuildExprId>,
     guarded_postfixes: FxHashSet<ExprId>,
     types: FxHashMap<Name, Type>,
@@ -2259,6 +2260,10 @@ fn compact_collect_expr_call_edges(
         | ArenaExprKind::NullSafeField { base: expr, .. } => {
             compact_collect_expr_call_edges(program, expr, namespace, index_of, edges);
         }
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => {
+            compact_collect_expr_call_edges(program, input, namespace, index_of, edges);
+            compact_collect_expr_call_edges(program, call, namespace, index_of, edges);
+        }
         ArenaExprKind::ComparisonChain(pairs) => {
             for pair in program.arena.comparison_chain_operands(pairs) {
                 compact_collect_expr_call_edges(program, pair, namespace, index_of, edges);
@@ -2703,6 +2708,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::Retry { .. } => 38,
         ArenaExprKind::ValueBlock(_) => 39,
         ArenaExprKind::Regex(_) => 41,
+        ArenaExprKind::ValuePipelineCall { .. } => 42,
     }
 }
 
@@ -2753,6 +2759,7 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
         ArenaExprKind::Retry { .. } => "retry",
         ArenaExprKind::ValueBlock(_) => "value_block",
         ArenaExprKind::Regex(_) => "regex_literal",
+        ArenaExprKind::ValuePipelineCall { .. } => "value_pipeline_call",
     }
 }
 
@@ -3199,7 +3206,7 @@ fn compact_body_tail_command_blocker(
 
 const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 8];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 28];
-const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 42];
+const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 43];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 
@@ -4645,6 +4652,9 @@ impl CompactLowerConstructProbe<'_, '_> {
     }
 
     fn infer_checked_expr_type_with_slots_inner(&self, value: ExprId, slots: &SlotScope) -> Option<Type> {
+        if let ArenaExprKind::ValuePipelineCall { call, .. } = self.program.arena.expr(value).kind {
+            return self.bodies.expr_types.get(&value).cloned().or_else(|| self.infer_checked_expr_type_with_slots(call, slots));
+        }
         match self.program.arena.expr(value).kind {
             ArenaExprKind::Ident(name) => slots.binding_type(name).cloned(),
             ArenaExprKind::Bool(_) => Some(Type::Bool),
@@ -5377,6 +5387,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         known: &FxHashMap<Name, LoweredTopLevelBinding>,
     ) -> Option<LoweredType> {
         match self.program.arena.expr(value).kind {
+            ArenaExprKind::ValuePipelineCall { call, .. } => self.infer_lowered_expr_type(call, known),
             ArenaExprKind::Bool(_) => Some(LoweredType::Bool),
             ArenaExprKind::Int(_) => Some(LoweredType::Int),
             ArenaExprKind::Float(_) => Some(LoweredType::Float),
@@ -8355,6 +8366,20 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaExprKind::Capture(block) => Some(push_build_row!(self, expr, BuildExprRow::Capture {
                 body: self.lower_retry_block(block, slots, current_function, item_slot)?, span,
             })),
+            ArenaExprKind::ValuePipelineCall { input, call, hole } => {
+                let input = self.lower_expr(input, slots, current_function, item_slot)?;
+                let slot = slots.reserve("value pipeline input");
+                let bound = push_build_row!(self, expr, BuildExprRow::Param(slot));
+                let previous = slots.postfix_receivers.insert(hole, bound);
+                let selected = self.lower_expr(call, slots, current_function, item_slot);
+                match previous {
+                    Some(previous) => { slots.postfix_receivers.insert(hole, previous); }
+                    None => { slots.postfix_receivers.remove(&hole); }
+                }
+                let selected = selected?;
+                let pattern = push_build_row!(self, pattern, BuildPatternRow::Bind { slot });
+                Some(push_build_row!(self, expr, BuildExprRow::MatchExpr { value: input, arms: vec![(pattern, None, selected)], span }))
+            }
             ArenaExprKind::ValueBlock(block) => self.lower_block_value_expr(block, slots, current_function, item_slot),
             ArenaExprKind::Loop { block } => Some(push_build_row!(
                 self,

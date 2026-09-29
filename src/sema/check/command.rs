@@ -222,6 +222,11 @@ impl Checker {
         name: Name,
         span: Span,
     ) -> Type {
+        if name == "_" {
+            self.error(span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole");
+            return Type::Invalid;
+        }
+
         if self.procs.contains_key(&name) {
             if self.in_pure {
                 self.error(

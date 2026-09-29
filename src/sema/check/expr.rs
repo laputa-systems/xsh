@@ -56,6 +56,10 @@ fn capture_success_underconstrained(ty: &Type) -> bool {
 
 impl Checker {
     pub(super) fn lookup_expr_ident(&mut self, name: Name, span: Span) -> Type {
+        if name == "_" {
+            self.error(span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole");
+            return Type::Invalid;
+        }
         if let Some(binding) = self.lookup(name) {
             return binding.ty.clone();
         }
@@ -166,7 +170,22 @@ impl Checker {
                 Type::Path
             }
             ArenaExprKind::Bytes(_) => Type::Bytes,
-            ArenaExprKind::Ident(name) => self.lookup_expr_ident(*name, expr.span),
+            ArenaExprKind::Ident(name) => {
+                if *name == "_" {
+                    self.pipeline_hole_types.get(&expr.span).cloned().unwrap_or_else(|| {
+                        self.error(expr.span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole");
+                        Type::Invalid
+                    })
+                } else { self.lookup_expr_ident(*name, expr.span) }
+            }
+            ArenaExprKind::ValuePipelineCall { input, call, hole } => {
+                let input_ty = self.check_expr_arena(arena, source, *input, None);
+                let hole_span = arena.arena.expr(*hole).span;
+                let previous = self.pipeline_hole_types.insert(hole_span, input_ty);
+                let ty = self.check_expr_arena(arena, source, *call, expected);
+                match previous { Some(previous) => { self.pipeline_hole_types.insert(hole_span, previous); }, None => { self.pipeline_hole_types.remove(&hole_span); } }
+                ty
+            }
             ArenaExprKind::Item => self.stream_item_types.last().cloned().unwrap_or_else(|| {
                 self.error(
                     expr.span,

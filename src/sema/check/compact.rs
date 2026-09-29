@@ -141,6 +141,7 @@ impl Checker {
                 scopes: vec![FxHashMap::default()],
                 stream_items: Vec::new(),
                 return_types: Vec::new(),
+                pipeline_hole_types: FxHashMap::default(),
                 current_namespace: None,
                 with_initializer_errors: None,
             };
@@ -562,6 +563,7 @@ struct CompactBodyProbe<'a> {
     scopes: Vec<FxHashMap<Name, CompactBinding>>,
     stream_items: Vec<Type>,
     return_types: Vec<Type>,
+    pipeline_hole_types: FxHashMap<ExprId, Type>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -689,9 +691,12 @@ impl CompactBodyProbe<'_> {
             ArenaStmtKind::Use(_)
             | ArenaStmtKind::TypeDef(_)
             | ArenaStmtKind::ErrorDef(_)
-            | ArenaStmtKind::Continue
-            | ArenaStmtKind::TailBareIdent(_) => {
+            | ArenaStmtKind::Continue => {
                 self.output.supported_statements += 1;
+            }
+            ArenaStmtKind::TailBareIdent(name) => {
+                self.output.supported_statements += 1;
+                if name == "_" { self.error(stmt.span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole"); }
             }
             ArenaStmtKind::Export(inner) => {
                 self.output.supported_statements += 1;
@@ -1073,7 +1078,14 @@ impl CompactBodyProbe<'_> {
             }
             ArenaExprKind::GlobStr(_) => Type::List(Box::new(Type::Path)),
             ArenaExprKind::Bytes(_) => Type::Bytes,
-            ArenaExprKind::Ident(name) => self.lookup_name(name),
+            ArenaExprKind::Ident(name) => {
+                if name == "_" {
+                    self.pipeline_hole_types.get(&id).cloned().unwrap_or_else(|| {
+                        self.error(self.program.arena.expr(id).span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole");
+                        Type::Invalid
+                    })
+                } else { self.lookup_name(name) }
+            },
             ArenaExprKind::LastStatus => Type::Status,
             ArenaExprKind::List(items) => self.check_compact_list(items),
             ArenaExprKind::Record(fields) => self.check_compact_record(fields),
@@ -1085,6 +1097,13 @@ impl CompactBodyProbe<'_> {
                 Type::Bool
             }
             ArenaExprKind::Binary { op, left, right } => self.check_compact_binary(op, left, right),
+            ArenaExprKind::ValuePipelineCall { input, call, hole } => {
+                let input_ty = self.check_compact_expr(input);
+                let previous = self.pipeline_hole_types.insert(hole, input_ty);
+                let ty = self.check_compact_expr(call);
+                match previous { Some(previous) => { self.pipeline_hole_types.insert(hole, previous); }, None => { self.pipeline_hole_types.remove(&hole); } }
+                ty
+            }
             ArenaExprKind::Call { callee, args } => self.check_compact_call(callee, args),
             ArenaExprKind::Field { base, name } => self.check_compact_field(base, name),
             ArenaExprKind::NullSafeField { base, name } => {
@@ -1375,7 +1394,8 @@ impl CompactBodyProbe<'_> {
                     let value_ty = self.check_compact_expr(*value);
                     if !updating { fields.insert(*name, value_ty); }
                 }
-                ArenaRecordFieldKind::Shorthand { name, .. } => {
+                ArenaRecordFieldKind::Shorthand { name, span } => {
+                    if *name == "_" { self.error(self.program.arena.span(*span), "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole"); }
                     let value_ty = self.lookup_name(*name);
                     if !updating { fields.insert(*name, value_ty); }
                 }

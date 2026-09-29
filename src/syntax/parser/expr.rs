@@ -1410,6 +1410,11 @@ impl<'a> Parser<'a> {
             let expr_id =
                 self.with_pipe_boundary(|parser| parser.parse_expr_id_arena_only(arena))?;
             let span = self.span(start, self.previous_end());
+            if let Err(hole_span) = arena.value_pipeline_hole(expr_id) {
+                self.diagnostics.push(Diagnostic::new(super::Severity::Error, "a value pipeline call requires exactly one whole argument placeholder")
+                    .with_code("parse.pipeline-hole")
+                    .with_label(Label::primary(hole_span, "place `_` as one positional argument or named argument value of the immediate call")));
+            }
             return Some((ArenaPipeStageKind::Expr(expr_id), span));
         }
         let start = self.current_start();

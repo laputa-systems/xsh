@@ -31,6 +31,13 @@ fn list_splice_element_type_is_precise(ty: &Type) -> bool {
     }
 }
 
+fn pipeline_argument_expr(arg: &ArenaCallArg) -> Option<ExprId> {
+    match arg.kind {
+        ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => Some(value),
+        _ => None,
+    }
+}
+
 fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> bool {
     match arena.expr(expr).kind {
         ArenaExprKind::Ident(_) | ArenaExprKind::Int(_) | ArenaExprKind::Str(_)
@@ -2828,7 +2835,8 @@ impl<'a> Linter<'a> {
         if let Some(&first) = stmts.first() { self.lint_negative_if_as_boolean_guard(first); }
         let mut flow = FlowSummary::fallthrough();
         let mut reported_dead_region = false;
-        for &stmt in stmts {
+        for (index, &stmt) in stmts.iter().enumerate() {
+            if index > 0 { self.lint_linear_value_pipeline(stmts[index - 1], stmt, stmts); }
             if self.dead_code && !flow.fallthrough && !reported_dead_region {
                 self.warning(
                     self.arena.stmt(stmt).span,
@@ -3464,6 +3472,138 @@ impl<'a> Linter<'a> {
             ArenaExprOrRun::Expr(expr) => self.lint_expr(*expr),
             ArenaExprOrRun::Run(run) => self.lint_run(*run),
         }
+    }
+
+    fn pipeline_argument_stable(&self, value: ExprId) -> bool {
+        match self.arena.expr(value).kind {
+            ArenaExprKind::Ident(name) => !self.assigned_names.contains(&name)
+                && self.scopes.iter().rev().find_map(|scope| scope.get(name.as_str().as_str())).is_some_and(|binding| !binding.mutable),
+            ArenaExprKind::Null | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_)
+            | ArenaExprKind::Duration(_) | ArenaExprKind::Str(_) | ArenaExprKind::PathStr(_)
+            | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) => true,
+            _ => false,
+        }
+    }
+
+    fn pipeline_ordinary_call(&self, value: ExprId) -> Option<(ExprId, ArenaRange)> {
+        let call = match self.arena.expr(value).kind { ArenaExprKind::Try(inner) => inner, _ => value };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(call).kind else { return None; };
+        // A guarded receiver could skip the original input argument entirely.
+        // Direct callable names have no receiver evaluation to move across.
+        if !matches!(self.arena.expr(callee).kind, ArenaExprKind::Ident(_)) { return None; }
+        if self.arena.call_args(args).iter().any(|arg| pipeline_argument_expr(arg).is_none()) { return None; }
+        Some((callee, args))
+    }
+
+    fn pipeline_rewrite_preserves_types(&self, edit: Span, replacement: &str, old_value: ExprId, old_input: ExprId, new_value_start: usize, new_input_start: usize) -> bool {
+        let Some(old_type) = self.expr_types.get(&self.arena.expr(old_value).span) else { return false; };
+        let Some(input_type) = self.expr_types.get(&self.arena.expr(old_input).span) else { return false; };
+        if !list_splice_element_type_is_precise(old_type) || !list_splice_element_type_is_precise(input_type) { return false; }
+        let old_shape = checked_return_type_shape(old_type);
+        let input_shape = checked_return_type_shape(input_type);
+        let mut rewritten = self.source.to_string();
+        rewritten.replace_range(edit.range(), replacement);
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(edit.source_id, &rewritten);
+        if !parsed.diagnostics.is_empty() { return false; }
+        let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, &rewritten);
+        if !checked.diagnostics.is_empty() { return false; }
+        parsed.arena.symbol_owner().with_current(|| {
+            (0..parsed.arena.arena.expr_tags.len()).any(|raw| {
+                let expr = parsed.arena.arena.expr(ExprId::from_index(raw));
+                let ArenaExprKind::ValuePipelineCall { input, .. } = expr.kind else { return false; };
+                let input_span = parsed.arena.arena.expr(input).span;
+                expr.span.start() == new_value_start && input_span.start() == new_input_start
+                    && input_span.range().len() == self.arena.expr(old_input).span.range().len()
+                    && checked.expr_types.get(&expr.span).is_some_and(|ty| checked_return_type_shape(ty) == old_shape)
+                    && checked.expr_types.get(&input_span).is_some_and(|ty| checked_return_type_shape(ty) == input_shape)
+            })
+        })
+    }
+
+    fn lint_nested_value_pipeline(&mut self, value: ExprId) {
+        // Whole statement values need no new parentheses or precedence rules.
+        let whole_value = (0..self.arena.stmt_tags.len()).any(|raw| match self.arena.stmt(StmtId::from_index(raw)).kind {
+            ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(expr), .. }
+            | ArenaStmtKind::Var { initializer: ArenaExprOrRun::Expr(expr), .. }
+            | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expr)))
+            | ArenaStmtKind::Expr(expr) => expr == value,
+            _ => false,
+        });
+        if !whole_value { return; }
+        let Some((_, args)) = self.pipeline_ordinary_call(value) else { return; };
+        let args = self.arena.call_args(args);
+        let inputs = args.iter().enumerate().filter_map(|(index, arg)| {
+            let expr = pipeline_argument_expr(arg).unwrap();
+            self.pipeline_ordinary_call(expr).map(|_| (index, expr))
+        }).collect::<Vec<_>>();
+        let [(index, input)] = inputs.as_slice() else { return; };
+        if args[..*index].iter().any(|arg| !self.pipeline_argument_stable(pipeline_argument_expr(arg).unwrap())) { return; }
+        let span = self.arena.expr(value).span;
+        let input_span = self.arena.expr(*input).span;
+        let Some(original) = self.source.get(span.range()) else { return; };
+        let Some(input_text) = self.source.get(input_span.range()) else { return; };
+        let mut stage = original.to_string();
+        stage.replace_range(input_span.start() - span.start()..input_span.end() - span.start(), "_");
+        let replacement = format!("{input_text} |> {stage}");
+        if !self.pipeline_rewrite_preserves_types(span, &replacement, value, *input, span.start(), span.start()) { return; }
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "nested calls form a value pipeline")
+            .with_code("lint.prefer-value-pipeline")
+            .with_label(Label::secondary(span, "place the retained input at an explicit argument hole"));
+        if !original.contains('#') {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use an explicit value pipeline", replacement));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn lint_linear_value_pipeline(&mut self, previous: StmtId, current: StmtId, statements: &[StmtId]) {
+        let first = self.arena.stmt(previous);
+        let second = self.arena.stmt(current);
+        let ArenaStmtKind::Let { target, ty: None, initializer: ArenaExprOrRun::Expr(input) } = first.kind else { return; };
+        let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind else { return; };
+        if (self.pipeline_ordinary_call(input).is_none() && !matches!(self.arena.expr(input).kind, ArenaExprKind::ValuePipelineCall { .. })) || self.assigned_names.contains(&name) { return; }
+        let value = match second.kind {
+            ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(value), .. }
+            | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value)))
+            | ArenaStmtKind::Expr(value) => value,
+            _ => return,
+        };
+        let Some((_, args)) = self.pipeline_ordinary_call(value) else { return; };
+        let holes = self.arena.call_args(args).iter().filter_map(|arg| {
+            let expr = pipeline_argument_expr(arg).unwrap();
+            matches!(self.arena.expr(expr).kind, ArenaExprKind::Ident(candidate) if candidate == name).then_some(expr)
+        }).collect::<Vec<_>>();
+        let [hole] = holes.as_slice() else { return; };
+        let Some(last) = statements.last() else { return; };
+        let end = self.arena.stmt(*last).span.end();
+        let references = (0..self.arena.expr_tags.len()).filter(|raw| {
+            let expr = self.arena.expr(ExprId::from_index(*raw));
+            expr.span.source_id == first.span.source_id && expr.span.start() >= first.span.end() && expr.span.end() <= end
+                && matches!(expr.kind, ArenaExprKind::Ident(candidate) if candidate == name)
+        }).count();
+        let shorthand = self.arena.record_fields.iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Shorthand { name: candidate, span }
+            if candidate == name && self.arena.span(span).source_id == first.span.source_id && self.arena.span(span).start() >= first.span.end() && self.arena.span(span).end() <= end));
+        if references != 1 || shorthand { return; }
+        let span = Span::new(first.span.source_id, first.span.start(), second.span.end());
+        let value_span = self.arena.expr(value).span;
+        let input_span = self.arena.expr(input).span;
+        let hole_span = self.arena.expr(*hole).span;
+        let Some(input_text) = self.source.get(input_span.range()) else { return; };
+        let Some(value_text) = self.source.get(value_span.range()) else { return; };
+        let mut stage = value_text.to_string();
+        stage.replace_range(hole_span.start() - value_span.start()..hole_span.end() - value_span.start(), "_");
+        let pipeline = format!("{input_text} |> {stage}");
+        let Some(second_text) = self.source.get(second.span.range()) else { return; };
+        let mut replacement = second_text.to_string();
+        replacement.replace_range(value_span.start() - second.span.start()..value_span.end() - second.span.start(), &pipeline);
+        let new_start = first.span.start() + value_span.start() - second.span.start();
+        if !self.pipeline_rewrite_preserves_types(span, &replacement, value, input, new_start, new_start) { return; }
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "single-use temporary forms a value pipeline")
+            .with_code("lint.prefer-value-pipeline")
+            .with_label(Label::secondary(span, "retain the input directly in the following ordinary call"));
+        if self.source.get(span.range()).is_some_and(|source| !source.contains('#')) {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "collapse the single-use temporary", replacement));
+        }
+        self.diagnostics.push(diagnostic);
     }
 
     fn lint_optional_postfix(&mut self, expr: ExprId) {
@@ -5203,6 +5343,8 @@ fn lazy_visit_builder_block(
 fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
     let mut out = Vec::new();
     match arena.expr(expr).kind {
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => { out.push(input); out.push(call); }
+
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
             for part in arena.fmt_parts(parts).collect::<Vec<_>>() {
                 if let ArenaFmtPart::Expr(e, _) = part {
@@ -5624,6 +5766,8 @@ fn ok_call_arg(arena: &AstArena, expr: ExprId) -> Option<ExprId> {
 fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
     let refs = |id: ExprId| expr_references_name(arena, id, name);
     match arena.expr(expr).kind {
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => refs(input) || refs(call),
+
         ArenaExprKind::Ident(candidate) => candidate == name,
         ArenaExprKind::List(items) => arena.list_element_exprs(items).any(refs),
         ArenaExprKind::ListComp { expr, qualifiers } => refs(expr) || arena.comp_qualifiers(qualifiers).iter().any(|q| refs(q.expr())),
@@ -5950,6 +6094,8 @@ fn is_method_call(arena: &AstArena, callee: ExprId, method: &str) -> bool {
 fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
     let rec = |id: ExprId| expr_contains_read_text_lines_call(arena, id);
     match arena.expr(expr).kind {
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => rec(input) || rec(call),
+
         ArenaExprKind::Call { callee, args } => {
             (matches!(arena.expr(callee).kind, ArenaExprKind::Field { base, name } if name == "lines" && expr_is_read_text_result(arena, base)))
                 || rec(callee)
@@ -6240,6 +6386,7 @@ impl LintExprVisitor<'_, '_> {
     fn visit_expr(&mut self, expr: ExprId) {
         if !self.suppress_expr_autofixes {
             self.linter.lint_nested_record_update(expr);
+            self.linter.lint_nested_value_pipeline(expr);
             self.linter.lint_list_splicing(expr);
             self.linter.lint_map_literal_chain(expr);
             self.linter.lint_prepared_regex(expr);
@@ -6277,6 +6424,8 @@ impl LintExprVisitor<'_, '_> {
     fn walk_expr(&mut self, expr: ExprId) {
         let arena = self.linter.arena;
         match arena.expr(expr).kind {
+            ArenaExprKind::ValuePipelineCall { input, call, .. } => { self.visit_expr(input); self.visit_expr(call); }
+
             ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
                 for part in arena.fmt_parts(parts).collect::<Vec<_>>() {
                     if let ArenaFmtPart::Expr(e, _) = part {
@@ -7022,6 +7171,8 @@ fn is_safe_top_level_const(
 
 fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
     match arena.expr(expr).kind {
+        ArenaExprKind::ValuePipelineCall { .. } => false,
+
         ArenaExprKind::Null
         | ArenaExprKind::Bool(_)
         | ArenaExprKind::Int(_)
@@ -7098,6 +7249,8 @@ fn directly_negated_start(source: &str, span: Span) -> Option<usize> {
 
 fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
     match arena.expr(expr).kind {
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => expr_may_have_effects(arena, input) || expr_may_have_effects(arena, call),
+
         ArenaExprKind::Null
         | ArenaExprKind::Bool(_)
         | ArenaExprKind::Int(_)
@@ -7405,6 +7558,8 @@ fn collect_expr_effects(
     proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
 ) {
     match arena.expr(expr).kind {
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => { collect_expr_effects(arena, input, effects, proc_effects); collect_expr_effects(arena, call, effects, proc_effects); }
+
         ArenaExprKind::Call { callee, args } => {
             if let ArenaExprKind::Ident(name) = arena.expr(callee).kind
                 && let Some(Some(callee_effects)) =
@@ -8232,6 +8387,8 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
 
     fn scan_expr(&mut self, expr: ExprId) {
         match self.arena().expr(expr).kind {
+            ArenaExprKind::ValuePipelineCall { input, call, .. } => { self.scan_expr(input); self.scan_expr(call); }
+
             ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
                 for part in self.arena().fmt_parts(parts).collect::<Vec<_>>() {
                     if let ArenaFmtPart::Expr(expr, _) = part {
@@ -8944,6 +9101,8 @@ fn expr_flow(
 ) -> FlowSummary {
     let arena_expr = arena.expr(expr);
     match arena_expr.kind {
+        ArenaExprKind::ValuePipelineCall { input, call, .. } => expr_flow(arena, input, terminating_call_spans).then(expr_flow(arena, call, terminating_call_spans)),
+
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => arena
             .fmt_parts(parts)
             .fold(FlowSummary::fallthrough(), |flow, part| match part {
