@@ -149,6 +149,22 @@ impl Checker {
     }
 
     pub(super) fn expect_type(&mut self, expected: &Type, actual: &Type, span: Span) {
+        if expected.contains_inference() || actual.contains_inference() {
+            if let Err(conflict) = self.type_constraints.constrain(expected, actual, span) {
+                let mut diagnostic = Diagnostic::error("inferred types disagree")
+                    .with_code("check.type-mismatch")
+                    .with_label(Label::primary(conflict.contribution,
+                        format!("expected {}, found {}", conflict.expected, conflict.actual)));
+                if let Some(origin) = conflict.initializer {
+                    diagnostic = diagnostic.with_label(Label::secondary(origin, "type inference started here"));
+                }
+                if let Some(established) = conflict.established {
+                    diagnostic = diagnostic.with_label(Label::secondary(established, "type established here"));
+                }
+                self.diagnostics.push(diagnostic);
+            }
+            return;
+        }
         if self.options.strict_dynamic && actual.any_flows_to_concrete(expected) {
             self.warning(
                 span,

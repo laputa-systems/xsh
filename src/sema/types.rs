@@ -322,6 +322,31 @@ impl Type {
         matches!(self, Self::Any)
     }
 
+    /// Transient variables must be substituted before publishing signatures,
+    /// schema instances, or runtime checks.
+    pub fn contains_inference(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Inference(_) => return true,
+                Self::List(inner) | Self::Map(inner) | Self::Stream(inner) | Self::Optional(inner) => pending.push(inner),
+                Self::Result(ok, error) => { pending.push(ok); pending.push(error); }
+                Self::Record(fields) => pending.extend(fields.values()),
+                Self::Module(exports) => for export in exports.values() {
+                    match export {
+                        ModuleExportType::Value { ty, .. } => pending.push(ty),
+                        ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => {
+                            pending.push(&sig.return_ty);
+                            pending.extend(sig.params.iter().map(|param| &param.ty));
+                        }
+                    }
+                },
+                _ => {}
+            }
+        }
+        false
+    }
+
     pub fn contains_any(&self) -> bool {
         match self {
             Self::Any => true,
