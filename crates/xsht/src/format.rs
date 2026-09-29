@@ -1602,6 +1602,12 @@ impl<'a> Writer<'a> {
                 else_value,
             } => self.write_if_expr(*branches, *else_value, output),
             ArenaExprKind::Match { value, arms } => self.write_match_expr(*value, *arms, output),
+            ArenaExprKind::PatternCondition { value, arms } => {
+                output.push_str("let ");
+                self.write_pattern(self.arena.match_expr_arms(*arms)[0].pattern, output);
+                output.push_str(" = ");
+                self.write_expr(*value, 0, output);
+            }
             ArenaExprKind::PatternTest { value, arms } => {
                 self.write_expr(*value, 4, output);
                 output.push_str(" is ");

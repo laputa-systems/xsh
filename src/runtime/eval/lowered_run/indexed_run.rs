@@ -2661,6 +2661,42 @@ impl Evaluator {
                 return self
                     .eval_indexed_binary_stack(execution, slots, call_span, op, left, right, span);
             }
+            FullTag::ExprPatternIf => {
+                let (_, mut branches) = execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, call_span))?;
+                let count = indexed_raw(&mut branches, call_span)? as usize;
+                let mut decoded = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let condition = indexed_raw(&mut branches, call_span)?;
+                    let value = indexed_raw(&mut branches, call_span)?;
+                    let captures = indexed_decode::<Vec<usize>>(&mut branches, execution, call_span)?;
+                    decoded.push((condition, value, captures));
+                }
+                indexed_finish(branches, call_span)?;
+                let else_value = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                for (condition, value, captures) in decoded {
+                    let scope_id = self.enter_owned_host_scope();
+                    let result = (|| {
+                        match self.eval_indexed_bool(execution, condition, slots, span)? {
+                            ControlFlow::Continue(false) => return Ok(StmtFlow::None),
+                            ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
+                            ControlFlow::Continue(true) => {}
+                        }
+                        match self.eval_indexed_expr(execution, value, slots, span)? {
+                            ControlFlow::Continue(value) => Ok(StmtFlow::Value(value)),
+                            ControlFlow::Break(value) => Ok(StmtFlow::Return(value)),
+                        }
+                    })();
+                    match self.finish_indexed_pattern_scope(scope_id, &captures, slots, result)? {
+                        StmtFlow::None => {}
+                        StmtFlow::Value(value) => return Ok(ControlFlow::Continue(value)),
+                        StmtFlow::Propagate(value) | StmtFlow::Return(value) => return Ok(ControlFlow::Break(value)),
+                        _ => unreachable!("expression branch produced statement control flow"),
+                    }
+                }
+                self.eval_indexed_expr(execution, else_value, slots, span)?
+            }
             FullTag::ExprIf => {
                 let (_, mut branches) = execution
                     .block(&mut payload, BLOCK_LIST)
@@ -7023,6 +7059,28 @@ impl Evaluator {
         first_error.map_or(Ok(()), Err)
     }
 
+    fn finish_indexed_pattern_scope(
+        &mut self,
+        scope_id: u64,
+        captures: &[usize],
+        slots: &mut [LoweredValue],
+        result: Result<StmtFlow, RuntimeError>,
+    ) -> Result<StmtFlow, RuntimeError> {
+        let parent_scope = self.parent_owned_host_scope();
+        if let Ok(StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Break(Some(value))) = &result {
+            self.transfer_owned_host_resources_in_value(&value.clone().into_value(), scope_id, parent_scope);
+        }
+        // Captures are iteration/branch locals. Retain escaping values before
+        // releasing these references and the condition's temporary resources.
+        for slot in captures { slots[*slot] = LoweredValue::Unit; }
+        let cleanup = self.exit_owned_host_scope(scope_id);
+        match (result, cleanup) {
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+            (Ok(flow), Ok(())) => Ok(flow),
+        }
+    }
+
     fn eval_indexed_statement_block(
         &mut self,
         execution: &FullExecution<'_>,
@@ -7437,6 +7495,65 @@ impl Evaluator {
                 )?;
                 indexed_finish(payload, call_span)?;
                 Ok(flow.unwrap_or(StmtFlow::None))
+            }
+            FullTag::StmtPatternIf => {
+                let (_, mut branches) = execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, call_span))?;
+                let count = indexed_raw(&mut branches, call_span)? as usize;
+                let mut decoded = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let condition = indexed_raw(&mut branches, call_span)?;
+                    let body = indexed_raw(&mut branches, call_span)?;
+                    let captures = indexed_decode::<Vec<usize>>(&mut branches, execution, call_span)?;
+                    decoded.push((condition, body, captures));
+                }
+                indexed_finish(branches, call_span)?;
+                let else_body = indexed_optional_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                for (condition, body, captures) in decoded {
+                    let scope_id = self.enter_owned_host_scope();
+                    let mut selected = false;
+                    let result = (|| {
+                        match self.eval_indexed_bool(execution, condition, slots, span)? {
+                            ControlFlow::Continue(false) => return Ok(StmtFlow::None),
+                            ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
+                            ControlFlow::Continue(true) => { selected = true; }
+                        }
+                        self.eval_indexed_statement_block(execution, body, header, slots, span)
+                    })();
+                    let flow = self.finish_indexed_pattern_scope(scope_id, &captures, slots, result)?;
+                    if selected || !matches!(flow, StmtFlow::None) { return Ok(flow); }
+                }
+                match else_body {
+                    Some(body) => self.eval_indexed_statement_block(execution, body, header, slots, span),
+                    None => Ok(StmtFlow::None),
+                }
+            }
+            FullTag::StmtPatternWhile => {
+                let condition = indexed_raw(&mut payload, call_span)?;
+                let body = indexed_raw(&mut payload, call_span)?;
+                let captures = indexed_decode::<Vec<usize>>(&mut payload, execution, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                loop {
+                    self.service_pending_signal(span)?;
+                    if self.signal_state.shutdown_complete { return Ok(StmtFlow::None); }
+                    let scope_id = self.enter_owned_host_scope();
+                    let result = (|| {
+                        match self.eval_indexed_bool(execution, condition, slots, span)? {
+                            ControlFlow::Continue(false) => return Ok(StmtFlow::Break(None)),
+                            ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
+                            ControlFlow::Continue(true) => {}
+                        }
+                        self.eval_indexed_statement_block(execution, body, header, slots, span)
+                    })();
+                    match self.finish_indexed_pattern_scope(scope_id, &captures, slots, result)? {
+                        StmtFlow::None | StmtFlow::Continue => {}
+                        StmtFlow::Break(_) => break,
+                        flow => return Ok(flow),
+                    }
+                }
+                Ok(StmtFlow::None)
             }
             FullTag::StmtWhile | FullTag::StmtWhileBool => {
                 let typed = tag == FullTag::StmtWhileBool;

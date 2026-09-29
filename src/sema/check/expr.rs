@@ -244,6 +244,17 @@ impl Checker {
             ArenaExprKind::Call { callee, args } => {
                 self.check_call_arena(arena, source, *callee, *args, expr.span)
             }
+            ArenaExprKind::PatternCondition { value, arms } => {
+                let value_ty = self.check_expr_arena(arena, source, *value, None);
+                let pattern = arena.arena.match_expr_arms(*arms)[0].pattern;
+                if super::stmt::patterns_are_exhaustive_arena(arena, &value_ty, std::iter::once(pattern), &self.type_defs, &self.tag_variants) {
+                    self.error(expr.span, "pattern condition cannot fail; bind the subject with `let` instead", "check.irrefutable-pattern-condition");
+                }
+                self.push_scope();
+                self.check_pattern_arena(arena, source, pattern, &value_ty);
+                self.pop_scope();
+                Type::Bool
+            }
             ArenaExprKind::PatternTest { value, arms } => {
                 let value_ty = self.check_expr_arena(arena, source, *value, None);
                 let pattern = arena.arena.match_expr_arms(*arms)[0].pattern;
@@ -493,6 +504,7 @@ impl Checker {
             let narrowings = self.check_condition_arena(arena, source, branch.condition, "check.if-condition");
             self.push_scope();
             self.apply_narrowings(&narrowings.when_true);
+            self.bind_pattern_condition_arena(arena, source, branch.condition);
             let branch_expected = expected.or(inferred.as_ref());
             let actual = self.check_expr_arena(arena, source, branch.value, branch_expected);
             if let Some(branch_expected) = branch_expected {

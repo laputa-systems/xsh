@@ -529,7 +529,7 @@ guard-let. Destructured `let` and iteration bindings are immutable; destructured
 Control flow:
 
 ```ebnf
-while_stmt   = "while" expr block ;
+while_stmt   = "while" condition block ;
 for_stmt     = "for" binding_target "in" expr block ;
 match_stmt   = "match" expr "{" match_arm* "}" ;
 match_arm    = pattern guard? "=>" (statement | block) ","? ;
@@ -830,7 +830,7 @@ primary      = literal | IDENT | list_lit | record_lit | map_comp | if_expr | ma
              | retry_expr | run_form | spawn_form | wait_form | "(" expr ")" ;
 spawn_form   = "spawn" (run_form | expr) ;
 wait_form    = "wait" expr ;
-if_expr      = "if" expr "{" expr "}" ("else" "if" expr "{" expr "}")*
+if_expr      = "if" condition "{" expr "}" ("else" "if" condition "{" expr "}")*
                "else" "{" expr "}" ;
 match_expr   = "match" expr "{" match_expr_arm* "}" ;
 match_expr_arm = pattern guard? "=>" expr ","? ;
@@ -1309,8 +1309,9 @@ disambiguate.
 Implemented control flow:
 
 ```ebnf
-if_stmt      = "if" expr block ("else" "if" expr block)* ("else" block)? ;
-while_stmt   = "while" expr block ;
+if_stmt      = "if" condition block ("else" "if" condition block)* ("else" block)? ;
+condition    = expr | "let" pattern "=" expr ;
+while_stmt   = "while" condition block ;
 for_stmt     = "for" binding_target "in" expr block ;
 break_stmt   = "break" terminator ;
 continue_stmt = "continue" terminator ;
@@ -1330,6 +1331,28 @@ match_stmt   = "match" expr "{" match_arm* "}" ;
 
 Conditions evaluate to `Bool` or `Status`. A `Status` condition is true when
 `status.ok` is true. `while` repeats until its condition is false.
+
+`if let Pattern = subject` and `while let Pattern = subject` use ordinary
+literal patterns. They do not unwrap Result or Optional values: `Ok(value)`
+selects an Ok payload, and mismatch chooses the next branch or ends the loop.
+Subject evaluation errors and explicit `?` retain ordinary propagation.
+An if-let subject executes once; a while-let subject executes once per check,
+including after `continue`. Successful captures are immutable branch or
+iteration locals, published only after the complete pattern matches. Captures
+may shadow outer bindings without changing them; failed captures are unavailable
+in else branches and after the conditional. Irrefutable binding and wildcard
+conditions are rejected because they cannot test anything. Condition binding
+chains are unsupported, and `guard let` retains its separate Result contract.
+
+Value-producing if-let requires an else and compatible branch values wherever
+ordinary if expressions are legal. While-let remains a statement. Each pattern
+condition and selected branch has a resource scope; cleanup runs on mismatch,
+continue, break, return, propagation, and runtime failure. Escaping values retain
+their ordinary ownership. `lint.pattern-conditional` can replace an unguarded
+two-arm match with a selected binding pattern and proven complement. It retains
+meaningful else behavior and declines fixes that would lose comments or error
+payload bindings.
+
 Postfix `when` and `unless` apply to `return`, `break`, `continue`, and
 `yield`. The condition executes first, and the payload executes only if the
 selected branch is reached; an unselected guard continues at the next statement.

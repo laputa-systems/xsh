@@ -1105,6 +1105,17 @@ enum BuildStmtRow {
         branches: Vec<(BuildBoolId, Vec<BuildStmtId>)>,
         else_body: Option<Vec<BuildStmtId>>,
     },
+    PatternIf {
+        branches: Vec<(BuildExprId, Vec<BuildStmtId>, Vec<usize>)>,
+        else_body: Option<Vec<BuildStmtId>>,
+        span: Span,
+    },
+    PatternWhile {
+        condition: BuildExprId,
+        body: Vec<BuildStmtId>,
+        captures: Vec<usize>,
+        span: Span,
+    },
     While {
         condition: BuildExprId,
         body: Vec<BuildStmtId>,
@@ -1324,6 +1335,11 @@ enum BuildExprRow {
     },
     IfExpr {
         branches: Vec<(BuildExprId, BuildExprId)>,
+        else_value: BuildExprId,
+        span: Span,
+    },
+    PatternIf {
+        branches: Vec<(BuildExprId, BuildExprId, Vec<usize>)>,
         else_value: BuildExprId,
         span: Span,
     },

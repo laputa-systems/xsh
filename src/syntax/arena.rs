@@ -1324,6 +1324,17 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.push_expr_kind(ArenaExprKind::PatternTest { value, arms }, span)
     }
 
+    pub fn push_pattern_condition_expr(&mut self, value: ExprId, pattern: PatternId, span: Span) -> ExprId {
+        self.begin_match_expr_arms();
+        let yes = self.push_bool_expr(true, span);
+        self.push_match_expr_arm_input_id(pattern, None, yes, span);
+        let wildcard = self.push_pattern_wildcard(span);
+        let no = self.push_bool_expr(false, span);
+        self.push_match_expr_arm_input_id(wildcard, None, no, span);
+        let arms = self.finish_match_expr_arms();
+        self.lowerer.push_expr_kind(ArenaExprKind::PatternCondition { value, arms }, span)
+    }
+
     pub fn push_pattern_wildcard(&mut self, span: Span) -> PatternId {
         self.push_pattern_kind(ArenaPatternKind::Wildcard, span)
     }
@@ -3879,6 +3890,12 @@ impl AstArena {
                     value: ExprId::new(raw[0] as usize),
                     arms: ArenaRange::new(raw[1] as usize, raw[2] as usize),
                 }
+            }            ArenaExprTag::PatternCondition => {
+                let raw = range_slice(&self.extra, range_from_data(data));
+                ArenaExprKind::PatternCondition {
+                    value: ExprId::new(raw[0] as usize),
+                    arms: ArenaRange::new(raw[1] as usize, raw[2] as usize),
+                }
             }
             ArenaExprTag::UnaryNot => ArenaExprKind::Unary {
                 op: UnaryOp::Not,
@@ -5020,6 +5037,7 @@ pub enum ArenaExprTag {
     If,
     Match,
     PatternTest,
+    PatternCondition,
     UnaryNot,
     UnaryNeg,
     ComparisonChain,
@@ -5137,6 +5155,12 @@ pub enum ArenaExprKind {
         arms: ArenaRange,
     },
     PatternTest {
+        value: ExprId,
+        arms: ArenaRange,
+    },
+    /// A literal pattern condition retains match-shaped Bool arms. Captures
+    /// belong to the selected branch rather than to the condition expression.
+    PatternCondition {
         value: ExprId,
         arms: ArenaRange,
     },
@@ -6245,6 +6269,9 @@ impl ArenaLowerer<'_> {
             ArenaExprKind::PatternTest { value, arms } => {
                 let data = self.push_expr_extra(&[raw_expr_id(value), arms.start, arms.len]);
                 (ArenaExprTag::PatternTest, data)
+            }            ArenaExprKind::PatternCondition { value, arms } => {
+                let data = self.push_expr_extra(&[raw_expr_id(value), arms.start, arms.len]);
+                (ArenaExprTag::PatternCondition, data)
             }
             ArenaExprKind::Unary { op, expr } => {
                 let tag = match op {

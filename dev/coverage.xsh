@@ -94,9 +94,8 @@ export proc native_linker() [process, env, error] -> Result[Path] {
   }
 
   for name in ["cc", "clang", "gcc"] {
-    match process.which(name) {
-      Ok(found) => return found
-      Err(_) => {}
+    if let Ok(found) = process.which(name) {
+      return found
     }
   }
 

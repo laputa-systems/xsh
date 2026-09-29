@@ -123,6 +123,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprComparisonChain,
     ExprBinary,
     ExprIf,
+    ExprPatternIf,
     ExprMatch,
     ExprStrMatch,
     ExprTagMatch,
@@ -214,6 +215,8 @@ pub(in crate::runtime::eval) enum FullTag {
     StmtIfBool,
     StmtWhile,
     StmtWhileBool,
+    StmtPatternIf,
+    StmtPatternWhile,
     StmtMatch,
     StmtStrMatch,
     StmtTagMatch,
@@ -2742,6 +2745,8 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
                 | FullTag::StmtLoop
                 | FullTag::StmtWhile
                 | FullTag::StmtWhileBool
+                | FullTag::StmtPatternIf
+                | FullTag::StmtPatternWhile
                 | FullTag::StmtFor
                 | FullTag::StmtForRecord
                 | FullTag::StmtForStrLines
@@ -3551,7 +3556,7 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
                 })?)?,
             )?
         }
-        FullTag::StmtIf | FullTag::StmtIfBool => {
+        FullTag::StmtIf | FullTag::StmtIfBool | FullTag::StmtPatternIf => {
             let branches = block(
                 *payload
                     .first()
@@ -3574,14 +3579,19 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
                     return Err(IrVerifyError::new("return-analysis if body is missing"));
                 };
                 all_return &= indexed_block_can_return(store, block(body)?)?;
-                branch_words = rest;
+                branch_words = if tag == FullTag::StmtPatternIf {
+                    rest.get(1..).ok_or_else(|| IrVerifyError::new("return-analysis captures are missing"))?
+                } else { rest };
             }
             if !branch_words.is_empty() {
                 return Err(IrVerifyError::new(
                     "return-analysis if branches have trailing data",
                 ));
             }
-            let else_returns = match payload.get(1..).unwrap_or_default() {
+            let else_payload = if tag == FullTag::StmtPatternIf {
+                payload.get(1..payload.len().saturating_sub(1)).unwrap_or_default()
+            } else { payload.get(1..).unwrap_or_default() };
+            let else_returns = match else_payload {
                 [1, body] => indexed_block_can_return(store, block(*body)?)?,
                 [0] => false,
                 _ => {
@@ -5441,7 +5451,10 @@ impl_vec_codec!((Name, BuildPatternId), BLOCK_LIST);
 impl_vec_codec!((Name, LoweredValue), BLOCK_LIST);
 impl_vec_codec!((Arc<str>, BuildExprId), BLOCK_LIST);
 impl_vec_codec!((Arc<str>, Vec<BuildStmtId>), BLOCK_LIST);
+impl_vec_codec!(usize, BLOCK_LIST);
 impl_vec_codec!((BuildExprId, BuildExprId), BLOCK_LIST);
+impl_vec_codec!((BuildExprId, BuildExprId, Vec<usize>), BLOCK_LIST);
+impl_vec_codec!((BuildExprId, Vec<BuildStmtId>, Vec<usize>), BLOCK_LIST);
 impl_vec_codec!((BuildExprId, Vec<BuildStmtId>), BLOCK_LIST);
 impl_vec_codec!((BuildBoolId, Vec<BuildStmtId>), BLOCK_LIST);
 impl_vec_codec!(
@@ -6666,6 +6679,11 @@ impl_node_codec! {
             else_value,
             span,
         },
+        BuildExprRow::PatternIf { branches, else_value, span } => ExprPatternIf {
+            branches: Vec<(BuildExprId, BuildExprId, Vec<usize>)>,
+            else_value: BuildExprId,
+            span: Span,
+        } => BuildExprRow::PatternIf { branches, else_value, span },
         BuildExprRow::MatchExpr { value, arms, span } => ExprMatch {
             value: BuildExprId,
             arms: Vec<(BuildPatternId, Option<BuildExprId>, BuildExprId)>,
@@ -7371,6 +7389,17 @@ impl_node_codec! {
             branches,
             else_body,
         },
+        BuildStmtRow::PatternIf { branches, else_body, span } => StmtPatternIf {
+            branches: Vec<(BuildExprId, Vec<BuildStmtId>, Vec<usize>)>,
+            else_body: Option<Vec<BuildStmtId>>,
+            span: Span,
+        } => BuildStmtRow::PatternIf { branches, else_body, span },
+        BuildStmtRow::PatternWhile { condition, body, captures, span } => StmtPatternWhile {
+            condition: BuildExprId,
+            body: Vec<BuildStmtId>,
+            captures: Vec<usize>,
+            span: Span,
+        } => BuildStmtRow::PatternWhile { condition, body, captures, span },
         BuildStmtRow::While { condition, body } => StmtWhile {
             condition: BuildExprId,
             body: Vec<BuildStmtId>,
@@ -8298,6 +8327,20 @@ proc main() [error] {
         let mut missing = program.clone();
         missing.store.extra[range.start + 2] = u32::MAX;
         assert!(FullVerifier::verify(&missing).is_err());
+    }
+
+    #[test]
+    fn verifier_checks_pattern_condition_capture_slots_and_branch_returns() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-conditionals.xsh");
+        let program = fixture("pattern-conditionals.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let row = program.store.tags.iter().position(|tag| *tag == FullTag::StmtPatternWhile).unwrap();
+        let payload = program.store.data[row].range().bounds(program.store.extra.len()).unwrap();
+        let capture_block = IrBlockId::from_raw(program.store.extra[payload.start + 2]).unwrap();
+        let captures = program.store.blocks[capture_block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        let mut bad_slot = program.clone();
+        bad_slot.store.extra[captures.start + 1] = u32::MAX;
+        assert!(FullVerifier::verify(&bad_slot).unwrap_err().message.contains("slot"));
     }
 
     #[test]

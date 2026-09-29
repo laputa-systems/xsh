@@ -217,6 +217,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "slicing",
     "results",
     "pattern-tests",
+    "pattern-conditionals",
     "postfix-question",
     "optional-postfix",
     "fallback",
@@ -847,6 +848,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "glob-literals" => (
             "Defines filesystem glob literals.",
             "Glob expansion is an explicit filesystem operation with deterministic path values rather than shell word splitting.",
+        ),
+        "pattern-conditionals" => (
+            "Selects branches and loop iterations with literal patterns.",
+            "`if let Pattern = subject` evaluates the subject once; `while let Pattern = subject` reevaluates it once per check, including after continue. Ordinary constructor, record, literal, type, facet, and sequence patterns retain their matching rules. Successful captures are immutable and atomic branch or iteration locals; mismatch selects the else branch or ends the loop without unwrapping Result or Optional values. Explicit propagation and lexical control targets retain their meaning. Irrefutable binding conditions are rejected. Value-producing if-let requires an else and compatible branch values. Pattern scopes clean temporary resources and captures on every exit. `lint.pattern-conditional` preserves meaningful complements, guards, and comments.",
         ),
         "pattern-tests" => (
             "Tests a value against a non-binding pattern.",

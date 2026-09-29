@@ -283,7 +283,25 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaOnlyExpr> {
         let previous = self.condition_expr;
         self.condition_expr = true;
-        let condition = self.parse_precedence_arena_only(0, arena);
+        let condition = (|| {
+            let start = self.current_start();
+            if self.consume_keyword(Keyword::Let).is_some() {
+                self.skip_newlines();
+                let (pattern, _) = self.parse_pattern_arena_only(arena)?;
+                self.skip_newlines();
+                self.expect(TokenKindMatch::Equals, "expected `=` after condition pattern");
+                self.skip_newlines();
+                let value = self.parse_precedence_arena_only(0, arena)?;
+                let span = self.span(start, value.span.end());
+                Some(ArenaOnlyExpr {
+                    id: arena.push_pattern_condition_expr(value.id, pattern, span),
+                    span,
+                    bare_ident: None,
+                })
+            } else {
+                self.parse_precedence_arena_only(0, arena)
+            }
+        })();
         self.condition_expr = previous;
         condition
     }
@@ -1275,7 +1293,7 @@ impl<'a> Parser<'a> {
         self.skip_call_argument_trivia();
         while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
             if self.consume(TokenKindMatch::At).is_some() {
-                let start = self.previous_start();
+                let start = self.previous_end().saturating_sub(3);
                 let Some(value) = self.parse_precedence_arena_only(0, arena) else {
                     break;
                 };

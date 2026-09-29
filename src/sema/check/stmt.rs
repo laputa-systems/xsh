@@ -556,6 +556,13 @@ impl Checker {
         }
     }
 
+    pub(super) fn bind_pattern_condition_arena(&mut self, arena: &ArenaProgram, source: &str, condition: ExprId) {
+        if let ArenaExprKind::PatternCondition { value, arms } = arena.arena.expr(condition).kind {
+            let ty = self.expr_types.get(&arena.arena.expr(value).span).cloned().unwrap_or(Type::Unknown);
+            self.check_pattern_arena(arena, source, arena.arena.match_expr_arms(arms)[0].pattern, &ty);
+        }
+    }
+
     pub(super) fn check_condition_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -616,7 +623,7 @@ impl Checker {
                 left,
                 right,
             } => self.infer_null_comparison_narrowings_arena(arena, condition, left, right),
-            ArenaExprKind::PatternTest { value, arms } => {
+            ArenaExprKind::PatternTest { value, arms } | ArenaExprKind::PatternCondition { value, arms } => {
                 let ArenaExprKind::Ident(name) = arena.arena.expr(value).kind else {
                     return ConditionNarrowings::default();
                 };
@@ -759,6 +766,7 @@ impl Checker {
                 self.check_condition_arena(arena, source, branch.condition, "check.if-condition");
             self.push_scope();
             self.apply_narrowings(&narrowings.when_true);
+            self.bind_pattern_condition_arena(arena, source, branch.condition);
             self.check_block_arena(arena, source, branch.block);
             self.pop_scope();
         }
@@ -787,6 +795,7 @@ impl Checker {
             self.check_condition_arena(arena, source, condition, "check.while-condition");
         self.push_scope();
         self.apply_narrowings(&narrowings.when_true);
+        self.bind_pattern_condition_arena(arena, source, condition);
         self.loop_depth += 1;
         self.check_block_arena(arena, source, block);
         self.loop_depth -= 1;
@@ -1762,6 +1771,7 @@ impl Checker {
                     let narrowings = self.check_condition_arena(arena, source, branch.condition, "check.if-condition");
                     self.push_scope();
                     self.apply_narrowings(&narrowings.when_true);
+                    self.bind_pattern_condition_arena(arena, source, branch.condition);
                     let actual = self.check_tail_block_arena(arena, source, branch.block, expected.or(inferred.as_ref()));
                     self.pop_scope();
                     if !matches!(actual, Type::Unknown) && inferred.is_none() { inferred = Some(actual); }
