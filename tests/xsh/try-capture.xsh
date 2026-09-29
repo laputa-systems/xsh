@@ -246,3 +246,26 @@ print (value is Err(_))
   test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "true\n")?
 }
+
+proc test_try_producer_capture_and_cancellation_run_cleanup_once(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, """
+error LocalError = Failed(message: Str)
+proc cleanup() -> Result[Unit, LocalError] { print "cleanup" }
+stream rows() -> Stream[Int] {
+  let value: Result[Unit, LocalError] = try {
+    defer cleanup()?
+    yield 1
+    Err(LocalError.Failed(message: "after yield"))?
+  }
+  print (value is Err(LocalError.Failed))
+  yield 3
+}
+let values = rows() |> collect()
+values == [1, 3]
+let first = rows() |> take(1) |> collect()
+first == [1]
+print "finished"
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "cleanup\ntrue\ncleanup\nfinished\n")?
+}
