@@ -19,10 +19,15 @@ impl<'a> Parser<'a> {
             }
             "Map" => {
                 self.expect(TokenKindMatch::LBracket, "expected `[` after `Map`");
-                let inner = self.parse_type_expr(arena)?;
+                let first = self.parse_type_expr(arena)?;
+                let (key, inner) = if self.consume(TokenKindMatch::Comma).is_some() {
+                    (Some(first), self.parse_type_expr(arena)?)
+                } else {
+                    (None, first)
+                };
                 self.expect(TokenKindMatch::RBracket, "expected `]` after map type");
                 let end = self.previous_end();
-                arena.push_map_type_expr(inner, self.span(start, end))
+                arena.push_typed_map_type_expr(key, inner, self.span(start, end))
             }
             "Stream" => {
                 self.expect(TokenKindMatch::LBracket, "expected `[` after `Stream`");

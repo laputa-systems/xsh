@@ -1,3 +1,4 @@
+use crate::map_key::MapKey;
 use crate::sema::records::standard_record_type;
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 use crate::symbol::{Name, Symbol};
@@ -27,17 +28,29 @@ pub enum LiteralConstant {
     Regex(crate::syntax::arena::ArenaRegexLiteral),
     Tag { family: Name, variant: Name, fields: Arc<Vec<LiteralConstant>> },
     EmptyMap,
-    Map(Arc<BTreeMap<Arc<str>, LiteralConstant>>),
+    Map(Arc<BTreeMap<MapKey, LiteralConstant>>),
     List(Arc<Vec<LiteralConstant>>),
     Record(Arc<BTreeMap<Name, LiteralConstant>>),
 }
 
 impl LiteralConstant {
+    fn map_key(&self) -> Option<MapKey> {
+        Some(match self {
+            Self::Str(value) => MapKey::Str(value.clone()),
+            Self::Int(value) => MapKey::Int(*value),
+            Self::Bool(value) => MapKey::Bool(*value),
+            Self::Bytes(value) => MapKey::Bytes(value.clone()),
+            Self::Path(value) => MapKey::Path(Arc::from(value.as_bytes())),
+            Self::Duration(value) => MapKey::Duration(*value),
+            _ => return None,
+        })
+    }
+
     pub fn in_type(self, expected: &Type) -> Self {
         match (self, expected) {
-            (Self::Record(values), Type::Map(item)) => Self::Map(Arc::new(values.iter()
-                .map(|(name, value)| (Arc::from(name.as_str().as_str()), value.clone().in_type(item))).collect())),
-            (Self::Map(values), Type::Map(item)) => Self::Map(Arc::new(values.iter()
+            (Self::Record(values), Type::Map(key, item)) if matches!(key.as_ref(), Type::Str) => Self::Map(Arc::new(values.iter()
+                .map(|(name, value)| (MapKey::from(name.as_str().as_str()), value.clone().in_type(item))).collect())),
+            (Self::Map(values), Type::Map(_, item)) => Self::Map(Arc::new(values.iter()
                 .map(|(name, value)| (name.clone(), value.clone().in_type(item))).collect())),
             (Self::List(values), Type::List(item)) => Self::List(Arc::new(values.iter()
                 .cloned().map(|value| value.in_type(item)).collect())),
@@ -93,13 +106,13 @@ impl LiteralConstant {
                     let (key, value) = match field.kind {
                         ArenaRecordFieldKind::Path { .. } => return None,
                         ArenaRecordFieldKind::Computed { key, value, .. } => {
-                            let Self::Str(key) = Self::analyze_depth(arena, key, bindings, prepared, depth + 1)? else { return None; };
+                            let key = Self::analyze_depth(arena, key, bindings, prepared, depth + 1)?.map_key()?;
                             (key, Self::analyze_depth(arena, value, bindings, prepared, depth + 1)?)
                         }
                         ArenaRecordFieldKind::Named { name, value, .. } =>
-                            (Arc::from(name.as_str().as_str()), Self::analyze_depth(arena, value, bindings, prepared, depth + 1)?),
+                            (MapKey::from(name.as_str().as_str()), Self::analyze_depth(arena, value, bindings, prepared, depth + 1)?),
                         ArenaRecordFieldKind::Shorthand { name, .. } =>
-                            (Arc::from(name.as_str().as_str()), bindings.get(&name)?.clone()),
+                            (MapKey::from(name.as_str().as_str()), bindings.get(&name)?.clone()),
                         ArenaRecordFieldKind::Spread { expr: value, .. } => {
                             match Self::analyze_depth(arena, value, bindings, prepared, depth + 1)? {
                                 Self::Map(entries) => values.extend(entries.iter().map(|(key, value)| (key.clone(), value.clone()))),
@@ -366,7 +379,7 @@ impl RecordConstructors {
                 self.definitions.get(&(Some(*owner), name)).map_or(Type::Unknown, |id| self.definition_type(arena, *id, depth + 1))
             }
             ArenaTypeExprTag::List => Type::List(Box::new(self.annotation_type(arena, TypeExprId::from_index(data.lhs as usize), namespace, depth + 1))),
-            ArenaTypeExprTag::Map => Type::Map(Box::new(self.annotation_type(arena, TypeExprId::from_index(data.lhs as usize), namespace, depth + 1))),
+            ArenaTypeExprTag::Map => Type::Map(Box::new(TypeExprId::from_optional_raw(data.rhs).map_or(Type::Str, |id| self.annotation_type(arena, id, namespace, depth + 1))), Box::new(self.annotation_type(arena, TypeExprId::from_index(data.lhs as usize), namespace, depth + 1))),
             ArenaTypeExprTag::Stream => Type::Stream(Box::new(self.annotation_type(arena, TypeExprId::from_index(data.lhs as usize), namespace, depth + 1))),
             ArenaTypeExprTag::Optional => Type::Optional(Box::new(self.annotation_type(arena, TypeExprId::from_index(data.lhs as usize), namespace, depth + 1))),
             ArenaTypeExprTag::Result => Type::Result(Box::new(self.annotation_type(arena, TypeExprId::from_index(data.lhs as usize), namespace, depth + 1)),
@@ -391,8 +404,8 @@ impl LiteralConstant {
             Self::Float(_) => Type::Float, Self::Duration(_) => Type::Duration,
             Self::Str(_) => Type::Str, Self::Path(_) => Type::Path, Self::Bytes(_) => Type::Bytes,
             Self::Regex(_) => Type::Regex, Self::Tag { family, .. } => Type::Tag(*family),
-            Self::EmptyMap => Type::Map(Box::new(Type::Unknown)),
-            Self::Map(values) => Type::Map(Box::new(constant_item_type(values.values()))),
+            Self::EmptyMap => Type::Map(Box::new(Type::Str), Box::new(Type::Unknown)),
+            Self::Map(values) => Type::Map(Box::new(constant_map_key_type(values.keys())), Box::new(constant_item_type(values.values()))),
             Self::List(values) => Type::List(Box::new(constant_item_type(values.iter()))),
             Self::Record(values) => Type::Record(values.iter().map(|(key, value)| (*key, value.value_type())).collect()),
         }
@@ -716,20 +729,21 @@ impl ConstantPreparation<'_> {
                 LiteralConstant::List(Arc::new(values))
             }
             ArenaExprKind::Record(fields) => {
-                let map = matches!(expected, Some(Type::Map(_))) || arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. }));
+                let map = matches!(expected, Some(Type::Map(_, _))) || arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. }));
                 let mut values = BTreeMap::new();
                 let mut map_values = BTreeMap::new();
+                let (key_context, value_context) = match expected { Some(Type::Map(key, value)) => (Some(key.as_ref()), Some(value.as_ref())), _ => (None, None) };
                 for field in arena.record_fields(fields) {
-                    let (name, value) = match field.kind {
+                    let (name, key, value) = match field.kind {
                         ArenaRecordFieldKind::Path { .. } => return Err(failure()),
                         ArenaRecordFieldKind::Computed { key, value, .. } => {
-                            let LiteralConstant::Str(key) = self.expression(key, scope, Some(&Type::Str), depth + 1)? else { return Err(failure()); };
-                            (Name::intern(&key), value)
+                            let key = self.expression(key, scope, key_context, depth + 1)?.map_key().ok_or_else(failure)?;
+                            (None, key, value)
                         }
-                        ArenaRecordFieldKind::Named { name, value, .. } => (name, value),
+                        ArenaRecordFieldKind::Named { name, value, .. } => (Some(name), MapKey::from(name.as_str().as_str()), value),
                         ArenaRecordFieldKind::Shorthand { name, .. } => {
                             let value = self.reference(scope, name, expr.span, depth + 1)?;
-                            if map { map_values.insert(Arc::from(name.as_str().as_str()), value); }
+                            if map { map_values.insert(MapKey::from(name.as_str().as_str()), value); }
                             else if values.insert(name, value).is_some() { return Err(failure()); }
                             continue;
                         }
@@ -742,12 +756,15 @@ impl ConstantPreparation<'_> {
                             continue;
                         }
                     };
-                    let child_ty = match expected { Some(Type::Map(item)) => Some(item.as_ref()), Some(Type::Record(fields)) => fields.get(&name), _ => None };
+                    let child_ty = if map { value_context } else { match (expected, name) { (Some(Type::Record(fields)), Some(name)) => fields.get(&name), _ => None } };
                     let value = self.expression(value, scope, child_ty, depth + 1)?;
-                    if map { map_values.insert(Arc::from(name.as_str().as_str()), value); }
-                    else if values.insert(name, value).is_some() { return Err(failure()); }
+                    if map { map_values.insert(key, value); }
+                    else if values.insert(name.ok_or_else(failure)?, value).is_some() { return Err(failure()); }
                 }
-                if map { LiteralConstant::Map(Arc::new(map_values)) } else { LiteralConstant::Record(Arc::new(values)) }
+                if map {
+                    if !map_values.is_empty() && !constant_map_key_type(map_values.keys()).is_map_key() { return Err((expr.span, "constant Map keys must have one scalar domain".into())); }
+                    LiteralConstant::Map(Arc::new(map_values))
+                } else { LiteralConstant::Record(Arc::new(values)) }
             }
             ArenaExprKind::Call { callee, args } => {
                 if let Some((family, variant, fields)) = self.tag_constructor(callee, scope) {
@@ -827,8 +844,9 @@ impl ConstantPreparation<'_> {
 
 fn constant_type_allowed(ty: &Type) -> bool {
     match ty {
-        Type::Null | Type::Bool | Type::Int | Type::Float | Type::Duration | Type::Str | Type::Bytes | Type::Path | Type::Regex | Type::Tag(_) => true,
-        Type::List(item) | Type::Map(item) | Type::Optional(item) => constant_type_allowed(item),
+        Type::Null | Type::Bool | Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str | Type::Bytes | Type::Path | Type::Regex | Type::Tag(_) => true,
+        Type::List(item) | Type::Optional(item) => constant_type_allowed(item),
+        Type::Map(key, value) => key.is_map_key() && constant_type_allowed(value),
         Type::Record(fields) => fields.values().all(constant_type_allowed),
         _ => false,
     }
@@ -882,10 +900,39 @@ fn constant_item_type<'a>(mut values: impl Iterator<Item = &'a LiteralConstant>)
     if values.all(|value| value.value_type() == ty) { ty } else { Type::Unknown }
 }
 
+fn constant_map_key_type<'a>(mut keys: impl Iterator<Item = &'a MapKey>) -> Type {
+    let Some(first) = keys.next() else { return Type::Str; };
+    let ty = constant_key_type(first);
+    if keys.all(|key| constant_key_type(key) == ty) { ty } else { Type::Unknown }
+}
+
+fn constant_key_type(key: &MapKey) -> Type {
+    match key {
+        MapKey::Str(_) => Type::Str, MapKey::Int(_) => Type::Int,
+        MapKey::Bool(_) => Type::Bool, MapKey::Bytes(_) => Type::Bytes,
+        MapKey::Path(_) => Type::Path, MapKey::Duration(_) => Type::Duration,
+    }
+}
+
+fn constant_key_matches_type(key: &MapKey, ty: &Type) -> bool {
+    if let (MapKey::Int(value), Type::UInt) = (key, ty) { *value >= 0 }
+    else { constant_key_type(key) == *ty }
+}
+
+fn constant_key_size(key: &MapKey) -> usize {
+    match key {
+        MapKey::Str(value) => value.len(),
+        MapKey::Bytes(value) | MapKey::Path(value) => value.len(),
+        MapKey::Int(_) | MapKey::Duration(_) => 8, MapKey::Bool(_) => 1,
+    }
+}
+
 fn constant_matches_type(value: &LiteralConstant, ty: &Type) -> bool {
     match (value, ty) {
         (LiteralConstant::List(values), Type::List(item)) => values.iter().all(|value| constant_matches_type(value, item)),
-        (LiteralConstant::Map(values), Type::Map(item)) => values.values().all(|value| constant_matches_type(value, item)),
+        (LiteralConstant::Map(values), Type::Map(key, item)) => values.iter().all(|(actual_key, value)| constant_key_matches_type(actual_key, key) && constant_matches_type(value, item)),
+        (LiteralConstant::EmptyMap, Type::Map(_, _)) => true,
+        (LiteralConstant::Int(value), Type::UInt) => *value >= 0,
         (LiteralConstant::Record(values), Type::Record(fields)) => fields.len() == values.len() && fields.iter().all(|(name, ty)| values.get(name).is_some_and(|value| constant_matches_type(value, ty))),
         (LiteralConstant::Null, Type::Optional(_)) => true,
         (value, Type::Optional(inner)) => constant_matches_type(value, inner),
@@ -904,7 +951,7 @@ fn constant_size_within_limit(value: &LiteralConstant) -> bool {
             LiteralConstant::Regex(regex) => units = units.saturating_add(regex.pattern.len()),
             LiteralConstant::List(values) | LiteralConstant::Tag { fields: values, .. } => pending.extend(values.iter()),
             LiteralConstant::Record(values) => pending.extend(values.values()),
-            LiteralConstant::Map(values) => { units = units.saturating_add(values.keys().map(|key| key.len()).sum::<usize>()); pending.extend(values.values()); },
+            LiteralConstant::Map(values) => { units = units.saturating_add(values.keys().map(constant_key_size).sum::<usize>()); pending.extend(values.values()); },
             _ => {},
         }
         if units > 1_048_576 { return false; }

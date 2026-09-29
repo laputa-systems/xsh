@@ -83,6 +83,10 @@ impl MapKey {
 }
 
 impl<'a> MapKeyRef<'a> {
+    pub fn same_domain(self, other: Self) -> bool {
+        std::mem::discriminant(&self) == std::mem::discriminant(&other)
+    }
+
     pub fn to_owned(self) -> MapKey {
         match self {
             Self::Str(value) => MapKey::Str(Arc::from(value)),

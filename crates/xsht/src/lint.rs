@@ -145,7 +145,7 @@ enum ArenaTypeExprKind {
     Named(Name),
     Qualified,
     List(TypeExprId),
-    Map(TypeExprId),
+    Map(Option<TypeExprId>, TypeExprId),
     Stream(TypeExprId),
     Module(TypeExprId),
     Result {
@@ -167,7 +167,7 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
         ArenaTypeExprTag::List => {
             ArenaTypeExprKind::List(TypeExprId::from_index(data.lhs as usize))
         }
-        ArenaTypeExprTag::Map => ArenaTypeExprKind::Map(TypeExprId::from_index(data.lhs as usize)),
+        ArenaTypeExprTag::Map => ArenaTypeExprKind::Map(TypeExprId::from_optional_raw(data.rhs), TypeExprId::from_index(data.lhs as usize)),
         ArenaTypeExprTag::Stream => {
             ArenaTypeExprKind::Stream(TypeExprId::from_index(data.lhs as usize))
         }
@@ -657,10 +657,14 @@ impl<'a> Linter<'a> {
             }
             ArenaTypeExprKind::Qualified => {}
             ArenaTypeExprKind::List(inner)
-            | ArenaTypeExprKind::Map(inner)
+
             | ArenaTypeExprKind::Stream(inner)
             | ArenaTypeExprKind::Module(inner)
             | ArenaTypeExprKind::Optional(inner) => self.collect_type_expr_refs(inner),
+            ArenaTypeExprKind::Map(key, value) => {
+                if let Some(key) = key { self.collect_type_expr_refs(key); }
+                self.collect_type_expr_refs(value);
+            }
             ArenaTypeExprKind::Result { ok, err } => {
                 self.collect_type_expr_refs(ok);
                 if let Some(err) = err {
@@ -1568,7 +1572,7 @@ impl<'a> Linter<'a> {
 
     fn lint_empty_map_initializer(&mut self, ty: Option<TypeExprId>, initializer: &ArenaExprOrRun) {
         let is_map = ty
-            .is_some_and(|ty| matches!(type_expr_kind(self.arena, ty), ArenaTypeExprKind::Map(_)));
+            .is_some_and(|ty| matches!(type_expr_kind(self.arena, ty), ArenaTypeExprKind::Map(_, _)));
         if !is_map {
             return;
         }
@@ -1688,10 +1692,11 @@ impl<'a> Linter<'a> {
                 self.type_declarations.contains_key(name.as_str().as_str())
             }
             ArenaTypeExprKind::List(inner)
-            | ArenaTypeExprKind::Map(inner)
+
             | ArenaTypeExprKind::Stream(inner)
             | ArenaTypeExprKind::Module(inner)
             | ArenaTypeExprKind::Optional(inner) => self.type_expr_refs_user_type(inner),
+            ArenaTypeExprKind::Map(key, value) => key.is_some_and(|key| self.type_expr_refs_user_type(key)) || self.type_expr_refs_user_type(value),
             ArenaTypeExprKind::Result { ok, err } => {
                 self.type_expr_refs_user_type(ok)
                     || err.is_some_and(|err| self.type_expr_refs_user_type(err))
@@ -3096,7 +3101,7 @@ impl<'a> Linter<'a> {
         let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
         if name.as_str() != "keys" { return; }
         let ArenaExprKind::Ident(map) = self.arena.expr(base).kind else { return; };
-        if self.assigned_names.contains(&map) || key == map || !matches!(self.expr_types.get(&self.arena.expr(base).span), Some(Type::Map(_))) { return; }
+        if self.assigned_names.contains(&map) || key == map || !matches!(self.expr_types.get(&self.arena.expr(base).span), Some(Type::Map(_, _))) { return; }
         let statements: Vec<_> = self.arena.stmt_ids(self.arena.block(block).statements).collect();
         if statements.len() < 2 { return; }
         let first = self.arena.stmt(statements[0]);
@@ -3341,7 +3346,7 @@ impl<'a> Linter<'a> {
             return;
         };
         let empty_literal = matches!(self.arena.expr(init).kind, ArenaExprKind::Record(fields) if fields.is_empty());
-        let map_context = ty.is_some_and(|ty| matches!(Type::from_arena(self.arena, ty), Type::Map(_))) || matches!(self.expr_types.get(&self.arena.expr(init).span), Some(Type::Map(_)));
+        let map_context = ty.is_some_and(|ty| matches!(Type::from_arena(self.arena, ty), Type::Map(_, _))) || matches!(self.expr_types.get(&self.arena.expr(init).span), Some(Type::Map(_, _)));
         if !(is_map_empty_call(self.arena, init) || empty_literal && map_context) { return; }
         let Some((qualifiers, assign_stmt_id)) = self.accumulator_qualifiers(for_id, var_name) else { return; };
         let ArenaStmtKind::Assign {
@@ -3376,11 +3381,8 @@ impl<'a> Linter<'a> {
         let Some(value_src) = self.source.get(value_span.start()..value_span.end()) else {
             return;
         };
-        if !map_comp_key_can_be_bare(self.arena, index) {
-            return;
-        }
         let annotation = self.accumulator_annotation(ty);
-        let projection = format!("{key_src}: {value_src}");
+        let projection = if map_comp_key_can_be_bare(self.arena, index) { format!("{key_src}: {value_src}") } else { format!("[{key_src}]: {value_src}") };
         let replacement = self.accumulator_replacement(var_stmt.span, var_name, &annotation, "{", &projection, "}", &qualifiers);
         let combined = Span::new(
             var_stmt.span.source_id,
@@ -4486,16 +4488,17 @@ impl<'a> Linter<'a> {
     fn map_set_parts(&self, expr: ExprId, element: &Type) -> Option<(ExprId, ExprId, ExprId)> {
         let ArenaExprKind::Call { callee, args } = self.arena.expr(expr).kind else { return None; };
         let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return None; };
-        if name != "set" || args.len() != 2 || !matches!(self.expr_types.get(&self.arena.expr(base).span), Some(Type::Map(_))) { return None; }
+        if name != "set" || args.len() != 2 || !matches!(self.expr_types.get(&self.arena.expr(base).span), Some(Type::Map(_, _))) { return None; }
         let arguments = self.arena.call_args(args);
         let (ArenaCallArgKind::Positional(key), ArenaCallArgKind::Positional(value)) = (arguments[0].kind.clone(), arguments[1].kind.clone()) else { return None; };
-        if self.expr_types.get(&self.arena.expr(key).span) != Some(&Type::Str) || self.expr_types.get(&self.arena.expr(value).span) != Some(element) { return None; }
+        let Type::Map(expected_key, _) = self.expr_types.get(&self.arena.expr(base).span)? else { return None; };
+        if !expected_key.is_map_key() || self.expr_types.get(&self.arena.expr(key).span) != Some(expected_key.as_ref()) || self.expr_types.get(&self.arena.expr(value).span) != Some(element) { return None; }
         Some((base, key, value))
     }
 
     fn is_empty_map_literal_source(&self, expr: ExprId) -> bool {
         match self.arena.expr(expr).kind {
-            ArenaExprKind::Record(fields) => fields.is_empty() && matches!(self.expr_types.get(&self.arena.expr(expr).span), Some(Type::Map(_))),
+            ArenaExprKind::Record(fields) => fields.is_empty() && matches!(self.expr_types.get(&self.arena.expr(expr).span), Some(Type::Map(_, _))),
             ArenaExprKind::Call { callee, args } if args.is_empty() => matches!(self.arena.expr(callee).kind,
                 ArenaExprKind::Field { base, name } if name == "empty" && matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "map")),
             _ => false,
@@ -4522,7 +4525,7 @@ impl<'a> Linter<'a> {
     }
 
     fn lint_map_literal_chain(&mut self, expr: ExprId) {
-        let Some(Type::Map(element)) = self.expr_types.get(&self.arena.expr(expr).span).cloned() else { return; };
+        let Some(Type::Map(key_ty, element)) = self.expr_types.get(&self.arena.expr(expr).span).cloned() else { return; };
         if !list_splice_element_type_is_precise(&element) { return; }
         let mut base = expr;
         let mut entries = Vec::new();
@@ -4532,12 +4535,12 @@ impl<'a> Linter<'a> {
         let Some(mut replacement) = self.map_literal_replacement(&entries) else { return; };
         if !self.is_empty_map_literal_source(base) {
             let ArenaExprKind::Record(fields) = self.arena.expr(base).kind else { return; };
-            if self.expr_types.get(&self.arena.expr(base).span) != Some(&Type::Map(element.clone())) { return; }
+            if self.expr_types.get(&self.arena.expr(base).span) != Some(&Type::Map(key_ty.clone(), element.clone())) { return; }
             let mut originals = Vec::new();
             for field in self.arena.record_fields(fields) {
                 let (value, span) = match field.kind {
                     ArenaRecordFieldKind::Computed { key, value, span } => {
-                        if self.expr_types.get(&self.arena.expr(key).span) != Some(&Type::Str) { return; }
+                        if self.expr_types.get(&self.arena.expr(key).span) != Some(key_ty.as_ref()) { return; }
                         (value, span)
                     }
                     ArenaRecordFieldKind::Named { value, span, .. } => (value, span),
@@ -4557,7 +4560,7 @@ impl<'a> Linter<'a> {
             let initializer_stmt = self.arena.stmt(statement);
             let ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(initializer), .. } = initializer_stmt.kind else { continue; };
             let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind else { continue; };
-            let Some(Type::Map(element)) = self.expr_types.get(&self.arena.expr(initializer).span).cloned() else { continue; };
+            let Some(Type::Map(_, element)) = self.expr_types.get(&self.arena.expr(initializer).span).cloned() else { continue; };
             if !list_splice_element_type_is_precise(&element) || !self.is_empty_map_literal_source(initializer) { continue; }
             let mut entries = Vec::new();
             let mut end = initializer_stmt.span.end();
@@ -9838,7 +9841,7 @@ fn checked_return_type_shape(ty: &Type) -> String {
             (name.to_string(), shape)
         }).collect::<BTreeMap<_, _>>()),
         Type::List(inner) => format!("List[{}]", checked_return_type_shape(inner)),
-        Type::Map(inner) => format!("Map[{}]", checked_return_type_shape(inner)),
+        Type::Map(key, inner) => if matches!(key.as_ref(), Type::Str) { format!("Map[{}]", checked_return_type_shape(inner)) } else { format!("Map[{}, {}]", checked_return_type_shape(key), checked_return_type_shape(inner)) },
         Type::Stream(inner) => format!("Stream[{}]", checked_return_type_shape(inner)),
         Type::Optional(inner) => format!("Optional[{}]", checked_return_type_shape(inner)),
         Type::Result(ok, error) => format!("Result[{}, {}]", checked_return_type_shape(ok), checked_return_type_shape(error)),

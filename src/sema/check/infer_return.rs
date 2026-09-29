@@ -287,7 +287,8 @@ impl Checker {
 fn return_type_is_concrete(ty: &Type) -> bool {
     match ty {
         Type::Any | Type::Unknown | Type::Invalid | Type::Null | Type::Pure | Type::Proc | Type::DynamicModule => false,
-        Type::List(inner) | Type::Map(inner) | Type::Stream(inner) | Type::Optional(inner) => return_type_is_concrete(inner),
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => return_type_is_concrete(inner),
+        Type::Map(key, value) => return_type_is_concrete(key) && return_type_is_concrete(value),
         Type::Result(ok, err) => return_type_is_concrete(ok) && return_type_is_concrete(err),
         Type::Record(fields) => fields.values().all(return_type_is_concrete),
         Type::Module(_) => false,
@@ -309,7 +310,7 @@ fn unify_return_shapes(left: &Type, right: &Type) -> Option<Type> {
             Some(Type::Record(left.iter().map(|(name, ty)| Some((*name, unify_return_shapes(ty, &right[name])?))).collect::<Option<_>>()?))
         }
         (Type::List(left), Type::List(right)) => Some(Type::List(Box::new(unify_return_shapes(left, right)?))),
-        (Type::Map(left), Type::Map(right)) => Some(Type::Map(Box::new(unify_return_shapes(left, right)?))),
+        (Type::Map(lk, left), Type::Map(rk, right)) => Some(Type::Map(Box::new(unify_return_shapes(lk, rk)?), Box::new(unify_return_shapes(left, right)?))),
         (Type::Optional(left), Type::Optional(right)) => Some(Type::Optional(Box::new(unify_return_shapes(left, right)?))),
         (Type::Result(left, le), Type::Result(right, re)) => Some(Type::Result(Box::new(unify_return_shapes(left, right)?), Box::new(unify_return_shapes(le, re)?))),
         _ => None,

@@ -85,7 +85,7 @@ fn collect_error_symbols(output: &mut BTreeSet<String>) {
 
 fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
     match ty {
-        Type::List(inner) | Type::Map(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
             collect_type_symbols(inner, output);
         }
         Type::Record(fields) | Type::Module(fields) => {
@@ -94,11 +94,15 @@ fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
                 collect_type_symbols(ty, output);
             }
         }
+        Type::Map(key, value) => { collect_type_symbols(key, output); collect_type_symbols(value, output); }
         Type::Result(ok, err) => {
             collect_type_symbols(ok, output);
             collect_type_symbols(err, output);
         }
-        Type::Any
+        Type::ReceiverMapKey
+        | Type::ReceiverMapValue
+        | Type::ReceiverMapListItem
+        | Type::Any
         | Type::Unknown
         | Type::Invalid
         | Type::Null
@@ -245,7 +249,7 @@ mod tests {
 
     fn assert_type_symbols_are_present(symbols: &BTreeSet<String>, ty: &Type) {
         match ty {
-            Type::List(inner) | Type::Map(inner) | Type::Stream(inner) | Type::Optional(inner) => {
+            Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => {
                 assert_type_symbols_are_present(symbols, inner);
             }
             Type::Record(fields) | Type::Module(fields) => {
@@ -254,11 +258,15 @@ mod tests {
                     assert_type_symbols_are_present(symbols, ty);
                 }
             }
+            Type::Map(key, value) => { assert_type_symbols_are_present(symbols, key); assert_type_symbols_are_present(symbols, value); }
             Type::Result(ok, err) => {
                 assert_type_symbols_are_present(symbols, ok);
                 assert_type_symbols_are_present(symbols, err);
             }
-            Type::Any
+            Type::ReceiverMapKey
+        | Type::ReceiverMapValue
+        | Type::ReceiverMapListItem
+        | Type::Any
             | Type::Unknown
             | Type::Invalid
             | Type::Null

@@ -79,7 +79,7 @@ Concrete scalar types are `Null`, `Bool`, `Int`, `Duration`, `Str`, `Bytes`,
 `Digest`, `Regex`, `Path`, `Status`, `Error`, `ProcessError`, `Command`, `Pure`,
 `Proc`, and `Unit`.
 
-Parameterized types are `List[T]`, `Map[T]`, `Stream[T]`, `Result[T, E]`,
+Parameterized types are `List[T]`, `Map[K, V]` (`Map[V]` means `Map[Str, V]`), `Stream[T]`, `Result[T, E]`,
 `Result[T]` as shorthand for `Result[T, Error]`, and `Optional[T]` written as
 `T?` in type position. Record schemas and tag unions are user-defined named
 types. `enum Name { Variant, Payload(T) }` declares a nominal tag type,
@@ -422,3 +422,15 @@ the ordinary proc body checker. The optional block parameter is an immutable
 `TestContext`; `_` discards it. The name participates in declaration collisions
 but never enters the ordinary callable namespace. Explicit effect lists retain
 the normal proc restrictions, and registration performs no evaluation.
+
+## Ordered Map key domains
+
+Map key types resolve through aliases to Str, Int, UInt, Bool, Bytes,
+Path, or Duration. Computed entries infer one concrete key domain; mixed domains
+and Any keys are rejected. Empty Map values take K and V from context. UInt retains its nonnegative
+constraint in semantic types and aliases while sharing the Int runtime value
+and ordered key representation. Compiled key boundaries enforce the constraint. Map
+methods bind the registry's `ReceiverMapKey` and `ReceiverMapValue` parameters to
+the receiver before overload selection. Entry iteration retains `{key: K,
+value: V}` through both full and compact checking. The indexed semantic type pool
+stores both children and validates them before execution.

@@ -1,4 +1,5 @@
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
+use crate::map_key::MapKey;
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, Binding, CommandPlan, ControlFlow, Duration, DurationValue,
     Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
@@ -28,7 +29,7 @@ use super::{
     lowered_reduce_group_insert, lowered_reduce_key_value_owned, lowered_result_err_value,
     lowered_result_ok, lowered_return_value, lowered_root_id, lowered_slice_value,
     lowered_sort_key_orderable, lowered_splice_arg_items, lowered_stats_field_value,
-    lowered_status_segment_record, lowered_stmt_flow_to_flow, lowered_str_arg,
+    lowered_status_segment_record, lowered_stmt_flow_to_flow,
     lowered_str_arg_owned, lowered_str_byte_at_value, lowered_str_byte_len_value,
     lowered_str_count_lines_value, lowered_str_key, lowered_str_list_arg, lowered_str_parts,
     lowered_str_predicate_text, lowered_str_predicate_value, lowered_str_value,
@@ -790,7 +791,7 @@ impl Evaluator {
                 lowered_reduce_group_insert(&mut groups, key, value, op, span)?;
             }
         }
-        Ok(LoweredValue::Map(Arc::new(groups)))
+        Ok(LoweredValue::Map(Arc::new(groups.into_iter().map(|(key, value)| (MapKey::from(key), value)).collect())))
     }
 
     fn decode_indexed_run_arg<'a>(
@@ -1690,7 +1691,7 @@ impl Evaluator {
                         }
                     };
                 if let Some(check) = &validation {
-                    if matches!(&check.ty, Type::Map(_))
+                    if matches!(&check.ty, Type::Map(_, _))
                         && let Value::Record(record) = &value
                         && record.is_empty()
                     {
@@ -2627,7 +2628,7 @@ impl Evaluator {
         }
     }
 
-    fn eval_indexed_comp_qualifiers(&mut self, execution: &FullExecution<'_>, qualifiers: &[IndexedCompQualifier], position: usize, key: Option<u32>, value: u32, slots: &mut [LoweredValue], values: &mut Vec<LoweredValue>, map_values: &mut BTreeMap<String, LoweredValue>, span: Span) -> Result<ControlFlow<LoweredValue, ()>, RuntimeError> {
+    fn eval_indexed_comp_qualifiers(&mut self, execution: &FullExecution<'_>, qualifiers: &[IndexedCompQualifier], position: usize, key: Option<u32>, value: u32, slots: &mut [LoweredValue], values: &mut Vec<LoweredValue>, map_values: &mut BTreeMap<MapKey, LoweredValue>, span: Span) -> Result<ControlFlow<LoweredValue, ()>, RuntimeError> {
         if let Some(qualifier) = qualifiers.get(position) {
             match qualifier {
                 IndexedCompQualifier::If { condition, span } => {
@@ -2673,7 +2674,7 @@ impl Evaluator {
         }
         let key = if let Some(key) = key {
             let key = match self.eval_indexed_expr(execution, key, slots, span)? { ControlFlow::Continue(value) => value, ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)) };
-            Some(lowered_str_value(&key).ok_or_else(|| RuntimeError::new("type-error", "map comprehension key expected Str").with_span(span))?.to_owned())
+            Some(lowered_map_literal_key(&key, span)?)
         } else { None };
         let value = match self.eval_indexed_expr(execution, value, slots, span)? { ControlFlow::Continue(value) => value, ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)) };
         if let Some(key) = key { map_values.insert(key, value); } else { values.push(value); }
@@ -3785,7 +3786,7 @@ impl Evaluator {
                                         }
                                     };
                                     slots[slot] = LoweredValue::Unit;
-                                    LoweredValue::Map(Arc::new(counts))
+                                    LoweredValue::Map(Arc::new(counts.into_iter().map(|(key, value)| (MapKey::from(key), value)).collect()))
                                 }
                                 FullStageTag::UniqueBy => {
                                     let slot = indexed_decode::<usize>(
@@ -4577,7 +4578,7 @@ impl Evaluator {
                                             groups
                                         }
                                     };
-                                    LoweredValue::Map(Arc::new(groups))
+                                    LoweredValue::Map(Arc::new(groups.into_iter().map(|(key, value)| (MapKey::from(key), value)).collect()))
                                 }
                                 FullStageTag::ParMapFlatMapReduceBy => {
                                     let slot = indexed_decode::<usize>(
@@ -4693,7 +4694,7 @@ impl Evaluator {
                                                 );
                                             }
                                         }
-                                        LoweredValue::Map(Arc::new(groups))
+                                        LoweredValue::Map(Arc::new(groups.into_iter().map(|(key, value)| (MapKey::from(key), value)).collect()))
                                     } else {
                                         let output = self.eval_indexed_par_map_flat_map_reduce_by(
                                             execution,
@@ -9403,14 +9404,14 @@ fn apply_indexed_assignment(
 
 enum ResolvedAssignStep {
     Field(Name),
-    Map(String),
+    Map(MapKey),
     List(i64),
 }
 
 fn resolve_assign_index(value: LoweredValue, span: Span) -> Result<ResolvedAssignStep, RuntimeError> {
     Ok(match value {
         LoweredValue::Int(index) => ResolvedAssignStep::List(index),
-        value => ResolvedAssignStep::Map(lowered_str_arg(&value, "indexed assignment", span)?.to_string()),
+        value => ResolvedAssignStep::Map(lowered_map_literal_key(&value, span)?),
     })
 }
 
@@ -9439,8 +9440,14 @@ fn apply_indexed_path_assignment(
             (ResolvedAssignStep::Field(name), record) => lowered_record_field(record, name.as_str().as_str())
                 .ok_or_else(|| RuntimeError::new("missing-field", name.to_string()).with_span(span))?,
             (ResolvedAssignStep::Map(key), LoweredValue::Map(map)) => {
+                super::super::lowered_ops::require_lowered_map_key_domain(map, key.as_ref(), span)?;
                 if position + 1 == path.len() && op == AssignOp::Set { break; }
-                map.get(key.as_str()).ok_or_else(|| RuntimeError::new("missing-field", key.clone()).with_span(span))?
+                map.get(key).ok_or_else(|| RuntimeError::new("missing-field", format!("{key:?}")).with_span(span))?
+            }
+            (ResolvedAssignStep::List(index), LoweredValue::Map(map)) => {
+                super::super::lowered_ops::require_lowered_map_key_domain(map, crate::map_key::MapKeyRef::Int(*index), span)?;
+                if position + 1 == path.len() && op == AssignOp::Set { break; }
+                map.get(&MapKey::Int(*index)).ok_or_else(|| RuntimeError::new("missing-field", index.to_string()).with_span(span))?
             }
             (ResolvedAssignStep::List(index), LoweredValue::List(list)) => list.get(*index as usize)
                 .ok_or_else(|| RuntimeError::new("index-out-of-range", "list index").with_span(span))?,
@@ -9471,9 +9478,17 @@ fn apply_indexed_path_assignment(
                     map.insert(key.clone(), replacement.expect("set replacement"));
                     return Ok(());
                 }
-                map.get_mut(key.as_str()).expect("validated map key")
+                map.get_mut(key).expect("validated map key")
             }
             ResolvedAssignStep::List(index) => match selected {
+                LoweredValue::Map(map) => {
+                    let map = Arc::make_mut(map);
+                    if position + 1 == path.len() && op == AssignOp::Set {
+                        map.insert(MapKey::Int(*index), replacement.expect("set replacement"));
+                        return Ok(());
+                    }
+                    map.get_mut(&MapKey::Int(*index)).expect("validated map key")
+                }
                 LoweredValue::List(list) => &mut list[*index as usize],
                 LoweredValue::SharedList(list) => &mut Arc::make_mut(list)[*index as usize],
                 _ => unreachable!("validated list path"),
@@ -9517,15 +9532,15 @@ mod tests {
         let span = Span::new(crate::source::SourceId::new(0), 0, 0);
         let list = || LoweredValue::SharedList(Arc::new(vec![LoweredValue::Int(1), LoweredValue::Int(2)]));
         let mut root = LoweredValue::Map(Arc::new(BTreeMap::from([
-            ("selected".to_string(), list()), ("untouched".to_string(), list()),
+            (MapKey::from("selected"), list()), (MapKey::from("untouched"), list()),
         ])));
         let backing = |root: &LoweredValue| {
             let LoweredValue::Map(map) = root else { unreachable!() };
-            let LoweredValue::SharedList(selected) = &map["selected"] else { unreachable!() };
-            let LoweredValue::SharedList(untouched) = &map["untouched"] else { unreachable!() };
+            let LoweredValue::SharedList(selected) = &map[&MapKey::from("selected")] else { unreachable!() };
+            let LoweredValue::SharedList(untouched) = &map[&MapKey::from("untouched")] else { unreachable!() };
             (Arc::as_ptr(map), Arc::as_ptr(selected), Arc::as_ptr(untouched))
         };
-        let path = [ResolvedAssignStep::Map("selected".to_string()), ResolvedAssignStep::List(1)];
+        let path = [ResolvedAssignStep::Map("selected".into()), ResolvedAssignStep::List(1)];
         let original = backing(&root);
         apply_indexed_path_assignment(&mut root, &path, AssignOp::Set, LoweredValue::Int(9), false, span).unwrap();
         assert_eq!(backing(&root), original);
@@ -9536,7 +9551,7 @@ mod tests {
         assert_ne!(changed.1, original.1);
         assert_eq!(changed.2, original.2);
         assert_eq!(backing(&alias), original);
-        let invalid = [ResolvedAssignStep::Map("selected".to_string()), ResolvedAssignStep::List(99)];
+        let invalid = [ResolvedAssignStep::Map("selected".into()), ResolvedAssignStep::List(99)];
         assert!(apply_indexed_path_assignment(&mut root, &invalid, AssignOp::Set, LoweredValue::Int(0), false, span).is_err());
         assert_eq!(backing(&root), changed);
     }

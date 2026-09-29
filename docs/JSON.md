@@ -4,6 +4,11 @@ JSON is a boundary format in XSH, not the internal language of a script. Decode
 it at the edge, check the shape you intend to trust, and keep the rest of the
 program in typed XSH values.
 
+JSON object names remain strings. Encoding `Map[K, V]` requires `K = Str` and
+returns `json-compatible` for other key domains. Convert application-owned keys explicitly
+with a comprehension when a textual wire format is intended; Path display text
+can lose native byte identity.
+
 `examples/json.xsh` is the curated persistence and JSON-lines composition
 showcase. `tests/xsh/stdlib/json.xsh` owns focused acceptance and error cases.
 

@@ -202,7 +202,7 @@ enum ArenaTypeExprKind {
         name: Name,
     },
     List(TypeExprId),
-    Map(TypeExprId),
+    Map(Option<TypeExprId>, TypeExprId),
     Stream(TypeExprId),
     Module(TypeExprId),
     Result {
@@ -227,7 +227,7 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
         ArenaTypeExprTag::List => {
             ArenaTypeExprKind::List(TypeExprId::from_index(data.lhs as usize))
         }
-        ArenaTypeExprTag::Map => ArenaTypeExprKind::Map(TypeExprId::from_index(data.lhs as usize)),
+        ArenaTypeExprTag::Map => ArenaTypeExprKind::Map(TypeExprId::from_optional_raw(data.rhs), TypeExprId::from_index(data.lhs as usize)),
         ArenaTypeExprTag::Stream => {
             ArenaTypeExprKind::Stream(TypeExprId::from_index(data.lhs as usize))
         }
@@ -1667,7 +1667,7 @@ impl<'a> Writer<'a> {
             }
             ArenaExprKind::MapComp { key, value, qualifiers } => {
                 output.push('{');
-                self.write_expr(*key, 0, output);
+                self.write_map_comp_key(*key, output);
                 output.push_str(": ");
                 self.write_expr(*value, 0, output);
                 self.write_comp_qualifiers(*qualifiers, None, output);
@@ -2405,8 +2405,9 @@ impl<'a> Writer<'a> {
                 self.write_type(inner, output);
                 output.push(']');
             }
-            ArenaTypeExprKind::Map(inner) => {
+            ArenaTypeExprKind::Map(key, inner) => {
                 output.push_str("Map[");
+                if let Some(key) = key { self.write_type(key, output); output.push_str(", "); }
                 self.write_type(inner, output);
                 output.push(']');
             }
@@ -2954,13 +2955,27 @@ impl<'a> Writer<'a> {
         output.push(']');
     }
 
+    fn write_map_comp_key(&mut self, key: ExprId, output: &mut String) {
+        fn label_path(arena: &AstArena, id: ExprId) -> bool {
+            match arena.expr(id).kind {
+                ArenaExprKind::Ident(_) => true,
+                ArenaExprKind::Field { base, .. } => label_path(arena, base),
+                _ => false,
+            }
+        }
+        let computed = !label_path(self.arena, key);
+        if computed { output.push('['); }
+        self.write_expr_safe(key, output);
+        if computed { output.push(']'); }
+    }
+
     fn write_map_comp_multiline(&mut self, expr_id: ExprId, output: &mut String) {
         let ArenaExprKind::MapComp { key, value, qualifiers } = self.arena.expr(expr_id).kind else { return self.write_expr(expr_id, 0, output); };
         let indent = indent_for_expr(output);
         output.push_str("{\n");
         self.write_comments_before(self.arena.expr(key).span.start(), indent + 1, output);
         self.write_indent(indent + 1, output);
-        self.write_expr_safe(key, output);
+        self.write_map_comp_key(key, output);
         output.push_str(": ");
         self.write_expr_safe(value, output);
         self.write_comp_qualifiers(qualifiers, Some(indent + 1), output);

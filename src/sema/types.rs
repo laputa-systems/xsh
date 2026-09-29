@@ -13,12 +13,17 @@ fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Type {
+    ReceiverMapKey,
+    ReceiverMapValue,
+    ReceiverMapListItem,
     Any,
     Unknown,
     Invalid,
     Null,
     Bool,
     Int,
+    /// Nonnegative Int constraint; runtime values retain the Int representation.
+    UInt,
     Float,
     Duration,
     Str,
@@ -27,7 +32,8 @@ pub enum Type {
     Regex,
     Path,
     List(Box<Type>),
-    Map(Box<Type>),
+    /// Ordered scalar key type followed by homogeneous value type.
+    Map(Box<Type>, Box<Type>),
     Stream(Box<Type>),
     Record(BTreeMap<Name, Type>),
     Module(BTreeMap<Name, ModuleExportType>),
@@ -117,14 +123,29 @@ impl CallableType {
 }
 
 impl Type {
+    pub fn for_map_receiver(&self, receiver: &Type) -> Type {
+        let Type::Map(key, value) = receiver else { return self.clone(); };
+        match self {
+            Self::ReceiverMapKey => key.as_ref().clone(),
+            Self::ReceiverMapValue => value.as_ref().clone(),
+            Self::ReceiverMapListItem => match value.as_ref() { Self::List(item) => item.as_ref().clone(), _ => Self::Any },
+            Self::List(item) => Self::List(Box::new(item.for_map_receiver(receiver))),
+            Self::Map(k, v) => Self::Map(Box::new(k.for_map_receiver(receiver)), Box::new(v.for_map_receiver(receiver))),
+            Self::Result(ok, error) => Self::Result(Box::new(ok.for_map_receiver(receiver)), Box::new(error.for_map_receiver(receiver))),
+            _ => self.clone(),
+        }
+    }
+    pub fn is_map_key(&self) -> bool {
+        matches!(self, Self::Str | Self::Int | Self::UInt | Self::Bool | Self::Bytes | Self::Path | Self::Duration)
+    }
     pub(crate) fn iteration_item_type(&self) -> Option<Type> {
         match self {
             Self::List(item) | Self::Stream(item) => Some((**item).clone()),
-            Self::Map(item) => Some(Self::Record(BTreeMap::from([
-                (Name::intern("key"), Self::Str),
+            Self::Map(key, item) => Some(Self::Record(BTreeMap::from([
+                (Name::intern("key"), (**key).clone()),
                 (Name::intern("value"), (**item).clone()),
             ]))),
-            Self::Result(ok, _) if matches!(ok.as_ref(), Self::List(_) | Self::Stream(_) | Self::Map(_)) => ok.iteration_item_type(),
+            Self::Result(ok, _) if matches!(ok.as_ref(), Self::List(_) | Self::Stream(_) | Self::Map(_, _)) => ok.iteration_item_type(),
             _ => None,
         }
     }
@@ -135,9 +156,10 @@ impl Type {
         use std::mem::size_of;
         let mut total = size_of::<Self>();
         match self {
-            Self::List(inner) | Self::Map(inner) | Self::Stream(inner) | Self::Optional(inner) => {
+            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
                 total = total.saturating_add(size_of::<Type>() + inner.retained_bytes());
             }
+            Self::Map(key, value) => { total = total.saturating_add(2 * size_of::<Type>() + key.retained_bytes() + value.retained_bytes()); }
             Self::Result(ok, err) => {
                 total = total
                     .saturating_add(size_of::<Type>() + ok.retained_bytes())
@@ -173,7 +195,7 @@ impl Type {
                 arena,
                 TypeExprId::from_index(data.lhs as usize),
             ))),
-            ArenaTypeExprTag::Map => Self::Map(Box::new(Self::from_arena(
+            ArenaTypeExprTag::Map => Self::Map(Box::new(TypeExprId::from_optional_raw(data.rhs).map_or(Self::Str, |key| Self::from_arena(arena, key))), Box::new(Self::from_arena(
                 arena,
                 TypeExprId::from_index(data.lhs as usize),
             ))),
@@ -222,7 +244,8 @@ impl Type {
             BuiltinTypeName::Any => Self::Any,
             BuiltinTypeName::Null => Self::Null,
             BuiltinTypeName::Bool => Self::Bool,
-            BuiltinTypeName::Int | BuiltinTypeName::UInt => Self::Int,
+            BuiltinTypeName::Int => Self::Int,
+            BuiltinTypeName::UInt => Self::UInt,
             BuiltinTypeName::Float => Self::Float,
             BuiltinTypeName::Duration => Self::Duration,
             BuiltinTypeName::Str => Self::Str,
@@ -230,7 +253,7 @@ impl Type {
             BuiltinTypeName::Digest => Self::Digest,
             BuiltinTypeName::Regex => Self::Regex,
             BuiltinTypeName::Path => Self::Path,
-            BuiltinTypeName::Map => Self::Map(Box::new(Self::Unknown)),
+            BuiltinTypeName::Map => Self::Map(Box::new(Self::Str), Box::new(Self::Unknown)),
             BuiltinTypeName::Module => Self::DynamicModule,
             BuiltinTypeName::Record => Self::Record(BTreeMap::new()),
             BuiltinTypeName::Status => Self::Status,
@@ -254,6 +277,7 @@ impl Type {
             Self::Null => Some(BuiltinTypeName::Null),
             Self::Bool => Some(BuiltinTypeName::Bool),
             Self::Int => Some(BuiltinTypeName::Int),
+            Self::UInt => Some(BuiltinTypeName::UInt),
             Self::Float => Some(BuiltinTypeName::Float),
             Self::Duration => Some(BuiltinTypeName::Duration),
             Self::Str => Some(BuiltinTypeName::Str),
@@ -261,7 +285,7 @@ impl Type {
             Self::Digest => Some(BuiltinTypeName::Digest),
             Self::Regex => Some(BuiltinTypeName::Regex),
             Self::Path => Some(BuiltinTypeName::Path),
-            Self::Map(_) => Some(BuiltinTypeName::Map),
+            Self::Map(_, _) => Some(BuiltinTypeName::Map),
             Self::Module(_) | Self::DynamicModule => Some(BuiltinTypeName::Module),
             Self::Record(_) => Some(BuiltinTypeName::Record),
             Self::Status => Some(BuiltinTypeName::Status),
@@ -275,7 +299,8 @@ impl Type {
             Self::NetJob => Some(BuiltinTypeName::NetJob),
             Self::Result(_, _) => Some(BuiltinTypeName::Result),
             Self::Unit => Some(BuiltinTypeName::Unit),
-            Self::Invalid
+            Self::ReceiverMapKey | Self::ReceiverMapValue | Self::ReceiverMapListItem
+            | Self::Invalid
             | Self::List(_)
             | Self::Stream(_)
             | Self::ErrorFamily(_)
@@ -297,9 +322,10 @@ impl Type {
     pub fn contains_any(&self) -> bool {
         match self {
             Self::Any => true,
-            Self::List(inner) | Self::Map(inner) | Self::Stream(inner) | Self::Optional(inner) => {
+            Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => {
                 inner.contains_any()
             }
+            Self::Map(key, value) => key.contains_any() || value.contains_any(),
             Self::Result(ok, err) => ok.contains_any() || err.contains_any(),
             Self::Record(fields) => fields.values().any(Self::contains_any),
             Self::Module(exports) => exports.values().any(|export| match export {
@@ -320,11 +346,12 @@ impl Type {
         match (self, expected) {
             (Self::Any, _) => true,
             (Self::List(actual), Self::List(expected))
-            | (Self::Map(actual), Self::Map(expected))
+
             | (Self::Stream(actual), Self::Stream(expected))
             | (Self::Optional(actual), Self::Optional(expected)) => {
                 actual.any_flows_to_concrete(expected)
             }
+            (Self::Map(ak, av), Self::Map(ek, ev)) => ak.any_flows_to_concrete(ek) || av.any_flows_to_concrete(ev),
             (Self::Result(actual_ok, actual_err), Self::Result(expected_ok, expected_err)) => {
                 actual_ok.any_flows_to_concrete(expected_ok)
                     || actual_err.any_flows_to_concrete(expected_err)
@@ -369,6 +396,7 @@ impl Type {
 
     pub fn matches_expected(&self, expected: &Type) -> bool {
         if self == expected
+            || matches!((self, expected), (Self::Int, Self::UInt) | (Self::UInt, Self::Int))
             || matches!(self, Self::Any | Self::Unknown | Self::Invalid)
             || matches!(expected, Self::Any | Self::Unknown | Self::Invalid)
         {
@@ -376,7 +404,10 @@ impl Type {
         }
         match (self, expected) {
             (Self::List(actual), Self::List(expected)) => actual.matches_expected(expected),
-            (Self::Map(actual), Self::Map(expected)) => actual.matches_expected(expected),
+            (Self::Map(ak, actual), Self::Map(ek, expected)) => {
+                let keys_match = if matches!(ek.as_ref(), Self::UInt) { matches!(ak.as_ref(), Self::UInt | Self::Unknown | Self::Invalid | Self::Any) } else { ak.matches_expected(ek) };
+                keys_match && actual.matches_expected(expected)
+            },
             (Self::Stream(actual), Self::Stream(expected)) => actual.matches_expected(expected),
             (Self::Result(actual_ok, actual_err), Self::Result(expected_ok, expected_err)) => {
                 actual_ok.matches_expected(expected_ok) && actual_err.matches_expected(expected_err)
@@ -436,6 +467,7 @@ impl Type {
             Self::Any
                 | Self::Str
                 | Self::Int
+            | Self::UInt
                 | Self::Bool
                 | Self::Path
                 | Self::Duration
@@ -446,14 +478,14 @@ impl Type {
     pub fn can_be_argv_item(&self) -> bool {
         matches!(
             self,
-            Self::Any | Self::Str | Self::Int | Self::Bool | Self::Path | Self::Duration
+            Self::Any | Self::Str | Self::Int | Self::UInt | Self::Bool | Self::Path | Self::Duration
         )
     }
 
     pub fn can_word_convert_to(&self) -> bool {
         matches!(
             self,
-            Self::Any | Self::Str | Self::Path | Self::Int | Self::Bool | Self::Duration
+            Self::Any | Self::Str | Self::Path | Self::Int | Self::UInt | Self::Bool | Self::Duration
         )
     }
 
@@ -465,11 +497,13 @@ impl Type {
             | Self::Null
             | Self::Bool
             | Self::Int
+            | Self::UInt
             | Self::Float
             | Self::Str => true,
-            Self::List(item) | Self::Map(item) | Self::Stream(item) | Self::Optional(item) => {
+            Self::List(item) | Self::Stream(item) | Self::Optional(item) => {
                 item.is_json_compatible()
             }
+            Self::Map(key, value) => matches!(key.as_ref(), Self::Str) && value.is_json_compatible(),
             Self::Record(fields) => fields.values().all(Self::is_json_compatible),
             _ => false,
         }
@@ -477,6 +511,9 @@ impl Type {
 
     pub fn annotation_source(&self) -> Option<String> {
         match self {
+            Self::ReceiverMapKey => Some("K".to_string()),
+            Self::ReceiverMapValue => Some("V".to_string()),
+            Self::ReceiverMapListItem => Some("T".to_string()),
             Self::Any
             | Self::Unknown
             | Self::Invalid
@@ -488,6 +525,7 @@ impl Type {
             Self::Null => Some("Null".to_string()),
             Self::Bool => Some("Bool".to_string()),
             Self::Int => Some("Int".to_string()),
+            Self::UInt => Some("UInt".to_string()),
             Self::Float => Some("Float".to_string()),
             Self::Duration => Some("Duration".to_string()),
             Self::Str => Some("Str".to_string()),
@@ -496,7 +534,7 @@ impl Type {
             Self::Regex => Some("Regex".to_string()),
             Self::Path => Some("Path".to_string()),
             Self::List(inner) => Some(format!("List[{}]", inner.annotation_source()?)),
-            Self::Map(inner) => Some(format!("Map[{}]", inner.annotation_source()?)),
+            Self::Map(key, inner) => Some(if matches!(key.as_ref(), Self::Str) { format!("Map[{}]", inner.annotation_source()?) } else { format!("Map[{}, {}]", key.annotation_source()?, inner.annotation_source()?) }),
             Self::Stream(inner) => Some(format!("Stream[{}]", inner.annotation_source()?)),
             Self::Result(ok, err) => {
                 let ok = ok.annotation_source()?;
@@ -526,12 +564,16 @@ impl Type {
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::ReceiverMapKey => write!(f, "K"),
+            Self::ReceiverMapValue => write!(f, "V"),
+            Self::ReceiverMapListItem => write!(f, "T"),
             Self::Any => write!(f, "Any"),
             Self::Unknown => write!(f, "<unknown>"),
             Self::Invalid => write!(f, "<invalid>"),
             Self::Null => write!(f, "Null"),
             Self::Bool => write!(f, "Bool"),
             Self::Int => write!(f, "Int"),
+            Self::UInt => write!(f, "UInt"),
             Self::Float => write!(f, "Float"),
             Self::Duration => write!(f, "Duration"),
             Self::Str => write!(f, "Str"),
@@ -540,7 +582,7 @@ impl fmt::Display for Type {
             Self::Regex => write!(f, "Regex"),
             Self::Path => write!(f, "Path"),
             Self::List(inner) => write!(f, "List[{inner}]"),
-            Self::Map(inner) => write!(f, "Map[{inner}]"),
+            Self::Map(key, inner) => if matches!(key.as_ref(), Self::Str) { write!(f, "Map[{inner}]") } else { write!(f, "Map[{key}, {inner}]") },
             Self::Stream(inner) => write!(f, "Stream[{inner}]"),
             Self::Record(_) => write!(f, "Record"),
             Self::Module(_) => write!(f, "Module"),

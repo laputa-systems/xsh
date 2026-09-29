@@ -266,7 +266,7 @@ pub struct MethodSig {
 impl MethodSig {
     pub fn concrete_return_ty(&self, receiver_ty: &Type) -> Type {
         match &self.return_ty {
-            MethodReturn::Type(ty) => ty.clone(),
+            MethodReturn::Type(ty) => ty.for_map_receiver(receiver_ty),
             MethodReturn::Receiver => receiver_ty.clone(),
         }
     }
@@ -397,6 +397,9 @@ fn convert_method_sig(receiver: MethodReceiver, sig: &registry::MethodSig) -> Me
 
 pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
     match ty {
+        xsh_registry::types::Type::ReceiverMapKey => Type::ReceiverMapKey,
+        xsh_registry::types::Type::ReceiverMapValue => Type::ReceiverMapValue,
+        xsh_registry::types::Type::ReceiverMapListItem => Type::ReceiverMapListItem,
         xsh_registry::types::Type::Any => Type::Any,
         xsh_registry::types::Type::Unknown => Type::Unknown,
         xsh_registry::types::Type::Invalid => Type::Invalid,
@@ -411,7 +414,7 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::Regex => Type::Regex,
         xsh_registry::types::Type::Path => Type::Path,
         xsh_registry::types::Type::List(inner) => Type::List(Box::new(convert_type(inner))),
-        xsh_registry::types::Type::Map(inner) => Type::Map(Box::new(convert_type(inner))),
+        xsh_registry::types::Type::Map(key, inner) => Type::Map(Box::new(convert_type(key)), Box::new(convert_type(inner))),
         xsh_registry::types::Type::Stream(inner) => Type::Stream(Box::new(convert_type(inner))),
         xsh_registry::types::Type::Record(fields) => Type::Record(
             fields

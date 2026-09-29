@@ -3012,7 +3012,7 @@ fn lower_literal_constant(value: &crate::sema::constants::LiteralConstant) -> Op
         C::Bytes(value) => LoweredValue::Bytes(value.clone()),
         C::Path(value) => LoweredValue::Path(PathValue::from_text(value).ok()?),
         C::EmptyMap => LoweredValue::Map(Arc::new(BTreeMap::new())),
-        C::Map(values) => LoweredValue::Map(Arc::new(values.iter().map(|(key, value)| Some((key.to_string(), lower_literal_constant(value)?))).collect::<Option<BTreeMap<_, _>>>()?)),
+        C::Map(values) => LoweredValue::Map(Arc::new(values.iter().map(|(key, value)| Some((key.clone(), lower_literal_constant(value)?))).collect::<Option<BTreeMap<_, _>>>()?)),
         C::List(values) => LoweredValue::SharedList(Arc::new(values.iter().map(lower_literal_constant).collect::<Option<Vec<_>>>()?)),
         C::Record(values) => LoweredValue::Record(Arc::new(values.iter().map(|(name, value)| Some((Arc::<str>::from(name.as_str().as_str()), lower_literal_constant(value)?))).collect::<Option<BTreeMap<_, _>>>()?)),
     })
@@ -3025,18 +3025,19 @@ fn lower_const_param_default(
     expected: Option<&Type>,
 ) -> Option<LoweredValue> {
     if let ArenaExprKind::Record(fields) = arena.expr(expr).kind
-        && (matches!(expected, Some(Type::Map(_))) || arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })))
+        && (matches!(expected, Some(Type::Map(_, _))) || arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })))
     {
-        let element = match expected { Some(Type::Map(item)) => Some(item.as_ref()), _ => None };
+        let element = match expected { Some(Type::Map(_, item)) => Some(item.as_ref()), _ => None };
         let mut values = BTreeMap::new();
         for field in arena.record_fields(fields) {
             match field.kind {
                 ArenaRecordFieldKind::Computed { key, value, .. } => {
-                    let key = lower_const_param_default(arena, key, LoweredType::Str, Some(&Type::Str))?;
-                    let key = super::lowered_ops::lowered_str_value(&key)?.to_string();
+                    let key_type = match expected { Some(Type::Map(key, _)) => Some(key.as_ref()), _ => None };
+                    let key = lower_const_param_default(arena, key, LoweredType::Any, key_type)?;
+                    let key = super::lowered_ops::lowered_map_literal_key(&key, arena.expr(expr).span).ok()?;
                     values.insert(key, lower_const_param_default(arena, value, LoweredType::Any, element)?);
                 }
-                ArenaRecordFieldKind::Named { name, value, .. } => { values.insert(name.as_str().to_string(), lower_const_param_default(arena, value, LoweredType::Any, element)?); }
+                ArenaRecordFieldKind::Named { name, value, .. } => { values.insert(crate::map_key::MapKey::from(name.as_str().as_str()), lower_const_param_default(arena, value, LoweredType::Any, element)?); }
                 ArenaRecordFieldKind::Spread { expr, .. } => {
                     let LoweredValue::Map(spread) = lower_const_param_default(arena, expr, LoweredType::Map, expected)? else { return None; };
                     values.extend(spread.iter().map(|(key, value)| (key.clone(), value.clone())));
@@ -4557,6 +4558,12 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
     }
 
+    fn require_uint_key(&mut self, value: BuildExprId, span: Span) -> BuildExprId {
+        let check = LoweredTypeCheck { ty: Type::UInt, name: Arc::from("UInt") };
+        let checked = push_build_row!(self, expr, BuildExprRow::Require { value, check, span });
+        push_build_row!(self, expr, BuildExprRow::Try(checked))
+    }
+
     fn lower_binding_expr_value(
         &mut self,
         ty: Option<TypeExprId>,
@@ -4574,7 +4581,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         let kind = self
             .infer_lowered_expr_type(value, &self.top_level_known)
             .unwrap_or(LoweredType::Any);
-        if lowered_type_needs_static_check(kind) {
+        if lowered_type_needs_static_check(kind) || matches!(checked_ty, Some(Type::UInt)) {
             let check = LoweredTypeCheck {
                 ty: checked_ty.cloned().unwrap_or_else(|| {
                     compact_runtime_type_in_namespace(&self.program.arena, ty, self.declarations, self.current_namespace)
@@ -4615,7 +4622,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             Type::Int => MethodReceiver::Int,
             Type::Float => MethodReceiver::Float,
             Type::List(_) => MethodReceiver::List,
-            Type::Map(_) => MethodReceiver::Map,
+            Type::Map(_, _) => MethodReceiver::Map,
             Type::Record(_) => MethodReceiver::Record,
             Type::Result(_, _) => MethodReceiver::Result,
             Type::Path => MethodReceiver::Path,
@@ -4676,7 +4683,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             .or_else(|| self.infer_checked_expr_type(iter, &self.top_level_known))
             .or_else(|| self.bodies.expr_types.get(&iter).cloned());
         let lowered = self.lower_expr(iter, slots, current_function, item_slot)?;
-        if matches!(checked, Some(Type::Result(ok, _)) if matches!(ok.as_ref(), Type::Map(_))) {
+        if matches!(checked, Some(Type::Result(ok, _)) if matches!(ok.as_ref(), Type::Map(_, _))) {
             Some(push_build_row!(self, expr, BuildExprRow::Try(lowered)))
         } else { Some(lowered) }
     }
@@ -4755,7 +4762,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known))?;
                 let base_ty = if guarded { match base_ty { Type::Optional(inner) | Type::Result(inner, _) => *inner, other => other } } else { base_ty };
                 match base_ty {
-                    Type::List(item) | Type::Map(item) => Some(*item),
+                    Type::List(item) | Type::Map(_, item) => Some(*item),
                     _ => None,
                 }
             }
@@ -4819,10 +4826,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 if name == "get" {
                     return match (&base_ty, args_vec.len()) {
-                        (Type::List(item) | Type::Map(item), 1) => {
+                        (Type::List(item) | Type::Map(_, item), 1) => {
                             Some(Type::Result(item.clone(), Box::new(Type::Error)))
                         }
-                        (Type::List(item) | Type::Map(item), 2) => {
+                        (Type::List(item) | Type::Map(_, item), 2) => {
                             let fallback = compact_call_arg_expr(&args_vec[1])?;
                             Some(
                                 self.infer_checked_expr_type(fallback, &self.top_level_known)
@@ -4875,7 +4882,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 })))
             }
             ArenaExprKind::ListComp { expr: value_expr, .. } => Some(Type::List(Box::new(self.infer_checked_expr_type(value_expr, &self.top_level_known).or_else(|| self.infer_checked_expr_type_with_slots(value_expr, slots)).unwrap_or(Type::Any)))),
-            ArenaExprKind::MapComp { .. } => Some(Type::Map(Box::new(Type::Any))),
+            ArenaExprKind::MapComp { key, value, .. } => Some(Type::Map(Box::new(self.infer_checked_expr_type_with_slots(key, slots).unwrap_or(Type::Unknown)), Box::new(self.infer_checked_expr_type_with_slots(value, slots).unwrap_or(Type::Unknown)))),
             ArenaExprKind::Record(fields) => {
                 if self.program.arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. })) {
                     let ArenaRecordFieldKind::Spread { expr, .. } = self.program.arena.record_fields(fields).first()?.kind else { return None; };
@@ -5003,12 +5010,12 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             StreamStageKind::Count => {
                 if stage.block.is_some() {
-                    Some(Type::Map(Box::new(Type::Int)))
+                    Some(Type::Map(Box::new(Type::Str), Box::new(Type::Int)))
                 } else {
                     Some(Type::Int)
                 }
             }
-            StreamStageKind::ReduceBy => Some(Type::Map(Box::new(Type::Any))),
+            StreamStageKind::ReduceBy => Some(Type::Map(Box::new(Type::Str), Box::new(Type::Any))),
             StreamStageKind::Any | StreamStageKind::All => Some(Type::Bool),
             StreamStageKind::Sum => Some(Type::Int),
             StreamStageKind::Where
@@ -5349,7 +5356,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         known: &FxHashMap<Name, LoweredTopLevelBinding>,
     ) -> Option<Type> {
         match self.infer_checked_expr_type(base, known)? {
-            Type::List(item) | Type::Map(item) => Some(*item),
+            Type::List(item) | Type::Map(_, item) => Some(*item),
             Type::Record(fields) => {
                 let args = self.program.arena.call_args(args);
                 let [arg, ..] = args else {
@@ -5446,7 +5453,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaExprKind::Bytes(_) => Some(LoweredType::Bytes),
             ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. } => Some(LoweredType::List),
             ArenaExprKind::MapComp { .. } => Some(LoweredType::Map),
-            ArenaExprKind::Record(fields) => Some(if self.bodies.expr_types.get(&value).is_some_and(|ty| matches!(ty, Type::Map(_)))
+            ArenaExprKind::Record(fields) => Some(if self.bodies.expr_types.get(&value).is_some_and(|ty| matches!(ty, Type::Map(_, _)))
                 || self.program.arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. }))
                 { LoweredType::Map } else { LoweredType::Record }),
             ArenaExprKind::EnvGet { .. } | ArenaExprKind::EnvPathList => Some(LoweredType::Result),
@@ -5916,7 +5923,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         };
         let base_ty = self.infer_checked_expr_type(base, known)?;
         match base_ty {
-            Type::List(item) | Type::Map(item) => lowered_checked_type(&item),
+            Type::List(item) | Type::Map(_, item) => lowered_checked_type(&item),
             Type::Record(fields) => {
                 let key = compact_call_arg_expr(arg)?;
                 let ArenaExprKind::Str(key) = self.program.arena.expr(key).kind else {
@@ -7999,9 +8006,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if self.program.arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. })) {
                     return self.lower_record(fields, slots, current_function, item_slot);
                 }
-                if self.bodies.expr_types.get(&id).is_some_and(|ty| matches!(ty, Type::Map(_)))
+                if self.bodies.expr_types.get(&id).is_some_and(|ty| matches!(ty, Type::Map(_, _)))
                     || self.program.arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })) {
-                    return self.lower_map_literal(fields, slots, current_function, item_slot);
+                    return self.lower_map_literal(id, fields, slots, current_function, item_slot);
                 }
                 self.lower_record(fields, slots, current_function, item_slot)
             }
@@ -8033,7 +8040,9 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaExprKind::MapComp { key, value, qualifiers } => {
                 let saved = slots.enter();
                 let qualifiers = self.lower_comp_qualifiers(qualifiers, slots, current_function, item_slot)?;
+                let key_span = self.program.arena.expr(key).span;
                 let key = self.lower_expr(key, slots, current_function, item_slot)?;
+                let key = if matches!(self.bodies.expr_types.get(&id), Some(Type::Map(key_ty, _)) if **key_ty == Type::UInt) { self.require_uint_key(key, key_span) } else { key };
                 let value = self.lower_expr(value, slots, current_function, item_slot)?;
                 slots.exit(saved);
                 Some(push_build_row!(self, expr, BuildExprRow::MapComp { key, value, qualifiers, span }))
@@ -8156,13 +8165,16 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(push_build_row!(self, expr, BuildExprRow::ComparisonChain { pairs, assertion: false }))
             }
             ArenaExprKind::Binary { op, left, right } if lowered_binary_op(op) => {
+                let uint_key = matches!(op, BinaryOp::In | BinaryOp::NotIn) && matches!(self.infer_checked_expr_type_with_slots(right, slots), Some(Type::Map(key, _)) if *key == Type::UInt);
+                let lowered_left = self.lower_expr(left, slots, current_function, item_slot)?;
+                let lowered_left = if uint_key { self.require_uint_key(lowered_left, self.program.arena.expr(left).span) } else { lowered_left };
                 let duration_operands = self.bodies.expr_types.get(&left) == Some(&Type::Duration)
                     || self.bodies.expr_types.get(&right) == Some(&Type::Duration)
                     || self.infer_checked_expr_type_with_slots(left, slots) == Some(Type::Duration)
                     || self.infer_checked_expr_type_with_slots(right, slots) == Some(Type::Duration);
                 let value = push_build_row!(self, expr, BuildExprRow::Binary {
                     op,
-                    left: self.lower_expr(left, slots, current_function, item_slot)?,
+                    left: lowered_left,
                     right: self.lower_expr(right, slots, current_function, item_slot)?,
                     span,
                 });
@@ -8305,15 +8317,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let base = self.lower_postfix_receiver(base, slots, current_function, item_slot)?;
                 Some(push_build_row!(self, expr, BuildExprRow::Field { base, name: name.as_str(), span }))
             }
-            ArenaExprKind::Index { base, index, guarded } => Some(push_build_row!(
-                self,
-                expr,
-                BuildExprRow::Index {
-                    base: if guarded { self.lower_postfix_receiver(base, slots, current_function, item_slot)? } else { self.lower_expr(base, slots, current_function, item_slot)? },
-                    index: self.lower_expr(index, slots, current_function, item_slot)?,
-                    span,
-                }
-            )),
+            ArenaExprKind::Index { base, index, guarded } => {
+                let uint_key = matches!(self.infer_checked_expr_type_with_slots(base, slots), Some(Type::Map(key, _)) if *key == Type::UInt);
+                let lowered_base = if guarded { self.lower_postfix_receiver(base, slots, current_function, item_slot)? } else { self.lower_expr(base, slots, current_function, item_slot)? };
+                let lowered_index = self.lower_expr(index, slots, current_function, item_slot)?;
+                let lowered_index = if uint_key { self.require_uint_key(lowered_index, self.program.arena.expr(index).span) } else { lowered_index };
+                Some(push_build_row!(self, expr, BuildExprRow::Index { base: lowered_base, index: lowered_index, span }))
+            },
             ArenaExprKind::Slice { base, start, end, guarded } => Some(push_build_row!(
                 self,
                 expr,
@@ -8749,9 +8759,11 @@ impl CompactLowerConstructProbe<'_, '_> {
         Some(lowered)
     }
 
-    fn lower_map_literal(&mut self, fields: crate::syntax::arena::ArenaRange, slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>) -> Option<BuildExprId> {
+    fn lower_map_literal(&mut self, id: ExprId, fields: crate::syntax::arena::ArenaRange, slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>) -> Option<BuildExprId> {
+        let uint_key = matches!(self.bodies.expr_types.get(&id), Some(Type::Map(key, _)) if **key == Type::UInt);
         let mut entries = Vec::new();
         for field in self.program.arena.record_fields(fields).to_vec() {
+            let key_span = match &field.kind { ArenaRecordFieldKind::Computed { key, .. } => Some(self.program.arena.expr(*key).span), _ => None };
             let (key, value, span) = match field.kind {
                 ArenaRecordFieldKind::Computed { key, value, span } => (
                     Some(self.lower_expr(key, slots, current_function, item_slot)?),
@@ -8768,6 +8780,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ArenaRecordFieldKind::Spread { expr, span } => (None, self.lower_expr(expr, slots, current_function, item_slot)?, self.program.arena.span(span)),
                 ArenaRecordFieldKind::Path { .. } => return None,
             };
+            let key = key.map(|key| if uint_key { self.require_uint_key(key, key_span.unwrap_or(span)) } else { key });
             entries.push((key, value, span));
         }
         Some(push_build_row!(self, expr, BuildExprRow::MapLiteral(entries)))
@@ -10488,8 +10501,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
                 let mut lowered_args = Vec::with_capacity(method_args.len());
-                for arg in method_args {
-                    lowered_args.push(self.lower_expr(arg, slots, current_function, item_slot)?);
+                let uint_key = matches!(self.infer_checked_expr_type_with_slots(base, slots), Some(Type::Map(key, _)) if *key == Type::UInt);
+                for (position, arg) in method_args.into_iter().enumerate() {
+                    let value = self.lower_expr(arg, slots, current_function, item_slot)?;
+                    let value = if uint_key && position == 0 { self.require_uint_key(value, self.program.arena.expr(arg).span) } else { value };
+                    lowered_args.push(value);
                 }
                 if lowered_str_byte_op(&name.as_str(), &lowered_args) {
                     return Some(match name.as_str().as_str() {
@@ -10703,8 +10719,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return None;
                 }
                 let mut lowered_args = Vec::with_capacity(method_args.len());
-                for arg in method_args {
-                    lowered_args.push(self.lower_expr(arg, slots, current_function, item_slot)?);
+                let uint_key = matches!(self.infer_checked_expr_type_with_slots(base, slots), Some(Type::Map(key, _)) if *key == Type::UInt);
+                for (position, arg) in method_args.into_iter().enumerate() {
+                    let value = self.lower_expr(arg, slots, current_function, item_slot)?;
+                    let value = if uint_key && position == 0 { self.require_uint_key(value, self.program.arena.expr(arg).span) } else { value };
+                    lowered_args.push(value);
                 }
                 Some(push_build_row!(
                     self,
@@ -13028,6 +13047,18 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
     }
 
+    fn assign_target_checked_type(&self, id: crate::syntax::arena::AssignTargetId, slots: &SlotScope) -> Option<Type> {
+        match self.program.arena.assign_target(id).kind {
+            ArenaAssignTargetKind::Name(name) => slots.binding_type(name).cloned(),
+            ArenaAssignTargetKind::Field { base, name } => match self.assign_target_checked_type(base, slots)? {
+                Type::Record(fields) => fields.get(&name).cloned(), _ => None,
+            },
+            ArenaAssignTargetKind::Index { base, .. } => match self.assign_target_checked_type(base, slots)? {
+                Type::List(item) | Type::Map(_, item) => Some(*item), _ => None,
+            },
+        }
+    }
+
     fn lower_assign_path(
         &mut self,
         target: crate::syntax::arena::AssignTargetId,
@@ -13044,7 +13075,11 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             ArenaAssignTargetKind::Index { base, index } => {
                 let mut path = self.lower_assign_path(base, slots, current_function, item_slot)?;
-                path.push(LoweredAssignStep::Index(self.lower_expr(index, slots, current_function, item_slot)?));
+                let lowered = self.lower_expr(index, slots, current_function, item_slot)?;
+                let lowered = if matches!(self.assign_target_checked_type(base, slots), Some(Type::Map(key, _)) if *key == Type::UInt) {
+                    self.require_uint_key(lowered, self.program.arena.expr(index).span)
+                } else { lowered };
+                path.push(LoweredAssignStep::Index(lowered));
                 Some(path)
             }
         }
@@ -13271,7 +13306,7 @@ fn compact_runtime_type_inner(
             declarations,
             depth,
         ))),
-        ArenaTypeExprTag::Map => Type::Map(Box::new(compact_runtime_type_inner(
+        ArenaTypeExprTag::Map => Type::Map(Box::new(TypeExprId::from_optional_raw(data.rhs).map_or(Type::Str, |id| compact_runtime_type_inner(arena, id, declarations, depth))), Box::new(compact_runtime_type_inner(
             arena,
             TypeExprId::from_index(data.lhs as usize),
             declarations,
@@ -13378,10 +13413,13 @@ fn compact_type_expr_name_string(arena: &AstArena, ty: TypeExprId) -> String {
             "List[{}]",
             compact_type_expr_name_string(arena, TypeExprId::from_index(data.lhs as usize))
         ),
-        ArenaTypeExprTag::Map => format!(
-            "Map[{}]",
-            compact_type_expr_name_string(arena, TypeExprId::from_index(data.lhs as usize))
-        ),
+        ArenaTypeExprTag::Map => {
+            let value = compact_type_expr_name_string(arena, TypeExprId::from_index(data.lhs as usize));
+            match TypeExprId::from_optional_raw(data.rhs) {
+                Some(key) => format!("Map[{}, {value}]", compact_type_expr_name_string(arena, key)),
+                None => format!("Map[{value}]"),
+            }
+        },
         ArenaTypeExprTag::Stream => format!(
             "Stream[{}]",
             compact_type_expr_name_string(arena, TypeExprId::from_index(data.lhs as usize))
@@ -13435,7 +13473,7 @@ fn is_discard_name(name: Name) -> bool {
 fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
     match ty {
         Type::Unit => Some(LoweredType::Unit),
-        Type::Int => Some(LoweredType::Int),
+        Type::Int | Type::UInt => Some(LoweredType::Int),
         Type::Float => Some(LoweredType::Float),
         Type::Duration => Some(LoweredType::Duration),
         Type::Bool => Some(LoweredType::Bool),
@@ -13455,7 +13493,7 @@ fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
         Type::Module(_) | Type::DynamicModule => Some(LoweredType::Module),
         Type::List(_) => Some(LoweredType::List),
         Type::Stream(_) => Some(LoweredType::Stream),
-        Type::Map(_) => Some(LoweredType::Map),
+        Type::Map(_, _) => Some(LoweredType::Map),
         Type::Tag(_) => Some(LoweredType::Tag),
         Type::Result(_, _) => Some(LoweredType::Result),
         Type::Any | Type::Unknown | Type::Invalid => Some(LoweredType::Any),
@@ -13472,7 +13510,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             name == "context" && (arg_count == 1 || arg_count == 2)
                 || lowered_method_supported_for_type(ok, name, arg_count)
         }
-        Type::Int => {
+        Type::Int | Type::UInt => {
             (name == "float" && arg_count == 0)
                 || (matches!(name.as_str().as_str(), "bit_and" | "bit_or" | "clear_bits")
                     && arg_count == 1)
@@ -13554,7 +13592,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             "join" => arg_count <= 1,
             _ => false,
         },
-        Type::Map(_) => match name.as_str().as_str() {
+        Type::Map(_, _) => match name.as_str().as_str() {
             "len" | "keys" | "values" => arg_count == 0,
             "has" | "remove" => arg_count == 1,
             "get" => arg_count == 1 || arg_count == 2,
@@ -13578,7 +13616,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
                 infer_checked_method_return_type(ok, name)
             }
         }
-        Type::Int => match name.as_str().as_str() {
+        Type::Int | Type::UInt => match name.as_str().as_str() {
             "float" => Some(Type::Float),
             "bit_and" | "bit_or" | "clear_bits" => Some(Type::Int),
             _ => None,
@@ -13662,12 +13700,12 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             "contains" => Some(Type::Bool),
             _ => None,
         },
-        Type::Map(item) => match name.as_str().as_str() {
-            "keys" => Some(Type::List(Box::new(Type::Str))),
+        Type::Map(key, item) => match name.as_str().as_str() {
+            "keys" => Some(Type::List(key.clone())),
             "values" => Some(Type::List(item.clone())),
             "len" => Some(Type::Int),
             "get" => Some(Type::Result(item.clone(), Box::new(Type::Error))),
-            "set" | "remove" => Some(Type::Map(item.clone())),
+            "set" | "remove" => Some(Type::Map(key.clone(), item.clone())),
             "has" => Some(Type::Bool),
             _ => None,
         },
@@ -13807,7 +13845,7 @@ fn type_for_lowered_type(kind: LoweredType) -> Option<Type> {
         LoweredType::Module => Some(Type::DynamicModule),
         LoweredType::List => Some(Type::List(Box::new(Type::Any))),
         LoweredType::Stream => Some(Type::Stream(Box::new(Type::Any))),
-        LoweredType::Map => Some(Type::Map(Box::new(Type::Any))),
+        LoweredType::Map => Some(Type::Map(Box::new(Type::Str), Box::new(Type::Any))),
         LoweredType::Tag => None,
         LoweredType::Result => Some(Type::Result(Box::new(Type::Any), Box::new(Type::Error))),
         LoweredType::Any => Some(Type::Any),

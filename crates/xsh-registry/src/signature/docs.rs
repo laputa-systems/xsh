@@ -1530,7 +1530,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("Map", "keys" | "values") => Some((
             "Lists map keys or values.",
-            "The result is a snapshot collection and does not retain a live map handle.",
+            "The result is a snapshot collection in canonical scalar key order. Key types remain the receiver key domain; native Bytes and Path keys preserve byte identity.",
             &["map", "collection"],
         )),
         ("List", "len") => Some((

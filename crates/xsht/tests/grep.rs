@@ -568,3 +568,18 @@ fn lexical_ctx_structural_grep_and_refactor_preserve_description_and_body() {
     assert_eq!(refactor_scripts("ctx \"café\" { BODY }", "ctx \"café updated\" { BODY }", &paths(&file), false).status, 1);
     assert_eq!(fs::read_to_string(&file).unwrap(), source);
 }
+
+#[test]
+fn typed_map_keys_grep_refactor_preserve_computed_domains() {
+    let root = TempDir::new().unwrap();
+    let path = root.path().join("typed-map.xsh");
+    fs::write(&path, "var entries: Map[Int, Str] = {[20]: \"twenty\", [3]: \"three\"}\n").unwrap();
+    let found = grep_scripts("{[KEY]: VALUE, [OTHER]: REST}", &paths(&path));
+    assert_eq!(found.status, 0, "{}", output_text(&found.stderr));
+    assert!(output_text(&found.stdout).contains("[20]"));
+    let output = refactor_scripts("{[KEY]: VALUE, [OTHER]: REST}", "{[OTHER]: REST, [KEY]: VALUE}", &paths(&path), false);
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    let updated = fs::read_to_string(&path).unwrap();
+    assert!(updated.contains("Map[Int, Str]"));
+    assert!(updated.contains("{[3]: \"three\", [20]: \"twenty\"}"), "{updated}");
+}

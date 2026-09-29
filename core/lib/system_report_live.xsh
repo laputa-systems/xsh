@@ -697,11 +697,11 @@ pure mount_usage_eligible(filesystem: Str) -> Bool {
 
 type MountUsageRow = {mount_id: Int, parent_id: Int, target: Str, filesystem: Str}
 
-type MountUsageIndex = {rows: List[MountUsageRow], by_id: Map[Int], target_counts: Map[Int], valid_graph: Bool}
+type MountUsageIndex = {rows: List[MountUsageRow], by_id: Map[Int, Int], target_counts: Map[Int], valid_graph: Bool}
 
 pure mount_usage_index(mountinfo: Str) -> MountUsageIndex {
   var rows: List[MountUsageRow] = []
-  var by_id: Map[Int] = {}
+  var by_id: Map[Int, Int] = {}
   var target_counts: Map[Int] = {}
   var valid_graph = true
   for line in mountinfo.lines() {
@@ -732,12 +732,11 @@ pure mount_usage_index(mountinfo: Str) -> MountUsageIndex {
       continue
     }
 
-    let id_key = f"${mount_id}"
-    if by_id.has(id_key) {
+    if by_id.has(mount_id) {
       valid_graph = false
     }
 
-    by_id = by_id.set(id_key, if by_id.has(id_key) { -1 } else { rows.len() })
+    by_id = by_id.set(mount_id, if by_id.has(mount_id) { -1 } else { rows.len() })
     target_counts = target_counts.set(target, target_counts.get(target, 0) + 1)
     rows = rows.push({
       mount_id: mount_id,
@@ -766,7 +765,7 @@ pure mount_usage_safe(index: MountUsageIndex, mount_id: Int) -> Bool {
     }
 
     seen = set.add(seen, key)
-    let row_index = index.by_id.get(key, -1)
+    let row_index = index.by_id.get(current_id, -1)
     if row_index < 0 {
       return false
     }
@@ -784,7 +783,7 @@ pure mount_usage_safe(index: MountUsageIndex, mount_id: Int) -> Bool {
       return false
     }
 
-    if ! index.by_id.has(f"${entry.parent_id}") {
+    if ! index.by_id.has(entry.parent_id) {
       return true
     }
 

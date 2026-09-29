@@ -32,7 +32,7 @@ fn annotation_type_is_nontrivial(ty: &Type) -> bool {
     matches!(
         ty,
         Type::List(_)
-            | Type::Map(_)
+            | Type::Map(_, _)
             | Type::Result(_, _)
             | Type::Optional(_)
             | Type::Command
@@ -897,7 +897,7 @@ impl Checker {
         span: Span,
     ) {
         let iter_ty = self.check_expr_arena(arena, source, iter, None);
-        if matches!(&iter_ty, Type::Result(ok, _) if matches!(ok.as_ref(), Type::Map(_))) {
+        if matches!(&iter_ty, Type::Result(ok, _) if matches!(ok.as_ref(), Type::Map(_, _))) {
             self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
         }
         let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| match iter_ty {
@@ -1598,9 +1598,9 @@ impl Checker {
                     self.assignment_target_type_arena(arena, source, *base, root_ty, span);
                 let index_ty = self.check_expr_arena(arena, source, *index, None);
                 match base_ty {
-                    Type::Map(item_ty) => {
+                    Type::Map(key_ty, item_ty) => {
                         let index_span = arena.arena.expr(*index).span;
-                        self.expect_type(&Type::Str, &index_ty, index_span);
+                        self.expect_type(&key_ty, &index_ty, index_span);
                         item_ty.as_ref().clone()
                     }
                     Type::List(item_ty) => {
@@ -2195,7 +2195,7 @@ fn contextual_empty_map_initializer_arena(
 ) -> bool {
     if !matches!(
         (expected, actual),
-        (Type::Map(_), Type::Map(item)) if matches!(item.as_ref(), Type::Any)
+        (Type::Map(_, _), Type::Map(_, item)) if matches!(item.as_ref(), Type::Any)
     ) {
         return false;
     }
@@ -2246,7 +2246,7 @@ fn tail_expr_context_arena(
     }
     fn contains_map(ty: &Type) -> bool {
         match ty {
-            Type::Map(_) => true,
+            Type::Map(_, _) => true,
             Type::List(item) | Type::Optional(item) => contains_map(item),
             Type::Record(fields) => fields.values().any(contains_map),
             Type::Result(ok, _) => contains_map(ok),

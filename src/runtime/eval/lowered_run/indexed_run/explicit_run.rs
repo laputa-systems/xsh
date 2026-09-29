@@ -1,4 +1,5 @@
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
+use crate::map_key::MapKey;
 use super::LoweredMapCursor;
 use crate::runtime::eval::LoweredCompTarget;
 use super::serial_pipeline::{
@@ -12,7 +13,7 @@ use super::{
     TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, indexed_decode, indexed_error,
     comparison_chain_assertion_failure, indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
-    append_lowered_list_element, append_lowered_map_literal, lowered_map_literal_key, apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
+    append_lowered_list_element, append_lowered_map_literal, lowered_map_literal_key,  apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
     lowered_freeze_large_slot_list, lowered_match_no_arm,
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
     lowered_result_err_value, lowered_result_ok, lowered_return_value, lowered_splice_arg_items,
@@ -54,7 +55,7 @@ struct ListCompState {
     iterators: Vec<CompIterator>,
     streams: CompStreams,
     values: Vec<LoweredValue>,
-    map_values: BTreeMap<String, LoweredValue>,
+    map_values: BTreeMap<MapKey, LoweredValue>,
     span: Span,
 }
 
@@ -262,8 +263,8 @@ enum FrameContinuation {
     MapLiteralItems {
         entries: Vec<(Option<u32>, u32, Span)>,
         index: usize,
-        fields: BTreeMap<String, LoweredValue>,
-        key: Option<String>,
+        fields: BTreeMap<MapKey, LoweredValue>,
+        key: Option<MapKey>,
         reading_key: bool,
         next: Box<FrameContinuation>,
     },
@@ -295,7 +296,7 @@ enum FrameContinuation {
     },
     ListCompValue {
         state: Box<ListCompState>,
-        key: Option<String>,
+        key: Option<MapKey>,
         next: Box<FrameContinuation>,
     },
 }
@@ -2170,7 +2171,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     state.selectors.push(resolve_assign_index(value, state.span)?);
                     self.advance_assign_path(index, state);
                 }
-                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::AssignPath(state) => match value {
                 FrameValue::Value(value) => {
@@ -2179,7 +2180,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         &self.calls[index].slots[state.slot], self.evaluator.current_scope_id(), self.calls[index].slot_scopes[state.slot],
                     );
                 }
-                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::Return => return self.complete_call(index, match value {
                 FrameValue::Value(value) => StmtFlow::Return(value),
@@ -2816,7 +2817,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         });
                     } else { self.push_value(index, FrameValue::Value(base), *next); }
                 }
-                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::RecordUpdateItems { base, updates, index: item_index, mut values, span, next } => match value {
                 FrameValue::Value(value) => {
@@ -2830,7 +2831,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.push_value(index, FrameValue::Value(lowered_record_update_batch(base, values, span)?), *next);
                     }
                 }
-                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::RecordItems {
                 entries,
@@ -2904,31 +2905,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Break(value) => { return self.complete_call(index, StmtFlow::Propagate(value)); }
             },
             FrameContinuation::ListCompKey { state, next } => match value {
-                FrameValue::Value(LoweredValue::Str(key)) => {
-                    self.push_expr(
-                        index,
-                        state.value,
-                        state.span,
-                        FrameContinuation::ListCompValue {
-                            state,
-                            key: Some(key.to_string()),
-                            next,
-                        },
-                    );
-                }
                 FrameValue::Value(value) => {
-                    return Err(RuntimeError::new(
-                        "type-error",
-                        format!(
-                            "map comprehension key expected Str, found {}",
-                            value.type_name()
-                        ),
-                    )
-                    .with_span(state.span));
+                    let key = lowered_map_literal_key(&value, state.span)?;
+                    self.push_expr(index, state.value, state.span, FrameContinuation::ListCompValue { state, key: Some(key), next });
                 }
-                FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Propagate(value));
-                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::YieldDelegate { span } => match value {
                 FrameValue::Value(value) => {

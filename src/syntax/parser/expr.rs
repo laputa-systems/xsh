@@ -1201,6 +1201,11 @@ impl<'a> Parser<'a> {
                 let Some(value) = self.parse_precedence_arena_only(0, arena) else {
                     arena.discard_record_fields(); return None;
                 };
+                self.skip_comp_layout();
+                if self.at_keyword(Keyword::For) {
+                    arena.discard_record_fields();
+                    return self.parse_map_comp_tail_arena_only(arena, start, key.id, value.id);
+                }
                 arena.push_record_field_input(ArenaRecordFieldInput::Computed {
                     key: key.id, value: value.id, span: self.span(field_start, value.span.end()),
                 });

@@ -2,6 +2,7 @@
 //! `eval.rs` as a separate `impl Evaluator` block. Registry/bridge methods
 //! (`refresh_lowered_pures`, `call_lowered_pure`) stay in the parent.
 
+use crate::map_key::{MapKey, MapKeyRef};
 use crate::modules::{
     RuntimeOp, api_spec, archive as archive_module, bytes as bytes_module, cli as cli_module,
     diff as diff_module, dns as dns_module, elf as elf_module, fs as fs_module,
@@ -61,11 +62,11 @@ use super::lower::{
     lowered_sum_records, lowered_sum_values, lowered_tag_key, take_shared,
 };
 use super::lowered_ops::{
-    append_lowered_list_element, append_lowered_map_literal, lowered_map_literal_key, checked_int_binary, compare_lowered_sort_keys, lowered_assign_value, lowered_binary_value,
+    append_lowered_list_element, append_lowered_map_literal, lowered_map_literal_key, lowered_map_key_value, checked_int_binary, compare_lowered_sort_keys, lowered_assign_value, lowered_binary_value,
     lowered_bytes_arg, lowered_bytes_parts, lowered_bytes_value, lowered_contains_value,
     lowered_index_value, lowered_method_value, lowered_nonnegative_count,
     lowered_path_method_value, lowered_return_value, lowered_slice_value,
-    lowered_sort_key_orderable, lowered_str_arg, lowered_str_byte_at_value,
+    lowered_sort_key_orderable, lowered_str_byte_at_value,
     lowered_str_byte_len_value, lowered_str_count_lines_value, lowered_str_parts,
     lowered_str_predicate_text, lowered_str_predicate_value, lowered_str_value,
     lowered_trim_is_empty_value, lowered_trim_str_predicate_value, lowered_type_name,
@@ -951,7 +952,7 @@ fn lowered_compact_json_capacity(value: &LoweredValue) -> usize {
         LoweredValue::List(items) => lowered_compact_json_seq_capacity(items.iter()),
         LoweredValue::SharedList(items) => lowered_compact_json_seq_capacity(items.iter()),
         LoweredValue::Map(fields) => {
-            let fields = fields.iter().map(|(key, value)| (key.as_str(), value));
+            let fields = fields.iter().filter_map(|(key, value)| key.as_str().map(|key| (key, value)));
             lowered_compact_json_map_capacity(fields)
         }
         LoweredValue::Record(fields) => {
@@ -1031,13 +1032,13 @@ fn lowered_compact_json_map_capacity<'a>(
 
 fn lowered_compact_json_stats_capacity(
     blanks: i64,
-    blobs: Option<&BTreeMap<String, LoweredValue>>,
+    blobs: Option<&BTreeMap<MapKey, LoweredValue>>,
     code: i64,
     comments: i64,
 ) -> usize {
     let blobs = blobs
         .map(|blobs| {
-            let fields = blobs.iter().map(|(key, value)| (key.as_str(), value));
+            let fields = blobs.iter().map(|(key, value)| (key.as_str().expect("stats blob keys are Str"), value));
             lowered_compact_json_map_capacity(fields)
         })
         .unwrap_or(2);
@@ -1087,8 +1088,11 @@ fn lowered_write_compact_json(
         LoweredValue::List(items) => lowered_write_json_seq(items.iter(), output, span)?,
         LoweredValue::SharedList(items) => lowered_write_json_seq(items.iter(), output, span)?,
         LoweredValue::Map(fields) => {
+            if fields.keys().any(|key| key.as_str().is_none()) {
+                return Err(RuntimeError::new("json-compatible", "JSON objects require Str map keys").with_span(span));
+            }
             lowered_write_json_map(
-                fields.iter().map(|(key, value)| (key.as_str(), value)),
+                fields.iter().map(|(key, value)| (key.as_str().expect("validated Str key"), value)),
                 output,
                 span,
             )?;
@@ -1198,7 +1202,7 @@ fn lowered_write_json_map<'a>(
 
 fn lowered_write_json_stats(
     blanks: i64,
-    blobs: Option<&BTreeMap<String, LoweredValue>>,
+    blobs: Option<&BTreeMap<MapKey, LoweredValue>>,
     code: i64,
     comments: i64,
     output: &mut String,
@@ -1209,7 +1213,7 @@ fn lowered_write_json_stats(
     output.push_str(",\"blobs\":");
     if let Some(blobs) = blobs {
         lowered_write_json_map(
-            blobs.iter().map(|(key, value)| (key.as_str(), value)),
+            blobs.iter().map(|(key, value)| (key.as_str().expect("stats blob keys are Str"), value)),
             output,
             span,
         )?;
@@ -1308,7 +1312,8 @@ fn lowered_to_json(
         LoweredValue::Map(fields) => {
             let mut values = Vec::with_capacity(fields.len());
             for (key, item) in fields.iter() {
-                values.push((key.clone(), lowered_to_json(item, span)?));
+                let key = key.as_str().ok_or_else(|| RuntimeError::new("json-compatible", "JSON objects require Str map keys").with_span(span))?;
+                values.push((key.to_string(), lowered_to_json(item, span)?));
             }
             Ok(json_module::raw_json_object(values))
         }
@@ -1899,7 +1904,7 @@ fn lowered_bool_map_arg(
     value: Option<LoweredValue>,
     operation: &str,
     span: Span,
-) -> Result<Arc<BTreeMap<String, LoweredValue>>, RuntimeError> {
+) -> Result<Arc<BTreeMap<MapKey, LoweredValue>>, RuntimeError> {
     let Some(LoweredValue::Map(items)) = value else {
         return Err(
             RuntimeError::new("type-error", format!("{operation} expected Map[Bool]"))
@@ -2768,8 +2773,8 @@ fn lowered_pipeline_record_list(
                 )),
                 LoweredValue::Map(map) => Ok(Arc::new(
                     map.iter()
-                        .map(|(k, v)| (Arc::from(k.as_str()), v.clone()))
-                        .collect::<BTreeMap<_, _>>(),
+                        .map(|(k, v)| k.as_str().map(|key| (Arc::from(key), v.clone())).ok_or_else(|| RuntimeError::new("type-error", "table rows require Str map keys").with_span(span)))
+                        .collect::<Result<BTreeMap<_, _>, _>>()?,
                 )),
                 other => Err(RuntimeError::new(
                     "type-error",
@@ -3276,26 +3281,26 @@ fn lowered_splice_arg_items(
 // Retaining the source storage keeps keys and values stable across body updates.
 // A range cursor holds only the last key and constructs one structural entry.
 struct LoweredMapCursor {
-    entries: Arc<BTreeMap<String, LoweredValue>>,
-    previous: Option<String>,
+    entries: Arc<BTreeMap<MapKey, LoweredValue>>,
+    previous: Option<MapKey>,
     key_field: Name,
     value_field: Name,
 }
 
 impl LoweredMapCursor {
-    fn new(entries: Arc<BTreeMap<String, LoweredValue>>) -> Self {
+    fn new(entries: Arc<BTreeMap<MapKey, LoweredValue>>) -> Self {
         Self { entries, previous: None, key_field: Name::intern("key"), value_field: Name::intern("value") }
     }
 
     fn next(&mut self) -> Option<LoweredValue> {
         use std::ops::Bound::{Excluded, Unbounded};
-        let selected = match self.previous.as_deref() {
-            Some(previous) => self.entries.range::<str, _>((Excluded(previous), Unbounded)).next(),
+        let selected = match self.previous.as_ref() {
+            Some(previous) => self.entries.range::<MapKey, _>((Excluded(previous), Unbounded)).next(),
             None => self.entries.iter().next(),
         };
         let (key, value) = selected?;
         let entry = LoweredValue::RecordVec(Arc::new(vec![
-            (self.key_field, LoweredValue::Str(Arc::from(key.as_str()))),
+            (self.key_field, lowered_map_key_value(key)),
             (self.value_field, value.clone()),
         ]));
         self.previous = Some(key.clone());
@@ -7083,27 +7088,27 @@ impl Evaluator {
                 let items = lowered_str_list_arg(values.pop(), "set.from", span)?;
                 let mut set = BTreeMap::new();
                 for item in items {
-                    set.insert(item, LoweredValue::Bool(true));
+                    set.insert(item.into(), LoweredValue::Bool(true));
                 }
                 LoweredValue::Map(Arc::new(set))
             }
             RuntimeOp::SetHas if values.len() == 2 => {
                 let item = lowered_str_arg_owned(values.pop(), "", "set.has", span)?;
                 let set = lowered_bool_map_arg(values.pop(), "set.has", span)?;
-                LoweredValue::Bool(set.contains_key(&item))
+                LoweredValue::Bool(MapKeyRef::Str(&item).contains_key(&set))
             }
             RuntimeOp::SetAdd if values.len() == 2 => {
                 let item = lowered_str_arg_owned(values.pop(), "", "set.add", span)?;
                 let set = lowered_bool_map_arg(values.pop(), "set.add", span)?;
                 let mut set = take_shared(set);
-                set.insert(item, LoweredValue::Bool(true));
+                set.insert(item.into(), LoweredValue::Bool(true));
                 LoweredValue::Map(Arc::new(set))
             }
             RuntimeOp::SetRemove if values.len() == 2 => {
                 let item = lowered_str_arg_owned(values.pop(), "", "set.remove", span)?;
                 let set = lowered_bool_map_arg(values.pop(), "set.remove", span)?;
                 let mut set = take_shared(set);
-                set.remove(&item);
+                MapKeyRef::Str(&item).remove(&mut set);
                 LoweredValue::Map(Arc::new(set))
             }
             RuntimeOp::ShlexQuote if values.len() == 1 => {

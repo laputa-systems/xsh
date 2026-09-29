@@ -45,6 +45,7 @@ pub(super) enum TypeTag {
     Unit,
     Tag,
     Optional,
+    UInt,
 }
 
 impl TypeTag {
@@ -55,6 +56,7 @@ impl TypeTag {
                 | Self::Null
                 | Self::Bool
                 | Self::Int
+                | Self::UInt
                 | Self::Float
                 | Self::Duration
                 | Self::Str
@@ -76,7 +78,7 @@ impl TypeTag {
     }
 
     fn has_one_type(self) -> bool {
-        matches!(self, Self::List | Self::Map | Self::Stream | Self::Optional)
+        matches!(self, Self::List | Self::Stream | Self::Optional)
     }
 
     fn has_one_name(self) -> bool {
@@ -216,6 +218,7 @@ impl SemanticPools {
             TypeTag::Null => Type::Null,
             TypeTag::Bool => Type::Bool,
             TypeTag::Int => Type::Int,
+            TypeTag::UInt => Type::UInt,
             TypeTag::Float => Type::Float,
             TypeTag::Duration => Type::Duration,
             TypeTag::Str => Type::Str,
@@ -224,7 +227,7 @@ impl SemanticPools {
             TypeTag::Regex => Type::Regex,
             TypeTag::Path => Type::Path,
             TypeTag::List => Type::List(Box::new(child(data.lhs)?)),
-            TypeTag::Map => Type::Map(Box::new(child(data.lhs)?)),
+            TypeTag::Map => Type::Map(Box::new(child(data.lhs)?), Box::new(child(data.rhs)?)),
             TypeTag::Stream => Type::Stream(Box::new(child(data.lhs)?)),
             TypeTag::Record => {
                 let (names, raw_types) = self.record_fields(id)?;
@@ -366,6 +369,7 @@ impl SemanticPools {
             TypeTag::Null => Some("Null"),
             TypeTag::Bool => Some("Bool"),
             TypeTag::Int => Some("Int"),
+            TypeTag::UInt => Some("UInt"),
             TypeTag::Float => Some("Float"),
             TypeTag::Duration => Some("Duration"),
             TypeTag::Str => Some("Str"),
@@ -396,7 +400,6 @@ impl SemanticPools {
             let inner = self.display_type_inner(inner, depth + 1)?;
             return Ok(match tag {
                 TypeTag::List => format!("List[{inner}]"),
-                TypeTag::Map => format!("Map[{inner}]"),
                 TypeTag::Stream => format!("Stream[{inner}]"),
                 TypeTag::Optional => format!("{inner}?"),
                 _ => unreachable!("one-type tags are exhaustive"),
@@ -406,6 +409,13 @@ impl SemanticPools {
             return Ok(Name::from_symbol(Symbol::from_raw(data.lhs)).to_string());
         }
         match tag {
+            TypeTag::Map => {
+                let key = TypeId::from_raw(data.lhs).ok_or_else(|| IrVerifyError::new("map key type id is invalid"))?;
+                let value = TypeId::from_raw(data.rhs).ok_or_else(|| IrVerifyError::new("map value type id is invalid"))?;
+                let key = self.display_type_inner(key, depth + 1)?;
+                let value = self.display_type_inner(value, depth + 1)?;
+                Ok(if key == "Str" { format!("Map[{value}]") } else { format!("Map[{key}, {value}]") })
+            }
             TypeTag::Result => {
                 let ok = TypeId::from_raw(data.lhs)
                     .ok_or_else(|| IrVerifyError::new("result ok type id is invalid"))?;
@@ -520,9 +530,15 @@ impl SemanticPools {
                 continue;
             }
             match tag {
-                TypeTag::Result => {
+                TypeTag::Map | TypeTag::Result => {
                     verify_type_raw(self, data.lhs, Some(index))?;
                     verify_type_raw(self, data.rhs, Some(index))?;
+                    if tag == TypeTag::Map {
+                        let key = TypeId::from_raw(data.lhs).expect("verified key type id");
+                        if !matches!(self.type_tags[key.index()], TypeTag::Any | TypeTag::Str | TypeTag::Int | TypeTag::UInt | TypeTag::Bool | TypeTag::Bytes | TypeTag::Path | TypeTag::Duration) {
+                            return Err(IrVerifyError::new("Map key type is not an ordered scalar domain"));
+                        }
+                    }
                 }
                 TypeTag::ErrorVariant => {}
                 TypeTag::Record => {
@@ -731,13 +747,14 @@ impl SemanticPoolBuilder {
         ty: &Type,
     ) -> Result<TypeId, IrBuildError> {
         let (key, data, extra) = match ty {
-            Type::Unknown | Type::Invalid => {
+            Type::ReceiverMapKey | Type::ReceiverMapValue | Type::ReceiverMapListItem | Type::Unknown | Type::Invalid => {
                 return Err(IrBuildError::format("recovery_type", None, 0, 0));
             }
             Type::Any => scalar(TypeTag::Any),
             Type::Null => scalar(TypeTag::Null),
             Type::Bool => scalar(TypeTag::Bool),
             Type::Int => scalar(TypeTag::Int),
+            Type::UInt => scalar(TypeTag::UInt),
             Type::Float => scalar(TypeTag::Float),
             Type::Duration => scalar(TypeTag::Duration),
             Type::Str => scalar(TypeTag::Str),
@@ -746,7 +763,11 @@ impl SemanticPoolBuilder {
             Type::Regex => scalar(TypeTag::Regex),
             Type::Path => scalar(TypeTag::Path),
             Type::List(inner) => self.unary(pools, TypeTag::List, inner)?,
-            Type::Map(inner) => self.unary(pools, TypeTag::Map, inner)?,
+            Type::Map(key, value) => {
+                let key = self.intern_type(pools, key)?;
+                let value = self.intern_type(pools, value)?;
+                (TypeKey::Pair(TypeTag::Map, key, value), IrData::new(key.raw(), value.raw()), Vec::new())
+            },
             Type::Stream(inner) => self.unary(pools, TypeTag::Stream, inner)?,
             Type::Record(fields) => {
                 let names = fields.keys().copied().collect::<Vec<_>>();
@@ -990,6 +1011,20 @@ fn checked_u32(value: usize, construct: &'static str) -> Result<u32, IrBuildErro
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn typed_map_keys_semantic_pool_retains_both_types_and_rejects_float_keys() {
+        let mut pools = super::SemanticPools::default();
+        let mut builder = super::SemanticPoolBuilder::default();
+        let float = builder.intern_type(&mut pools, &crate::sema::types::Type::Float).unwrap();
+        let map = crate::sema::types::Type::Map(Box::new(crate::sema::types::Type::UInt), Box::new(crate::sema::types::Type::Str));
+        let id = builder.intern_type(&mut pools, &map).unwrap();
+        pools.verify().unwrap();
+        assert_eq!(pools.to_type(id).unwrap(), map);
+        assert_eq!(pools.display_type(id).unwrap(), "Map[UInt, Str]");
+        pools.type_data[id.index()].lhs = float.raw();
+        assert!(pools.verify().unwrap_err().message.contains("Map key type"));
+    }
+
     use super::*;
     use crate::sema::types::{CallableParamType, CallableType};
     use std::collections::BTreeMap;

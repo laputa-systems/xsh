@@ -2800,7 +2800,7 @@ fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
         LoweredType::Record => Type::Record(BTreeMap::new()),
         LoweredType::Module => Type::Module(BTreeMap::new()),
         LoweredType::List => Type::List(Box::new(Type::Any)),
-        LoweredType::Map => Type::Map(Box::new(Type::Any)),
+        LoweredType::Map => Type::Map(Box::new(Type::Str), Box::new(Type::Any)),
         LoweredType::Result => Type::Result(Box::new(Type::Any), Box::new(Type::Error)),
         LoweredType::Tag => Type::Tag(Name::intern("<tag>")),
     })
@@ -2813,7 +2813,7 @@ fn executable_type(ty: &Type) -> Type {
     match ty {
         Type::Unknown | Type::Invalid => Type::Any,
         Type::List(inner) => Type::List(Box::new(executable_type(inner))),
-        Type::Map(inner) => Type::Map(Box::new(executable_type(inner))),
+        Type::Map(key, inner) => Type::Map(Box::new(executable_type(key)), Box::new(executable_type(inner))),
         Type::Stream(inner) => Type::Stream(Box::new(executable_type(inner))),
         Type::Optional(inner) => Type::Optional(Box::new(executable_type(inner))),
         Type::Result(ok, error) => Type::Result(
@@ -2873,7 +2873,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
     Ok(match ty {
         Type::Any | Type::Unknown => LoweredType::Any,
         Type::Unit => LoweredType::Unit,
-        Type::Int => LoweredType::Int,
+        Type::Int | Type::UInt => LoweredType::Int,
         Type::Float => LoweredType::Float,
         Type::Duration => LoweredType::Duration,
         Type::Bool => LoweredType::Bool,
@@ -2895,11 +2895,11 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Record(_) => LoweredType::Record,
         Type::Module(_) | Type::DynamicModule => LoweredType::Module,
         Type::List(_) => LoweredType::List,
-        Type::Map(_) => LoweredType::Map,
+        Type::Map(_, _) => LoweredType::Map,
         Type::Tag(_) => LoweredType::Tag,
         Type::Result(_, _) => LoweredType::Result,
         Type::Null | Type::Optional(_) => LoweredType::Any,
-        Type::Invalid | Type::EnvPathList | Type::ProcessError => {
+        Type::ReceiverMapKey | Type::ReceiverMapValue | Type::ReceiverMapListItem | Type::Invalid | Type::EnvPathList | Type::ProcessError => {
             return Err(IrVerifyError::new(
                 "semantic type has no lowered runtime equivalent",
             ));
@@ -5086,6 +5086,18 @@ macro_rules! impl_btree_codec {
 }
 
 impl_btree_codec!(String, LoweredValue);
+impl_btree_codec!(crate::map_key::MapKey, LoweredValue);
+
+impl FullCodec for crate::map_key::MapKey {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        crate::runtime::eval::lowered_ops::lowered_map_key_value(self).encode(builder, output)
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        let value = LoweredValue::decode(decoder, input)?;
+        crate::runtime::eval::lowered_ops::lowered_map_key_ref(&value, crate::source::Span::at(crate::source::SourceId::new(0), 0))
+            .map(|key| key.to_owned()).map_err(|_| IrVerifyError::new("map payload contains an invalid scalar key"))
+    }
+}
 impl_btree_codec!(Arc<str>, LoweredValue);
 
 impl FullCodec for LoweredValue {
@@ -5246,7 +5258,7 @@ impl FullCodec for LoweredValue {
             },
             FullValueTag::StatsBlob => Self::StatsBlob(Box::new(LoweredStatsValue {
                 blanks: i64::decode(decoder, &mut payload)?,
-                blobs: BTreeMap::<String, LoweredValue>::decode(decoder, &mut payload)?,
+                blobs: BTreeMap::<crate::map_key::MapKey, LoweredValue>::decode(decoder, &mut payload)?,
                 code: i64::decode(decoder, &mut payload)?,
                 comments: i64::decode(decoder, &mut payload)?,
             })),
@@ -5254,7 +5266,7 @@ impl FullCodec for LoweredValue {
                 BTreeMap::<Arc<str>, LoweredValue>::decode(decoder, &mut payload)?,
             )),
             FullValueTag::List => Self::List(Vec::<LoweredValue>::decode(decoder, &mut payload)?),
-            FullValueTag::Map => Self::Map(Arc::new(BTreeMap::<String, LoweredValue>::decode(
+            FullValueTag::Map => Self::Map(Arc::new(BTreeMap::<crate::map_key::MapKey, LoweredValue>::decode(
                 decoder,
                 &mut payload,
             )?)),
@@ -8862,6 +8874,22 @@ proc main() [error] {
         let mut bad_location = program;
         bad_location.store.locations[0].start = u32::MAX;
         assert!(FullVerifier::verify(&bad_location).is_err());
+    }
+
+    #[test]
+    fn typed_map_keys_execute_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = "pure counts() -> Int {\n  var values: Map[Int, Int] = {[20]: 2, [3]: 1}\n  let older = values\n  values[3] = 9\n  let keys: List[Int] = values.keys()\n  return keys[0] + older[3] + values.get(3)?\n}\n";
+            let program = fixture("typed-map.xsh", source);
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0)).expect("typed Map function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(13));
+            }
+        });
     }
 
     #[test]

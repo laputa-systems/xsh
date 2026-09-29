@@ -2200,9 +2200,13 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     pub fn push_map_type_expr(&mut self, inner: TypeExprId, span: Span) -> TypeExprId {
+        self.push_typed_map_type_expr(None, inner, span)
+    }
+
+    pub fn push_typed_map_type_expr(&mut self, key: Option<TypeExprId>, value: TypeExprId, span: Span) -> TypeExprId {
         self.push_type_expr_row(
             ArenaTypeExprTag::Map,
-            ArenaTypeExprData::new(raw_type_expr_id(inner), 0),
+            ArenaTypeExprData::new(raw_type_expr_id(value), optional_raw_type_expr_id(key)),
             span,
         )
     }

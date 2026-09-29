@@ -3942,3 +3942,29 @@ fn lexical_ctx_linter_visits_label_effects_and_body_bindings() {
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
     assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.unused-binding")), "{:?}", output.diagnostics);
 }
+
+#[test]
+fn typed_map_keys_formatter_and_checked_literal_fix_converge() {
+    let source = "type Identifier = Int\nvar values: Map[Identifier, Str] = {}\nvalues = values.set(20, \"twenty\")\nvalues = values.set(3, \"three\")\nprint values.len()\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let hint = output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.prefer-map-literal")).flat_map(|d| &d.fix_hints).max_by_key(|h| h.span.unwrap().range().len()).expect("typed Map literal fix");
+    let mut fixed = source.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
+    assert!(fixed.contains("var values: Map[Identifier, Str] = {[20]: \"twenty\", [3]: \"three\"}"));
+    assert_parse_check_standalone("typed Map construction", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty());
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+    let parsed = parse_lint_source(&formatted.formatted);
+    let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
+    let second = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-map-literal")));
+    let source = "let values = {[key + 1]: value for {key, value} in {[1]: 2}}\n";
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty());
+    assert_parse_check_standalone("computed comprehension key", &formatted.formatted);
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+}

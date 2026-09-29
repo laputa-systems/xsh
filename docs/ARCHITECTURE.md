@@ -726,3 +726,9 @@ runtime-error transport searches the current frame and then caller frames only
 after callee defers finish. Ordinary lexical return and loop transfers retain
 their targets. These boundaries survive producer suspension and cancellation;
 recursive calls inside capture remain on the heap frame stack.
+
+The mount usage graph's `MountUsageIndex.by_id` stores numeric mount IDs directly.
+The index is used only for lookup, never serialized or traversed for presentation;
+its negative sentinel is a value, and target counts and the string Set used for
+cycle detection retain their textual contracts. This migration removes an
+internal decimal encoding without changing graph traversal or output order.

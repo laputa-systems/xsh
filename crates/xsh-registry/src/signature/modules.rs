@@ -891,7 +891,7 @@ fn patch_module() -> ModuleSig {
 }
 
 fn map_module() -> ModuleSig {
-    let map_unknown = || Type::Map(Box::new(Type::Any));
+    let map_unknown = || Type::Map(Box::new(Type::Unknown), Box::new(Type::Any));
     module_sig(vec![(
         "empty",
         sig(Vec::new(), map_unknown(), true, RuntimeOp::MapEmpty),
@@ -899,7 +899,7 @@ fn map_module() -> ModuleSig {
 }
 
 fn set_module() -> ModuleSig {
-    let set_type = || Type::Map(Box::new(Type::Bool));
+    let set_type = || Type::Map(Box::new(Type::Str), Box::new(Type::Bool));
     module_sig(vec![
         (
             "empty",

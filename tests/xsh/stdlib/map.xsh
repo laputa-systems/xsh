@@ -231,9 +231,9 @@ print values.len()
   test.eq(output.stdout, "value\nkey\n")?
 }
 
-test test_map_literals_reject_non_string_keys_bad_spreads_and_incompatible_values [error] { |ctx|
+test test_map_literals_reject_wrong_key_context_bad_spreads_and_incompatible_values [error] { |ctx|
   for source in [
-    "let value = {[1]: 2}\n",
+    "let value: Map[Int] = {[1]: 2}\n",
     "let key: Any = \"name\"\nlet value = {[key]: 2}\n",
     "let value = {[\"name\"]: 2, other: \"wrong\"}\n",
     "let value: Map[Int] = {one: \"wrong\"}\n",

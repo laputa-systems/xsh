@@ -67,7 +67,7 @@ impl Checker {
                 "check.unknown-method",
             );
         }
-        if base_ty == Type::Int {
+        if matches!(base_ty, Type::Int | Type::UInt) {
             return self.check_registered_method_arena(
                 arena,
                 source,
@@ -103,7 +103,7 @@ impl Checker {
                 "check.unknown-method",
             );
         }
-        if matches!(base_ty, Type::Map(_)) {
+        if matches!(base_ty, Type::Map(_, _)) {
             return self.check_registered_method_arena(
                 arena,
                 source,
@@ -290,6 +290,14 @@ impl Checker {
             self.report_unknown_method(receiver, receiver_ty, name, span, unknown_code);
             return Type::Unknown;
         };
+        let instantiated;
+        let overloads = if receiver == MethodReceiver::Map {
+            instantiated = overloads.iter().cloned().map(|mut method| {
+                for param in &mut method.sig.params { param.ty = param.ty.for_map_receiver(receiver_ty); }
+                method
+            }).collect::<Vec<_>>();
+            &instantiated
+        } else { overloads };
         let (method, args_checked) =
             self.choose_method_sig_arena(arena, source, name, args, overloads, span);
         if self.in_pure && !method.sig.pure {
@@ -451,16 +459,18 @@ impl Checker {
         span: Span,
     ) -> Type {
         let item_ty = map_item_ty(receiver_ty);
+        let key_ty = match receiver_ty { Type::Map(key, _) => key.as_ref().clone(), _ => Type::Str };
         match name {
             "set" => {
                 self.check_standard_arg_shape_arena(arena, args, &["key", "value"], span);
-                self.check_api_arg_arena(arena, source, args, 0, Some(&Type::Str));
+                let actual_key = self.check_api_arg_arena(arena, source, args, 0, Some(&key_ty));
+                let key_ty = if key_ty.is_recovery() { actual_key } else { key_ty };
                 let value_ty = self.check_api_arg_arena(arena, source, args, 1, Some(&item_ty));
-                Type::Map(Box::new(merge_collection_item_ty(item_ty, value_ty)))
+                Type::Map(Box::new(key_ty), Box::new(merge_collection_item_ty(item_ty, value_ty)))
             }
             "push" => {
                 self.check_standard_arg_shape_arena(arena, args, &["key", "value"], span);
-                self.check_api_arg_arena(arena, source, args, 0, Some(&Type::Str));
+                self.check_api_arg_arena(arena, source, args, 0, Some(&key_ty));
                 let list_item_ty = match &item_ty {
                     Type::List(inner) => inner.as_ref().clone(),
                     Type::Any | Type::Unknown => Type::Any,
@@ -476,7 +486,7 @@ impl Checker {
                 let value_ty =
                     self.check_api_arg_arena(arena, source, args, 1, Some(&list_item_ty));
                 let merged = merge_collection_item_ty(list_item_ty, value_ty);
-                Type::Map(Box::new(Type::List(Box::new(merged))))
+                Type::Map(Box::new(key_ty), Box::new(Type::List(Box::new(merged))))
             }
             "get" => {
                 let has_fallback = args.len() >= 2;
@@ -485,7 +495,7 @@ impl Checker {
                 } else {
                     self.check_standard_arg_shape_arena(arena, args, &["key"], span);
                 }
-                self.check_api_arg_arena(arena, source, args, 0, Some(&Type::Str));
+                self.check_api_arg_arena(arena, source, args, 0, Some(&key_ty));
                 if has_fallback {
                     let fallback_ty =
                         self.check_api_arg_arena(arena, source, args, 1, Some(&item_ty));
@@ -494,9 +504,18 @@ impl Checker {
                     Type::Result(Box::new(item_ty), Box::new(Type::Error))
                 }
             }
+            "has" => {
+                self.check_standard_arg_shape_arena(arena, args, &["key"], span);
+                self.check_api_arg_arena(arena, source, args, 0, Some(&key_ty));
+                Type::Bool
+            }
+            "keys" => {
+                self.check_standard_arg_shape_arena(arena, args, &[], span);
+                Type::List(Box::new(key_ty))
+            }
             "remove" => {
                 self.check_standard_arg_shape_arena(arena, args, &["key"], span);
-                self.check_api_arg_arena(arena, source, args, 0, Some(&Type::Str));
+                self.check_api_arg_arena(arena, source, args, 0, Some(&key_ty));
                 receiver_ty.clone()
             }
             "values" => {

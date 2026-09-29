@@ -863,7 +863,7 @@ pub enum Value {
     Regex(RegexValue),
     Path(PathValue),
     List(Vec<Value>),
-    Map(BTreeMap<String, Value>),
+    Map(BTreeMap<MapKey, Value>),
     Stream(Box<StreamValue>),
     Record(RecordMap),
     FsEntry(FsEntryValue),

@@ -312,7 +312,7 @@ impl Checker {
                     let _key_ty = result_ok_or_self(
                         &self.check_required_stream_block_arena(arena, source, stage, &item_ty),
                     );
-                    Type::Map(Box::new(Type::Int))
+                    Type::Map(Box::new(Type::Str), Box::new(Type::Int))
                 } else {
                     Type::Int
                 }
@@ -339,7 +339,7 @@ impl Checker {
                         .unwrap_or(Type::Unknown),
                     _ => Type::Unknown,
                 };
-                Type::Map(Box::new(value_ty))
+                Type::Map(Box::new(Type::Str), Box::new(value_ty))
             }
         }
     }

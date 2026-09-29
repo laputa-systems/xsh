@@ -230,10 +230,12 @@ pub(super) fn test_mock_expected_return_type(op: &str) -> Option<Type> {
 #[cfg(feature = "native-tests")]
 pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
     match ty {
+        Type::ReceiverMapKey | Type::ReceiverMapValue | Type::ReceiverMapListItem => false,
         Type::Any | Type::Unknown | Type::Invalid => true,
         Type::Null => matches!(value, Value::Null),
         Type::Bool => matches!(value, Value::Bool(_)),
         Type::Int => matches!(value, Value::Int(_)),
+        Type::UInt => matches!(value, Value::Int(value) if *value >= 0),
         Type::Float => matches!(value, Value::Float(_)),
         Type::Duration => matches!(value, Value::Duration(_)),
         Type::Str => matches!(value, Value::Str(_)),
@@ -247,10 +249,8 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
                 .all(|item| test_value_matches_type(item, item_ty)),
             _ => false,
         },
-        Type::Map(item_ty) => match value {
-            Value::Map(items) => items
-                .values()
-                .all(|item| test_value_matches_type(item, item_ty)),
+        Type::Map(key_ty, item_ty) => match value {
+            Value::Map(items) => items.iter().all(|(key, item)| super::map_key_matches_type(key, key_ty) && test_value_matches_type(item, item_ty)),
             _ => false,
         },
         Type::Stream(item_ty) => match value {
@@ -556,10 +556,10 @@ pub(super) fn module_contract_type_matches(
         };
     }
     if let Some(inner) = module_contract_generic_body(expected, "Map") {
+        let parts = module_contract_split_types(inner);
+        let (key_ty, value_ty) = match parts.as_slice() { [value] => ("Str", *value), [key, value] => (*key, *value), _ => return false };
         return match value {
-            Value::Map(items) => items
-                .values()
-                .all(|item| module_contract_type_matches(signatures, item, inner)),
+            Value::Map(items) => items.iter().all(|(key, item)| module_contract_type_matches(signatures, &key.clone().into_value(), key_ty) && module_contract_type_matches(signatures, item, value_ty)),
             _ => false,
         };
     }
@@ -658,7 +658,10 @@ pub(super) fn module_contract_type_from_str(text: &str) -> Option<Type> {
         return Some(Type::List(Box::new(module_contract_type_from_str(inner)?)));
     }
     if let Some(inner) = module_contract_generic_body(text, "Map") {
-        return Some(Type::Map(Box::new(module_contract_type_from_str(inner)?)));
+        let parts = module_contract_split_types(inner);
+        let (key, value) = match parts.as_slice() { [value] => (Type::Str, module_contract_type_from_str(value)?), [key, value] => (module_contract_type_from_str(key)?, module_contract_type_from_str(value)?), _ => return None };
+        if !key.is_map_key() { return None; }
+        return Some(Type::Map(Box::new(key), Box::new(value)));
     }
     if let Some(inner) = module_contract_generic_body(text, "Stream") {
         return Some(Type::Stream(Box::new(module_contract_type_from_str(
@@ -737,7 +740,9 @@ pub(super) fn module_contract_dynamic_type(value: &Value) -> String {
         }
         Value::Map(items) => {
             let inner = homogeneous_dynamic_type(items.values()).unwrap_or("Any".to_string());
-            format!("Map[{inner}]")
+            let key_values = items.keys().cloned().map(|key| key.into_value()).collect::<Vec<_>>();
+            let key = homogeneous_dynamic_type(key_values.iter()).unwrap_or("Str".to_string());
+            if key == "Str" { format!("Map[{inner}]") } else { format!("Map[{key}, {inner}]") }
         }
         Value::Stream(stream) => {
             let inner = homogeneous_dynamic_type(stream.items.iter().map(|item| &item.value))
@@ -898,8 +903,9 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
         Value::Map(map) => {
             let mut out = format!("M{}", map.len());
             for (k, v) in map {
+                let k_enc = encode_cache_key_value(&k.clone().into_value())?;
                 let v_enc = encode_cache_key_value(v)?;
-                out.push_str(&format!(":{}:{}:{}:{}", k.len(), k, v_enc.len(), v_enc));
+                out.push_str(&format!(":{}:{}:{}:{}", k_enc.len(), k_enc, v_enc.len(), v_enc));
             }
             out
         }

@@ -277,7 +277,7 @@ pub fn mime_info_type() -> Type {
 pub fn mime_parse_type() -> Type {
     Type::Record(name_type_map(vec![
         ("type".to_string(), Type::Str),
-        ("params".to_string(), Type::Map(Box::new(Type::Str))),
+        ("params".to_string(), Type::Map(Box::new(Type::Str), Box::new(Type::Str))),
     ]))
 }
 

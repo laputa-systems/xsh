@@ -60,6 +60,9 @@ builtin_type_names!(
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Type {
+    ReceiverMapKey,
+    ReceiverMapValue,
+    ReceiverMapListItem,
     Any,
     Unknown,
     Invalid,
@@ -74,7 +77,7 @@ pub enum Type {
     Regex,
     Path,
     List(Box<Type>),
-    Map(Box<Type>),
+    Map(Box<Type>, Box<Type>),
     Stream(Box<Type>),
     Record(BTreeMap<String, Type>),
     Module(BTreeMap<String, Type>),

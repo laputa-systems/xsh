@@ -838,8 +838,16 @@ join, normalize, expand, glob, or confine paths: separators and `..` remain
 exactly present, and rooted filesystem APIs retain confinement ownership.
 NUL remains invalid in paths and argv; interpolation does not split words.
 
-`Map[T]` is a deterministic string-keyed collection whose values
-all have type `T`.
+`Map[K, V]` is a deterministic ordered collection with homogeneous scalar keys
+and values of type `V`. `Map[V]` is shorthand for `Map[Str, V]`. Key types resolve
+to `Str`, `Int`, `UInt`, `Bool`, `Bytes`, `Path`, or
+`Duration`; `Any`, `Float`, records, collections, and handles are excluded.
+UInt retains a nonnegative semantic constraint through aliases; its runtime keys
+use the same Int representation, with checked literal, lookup, update, and schema
+boundaries rejecting negative values. Numeric and duration keys order numerically, Boolean keys order false before
+true, strings use their ordinary order, and Bytes and Path keys use native byte
+identity and lexicographic byte order. Keys are never implicitly displayed or
+converted between domains.
 
 `Float` is an IEEE 754 binary64 scalar for measured quantities such as rates,
 percentages, load averages, and JSON metrics. Float equality is exact over the
@@ -1089,8 +1097,10 @@ A nonempty constant-key literal also constructs a Map in an expected `Map[T]`
 context; otherwise ordinary brace literals remain records. Map entries may mix
 computed keys, constant labels, and `...Map` spreads. A spread-only literal
 requires Map context; a bound record or dynamic object is not a Map spread.
-Computed keys require Str with no display conversion. Quoted dots remain part
-of one key. Values use ordinary homogeneous inference and contextual typing;
+Computed keys infer one supported scalar domain, or use the expected key type.
+Mixed concrete domains are errors. Constant labels remain Str keys. Quoted dots
+remain part of one key. Computed comprehension keys use the same `[expression]`
+syntax when the key is more than a name or field path. Values use ordinary homogeneous inference and contextual typing;
 incompatible concrete values are not weakened to Any.
 
 Entries evaluate once from left to right, each computed key before its value.
@@ -1792,8 +1802,8 @@ patterns and guards, and retains matches containing comments. Explicit Result
 Ok/Err complements are eligible only when the checked subject is a Result.
 
 `for` and comprehension clauses iterate over `List[T]`, `Stream[T]`, and
-`Map[T]`, including their supported outer `Result` wrappers. A map item has
-structural type `{key: Str, value: T}` for both simple and destructured targets.
+`Map[K, V]`, including their supported outer `Result` wrappers. A map item has
+structural type `{key: K, value: V}` for both simple and destructured targets.
 Entries follow the same deterministic key order as `Map.keys()` and
 `Map.values()`. The receiver is evaluated once; a cursor retains its storage as
 a snapshot, so later assignments to the original map do not change the keys or
@@ -3059,18 +3069,23 @@ List values expose collection operations as methods:
   binding annotation or later typed API boundary. In those map-typed contexts,
   `{}` is equivalent to `map.empty()`.
 
-Map values expose all routine map operations as methods:
+Map values expose routine methods with receiver-bound key and value types:
 
 - `.len() -> Int`.
-- `.has(key: Str) -> Bool`.
-- `.get(key: Str) -> Result[T]`.
-- `.get(key: Str, default: T) -> T`.
-- `.set(key: Str, value: T) -> Map[T]`.
-- `.push(key: Str, value: T) -> Map[List[T]]` when the receiver is
-  `Map[List[T]]`; missing keys are created with a singleton list.
-- `.remove(key: Str) -> Map[T]`.
-- `.keys() -> List[Str]`, in deterministic key order.
-- `.values() -> List[T]`, in deterministic key order.
+- `.has(key: K) -> Bool`.
+- `.get(key: K) -> Result[V]`.
+- `.get(key: K, default: V) -> V`.
+- `.set(key: K, value: V) -> Map[K, V]`.
+- `.push(key: K, value: T) -> Map[K, List[T]]` for list-valued receivers;
+  missing keys are created with a singleton list.
+- `.remove(key: K) -> Map[K, V]`.
+- `.keys() -> List[K]` and `.values() -> List[V]`, both in canonical key order.
+
+Lookup uses borrowed scalar views. Updates retain source evaluation order and
+copy storage only when shared. JSON objects and environment names require Str
+keys; non-string maps must be converted explicitly by the application before
+crossing those boundaries. Numeric keys can change traversal order relative to
+encoded decimal strings, so textual-key migration is never a general autofix.
 
 `set`:
 

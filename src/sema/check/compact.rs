@@ -1277,10 +1277,10 @@ impl CompactBodyProbe<'_> {
             }
             ArenaExprKind::MapComp { key, value, qualifiers } => {
                 let scopes = self.check_comp_qualifiers(qualifiers);
-                self.check_compact_expr(key);
+                let key_ty = self.check_compact_expr(key);
                 let item = self.check_compact_expr(value);
                 for _ in 0..scopes { self.pop_scope(); }
-                Type::Map(Box::new(item))
+                Type::Map(Box::new(key_ty), Box::new(item))
             }
             ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } | ArenaExprKind::PatternCondition { value, arms } => {
                 let subject = self.check_compact_expr(value);
@@ -1349,12 +1349,17 @@ impl CompactBodyProbe<'_> {
     fn apply_compact_expected(&mut self, expr: ExprId, expected: &Type) {
         let expected = expected.result_ok().unwrap_or(expected);
         match self.program.arena.expr(expr).kind {
+            ArenaExprKind::MapComp { key, value, .. } => if let Type::Map(expected_key, item) = expected {
+                self.output.expr_types.insert(expr, expected.clone());
+                self.apply_compact_expected(key, expected_key);
+                self.apply_compact_expected(value, item);
+            },
             ArenaExprKind::Record(fields) => {
                 if self.program.arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. })) {
                     return;
                 }
                 match expected {
-                    Type::Map(item) => {
+                    Type::Map(_, item) => {
                         self.output.expr_types.insert(expr, expected.clone());
                         for field in self.program.arena.record_fields(fields).to_vec() {
                             match field.kind {
@@ -1418,17 +1423,20 @@ impl CompactBodyProbe<'_> {
         let updating = self.program.arena.record_fields(range).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. }));
         if !updating && self.program.arena.record_fields(range).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })) {
             let mut item = None;
+            let mut key_ty = None;
             for field in self.program.arena.record_fields(range).to_vec() {
-                let ty = match field.kind {
-                    ArenaRecordFieldKind::Computed { key, value, .. } => { self.check_compact_expr(key); self.check_compact_expr(value) }
-                    ArenaRecordFieldKind::Path { value, .. } | ArenaRecordFieldKind::Named { value, .. } => self.check_compact_expr(value),
-                    ArenaRecordFieldKind::Shorthand { name, .. } => self.lookup_name(name),
-                    ArenaRecordFieldKind::Spread { expr, .. } => match self.check_compact_expr(expr) { Type::Map(item) => *item, _ => Type::Unknown },
+                let (key, ty) = match field.kind {
+                    ArenaRecordFieldKind::Computed { key, value, .. } => (self.check_compact_expr(key), self.check_compact_expr(value)),
+                    ArenaRecordFieldKind::Path { value, .. } | ArenaRecordFieldKind::Named { value, .. } => (Type::Str, self.check_compact_expr(value)),
+                    ArenaRecordFieldKind::Shorthand { name, .. } => (Type::Str, self.lookup_name(name)),
+                    ArenaRecordFieldKind::Spread { expr, .. } => match self.check_compact_expr(expr) { Type::Map(key, item) => (*key, *item), _ => (Type::Unknown, Type::Unknown) },
                 };
+                key_ty = Some(merge_types(key_ty, key));
                 item = Some(merge_types(item, ty));
             }
-            return Type::Map(Box::new(item.unwrap_or(Type::Unknown)));
+            return Type::Map(Box::new(key_ty.unwrap_or(Type::Str)), Box::new(item.unwrap_or(Type::Unknown)));
         }
+
         let mut fields = BTreeMap::new();
         for field in self.program.arena.record_fields(range) {
             match &field.kind {
@@ -1538,7 +1546,7 @@ impl CompactBodyProbe<'_> {
         if let Some(params) = params { self.apply_compact_call_expected(args, &params); }
         if let ArenaExprKind::Field { base, name } = callee_expr.kind {
             let base_ty = self.output.expr_types.get(&base).cloned();
-            let item = match base_ty { Some(Type::Map(item)) if name == "set" => Some((1, *item)), Some(Type::List(item)) if name == "push" => Some((0, *item)), _ => None };
+            let item = match base_ty { Some(Type::Map(_, item)) if name == "set" => Some((1, *item)), Some(Type::List(item)) if name == "push" => Some((0, *item)), _ => None };
             if let Some((index, item)) = item && let Some(arg) = self.program.arena.call_args(args).get(index)
                 && let crate::syntax::arena::ArenaCallArgKind::Positional(value) = arg.kind { self.apply_compact_expected(value, &item); }
         }
@@ -1591,8 +1599,15 @@ impl CompactBodyProbe<'_> {
                 return Type::Tag(variant.type_name);
             }
         }
-        if let Some(return_ty) = self.compact_module_call_type(callee_expr.kind, args) {
+        if let Some(return_ty) = self.compact_module_call_type(callee_expr.kind.clone(), args) {
             return return_ty;
+        }
+        if let ArenaExprKind::Field { base, name } = callee_expr.kind {
+            if let Some(receiver @ Type::Map(_, _)) = self.output.expr_types.get(&base) {
+                if let Some(method) = api_spec().method_overloads(crate::modules::signature::MethodReceiver::Map, name.as_str().as_str()).and_then(|methods| methods.iter().find(|method| method.sig.params.len() == self.program.arena.call_args(args).len())) {
+                    return method.concrete_return_ty(receiver);
+                }
+            }
         }
         match callee_ty {
             Type::Pure | Type::Proc => Type::Unknown,
@@ -1955,7 +1970,7 @@ impl CompactBodyProbe<'_> {
         match self.program.arena.assign_target(target).kind {
             ArenaAssignTargetKind::Name(name) => Some(self.lookup_name(name)),
             ArenaAssignTargetKind::Field { base, name } => match self.compact_assign_target_type(base)? { Type::Record(fields) => fields.get(&name).cloned(), _ => None },
-            ArenaAssignTargetKind::Index { base, .. } => match self.compact_assign_target_type(base)? { Type::Map(item) | Type::List(item) => Some(*item), _ => None },
+            ArenaAssignTargetKind::Index { base, .. } => match self.compact_assign_target_type(base)? { Type::Map(_, item) | Type::List(item) => Some(*item), _ => None },
         }
     }
 
@@ -2117,7 +2132,7 @@ fn compact_probe_type_from_arena(
             declarations,
             depth,
         ))),
-        ArenaTypeExprTag::Map => Type::Map(Box::new(compact_probe_type_from_arena(
+        ArenaTypeExprTag::Map => Type::Map(Box::new(TypeExprId::from_optional_raw(data.rhs).map_or(Type::Str, |id| compact_probe_type_from_arena(arena, id, declarations, depth))), Box::new(compact_probe_type_from_arena(
             arena,
             TypeExprId::from_index(data.lhs as usize),
             declarations,
@@ -2194,7 +2209,7 @@ fn compact_probe_record_type(
 fn collection_item_type(ty: &Type) -> Type {
     if let Some(item) = ty.iteration_item_type() { return item; }
     match ty {
-        Type::List(item) | Type::Stream(item) | Type::Map(item) => item.as_ref().clone(),
+        Type::List(item) | Type::Stream(item) | Type::Map(_, item) => item.as_ref().clone(),
         Type::Str => Type::Str,
         Type::Bytes => Type::Int,
         Type::Unknown | Type::Invalid | Type::Any => ty.clone(),
@@ -2241,7 +2256,7 @@ fn compact_field_type(ty: Type, name: Name) -> Type {
 
 fn index_type(ty: &Type) -> Type {
     match ty {
-        Type::List(item) | Type::Map(item) | Type::Stream(item) => item.as_ref().clone(),
+        Type::List(item) | Type::Map(_, item) | Type::Stream(item) => item.as_ref().clone(),
         Type::Str => Type::Str,
         Type::Bytes => Type::Int,
         Type::Unknown | Type::Invalid | Type::Any => ty.clone(),

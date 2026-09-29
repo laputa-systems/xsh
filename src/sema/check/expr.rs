@@ -48,7 +48,8 @@ fn merge_list_literal_item_ty(current: &Type, next: &Type) -> Option<Type> {
 fn capture_success_underconstrained(ty: &Type) -> bool {
     match ty {
         Type::Unknown => true,
-        Type::Result(ok, _) | Type::List(ok) | Type::Map(ok) | Type::Optional(ok) => capture_success_underconstrained(ok),
+        Type::Result(ok, _) | Type::List(ok) | Type::Optional(ok) => capture_success_underconstrained(ok),
+        Type::Map(key, value) => capture_success_underconstrained(key) || capture_success_underconstrained(value),
         Type::Record(fields) => fields.values().any(capture_success_underconstrained),
         _ => false,
     }
@@ -244,7 +245,7 @@ impl Checker {
                     let ArenaExprKind::Binary { left, right, .. } = arena.arena.expr(pair).kind else { unreachable!() };
                     let left_ty = previous.take().unwrap_or_else(|| self.check_expr_arena(arena, source, left, None));
                     let right_ty = self.check_expr_arena(arena, source, right, Some(&left_ty));
-                    if !matches!(left_ty, Type::Int | Type::Float | Type::Duration | Type::Str | Type::Any | Type::Unknown) {
+                    if !matches!(left_ty, Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str | Type::Any | Type::Unknown) {
                         self.error(arena.arena.expr(left).span, "comparison requires Int, Float, Str, or Duration", "check.operator-type");
                     }
                     self.expect_type(&left_ty, &right_ty, arena.arena.expr(right).span);
@@ -401,39 +402,42 @@ impl Checker {
     }
 
     fn check_map_literal_arena(&mut self, arena: &ArenaProgram, source: &str, range: ArenaRange, expected: Option<&Type>) -> Type {
-        let expected_item = match expected { Some(Type::Map(item)) => Some(item.as_ref()), _ => None };
+        let (expected_key, expected_item) = match expected { Some(Type::Map(key, item)) => (Some(key.as_ref()), Some(item.as_ref())), _ => (None, None) };
+        let mut inferred_key = expected_key.cloned().unwrap_or(Type::Unknown);
         let mut inferred = expected_item.cloned().unwrap_or(Type::Unknown);
         for field in arena.arena.record_fields(range) {
-            let (actual, span) = match field.kind {
+            let (key_ty, actual, span) = match field.kind {
                 ArenaRecordFieldKind::Computed { key, value, span } => {
-                    let key_ty = self.check_expr_arena(arena, source, key, Some(&Type::Str));
-                    if !matches!(key_ty, Type::Str | Type::Unknown) {
-                        self.error(arena.arena.expr(key).span, "computed map keys require Str without implicit conversion", "check.map-key-type");
+                    let key_ty = self.check_expr_arena(arena, source, key, expected_key);
+                    if !key_ty.is_map_key() && !key_ty.is_recovery() {
+                        self.error(arena.arena.expr(key).span, "Map keys require Str, Int, UInt, Bool, Bytes, Path, or Duration", "check.map-key-type");
                     }
-                    (self.check_expr_arena(arena, source, value, expected_item), arena.arena.span(span))
+                    (key_ty, self.check_expr_arena(arena, source, value, expected_item), arena.arena.span(span))
                 }
                 ArenaRecordFieldKind::Path { value, span, .. } => {
                     self.check_expr_arena(arena, source, value, expected_item);
                     self.error(arena.arena.span(span), "map literals do not permit static record update paths", "check.map-update-path");
                     continue;
                 }
-                ArenaRecordFieldKind::Named { value, span, .. } => (self.check_expr_arena(arena, source, value, expected_item), arena.arena.span(span)),
-                ArenaRecordFieldKind::Shorthand { name, span } => (self.lookup_expr_ident(name, arena.arena.span(span)), arena.arena.span(span)),
+                ArenaRecordFieldKind::Named { value, span, .. } => (Type::Str, self.check_expr_arena(arena, source, value, expected_item), arena.arena.span(span)),
+                ArenaRecordFieldKind::Shorthand { name, span } => (Type::Str, self.lookup_expr_ident(name, arena.arena.span(span)), arena.arena.span(span)),
                 ArenaRecordFieldKind::Spread { expr, span } => {
-                    let list_expected = expected_item.cloned().map(|item| Type::Map(Box::new(item)));
-                    let ty = self.check_expr_arena(arena, source, expr, list_expected.as_ref());
-                    let actual = match ty { Type::Map(item) => *item, Type::Unknown => Type::Unknown, _ => {
-                        self.error(arena.arena.span(span), "map literal spreads require Map", "check.map-spread-type"); Type::Unknown
-                    }};
-                    (actual, arena.arena.span(span))
+                    let ty = self.check_expr_arena(arena, source, expr, expected);
+                    match ty { Type::Map(key, item) => (*key, *item, arena.arena.span(span)), Type::Unknown => (Type::Unknown, Type::Unknown, arena.arena.span(span)), _ => {
+                        self.error(arena.arena.span(span), "map literal spreads require Map", "check.map-spread-type");
+                        (Type::Unknown, Type::Unknown, arena.arena.span(span))
+                    }}
                 }
             };
+            if inferred_key == Type::Unknown { inferred_key = key_ty; }
+            else { self.expect_type(&inferred_key, &key_ty, span); }
             if let Some(expected_item) = expected_item { self.expect_type(expected_item, &actual, span); }
             else if inferred == Type::Unknown { inferred = actual; }
             else if let Some(merged) = merge_list_literal_item_ty(&inferred, &actual) { inferred = merged; }
             else { self.expect_type(&inferred, &actual, span); }
         }
-        Type::Map(Box::new(inferred))
+        if inferred_key == Type::Unknown { inferred_key = Type::Str; }
+        Type::Map(Box::new(inferred_key), Box::new(inferred))
     }
 
     fn check_record_update_arena(&mut self, arena: &ArenaProgram, source: &str, range: ArenaRange, span: Span) -> Type {
@@ -441,7 +445,8 @@ impl Checker {
             if actual.any_flows_to_concrete(expected) { return true; }
             match (actual, expected) {
                 (Type::Record(actual), Type::Record(expected)) if !expected.is_empty() => actual.is_empty() || expected.iter().any(|(name, expected)| actual.get(name).is_some_and(|actual| requires_validation(actual, expected))),
-                (Type::List(actual), Type::List(expected)) | (Type::Map(actual), Type::Map(expected)) | (Type::Optional(actual), Type::Optional(expected)) => requires_validation(actual, expected),
+                (Type::List(actual), Type::List(expected)) | (Type::Optional(actual), Type::Optional(expected)) => requires_validation(actual, expected),
+                (Type::Map(actual_key, actual_value), Type::Map(expected_key, expected_value)) => requires_validation(actual_key, expected_key) || requires_validation(actual_value, expected_value),
                 (Type::Result(actual, error), Type::Result(expected, expected_error)) => requires_validation(actual, expected) || requires_validation(error, expected_error),
                 _ => false,
             }
@@ -519,7 +524,7 @@ impl Checker {
         if fields.iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. })) {
             return self.check_record_update_arena(arena, source, range, span);
         }
-        if matches!(expected, Some(Type::Map(_))) || fields.iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })) {
+        if matches!(expected, Some(Type::Map(_, _))) || fields.iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })) {
             return self.check_map_literal_arena(arena, source, range, expected);
         }
         if matches!(
@@ -707,7 +712,7 @@ impl Checker {
             match *qualifier {
                 ArenaCompQualifier::For { target, iter, span } => {
                     let iter_ty = self.check_expr_arena(arena, source, iter, None);
-                    if matches!(&iter_ty, Type::Result(ok, _) if matches!(ok.as_ref(), Type::Map(_))) {
+                    if matches!(&iter_ty, Type::Result(ok, _) if matches!(ok.as_ref(), Type::Map(_, _))) {
                         self.check_propagation(&iter_ty, arena.arena.expr(iter).span);
                     }
                     let item_ty = iter_ty.iteration_item_type().unwrap_or_else(|| {
@@ -740,11 +745,13 @@ impl Checker {
 
     fn check_map_comp_arena(&mut self, arena: &ArenaProgram, source: &str, key: ExprId, value: ExprId, qualifiers: ArenaRange, _span: Span) -> Type {
         let scopes = self.check_comp_qualifiers_arena(arena, source, qualifiers, true);
-        let key_ty = self.check_expr_arena(arena, source, key, Some(&Type::Str));
-        self.expect_type(&Type::Str, &key_ty, arena.arena.expr(key).span);
+        let key_ty = self.check_expr_arena(arena, source, key, None);
+        if !key_ty.is_map_key() && !key_ty.is_recovery() {
+            self.error(arena.arena.expr(key).span, "Map comprehension keys require an ordered scalar key", "check.map-key-type");
+        }
         let value_ty = self.check_expr_arena(arena, source, value, None);
         for _ in 0..scopes { self.pop_scope(); }
-        Type::Map(Box::new(value_ty))
+        Type::Map(Box::new(key_ty), Box::new(value_ty))
     }
 
     fn check_loop_arena(
@@ -1162,7 +1169,7 @@ impl Checker {
                 let right_ty = self.check_expr_arena(arena, source, right, Some(&left_ty));
                 if !matches!(
                     left_ty,
-                    Type::Int | Type::Float | Type::Duration | Type::Str | Type::Any | Type::Unknown
+                    Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str | Type::Any | Type::Unknown
                 ) {
                     self.error(
                         left_span,
@@ -1177,6 +1184,7 @@ impl Checker {
                 let left_ty = self.check_expr_arena(arena, source, left, None);
                 let right_ty = self.check_expr_arena(arena, source, right, None);
                 match &right_ty {
+                    Type::Map(key, _) => { self.expect_type(key, &left_ty, left_span); }
                     Type::List(item) => {
                         self.expect_type(item, &left_ty, left_span);
                     }
@@ -1530,6 +1538,11 @@ impl Checker {
         let index_span = arena.arena.expr(index).span;
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         let result = match base_ty {
+            Type::Map(key, item) => {
+                let index_ty = self.check_expr_arena(arena, source, index, Some(&key));
+                self.expect_type(&key, &index_ty, index_span);
+                *item
+            }
             Type::List(item) => {
                 let index_ty = self.check_expr_arena(arena, source, index, Some(&Type::Int));
                 self.expect_type(&Type::Int, &index_ty, index_span);

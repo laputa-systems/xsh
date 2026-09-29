@@ -184,9 +184,13 @@ impl Checker {
             ArenaTypeExprTag::List => Type::List(Box::new(
                 self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize)),
             )),
-            ArenaTypeExprTag::Map => Type::Map(Box::new(
-                self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize)),
-            )),
+            ArenaTypeExprTag::Map => {
+                let key = TypeExprId::from_optional_raw(data.rhs).map_or(Type::Str, |id| self.type_from_arena(program, id));
+                if !key.is_map_key() && !key.is_recovery() {
+                    self.error(span, "Map keys require Str, Int, UInt, Bool, Bytes, Path, or Duration", "check.map-key-type");
+                }
+                Type::Map(Box::new(key), Box::new(self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize))))
+            },
             ArenaTypeExprTag::Stream => Type::Stream(Box::new(
                 self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize)),
             )),
@@ -386,7 +390,7 @@ pub(super) fn collection_item_ty(ty: &Type) -> Type {
 
 pub(super) fn map_item_ty(ty: &Type) -> Type {
     match ty {
-        Type::Map(item) => item.as_ref().clone(),
+        Type::Map(_, item) => item.as_ref().clone(),
         Type::Unknown => Type::Unknown,
         Type::Any => Type::Any,
         _ => Type::Unknown,

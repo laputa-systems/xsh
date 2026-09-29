@@ -91,12 +91,16 @@ fn render_type(ty: &crate::sema::types::Type) -> String {
     use crate::sema::types::Type;
 
     match ty {
+        Type::ReceiverMapKey => "K".to_string(),
+        Type::ReceiverMapValue => "V".to_string(),
+        Type::ReceiverMapListItem => "T".to_string(),
         Type::Any => "Any".to_string(),
         Type::Unknown => "Unknown".to_string(),
         Type::Invalid => "<invalid>".to_string(),
         Type::Null => "Null".to_string(),
         Type::Bool => "Bool".to_string(),
         Type::Int => "Int".to_string(),
+        Type::UInt => "UInt".to_string(),
         Type::Float => "Float".to_string(),
         Type::Duration => "Duration".to_string(),
         Type::Str => "Str".to_string(),
@@ -105,7 +109,8 @@ fn render_type(ty: &crate::sema::types::Type) -> String {
         Type::Regex => "Regex".to_string(),
         Type::Path => "Path".to_string(),
         Type::List(inner) => format!("List[{}]", render_type(inner)),
-        Type::Map(inner) => format!("Map[{}]", render_type(inner)),
+        Type::Map(key, inner) if matches!(key.as_ref(), Type::Unknown) && matches!(inner.as_ref(), Type::Any) => "Map[K, V]".to_string(),
+        Type::Map(key, inner) => if matches!(key.as_ref(), Type::Str) { format!("Map[{}]", render_type(inner)) } else { format!("Map[{}, {}]", render_type(key), render_type(inner)) },
         Type::Stream(inner) => format!("Stream[{}]", render_type(inner)),
         Type::Record(fields) if fields.is_empty() => "Record".to_string(),
         Type::Record(fields) => {

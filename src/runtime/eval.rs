@@ -1,5 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
+use crate::map_key::MapKey;
+
 use crate::diagnostic::Diagnostic;
 use crate::modules::RuntimeOp;
 use crate::modules::api_spec;
@@ -2174,7 +2176,7 @@ enum LoweredValue {
     Module(Arc<BTreeMap<Arc<str>, LoweredValue>>),
     List(Vec<LoweredValue>),
     SharedList(Arc<Vec<LoweredValue>>),
-    Map(Arc<BTreeMap<String, LoweredValue>>),
+    Map(Arc<BTreeMap<MapKey, LoweredValue>>),
     Tag(Box<LoweredTagValue>),
     ResultOk(Box<LoweredValue>),
     ResultErr(Box<Value>),
@@ -2189,7 +2191,7 @@ struct LoweredTagValue {
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::runtime::eval) struct LoweredStatsValue {
     pub(in crate::runtime::eval) blanks: i64,
-    pub(in crate::runtime::eval) blobs: BTreeMap<String, LoweredValue>,
+    pub(in crate::runtime::eval) blobs: BTreeMap<MapKey, LoweredValue>,
     pub(in crate::runtime::eval) code: i64,
     pub(in crate::runtime::eval) comments: i64,
 }
@@ -6472,10 +6474,12 @@ fn standard_module_command_name(name: &str) -> Option<(&str, &str)> {
 
 pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
     match ty {
+        Type::ReceiverMapKey | Type::ReceiverMapValue | Type::ReceiverMapListItem => false,
         Type::Any | Type::Unknown | Type::Invalid => true,
         Type::Null => matches!(value, Value::Null),
         Type::Bool => matches!(value, Value::Bool(_)),
         Type::Int => matches!(value, Value::Int(_)),
+        Type::UInt => matches!(value, Value::Int(value) if *value >= 0),
         Type::Float => matches!(value, Value::Float(_)),
         Type::Duration => matches!(value, Value::Duration(_)),
         Type::Str => matches!(value, Value::Str(_)),
@@ -6489,10 +6493,8 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
                 .all(|item| value_matches_static_type(item, item_ty)),
             _ => false,
         },
-        Type::Map(item_ty) => match value {
-            Value::Map(items) => items
-                .values()
-                .all(|item| value_matches_static_type(item, item_ty)),
+        Type::Map(key_ty, item_ty) => match value {
+            Value::Map(items) => items.iter().all(|(key, item)| map_key_matches_type(key, key_ty) && value_matches_static_type(item, item_ty)),
             _ => false,
         },
         Type::Stream(item_ty) => match value {
@@ -6553,10 +6555,12 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
 
 fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
     match ty {
+        Type::ReceiverMapKey | Type::ReceiverMapValue | Type::ReceiverMapListItem => false,
         Type::Any | Type::Unknown | Type::Invalid => true,
         Type::Null => matches!(value, LoweredValue::Null),
         Type::Bool => matches!(value, LoweredValue::Bool(_)),
         Type::Int => matches!(value, LoweredValue::Int(_)),
+        Type::UInt => matches!(value, LoweredValue::Int(value) if *value >= 0),
         Type::Float => matches!(value, LoweredValue::Float(_)),
         Type::Duration => matches!(value, LoweredValue::Duration(_)),
         Type::Str => matches!(value, LoweredValue::Str(_) | LoweredValue::StrView(_)),
@@ -6573,14 +6577,12 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
                 .all(|item| lowered_value_matches_static_type(item, item_ty)),
             _ => false,
         },
-        Type::Map(item_ty) => match value {
-            LoweredValue::Map(items) => items
+        Type::Map(key_ty, item_ty) => match value {
+            LoweredValue::Map(items) => items.iter().all(|(key, item)| map_key_matches_type(key, key_ty) && lowered_value_matches_static_type(item, item_ty)),
+            LoweredValue::Record(record) if matches!(key_ty.as_ref(), Type::Str) => record
                 .values()
                 .all(|item| lowered_value_matches_static_type(item, item_ty)),
-            LoweredValue::Record(record) => record
-                .values()
-                .all(|item| lowered_value_matches_static_type(item, item_ty)),
-            LoweredValue::RecordVec(record) => record
+            LoweredValue::RecordVec(record) if matches!(key_ty.as_ref(), Type::Str) => record
                 .iter()
                 .all(|(_, item)| lowered_value_matches_static_type(item, item_ty)),
             LoweredValue::FsEntry(entry) => entry.to_record_map().is_ok_and(|record| {
@@ -7001,3 +7003,11 @@ fn next_event_id(events: &[TraceEvent]) -> u64 {
 
 #[derive(Clone, Debug)]
 struct PreparedConstantValue(LoweredValue);
+
+fn map_key_matches_type(key: &MapKey, ty: &Type) -> bool {
+    matches!((key, ty), (MapKey::Str(_), Type::Str) | (MapKey::Int(_), Type::Int)
+        | (MapKey::Bool(_), Type::Bool) | (MapKey::Bytes(_), Type::Bytes)
+        | (MapKey::Path(_), Type::Path) | (MapKey::Duration(_), Type::Duration))
+        || matches!((key, ty), (MapKey::Int(value), Type::UInt) if *value >= 0)
+        || matches!(ty, Type::Unknown | Type::Invalid | Type::Any)
+}

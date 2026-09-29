@@ -4,6 +4,7 @@
 //! split out of the monolithic `eval.rs`. The IR types live in the parent
 //! module and are imported via `super::`.
 
+use crate::map_key::{MapKey, MapKeyRef};
 use super::lower::take_shared;
 use super::{
     LoweredReturnKind, LoweredStatsValue, LoweredStrPredicate, LoweredTagValue, LoweredType,
@@ -43,16 +44,48 @@ pub(super) fn append_lowered_list_element(output: &mut Vec<LoweredValue>, value:
     Ok(())
 }
 
-pub(super) fn lowered_map_literal_key(value: &LoweredValue, span: Span) -> Result<String, RuntimeError> {
-    lowered_str_value(value).map(str::to_string).ok_or_else(|| RuntimeError::new("type-error", "computed map keys require Str").with_span(span))
+pub(super) fn lowered_map_key_ref(value: &LoweredValue, span: Span) -> Result<MapKeyRef<'_>, RuntimeError> {
+    let key = match value {
+        LoweredValue::Int(value) => MapKeyRef::Int(*value),
+        LoweredValue::Bool(value) => MapKeyRef::Bool(*value),
+        LoweredValue::Duration(value) => MapKeyRef::Duration(value.millis),
+        LoweredValue::Path(value) => MapKeyRef::Path(&value.bytes),
+        _ if lowered_str_value(value).is_some() => MapKeyRef::Str(lowered_str_value(value).unwrap()),
+        _ if lowered_bytes_value(value).is_some() => MapKeyRef::Bytes(lowered_bytes_value(value).unwrap()),
+        _ => return Err(RuntimeError::new("type-error", "Map keys require an ordered scalar value").with_span(span)),
+    };
+    Ok(key)
 }
 
-pub(super) fn append_lowered_map_literal(output: &mut BTreeMap<String, LoweredValue>, key: Option<String>, value: LoweredValue, span: Span) -> Result<(), RuntimeError> {
-    if let Some(key) = key { output.insert(key, value); }
+pub(super) fn lowered_map_key_value(key: &MapKey) -> LoweredValue {
+    match key {
+        MapKey::Str(value) => LoweredValue::Str(value.clone()),
+        MapKey::Int(value) => LoweredValue::Int(*value),
+        MapKey::Bool(value) => LoweredValue::Bool(*value),
+        MapKey::Bytes(value) => LoweredValue::Bytes(value.clone()),
+        MapKey::Path(value) => LoweredValue::Path(PathValue { bytes: value.to_vec() }),
+        MapKey::Duration(value) => LoweredValue::Duration(crate::runtime::value::DurationValue { millis: *value }),
+    }
+}
+
+pub(super) fn lowered_map_literal_key(value: &LoweredValue, span: Span) -> Result<MapKey, RuntimeError> {
+    Ok(lowered_map_key_ref(value, span)?.to_owned())
+}
+
+pub(super) fn require_lowered_map_key_domain(map: &BTreeMap<MapKey, LoweredValue>, key: MapKeyRef<'_>, span: Span) -> Result<(), RuntimeError> {
+    if map.first_key_value().is_some_and(|(existing, _)| !existing.as_ref().same_domain(key)) {
+        return Err(RuntimeError::new("type-error", "Map keys require one scalar domain without conversion").with_span(span));
+    }
+    Ok(())
+}
+
+pub(super) fn append_lowered_map_literal(output: &mut BTreeMap<MapKey, LoweredValue>, key: Option<MapKey>, value: LoweredValue, span: Span) -> Result<(), RuntimeError> {
+    if let Some(key) = key { require_lowered_map_key_domain(output, key.as_ref(), span)?; output.insert(key, value); }
     else {
         let LoweredValue::Map(values) = value else {
             return Err(RuntimeError::new("type-error", "map literal spreads require Map").with_span(span));
         };
+        if let Some((key, _)) = values.first_key_value() { require_lowered_map_key_domain(output, key.as_ref(), span)?; }
         output.extend(take_shared(values));
     }
     Ok(())
@@ -229,6 +262,10 @@ pub(super) fn lowered_binary_value(
         ) => Ok(LoweredValue::Int(checked_int_binary(
             op, left, right, span,
         )?)),
+        (BinaryOp::In | BinaryOp::NotIn, left, LoweredValue::Map(items)) => {
+            let contains = lowered_map_key_ref(&left, span)?.contains_key(&items);
+            Ok(LoweredValue::Bool(if op == BinaryOp::In { contains } else { !contains }))
+        }
         (BinaryOp::In, left, LoweredValue::List(items)) => {
             Ok(LoweredValue::Bool(items.contains(&left)))
         }
@@ -538,6 +575,7 @@ pub(super) fn lowered_contains_value(
             };
             Ok(bytes_contains(path.display().as_bytes(), needle.as_bytes()))
         }
+        LoweredValue::Map(items) => Ok(lowered_map_key_ref(needle, span)?.contains_key(items)),
         LoweredValue::List(items) => Ok(items.iter().any(|item| item == needle)),
         LoweredValue::SharedList(items) => Ok(items.iter().any(|item| item == needle)),
         _ => lowered_method_value(receiver.clone(), "contains", vec![needle.clone()], span)
@@ -956,7 +994,7 @@ pub(super) fn lowered_list_from_runtime(value: &[Value]) -> Option<LoweredValue>
     Some(LoweredValue::List(items))
 }
 
-pub(super) fn lowered_map_from_runtime(value: &BTreeMap<String, Value>) -> Option<LoweredValue> {
+pub(super) fn lowered_map_from_runtime(value: &BTreeMap<MapKey, Value>) -> Option<LoweredValue> {
     let mut map = BTreeMap::new();
     for (key, value) in value {
         map.insert(key.clone(), lowered_value_from_runtime_any(value)?);
@@ -2074,6 +2112,10 @@ pub(super) fn lowered_index_value(
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     match (base, index) {
+        (LoweredValue::Map(values), index) => {
+            let key = lowered_map_key_ref(&index, span)?;
+            key.get(&values).cloned().ok_or_else(|| RuntimeError::new("map-missing", format!("map has no key {key:?}")).with_span(span))
+        }
         (LoweredValue::List(values), LoweredValue::Int(index)) => values
             .get(index as usize)
             .cloned()
@@ -2348,20 +2390,24 @@ pub(super) fn lowered_nonnegative_count(
 /// updating methods (`set`, `push`, `remove`) return a new map and take the
 /// receiver by value instead.
 fn lowered_map_method_ref(
-    map: &BTreeMap<String, LoweredValue>,
+    map: &BTreeMap<MapKey, LoweredValue>,
     name: &str,
     args: &[LoweredValue],
     span: Span,
 ) -> Result<Option<LoweredValue>, RuntimeError> {
     match name {
+        "keys" if args.is_empty() => Ok(Some(LoweredValue::List(map.keys().map(lowered_map_key_value).collect()))),
+        "values" if args.is_empty() => Ok(Some(LoweredValue::List(map.values().cloned().collect()))),
         "len" if args.is_empty() => Ok(Some(LoweredValue::Int(map.len() as i64))),
         "has" if args.len() == 1 => {
-            let key = lowered_str_arg(&args[0], "has", span)?;
-            Ok(Some(LoweredValue::Bool(map.contains_key(key))))
+            let key = lowered_map_key_ref(&args[0], span)?;
+            require_lowered_map_key_domain(&map, key, span)?;
+            Ok(Some(LoweredValue::Bool(key.contains_key(&map))))
         }
         "get" if args.len() == 1 || args.len() == 2 => {
-            let key = lowered_str_arg(&args[0], "get", span)?;
-            match map.get(key) {
+            let key = lowered_map_key_ref(&args[0], span)?;
+            require_lowered_map_key_domain(&map, key, span)?;
+            match key.get(&map) {
                 Some(value) => Ok(Some(if args.len() == 2 {
                     value.clone()
                 } else {
@@ -2372,7 +2418,7 @@ fn lowered_map_method_ref(
                     None => Ok(Some(LoweredValue::ResultErr(Box::new(Value::Error(
                         Box::new(RuntimeError::new(
                             "map-missing",
-                            format!("map has no key `{key}`"),
+                            format!("map has no key {key:?}"),
                         )),
                     ))))),
                 },
@@ -2383,7 +2429,7 @@ fn lowered_map_method_ref(
 }
 
 pub(super) fn lowered_map_method_value(
-    map: BTreeMap<String, LoweredValue>,
+    map: BTreeMap<MapKey, LoweredValue>,
     name: &str,
     args: Vec<LoweredValue>,
     span: Span,
@@ -2391,12 +2437,14 @@ pub(super) fn lowered_map_method_value(
     match name {
         "len" if args.is_empty() => Ok(LoweredValue::Int(map.len() as i64)),
         "has" if args.len() == 1 => {
-            let key = lowered_str_arg(&args[0], "has", span)?;
-            Ok(LoweredValue::Bool(map.contains_key(key)))
+            let key = lowered_map_key_ref(&args[0], span)?;
+            require_lowered_map_key_domain(&map, key, span)?;
+            Ok(LoweredValue::Bool(key.contains_key(&map)))
         }
         "get" if args.len() == 1 || args.len() == 2 => {
-            let key = lowered_str_arg(&args[0], "get", span)?;
-            if let Some(value) = map.get(key).cloned() {
+            let key = lowered_map_key_ref(&args[0], span)?;
+            require_lowered_map_key_domain(&map, key, span)?;
+            if let Some(value) = key.get(&map).cloned() {
                 return if args.len() == 2 {
                     Ok(value)
                 } else {
@@ -2407,34 +2455,37 @@ pub(super) fn lowered_map_method_value(
                 Ok(args[1].clone())
             } else {
                 Ok(LoweredValue::ResultErr(Box::new(Value::Error(Box::new(
-                    RuntimeError::new("map-missing", format!("map has no key `{key}`")),
+                    RuntimeError::new("map-missing", format!("map has no key {key:?}")),
                 )))))
             }
         }
         "set" if args.len() == 2 => {
-            let key = lowered_str_arg(&args[0], "set", span)?;
+            let key = lowered_map_key_ref(&args[0], span)?;
+            require_lowered_map_key_domain(&map, key, span)?;
             let mut map = map;
-            map.insert(key.to_string(), args[1].clone());
+            map.insert(key.to_owned(), args[1].clone());
             Ok(LoweredValue::Map(Arc::new(map)))
         }
         "remove" if args.len() == 1 => {
-            let key = lowered_str_arg(&args[0], "remove", span)?;
+            let key = lowered_map_key_ref(&args[0], span)?;
+            require_lowered_map_key_domain(&map, key, span)?;
             let mut map = map;
-            map.remove(key);
+            key.remove(&mut map);
             Ok(LoweredValue::Map(Arc::new(map)))
         }
         "push" if args.len() == 2 => {
-            let key = lowered_str_arg(&args[0], "push", span)?;
+            let key = lowered_map_key_ref(&args[0], span)?;
+            require_lowered_map_key_domain(&map, key, span)?;
             let mut map = map;
-            match map.remove(key) {
+            match key.remove(&mut map) {
                 Some(LoweredValue::List(mut items)) => {
                     items.push(args[1].clone());
-                    map.insert(key.to_string(), LoweredValue::List(items));
+                    map.insert(key.to_owned(), LoweredValue::List(items));
                 }
                 Some(LoweredValue::SharedList(items)) => {
                     let mut items = take_shared(items);
                     items.push(args[1].clone());
-                    map.insert(key.to_string(), LoweredValue::List(items));
+                    map.insert(key.to_owned(), LoweredValue::List(items));
                 }
                 Some(other) => {
                     return Err(RuntimeError::new(
@@ -2444,14 +2495,14 @@ pub(super) fn lowered_map_method_value(
                     .with_span(span));
                 }
                 None => {
-                    map.insert(key.to_string(), LoweredValue::List(vec![args[1].clone()]));
+                    map.insert(key.to_owned(), LoweredValue::List(vec![args[1].clone()]));
                 }
             }
             Ok(LoweredValue::Map(Arc::new(map)))
         }
         "keys" if args.is_empty() => Ok(LoweredValue::List(
             map.keys()
-                .map(|key| LoweredValue::Str(key.as_str().into()))
+                .map(lowered_map_key_value)
                 .collect(),
         )),
         "values" if args.is_empty() => Ok(LoweredValue::List(map.into_values().collect())),

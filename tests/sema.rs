@@ -3508,12 +3508,12 @@ fn private_pure_inference_imported_module_predeclares_tag_variants() {
 
 #[test]
 fn computed_map_literals_locate_key_errors_without_weakening_values() {
-    let source = "let values = {[1]: 2}\n";
+    let source = "let values = {[1.5]: 2}\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty());
     let checked = Checker::check_arena(&parsed.arena, source);
-    let diagnostic = checked.diagnostics.iter().find(|d| d.code.as_deref() == Some("check.map-key-type")).expect("Str key diagnostic");
-    assert!(diagnostic.labels.iter().any(|label| &source[label.span.range()] == "1"));
+    let diagnostic = checked.diagnostics.iter().find(|d| d.code.as_deref() == Some("check.map-key-type")).expect("unsupported scalar key diagnostic");
+    assert!(diagnostic.labels.iter().any(|label| &source[label.span.range()] == "1.5"));
     for source in ["let values = {[\"one\"]: 1, two: \"bad\"}\n", "let key: Any = \"one\"\nlet values = {[key]: 1}\n"] {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         let checked = Checker::check_arena(&parsed.arena, source);

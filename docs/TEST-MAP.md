@@ -767,3 +767,10 @@ uses `cargo test -p xsht --test integration prepared_constant_fix`; it checks
 keyword preservation, inert migration boundaries, comments, and convergence
 through library APIs. Broaden with the syntax/checker integration gates and the
 indexed verifier suite; formatting and lint CLI gates remain owner-run.
+
+
+Typed scalar Map domains, numeric and byte order, receiver-bound methods, aliases,
+empty contexts, absent versus null, nested COW updates, and JSON rejection:
+`target/debug/xsht test --jobs 1 tests/xsh/typed-map-keys.xsh`; broaden with native
+stdlib map/collections, syntax and semantics Rust gates, indexed verifier tests,
+and xsht formatter/lint/grep integration coverage.
