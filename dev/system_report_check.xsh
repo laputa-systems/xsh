@@ -1263,6 +1263,23 @@ export type ProcessResourceReference = {
 ## Keeps the processes omitted by resource source reads in the reference result.
 export type ProcessResourceSnapshot = {processes: List[ProcessResourceReference], skipped_count: Int}
 
+type ProcessBundleRaw = {name: Str, max_bytes: Int, data: Bytes}
+type ProcessBundleSource = {path: Str, max_bytes: Int, byte_count: Int, sha256_hex: Str}
+type ProcessBundleSkip = {
+  name: Str, source: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+}
+type ProcessBundleCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  listing_state: Str, page_size_bytes: Int, pids: List[Int], skipped_count: Int,
+  skipped: List[ProcessBundleSkip],
+  scoreable: Bool, sources: List[ProcessBundleSource],
+  identity: ProcessIdentitySnapshot?, resources: ProcessResourceSnapshot?,
+}
+## Requires every selected saved PID and its resource fields to match production collection.
+export type ProcessBundleComparison = {
+  identity: ProcessIdentityComparison, resources: ProcessResourceComparison, exact: Bool,
+}
+
 ## Keeps changing gauges out of the scored field denominator.
 export type ProcessResourceComparison = {
   stable_count: Int,
@@ -1352,6 +1369,8 @@ type CheckOptions = {
   replay_memory_bundle: Str,
   capture_cgroup2_bundle: Str,
   replay_cgroup2_bundle: Str,
+  capture_process_bundle: Str,
+  replay_process_bundle: Str,
   capture_pressure_bundle: Str,
   replay_pressure_bundle: Str,
   capture_swaps_bundle: Str,
@@ -13305,6 +13324,249 @@ export proc read_process_resource_snapshot(root: FsRoot, page_size_bytes: Int) [
   return Ok({processes: processes |> sort-by .pid, skipped_count: skipped_count})
 }
 
+pure process_bundle_skip(name: Str, source: Str, state: Str) -> ProcessBundleSkip {
+  return {name: name, source: source, state: state, truncated: false, errno: null, error_kind: null}
+}
+
+## Saves only PIDs whose bounded sources retain one start identity throughout capture.
+export proc capture_process_bundle(source: FsRoot, bundle: FsRoot, origin: Str, page_size_bytes: Int) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {return Err(check_failure("process capture origin is invalid"))}
+  if page_size_bytes <= 0 or page_size_bytes > 9007199254740991 {
+    return Err(check_failure("process capture page size is invalid"))
+  }
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"proc")? {
+    return Err(check_failure("process capture destination is not empty"))
+  }
+  let listing = fs.root_children(source, p"proc", max_entries: 8192)?
+  var pids: List[Int] = []
+  var sources: List[ProcessBundleSource] = []
+  var skipped: List[ProcessBundleSkip] = []
+  var total_bytes = 0
+  if listing.state == "complete" {
+    fs.root_mkdir(bundle, p"proc", mode: 0o700)?
+    for process_path in listing.children {
+      let pid_text = process_path.name()
+      if pid_text == "" or (pid_text.split("") |> any { |part| !"0123456789".contains(part) }) {continue}
+      guard let pid = process_reference_number(pid_text) else |_| {
+        skipped = skipped.push(process_bundle_skip(pid_text, "pid", "malformed"))
+        continue
+      }
+      if pid <= 0 or pid_text != f"${pid}" {
+        skipped = skipped.push(process_bundle_skip(pid_text, "pid", "malformed"))
+        continue
+      }
+      if fs.root_readlink_result(source, process_path)?.state == "observed" {
+        skipped = skipped.push(process_bundle_skip(pid_text, "pid", "symlink"))
+        continue
+      }
+      let first = fs.root_read_result(source, fp"${process_path}/stat", max_bytes: 16384)?
+      if first.state != "observed" or first.truncated or first.data == null {
+        skipped = skipped.push({name: pid_text, source: "stat", state: first.state,
+          truncated: first.truncated, errno: first.errno, error_kind: first.error_kind})
+        continue
+      }
+      var raw_fields: List[ProcessBundleRaw] = [{name: "stat", max_bytes: 16384, data: first.data ?? b""}]
+      var complete = true
+      for field in [
+        {name: "statm", max_bytes: 4096},
+        {name: "status", max_bytes: 16384},
+        {name: "cgroup", max_bytes: 16384},
+      ] {
+        let raw = fs.root_read_result(source, fp"${process_path}/${field.name}", max_bytes: field.max_bytes)?
+        if raw.state != "observed" or raw.truncated or raw.data == null {
+          skipped = skipped.push({name: pid_text, source: field.name, state: raw.state,
+            truncated: raw.truncated, errno: raw.errno, error_kind: raw.error_kind})
+          complete = false
+          break
+        }
+        raw_fields = raw_fields.push({name: field.name, max_bytes: field.max_bytes, data: raw.data ?? b""})
+      }
+      if !complete {continue}
+      let last = fs.root_read_result(source, fp"${process_path}/stat", max_bytes: 16384)?
+      if last.state != "observed" or last.truncated or last.data == null {
+        skipped = skipped.push({name: pid_text, source: "stat", state: last.state,
+          truncated: last.truncated, errno: last.errno, error_kind: last.error_kind})
+        continue
+      }
+      guard let first_text = (first.data ?? b"").utf8() else |_| {
+        skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed")); continue
+      }
+      guard let last_text = (last.data ?? b"").utf8() else |_| {
+        skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed")); continue
+      }
+      guard let first_identity = parse_proc_stat_identity_reference(first_text) else |_| {
+        skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed")); continue
+      }
+      guard let last_identity = parse_proc_stat_identity_reference(last_text) else |_| {
+        skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed")); continue
+      }
+      guard let first_thread = parse_proc_stat_thread_reference(first_text) else |_| {
+        skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed")); continue
+      }
+      guard let last_thread = parse_proc_stat_thread_reference(last_text) else |_| {
+        skipped = skipped.push(process_bundle_skip(pid_text, "stat", "malformed")); continue
+      }
+      if first_identity.pid != pid or last_identity.pid != pid or
+          first_identity.start_ticks != last_identity.start_ticks or
+          first_identity.parent_pid != last_identity.parent_pid or
+          first_identity.command != last_identity.command or
+          first_thread.thread_count != last_thread.thread_count {
+        skipped = skipped.push(process_bundle_skip(pid_text, "stat", "raced"))
+        continue
+      }
+      guard let status_text = raw_fields[2].data.utf8() else |_| {
+        skipped = skipped.push(process_bundle_skip(pid_text, "status", "malformed")); continue
+      }
+      guard let statm_text = raw_fields[1].data.utf8() else |_| {
+        skipped = skipped.push(process_bundle_skip(pid_text, "statm", "malformed")); continue
+      }
+      guard let cgroup_text = raw_fields[3].data.utf8() else |_| {
+        skipped = skipped.push(process_bundle_skip(pid_text, "cgroup", "malformed")); continue
+      }
+      guard let _uid = parse_proc_status_uid_reference(status_text) else |_| {
+        skipped = skipped.push(process_bundle_skip(pid_text, "status", "malformed")); continue
+      }
+      guard let _memory = parse_proc_statm_reference(statm_text, page_size_bytes) else |_| {
+        skipped = skipped.push(process_bundle_skip(pid_text, "statm", "malformed")); continue
+      }
+      guard let _cgroup = parse_proc_cgroup_reference(cgroup_text) else |_| {
+        skipped = skipped.push(process_bundle_skip(pid_text, "cgroup", "malformed")); continue
+      }
+      var selected_bytes = 0
+      for field in raw_fields {selected_bytes += field.data.len()}
+      if total_bytes + selected_bytes > 33554432 {
+        return Err(check_failure("process capture exceeds its raw byte bound"))
+      }
+      total_bytes += selected_bytes
+      fs.root_mkdir(bundle, fp"proc/${pid}", mode: 0o700)?
+      for field in raw_fields {
+        let relative = f"proc/${pid}/${field.name}"
+        fs.root_write(bundle, fp"${relative}", field.data)?
+        sources = sources.push({path: relative, max_bytes: field.max_bytes,
+          byte_count: field.data.len(), sha256_hex: hash.sha256(field.data).hex()})
+      }
+      pids = pids.push(pid)
+    }
+  }
+  pids = pids |> sort-by .
+  sources = sources |> sort-by .path
+  var identity: ProcessIdentitySnapshot? = null
+  var resources: ProcessResourceSnapshot? = null
+  if listing.state == "complete" and pids.len() > 0 {
+    match read_process_identity_snapshot(bundle) {
+      Ok(value) => identity = value
+      Err(_) => {}
+    }
+    match read_process_resource_snapshot(bundle, page_size_bytes) {
+      Ok(value) => resources = value
+      Err(_) => {}
+    }
+  }
+  let scoreable = identity != null and resources != null and
+    (identity ?? {processes: [], skipped_count: 0}).processes.len() == pids.len() and
+    (resources ?? {processes: [], skipped_count: 0}).processes.len() == pids.len() and
+    (identity ?? {processes: [], skipped_count: 0}).skipped_count == 0 and
+    (resources ?? {processes: [], skipped_count: 0}).skipped_count == 0
+  let capture: ProcessBundleCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "procfs-process-raw-v1", listing_state: listing.state,
+    page_size_bytes: page_size_bytes, pids: pids, skipped_count: skipped.len(),
+    skipped: skipped |> sort-by .name,
+    scoreable: scoreable, sources: sources, identity: identity, resources: resources,
+  }
+  let wire: Any = capture
+  let encoded = json.encode(wire, pretty: true)?
+  if encoded.count_bytes() > 8388608 {return Err(check_failure("process capture metadata exceeds its replay bound"))}
+  fs.root_write_atomic(bundle, p"capture.json", encoded)?
+  return Ok()
+}
+
+## Rejects changed saved process bytes, PID membership, and decoded references.
+export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[ProcessBundleCapture] {
+  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 8388608)?.utf8()?)?.require(ProcessBundleCapture)?
+  if capture.schema_version != 1 or capture.reference_adapter != "procfs-process-raw-v1" or
+      capture.origin not in ["synthetic_fixture", "live_capture"] or capture.listing_state != "complete" or
+      !capture.scoreable or capture.page_size_bytes <= 0 or capture.page_size_bytes > 9007199254740991 or
+      capture.pids.len() == 0 or capture.skipped_count != capture.skipped.len() or
+      capture.identity == null or capture.resources == null or
+      capture.sources.len() != capture.pids.len() * 4 {
+    return Err(check_failure("process capture has no scoreable reference"))
+  }
+  let listing = fs.root_children(bundle, p"proc", max_entries: 8192)?
+  if listing.state != "complete" {return Err(check_failure("process bundle PID listing is incomplete"))}
+  let listed = listing.children |> map .name() |> sort-by .
+  let expected_names = capture.pids |> map { |pid| f"${pid}" } |> sort-by .
+  if listed != expected_names {return Err(check_failure("process bundle PID listing differs"))}
+  var selected_names = set.empty()
+  for name in expected_names {selected_names = set.add(selected_names, name)}
+  var skipped_names = set.empty()
+  for skip in capture.skipped {
+    if skip.name == "" or (skip.name.split("") |> any { |part| !"0123456789".contains(part) }) or
+        skip.source not in ["pid", "stat", "statm", "status", "cgroup"] or
+        skip.state == "" or
+        set.has(skipped_names, skip.name) or set.has(selected_names, skip.name) {
+      return Err(check_failure("process bundle skipped PID metadata is invalid"))
+    }
+    skipped_names = set.add(skipped_names, skip.name)
+  }
+  var source_by_path: Map[ProcessBundleSource] = {}
+  for item in capture.sources {
+    if source_by_path.has(item.path) {return Err(check_failure("process bundle repeats a source path"))}
+    source_by_path = source_by_path.set(item.path, item)
+  }
+  var seen_pids = set.empty()
+  for pid in capture.pids {
+    let pid_key = f"${pid}"
+    if pid <= 0 or pid > 9007199254740991 or set.has(seen_pids, pid_key) {
+      return Err(check_failure("process bundle has an invalid or duplicate PID"))
+    }
+    seen_pids = set.add(seen_pids, pid_key)
+    for field in [
+      {name: "cgroup", max_bytes: 16384},
+      {name: "stat", max_bytes: 16384},
+      {name: "statm", max_bytes: 4096},
+      {name: "status", max_bytes: 16384},
+    ] {
+      let relative = f"proc/${pid}/${field.name}"
+      if !source_by_path.has(relative) {return Err(check_failure("process bundle source is missing"))}
+      let expected = source_by_path.get(relative)?
+      if expected.path != relative or expected.max_bytes != field.max_bytes {
+        return Err(check_failure("process bundle source identity differs"))
+      }
+      let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: field.max_bytes)?
+      if raw.state != "observed" or raw.truncated or raw.data == null or
+          (raw.data ?? b"").len() != expected.byte_count or
+          hash.sha256(raw.data ?? b"").hex() != expected.sha256_hex {
+        return Err(check_failure(f"process bundle source ${relative} bytes differ"))
+      }
+    }
+  }
+  if read_process_identity_snapshot(bundle)? != (capture.identity ?? {processes: [], skipped_count: 0}) or
+      read_process_resource_snapshot(bundle, capture.page_size_bytes)? != (capture.resources ?? {processes: [], skipped_count: 0}) {
+    return Err(check_failure("process bundle reference differs from raw sources"))
+  }
+  return capture
+}
+
+## Runs the production process collector over stable saved procfs sources.
+export proc replay_process_bundle(bundle: FsRoot) [fs, time, error] -> Result[ProcessBundleComparison] {
+  let metadata = capture_metadata_bytes(bundle, max_bytes: 8388608)?
+  let capture = validate_process_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", capture.page_size_bytes, 100, "processes", true, false)?
+  if validate_process_bundle(bundle)? != capture {return Err(check_failure("process bundle changed during replay"))}
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 8388608)?
+  let candidate_json = encode_replayed_report(candidate, true)?
+  let identity = capture.identity ?? {processes: [], skipped_count: 0}
+  let resources = capture.resources ?? {processes: [], skipped_count: 0}
+  let identity_compared = compare_process_identity(candidate_json, identity.processes, identity.processes)?
+  let resource_compared = compare_process_resources(candidate_json, resources.processes, resources.processes)?
+  let exact = identity_compared.exact_static and resource_compared.exact_scored and
+    identity_compared.candidate_count == capture.pids.len() and
+    resource_compared.candidate_count == capture.pids.len()
+  return {identity: identity_compared, resources: resource_compared, exact: exact}
+}
+
 ## Counts only identities that survive the reference bracket with unchanged static fields.
 export pure compare_process_identity(
   candidate_json: Str, before: List[ProcessIdentityReference], after: List[ProcessIdentityReference],
@@ -17673,6 +17935,14 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
       form: "--replay-cgroup2-bundle DIR",
       default: "",
     },
+    capture_process_bundle: {
+      form: "--capture-process-bundle DIR",
+      default: "",
+    },
+    replay_process_bundle: {
+      form: "--replay-process-bundle DIR",
+      default: "",
+    },
     capture_pressure_bundle: {
       form: "--capture-pressure-bundle DIR",
       default: "",
@@ -17912,6 +18182,8 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     replay_memory_bundle: parsed.replay_memory_bundle,
     capture_cgroup2_bundle: parsed.capture_cgroup2_bundle,
     replay_cgroup2_bundle: parsed.replay_cgroup2_bundle,
+    capture_process_bundle: parsed.capture_process_bundle,
+    replay_process_bundle: parsed.replay_process_bundle,
     capture_pressure_bundle: parsed.capture_pressure_bundle,
     replay_pressure_bundle: parsed.replay_pressure_bundle,
     capture_swaps_bundle: parsed.capture_swaps_bundle,
@@ -17973,6 +18245,7 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     options.capture_cpu_topology_bundle, options.replay_cpu_topology_bundle,
     options.capture_memory_bundle, options.replay_memory_bundle,
     options.capture_cgroup2_bundle, options.replay_cgroup2_bundle,
+    options.capture_process_bundle, options.replay_process_bundle,
     options.capture_pressure_bundle, options.replay_pressure_bundle,
     options.capture_swaps_bundle, options.replay_swaps_bundle,
     options.capture_os_release_bundle, options.replay_os_release_bundle,
@@ -18185,6 +18458,33 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     let state = if result.exact_scored {"exact"} else if result.exact_stable {"partial"} else {"mismatch"}
     print f"cgroup2 raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; matched=${result.matched_count}; mismatched=${result.field_mismatches.len()}"
     if !result.exact_scored {return Err(check_failure("cgroup2 raw replay differs from its independent reference"))}
+    return Ok()
+  }
+  if options.capture_process_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_process_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {return Err(check_failure("process capture destination already exists"))}
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    let units = system.execution_units()?
+    capture_process_bundle(source, bundle, "live_capture", units.page_size_bytes)?
+    let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 8388608)?.utf8()?)?.require(ProcessBundleCapture)?
+    print f"process raw capture saved at ${destination}; origin=${capture.origin}; scoreable=${capture.scoreable}; pids=${capture.pids.len()}; skipped=${capture.skipped_count}; page_size=${capture.page_size_bytes}"
+    print f"Replay with --replay-process-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_process_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_process_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_process_bundle(bundle)?
+    let state = if result.exact {"exact"} else {"mismatch"}
+    print f"process raw replay: ${state}; identity=${result.identity.matched_count}; resource_fields=${result.resources.scored_fields}; candidate=${result.identity.candidate_count}"
+    if !result.exact {return Err(check_failure("process raw replay differs from its independent reference"))}
     return Ok()
   }
   if options.capture_pressure_bundle != "" {

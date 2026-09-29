@@ -1547,6 +1547,10 @@ proc test_system_report_capture_rejects_simultaneous_live_comparison(ctx: TestCo
   test.ok(!cgroup_status.exited_with(0))?
   test.contains(stderr.read_text()?, "bundle operations cannot be combined")?
   test.ok(!bundle.exists()?)?
+  let process_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-process-bundle $bundle --compare-processes 2> $stderr
+  test.ok(!process_status.exited_with(0))?
+  test.contains(stderr.read_text()?, "bundle operations cannot be combined")?
+  test.ok(!bundle.exists()?)?
   let identity_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-os-release-bundle $bundle --compare-identity 2> $stderr
   test.ok(!identity_status.exited_with(0))?
   test.contains(stderr.read_text()?, "bundle operations cannot be combined")?
@@ -2947,6 +2951,53 @@ proc test_system_report_process_resource_snapshot_requires_complete_per_pid_sour
   test.eq(captured.processes[0].virtual_bytes, 131072)?
   test.eq(captured.processes[0].cgroup, "/tenant")?
   test.eq(captured.skipped_count, 1)?
+}
+
+proc test_system_report_process_bundle_replays_complete_pid_and_records_skips() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  fs.root_mkdir(source, p"proc/123", parents: true)?
+  fs.root_mkdir(source, p"proc/124", parents: true)?
+  fs.root_mkdir(source, p"proc/9", parents: true)?
+  fs.root_write(source, p"proc/123/stat", "123 (worker) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 100 8192 2\n")?
+  fs.root_write(source, p"proc/123/statm", "2 1 0 0 0 0 0\n")?
+  fs.root_write(source, p"proc/123/status", "Name:\tworker\nUid:\t1000\t1000\t1000\t1000\n")?
+  fs.root_write(source, p"proc/123/cgroup", "0::/tenant\n")?
+  fs.root_write(source, p"proc/9/stat", "9 (helper) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 1 0 99 4096 1\n")?
+  fs.root_write(source, p"proc/9/statm", "1 1 0 0 0 0 0\n")?
+  fs.root_write(source, p"proc/9/status", "Name:\thelper\nUid:\t1001\t1001\t1001\t1001\n")?
+  fs.root_write(source, p"proc/9/cgroup", "0::/tenant\n")?
+  fs.root_write(source, p"proc/124/stat", "124 (short-lived) S 1 1 1 0 -1 4194304 0 0 0 0 10 20 0 0 20 0 2 0 101 8192 2\n")?
+  report_checks.capture_process_bundle(source, bundle, "synthetic_fixture", 4096)?
+  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  test.contains(metadata, "\"skipped_count\": 1")?
+  test.contains(metadata, "\"name\": \"124\"")?
+  test.contains(metadata, "\"source\": \"statm\"")?
+  test.contains(metadata, "\"state\": \"absent\"")?
+  test.ok(!fs.root_exists(bundle, p"proc/124")?)?
+  let replay = report_checks.replay_process_bundle(bundle)?
+  test.ok(replay.identity.exact_static)?
+  test.ok(replay.resources.exact_scored)?
+  test.eq(replay.identity.matched_count, 2)?
+  fs.root_write(bundle, p"proc/123/statm", "3 1 0 0 0 0 0\n")?
+  test.error_kind(report_checks.validate_process_bundle(bundle), "SystemReportCheckError.Invalid")?
+  fs.root_write(bundle, p"proc/123/statm", "2 1 0 0 0 0 0\n")?
+  fs.root_mkdir(bundle, p"proc/125")?
+  test.error_kind(report_checks.validate_process_bundle(bundle), "SystemReportCheckError.Invalid")?
+}
+
+proc test_system_report_process_bundle_keeps_absent_proc_unscoreable() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  report_checks.capture_process_bundle(source, bundle, "synthetic_fixture", 4096)?
+  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  test.contains(metadata, "\"listing_state\": \"absent\"")?
+  test.contains(metadata, "\"scoreable\": false")?
+  test.error_kind(report_checks.validate_process_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 proc test_system_report_process_identity_reference_excludes_pid_reuse_and_scores_stable_values() [error] {
