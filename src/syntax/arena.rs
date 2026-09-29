@@ -1500,7 +1500,6 @@ impl<'a> ArenaProgramBuilder<'a> {
     pub fn push_run_segment_parts(
         &mut self,
         kind: RunKind,
-        builtin: bool,
         timeout: Option<ExprId>,
         cpu_max: Option<ExprId>,
         accept: Option<ExprId>,
@@ -1514,7 +1513,6 @@ impl<'a> ArenaProgramBuilder<'a> {
         let span = self.lowerer.span(span);
         self.run_segment_inputs.push(ArenaRunSegment {
             kind,
-            builtin,
             timeout,
             cpu_max,
             accept,
@@ -5689,7 +5687,6 @@ pub struct ArenaRunForm {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArenaRunSegment {
     pub kind: RunKind,
-    pub builtin: bool,
     pub timeout: Option<ExprId>,
     pub cpu_max: Option<ExprId>,
     pub accept: Option<ExprId>,

@@ -22,7 +22,7 @@ two
   )?
   test.eq("one two".count_words(), 2)?
   test.eq("h\u{e9}".count_chars(), 2)?
-  test.eq("h\u{e9}".count_bytes(), 3)?
+  test.eq("h\u{e9}".byte_len(), 3)?
   test.eq(scalars[1], "\u{e9}")?
   test.eq("a,b,c".split(",", maxsplit: 1), ["a", "b,c"])?
   test.eq("a,b,c".split(",", 1), ["a", "b,c"])?

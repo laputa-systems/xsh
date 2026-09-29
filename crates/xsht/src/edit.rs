@@ -15,6 +15,7 @@ pub(crate) fn migration_lint_code(code: Option<&str>) -> Option<&'static str> {
         Some("parse.block-header-migration") => Some("lint.block-header"),
         Some("parse.stream-option-migration") => Some("lint.stream-options"),
         Some("parse.enum-migration") => Some("lint.enum-declaration"),
+        Some("parse.compatibility-vocabulary" | "check.compatibility-vocabulary") => Some("lint.compatibility-vocabulary"),
         _ => None,
     }
 }
@@ -24,6 +25,25 @@ pub(crate) fn apply_cst_guarded_edits(
     text: &str,
     edits: &[SourceEdit],
     line_width: usize,
+) -> Result<Option<String>, String> {
+    apply_cst_edits(file, text, edits, Some(line_width))
+}
+
+/// Removed vocabulary changes exact tokens. Preserve unrelated literal bytes,
+/// line endings and layout while the caller rechecks the complete import graph.
+pub(crate) fn apply_cst_guarded_migration_edits(
+    file: &str,
+    text: &str,
+    edits: &[SourceEdit],
+) -> Result<Option<String>, String> {
+    apply_cst_edits(file, text, edits, None)
+}
+
+fn apply_cst_edits(
+    file: &str,
+    text: &str,
+    edits: &[SourceEdit],
+    line_width: Option<usize>,
 ) -> Result<Option<String>, String> {
     let mut sources = SourceMap::new();
     let source_id = sources.add_file(file, text);
@@ -66,7 +86,7 @@ pub(crate) fn apply_cst_guarded_edits(
         return Ok(None);
     }
 
-    if migrating_syntax {
+    if migrating_syntax || line_width.is_none() {
         let rewritten_parse = Parser::parse_source_arena_only(source_id, &rewritten);
         if !rewritten_parse.diagnostics.is_empty() {
             return Err(DiagnosticRenderer::new().render(&rewritten_parse.diagnostics, &sources));
@@ -75,7 +95,7 @@ pub(crate) fn apply_cst_guarded_edits(
     }
 
     let formatted = Formatter::new()
-        .with_line_width(line_width)
+        .with_line_width(line_width.expect("formatted edit width"))
         .format_source(source_id, &rewritten);
     if !formatted.diagnostics.is_empty() {
         return Err(DiagnosticRenderer::new().render(&formatted.diagnostics, &sources));

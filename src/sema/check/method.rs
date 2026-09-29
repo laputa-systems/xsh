@@ -363,7 +363,7 @@ impl Checker {
             .filter(|candidate| method_name_is_nearby(name, candidate))
             .collect::<Vec<_>>();
         if receiver == MethodReceiver::Str && matches!(name, "len" | "length") {
-            candidates = vec!["byte_len", "count_bytes", "count_chars"];
+            candidates = vec!["byte_len", "count_chars"];
         }
         if !candidates.is_empty() {
             diagnostic = diagnostic.with_note(format!(

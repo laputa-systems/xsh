@@ -4136,12 +4136,8 @@ impl Evaluator {
                     span,
                 )?
             }
-            RuntimeOp::FsLs | RuntimeOp::FsChildren if (1..=3).contains(&values.len()) => {
-                let operation = if op == RuntimeOp::FsLs {
-                    "fs.ls"
-                } else {
-                    "fs.children"
-                };
+            RuntimeOp::FsChildren if (1..=3).contains(&values.len()) => {
+                let operation = "fs.children";
                 let ordered = lowered_bool_arg_or(values.get(2).cloned(), true, operation, span)?;
                 let stat = lowered_bool_arg_or(values.get(1).cloned(), true, operation, span)?;
                 let path = lowered_path_arg(values.remove(0), operation, span)?;

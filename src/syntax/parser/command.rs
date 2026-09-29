@@ -218,11 +218,16 @@ impl<'a> Parser<'a> {
         let start = self.current_start();
         self.bump();
         let mut kind = RunKind::Plain;
-        let mut builtin = false;
         if self.consume(TokenKindMatch::Dot).is_some() {
             let name = self.expect_member_name("expected run form after `run.`")?;
             if name == "builtin" {
-                builtin = true;
+                let alias_span = self.span(start + 3, self.previous_end());
+                self.diagnostics.push(
+                    Diagnostic::error("`run.builtin` was removed; use the corresponding `run` form")
+                        .with_code("parse.compatibility-vocabulary")
+                        .with_label(Label::primary(alias_span, "redundant run qualifier"))
+                        .with_fix_hint(FixHint::replacement(alias_span, "remove the qualifier", "")),
+                );
                 if self.consume(TokenKindMatch::Dot).is_some() {
                     let name =
                         self.expect_member_name("expected run builtin form after `run.builtin.`")?;
@@ -266,7 +271,6 @@ impl<'a> Parser<'a> {
         let span = self.span(start, self.previous_end());
         arena.push_run_segment_parts(
             kind,
-            builtin,
             timeout_id,
             cpu_max_id,
             accept_id,

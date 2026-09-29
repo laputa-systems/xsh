@@ -154,7 +154,7 @@ test test_fs_tree_metadata_install_and_locking [fs, error] { |ctx|
   let gitroot = fs.gitroot()?
   test.ok(fp"${gitroot}/docs/SPEC.md".exists()?)?
   let children = fs.children(nested)? |> sort-by .name
-  let listed = fs.ls(nested)? |> sort-by .name
+  let listed = fs.children(nested, stat: true, ordered: true)? |> sort-by .name
   test.eq(children.len(), listed.len())?
   test.ok(fs.children(nested, stat: false, ordered: false)? |> any .name == "data.txt")?
   let unstat_children = test.run_script(
@@ -626,7 +626,7 @@ test test_filesystem_path_and_install_apis [fs, error] { |ctx|
   note.chmod(0o600)?
   let link = fp"${root}/note.link"
   fs.symlink(note, link)?
-  let entries = fs.ls(root) |> sort-by .name
+  let entries = fs.children(root) |> sort-by .name
   let files = fs.children(root) |> where .kind == "file"
   let usage = root.du()?
   let renamed = note.with_ext("log")
@@ -737,7 +737,7 @@ test test_stable_tables_sort_files_and_process_records [fs, process, error] { |c
   let root = test.temp_dir(ctx, name: "table-sort-process")?
   fp"${root}/small".write("a")?
   fp"${root}/large".write("abcd")?
-  let entries = fs.ls(root) |> sort-by .size
+  let entries = fs.children(root) |> sort-by .size
   test.eq(entries[0].name, "small")?
   test.eq(entries[0].size, 1)?
   test.eq(entries[1].name, "large")?

@@ -17,6 +17,7 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "language.core.regex-literals" | "module.regex.compile" => {
             include_str!("../../../docs/snippets/api/regex-literals.xsh")
         }
+        "language.core.compatibility-vocabulary" => include_str!("../../../docs/snippets/api/compatibility-vocabulary.xsh"),
         "language.core.bare-blocks" => include_str!("../../../docs/snippets/api/bare-blocks.xsh"),
         "language.core.bindings" => include_str!("../../../docs/snippets/api/record-bindings.xsh"),
         "module.bytes" => include_str!("../../../docs/snippets/api/bytes-base64.xsh"),

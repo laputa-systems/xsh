@@ -639,9 +639,25 @@ impl Checker {
         }
     }
 
+    /// Removed vocabulary is recoverable for tooling, but always rejects execution.
+    /// A fix is attached only after name resolution proves the canonical target.
+    pub(super) fn removed_compatibility_name(&mut self, span: Span, old: &str, canonical: &str, fix: bool) {
+        let message = format!("`{old}` was removed; use `{canonical}`");
+        let mut diagnostic = Diagnostic::error(&message)
+            .with_code("check.compatibility-vocabulary")
+            .with_label(Label::primary(span, &message));
+        if fix {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use the canonical spelling", canonical));
+        } else if old == "ARGV" {
+            diagnostic = diagnostic.with_note("A local `args` binding shadows script arguments; rename it or capture script arguments before entering that scope.");
+        } else if old == "ls" {
+            diagnostic = diagnostic.with_note("Use the standard module call `fs.children(...)`; standard API members are not first-class callable values.");
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
     pub(crate) fn define_standard_values(&mut self) {
         self.define_builtin_value("args", Binding::new(Type::List(Box::new(Type::Str)), false));
-        self.define_builtin_value("ARGV", Binding::new(Type::List(Box::new(Type::Str)), false));
     }
 
     pub(crate) fn check_program_arena(

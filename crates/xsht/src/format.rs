@@ -1434,7 +1434,7 @@ impl<'a> Writer<'a> {
         indent: usize,
         output: &mut String,
     ) {
-        output.push_str(run_head_text(segment.kind, segment.builtin));
+        output.push_str(run_head_text(segment.kind));
         output.push(' ');
         if let Some(timeout) = segment.timeout {
             output.push_str("--timeout=");
@@ -3505,24 +3505,16 @@ fn assign_op_text(op: AssignOp) -> &'static str {
     }
 }
 
-fn run_head_text(kind: RunKind, builtin: bool) -> &'static str {
-    match (builtin, kind) {
-        (false, RunKind::Plain) => "run",
-        (false, RunKind::Status) => "run.status",
-        (false, RunKind::CaptureText) => "run.text",
-        (false, RunKind::CaptureBytes) => "run.bytes",
-        (false, RunKind::CaptureTextRecord) => "run.capture --text",
-        (false, RunKind::CaptureBytesRecord) => "run.capture --bytes",
-        (false, RunKind::StreamText) => "run.stream --text",
-        (false, RunKind::StreamBytes) => "run.stream --bytes",
-        (true, RunKind::Plain) => "run.builtin",
-        (true, RunKind::Status) => "run.builtin.status",
-        (true, RunKind::CaptureText) => "run.builtin.text",
-        (true, RunKind::CaptureBytes) => "run.builtin.bytes",
-        (true, RunKind::CaptureTextRecord) => "run.builtin.capture --text",
-        (true, RunKind::CaptureBytesRecord) => "run.builtin.capture --bytes",
-        (true, RunKind::StreamText) => "run.builtin.stream --text",
-        (true, RunKind::StreamBytes) => "run.builtin.stream --bytes",
+fn run_head_text(kind: RunKind) -> &'static str {
+    match kind {
+        RunKind::Plain => "run",
+        RunKind::Status => "run.status",
+        RunKind::CaptureText => "run.text",
+        RunKind::CaptureBytes => "run.bytes",
+        RunKind::CaptureTextRecord => "run.capture --text",
+        RunKind::CaptureBytesRecord => "run.capture --bytes",
+        RunKind::StreamText => "run.stream --text",
+        RunKind::StreamBytes => "run.stream --bytes",
     }
 }
 

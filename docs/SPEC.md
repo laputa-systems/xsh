@@ -461,8 +461,9 @@ Comments retain the diagnostic without a fix. Positional descriptors, short alia
 custom help, computed defaults, and advanced parser policies remain explicit.
 
 Script arguments after `--` are available through the predeclared immutable
-binding `args: List[Str]`. The current interpreter also accepts `ARGV` as a
-compatibility alias; new examples and docs should use `args`.
+binding `args: List[Str]`. The former predeclared `ARGV` binding is rejected
+with a removed-vocabulary diagnostic; an explicitly declared user binding with
+that spelling remains valid.
 The `xsh`, `xshi`, and `xsht` command-line parsers reject an argument that is
 not valid UTF-8 with exit status 2 and an argument-index diagnostic, before
 loading a script or command. XSH process calls can still pass native `Path`
@@ -2255,19 +2256,10 @@ run_form     = "run" run_target command_arg*
              | "run.bytes" run_target command_arg*
              | "run.capture" capture_mode run_target command_arg*
              | "run.stream" capture_mode run_target command_arg*
-             | "run.builtin" run_target command_arg*
-             | "run.builtin.status" run_target command_arg*
-             | "run.builtin.text" run_target command_arg*
-             | "run.builtin.bytes" run_target command_arg*
-             | "run.builtin.capture" capture_mode run_target command_arg*
-             | "run.builtin.stream" capture_mode run_target command_arg*
              | run_head "(" command_arg+ redirection* ")"
              ;
 run_head     = "run" | "run.status" | "run.text" | "run.bytes"
-             | "run.capture" capture_mode | "run.stream" capture_mode
-             | "run.builtin" | "run.builtin.status" | "run.builtin.text"
-             | "run.builtin.bytes" | "run.builtin.capture" capture_mode
-             | "run.builtin.stream" capture_mode ;
+             | "run.capture" capture_mode | "run.stream" capture_mode ;
 capture_mode = "--text" | "--bytes" ;
 run_target   = word | typed_arg ;
 ```
@@ -2313,9 +2305,8 @@ Target resolution:
 - Not found, permission denied, not executable, `ENOEXEC`, NUL in target,
   spawn failure, and I/O failure are distinct `ProcessError` variants or
   facets.
-- `run.builtin*` forms are legacy spellings that execute the target like the
-  corresponding `run*` form. They do not use a compatibility-builtin registry or
-  shim.
+- `run.builtin*` is rejected before execution. The narrow migration removes
+  only the redundant qualifier, preserving modes, options, argv, and redirections.
 
 Process results:
 
@@ -2862,14 +2853,12 @@ files are written through a temporary file in the destination directory.
   expressions on `fs.walk` and `fs.files` are evaluated once when called.
 - `fs.dirs(path: Path, gitignore: Bool = true, stat: Bool = true, hidden: Bool = false) -> Result[Stream[Record]]` —
   equivalent to `fs.walk |> where .kind == "dir"`.
-- `fs.ls(path: Path, stat: Bool = true, ordered: Bool = true) -> Result[Stream[Record]]` —
+- `fs.children(path: Path, stat: Bool = true, ordered: Bool = true) -> Result[Stream[Record]]` —
   enumerates only the entries directly under `path`; it never recurses. With
   `ordered: false`, the stream reads directory entries lazily in host order.
   `ordered: true` materializes and sorts the entries by path before yielding
   them. `stat: false` uses the directory entry type; stat-derived fields are
   unavailable and reading them returns a `metadata-unavailable` runtime error.
-- `fs.children(path: Path, stat: Bool = true, ordered: Bool = true) -> Result[Stream[Record]]` —
-  an alias of `fs.ls` for scripts that want to emphasize direct children.
   Each entry's `path` retains native bytes. Its `name` and `ext` fields are
   `Str` display text and may replace invalid UTF-8; use `path` for filesystem
   operations.
@@ -3368,8 +3357,7 @@ adapter `text.lines()` is available in pipelines.
 - `.count_lines() -> Int`.
 - `.count_words() -> Int`.
 - `.count_chars() -> Int`, by Unicode scalar value.
-- `.count_bytes() -> Int`.
-- `.byte_len() -> Int`, equivalent to `.count_bytes()`.
+- `.byte_len() -> Int`, counting UTF-8 bytes independently of Unicode scalar counts.
 - `.byte_at(index: Int) -> Int?`, returning the byte value at a nonnegative
   byte index, or null when out of range. Negative indices do not count from the end.
 - `.byte_slice(offset: Int, length: Int = rest) -> Str`, slicing by byte offset
@@ -4029,7 +4017,7 @@ long cell contents vertically instead of truncating with ellipses.
 returned by a block is drained for that input item before the outer stream
 continues.
 
-`fs.ls(...) |> table.print(...)` is the accepted standard listing interface.
+`fs.children(...) |> table.print(...)` is the accepted standard listing interface.
 
 Structured stage configuration uses ordinary named arguments, including
 punning and statically checked record spreading. Option labels use snake_case:
@@ -4623,3 +4611,24 @@ Fixtures must be able to assert:
 
 Fixtures that depend on host-specific behavior, such as signal numbers,
 permissions, or non-UTF-8 paths, must be isolated behind marked tests.
+
+### Removed compatibility vocabulary
+
+Only the former predeclared `ARGV`, `run.builtin*` qualifier, ambient `fs.ls`,
+and Str `.count_bytes()` are removed. Canonical spellings are `args`, the
+corresponding `run*` form, `fs.children`, and Str `.byte_len()`. Rooted filesystem
+operations, recursive walks/files, character counts, and text stream stages keep
+their distinct contracts. Public API inventories and dispatch expose canonical
+operations only; runtime error kinds remain unchanged. Operation names in source
+attribution and traces now use the canonical spelling.
+
+Ordinary preparation rejects removed vocabulary before effects. Tooling retains
+fatal `parse.compatibility-vocabulary` / `check.compatibility-vocabulary` recovery
+facts solely to offer `lint.compatibility-vocabulary`. Fixes require resolved
+standard names or a checked Str receiver, keep comments, strings, external argv,
+environment names and serialized field keys intact, and normally parse/check the
+complete rewritten import graph before writing. A user `ARGV` binding or user
+`count_bytes` member is untouched; a shadowed canonical `args` target receives no
+fix. Standard API members used as unsupported first-class values also receive
+no fix. Record shorthand migration retains its original wire key. Unrelated errors
+and unsupported argument contracts remain errors.

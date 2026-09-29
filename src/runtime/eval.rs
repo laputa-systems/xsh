@@ -2658,7 +2658,6 @@ const LOWERED_METHOD_NAMES: &[&str] = &[
     "count_lines",
     "count_words",
     "count_chars",
-    "count_bytes",
     "byte_len",
     "len",
     "length",
@@ -3153,13 +3152,6 @@ impl Evaluator {
         let argv = Value::List(argv.into_iter().map(|s| Value::Str(s.into())).collect());
         evaluator.define(
             "args",
-            Binding {
-                value: argv.clone(),
-                mutable: false,
-            },
-        );
-        evaluator.define(
-            "ARGV",
             Binding {
                 value: argv,
                 mutable: false,

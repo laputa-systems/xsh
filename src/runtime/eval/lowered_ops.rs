@@ -1156,7 +1156,7 @@ fn improve_unsupported_method_error(
         .map(|candidate| format!("`{candidate}()`"))
         .collect::<Vec<_>>();
     if receiver_type == "Str" && matches!(name, "len" | "length") {
-        names = ["byte_len", "count_bytes", "count_chars"]
+        names = ["byte_len", "count_chars"]
             .into_iter()
             .map(|candidate| format!("`{candidate}()`"))
             .collect();
@@ -1488,7 +1488,6 @@ pub(super) fn lowered_str_method_value(
         "count_chars" if args.is_empty() => {
             Ok(LoweredValue::Int(text_value.chars().count() as i64))
         }
-        "count_bytes" if args.is_empty() => Ok(LoweredValue::Int(text_value.len() as i64)),
         "byte_len" if args.is_empty() => Ok(LoweredValue::Int(text_value.len() as i64)),
         "byte_at" if args.len() == 1 => {
             let LoweredValue::Int(index) = &args[0] else {

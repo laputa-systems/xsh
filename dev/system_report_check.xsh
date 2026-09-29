@@ -4895,7 +4895,7 @@ export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: 
   }
   let wire: Any = capture
   let encoded = json.encode(wire, pretty: true)?
-  if encoded.count_bytes() > 4194304 {
+  if encoded.byte_len() > 4194304 {
     return Err(check_failure("power supply capture metadata exceeds its replay bound"))
   }
 
@@ -6511,7 +6511,7 @@ export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   }
   let wire: Any = capture
   let encoded = json.encode(wire, pretty: true)?
-  if encoded.count_bytes() > 16777216 {
+  if encoded.byte_len() > 16777216 {
     return Err(check_failure("hwmon capture metadata exceeds its replay bound"))
   }
 
@@ -15220,7 +15220,7 @@ export proc capture_block_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [f
   }
   let wire: Any = capture
   let encoded = json.encode(wire, pretty: true)?
-  if encoded.count_bytes() > 16777216 {
+  if encoded.byte_len() > 16777216 {
     return Err(check_failure("block capture metadata exceeds its replay bound"))
   }
 
@@ -19105,7 +19105,7 @@ export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
   }
   let wire: Any = capture
   let encoded = json.encode(wire, pretty: true)?
-  if encoded.count_bytes() > 1048576 {
+  if encoded.byte_len() > 1048576 {
     return Err(check_failure("cgroup2 capture metadata exceeds its replay bound"))
   }
 
@@ -19864,7 +19864,7 @@ export proc capture_process_bundle(
   }
   let wire: Any = capture
   let encoded = json.encode(wire, pretty: true)?
-  if encoded.count_bytes() > 8388608 {
+  if encoded.byte_len() > 8388608 {
     return Err(check_failure("process capture metadata exceeds its replay bound"))
   }
 

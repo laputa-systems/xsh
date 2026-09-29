@@ -276,14 +276,22 @@ impl Checker {
                 // misleading unknown-module-api diagnostic instead of checking
                 // the valid Path method.
                 if self.lookup(module).is_none() && api_spec().module(&module.as_str()).is_some() {
-                    if let Some(required) = api_spec().module_required_effect(&module.as_str(), &name.as_str()) {
+                    let canonical_name = if module == "fs" && name == "ls" {
+                        let callee_span = arena.arena.expr(callee).span;
+                        self.removed_compatibility_name(
+                            Span::new(callee_span.source_id, callee_span.end() - 2, callee_span.end()),
+                            "ls", "children", true,
+                        );
+                        Name::intern("children")
+                    } else { name };
+                    if let Some(required) = api_spec().module_required_effect(&module.as_str(), &canonical_name.as_str()) {
                         self.require_effect(required, span, &format!("`{module}.{name}`"));
                     }
                     return self.check_module_call_arena(
                         arena,
                         source,
                         &module.as_str(),
-                        &name.as_str(),
+                        &canonical_name.as_str(),
                         args,
                         span,
                     );
@@ -346,12 +354,20 @@ impl Checker {
                     ModuleExportType::Value { .. } => {}
                 }
             }
+            let canonical_name = if base_ty == Type::Str && name == "count_bytes" {
+                let callee_span = arena.arena.expr(callee).span;
+                self.removed_compatibility_name(
+                    Span::new(callee_span.source_id, callee_span.end() - "count_bytes".len(), callee_span.end()),
+                    "count_bytes", "byte_len", true,
+                );
+                Name::intern("byte_len")
+            } else { name };
             return self.check_method_dispatch_arena(
                 arena,
                 source,
                 base,
                 base_ty,
-                &name.as_str(),
+                &canonical_name.as_str(),
                 args,
                 span,
             );
@@ -375,12 +391,20 @@ impl Checker {
                 self.error(span, "Result propagation leaves an Optional receiver; guard the next hop explicitly", "check.optional-method");
                 return Type::Unknown;
             }
+            let canonical_name = if inner_ty == Type::Str && name == "count_bytes" {
+                let callee_span = arena.arena.expr(callee).span;
+                self.removed_compatibility_name(
+                    Span::new(callee_span.source_id, callee_span.end() - "count_bytes".len(), callee_span.end()),
+                    "count_bytes", "byte_len", true,
+                );
+                Name::intern("byte_len")
+            } else { name };
             let return_ty = self.check_method_dispatch_arena(
                 arena,
                 source,
                 base,
                 inner_ty,
-                &name.as_str(),
+                &canonical_name.as_str(),
                 args,
                 span,
             );

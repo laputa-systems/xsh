@@ -1,5 +1,5 @@
-let ready = fp"${ARGV[0]}"
-let hook_entered = fp"${ARGV[1]}"
+let ready = fp"${args[0]}"
+let hook_entered = fp"${args[1]}"
 
 on USR1 [fs, time, error] {
   hook_entered.write("entered")?

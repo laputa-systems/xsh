@@ -272,11 +272,6 @@ impl<'a> Linter<'a> {
             Span::new(xsh::frontend::source::SourceId::new(0), 0, 0),
             false,
         );
-        linter.define(
-            "ARGV",
-            Span::new(xsh::frontend::source::SourceId::new(0), 0, 0),
-            false,
-        );
         let statements: Vec<StmtId> = program.statement_ids().collect();
         if native_test_file { linter.lint_legacy_test_declarations(&statements); }
         linter.lint_program(&statements);
@@ -7473,7 +7468,7 @@ impl LintExprVisitor<'_, '_> {
 }
 
 fn is_predeclared_script_args(name: &str) -> bool {
-    matches!(name, "args" | "ARGV")
+    name == "args"
 }
 
 fn literal_command_word(arena: &AstArena, source: &str, arg: &ArenaCommandArg) -> Option<String> {

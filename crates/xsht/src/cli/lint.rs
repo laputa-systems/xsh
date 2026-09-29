@@ -3,7 +3,7 @@ use crate::xsht::cli::{
     is_path_excluded, load_config, nearest_config_for_file, text_bytes,
 };
 use crate::xsht::config::{FileToolConfig, config_for_dir};
-use crate::xsht::edit::{SourceEdit, apply_cst_guarded_edits, migration_lint_code};
+use crate::xsht::edit::{SourceEdit, apply_cst_guarded_edits, apply_cst_guarded_migration_edits, migration_lint_code};
 use crate::xsht::lint::{LintOptions, Linter};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fs;
@@ -634,7 +634,9 @@ fn lint_workspace_root(
             type_program.clone(),
         )
     });
-    if !checked.diagnostics.is_empty() && (!fix || !relevant_diagnostics.is_empty()) {
+    let unrelated_check_error = checked.diagnostics.iter().any(|diagnostic|
+        migration_lint_code(diagnostic.code.as_deref()).is_none());
+    if !checked.diagnostics.is_empty() && unrelated_check_error && (!fix || !relevant_diagnostics.is_empty()) {
         relevant_diagnostics.extend(checked.diagnostics.iter().cloned());
         return vec![LintResult {
             index: 0,
@@ -645,8 +647,9 @@ fn lint_workspace_root(
         }];
     }
 
-    if fix && !relevant_diagnostics.is_empty() {
-        return migrate_workspace_syntax(workspace, root, &reachable, linted_modules);
+    if fix && (!relevant_diagnostics.is_empty() || checked.diagnostics.iter().any(|diagnostic|
+        migration_lint_code(diagnostic.code.as_deref()).is_some())) {
+        return migrate_workspace_syntax(workspace, root, &reachable, linted_modules, &checked.diagnostics);
     }
 
     let mut keys = reachable
@@ -700,6 +703,15 @@ fn lint_workspace_root(
                 linted.diagnostics.push(diagnostic);
             }
         }
+        for diagnostic in checked.diagnostics.iter().filter(|diagnostic|
+            diagnostic_mentions_source(diagnostic, module.source_id)) {
+            if let Some(code) = migration_lint_code(diagnostic.code.as_deref()) {
+                let mut diagnostic = diagnostic.clone();
+                diagnostic.severity = Severity::Warning;
+                diagnostic.code = Some(code.to_string());
+                linted.diagnostics.push(diagnostic);
+            }
+        }
         let check_diagnostics = checked
             .diagnostics
             .iter()
@@ -744,6 +756,7 @@ fn migrate_workspace_syntax(
     root: &str,
     reachable: &FxHashSet<String>,
     linted_modules: &Mutex<FxHashSet<String>>,
+    checked_diagnostics: &[Diagnostic],
 ) -> Vec<LintResult> {
     let failure = |diagnostics: Vec<RenderedDiagnostic>, stderr: String, status| vec![LintResult {
         index: 0,
@@ -753,15 +766,19 @@ fn migrate_workspace_syntax(
     let mut loader = WorkspaceLoader::new();
     for key in reachable {
         let module = &workspace.modules[key];
-        let text = if module.diagnostics.is_empty() {
+        let mut migration_diagnostics = module.diagnostics.clone();
+        migration_diagnostics.extend(checked_diagnostics.iter().filter(|diagnostic|
+            diagnostic_mentions_source(diagnostic, module.source_id)
+                && migration_lint_code(diagnostic.code.as_deref()).is_some()).cloned());
+        let text = if migration_diagnostics.is_empty() {
             module.text.clone()
         } else {
-            let fixes = collect_fix_spans_for_source(&module.diagnostics, module.source_id);
+            let fixes = collect_fix_spans_for_source(&migration_diagnostics, module.source_id);
             let edits = fixes.into_iter().map(|(start, end, replacement)| SourceEdit { start, end, replacement }).collect::<Vec<_>>();
-            match apply_cst_guarded_edits(&module.path.to_string_lossy(), &module.text, &edits, module.config.line_width) {
+            match apply_cst_guarded_migration_edits(&module.path.to_string_lossy(), &module.text, &edits) {
                 Ok(Some(text)) => text,
                 Ok(None) | Err(_) => {
-                    let mut diagnostics = module.diagnostics.clone();
+                    let mut diagnostics = migration_diagnostics;
                     for diagnostic in &mut diagnostics {
                         diagnostic.severity = Severity::Warning;
                         diagnostic.code = migration_lint_code(diagnostic.code.as_deref()).map(str::to_string);

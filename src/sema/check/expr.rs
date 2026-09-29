@@ -79,8 +79,28 @@ impl Checker {
         if api_spec().module(&name.as_str()).is_some() {
             return Type::Record(BTreeMap::new());
         }
+        if name == "ARGV" && !self.streams.contains_key(&name) {
+            let shadowed_args = self.scopes.iter().skip(1).any(|scope| scope.contains_key(&Name::intern("args")));
+            self.removed_compatibility_name(span, "ARGV", "args", !shadowed_args);
+            return Type::List(Box::new(Type::Str));
+        }
         self.error(span, "unresolved name", "check.unresolved-name");
         Type::Unknown
+    }
+
+    fn lookup_record_shorthand(&mut self, name: Name, span: Span) -> Type {
+        let ty = self.lookup_expr_ident(name, span);
+        if name == "ARGV"
+            && let Some(diagnostic) = self.diagnostics.last_mut()
+            && diagnostic.code.as_deref() == Some("check.compatibility-vocabulary")
+        {
+            for hint in &mut diagnostic.fix_hints {
+                if hint.span == Some(span) && hint.replacement.as_deref() == Some("args") {
+                    hint.replacement = Some("ARGV: args".to_string());
+                }
+            }
+        }
+        ty
     }
 
     pub(super) fn check_env_get(&mut self, kind: EnvGetKind, span: Span) -> Type {
@@ -210,7 +230,15 @@ impl Checker {
                         self.error(expr.span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole");
                         Type::Invalid
                     })
-                } else { self.lookup_expr_ident(*name, expr.span) }
+                } else {
+                    // Dollar command identifiers include their sigil in the
+                    // expression span. The removed binding edit replaces only
+                    // its four-byte name, preserving command interpolation.
+                    let name_span = if *name == "ARGV" && expr.span.end() - expr.span.start() == "ARGV".len() + 1 {
+                        Span::new(expr.span.source_id, expr.span.start() + 1, expr.span.end())
+                    } else { expr.span };
+                    self.lookup_expr_ident(*name, name_span)
+                }
             }
             ArenaExprKind::ValuePipelineCall { input, call, hole } => {
                 let input_ty = self.check_expr_arena(arena, source, *input, None);
@@ -454,7 +482,7 @@ impl Checker {
                     continue;
                 }
                 ArenaRecordFieldKind::Named { value, span, .. } => (Type::Str, self.check_expr_arena(arena, source, value, expected_item), arena.arena.span(span)),
-                ArenaRecordFieldKind::Shorthand { name, span } => (Type::Str, self.lookup_expr_ident(name, arena.arena.span(span)), arena.arena.span(span)),
+                ArenaRecordFieldKind::Shorthand { name, span } => (Type::Str, self.lookup_record_shorthand(name, arena.arena.span(span)), arena.arena.span(span)),
                 ArenaRecordFieldKind::Spread { expr, span } => {
                     let ty = self.check_expr_arena(arena, source, expr, expected);
                     match ty { Type::Map(key, item) => (*key, *item, arena.arena.span(span)), Type::Unknown => (Type::Unknown, Type::Unknown, arena.arena.span(span)), _ => {
@@ -533,7 +561,7 @@ impl Checker {
             }
             let actual = match value {
                 Some(value) => self.check_expr_arena(arena, source, value, selected),
-                None => self.lookup_expr_ident(path[0], field_span),
+                None => self.lookup_record_shorthand(path[0], field_span),
             };
             if let Some(selected) = selected {
                 if requires_validation(&actual, selected) {
@@ -575,7 +603,7 @@ impl Checker {
                     }
                     ArenaRecordFieldKind::Shorthand { name, span } => {
                         let field_span = arena.arena.span(*span);
-                        self.lookup_expr_ident(*name, field_span);
+                        self.lookup_record_shorthand(*name, field_span);
                     }
                 }
             }
@@ -677,7 +705,7 @@ impl Checker {
                     {
                         self.error(field_span, "unknown schema field", "check.schema-field");
                     }
-                    let ty = self.lookup_expr_ident(*name, field_span);
+                    let ty = self.lookup_record_shorthand(*name, field_span);
                     if let Some(field_expected) =
                         expected_fields.and_then(|fields| fields.get(name))
                     {
@@ -1346,6 +1374,13 @@ impl Checker {
             return ty;
         }
         let base_expr = arena.arena.expr(base);
+        if matches!(base_expr.kind, ArenaExprKind::Ident(module) if module == "fs" && self.lookup(module).is_none())
+            && name == "ls"
+        {
+            self.removed_compatibility_name(
+                Span::new(span.source_id, span.end() - 2, span.end()), "ls", "children", false,
+            );
+        }
         if matches!(&base_expr.kind, ArenaExprKind::Ident(module) if module == "env")
             && name == "PATH"
         {

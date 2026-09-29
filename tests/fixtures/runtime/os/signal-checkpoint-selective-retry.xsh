@@ -1,4 +1,4 @@
-let helper = fp"${ARGV[0]}"
+let helper = fp"${args[0]}"
 error FetchError = Busy(message: Str)
 
 on USR1 [] {

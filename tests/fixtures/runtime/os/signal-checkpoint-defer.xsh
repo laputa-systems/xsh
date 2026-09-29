@@ -1,5 +1,5 @@
-let marker = fp"${ARGV[0]}"
-let helper = fp"${ARGV[1]}"
+let marker = fp"${args[0]}"
+let helper = fp"${args[1]}"
 
 on USR1 [fs, error] {
   marker.write("hook")?

@@ -12,7 +12,7 @@ test test_run_script_captures_status_env_args_and_bytes [error] { |ctx|
   let ok = test.run_script(
     ctx,
     """
-print \${ARGV[0]}
+print \${args[0]}
 print \${env.get("XSH_RUN_SCRIPT_TEST")?}
 io.write_stdout_bytes(b"\\xff\\x00a")?
 """,
@@ -40,7 +40,7 @@ test test_run_xsht_trace_accepts_trace_flags_and_script_args [error] { |ctx|
   let output = test.run_xsht_trace(
     ctx,
     """
-print \${ARGV[0]}
+print \${args[0]}
 run true ?
 """,
     ["--trace", "--raw"],

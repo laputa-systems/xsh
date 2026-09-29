@@ -368,8 +368,26 @@ impl Checker {
                 self.error(span, "`@` splice is not valid here", "check.call-splice");
                 self.check_expr_arena(arena, source, *value, None)
             }
-            ArenaCallArgKind::Named { value, .. } => {
-                self.check_expr_arena(arena, source, *value, expected)
+            ArenaCallArgKind::Named { name, value, span } => {
+                let first_diagnostic = self.diagnostics.len();
+                let ty = self.check_expr_arena(arena, source, *value, expected);
+                let argument_span = arena.arena.span(*span);
+                let value_span = arena.arena.expr(*value).span;
+                if *name == "ARGV" && value_span.start() == argument_span.start() {
+                    // A punned argument writes its parameter label and binding
+                    // once. Expand the value while retaining the original label.
+                    for diagnostic in &mut self.diagnostics[first_diagnostic..] {
+                        if diagnostic.code.as_deref() == Some("check.compatibility-vocabulary") {
+                            for hint in &mut diagnostic.fix_hints {
+                                if hint.span == Some(value_span) && hint.replacement.as_deref() == Some("args") {
+                                    hint.span = Some(argument_span);
+                                    hint.replacement = Some("ARGV: args".to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                ty
             }
         }
     }

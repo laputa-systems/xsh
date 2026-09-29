@@ -559,7 +559,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Repository discovery is filesystem state; a path outside a Git worktree returns an error.",
             &["filesystem", "git", "root"],
         )),
-        ("fs", "ls" | "children") => Some((
+        ("fs", "children") => Some((
             "Lists immediate filesystem children as structured entries.",
             "The operation is shallow; use walk or files when recursive traversal is intended.",
             &["filesystem", "listing", "streaming"],
@@ -1622,7 +1622,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The method returns a new value and applies its character policy without changing byte data in place.",
             &["text", "transform"],
         )),
-        ("Str", "count_lines" | "count_words" | "count_chars" | "count_bytes" | "byte_len") => {
+        ("Str", "count_lines" | "count_words" | "count_chars" | "byte_len") => {
             Some((
                 "Counts a text property.",
                 "Character, byte, and line counts are distinct UTF-8 measurements; select the method that matches the boundary.",

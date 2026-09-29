@@ -88,8 +88,8 @@ test test_lint_fix_rebuilds_the_debug_xsh_binary [fs, error] { |ctx|
   write_fake_tool(
     fp"${tools}/cargo",
     xsh,
-    f"""if "--bin" in ARGV and "xsh" in ARGV {
-  p"${xsh_marker.display()}".write(ARGV.join("|"))?
+    f"""if "--bin" in args and "xsh" in args {
+  p"${xsh_marker.display()}".write(args.join("|"))?
 }
 """,
   )?
@@ -171,8 +171,8 @@ test test_docker_image_and_container_failures_are_staged [fs, error] { |ctx|
   write_fake_tool(
     fp"${tools}/docker",
     xsh,
-    f"""p"${docker_marker.display()}".write(ARGV.join("|"))?
-if "run" in ARGV {
+    f"""p"${docker_marker.display()}".write(args.join("|"))?
+if "run" in args {
   abort(24)
 }
 """,
@@ -210,7 +210,7 @@ test test_docker_image_build_failure_prevents_the_container_stage [fs, error] { 
   write_fake_tool(
     fp"${tools}/docker",
     xsh,
-    f"""p"${docker_marker.display()}".write(ARGV.join("|"))?
+    f"""p"${docker_marker.display()}".write(args.join("|"))?
 abort(24)""",
   )?
   let result = test.run_script(
@@ -325,7 +325,7 @@ test test_codesign_failure_stops_darwin_installation [fs, error] { |ctx|
   write_fake_tool(
     fp"${tools}/cargo",
     xsh,
-    f"""p"${cargo_marker.display()}".write(ARGV.join("|"))?
+    f"""p"${cargo_marker.display()}".write(args.join("|"))?
 """,
   )?
   write_fake_tool(

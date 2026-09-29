@@ -49,5 +49,5 @@ pub const CORE_BUILTIN_SYMBOLS: &[&str] = &[
 ];
 
 pub const FIXED_SEMANTIC_SYMBOLS: &[&str] = &[
-    "ARGV", "Err", "Ok", "args", "false", "main", "module", "true",
+    "Err", "Ok", "args", "false", "main", "module", "true",
 ];

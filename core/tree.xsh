@@ -36,7 +36,7 @@ proc print_children(
     return empty_counts()
   }
 
-  let entries = fs.ls(target)?
+  let entries = fs.children(target)?
     |> where all or ! .name.starts_with(".")
     |> where ! dirs_only or .kind == "dir"
     |> sort-by .name

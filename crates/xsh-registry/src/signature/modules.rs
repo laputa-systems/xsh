@@ -1243,19 +1243,6 @@ fn fs_module() -> ModuleSig {
             ),
         ),
         (
-            "ls",
-            sig(
-                vec![
-                    param("path", Type::Path),
-                    default_param("stat", Type::Bool),
-                    default_param("ordered", Type::Bool),
-                ],
-                result(fs_entry_stream()),
-                false,
-                RuntimeOp::FsLs,
-            ),
-        ),
-        (
             "children",
             sig(
                 vec![

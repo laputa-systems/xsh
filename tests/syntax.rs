@@ -1010,7 +1010,7 @@ fn parser_accepts_structured_pipeline_stages() {
 
     let table = Parser::parse_source_arena_only(
         SourceId::new(0),
-        "fs.ls(\".\") |> sort-by { .size } |> table.print(columns: [\"name\", \"size\"])\n",
+        "fs.children(\".\") |> sort-by { .size } |> table.print(columns: [\"name\", \"size\"])\n",
     );
     assert!(table.diagnostics.is_empty(), "{:?}", table.diagnostics);
     let tarena = &table.arena.arena;
@@ -1191,8 +1191,8 @@ let command = process.command {
   cpu_max = 80
   run --timeout=1s --cpumax=80 make check
 }
-run.builtin.status --cpumax=80 echo ok
-run.builtin.capture --text echo ok
+run.status --cpumax=80 echo ok
+run.capture --text echo ok
 let raw_lines = run.stream --text printf "%s\n" a b
 let lines = raw_lines |> take(1)
 match Err(Error(kind: "not-found")) {
@@ -1345,10 +1345,10 @@ let commands = [1, run true ?, wait h?]
 }
 
 #[test]
-fn parser_marks_builtin_and_cpumax_run_segments() {
+fn parser_preserves_cpumax_and_timeout_run_segments() {
     let output = Parser::parse_source_arena_only(
         SourceId::new(0),
-        "run.builtin.stream --bytes --cpumax=80 --timeout=1s echo ok\n",
+        "run.stream --bytes --cpumax=80 --timeout=1s echo ok\n",
     );
 
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
@@ -1362,7 +1362,6 @@ fn parser_marks_builtin_and_cpumax_run_segments() {
     };
     let segments = arena.run_segments(arena.run_form(*run_id).segments);
     let segment = &segments[0];
-    assert!(segment.builtin);
     assert_eq!(segment.kind, RunKind::StreamBytes);
     assert!(segment.cpu_max.is_some());
     assert!(segment.timeout.is_some());
@@ -1889,22 +1888,22 @@ fn parser_and_formatter_preserve_spawn_wait_forms() {
     let source = r#"
 let h=spawn run --cpumax=80 true ?
 let s=wait h?
-let hs=[spawn run true ?,spawn run.builtin false ?]
+let hs=[spawn run true ?,spawn run false ?]
 let statuses=wait hs?
 let cmd=process.command {
 cpu_max=80
-run.builtin true
+run true
 }
 let h2=spawn (cmd)?
 h2.cancel(signal:"TERM",kill_after:0ms)?
 "#;
     let expected = r#"let h = spawn run --cpumax=80 true ?
 let s = wait h?
-let hs = [spawn run true ?, spawn run.builtin false ?]
+let hs = [spawn run true ?, spawn run false ?]
 let statuses = wait hs?
 let cmd = process.command {
   cpu_max = 80
-  run.builtin true
+  run true
 }
 let h2 = spawn cmd?
 h2.cancel(signal: "TERM", kill_after: 0ms)?

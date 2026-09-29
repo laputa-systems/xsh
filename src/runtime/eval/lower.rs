@@ -566,7 +566,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::MimeParse
             | RuntimeOp::FsCwd
             | RuntimeOp::FsDirs
-            | RuntimeOp::FsLs
             | RuntimeOp::FsChildren
             | RuntimeOp::FsMetadata
             | RuntimeOp::FsFilesystemStats
@@ -5270,7 +5269,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 return Some(Type::Result(Box::new(collection), Box::new(Type::Error)));
             }
             if module == "fs"
-                && (name == "files" || name == "walk" || name == "ls" || name == "children")
+                && (name == "files" || name == "walk" || name == "children")
                 && let Some(entry) = standard_record_type("FsEntry")
             {
                 return Some(Type::List(Box::new(entry)));
@@ -9718,17 +9717,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                             ));
                         }
                     }
-                    if module == "fs" && (name == "ls" || name == "children") {
+                    if module == "fs" && name == "children" {
                         let options = lower_fs_list_args(&args_vec)?;
                         return Some(push_build_row!(
                             self,
                             expr,
                             BuildExprRow::FsList {
-                                op: if name == "ls" {
-                                    RuntimeOp::FsLs
-                                } else {
-                                    RuntimeOp::FsChildren
-                                },
+                                op: RuntimeOp::FsChildren,
                                 path: self.lower_expr(
                                     options.path,
                                     slots,
@@ -13761,7 +13756,6 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             | "count_lines"
             | "count_words"
             | "count_chars"
-            | "count_bytes"
             | "byte_len" => arg_count == 0,
             "fields" | "squeeze" => arg_count <= 1,
             "split" => arg_count == 1 || arg_count == 2,
@@ -13860,7 +13854,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
                 Some(Type::Result(Box::new(Type::Int), Box::new(Type::Error)))
             }
             "parse_float" => Some(Type::Result(Box::new(Type::Float), Box::new(Type::Error))),
-            "count_lines" | "count_words" | "count_chars" | "count_bytes" | "byte_len"
+            "count_lines" | "count_words" | "count_chars" | "byte_len"
             => Some(Type::Int),
             "byte_at" | "find" => Some(Type::Optional(Box::new(Type::Int))),
             "starts_with" | "ends_with" | "contains" => Some(Type::Bool),
@@ -14025,8 +14019,7 @@ fn top_level_known_with_runtime_bindings() -> FxHashMap<Name, LoweredTopLevelBin
         mutable: false,
         slot: true,
     };
-    known.insert(Name::intern("args"), args.clone());
-    known.insert(Name::intern("ARGV"), args);
+    known.insert(Name::intern("args"), args);
     known
 }
 
@@ -14248,7 +14241,6 @@ fn lowered_plain_method_type(name: Name) -> Option<LoweredType> {
     if name == "count_lines"
         || name == "count_words"
         || name == "count_chars"
-        || name == "count_bytes"
         || name == "byte_len"
         || name == "len"
         || name == "bit_and"

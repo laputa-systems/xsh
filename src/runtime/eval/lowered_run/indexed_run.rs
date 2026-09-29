@@ -5843,17 +5843,13 @@ impl Evaluator {
                 })
             }
             FullTag::ExprFsList => {
-                let op = indexed_decode::<RuntimeOp>(&mut payload, execution, call_span)?;
+                let _op = indexed_decode::<RuntimeOp>(&mut payload, execution, call_span)?;
                 let path = indexed_raw(&mut payload, call_span)?;
                 let stat = indexed_optional_raw(&mut payload, call_span)?;
                 let ordered = indexed_optional_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let operation = if op == RuntimeOp::FsLs {
-                    "fs.ls"
-                } else {
-                    "fs.children"
-                };
+                let operation = "fs.children";
                 let path = match self.eval_indexed_expr(execution, path, slots, span)? {
                     ControlFlow::Continue(value) => lowered_path_arg(value, operation, span)?,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),

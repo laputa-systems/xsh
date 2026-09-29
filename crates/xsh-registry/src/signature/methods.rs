@@ -737,13 +737,6 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     RuntimeOp::TextCountChars,
                 ),
                 method(
-                    "count_bytes",
-                    Vec::new(),
-                    MethodReturn::Type(Type::Int),
-                    true,
-                    RuntimeOp::TextCountBytes,
-                ),
-                method(
                     "byte_len",
                     Vec::new(),
                     MethodReturn::Type(Type::Int),

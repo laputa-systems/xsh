@@ -210,6 +210,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "assert",
 
     "bare-blocks",
+    "compatibility-vocabulary",
     "guarded-control",
     "block-parameters",
     "defer",
@@ -792,6 +793,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "statements" => (
             "Defines statement sequencing and result propagation.",
             "Checked statement position asserts Bool values and propagates Result[Unit] failures. Value position preserves Bool values; exhaustive if/match tails and their lexical multi-statement branches can supply function and callback values.",
+        ),
+        "compatibility-vocabulary" => (
+            "Exposes one canonical spelling for exact compatibility aliases.",
+            "args, run forms, fs.children and Str.byte_len replace the removed predeclared ARGV, run.builtin qualifier, fs.ls and Str.count_bytes. Removed names reject preparation; lint.compatibility-vocabulary offers resolved CST edits and rechecks the complete import graph. User bindings, fields, strings, external argv, comments, wire keys and distinct filesystem/text operations retain their contracts. Historical operation-name attribution becomes canonical; error kinds remain unchanged.",
         ),
         "bare-blocks" => (
             "Delimits lexical bindings and cleanup without a new call or Result boundary.",

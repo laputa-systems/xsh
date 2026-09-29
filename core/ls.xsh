@@ -30,7 +30,7 @@ proc list_dir(target: Path, show_all: Bool, long_format: Bool, indicator: Str) [
     print_entry_as(target.parent().metadata()?, "..", long_format, indicator)
   }
 
-  for entry in fs.ls(target)
+  for entry in fs.children(target)
     |> where show_all or ! .name.starts_with(".")
     |> sort-by .name {
     print_entry(entry, long_format, indicator)

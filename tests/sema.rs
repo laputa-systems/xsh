@@ -746,7 +746,7 @@ let squeezed = "nooo".squeeze(chars: "o")
 let line_count = "a\nb\n".count_lines()
 let word_count = "a b".count_words()
 let char_count = "hé".count_chars()
-let byte_count = "hé".count_bytes()
+let byte_count = "hé".byte_len()
 "#,
     );
     assert_no_codes(&ok, &["check.stream-input", "check.type-mismatch"]);
@@ -856,8 +856,8 @@ fn checker_handles_standard_module_signatures_and_status_methods() {
         r#"
 let p = Path("tmp")
 let exists = fs.exists(p) ?
-let listing = fs.ls(p)
-fs.ls(p) |> sort-by { .size } |> table.print(columns: ["name", "size"])
+let listing = fs.children(p)
+fs.children(p) |> sort-by { .size } |> table.print(columns: ["name", "size"])
 let processes = process.list() |> where { "xsh" in .command } |> count()
 let port_rows = process.port(1)
 let pid_port_rows = process.ports(1)
@@ -1868,7 +1868,7 @@ fn checker_rejects_foundation_contract_errors() {
 #[test]
 fn checker_rejects_stage_7_fs_path_contract_errors() {
     let cases = [
-        ("use fs\nlet listing = fs.ls(1) ?\n", "check.type-mismatch"),
+        ("use fs\nlet listing = fs.children(1) ?\n", "check.type-mismatch"),
         (
             "use fs\nlet _written = fs.write(Path(\"out\"), 1) ?\n",
             "check.type-mismatch",

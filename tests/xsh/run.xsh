@@ -184,12 +184,12 @@ print ${out}
   test.eq(output.stderr, "err")?
 }
 
-test test_run_builtin_forms_execute_like_plain_run_forms [process, error] {
-  let status = run.builtin.status false
+test test_run_forms_preserve_status_text_and_capture [process, error] {
+  let status = run.status false
   test.ok(status.exited_with(1))?
-  let text = run.builtin.text echo hello ?
+  let text = run.text echo hello ?
   test.eq(text.trim(), "hello")?
-  let capture = run.builtin.capture --text printf "out" ?
+  let capture = run.capture --text printf "out" ?
   test.ok(capture.status.ok)?
   test.eq(capture.stdout, "out")?
 }
@@ -233,9 +233,9 @@ build_fn.call()?
   }
 }
 
-test test_run_builtin_unknown_name_returns_process_error [process, env, error] {
+test test_run_unknown_name_returns_process_error [process, env, error] {
   env PATH="/bin:/usr/bin" {
-    let missing = run.builtin.text command-not-builtin
+    let missing = run.text command-not-builtin
     test.error_kind(missing, "not-found")?
   }
 }
@@ -530,7 +530,7 @@ test test_whole_script_cli_usage_and_auto_main_errors [error] { |ctx|
 type Opts = {verbose: Bool, paths: List[Str]}
 
 let opts: Opts = cli.parse(
-  ARGV,
+  args,
   {
     verbose: {form: "-v --verbose", default: false, help: "show extra output"},
     paths: {form: "...PATH", repeated: true},
@@ -565,7 +565,7 @@ print \${opts.paths.len()}
     ctx,
     """
 type Opts = {path: Str}
-let opts: Opts = cli.parse(ARGV, {path: {form: "PATH"}})?
+let opts: Opts = cli.parse(args, {path: {form: "PATH"}})?
 print \${opts.path}
 """,
   )?

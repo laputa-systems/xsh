@@ -872,3 +872,9 @@ and continuation intersections. Immutable aliases retain shared proof sets;
 revive stale evidence. Both routes publish precise expression types and proved
 Optional fallback receivers. Indexed lowering reads those facts and inserts no
 casts or runtime proof checks.
+Removed compatibility vocabulary has no executable registry entry or lowering
+mode. `Checker::removed_compatibility_name` records fatal diagnostics and exact
+edits after ordinary name/receiver resolution; the parser recovers canonical run
+heads with fatal diagnostics. `migration_lint_code` and
+`migrate_workspace_syntax` combine those edits across each loaded source and
+validate the entire overlay with ordinary preparation before publishing changes.

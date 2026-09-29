@@ -911,3 +911,10 @@ both executor routes without retained frontend state. `cargo test -p xsht --test
 uses tooling library APIs to check proof-only fixes, refusal, and convergence.
 Broaden with semantic integration tests, Boolean guard and pattern native modules,
 and indexed verifier tests.
+Compatibility vocabulary removal is covered by
+`target/debug/xsht test --jobs 1 tests/xsh/compatibility-vocabulary.xsh`:
+preparation before effects, byte/character distinction, direct-child ordering and
+missing-path errors, every run result mode, exact comment/argv preservation,
+shorthand wire keys, shadowing, invalid arguments, rechecking and idempotence.
+The migrated syntax and checker fixtures remain under `tests/syntax.rs` and
+`tests/sema.rs`; public inventory is checked through native API queries.

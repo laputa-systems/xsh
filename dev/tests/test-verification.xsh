@@ -81,7 +81,7 @@ test test_linux_verification_rejects_wrong_machine_and_dynamic_binaries [fs, err
   write_fake_tool(
     fp"${tools}/readelf",
     xsh,
-    """if "-h" in ARGV {
+    """if "-h" in args {
   print "Machine: AArch64"
 } else {
   print ""
@@ -113,7 +113,7 @@ main()?
   write_fake_tool(
     fp"${tools}/readelf",
     xsh,
-    """if "-h" in ARGV {
+    """if "-h" in args {
   print "Machine: Advanced Micro Devices X86-64"
 } else {
   print "NEEDED"

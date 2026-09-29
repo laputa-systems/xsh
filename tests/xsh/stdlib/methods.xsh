@@ -186,7 +186,7 @@ b
 
   test.eq("one two".count_words(), 2)?
   test.eq("caf\u{e9}".count_chars(), 4)?
-  test.eq("caf\u{e9}".count_bytes(), 5)?
+  test.eq("caf\u{e9}".byte_len(), 5)?
   test.eq("caf\u{e9}".byte_len(), 5)?
   test.eq(("caf\u{e9}".byte_at(0) ?? -1), 99)?
   test.eq(("caf\u{e9}".byte_at(3) ?? -1), 195)?
