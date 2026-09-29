@@ -52,9 +52,28 @@ impl TypeConstraints {
     /// Add one directional expectation without widening concrete operands.
     /// A failed nested constraint rolls back every substitution it attempted.
     pub fn constrain(&mut self, expected: &Type, actual: &Type, contribution: Span) -> Result<(), ConstraintConflict> {
+        self.constrain_with_authority(expected, actual, contribution, false)
+    }
+
+    /// A checked annotation may deliberately choose Null, Any, or an exact
+    /// empty shape. Such choices cannot be inferred from ordinary operands.
+    pub fn constrain_annotation(&mut self, expected: &Type, annotation: &Type, contribution: Span) -> Result<(), ConstraintConflict> {
+        if !has_anchor(annotation, true) {
+            let provenance = self.provenance(expected);
+            return Err(ConstraintConflict {
+                expected: expected.clone(), actual: annotation.clone(),
+                initializer: provenance.map(|value| value.0),
+                established: provenance.and_then(|value| value.1), contribution,
+                resolution_error: None,
+            });
+        }
+        self.constrain_with_authority(expected, annotation, contribution, true)
+    }
+
+    fn constrain_with_authority(&mut self, expected: &Type, actual: &Type, contribution: Span, annotation: bool) -> Result<(), ConstraintConflict> {
         let provenance = self.provenance(expected).or_else(|| self.provenance(actual));
         let mut changes = Vec::new();
-        let result = self.constrain_inner(expected, actual, contribution, &mut changes);
+        let result = self.constrain_inner(expected, actual, contribution, annotation, &mut changes);
         if let Err((expected, actual, resolution_error)) = result {
             for (id, previous) in changes.into_iter().rev() { self.variables.insert(id, previous); }
             return Err(ConstraintConflict {
@@ -65,7 +84,7 @@ impl TypeConstraints {
         Ok(())
     }
 
-    fn constrain_inner(&mut self, expected: &Type, actual: &Type, contribution: Span, changes: &mut Vec<(TypeVariableId, Variable)>) -> Result<(), (Type, Type, Option<ConstraintResolutionError>)> {
+    fn constrain_inner(&mut self, expected: &Type, actual: &Type, contribution: Span, annotation: bool, changes: &mut Vec<(TypeVariableId, Variable)>) -> Result<(), (Type, Type, Option<ConstraintResolutionError>)> {
         let mut pending = vec![(expected.clone(), actual.clone())];
         while let Some((expected, actual)) = pending.pop() {
             let expected = self.resolve(&expected).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
@@ -77,7 +96,7 @@ impl TypeConstraints {
                     self.bind(alias, Type::Inference(root), contribution, changes);
                 }
                 (Type::Inference(id), value) | (value, Type::Inference(id)) => {
-                    if !has_anchor(value) { continue; }
+                    if !has_anchor(value, annotation) { continue; }
                     let variables = self.variable_ids(value).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
                     if variables.contains(id) { return Err((expected, actual, None)); }
                     self.bind(*id, value.clone(), contribution, changes);
@@ -233,18 +252,20 @@ impl TypeConstraints {
     }
 }
 
-fn has_anchor(ty: &Type) -> bool {
+fn has_anchor(ty: &Type, annotation: bool) -> bool {
     if matches!(ty, Type::Inference(_)) { return false; }
     let mut pending = vec![(ty, 0)];
     while let Some((ty, depth)) = pending.pop() {
         if depth > MAX_TYPE_DEPTH { return false; }
         match ty {
-            Type::Any | Type::Unknown | Type::Invalid | Type::Null => return false,
+            Type::Unknown | Type::Invalid => return false,
+            Type::Inference(_) if annotation => return false,
+            Type::Any | Type::Null if !annotation => return false,
             Type::List(inner) | Type::Optional(inner) | Type::Stream(inner) => pending.push((inner, depth + 1)),
             Type::Map(key, value) => { pending.push((key, depth + 1)); pending.push((value, depth + 1)); }
             Type::Result(ok, error) => { pending.push((ok, depth + 1)); pending.push((error, depth + 1)); }
             Type::Record(fields) => {
-                if fields.is_empty() { return false; }
+                if fields.is_empty() && !annotation { return false; }
                 pending.extend(fields.values().map(|ty| (ty, depth + 1)));
             }
             Type::Module(exports) => for export in exports.values() {
@@ -342,5 +363,24 @@ mod tests {
         constraints.constrain(&seed, &Type::List(Box::new(item.clone())), span(4)).unwrap();
         constraints.constrain(&item, &Type::Path, span(5)).unwrap();
         assert_eq!(constraints.resolve(&seed).unwrap(), Type::List(Box::new(Type::Path)));
+    }
+
+    #[test]
+    fn checked_annotations_can_choose_types_that_ordinary_evidence_cannot_anchor() {
+        for annotation in [Type::Any, Type::Null, Type::Record(Default::default()), Type::List(Box::new(Type::Any))] {
+            let mut constraints = TypeConstraints::default();
+            let seed = constraints.fresh(span(1));
+            constraints.constrain(&seed, &annotation, span(2)).unwrap();
+            assert_eq!(constraints.resolve(&seed).unwrap(), seed);
+            constraints.constrain_annotation(&seed, &annotation, span(3)).unwrap();
+            assert_eq!(constraints.resolve(&seed).unwrap(), annotation);
+        }
+        let mut constraints = TypeConstraints::default();
+        let seed = constraints.fresh(span(1));
+        let hole = constraints.fresh(span(2));
+        for invalid in [Type::Invalid, Type::List(Box::new(Type::Unknown)), Type::Optional(Box::new(hole))] {
+            assert!(constraints.constrain_annotation(&seed, &invalid, span(3)).is_err());
+            assert_eq!(constraints.resolve(&seed).unwrap(), seed);
+        }
     }
 }
