@@ -106,6 +106,11 @@ their concrete element type from the expected context. If an element is truly
 dynamic, the inferred container becomes `List[Any]` or `Map[Any]`; strict mode
 warns when that dynamic container is used as a concrete container.
 
+Half-open slices preserve their checked receiver type: `List[T]` becomes
+`List[T]`, `Str` becomes `Str`, and `Bytes` becomes `Bytes`. Each supplied bound
+must be `Int`; omitted bounds introduce no new expression or dynamic conversion.
+The checker retains ordinary gradual `Any` behavior, with runtime domain checks.
+
 ## Bindings And Annotations
 
 For `let` and `var`, an explicit annotation supplies the expected type for the

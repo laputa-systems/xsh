@@ -224,8 +224,8 @@ The implemented v1 surface includes:
   and `xsht`.
 
 The following remain outside v1 unless this spec later promotes them:
-shell-string process execution, first-class command block literals, slice
-syntax, block-valued named arguments, public tagged JSON,
+shell-string process execution, first-class command block literals,
+block-valued named arguments, public tagged JSON,
 multi-job interactive job control, script-level job-control syntax, service
 supervision, command-compatible Seed applet shims, and
 package-manager-specific grammar.
@@ -769,7 +769,7 @@ factor       = unary (("*" | "/" | "%") unary)* ;
 unary        = ("!" | "-") unary | postfix ;
 postfix      = primary postfix_op* ;
 postfix_op   = "." IDENT | "." "require" "(" type_expr ")" | "?." IDENT
-             | "[" expr "]" | call_args | "?" ;
+             | "[" expr "]" | "[" expr? ".." expr? "]" | call_args | "?" ;
 call_args    = "(" arg_list? ")" ;
 arg_list     = arg ("," arg)* ","? ;
 arg          = expr | named_arg ;
@@ -890,6 +890,29 @@ values produces `Int`; mixed numeric arithmetic is rejected unless the integer
 side is explicitly converted with `.float()`. Comparisons follow the same rule:
 `Float` may be compared with `Float`, `Int` with `Int`, and mixed numeric
 comparisons require explicit conversion. `%` is integer-only.
+
+### Half-open Slicing
+
+Half-open `value[start..end]` slicing accepts `List[T]`, `Str`, and `Bytes`,
+returning the same collection type. Either bound may be omitted; omitted start
+is zero and omitted end is the receiver's length. Bounds are `Int`. Negative
+bounds count backwards from the end; each bound is clamped into `[0, length]`.
+An end before the normalized start produces an empty value. Receiver, explicit
+start, and explicit end are evaluated once, in that order. Omitted bounds reuse
+the evaluated receiver. List slices have ordinary list value semantics; text
+and bytes may share immutable backing storage through internal views.
+
+`Str` slice indices count Unicode scalar values, including combining marks as
+separate scalars. `Bytes` slice indices count bytes. Text slicing does not use
+the byte units of `.byte_slice()`. For example, `"aé🦀"[1..3]` is `"é🦀"` and
+`b"abcdef"[2..5]` is `b"cde"`.
+
+The offset/count `.slice()` API remains distinct: a negative offset or an offset
+past the end is an error, whereas bracket slicing normalizes those bounds.
+`lint.prefer-slice` fixes nonnegative constant prefixes and proven in-range
+constant suffixes; uncertain offsets, count arithmetic, effectful counts, and
+comments inside a call retain the method with an explanation. No fix introduces
+an addition that could overflow or changes a count into an end bound.
 
 ### Retry Blocks
 

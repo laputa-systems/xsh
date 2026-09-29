@@ -3244,3 +3244,19 @@ fn checker_list_compound_assignment_points_at_scalar_rhs() {
     let mismatch = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")).expect("scalar append rejection");
     assert!(mismatch.labels.iter().any(|label| &source[label.span.range()] == "2"));
 }
+
+#[test]
+fn checker_accepts_half_open_slicing_types_and_rejects_bad_bounds() {
+    let source = "let values: List[Int] = [1, 2][..]\nlet text: Str = \"é🦀\"[1..]\nlet data: Bytes = b\"abc\"[-2..99]\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let output = Checker::check_arena(&parsed.arena, source);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let source = "let wrong = b\"abc\"[true..]\nlet unsupported = 42[..]\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty());
+    let output = Checker::check_arena(&parsed.arena, source);
+    let bounds = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")).expect("bound must be Int");
+    assert!(bounds.labels.iter().any(|label| &source[label.span.range()] == "true"));
+    assert!(output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.slice-type")));
+}

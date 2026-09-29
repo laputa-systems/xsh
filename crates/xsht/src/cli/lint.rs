@@ -1547,6 +1547,19 @@ export proc map_etcsums(etcsums: List[EtcSum]) [error] -> Result[Map[Str]] {
     }
 
     #[test]
+    fn lint_fix_half_open_slices_converges_for_nested_calls() {
+        let source = "let part = b\"abcdef\".slice(0, 5).slice(0, 2)\nprint part.base64()\n";
+        let config = config();
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config);
+        let LintResultKind::Write { text, .. } = result.kind else {
+            panic!("expected fixed slices");
+        };
+        assert!(text.contains("b\"abcdef\"[..5][..2]"), "{text}");
+        let second = lint_one_file_with_fixes(0, "fixture.xsh", text, &config);
+        assert!(matches!(second.kind, LintResultKind::Clean));
+    }
+
+    #[test]
     fn lint_fix_declines_comment_bearing_spans() {
         let source = "\
 let value = 1

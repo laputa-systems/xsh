@@ -1662,7 +1662,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("Bytes", "slice") => Some((
             "Returns a byte range.",
-            "The range is bounds-checked and the result owns its copied bytes.",
+            "Uses offset/count with nonnegative bounds; an offset past the end is an error and the count clamps to remaining bytes. Bracket slices use half-open, normalized bounds instead.",
             &["bytes", "bounds"],
         )),
         ("Bytes", "dump") => Some((

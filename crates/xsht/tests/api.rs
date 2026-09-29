@@ -697,3 +697,21 @@ fn api_core_procs_demonstrates_lexical_named_argument_puns() {
     assert!(stdout.contains("greet(name:)"), "{stdout}");
     assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
 }
+
+#[test]
+fn api_slicing_documents_bounds_units_and_retained_count_method() {
+    let output = xsht(&["api", "language:core.slicing", "method:Bytes.slice"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for fragment in [
+        "api: language.core.slicing",
+        "negative bounds count from the end",
+        "Str counts Unicode scalars; Bytes counts bytes",
+        "data[..2]",
+        "data[2..]",
+        "api: method.Bytes.slice",
+        "Uses offset/count with nonnegative bounds",
+    ] {
+        assert!(stdout.contains(fragment), "missing {fragment}: {stdout}");
+    }
+}

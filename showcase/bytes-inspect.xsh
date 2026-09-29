@@ -42,7 +42,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
   if size > 0 {
     let preview_len = if size < 32 { size } else { 32 }
-    let preview = data.slice(0, preview_len)
+    let preview = data[..preview_len]
     print f"hex:    ${preview.dump("hex-u8")}"
   }
 

@@ -36,6 +36,7 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "method.Bytes.base64" => {
             include_str!("../../../docs/snippets/api/bytes-base64.xsh")
         }
+        "method.Bytes.slice" | "language.core.slicing" => include_str!("../../../docs/snippets/api/slicing.xsh"),
         "method.Bytes.utf8" => include_str!("../../../docs/snippets/api/bytes-utf8.xsh"),
         "method.Stream.collect" => {
             include_str!("../../../docs/snippets/api/stream-collect.xsh")

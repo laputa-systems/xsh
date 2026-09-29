@@ -211,6 +211,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "pure-functions",
     "records",
     "list-concatenation",
+    "slicing",
     "results",
     "postfix-question",
     "fallback",
@@ -767,6 +768,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "list-concatenation" => (
             "Concatenates lists while preserving value semantics.",
             "`left + right` concatenates compatible List values in encounter order. `items += more` updates a mutable target; append one item with `items += [item]`. Empty lists use the expected element type, selectors and operands evaluate once, and earlier aliases retain their contents. The push and extend methods remain available for expression chains.",
+        ),
+        "slicing" => (
+            "Selects half-open List, Str, and Bytes ranges.",
+            "`value[start..end]` evaluates receiver and explicit Int bounds once in order. Omitted bounds use zero/length, negative bounds count from the end, bounds clamp to length, and reversed ranges are empty. Str counts Unicode scalars; Bytes counts bytes. List results retain value semantics; immutable text/bytes may share backing storage. Offset/count methods retain their distinct error rules.",
         ),
         "records" => (
             "Defines structural and named record values.",

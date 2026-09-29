@@ -2050,43 +2050,35 @@ pub(super) fn lowered_slice_value(
             let end = to_index(end, len, span)?.unwrap_or(len).max(start);
             Ok(LoweredValue::List(values[start..end].to_vec()))
         }
-        LoweredValue::Str(text) => {
-            let len = text.chars().count();
+        value @ (LoweredValue::Str(_) | LoweredValue::StrView(_)) => {
+            let (text, view_start, view_end) = lowered_str_parts(&value).expect("text slice receiver");
+            let slice = &text[view_start..view_end];
+            let len = slice.chars().count();
             let start = to_index(start, len, span)?.unwrap_or(0);
             let end = to_index(end, len, span)?.unwrap_or(len).max(start);
-            Ok(LoweredValue::Str(
-                text.chars()
-                    .skip(start)
-                    .take(end - start)
-                    .collect::<String>()
-                    .into(),
+            // Bounds count Unicode scalars; the backing view uses UTF-8 bytes.
+            let mut boundaries = slice.char_indices()
+                .map(|(offset, _)| offset)
+                .chain(std::iter::once(slice.len()));
+            let byte_start = boundaries.nth(start).expect("normalized scalar start");
+            let byte_end = if start == end {
+                byte_start
+            } else {
+                boundaries.nth(end - start - 1).expect("normalized scalar end")
+            };
+            Ok(lowered_str_view_value(
+                text, view_start + byte_start, view_start + byte_end,
             ))
         }
-        LoweredValue::StrView(view) => {
-            let text = view.as_str();
-            let len = text.chars().count();
+        value @ (LoweredValue::Bytes(_) | LoweredValue::BytesView(_)) => {
+            let (bytes, view_start, view_end) = lowered_bytes_parts(&value)
+                .expect("byte slice receiver");
+            let len = view_end - view_start;
             let start = to_index(start, len, span)?.unwrap_or(0);
             let end = to_index(end, len, span)?.unwrap_or(len).max(start);
-            Ok(LoweredValue::Str(
-                text.chars()
-                    .skip(start)
-                    .take(end - start)
-                    .collect::<String>()
-                    .into(),
+            Ok(lowered_bytes_view_value(
+                bytes, view_start + start, view_start + end,
             ))
-        }
-        LoweredValue::Bytes(bytes) => {
-            let len = bytes.len();
-            let start = to_index(start, len, span)?.unwrap_or(0);
-            let end = to_index(end, len, span)?.unwrap_or(len).max(start);
-            Ok(lowered_bytes_view_value(bytes, start, end))
-        }
-        LoweredValue::BytesView(view) => {
-            let bytes = view.as_slice();
-            let len = bytes.len();
-            let start = to_index(start, len, span)?.unwrap_or(0);
-            let end = to_index(end, len, span)?.unwrap_or(len).max(start);
-            Ok(LoweredValue::Bytes(bytes[start..end].into()))
         }
         value => Err(RuntimeError::new(
             "type-error",
@@ -2487,4 +2479,39 @@ pub(super) fn lowered_result_err(
     message: impl Into<String>,
 ) -> LoweredValue {
     LoweredValue::ResultErr(Box::new(error_constructor(kind, message)))
+}
+
+#[cfg(test)]
+mod slice_tests {
+    use std::sync::Arc;
+
+    use super::{LoweredValue, lowered_bytes_parts, lowered_slice_value, lowered_str_parts};
+    use crate::source::{SourceId, Span};
+
+    #[test]
+    fn nested_text_and_byte_slices_retain_immutable_backing_storage() {
+        let span = Span::new(SourceId::new(0), 0, 1);
+        let text: Arc<str> = Arc::from("aé🦀z");
+        let selected = lowered_slice_value(
+            LoweredValue::Str(text.clone()), Some(LoweredValue::Int(1)), None, span,
+        ).unwrap();
+        let selected = lowered_slice_value(
+            selected, None, Some(LoweredValue::Int(2)), span,
+        ).unwrap();
+        let (backing, start, end) = lowered_str_parts(&selected).unwrap();
+        assert!(Arc::ptr_eq(&text, &backing));
+        assert_eq!(&backing[start..end], "é🦀");
+
+        let bytes: Arc<[u8]> = Arc::from(&b"a\0\xffbcd"[..]);
+        let selected = lowered_slice_value(
+            LoweredValue::Bytes(bytes.clone()),
+            Some(LoweredValue::Int(1)), Some(LoweredValue::Int(5)), span,
+        ).unwrap();
+        let selected = lowered_slice_value(
+            selected, Some(LoweredValue::Int(1)), Some(LoweredValue::Int(-1)), span,
+        ).unwrap();
+        let (backing, start, end) = lowered_bytes_parts(&selected).unwrap();
+        assert!(Arc::ptr_eq(&bytes, &backing));
+        assert_eq!(&backing[start..end], b"\xffb");
+    }
 }

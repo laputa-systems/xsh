@@ -41,7 +41,7 @@ export proc binary(ctx: context.Context, name: Str, run_help: Bool) [fs, process
   if ctx.target.os == "linux" {
     let data = product.read_bytes()?
 
-    if data.len() < 4 or data.slice(0, length: 4) != b"\x7fELF" {
+    if data.len() < 4 or data[..4] != b"\x7fELF" {
       return Err(
         stages.StageError.Failed(
           stage: "verify-elf",

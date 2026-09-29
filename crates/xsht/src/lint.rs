@@ -2861,6 +2861,117 @@ impl<'a> Linter<'a> {
         self.lint_prefer_in(callee, args, span);
         self.lint_prefer_method(callee, args, span);
         self.lint_join_to_concat(callee, args, span);
+        self.lint_prefer_slice(callee, args, span);
+    }
+
+    fn lint_prefer_slice(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
+            return;
+        };
+        if name != "slice" || self.expr_types.get(&self.arena.expr(base).span) != Some(&Type::Bytes) {
+            return;
+        }
+        let diagnostic = Diagnostic::new(
+            Severity::Warning,
+            "prefer half-open slicing where bounds are equivalent",
+        )
+            .with_code("lint.prefer-slice")
+            .with_label(Label::secondary(
+                span,
+                "offset/count methods have distinct bounds and error behavior",
+            ));
+        let diagnostic = if let Some(replacement) = self.byte_slice_replacement(callee, args, span) {
+            diagnostic.with_fix_hint(FixHint::replacement(
+                span, "rewrite equivalent byte slice", replacement,
+            ))
+        } else {
+            diagnostic.with_note("no automatic fix: bounds, count arithmetic, evaluation order, or comment retention are not proven equivalent")
+        };
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn byte_slice_replacement(&self, callee: ExprId, args: ArenaRange, span: Span) -> Option<String> {
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
+            return None;
+        };
+        let receiver = self.arena.expr(base);
+        if name != "slice" || self.expr_types.get(&receiver.span) != Some(&Type::Bytes) {
+            return None;
+        }
+        if args.len() > 2 {
+            return None;
+        }
+        let mut offset = None;
+        let mut length = None;
+        for (index, arg) in self.arena.call_args(args).iter().enumerate() {
+            match arg.kind {
+                ArenaCallArgKind::Positional(value) if index == 0 && offset.is_none() => {
+                    offset = Some(value);
+                }
+                ArenaCallArgKind::Positional(value) if index == 1 && length.is_none() => {
+                    length = Some(value);
+                }
+                ArenaCallArgKind::Named { name, value, .. }
+                    if name == "offset" && offset.is_none() => {
+                    offset = Some(value);
+                }
+                ArenaCallArgKind::Named { name, value, .. }
+                    if name == "length" && length.is_none() => {
+                    length = Some(value);
+                }
+                _ => return None,
+            }
+        }
+        let Some(offset) = offset else {
+            return None;
+        };
+        let constant_offset = match self.arena.expr(offset).kind {
+            ArenaExprKind::Int(value) => self.arena.int_literal(value).value()
+                .filter(|value| *value >= 0),
+            _ => None,
+        };
+        let postfix_receiver = matches!(
+            receiver.kind,
+            ArenaExprKind::Ident(_)
+                | ArenaExprKind::Bytes(_)
+                | ArenaExprKind::Call { .. }
+                | ArenaExprKind::Field { .. }
+                | ArenaExprKind::Index { .. }
+                | ArenaExprKind::Slice { .. }
+        );
+        let bounds = match (constant_offset, length) {
+            // Zero is always a valid method offset, even for an empty receiver.
+            (Some(0), Some(length)) => match self.arena.expr(length).kind {
+                ArenaExprKind::Int(count) => self.arena.int_literal(count).value()
+                    .filter(|value| *value >= 0).map(|count| format!("..{count}")),
+                ArenaExprKind::Call { callee, args } if args.is_empty() => {
+                    match (receiver.kind.clone(), self.arena.expr(callee).kind) {
+                        (ArenaExprKind::Ident(receiver_name), ArenaExprKind::Field { base, name })
+                            if name == "len" && matches!(self.arena.expr(base).kind,
+                                ArenaExprKind::Ident(name) if name == receiver_name) => Some("..".to_string()),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            },
+            (Some(0), None) => Some("..".to_string()),
+            (Some(offset), None) => match receiver.kind {
+                ArenaExprKind::Bytes(bytes) if offset as u64 <= self.arena.bytes_literal(bytes).len() as u64 => {
+                    Some(format!("{offset}.."))
+                }
+                _ => None,
+            },
+            _ => None,
+        };
+        let has_comments = self.source[receiver.span.range()].contains('#')
+            || self.source[receiver.span.end()..span.end()].contains('#');
+        let bounds = bounds.filter(|_| postfix_receiver && !has_comments)?;
+        // Include equivalent nested slices so dropping overlapping edits still converges.
+        let receiver_text = match receiver.kind {
+            ArenaExprKind::Call { callee, args } => self.byte_slice_replacement(callee, args, receiver.span),
+            _ => None,
+        }.unwrap_or_else(|| self.source[receiver.span.range()].to_string());
+        Some(format!("{receiver_text}[{bounds}]"))
     }
 
     fn lint_path_constructor(&mut self, callee: ExprId, args: ArenaRange, span: Span) {

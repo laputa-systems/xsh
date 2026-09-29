@@ -693,8 +693,8 @@ export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Byt
     return Err(smbios_check_failure("SMBIOS dump inputs exceed their bounds or lack a table"))
   }
 
-  let is_v3 = entry_point.len() >= 24 and entry_point.slice(0, 5) == b"_SM3_"
-  let is_v2 = entry_point.len() >= 30 and entry_point.slice(0, 4) == b"_SM_"
+  let is_v3 = entry_point.len() >= 24 and entry_point[..5] == b"_SM3_"
+  let is_v2 = entry_point.len() >= 30 and entry_point[..4] == b"_SM_"
   if ! is_v3 and ! is_v2 {
     return Err(smbios_check_failure("SMBIOS entry point has an unsupported signature or length"))
   }

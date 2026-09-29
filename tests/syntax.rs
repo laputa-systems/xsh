@@ -3304,3 +3304,36 @@ fn checker_named_argument_pun_missing_name_labels_original_identifier() {
         source.rfind("value:").unwrap(),
     );
 }
+
+#[test]
+fn formatter_preserves_half_open_slicing_bounds_and_unicode() {
+    let source = "\
+let data = b\"abcd\"
+let all = data[..]
+let prefix = data[..2]
+let suffix = data[2..]
+let middle = data[-3..-1]
+let unicode = \"é🦀\"[..1][..]
+print ${all.base64()} ${prefix.base64()} ${suffix.base64()} ${middle.base64()} $unicode
+";
+    let source_id = SourceId::new(0);
+    assert_parse_and_check(source_id, source);
+    let formatted = Formatter::new().format_source(source_id, source);
+    assert!(formatted.diagnostics.is_empty());
+    let canonical = source.replace("é🦀", r"\u{e9}\u{1f980}");
+    assert_eq!(formatted.formatted, canonical);
+    assert_parse_and_check(source_id, &formatted.formatted);
+    assert_eq!(Formatter::new().format_source(source_id, &formatted.formatted).formatted, canonical);
+}
+
+#[test]
+fn parser_rejects_colon_inclusive_and_stride_slices() {
+    for source in [
+        "let part = b\"abcd\"[0:2]\n",
+        "let part = b\"abcd\"[..=2]\n",
+        "let part = b\"abcd\"[0..2..1]\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(!parsed.diagnostics.is_empty(), "unexpectedly accepted {source}");
+    }
+}

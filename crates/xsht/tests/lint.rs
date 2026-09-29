@@ -2417,3 +2417,83 @@ fn linter_list_compound_assignment_retains_multiline_comments() {
     let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-compound-assignment")).expect("checked list update warning");
     assert!(diagnostic.fix_hints.is_empty());
 }
+
+#[test]
+fn linter_prefer_slice_fixes_proven_byte_bounds_and_converges() {
+    let source = "\
+let data = b\"abcdef\"
+let prefix = data.slice(0, length: 3) # é retained
+let suffix = b\"abcdef\".slice(offset: 2)
+let whole = data.slice(0, data.len())
+let empty = data.slice(0, 0)
+print ${prefix.base64()} ${suffix.base64()} ${whole.base64()} ${empty.base64()}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        ..LintOptions::default()
+    });
+    let mut fixes = diagnostics.iter()
+        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-slice"))
+        .flat_map(|diagnostic| diagnostic.fix_hints.iter())
+        .map(|hint| (hint.span.unwrap(), hint.replacement.as_ref().unwrap()))
+        .collect::<Vec<_>>();
+    assert_eq!(fixes.len(), 4);
+    fixes.sort_by_key(|(span, _)| span.start());
+    let mut fixed = source.to_string();
+    for (span, replacement) in fixes.into_iter().rev() {
+        fixed.replace_range(span.range(), replacement);
+    }
+    assert!(fixed.contains("data[..3] # é retained"));
+    assert!(fixed.contains("b\"abcdef\"[2..]"));
+    assert!(fixed.contains("data[..]"));
+    assert_parse_check_standalone("slice fixes", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let second = Linter::lint(&parsed.arena, &fixed, LintOptions {
+        expr_types: checked.expr_types,
+        ..LintOptions::default()
+    });
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-slice")));
+}
+
+#[test]
+fn linter_prefer_slice_retains_uncertain_offsets_counts_and_overflow() {
+    let source = "\
+pure count() -> Int {
+  return 3
+}
+let data = b\"abc\"
+let negative = data.slice(-1)
+let uncertain = data.slice(2)
+let arithmetic = data.slice(1, data.len() - 1)
+let effect_count = data.slice(0, count())
+let overflow = data.slice(1, 9223372036854775807)
+print ${negative.base64()} ${uncertain.base64()} ${arithmetic.base64()} ${effect_count.base64()} ${overflow.base64()}
+";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        ..LintOptions::default()
+    }).diagnostics;
+    let slices = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-slice")).collect::<Vec<_>>();
+    assert_eq!(slices.len(), 5);
+    for diagnostic in slices {
+        assert!(diagnostic.fix_hints.is_empty());
+        assert!(!diagnostic.notes.is_empty());
+    }
+}
+
+#[test]
+fn linter_prefer_slice_requires_checked_builtin_receiver() {
+    let source = "let data = b\"abc\"\nlet part = data.slice(0, 2)\nprint ${part.base64()}\n";
+    let parsed = parse_lint_source(source);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-slice")));
+}

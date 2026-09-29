@@ -128,6 +128,14 @@ before the next. It stops at bounded terminals, collects at a value boundary,
 and materializes before an unsupported stage. Other indexed pipeline shapes
 remain in `src/runtime/eval/lowered_run/indexed_run.rs`.
 
+Half-open slices reuse `ArenaExprKind::Slice` and the verified `ExprSlice` row.
+`check_slice_arena` checks List/Str/Bytes receivers and Int bounds; indexed dispatch
+evaluates the receiver and supplied bounds once in source order.
+`lowered_slice_value` normalizes bounds and preserves Unicode scalar indexing
+for text while converting the selected boundaries into internal UTF-8 views.
+Bytes views retain their original backing allocation across nested slices; list
+slices retain independent value semantics.
+
 ## Embedded Standard Library
 
 Some public standard-module entries execute embedded XSH instead of a native

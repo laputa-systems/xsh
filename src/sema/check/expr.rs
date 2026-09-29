@@ -1321,10 +1321,11 @@ impl Checker {
         match base_ty {
             Type::List(_) => base_ty,
             Type::Str => Type::Str,
+            Type::Bytes => Type::Bytes,
             Type::Any => Type::Any,
             Type::Unknown => Type::Unknown,
             _ => {
-                self.error(span, "slicing requires List or Str", "check.slice-type");
+                self.error(span, "slicing requires List, Str, or Bytes", "check.slice-type");
                 Type::Unknown
             }
         }
