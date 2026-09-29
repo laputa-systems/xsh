@@ -229,3 +229,9 @@ let _ = "primary".parse_int()?
   test.eq(output.status, 9)?
   test.eq(output.stdout, "")?
 }
+
+proc test_defer_blocks_reject_delegated_yield_during_checking(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, "stream bad() [] -> Stream[Int] { if false { defer { yield @[1] } }; yield 2 }\nlet _ = bad() |> collect\n")?
+  test.ok(! output.success, output.stderr)?
+  test.contains(output.stderr, "check.defer-control-flow")?
+}

@@ -1475,6 +1475,9 @@ impl Checker {
         value: ExprId,
         span: Span,
     ) {
+        if self.in_defer_block {
+            self.error(span, "`yield` is not allowed in a deferred cleanup block", "check.defer-control-flow");
+        }
         let expected = self.current_yield.clone();
         if expected.is_none() {
             self.error(span, "`yield` is valid only in stream producers", "check.yield");

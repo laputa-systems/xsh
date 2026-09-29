@@ -3389,3 +3389,9 @@ fn checker_deferred_block_restores_mutable_capture_types() {
     let immutable = check("proc work(input: Str?) [] { let value: Str? = input; if value != null { defer { let text: Str = value; print $text } } }\n");
     assert!(immutable.is_empty(), "{:?}", immutable);
 }
+
+#[test]
+fn checker_deferred_block_rejects_yield_delegation() {
+    let diagnostics = check("stream values() [] -> Stream[Int] { if false { defer { yield @[1] } }; yield 2 }\n");
+    assert!(has_code(&diagnostics, "check.defer-control-flow"), "{:?}", diagnostics);
+}
