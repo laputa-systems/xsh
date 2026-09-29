@@ -105,6 +105,8 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "language.core.map-literals" => include_str!("../../../docs/snippets/api/map-literals.xsh"),
         "language.core.records" => include_str!("../../../docs/snippets/api/core-records.xsh"),
         "language.core.assert" => include_str!("../../../docs/snippets/api/core-assert.xsh"),
+
+        "language.core.enums" => include_str!("../../../docs/snippets/api/core-enums.xsh"),
         "language.core.statements" => {
             include_str!("../../../docs/snippets/api/core-statements.xsh")
         }

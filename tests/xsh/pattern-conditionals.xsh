@@ -1,5 +1,5 @@
 error PatternLoopError = Done(detail: Str) : NotFound
-type PatternBranchTag = SelectedBranch(Int) | OtherBranch
+enum PatternBranchTag { SelectedBranch(Int), OtherBranch }
 
 pure pattern_loop_subject(index: Int) -> Result[Int] {
   if index < 3 { Ok(index) } else { Err(PatternLoopError.Done(detail: "done")) }
@@ -241,7 +241,7 @@ test test_pattern_conditionals_preserve_escaping_owned_resources [fs, error] { |
   fs.close_root(root)?
 }
 
-type PatternSiblingValue = SiblingWord(Str) | SiblingNumber(Int)
+enum PatternSiblingValue { SiblingWord(Str), SiblingNumber(Int) }
 
 pure pattern_sibling_label(subject: PatternSiblingValue) -> Str {
   match subject {

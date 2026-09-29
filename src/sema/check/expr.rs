@@ -1678,7 +1678,7 @@ mod arena_tests {
         assert_stmts_arena_match_raised("type PackageName = Str");
         assert_stmts_arena_match_raised("type Metric = {ratio: Float, samples: List[Float]}");
         assert_stmts_arena_match_raised("type Metric = {}");
-        assert_stmts_arena_match_raised("type Kind = A | B | C");
+        assert_stmts_arena_match_raised("enum Kind { A, B, C }");
         assert_stmts_arena_match_raised(
             "error FsError = NotFound(file: Path) : NotFound | PermissionDenied(file: Path, op: Str) : PermissionDenied",
         );

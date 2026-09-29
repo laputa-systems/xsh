@@ -186,7 +186,7 @@ The implemented v1 surface includes:
 - `Ok(value)`, `Err(value)`, `Result`, `error.fail(message)`, postfix `?`,
   right-associative `??` fallback, `Result.context(...)`, and implicit
   `Ok(value)` wrapping for `Result[T]` tail values.
-- User-defined tag union types with exhaustiveness checking: `type Level = Info | Warn | Error(Str)`.
+- User-defined tag union types with exhaustiveness checking: `enum Level { Info, Warn, Fault(Str) }`.
   Exhaustive `match` emits `check.non-exhaustive-match` for uncovered variants.
   `lint.stringly-typed-match` flags ≥ 3 string-literal match arms.
 - Narrow function and task tail values: a final expression or command statement
@@ -265,8 +265,8 @@ blocks are checker errors. Ordinary `#` comments remain non-semantic.
 Reserved keywords:
 
 ```text
-and assert break continue defer else false for if in let match not null or proc pure
-retry return run spawn stream true try type use var wait while yield
+and assert break continue defer else enum false for if in let match not null or proc pure
+retry return run spawn stream test true try type use var wait while yield
 ```
 
 `not` is reserved only as part of the binary `not in` operator. Unary negation
@@ -435,6 +435,7 @@ statement    = use_stmt
              | pure_def
              | stream_def
              | type_def
+             | enum_def
              | return_stmt
              | yield_stmt
              | if_stmt
@@ -461,7 +462,7 @@ Declarations:
 use_stmt     = "use" module_path ("as" IDENT)? terminator ;
 module_path  = module_segment ("." module_segment)* ;
 module_segment = IDENT | PROC_IDENT ;
-export_stmt  = "export" (let_stmt | proc_def | pure_def | stream_def | type_def) ;
+export_stmt  = "export" (let_stmt | proc_def | pure_def | stream_def | type_def | enum_def) ;
 
 let_stmt     = "let" binding_target type_ann? "=" expr_or_run terminator ;
 var_stmt     = "var" binding_target type_ann? "=" expr_or_run terminator ;
@@ -473,6 +474,8 @@ assign_stmt  = assign_target assign_op expr_or_run terminator ;
 assign_target = IDENT ("." FIELD_LABEL | "[" expr "]")* ;
 assign_op    = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
 type_def     = "type" IDENT "=" type_body terminator ;
+enum_def     = "enum" IDENT "{" enum_variant ("," enum_variant)* ","? "}" terminator ;
+enum_variant = IDENT ("(" (type_expr ("," type_expr)* ","?)? ")")? ;
 type_body    = type_expr | record_schema | module_contract ;
 record_schema = "{" schema_field ("," schema_field)* ","? "}" ;
 schema_field = FIELD_LABEL ":" type_expr ("=" expr)? ;
@@ -692,12 +695,18 @@ type BuildPlugin = module {
 }
 ```
 
-**Tag unions** use the `type T = A | B | C(Type, ...)` form:
+**Tag unions** use `enum T { A, B, C(Type, ...) }`. An enum requires at least
+one variant and accepts multiline bodies and a trailing comma:
 
 ```xsh
-type Level = Info | Warn | Error | Debug
-type Result2 = Ok(Str) | Err(Int, Str)
+enum Level { Info, Warn, Fault, Debug }
+enum Token { Present(Str) }
 ```
+
+`type Alias = Token` remains a type alias. The former `type T = A | B`
+declaration is a migration error (`parse.enum-migration`) and cannot execute.
+`export enum` exports the nominal type and its constructors; constructors stay
+in the declaration module namespace, rather than under the enum name.
 
 Each variant is a constructor. Zero-field variants are bare names; non-zero
 variants are called as functions: `Info`, `Stopped("disk full")`. Tag union

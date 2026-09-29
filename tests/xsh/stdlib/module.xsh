@@ -383,7 +383,7 @@ export stream numbers() [] -> Stream[Int] {
   yield 1
 }
 ## A tagged union export.
-export type State = Ready | Stopped(Str)
+export enum State { Ready, Stopped(Str) }
 ## An error family export with an error facet.
 export error HelperError = Failed(detail: Str) : Temporary
 """)?

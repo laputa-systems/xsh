@@ -317,10 +317,10 @@ pure tag_union_names(source: Str) -> List[Str] {
   var names: List[Str] = []
 
   for raw in source.lines() {
-    let line = raw.trim().replace("export type ", "type ")
+    let line = raw.trim().replace("export enum ", "enum ")
 
-    if line.starts_with("type ") and "=" in line and ! ("= {" in line) and "|" in line {
-      let name = line.split("type ").get(1, "").split("=").get(0, "").trim()
+    if line.starts_with("enum ") and "{" in line {
+      let name = line.split("enum ").get(1, "").split("{").get(0, "").trim()
 
       if name != "" and ! (name in names) {
         names = names.push(name)

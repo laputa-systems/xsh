@@ -44,35 +44,36 @@ type Scan = {stats: Stats, deep: Stats}
 
 type FileReport = {stats: Stats, name: Str}
 
-type Language =
-    LangUnknown
-  | LangBash
-  | LangCss
-  | LangDockerfile
-  | LangForgeConfig
-  | LangHtml
-  | LangIni
-  | LangJavaScript
-  | LangJson
-  | LangLess
-  | LangLua
-  | LangMakefile
-  | LangMarkdown
-  | LangMdx
-  | LangModelica
-  | LangPlainText
-  | LangPoFile
-  | LangPython
-  | LangReStructuredText
-  | LangRust
-  | LangShell
-  | LangSvg
-  | LangTempl
-  | LangToml
-  | LangTsx
-  | LangTypeScript
-  | LangXml
-  | LangYaml
+enum Language {
+    LangUnknown,
+    LangBash,
+    LangCss,
+    LangDockerfile,
+    LangForgeConfig,
+    LangHtml,
+    LangIni,
+    LangJavaScript,
+    LangJson,
+    LangLess,
+    LangLua,
+    LangMakefile,
+    LangMarkdown,
+    LangMdx,
+    LangModelica,
+    LangPlainText,
+    LangPoFile,
+    LangPython,
+    LangReStructuredText,
+    LangRust,
+    LangShell,
+    LangSvg,
+    LangTempl,
+    LangToml,
+    LangTsx,
+    LangTypeScript,
+    LangXml,
+    LangYaml,
+}
 
 type SummaryTotals = {
   files: Int,

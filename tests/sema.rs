@@ -2559,7 +2559,7 @@ fn checker_narrows_optional_record_has_result_and_tag_flows() {
     let output = check_strict(
         r#"
 type Row = {name: Str}
-type State = Ready(Str) | Stopped
+enum State { Ready(Str), Stopped }
 
 let maybe: Str? = "demo"
 if maybe != null {
@@ -2609,7 +2609,7 @@ match state {
 #[test]
 fn checker_retains_annotation_facts_and_reveal_notes() {
     let source = r#"
-type State = Ready | Stopped
+enum State { Ready, Stopped }
 let count = 1
 var names = ["a", "b"]
 let state = Ready
@@ -3040,7 +3040,7 @@ let value = retry ["soon"] {
 fn checker_accepts_match_with_all_returning_arms_as_function_body() {
     let output = check(
         r#"
-type Tok = TOp(Str) | TEOF
+enum Tok { TOp(Str), TEOF }
 
 pure is_op(t: Tok, name: Str) -> Bool {
   match t {
@@ -3057,7 +3057,7 @@ pure is_op(t: Tok, name: Str) -> Bool {
 fn checker_accepts_match_with_all_returning_arms_and_no_trailing_return() {
     let output = check(
         r#"
-type Kind = A | B | C
+enum Kind { A, B, C }
 
 pure kind_name(k: Kind) -> Str {
   match k {
@@ -3075,7 +3075,7 @@ pure kind_name(k: Kind) -> Str {
 fn checker_still_rejects_non_exhaustive_returning_match_without_catchall() {
     let output = check_with_migration(
         r#"
-type Kind = A | B | C
+enum Kind { A, B, C }
 
 pure kind_name(k: Kind) -> Str {
   match k {
@@ -3098,7 +3098,7 @@ pure kind_name(k: Kind) -> Str {
 fn checker_accepts_match_with_all_arms_returning_in_nested_function() {
     let output = check(
         r#"
-type Opt = Some(Int) | None
+enum Opt { Some(Int), None }
 
 pure unwrap(o: Opt) -> Int {
   match o {
@@ -3502,7 +3502,7 @@ fn private_pure_inference_pattern_captures_do_not_create_recursive_dependencies(
 
 #[test]
 fn private_pure_inference_imported_module_predeclares_tag_variants() {
-    let diagnostics = check_with_module("use helper\nlet selected: Bool = helper.enabled()\n", "##! Inferred tag helper module.\ntype Selection = Included | Excluded\npure private_enabled(value: Selection) { value == Included }\n## Checks the selected tag.\nexport pure enabled() -> Bool { private_enabled(Included) }\n");
+    let diagnostics = check_with_module("use helper\nlet selected: Bool = helper.enabled()\n", "##! Inferred tag helper module.\nenum Selection { Included, Excluded }\npure private_enabled(value: Selection) { value == Included }\n## Checks the selected tag.\nexport pure enabled() -> Bool { private_enabled(Included) }\n");
     assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }
 

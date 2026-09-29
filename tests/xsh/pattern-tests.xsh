@@ -56,8 +56,8 @@ test test_pattern_predicates_reject_bindings_and_alternation [error] { |ctx|
   }
 }
 
-type PredicateChoice = EmptyChoice | PayloadChoice(Int, Str)
-type OtherPredicateChoice = OtherChoice | AnotherOtherChoice
+enum PredicateChoice { EmptyChoice, PayloadChoice(Int, Str) }
+enum OtherPredicateChoice { OtherChoice, AnotherOtherChoice }
 error PredicateError = Missing(message: Str) : NotFound | Broken(message: Str) : InvalidData
 
 pure pattern_test_tag_value() -> Any { PayloadChoice(7, "payload") }
@@ -133,7 +133,7 @@ test test_pattern_predicates_resolve_qualified_constructor_type_and_facet_names 
   fp"${root}/predicate.xsh".write("""
 ##! Pattern predicate fixture module.
 ## Choice constructors.
-export type Choice = Ready | Payload(Int)
+export enum Choice { Ready, Payload(Int) }
 ## Fixture errors.
 export error Failure = Missing(detail: Str) : NotFound
 ## A dynamic choice.

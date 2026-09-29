@@ -16,11 +16,12 @@ error DevUsage = Invalid(message: Str)
 
 type GlobalOptions = {target: Str, rest: List[Str]}
 
-type TestKind =
-    Rust
-  | Xsh
-  | Linux
-  | Macos
+enum TestKind {
+    Rust,
+    Xsh,
+    Linux,
+    Macos,
+}
 
 type TestOptions = {kind: TestKind, ci: Bool}
 
@@ -30,11 +31,12 @@ type BenchOptions = {fast: Bool, syscalls: Bool}
 
 type DistOptions = {docker: Str, ci: Bool}
 
-type ReleaseOperation =
-    Smoke
-  | Package
-  | Core
-  | Validate
+enum ReleaseOperation {
+    Smoke,
+    Package,
+    Core,
+    Validate,
+}
 
 type ReleaseOptions = {action: Str, tag: Str}
 
@@ -58,11 +60,12 @@ pure release_operation(value: Str) -> Result[ReleaseOperation] {
   }
 }
 
-type InternalOperation =
-    Dist
-  | TestLinux
-  | TestLinuxCi
-  | Coverage
+enum InternalOperation {
+    Dist,
+    TestLinux,
+    TestLinuxCi,
+    Coverage,
+}
 
 pure internal_operation(value: Str) -> Result[InternalOperation] {
   match value {

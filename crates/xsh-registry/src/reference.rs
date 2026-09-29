@@ -217,6 +217,8 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "records",
     "field-labels",
     "map-literals",
+
+    "enums",
     "list-concatenation",
     "list-splicing",
     "list-element-assignment",
@@ -838,6 +840,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "records" => (
             "Defines structural and named record values.",
             "Named record schemas have static named-field constructors, including aliases and qualified imports. Schema-owned defaults are bounded literal constants from the defining module; they apply only to constructors. Supplied arguments run once in source order, and each constructed value has independent value semantics. Named records are checked at their boundary; dynamic record access must be narrowed before typed field use. Functional updates use one leading record snapshot and disjoint existing field paths, such as `{...config, build.jobs: jobs}`. Replacements run once in source order before publishing the rebuilt value, retain the schema, and do not reapply defaults.",
+        ),
+        "enums" => (
+            "Declares nominal tagged unions with explicit enum bodies.",
+            "An enum has at least one variant, including a single payload variant. Constructors retain their declaration module namespace, payload typing, value equality, and exhaustive constructor patterns; they are not qualified by the enum name. A type alias preserves nominal identity without adding constructors. Exports, multiline bodies, and trailing commas are supported. Legacy type-union declarations produce parse.enum-migration and cannot execute; safe migration edits preserve variant order, payload annotations, and comments.",
         ),
         "results" => (
             "Defines Result values and error families.",

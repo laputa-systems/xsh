@@ -231,7 +231,7 @@ impl Checker {
                 if name.as_str() == "_" {
                     return;
                 }
-                if self.current_scope().contains_key(name) {
+                if self.current_scope().contains_key(name) || self.tag_variants.contains_key(name) {
                     self.error(span, "duplicate name in scope", "check.duplicate-name");
                 }
                 self.define(

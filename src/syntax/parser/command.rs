@@ -627,7 +627,7 @@ impl<'a> Parser<'a> {
                 }
                 TokenTag::Dot => {
                     if self.start_at(pos + 1) != self.end_at(pos)
-                        || self.token_table.tag_at(pos + 1) != Some(TokenTag::Ident)
+                        || self.peek_label_name(pos + 1 - self.index).is_none()
                     {
                         return false;
                     }

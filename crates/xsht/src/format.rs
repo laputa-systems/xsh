@@ -415,7 +415,7 @@ impl<'a> Writer<'a> {
                 output.push_str("export ");
                 self.write_stmt_inline(*inner, indent, output);
             }
-            ArenaStmtKind::TypeDef(def) => self.write_type_def(*def, indent, output),
+            ArenaStmtKind::TypeDef(def) => self.write_type_def(*def, stmt.span, indent, output),
             ArenaStmtKind::ErrorDef(def) => self.write_error_def(*def, output),
             ArenaStmtKind::Let {
                 target,
@@ -604,12 +604,24 @@ impl<'a> Writer<'a> {
     fn write_type_def(
         &mut self,
         def_id: xsh::frontend::syntax::arena::TypeDefId,
+        span: Span,
         indent: usize,
         output: &mut String,
     ) {
         use xsh::frontend::syntax::arena::ArenaTypeDefBody;
         let def = self.arena.type_def(def_id).clone();
-        output.push_str("type ");
+        if matches!(def.body, ArenaTypeDefBody::TagUnion(_))
+            && self.comments[self.next_comment..].iter().any(|comment| span.range().contains(&comment.span.start()))
+        {
+            // Keep variant and payload comments at their authored positions.
+            let raw = self.source.get(span.range()).unwrap_or("").trim_end_matches(['\n', '\r']);
+            output.push_str(raw.strip_prefix("export").map(str::trim_start).unwrap_or(raw));
+            while self.comments.get(self.next_comment).is_some_and(|comment| comment.span.start() < span.end()) {
+                self.next_comment += 1;
+            }
+            return;
+        }
+        output.push_str(if matches!(def.body, ArenaTypeDefBody::TagUnion(_)) { "enum " } else { "type " });
         output.push_str(def.name.as_str().as_str());
         match &def.body {
             ArenaTypeDefBody::Alias(ty) => {
@@ -659,17 +671,17 @@ impl<'a> Writer<'a> {
                     || (variants.len() >= 3
                         && tag_variants_original_multiline(self.arena, &self.source, variant_range));
                 if use_multiline {
-                    output.push_str(" =\n");
+                    output.push_str(" {\n");
                     let variant_indent = " ".repeat(indent + 4);
-                    output.push_str(&format!("{variant_indent}{}", parts[0]));
-                    let cont_indent = " ".repeat(indent);
-                    for part in &parts[1..] {
-                        output.push('\n');
-                        output.push_str(&format!("{cont_indent}  | {part}"));
+                    for part in &parts {
+                        output.push_str(&format!("{variant_indent}{part},\n"));
                     }
+                    output.push_str(&" ".repeat(indent));
+                    output.push('}');
                 } else {
-                    output.push_str(" = ");
-                    output.push_str(&parts.join(" | "));
+                    output.push_str(" { ");
+                    output.push_str(&parts.join(", "));
+                    output.push_str(" }");
                 }
             }
         }
@@ -948,7 +960,8 @@ impl<'a> Writer<'a> {
     }
 
     fn write_stmt_inline(&mut self, stmt_id: StmtId, indent: usize, output: &mut String) {
-        let kind = self.arena.stmt(stmt_id).kind;
+        let stmt = self.arena.stmt(stmt_id);
+        let kind = stmt.kind;
         match &kind {
             ArenaStmtKind::Use(use_id) => {
                 let use_stmt = self.arena.use_stmt(*use_id);
@@ -963,7 +976,7 @@ impl<'a> Writer<'a> {
                 output.push_str("export ");
                 self.write_stmt_inline(*inner, indent, output);
             }
-            ArenaStmtKind::TypeDef(def) => self.write_type_def(*def, indent, output),
+            ArenaStmtKind::TypeDef(def) => self.write_type_def(*def, stmt.span, indent, output),
             ArenaStmtKind::Let {
                 target,
                 ty,

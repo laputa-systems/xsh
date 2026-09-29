@@ -143,6 +143,7 @@ impl Checker {
                     if !names.insert(def.name) {
                         self.error(span, "duplicate top-level name", "check.duplicate-name");
                     }
+                    self.check_enum_constructor_names(program, def, &mut names);
                     let body = type_def_body_arena(type_program.clone(), def_id);
                     self.type_defs.insert(def.name, body.clone());
                     if let TypeDefBody::TagUnion(variants) = &body {
@@ -234,6 +235,25 @@ impl Checker {
         }
     }
 
+    fn check_enum_constructor_names(
+        &mut self,
+        program: &ArenaProgram,
+        def: &ArenaTypeDef,
+        names: &mut FxHashSet<Name>,
+    ) {
+        let ArenaTypeDefBody::TagUnion(variants) = def.body else { return; };
+        for variant in program.arena.tag_variants(variants) {
+            let span = program.arena.span(variant.span);
+            self.check_standard_module_shadow(&variant.name.as_str(), span);
+            if !names.insert(variant.name) || (self.current_namespace.is_none() && self.tag_variants.contains_key(&variant.name)) {
+                self.error(span, "duplicate enum constructor name", "check.duplicate-name");
+            }
+            if is_builtin_or_standard_record_type_name(variant.name.as_str()) {
+                self.error(span, "enum constructor conflicts with a built-in type", "check.duplicate-name");
+            }
+        }
+    }
+
     pub(super) fn check_user_module_arena(
         &mut self,
         program: &ArenaProgram,
@@ -281,6 +301,7 @@ impl Checker {
                     if self.type_defs.contains_key(&def.name) || !names.insert(def.name) {
                         self.error(span, "duplicate module type name", "check.duplicate-name");
                     }
+                    self.check_enum_constructor_names(program, def, &mut names);
                     self.type_defs
                         .insert(def.name, type_def_body_arena(type_program.clone(), def_id));
                 }
@@ -295,12 +316,18 @@ impl Checker {
                 ArenaStmtKind::ProcDef(def_id) => {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
+                    if !names.insert(def.name) {
+                        self.error(span, "duplicate module name", "check.duplicate-name");
+                    }
                     let sig = self.function_sig_arena(program, source, def_id);
                     if !def.test_declaration { self.procs.insert(def.name, sig); }
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
+                    if !names.insert(def.name) {
+                        self.error(span, "duplicate module name", "check.duplicate-name");
+                    }
                     let mut sig = self.function_sig_arena(program, source, def_id);
                     if def.return_ty_defaulted { sig.return_ty = Type::Unknown; }
                     self.pures.insert(def.name, sig);
@@ -308,6 +335,9 @@ impl Checker {
                 ArenaStmtKind::StreamDef(def_id) => {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
+                    if !names.insert(def.name) {
+                        self.error(span, "duplicate module name", "check.duplicate-name");
+                    }
                     let sig = self.function_sig_arena(program, source, def_id);
                     self.streams.insert(def.name, sig);
                 }

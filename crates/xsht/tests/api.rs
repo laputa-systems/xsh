@@ -837,3 +837,22 @@ fn api_core_assert_documents_lazy_context_and_core_error_identity() {
     assert!(stdout.contains("assertion-failed"), "{stdout}");
     assert!(stdout.contains("only on false"), "{stdout}");
 }
+
+#[test]
+fn api_core_enums_documents_nominal_constructors_aliases_and_singletons() {
+    let references = xsh_registry::reference::language_references();
+    let reference = references.iter().find(|entry| entry.id == "core.enums").expect("enum inventory entry");
+    assert_documented("language.core.enums", &reference.docs);
+    let output = xsht(&["api", "language:core.enums"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8(output.stdout).expect("API text");
+    for fragment in ["nominal", "module namespace", "parse.enum-migration", "enum Token { Present(Str) }", "type SelectedMode = Mode"] {
+        assert!(stdout.contains(fragment), "{stdout}");
+    }
+    let source = reference.docs.example.as_deref().expect("enum source example");
+    let source_id = xsh::frontend::source::SourceId::new(0);
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(source_id, source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}

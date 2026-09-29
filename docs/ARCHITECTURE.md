@@ -31,6 +31,13 @@ nonnegative typed boundary. `runtime/map.rs` owns conversions to and from
 runtime values; constant preparation can use the key representation directly
 without depending on the evaluator.
 
+Explicit enum declarations use `ArenaTypeDefBody::TagUnion` and the existing
+nominal tag constructor tables in the full and compact checkers.
+`parser/stmt.rs::parse_enum_def_arena_only` registers the same type definition
+rows as aliases and schemas; indexed preparation and execution reuse tag values
+and constructor patterns. Legacy type-union recovery emits
+`parse.enum-migration` with token edits and remains a parse failure for execution.
+
 ## Producer suspension and delegation
 
 `indexed_run/explicit_run.rs::ProducerStep` returns either an item, a delegated

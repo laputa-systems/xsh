@@ -47,13 +47,14 @@
 #   filter as `eval(ast, input, scope) -> Result[List[Json]]` (eager streams).
 type Entry = {k: Str, v: Json}
 
-type Json =
-    JNull
-  | JBool(Bool)
-  | JNum(Float)
-  | JStr(Str)
-  | JArr(List[Json])
-  | JObj(List[Entry])
+enum Json {
+    JNull,
+    JBool(Bool),
+    JNum(Float),
+    JStr(Str),
+    JArr(List[Json]),
+    JObj(List[Entry]),
+}
 
 type Parsed = {val: Json, pos: Int}
 
@@ -352,31 +353,32 @@ pure ser(j: Json) -> Str {
 # Lexer. Produces a flat token list; whitespace/comments are dropped. Field and
 # `..` recognition is whitespace-sensitive (`.foo` is one token, `. foo` is not).
 # ---------------------------------------------------------------------------
-type RawPart = RLit(Str) | RExpr(Str)
+enum RawPart { RLit(Str), RExpr(Str) }
 
-type Tok =
-    TDot
-  | TDotDot
-  | TLBracket
-  | TRBracket
-  | TLBrace
-  | TRBrace
-  | TLParen
-  | TRParen
-  | TPipe
-  | TComma
-  | TColon
-  | TSemi
-  | TQuestion
-  | TField(Str)
-  | TIdent(Str)
-  | TVar(Str)
-  | TFormat(Str)
-  | TNum(Float)
-  | TStr(Str)
-  | TStrInterp(List[RawPart])
-  | TOp(Str)
-  | TEOF
+enum Tok {
+    TDot,
+    TDotDot,
+    TLBracket,
+    TRBracket,
+    TLBrace,
+    TRBrace,
+    TLParen,
+    TRParen,
+    TPipe,
+    TComma,
+    TColon,
+    TSemi,
+    TQuestion,
+    TField(Str),
+    TIdent(Str),
+    TVar(Str),
+    TFormat(Str),
+    TNum(Float),
+    TStr(Str),
+    TStrInterp(List[RawPart]),
+    TOp(Str),
+    TEOF,
+}
 
 pure is_alpha(c: Str) -> Bool {
   return c != "" and c in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
@@ -722,52 +724,55 @@ type FnDef = {fname: Str, params: List[Str], fbody: Jq}
 
 type PatField = {key: Str, pat: Pattern}
 
-type Pattern =
-    PVar(Str)
-  | PArray(List[Pattern])
-  | PObjPat(List[PatField])
+enum Pattern {
+    PVar(Str),
+    PArray(List[Pattern]),
+    PObjPat(List[PatField]),
+}
 
-type Jq =
-    Identity
-  | RecurseDefault
-  | Lit(Json)
-  | Field(Jq, Str)
-  | Index(Jq, Jq)
-  | Slice(Jq, Jq, Jq)
-  | Iterate(Jq)
-  | Pipe(Jq, Jq)
-  | Comma(Jq, Jq)
-  | Neg(Jq)
-  | BinOp(Str, Jq, Jq)
-  | Alt(Jq, Jq)
-  | TryCatch(Jq, Jq)
-  | Optional(Jq)
-  | ArrayC(Jq)
-  | ObjectC(List[ObjEntry])
-  | IfElse(Jq, Jq, Jq)
-  | Call(Str, List[Jq])
-  | VarRef(Str)
-  | Assign(Jq, Jq)
-  | Update(Jq, Jq)
-  | ArithUpdate(Str, Jq, Jq)
-  | StrInterp(List[Jq], Str)
-  | StrLit(Str)
-  | StrExpr(Jq)
-  | Fmt(Str)
-  | BindVar(Jq, Pattern, Jq)
-  | Reduce(Jq, Pattern, Jq, Jq)
-  | Foreach(Jq, Pattern, Jq, Jq, Bool, Jq)
-  | FuncDef(FnDef, Jq)
-  | Empty
+enum Jq {
+    Identity,
+    RecurseDefault,
+    Lit(Json),
+    Field(Jq, Str),
+    Index(Jq, Jq),
+    Slice(Jq, Jq, Jq),
+    Iterate(Jq),
+    Pipe(Jq, Jq),
+    Comma(Jq, Jq),
+    Neg(Jq),
+    BinOp(Str, Jq, Jq),
+    Alt(Jq, Jq),
+    TryCatch(Jq, Jq),
+    Optional(Jq),
+    ArrayC(Jq),
+    ObjectC(List[ObjEntry]),
+    IfElse(Jq, Jq, Jq),
+    Call(Str, List[Jq]),
+    VarRef(Str),
+    Assign(Jq, Jq),
+    Update(Jq, Jq),
+    ArithUpdate(Str, Jq, Jq),
+    StrInterp(List[Jq], Str),
+    StrLit(Str),
+    StrExpr(Jq),
+    Fmt(Str),
+    BindVar(Jq, Pattern, Jq),
+    Reduce(Jq, Pattern, Jq, Jq),
+    Foreach(Jq, Pattern, Jq, Jq, Bool, Jq),
+    FuncDef(FnDef, Jq),
+    Empty,
+}
 
 type Closure = {cbody: Jq, cenv: Env}
 
 # Env is a cons-cell chain: $var values, filter-param closures, and user defs.
-type Env =
-    EnvEmpty
-  | EnvVar(Str, Json, Env)
-  | EnvFilter(Str, Closure, Env)
-  | EnvFunc(FnDef, Env, Env)
+enum Env {
+    EnvEmpty,
+    EnvVar(Str, Json, Env),
+    EnvFilter(Str, Closure, Env),
+    EnvFunc(FnDef, Env, Env),
+}
 
 type PJq = {node: Jq, pos: Int}
 
@@ -2458,7 +2463,7 @@ pure lookup_var(scope: Env, name: Str) -> Result[Json] {
   }
 }
 
-type FilterLookup = FilterFound(Closure) | FilterNone
+enum FilterLookup { FilterFound(Closure), FilterNone }
 
 pure lookup_filter(scope: Env, name: Str) -> FilterLookup {
   match scope {
@@ -2475,7 +2480,7 @@ pure lookup_filter(scope: Env, name: Str) -> FilterLookup {
   }
 }
 
-type FuncLookup = FuncFound(FnDef, Env) | FuncNone
+enum FuncLookup { FuncFound(FnDef, Env), FuncNone }
 
 pure lookup_func(scope: Env, name: Str, arity: Int) -> FuncLookup {
   match scope {
@@ -3446,7 +3451,7 @@ pure json_to_path(j: Json) -> Result[List[Json]] {
   }
 }
 
-type Dispatch = Handled(List[Json]) | Pass
+enum Dispatch { Handled(List[Json]), Pass }
 
 pure type_filter(input: Json, keep: Bool) -> Dispatch {
   if keep {

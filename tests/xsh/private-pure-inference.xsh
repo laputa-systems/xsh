@@ -106,7 +106,7 @@ test test_private_pure_inference_imported_module_tag_variants [fs, error] { |ctx
   let root = test.temp_dir(ctx, name: "inferred-tag-module")?
   fp"${root}/inferred_tags.xsh".write("""
 ##! Inferred tag helper module.
-type Selection = Included | Excluded
+enum Selection { Included, Excluded }
 pure private_enabled(value: Selection) { value == Included }
 ## Checks the selected tag.
 export pure enabled() -> Bool { private_enabled(Included) }

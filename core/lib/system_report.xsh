@@ -2,45 +2,48 @@
 let max_cpu_list_identifiers = 65536
 
 ## Describes the outcome for one observed value or field.
-export type ObservationState =
-    Observed
-  | Absent
-  | Unsupported
-  | PermissionDenied
-  | NotRequested
-  | Redacted
-  | Malformed
-  | Disappeared
-  | Raced
-  | Truncated
-  | RangeFailure
-  | ReadFailure
+export enum ObservationState {
+    Observed,
+    Absent,
+    Unsupported,
+    PermissionDenied,
+    NotRequested,
+    Redacted,
+    Malformed,
+    Disappeared,
+    Raced,
+    Truncated,
+    RangeFailure,
+    ReadFailure,
+}
 
 ## Describes whether a section's requested enumeration completed.
-export type SectionState =
-    Complete
-  | Partial
-  | SectionAbsent
-  | SectionUnsupported
-  | SectionPermissionDenied
-  | SectionNotRequested
-  | SectionRedacted
-  | SectionMalformed
-  | SectionDisappeared
-  | SectionRaced
-  | SectionTruncated
+export enum SectionState {
+    Complete,
+    Partial,
+    SectionAbsent,
+    SectionUnsupported,
+    SectionPermissionDenied,
+    SectionNotRequested,
+    SectionRedacted,
+    SectionMalformed,
+    SectionDisappeared,
+    SectionRaced,
+    SectionTruncated,
+}
 
 ## Failures returned by report parsing, selection, and schema validation.
 export error SystemReportError = InvalidCpuList(message: Str) | InvalidSection(message: Str) | InvalidJson(message: Str) | UnsupportedSchema(version: Int, message: Str) | InvalidProcStat(message: Str) | InvalidExecutionUnits(message: Str) | DryRun(message: Str) | UnsupportedPlatform(message: Str)
 
 ## Identifies whether observations came from a live host or a replay source.
-export type SourceMode =
-    LiveLinux
-  | Replay
-  | SyntheticFixture
-  | CapturedReplay
-  | ContainerLive
-  | PhysicalLive
+export enum SourceMode {
+    LiveLinux,
+    Replay,
+    SyntheticFixture,
+    CapturedReplay,
+    ContainerLive,
+    PhysicalLive,
+}
 
 ## Stores text with its observation status and optional original bytes.
 ## Sensitive text uses the same shape and becomes Redacted when omitted.
@@ -805,20 +808,21 @@ export type SystemReport = {
 }
 
 ## Names one collection domain for a typed report projection.
-export type ReportSection =
-    ReportIdentity
-  | ReportCpu
-  | ReportMemory
-  | ReportPci
-  | ReportUsb
-  | ReportStorage
-  | ReportNetwork
-  | ReportSensors
-  | ReportPower
-  | ReportFirmware
-  | ReportKernel
-  | ReportProcesses
-  | ReportDevices
+export enum ReportSection {
+    ReportIdentity,
+    ReportCpu,
+    ReportMemory,
+    ReportPci,
+    ReportUsb,
+    ReportStorage,
+    ReportNetwork,
+    ReportSensors,
+    ReportPower,
+    ReportFirmware,
+    ReportKernel,
+    ReportProcesses,
+    ReportDevices,
+}
 
 pure report_section_name(section: ReportSection) -> Str {
   match section {

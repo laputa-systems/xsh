@@ -1767,3 +1767,42 @@ fn native_test_declaration_duplicate_and_callable_collision_are_rejected() {
         assert!(String::from_utf8_lossy(&output.stderr).contains("check.duplicate-name"));
     }
 }
+
+#[test]
+fn enum_migration_fix_preserves_comments_aliases_and_imports() {
+    let root = TempDir::new().expect("enum migration fixture");
+    let module = root.path().join("choice.xsh");
+    fs::write(&module, "##! Nominal choices.\n## A choice.\nexport type Choice =\n  Selected(Int) # selected café\n  | Empty # absent\n## Same nominal identity.\nexport type Alias = Choice\n").expect("write legacy enum module");
+    let entry = root.path().join("entry.xsh");
+    fs::write(&entry, "use choice as c\nlet value: c.Alias = c.Selected(7)\nmatch value { c.Selected(number) => print $number; c.Empty => print \"empty\" }\n").expect("write enum entry");
+    let run = |arguments: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(arguments).current_dir(root.path()).output().expect("run enum fixture");
+    let rejected = run(&["check", "entry.xsh"]);
+    assert!(!rejected.status.success());
+    assert!(String::from_utf8_lossy(&rejected.stderr).contains("parse.enum-migration"));
+    let first = run(&["lint", "--fix", "entry.xsh"]);
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    let fixed = fs::read_to_string(&module).expect("read migrated module");
+    for fragment in ["export enum Choice {", "# selected café", "# absent", "export type Alias = Choice"] {
+        assert!(fixed.contains(fragment), "{fixed}");
+    }
+    let second = run(&["lint", "--fix", "entry.xsh"]);
+    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    assert_eq!(fixed, fs::read_to_string(&module).expect("read stable module"));
+    let checked = run(&["check", "entry.xsh"]);
+    assert!(checked.status.success(), "{}", String::from_utf8_lossy(&checked.stderr));
+}
+
+#[test]
+fn enum_migration_fix_retains_unrelated_checker_errors() {
+    let root = TempDir::new().expect("enum rejected migration fixture");
+    let entry = root.path().join("entry.xsh");
+    let source = "type Choice = Selected(Int) | Empty\nlet value = Selected(\"wrong\")\n";
+    fs::write(&entry, source).expect("write invalid enum use");
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["lint", "--fix", "entry.xsh"]).current_dir(root.path()).output().expect("check migration candidate");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("check.type-mismatch"), "{stderr}");
+    assert_eq!(source, fs::read_to_string(&entry).expect("read unchanged invalid source"));
+}

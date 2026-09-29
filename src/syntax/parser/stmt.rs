@@ -64,6 +64,9 @@ impl<'a> Parser<'a> {
             (TokenTag::Keyword, Some(Keyword::Use)) => self.parse_use_arena_only(start, arena),
             (TokenTag::Keyword, Some(Keyword::Guard)) => self.parse_guard_arena_only(start, arena),
             (TokenTag::Keyword, Some(Keyword::With)) => self.parse_with_arena_only(start, arena),
+            (TokenTag::Keyword, Some(Keyword::Enum)) => {
+                self.parse_enum_def_arena_only(start, arena)
+            }
             (TokenTag::Keyword, Some(Keyword::Type)) => {
                 self.parse_type_def_arena_only(start, arena)
             }
@@ -165,6 +168,9 @@ impl<'a> Parser<'a> {
             (TokenTag::Keyword, Some(Keyword::Stream)) => {
                 self.parse_stream_function_arena_only(start, arena)?
             }
+            (TokenTag::Keyword, Some(Keyword::Enum)) => {
+                self.parse_enum_def_arena_only(start, arena)?
+            }
             (TokenTag::Keyword, Some(Keyword::Type)) => {
                 self.parse_type_def_arena_only(start, arena)?
             }
@@ -186,7 +192,7 @@ impl<'a> Parser<'a> {
             }
             _ => {
                 self.diagnostic_here(
-                    "`export` applies only to let, proc, pure, stream, type, or error definitions",
+                    "`export` applies only to let, proc, pure, stream, type, enum, or error definitions",
                     "parse.export-target",
                 );
                 return None;
@@ -205,15 +211,35 @@ impl<'a> Parser<'a> {
         start: usize,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
+        let introducer_start = self.current_start();
         self.bump();
         let name = self.expect_ident("expected type name")?;
         self.expect(TokenKindMatch::Equals, "expected `=` in type definition");
+        let body_start = self.index;
         let body = if self.at_ident("module") {
             self.bump();
             ArenaTypeDefBody::ModuleContract(self.parse_module_contract_arena_only(arena)?)
         } else if self.at(TokenKindMatch::LBrace) {
             ArenaTypeDefBody::RecordSchema(self.parse_record_schema_arena_only(arena)?)
-        } else if let Some(variants) = self.try_parse_tag_union_arena_only(arena) {
+        } else if let Some(variants) = self.recover_legacy_tag_union_arena_only(arena) {
+            let body_end = self.previous_end();
+            let mut diagnostic = Diagnostic::error("tagged unions use `enum Name { A, B }`; replace this `type` declaration")
+                .with_code("parse.enum-migration")
+                .with_label(Label::primary(self.span(start, body_end), "use an explicit enum declaration"))
+                .with_fix_hint(FixHint::replacement(self.span(introducer_start, introducer_start + 4), "use enum", "enum"));
+            for index in body_start.saturating_sub(1)..self.index {
+                let tag = self.token_table.tag_at(index);
+                if tag == Some(TokenTag::Equals) || tag == Some(TokenTag::Pipe) {
+                    diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                        self.span_at(index).expect("migration delimiter token exists"), "use enum delimiters",
+                        if tag == Some(TokenTag::Equals) { "{" } else { "," },
+                    ));
+                }
+            }
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                self.span(body_end, body_end), "close enum body", " }",
+            ));
+            self.diagnostics.push(diagnostic);
             ArenaTypeDefBody::TagUnion(variants)
         } else {
             ArenaTypeDefBody::Alias(self.parse_type_expr(arena)?)
@@ -221,6 +247,51 @@ impl<'a> Parser<'a> {
         let end = self.expect_terminator();
         let span = self.span(start, end);
         arena.push_type_def(name, body, span);
+        Some(())
+    }
+
+    fn skip_enum_trivia(&mut self) {
+        while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) {
+            self.bump();
+        }
+    }
+
+    fn parse_enum_def_arena_only(
+        &mut self,
+        start: usize,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
+        self.bump();
+        let name = self.expect_ident("expected enum name")?;
+        self.expect(TokenKindMatch::LBrace, "expected `{` after enum name")?;
+        self.skip_enum_trivia();
+        let mut variants = Vec::new();
+        while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
+            let variant_start = self.current_start();
+            let variant_name = self.expect_ident("expected enum variant name")?;
+            let mut fields = Vec::new();
+            if self.consume(TokenKindMatch::LParen).is_some() {
+                self.skip_enum_trivia();
+                while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
+                    fields.push(self.parse_type_expr(arena)?);
+                    self.skip_enum_trivia();
+                    if self.consume(TokenKindMatch::Comma).is_none() { break; }
+                    self.skip_enum_trivia();
+                }
+                self.expect(TokenKindMatch::RParen, "expected `)` after enum payload types")?;
+            }
+            variants.push(arena.build_tag_variant(variant_name, &fields, self.span(variant_start, self.previous_end())));
+            self.skip_enum_trivia();
+            if self.consume(TokenKindMatch::Comma).is_none() { break; }
+            self.skip_enum_trivia();
+        }
+        self.expect(TokenKindMatch::RBrace, "expected `}` after enum variants")?;
+        if variants.is_empty() {
+            self.diagnostic_previous("an enum requires at least one variant", "parse.empty-enum");
+        }
+        let variants = arena.push_tag_variant_range(variants);
+        let end = self.expect_terminator();
+        arena.push_type_def(name, ArenaTypeDefBody::TagUnion(variants), self.span(start, end));
         Some(())
     }
 
@@ -253,7 +324,10 @@ impl<'a> Parser<'a> {
         Some(arena.push_schema_field_range(fields))
     }
 
-    fn try_parse_tag_union_arena_only(
+    // Recover only pipe-separated declarations so aliases retain their identity.
+    // The recovered rows support checked migration edits; the accompanying parse
+    // diagnostic prevents the declaration from reaching execution.
+    fn recover_legacy_tag_union_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<crate::syntax::arena::ArenaRange> {
@@ -307,8 +381,9 @@ impl<'a> Parser<'a> {
             return None;
         }
         let mut variants = Vec::new();
-        self.skip_newlines();
+        self.skip_enum_trivia();
         loop {
+            self.skip_enum_trivia();
             let variant_start = self.current_start();
             let variant_name =
                 if matches!(self.current_tag(), TokenTag::Ident | TokenTag::ProcIdent) {
@@ -321,15 +396,18 @@ impl<'a> Parser<'a> {
                     break;
                 };
             let fields = if self.consume(TokenKindMatch::LParen).is_some() {
+                self.skip_enum_trivia();
                 let mut field_ids = Vec::new();
                 while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
                     let Some(ty) = self.parse_type_expr(arena) else {
                         break;
                     };
                     field_ids.push(ty);
+                    self.skip_enum_trivia();
                     if self.consume(TokenKindMatch::Comma).is_none() {
                         break;
                     }
+                    self.skip_enum_trivia();
                 }
                 self.expect(TokenKindMatch::RParen, "expected `)` after variant fields");
                 field_ids
@@ -340,7 +418,7 @@ impl<'a> Parser<'a> {
             let span = self.span(variant_start, variant_end);
             variants.push(arena.build_tag_variant(variant_name, &fields, span));
             if self.peeked_pipe_after_newlines() {
-                self.skip_newlines();
+                self.skip_enum_trivia();
                 self.bump();
             } else if self.consume(TokenKindMatch::Pipe).is_none() {
                 break;

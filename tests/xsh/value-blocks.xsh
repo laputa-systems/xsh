@@ -1,4 +1,4 @@
-type ValueChoice = ValueEmpty | ValueNumber(Int)
+enum ValueChoice { ValueEmpty, ValueNumber(Int) }
 
 pure value_label(code: Int) -> Str {
   match code {

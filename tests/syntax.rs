@@ -3016,7 +3016,7 @@ fn parser_allows_multiline_record() {
 
 #[test]
 fn parser_allows_multiline_tag_union() {
-    let source = "type T =\n  A\n| B\n| C(Int)\n";
+    let source = "enum T {\n  A,\n B,\n C(Int),\n}\n";
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let arena = &output.arena.arena;
@@ -3028,7 +3028,7 @@ fn parser_allows_multiline_tag_union() {
 
 #[test]
 fn parser_allows_multiline_tag_union_with_paren_variants() {
-    let source = "type Tok =\n  TNum(Float)\n| TStr(Str)\n| TOp(Str)\n| TEOF\n";
+    let source = "enum Tok {\n  TNum(Float),\n TStr(Str),\n TOp(Str),\n TEOF,\n}\n";
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
     let arena = &output.arena.arena;
@@ -3779,4 +3779,42 @@ fn formatter_keeps_named_stream_configuration_and_spreads_idempotent() {
     assert!(first.formatted.contains("sort(...{desc: true})"));
     let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
     assert_eq!(first.formatted, second.formatted);
+}
+
+#[test]
+fn parser_enum_migration_preserves_comments_exports_and_aliases() {
+    let source = "## Nominal café.\nexport type Choice =\n  Selected(Int) # first variant\n  | Empty # second variant\ntype Alias = Choice\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert_eq!(parsed.diagnostics.len(), 1, "{:?}", parsed.diagnostics);
+    let migration = &parsed.diagnostics[0];
+    assert_eq!(migration.code.as_deref(), Some("parse.enum-migration"));
+    let mut edits: Vec<_> = migration.fix_hints.iter().map(|hint| {
+        (hint.span.expect("migration edit span"), hint.replacement.as_ref().expect("migration replacement"))
+    }).collect();
+    edits.sort_by_key(|(span, _)| span.start());
+    let mut fixed = source.to_string();
+    for (span, replacement) in edits.into_iter().rev() {
+        assert!(!parsed.cst.get().contains_comment(span));
+        fixed.replace_range(span.range(), replacement);
+    }
+    assert!(fixed.contains("export enum Choice {"), "{fixed}");
+    assert!(fixed.contains("# first variant"));
+    assert!(fixed.contains("# second variant"));
+    assert!(fixed.contains("type Alias = Choice"));
+    assert!(fixed.contains("café"));
+    let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &fixed);
+    assert!(reparsed.diagnostics.is_empty(), "{:?}", reparsed.diagnostics);
+}
+
+#[test]
+fn parser_enum_singleton_is_nominal_and_identifier_rhs_stays_alias() {
+    let source = "enum Token { Present(Str), }\ntype Alias = Token\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let kinds: Vec<_> = parsed.arena.statement_ids().map(|id| parsed.arena.arena.stmt(id).kind).collect();
+    let ArenaStmtKind::TypeDef(token) = kinds[0] else { panic!("enum declaration"); };
+    let ArenaTypeDefBody::TagUnion(variants) = parsed.arena.arena.type_def(token).body else { panic!("nominal enum"); };
+    assert_eq!(parsed.arena.arena.tag_variants(variants).len(), 1);
+    let ArenaStmtKind::TypeDef(alias) = kinds[1] else { panic!("alias declaration"); };
+    assert!(matches!(parsed.arena.arena.type_def(alias).body, ArenaTypeDefBody::Alias(_)));
 }

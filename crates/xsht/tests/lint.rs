@@ -1311,7 +1311,7 @@ fn linter_suggests_string_concat_over_join_empty() {
 #[test]
 fn linter_reports_dead_code_after_all_returning_match() {
     let source = "\
-type Tok = TOp(Str) | TEOF
+enum Tok { TOp(Str), TEOF }
 
 pure is_op(t: Tok, name: Str) -> Bool {
   match t {
@@ -1360,7 +1360,7 @@ proc work() {
 
 #[test]
 fn linter_suggests_multiline_tag_union() {
-    let source = "type Tok = A | B | C | D | E\n";
+    let source = "enum Tok { A, B, C, D, E }\n";
     let parsed = parse_lint_source(source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions::default());
@@ -1391,8 +1391,8 @@ fn linter_suggests_multiline_tag_union() {
     let mut fixed = source.to_string();
     fixed.replace_range(fix_span.start()..fix_span.end(), replacement);
     assert!(
-        fixed.contains("type Tok =\n"),
-        "fixed text should contain multiline type def, got:\n{fixed}"
+        fixed.contains("enum Tok {\n"),
+        "fixed text should contain multiline enum declaration, got:\n{fixed}"
     );
 }
 
@@ -3706,4 +3706,26 @@ fn native_test_declaration_migration_declines_callers_and_ordinary_files() {
         let ordinary = Linter::lint(&parsed.arena, source, LintOptions { function_return_types: checked.function_return_types, ..LintOptions::default() });
         assert!(!ordinary.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.legacy-test-proc")));
     }
+}
+
+#[test]
+fn formatter_enum_declarations_are_canonical_and_idempotent() {
+    let source = "enum Token { Present(Str), }\ntype Alias = Token\n";
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert!(first.formatted.contains("enum Token { Present(Str) }"));
+    assert!(first.formatted.contains("type Alias = Token"));
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(first.formatted, second.formatted);
+}
+
+#[test]
+fn formatter_enum_comments_remain_with_their_variants() {
+    let declaration = "export enum Choice {\n  Selected(Int), # payload café\n  # absent choice\n  Empty,\n}";
+    let source = format!("{declaration}\ntype Alias = Choice\n");
+    let first = Formatter::new().format_source(SourceId::new(0), &source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert!(first.formatted.contains(declaration), "{}", first.formatted);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(first.formatted, second.formatted);
 }

@@ -2385,18 +2385,19 @@ impl<'a> Linter<'a> {
             .map_or(0, |p| p + 1);
         let cur_indent = stmt_span.start() - line_start;
         let variant_indent = " ".repeat(cur_indent + 4);
-        let cont_prefix = format!("{}  | ", " ".repeat(cur_indent));
+        let cont_prefix = variant_indent.clone();
         let variant_texts: Vec<&str> = variant_spans
             .iter()
             .map(|v| &self.source[v.start()..v.end()])
             .collect();
         let mut lines = vec![format!(
-            "type {name} =\n{variant_indent}{}",
+            "enum {name} {{\n{variant_indent}{},",
             variant_texts[0]
         )];
         for v_text in &variant_texts[1..] {
-            lines.push(format!("{cont_prefix}{v_text}"));
+            lines.push(format!("{cont_prefix}{v_text},"));
         }
+        lines.push(format!("{}}}", " ".repeat(cur_indent)));
         let replacement = lines.join("\n") + "\n";
         self.diagnostics.push(
             Diagnostic::new(

@@ -5,13 +5,14 @@ use stage as stages
 use targets
 
 ## Concrete coverage execution backend.
-export type CoverageBackend = NativeBackend | DockerBackend
+export enum CoverageBackend { NativeBackend, DockerBackend }
 
 # Parsed coverage request, including automatic selection.
-type CoverageRequest =
-    Automatic
-  | NativeRequest
-  | DockerRequest
+enum CoverageRequest {
+    Automatic,
+    NativeRequest,
+    DockerRequest,
+}
 
 ## Decodes the CLI coverage request before workflow dispatch.
 export pure parse_request(value: Str) -> Result[CoverageRequest] {

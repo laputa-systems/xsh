@@ -82,7 +82,9 @@ Concrete scalar types are `Null`, `Bool`, `Int`, `Duration`, `Str`, `Bytes`,
 Parameterized types are `List[T]`, `Map[T]`, `Stream[T]`, `Result[T, E]`,
 `Result[T]` as shorthand for `Result[T, Error]`, and `Optional[T]` written as
 `T?` in type position. Record schemas and tag unions are user-defined named
-types.
+types. `enum Name { Variant, Payload(T) }` declares a nominal tag type,
+including single-variant types. `type Alias = Name` preserves that identity
+without creating constructors.
 
 ## Assignability
 
