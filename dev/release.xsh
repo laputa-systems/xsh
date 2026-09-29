@@ -26,7 +26,7 @@ export proc package_binaries(ctx: context.Context, tag: Str) [fs, process, error
     let source = fp"${ctx.target_dir}/${ctx.target.triple}/dist/${product}"
     let artifact = fp"${ctx.artifact_dir}/${product}-${tag}-${suffix}"
     fs.install(source, artifact, 0o755, parents: true, overwrite: true)?
-    fp"${artifact.display()}.sha256".write(checksum_line(artifact, ctx.root)?)?
+    fp"${artifact}.sha256".write(checksum_line(artifact, ctx.root)?)?
   }
 }
 
@@ -174,7 +174,7 @@ export proc validate_artifacts(ctx: context.Context, tag: Str) [fs, error] -> Re
         )
       }
 
-      let checksum = fp"${artifact.display()}.sha256"
+      let checksum = fp"${artifact}.sha256"
       if ! checksum.exists()? {
         return Err(
           stages.StageError.Failed(

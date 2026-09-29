@@ -349,7 +349,8 @@ They produce `Path` and do not interpolate. An unescaped `${...}` in a p-string
 is rejected; use `fp"..."` when the path should interpolate.
 
 Formatted path literals are `fp"..."` or `fp"""..."""` and support `${expr}`
-interpolation with display conversion. They produce `Path`.
+interpolation. Path interpolands retain native bytes; other displayable values
+use their established conversion encoded as UTF-8. They produce `Path`.
 
 Obvious path literals may be written without `p` when they begin with `/`,
 `./`, or `../` and contain no whitespace or delimiters. These produce `Path`
@@ -753,7 +754,15 @@ are required.
 
 `Str` is valid UTF-8 text. `Bytes` is arbitrary byte data. `Path` stores native
 Unix path bytes and cannot contain NUL; it can represent paths that are not
-valid UTF-8. `Map[T]` is a deterministic string-keyed collection whose values
+valid UTF-8. Formatted Path literals and compound process words append Path
+fragments as native bytes, evaluating fragments once in source order. Ordinary
+f-strings and print remain display text; an explicit `.display()` produces
+UTF-8 text and cannot recover the original native bytes. Concatenation does not
+join, normalize, expand, glob, or confine paths: separators and `..` remain
+exactly present, and rooted filesystem APIs retain confinement ownership.
+NUL remains invalid in paths and argv; interpolation does not split words.
+
+`Map[T]` is a deterministic string-keyed collection whose values
 all have type `T`.
 
 `Float` is an IEEE 754 binary64 scalar for measured quantities such as rates,
@@ -810,7 +819,8 @@ match process.run(command) {
 
 Standard constructors:
 
-- `p"literal"` and `fp"${value}"` produce `Path` values from UTF-8 source text.
+- `p"literal"` produces a `Path` from UTF-8 source text. `fp"${value}"`
+  preserves native bytes of Path fragments and UTF-8 encodes other fragments.
 - `Path(str) -> Path` remains a direct cast from text for values that are
   already known to be valid path text. `xsht lint` may recommend path-string
   syntax for this spelling, but the recommendation is advisory because the

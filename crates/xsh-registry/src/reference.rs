@@ -887,11 +887,11 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "command-interpolation" => (
             "Defines explicit command and argv interpolation.",
-            "Interpolated values remain typed argv boundaries; XSH does not perform implicit shell evaluation or word splitting.",
+            "Interpolated values remain typed argv boundaries; XSH does not perform implicit shell evaluation or word splitting. Compound process words retain interpolated Path bytes, including native non-UTF-8 names, without changing argument boundaries.",
         ),
         "path-literals" => (
             "Defines typed path literals.",
-            "A path literal is a Path value and crosses into text or host bytes only through an explicit conversion.",
+            "Formatted Path literals append Path fragments as native bytes and other displayable fragments as UTF-8. Concatenation does not join, normalize, access, or confine paths. NUL is rejected. F-strings, print, and explicit .display() remain human text.",
         ),
         "glob-literals" => (
             "Defines filesystem glob literals.",

@@ -29,6 +29,14 @@ The OS runtime is not a service supervisor, bytecode VM, async runtime, event
 loop, green-thread scheduler, or job control implementation. It does not try to
 manage descendants that intentionally move into another process group.
 
+Native Path fragments cross argv and file-redirection boundaries as bytes,
+including compound command words such as `"--target=$target"`. Direct runs,
+stored command plans, and their redirections share `lower_run_arg` and the
+indexed native fragment builder. Text fragments use UTF-8, and NUL rejection
+precedes the host invocation. Human text and trace rendering retain their
+existing display/escaping policy; diagnostic text does not become an argv
+encoding. Concatenation establishes no filesystem access or confinement.
+
 ## 2. Overall Design
 
 The OS runtime is the coordination layer between tree-shaped XSH evaluation and

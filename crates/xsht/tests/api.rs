@@ -856,3 +856,17 @@ fn api_core_enums_documents_nominal_constructors_aliases_and_singletons() {
     let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
 }
+
+#[test]
+fn api_path_interpolation_distinguishes_native_bytes_and_human_text() {
+    let output = xsht(&["api", "language:core.path-literals"]);
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("Path fragments as native bytes"), "{text}");
+    assert!(text.contains("F-strings, print"), "{text}");
+    assert!(text.contains("${config_path}.sha256"), "{text}");
+    let output = xsht(&["api", "language:core.command-interpolation"]);
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("Compound process words retain interpolated Path bytes"), "{text}");
+}

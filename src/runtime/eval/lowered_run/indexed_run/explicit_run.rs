@@ -17,7 +17,7 @@ use super::{
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
     lowered_result_err_value, lowered_result_ok, lowered_return_value, lowered_splice_arg_items,
     lowered_str_parts, lowered_value_from_runtime_any, lowered_value_satisfies_require,
-    push_lowered_fmt_value,
+    push_lowered_fmt_value, push_lowered_native_fmt_value,
 };
 
 enum FrameValue {
@@ -62,6 +62,7 @@ struct FmtState {
     parts: Vec<FmtPart>,
     index: usize,
     text: String,
+    native: Vec<u8>,
     path_span: Option<Span>,
 }
 
@@ -1837,6 +1838,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         parts,
                         index: 0,
                         text: String::new(),
+                        native: Vec::new(),
                         path_span,
                     },
                     next,
@@ -2658,7 +2660,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 next,
             } => match value {
                 FrameValue::Value(value) => {
-                    push_lowered_fmt_value(&mut state.text, &value, span, spec.as_ref())?;
+                    if state.path_span.is_some() { push_lowered_native_fmt_value(&mut state.native, &value, span, spec.as_ref())?; }
+                    else { push_lowered_fmt_value(&mut state.text, &value, span, spec.as_ref())?; }
                     self.step_fmt(index, state, *next)?;
                 }
                 FrameValue::Break(value) => {
@@ -3069,7 +3072,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             let Some(part) = state.parts.get(state.index).cloned() else {
                 let value = if let Some(span) = state.path_span {
                     LoweredValue::Path(
-                        PathValue::from_text(state.text).map_err(|error| error.with_span(span))?,
+                        PathValue::new(state.native).map_err(|error| error.with_span(span))?,
                     )
                 } else {
                     LoweredValue::Str(state.text.into())
@@ -3079,7 +3082,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             };
             state.index += 1;
             match part {
-                FmtPart::Text(text) => state.text.push_str(&text),
+                FmtPart::Text(text) => {
+                    if state.path_span.is_some() { state.native.extend_from_slice(text.as_bytes()); }
+                    else { state.text.push_str(&text); }
+                }
                 FmtPart::Expr(instruction, span, spec) => {
                     self.push_expr(
                         index,

@@ -240,7 +240,7 @@ test test_release_validation_requires_exactly_the_nine_expected_products [fs, er
       let artifact = fp"${artifact_dir}/${product}-${tag}-${suffix}"
       artifact.write("release artifact")?
       fs.chmod(artifact, 0o755)?
-      fp"${artifact.display()}.sha256".write(releases.checksum_line(artifact, root)?)?
+      fp"${artifact}.sha256".write(releases.checksum_line(artifact, root)?)?
     }
   }
 

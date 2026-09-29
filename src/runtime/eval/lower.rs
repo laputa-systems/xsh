@@ -7698,7 +7698,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         LoweredRunArgKind::Single(push_build_row!(
                             self,
                             expr,
-                            BuildExprRow::FmtString(lowered)
+                            BuildExprRow::PathFmtString { parts: lowered, span }
                         ))
                     }
                 }

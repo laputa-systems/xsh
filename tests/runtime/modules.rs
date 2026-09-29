@@ -2829,3 +2829,72 @@ fn handle_local_https_connection(
     stream.flush().expect("flush HTTPS response");
     stream.conn.alpn_protocol().map(ToOwned::to_owned)
 }
+
+#[test]
+fn path_interpolation_preserves_native_bytes_in_literals_and_compound_argv() {
+    let expected = hex(b"--target=raw\xff name/'\"");
+    let source = format!(r#"
+let show = Path({show})
+let raw = Path.parse_bytes(b"raw\xff name/'\"")?
+let composed = fp"prefix/${{raw}}/../end"
+print --flush ${{composed == Path.parse_bytes(b"prefix/raw\xff name/'\"/../end")?}}
+let direct = run.text (show) "--target=$raw" ?
+print --flush ${{direct == {expected}}}
+let spliced = run.text (show) @([raw, p""]) ?
+print --flush ${{spliced == {spliced}}}
+let human = run.text (show) (f"--target=$raw") ?
+print --flush ${{human == {human}}}
+let stored = process.command {{
+  run (show) "--target=${{raw}}"
+}}
+process.run(stored)?
+"#,
+        show = xsh_string_literal(cargo_env!("CARGO_BIN_EXE_xsh-test-show-argv")),
+        expected = xsh_string_literal(&(expected.clone() + "\n")),
+        spliced = xsh_string_literal(&(hex(b"raw\xff name/\'\"") + "\n\n")),
+        human = xsh_string_literal(&(hex(String::from_utf8_lossy(b"--target=raw\xff name/\'\"").as_bytes()) + "\n")),
+    );
+    let output = run_temp_script("native-path-interpolation", &source);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), format!("true\ntrue\ntrue\ntrue\n{expected}\n"));
+}
+
+#[test]
+fn path_interpolation_preserves_real_native_filename_and_redirection_bytes() {
+    let root = temp_path("native-path-interpolation-files");
+    std::fs::create_dir_all(&root).unwrap();
+    let raw_name = std::ffi::OsString::from_vec(b"source\xff name".to_vec());
+    let source_path = root.join(&raw_name);
+    match std::fs::write(&source_path, b"native contents") {
+        Ok(()) => {},
+        Err(error) if cfg!(target_os = "macos") && error.raw_os_error() == Some(libc::EILSEQ) => {
+            // Some macOS filesystems reject invalid UTF-8 names at creation.
+            // The separate argv fixture still exercises native bytes there.
+            eprintln!("host filesystem rejected invalid UTF-8 filename: {error}");
+            std::fs::remove_dir_all(root).unwrap();
+            return;
+        }
+        Err(error) => panic!("create native filename: {error}"),
+    }
+    let output_path = root.join(std::ffi::OsString::from_vec(b"output\xff name".to_vec()));
+    let script = format!(r#"
+let root = Path({root})
+let name = Path.parse_bytes(b"source\xff name")?
+let destination = Path.parse_bytes(b"output\xff name")?
+let composed = fp"${{root}}/${{name}}"
+print ${{composed.read_bytes()? == b"native contents"}}
+let direct = run.bytes cat < "$root/$name" ?
+print ${{direct == b"native contents"}}
+let command = process.command {{
+  stdin = fp"${{root}}/${{name}}"
+  stdout = fp"${{root}}/${{destination}}"
+  run cat
+}}
+process.run(command)?
+"#, root = xsh_string_literal(root.to_str().unwrap()));
+    let output = run_temp_script("native-path-file-redirections", &script);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"true\ntrue\n");
+    assert_eq!(std::fs::read(output_path).unwrap(), b"native contents");
+    std::fs::remove_dir_all(root).unwrap();
+}

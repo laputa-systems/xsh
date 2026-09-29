@@ -364,6 +364,43 @@ fn push_lowered_fmt_value(
     Ok(())
 }
 
+/// Native path fragments retain their bytes; other fragments use ordinary
+/// display conversion. Width affects padding, never the native fragment data.
+fn push_lowered_native_fmt_value(
+    bytes: &mut Vec<u8>, value: &LoweredValue, span: Span, spec: Option<&FormatSpec>,
+) -> Result<(), RuntimeError> {
+    if let LoweredValue::Path(path) = value {
+        if let Some(spec) = spec {
+            let padding = spec.width.saturating_sub(path.display().chars().count());
+            match spec.kind {
+                FormatSpecKind::RightAlign => {
+                    bytes.extend(std::iter::repeat_n(b' ', padding));
+                    bytes.extend_from_slice(&path.bytes);
+                }
+                FormatSpecKind::LeftAlign => {
+                    bytes.extend_from_slice(&path.bytes);
+                    bytes.extend(std::iter::repeat_n(b' ', padding));
+                }
+                FormatSpecKind::ZeroPad => {
+                    if let Some(rest) = path.bytes.strip_prefix(b"-") {
+                        bytes.push(b'-');
+                        bytes.extend(std::iter::repeat_n(b'0', padding));
+                        bytes.extend_from_slice(rest);
+                    } else {
+                        bytes.extend(std::iter::repeat_n(b'0', padding));
+                        bytes.extend_from_slice(&path.bytes);
+                    }
+                }
+            }
+        } else { bytes.extend_from_slice(&path.bytes); }
+    } else {
+        let mut text = String::new();
+        push_lowered_fmt_value(&mut text, value, span, spec)?;
+        bytes.extend_from_slice(text.as_bytes());
+    }
+    Ok(())
+}
+
 /// The number of items entering a pipeline stage, for the `item_count` field of
 /// a `stream.stage` trace event. `None` for non-collection inputs (adapters,
 /// scalars), matching the old evaluator which only reported it for streams.

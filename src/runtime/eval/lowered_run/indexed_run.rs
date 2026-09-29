@@ -37,7 +37,7 @@ use super::{
     lowered_type_name, lowered_unit_result, lowered_value_argv_len, lowered_value_from_runtime,
     lowered_value_from_runtime_any, lowered_value_matches_static_type,
     lowered_value_satisfies_require, new_temp_fs_root, path_bytes, push_lowered_display,
-    push_lowered_fmt_value, read_host_path_bytes, read_host_path_bytes_vec, root_path_from_dir,
+    push_lowered_fmt_value, push_lowered_native_fmt_value, read_host_path_bytes, read_host_path_bytes_vec, root_path_from_dir,
     run_pipeline_inherit_with_policy, runtime_error_from_value, splice_to_argv,
     structured_error_constructor, value_matches_static_type, value_to_argv_bytes,
     with_indexed_eval_depth,
@@ -2984,12 +2984,14 @@ impl Evaluator {
                 };
                 indexed_finish(payload, call_span)?;
                 let mut text = String::new();
+                let mut native = Vec::new();
                 for _ in 0..len {
                     match indexed_raw(&mut parts, call_span)? {
                         0 => {
                             let part =
                                 indexed_decode::<Arc<str>>(&mut parts, execution, call_span)?;
-                            text.push_str(&part);
+                            if path { native.extend_from_slice(part.as_bytes()); }
+                            else { text.push_str(&part); }
                         }
                         1 => {
                             let expr = indexed_raw(&mut parts, call_span)?;
@@ -3004,7 +3006,8 @@ impl Evaluator {
                                         return Ok(ControlFlow::Break(value));
                                     }
                                 };
-                            push_lowered_fmt_value(&mut text, &value, span, spec.as_ref())?;
+                            if path { push_lowered_native_fmt_value(&mut native, &value, span, spec.as_ref())?; }
+                            else { push_lowered_fmt_value(&mut text, &value, span, spec.as_ref())?; }
                         }
                         _ => {
                             return Err(RuntimeError::new(
@@ -3018,7 +3021,7 @@ impl Evaluator {
                 indexed_finish(parts, call_span)?;
                 if let Some(span) = path_span {
                     ControlFlow::Continue(LoweredValue::Path(
-                        PathValue::from_text(text).map_err(|error| error.with_span(span))?,
+                        PathValue::new(native).map_err(|error| error.with_span(span))?,
                     ))
                 } else {
                     ControlFlow::Continue(LoweredValue::Str(text.into()))

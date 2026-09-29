@@ -8441,6 +8441,36 @@ proc main() [error] {
     }
 
     #[test]
+    fn native_path_interpolation_executes_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = "pure native_path(value: Path) -> Path { return fp\"prefix/${value}/../end\" }\nproc native_plan(value: Path) [process] -> Command { return process.command { stdin = fp\"before/${value}\"; stdout = fp\"${value}/after\"; run true \"--target=$value\" } }\n";
+            let program = Arc::new(fixture("native-path-interpolation.xsh", source));
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let argument = Value::Path(PathValue::new(b"raw\xff name".to_vec()).unwrap());
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "native_path")),
+                    LoweredFunctionKind::Pure, std::slice::from_ref(&argument), Span::new(program.store.source_id, 0, 0),
+                ).expect("native path function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Path(PathValue::new(b"prefix/raw\xff name/../end".to_vec()).unwrap()));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "native_plan")),
+                    LoweredFunctionKind::Proc, std::slice::from_ref(&argument), Span::new(program.store.source_id, 0, 0),
+                ).expect("native command plan exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                let Value::Command(plan) = result.unwrap() else { panic!("command plan"); };
+                assert_eq!(plan.argv.last().unwrap(), b"--target=raw\xff name");
+                let crate::runtime::value::CommandRedirection::File { path, .. } = &plan.redirections[0];
+                assert_eq!(path.bytes, b"before/raw\xff name");
+                let crate::runtime::value::CommandRedirection::File { path, .. } = &plan.redirections[1];
+                assert_eq!(path.bytes, b"raw\xff name/after");
+            }
+        });
+    }
+
+    #[test]
     fn verifier_rejects_empty_or_unknown_comprehension_qualifiers() {
         let program = fixture("indexed-comprehension.xsh", "pure values() -> List[Int] { return [inner for outer in [1] if outer > 0 for inner in [outer]] }\n");
         let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprListComp).unwrap();

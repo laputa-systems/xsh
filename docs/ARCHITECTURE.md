@@ -653,3 +653,10 @@ optional shared pattern ID. `FullTag::ExprRetry` evaluates delays once, runs eac
 attempt through the ordinary block cleanup boundary, then tests the failure
 without publishing bindings. `RetryStopReason` extends the existing
 `TracePayload::RetryAttempt` rather than establishing another event stream.
+
+`push_lowered_native_fmt_value` appends Path fragments directly from native
+storage and converts other displayable fragments to UTF-8. Both indexed
+execution routes use it for `BuildExprRow::PathFmtString`; `lower_run_arg`
+uses that same row for compound process words, covering stored plans and
+redirection operands. Generic command arguments and f-strings retain their
+human text construction path.
