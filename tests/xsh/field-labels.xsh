@@ -36,7 +36,7 @@ test test_keyword_field_labels_preserve_known_types_and_wire_bytes [error] {
   test.eq(bare.type, "file")?
 }
 
-proc test_keyword_field_labels_across_keyword_spellings(ctx: TestContext) [error] {
+test test_keyword_field_labels_across_keyword_spellings [error] { |ctx|
   for label in ["and", "break", "continue", "defer", "else", "export", "false", "for", "guard", "if", "in", "let", "loop", "match", "not", "null", "or", "proc", "pure", "retry", "return", "run", "spawn", "stream", "true", "type", "unless", "use", "var", "wait", "when", "with", "yield"] {
     let source = "type Wire = {" + label + ": Int}\nlet row = Wire(" + label + ": 1)\nlet {" + label + ": selected, ..} = row\nprint $selected\nprint $row." + label + "\n"
     let executed = test.run_script(ctx, source)?
@@ -45,7 +45,7 @@ proc test_keyword_field_labels_across_keyword_spellings(ctx: TestContext) [error
   }
 }
 
-proc test_keyword_field_labels_reject_keyword_bindings_puns_and_module_shadowing(ctx: TestContext) [error] {
+test test_keyword_field_labels_reject_keyword_bindings_puns_and_module_shadowing [error] { |ctx|
   for source in [
     "let type = 1\n",
     "pure value(in: Int) -> Int { 1 }\n",
@@ -63,7 +63,7 @@ proc test_keyword_field_labels_reject_keyword_bindings_puns_and_module_shadowing
   }
 }
 
-proc test_keyword_field_labels_retain_dynamic_validation_and_duplicate_checks(ctx: TestContext) [error] {
+test test_keyword_field_labels_retain_dynamic_validation_and_duplicate_checks [error] { |ctx|
   let source = r"""type Entry = {type: Str, in: Int}
 let raw = json.decode("{\"type\":\"file\",\"in\":2}")?
 let row = raw.require(Entry)?
@@ -86,7 +86,7 @@ let selected: Int = raw.type
   }
 }
 
-proc test_keyword_field_label_tooling_preserves_execution_and_converges(ctx: TestContext) [fs, process, error] {
+test test_keyword_field_label_tooling_preserves_execution_and_converges [fs, process, error] { |ctx|
   let source = r"""let row = {"type": "file", r"in": 2, "wire.type": 3} # Keep the wire explanation.
 let label: Str = row.get("type")?
 print $label $row.in ${row["wire.type"]}

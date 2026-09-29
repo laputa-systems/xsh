@@ -162,7 +162,7 @@ print \${value}
   test.contains(output.stderr, "\"kind\":\"RetryError.Transient\"")?
 }
 
-proc test_retry_filter_stops_on_first_nonmatching_error(ctx: TestContext) [error] {
+test test_retry_filter_stops_on_first_nonmatching_error [error] { |ctx|
   let output = test.run_script(ctx, """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 var attempts = 0
@@ -185,7 +185,7 @@ print f"\${attempts} \${delays} \${cleaned}"
   test.eq(output.stdout, "original\n1 2 1\n")?
 }
 
-proc test_retry_filter_matching_exhaustion_and_mixed_failures(ctx: TestContext) [error] {
+test test_retry_filter_matching_exhaustion_and_mixed_failures [error] { |ctx|
   let output = test.run_script(ctx, """
 error FetchError = Busy(message: Str) | Timeout(message: Str) | Fatal(message: Str)
 var attempts = 0
@@ -215,7 +215,7 @@ print \${attempts}
   test.eq(output.stdout, "attempt 3\nsecond\n2\n")?
 }
 
-proc test_retry_filter_empty_delays_success_and_nested_retry(ctx: TestContext) [error] {
+test test_retry_filter_empty_delays_success_and_nested_retry [error] { |ctx|
   let output = test.run_script(ctx, """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 var attempts = 0
@@ -238,7 +238,7 @@ match nested { Err(FetchError.Busy {message}) => print \${message}; _ => print "
   test.eq(output.stdout, "1\nok\n2\nlast\n")?
 }
 
-proc test_retry_filter_trace_records_selection_and_stop_reason(ctx: TestContext) [error] {
+test test_retry_filter_trace_records_selection_and_stop_reason [error] { |ctx|
   let output = test.run_xsht_trace(ctx, """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 proc attempt() -> Result[Str, FetchError] { Err(FetchError.Fatal(message: "original")) }
@@ -252,7 +252,7 @@ match result { Err(_) => print "stopped"; _ => print "wrong" }
   test.contains(output.stderr, "\"stop_reason\":\"nonmatching\"")?
 }
 
-proc test_retry_filter_rejects_captures_and_impossible_families(ctx: TestContext) [error] {
+test test_retry_filter_rejects_captures_and_impossible_families [error] { |ctx|
   let capture = test.run_script(ctx, """
 error FetchError = Busy(message: Str)
 proc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: "busy")) }
@@ -270,7 +270,7 @@ let result = retry [] on (OtherError.Busy) { attempt()? }
   test.contains(impossible.stderr, "check.pattern-type")?
 }
 
-proc test_retry_filter_facets_and_cleanup_failure_priority(ctx: TestContext) [error] {
+test test_retry_filter_facets_and_cleanup_failure_priority [error] { |ctx|
   let output = test.run_script(ctx, """
 error FetchError = Busy(message: Str) : NotFound | Fatal(message: Str) : InvalidData
 var attempts = 0
@@ -295,7 +295,7 @@ print f"\${attempts} \${cleaned}"
   test.contains(output.stderr, "secondary")?
 }
 
-proc test_retry_filter_does_not_retry_abort(ctx: TestContext) [error] {
+test test_retry_filter_does_not_retry_abort [error] { |ctx|
   let output = test.run_script(ctx, """
 let result = retry [0ms] on (_) {
   print "attempt"
@@ -307,7 +307,7 @@ print "after"
   test.eq(output.stdout, "attempt\n")?
 }
 
-proc test_retry_filter_alias_and_impossible_facet_diagnostics(ctx: TestContext) [error] {
+test test_retry_filter_alias_and_impossible_facet_diagnostics [error] { |ctx|
   for source in [
     "error FetchError = Busy(message: Str)\nproc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: \"busy\")) }\nlet result = retry [] on (FetchError.Busy as failure) { attempt()? }\n",
     "error FetchError = Busy(message: Str)\nproc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: \"busy\")) }\nlet result = retry [] on (NotFound) { attempt()? }\n",
@@ -318,7 +318,7 @@ proc test_retry_filter_alias_and_impossible_facet_diagnostics(ctx: TestContext) 
   }
 }
 
-proc test_retry_filter_cleanup_failure_becomes_attempt_error(ctx: TestContext) [error] {
+test test_retry_filter_cleanup_failure_becomes_attempt_error [error] { |ctx|
   let output = test.run_script(ctx, """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 var cleaned = 0
@@ -337,7 +337,7 @@ print \${cleaned}
   test.eq(output.stdout, "cleanup\n1\n")?
 }
 
-proc test_retry_filter_rejects_string_classification(ctx: TestContext) [error] {
+test test_retry_filter_rejects_string_classification [error] { |ctx|
   let output = test.run_script(ctx, """
 proc attempt() -> Result[Str, Str] { Err("busy") }
 let result = retry [] on ("busy") { attempt()? }
@@ -346,7 +346,7 @@ let result = retry [] on ("busy") { attempt()? }
   test.contains(output.stderr, "check.retry-pattern")?
 }
 
-proc test_retry_filter_nested_try_and_lexical_return_keep_destinations(ctx: TestContext) [error] {
+test test_retry_filter_nested_try_and_lexical_return_keep_destinations [error] { |ctx|
   let output = test.run_script(ctx, """
 error FetchError = Busy(message: Str) | Fatal(message: Str)
 var attempts = 0

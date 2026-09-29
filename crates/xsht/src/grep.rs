@@ -3,7 +3,7 @@
 use rustc_hash::FxHashMap;
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
-    ArenaCallArgKind, ArenaExprKind, ArenaRecordFieldKind, ArenaPatternKind, ArenaProgram, AstArena, BlockId, ExprId, PatternId,
+    ArenaCallArgKind, ArenaExprKind, ArenaPatternKind, ArenaProgram, AstArena, BlockId, ExprId, PatternId,
 };
 
 /// A structural grep match from `xsht::grep::find_matches_in_program`: the
@@ -443,7 +443,6 @@ fn build_replacement_text(
             for (start, end, replacement) in edits { text.replace_range(start..end, &replacement); }
             Some(text)
         }
-        ArenaExprKind::Try(value) => Some(format!("{}?", build_replacement_text(arena, *value, m, target_source, pattern_source)?)),
         ArenaExprKind::PatternTest { value, arms } => {
             let subject = build_replacement_text(arena, *value, m, target_source, pattern_source)?;
             let selected = arena.match_expr_arms(*arms).first()?;

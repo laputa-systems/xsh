@@ -2714,7 +2714,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::Retry { .. } => 38,
         ArenaExprKind::ValueBlock(_) => 39,
         ArenaExprKind::Regex(_) => 41,
-        ArenaExprKind::ValuePipelineCall { .. } => 42,
+        ArenaExprKind::ValuePipelineCall { .. } => 43,
     }
 }
 
@@ -3071,7 +3071,7 @@ fn lower_const_param_default(
                     let LoweredValue::Map(spread) = lower_const_param_default(arena, expr, LoweredType::Map, expected)? else { return None; };
                     values.extend(spread.iter().map(|(key, value)| (key.clone(), value.clone())));
                 }
-                ArenaRecordFieldKind::Shorthand { .. } => return None,
+                ArenaRecordFieldKind::Shorthand { .. } | ArenaRecordFieldKind::Path { .. } => return None,
             }
         }
         let value = LoweredValue::Map(Arc::new(values));
@@ -3211,8 +3211,8 @@ fn compact_body_tail_command_blocker(
 }
 
 const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 8];
-const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 28];
-const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 43];
+const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 29];
+const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 44];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 

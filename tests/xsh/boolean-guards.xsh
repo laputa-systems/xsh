@@ -1,4 +1,4 @@
-proc test_boolean_guard_evaluates_once_and_refines_success() [error] {
+test test_boolean_guard_evaluates_once_and_refines_success [error] {
   var calls = 0
   guard (if true { calls += 1; true } else { false }) else { return error.fail("unexpected failure") }
   test.eq(calls, 1)?
@@ -7,7 +7,7 @@ proc test_boolean_guard_evaluates_once_and_refines_success() [error] {
   test.eq(name.trim(), "ready")?
 }
 
-proc test_boolean_guard_failure_keeps_lexical_loop_target() [error] {
+test test_boolean_guard_failure_keeps_lexical_loop_target [error] {
   var reached = 0
   for number in [0, 1, 2] {
     guard number != 0 else { continue }
@@ -27,7 +27,7 @@ pure boolean_guard_pattern_refinement(value: Any) -> Str {
   value.trim()
 }
 
-proc test_boolean_guard_failure_refinement_and_status() [process, error] {
+test test_boolean_guard_failure_refinement_and_status [process, error] {
   test.eq(boolean_guard_failure_refinement(" ready "), "ready")?
   test.eq(boolean_guard_failure_refinement(null), "missing")?
   test.eq(boolean_guard_pattern_refinement(" ready "), "ready")?
@@ -36,7 +36,7 @@ proc test_boolean_guard_failure_refinement_and_status() [process, error] {
   guard status else { return error.fail("true failed") }
 }
 
-proc test_boolean_guard_cleanup_precedes_lexical_return(ctx: TestContext) [error] {
+test test_boolean_guard_cleanup_precedes_lexical_return [error] { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
 proc choose() [] -> Int {
   defer mark("function cleanup")
@@ -53,7 +53,7 @@ print \${choose()}
   test.eq(output.stdout, "failure cleanup\nfunction cleanup\n7\n")?
 }
 
-proc test_boolean_guard_condition_error_keeps_identity_and_skips_failure(ctx: TestContext) [error] {
+test test_boolean_guard_condition_error_keeps_identity_and_skips_failure [error] { |ctx|
   let output = test.run_script(ctx, """error GuardError = condition(message: Str)
 pure rejected() -> Result[Bool] { Err(GuardError.condition(message: "condition failed")) }
 guard rejected()? else { abort(7) }
@@ -65,13 +65,13 @@ print "unreachable"
   test.eq(output.stdout, "")?
 }
 
-proc test_boolean_guard_false_status_uses_author_failure(ctx: TestContext) [error] {
+test test_boolean_guard_false_status_uses_author_failure [error] { |ctx|
   let output = test.run_script(ctx, "let status = run false\nguard status else { abort(7) }\nprint \"unreachable\"\n")?
   test.eq(output.status, 7)?
   test.eq(output.stdout, "")?
 }
 
-proc test_boolean_guard_rejects_fallthrough_and_parameters(ctx: TestContext) [error] {
+test test_boolean_guard_rejects_fallthrough_and_parameters [error] { |ctx|
   for {source, code} in [
     {source: "guard true else { print \"failure\" }\n", code: "check.guard-fallthrough"},
     {source: "guard true else { |failure| abort(1) }\n", code: "check.block-params"},

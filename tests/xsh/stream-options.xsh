@@ -1,4 +1,4 @@
-proc test_stream_options_preserve_stage_entry_and_pull_timing(ctx: TestContext) [error] {
+test test_stream_options_preserve_stage_entry_and_pull_timing [error] { |ctx|
   let output = test.run_script(ctx, r"""
 stream numbers() [] -> Stream[Int] {
   print "pull:1"
@@ -24,7 +24,7 @@ proc main() [] {
   test.eq(output.stdout, "create\npull:1\nmap:1\npull:2\nmap:2\nclose\njobs\n2\njobs\n0\n")?
 }
 
-proc test_stream_options_preserve_positional_order_and_failure_before_pull(ctx: TestContext) [error] {
+test test_stream_options_preserve_positional_order_and_failure_before_pull [error] { |ctx|
   let output = test.run_script(ctx, r"""
 stream numbers() [] -> Stream[Int] { print "pull"; yield 1 }
 proc argument(label: Str, value: Int) [] -> Int { print $label; return value }
@@ -43,7 +43,7 @@ proc main() [error] {
   test.eq(output.stdout, "start\nend\n2\ndesc\n")?
 }
 
-proc test_stream_named_options_cover_defaults_modes_and_combined_limits(ctx: TestContext) [error] {
+test test_stream_named_options_cover_defaults_modes_and_combined_limits [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc flag(label: Str, value: Bool) [] -> Bool { print $label; return value }
 proc number(label: Str, value: Int) [] -> Int { print $label; return value }
@@ -73,7 +73,7 @@ proc main() [error] {
   test.eq(output.stdout, "2\n1\n3\n1\n2\n1\n2\n2\n1\n3\n1\n2\njobs\nmax\nsum\n3\n")?
 }
 
-proc test_stream_named_positionals_preserve_source_order_and_spread_once(ctx: TestContext) [error] {
+test test_stream_named_positionals_preserve_source_order_and_spread_once [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc number(label: Str, value: Int) [] -> Int { print $label; return value }
 type Bounds = {start: Int, end: Int}
@@ -97,7 +97,7 @@ proc main() [error] {
   test.contains(output.stdout, "row")?
 }
 
-proc test_stream_named_options_reject_duplicate_unknown_type_mode_and_spread(ctx: TestContext) [error] {
+test test_stream_named_options_reject_duplicate_unknown_type_mode_and_spread [error] { |ctx|
   for script in [
     "proc main() [] { let _ = [1] |> par-map(jobs: 1, jobs: 2) { |item| item } }",
     "proc main() [] { let options = {jobs: 1}; let _ = [1] |> par-map(...options, jobs: 2) { |item| item } }",
@@ -120,7 +120,7 @@ proc test_stream_named_options_reject_duplicate_unknown_type_mode_and_spread(ctx
   }
 }
 
-proc test_stream_named_options_preserve_materialization_and_live_cleanup(ctx: TestContext) [error] {
+test test_stream_named_options_preserve_materialization_and_live_cleanup [error] { |ctx|
   let output = test.run_script(ctx, r"""
 stream rows() [] -> Stream[Row] { defer { print "close" }; print "pull"; yield {name: "row"} }
 type Row = {name: Str}
@@ -146,7 +146,7 @@ proc main() [] { let _ = values() |> sort(desc: direction()) }
   test.eq(failure.stdout, "pull\nlater\nclose\ndesc\n")?
 }
 
-proc test_stream_named_spreads_bind_each_configuration_role(ctx: TestContext) [error] {
+test test_stream_named_spreads_bind_each_configuration_role [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc main() [] {
   let workers = {jobs: 1}
@@ -177,7 +177,7 @@ proc main() [] {
   test.contains(output.stdout, "row")?
 }
 
-proc test_stream_dynamic_modes_and_combined_batch_failure_preserve_cleanup(ctx: TestContext) [error] {
+test test_stream_dynamic_modes_and_combined_batch_failure_preserve_cleanup [error] { |ctx|
   let modes = test.run_script(ctx, r"""
 stream numbers() [] -> Stream[Int] { print "pull"; yield 1 }
 proc disabled() [] -> Bool { print "mode"; return false }
@@ -201,7 +201,7 @@ proc main() [] { let _ = words() |> batch(count: 2, max_bytes: 2, max_argv: true
   test.contains(batches.stderr, "argv-limit")?
 }
 
-proc test_stream_option_migration_is_fatal_and_tooling_fix_is_narrow(ctx: TestContext) [fs, process, error] {
+test test_stream_option_migration_is_fatal_and_tooling_fix_is_narrow [fs, process, error] { |ctx|
   let source = "# café\nlet values = [1, 2] |> par-map --jobs=2 { |item| item + 1 } # keep\nprint values.len()\n"
   let rejected = test.run_script(ctx, source)?
   test.ok(! rejected.success, rejected.stderr)?
@@ -224,7 +224,7 @@ proc test_stream_option_migration_is_fatal_and_tooling_fix_is_narrow(ctx: TestCo
   test.eq(external.stdout, "--jobs\n--desc\n--max-bytes\n")?
 }
 
-proc test_stream_option_migration_refuses_comments_and_unrelated_errors(ctx: TestContext) [fs, process, error] {
+test test_stream_option_migration_refuses_comments_and_unrelated_errors [fs, process, error] { |ctx|
   for source in [
     "let values = [1] |> reduce-by --sum # preserve\n --jobs=1 { |item| {key: \"all\", value: item} }\nprint values.len()\n",
     "let values = [1] |> par-map --jobs=2 { |item| missing + item }\nprint values.len()\n",

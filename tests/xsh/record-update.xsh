@@ -1,4 +1,4 @@
-proc test_record_update_nested_spread_before_witness() [error] {
+test test_record_update_nested_spread_before_witness [error] {
   let config = {build: {jobs: 2, flags: {debug: false, optimize: true}}, name: "demo"}
   let updated = {
     ...config,
@@ -11,7 +11,7 @@ proc test_record_update_nested_spread_before_witness() [error] {
   test.eq(config.build.flags.debug, false)?
 }
 
-proc test_record_update_disjoint_paths_match_nested_spreads() [error] {
+test test_record_update_disjoint_paths_match_nested_spreads [error] {
   let config = {build: {jobs: 2, flags: {debug: false, optimize: true}}, name: "demo"}
   let before = {...config, build: {...config.build, jobs: 8, flags: {...config.build.flags, debug: true}}}
   let after = {...config, build.jobs: 8, build.flags.debug: true}
@@ -24,7 +24,7 @@ type RecordUpdateFlags = {debug: Bool, optimize: Bool}
 type RecordUpdateBuild = {jobs: Int, flags: RecordUpdateFlags, tags: List[Str]}
 type RecordUpdateConfig = {build: RecordUpdateBuild, name: Str = "default"}
 
-proc test_record_update_keeps_schema_and_contextual_replacements() [error] {
+test test_record_update_keeps_schema_and_contextual_replacements [error] {
   let config = RecordUpdateConfig(build: {jobs: 2, flags: {debug: false, optimize: true}, tags: ["old"]}, name: "kept")
   let name = "renamed"
   let updated: RecordUpdateConfig = {...config, build.jobs: 8, build.tags: [], name}
@@ -37,7 +37,7 @@ proc test_record_update_keeps_schema_and_contextual_replacements() [error] {
   test.eq(quoted.get("build.jobs")?, 7)?
 }
 
-proc test_record_update_evaluates_snapshot_and_rhs_in_source_order(ctx: TestContext) [error] {
+test test_record_update_evaluates_snapshot_and_rhs_in_source_order [error] { |ctx|
   let output = test.run_xsh(ctx, r"""
 type Flags = {debug: Bool, optimize: Bool}
 type Build = {jobs: Int, flags: Flags}
@@ -60,7 +60,7 @@ inspect()
   test.eq(output.stdout, "base\njobs\noptimize\noriginal,8,false,true\noriginal,false,changed,true\n")?
 }
 
-proc test_record_update_failure_stops_later_rhs_and_keeps_published_value(ctx: TestContext) [error] {
+test test_record_update_failure_stops_later_rhs_and_keeps_published_value [error] { |ctx|
   let output = test.run_xsh(ctx, r"""
 error UpdateError = Failed(code: Int)
 type Flags = {debug: Bool}

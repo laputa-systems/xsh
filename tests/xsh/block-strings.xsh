@@ -1,4 +1,4 @@
-proc test_block_strings_remove_structural_breaks_and_exact_margin() [error] {
+test test_block_strings_remove_structural_breaks_and_exact_margin [error] {
   let value = """
     first
       second
@@ -18,7 +18,7 @@ proc test_block_strings_remove_structural_breaks_and_exact_margin() [error] {
   test.eq(raw, r"\n ${literal}")?
 }
 
-proc test_block_strings_keep_blank_line_whitespace_and_raw_backslashes() [error] {
+test test_block_strings_keep_blank_line_whitespace_and_raw_backslashes [error] {
   let blank_lines = """
     first
   
@@ -42,7 +42,7 @@ proc test_block_strings_keep_blank_line_whitespace_and_raw_backslashes() [error]
   test.eq(raw, r"\tword\nnext")?
 }
 
-proc test_block_strings_keep_interpolated_newlines_and_nested_source() [error] {
+test test_block_strings_keep_interpolated_newlines_and_nested_source [error] {
   let inserted = "one\nno source margin"
   let formatted = f"""
     before
@@ -65,7 +65,7 @@ proc test_block_strings_keep_interpolated_newlines_and_nested_source() [error] {
 
 }
 
-proc test_block_strings_leave_nonblock_and_other_literal_domains_exact() [error] {
+test test_block_strings_leave_nonblock_and_other_literal_domains_exact [error] {
   let inline_opening = """first
     last
     """
@@ -88,7 +88,7 @@ proc test_block_strings_leave_nonblock_and_other_literal_domains_exact() [error]
   test.eq(formatted_path.display(), "\n    first\n    ")?
 }
 
-proc test_block_strings_reject_missing_exact_space_tab_prefix(ctx: TestContext) [error] {
+test test_block_strings_reject_missing_exact_space_tab_prefix [error] { |ctx|
   for source in [
     "let value = \"\"\"\n  good\n bad\n  \"\"\"\n",
     "let value = \"\"\"\n\tgood\n good\n\t\"\"\"\n",
@@ -100,21 +100,21 @@ proc test_block_strings_reject_missing_exact_space_tab_prefix(ctx: TestContext) 
   }
 }
 
-proc test_block_strings_keep_interpolation_evaluation_order(ctx: TestContext) [error] {
+test test_block_strings_keep_interpolation_evaluation_order [error] { |ctx|
   let source = "proc part(label: Str) [io] -> Str { print $label; label + \"\\nnext\" }\nlet value = f\"\"\"\n  \${part(\"left\")}\n  \${part(\"right\")}\n  \"\"\"\nprint $value\n"
   let executed = test.run_script(ctx, source)?
   test.ok(executed.success, executed.stderr)?
   test.eq(executed.stdout, "left\nright\nleft\nnext\nright\nnext\n")?
 }
 
-proc test_block_strings_preserve_crlf_tabs_and_explicit_final_newlines(ctx: TestContext) [error] {
+test test_block_strings_preserve_crlf_tabs_and_explicit_final_newlines [error] { |ctx|
   let source = "let value = \"\"\"\r\n\t first\r\n\t   second\r\n\t \"\"\"\nprint $value\n"
   let executed = test.run_script(ctx, source)?
   test.ok(executed.success, executed.stderr)?
   test.eq(executed.stdout, "first\r\n  second\n")?
 }
 
-proc test_block_string_formatter_preserves_values_and_converges(ctx: TestContext) [fs, process, error] {
+test test_block_string_formatter_preserves_values_and_converges [fs, process, error] { |ctx|
   let source = "let text = \"\"\"\n  first\n    second\n\n  \"\"\"\nlet leading = \"\\nfirst\\n\"\nlet inserted = \"left\\nright\"\nlet formatted = f\"\"\"\n  before\n  $inserted\n  after\n  \"\"\"\nprint \${json.encode(text)?} \${json.encode(leading)?} \${json.encode(formatted)?}\n"
   let before = test.run_script(ctx, source)?
   test.ok(before.success, before.stderr)?
@@ -130,7 +130,7 @@ proc test_block_string_formatter_preserves_values_and_converges(ctx: TestContext
   test.eq(candidate.read_text()?, fixed)?
 }
 
-proc test_block_string_lint_preserves_literal_bytes_and_converges(ctx: TestContext) [fs, process, error] {
+test test_block_string_lint_preserves_literal_bytes_and_converges [fs, process, error] { |ctx|
   let source = "let value = \"first\\n\" + \"  second\\n\"\nprint \${json.encode(value)?}\n"
   let before = test.run_script(ctx, source)?
   test.ok(before.success, before.stderr)?
@@ -147,7 +147,7 @@ proc test_block_string_lint_preserves_literal_bytes_and_converges(ctx: TestConte
   test.eq(candidate.read_text()?, fixed)?
 }
 
-proc test_block_strings_share_layout_with_quoted_command_words(ctx: TestContext) [error] {
+test test_block_strings_share_layout_with_quoted_command_words [error] { |ctx|
   let source = "let name = \"demo\"\nprint \"\"\"\n  hello $name\n  \${if true { \"inside\" } else { \"other\" }}\n  \"\"\"\n"
   let executed = test.run_script(ctx, source)?
   test.ok(executed.success, executed.stderr)?

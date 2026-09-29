@@ -1,7 +1,7 @@
 pure pipeline_join(prefix: Str, value: Str, suffix: Str) -> Str { prefix + value + suffix }
 pure pipeline_number(value: Int) -> Int { value + 1 }
 
-proc test_value_pipeline_holes_choose_positional_and_named_arguments() [error] {
+test test_value_pipeline_holes_choose_positional_and_named_arguments [error] {
   test.eq("middle" |> pipeline_join("[", _, "]"), "[middle]")?
   test.eq("middle" |> pipeline_join("[", value: _, suffix: "]"), "[middle]")?
   test.eq("middle" |> pipeline_join("[", value: _, ...{suffix: "]"}), "[middle]")?
@@ -11,7 +11,7 @@ proc test_value_pipeline_holes_choose_positional_and_named_arguments() [error] {
   test.eq(" middle " |> trim() |> pipeline_join("[", _, "]"), "[middle]")?
 }
 
-proc test_value_pipeline_holes_evaluate_input_before_remaining_arguments(ctx: TestContext) [fs, error] {
+test test_value_pipeline_holes_evaluate_input_before_remaining_arguments [fs, error] { |ctx|
   let result = test.run_script(ctx, """
 proc mark(label: Str) [] -> Str { print $label; label }
 pure join(first: Str, second: Str, third: Str) -> Str { first + second + third }
@@ -22,7 +22,7 @@ print $result
   test.eq(result.stdout, "input\nfirst\nlast\nfirstinputlast\n")?
 }
 
-proc test_value_pipeline_holes_reject_other_placeholder_contexts(ctx: TestContext) [fs, error] {
+test test_value_pipeline_holes_reject_other_placeholder_contexts [fs, error] { |ctx|
   for source in [
     "let value = _\n",
     "pure read(_: Int) -> Int { _ }\n",
@@ -39,7 +39,7 @@ proc test_value_pipeline_holes_reject_other_placeholder_contexts(ctx: TestContex
   }
 }
 
-proc test_value_pipeline_holes_preserve_optional_argument_laziness(ctx: TestContext) [fs, error] {
+test test_value_pipeline_holes_preserve_optional_argument_laziness [fs, error] { |ctx|
   let result = test.run_script(ctx, """
 proc input() [] -> Str { print "input"; "a" }
 proc receiver() [] -> Str? { print "receiver"; null }
@@ -51,7 +51,7 @@ print (selected ?? "missing")
   test.eq(result.stdout, "input\nreceiver\nmissing\n")?
 }
 
-proc test_value_pipeline_holes_preserve_explicit_result_boundaries(ctx: TestContext) [fs, error] {
+test test_value_pipeline_holes_preserve_explicit_result_boundaries [fs, error] { |ctx|
   let result = test.run_script(ctx, """
 pure parsed(value: Str) -> Result[Int] { value.parse_int() }
 pure trim(value: Str) -> Str { "function:" + value }

@@ -1,4 +1,4 @@
-proc test_enum_singleton_and_alias(ctx: TestContext) [error] {
+test test_enum_singleton_and_alias [error] { |ctx|
   let executed = test.run_script(ctx, r"""enum Token { Present(Str) }
 type Alias = Token
 pure render(token: Alias) -> Str {
@@ -11,13 +11,13 @@ print (Present("same") == Present("same"))
   test.eq(executed.stdout, "ready\ntrue\n")?
 }
 
-proc test_enum_legacy_declaration_is_migration_error(ctx: TestContext) [error] {
+test test_enum_legacy_declaration_is_migration_error [error] { |ctx|
   let rejected = test.run_script(ctx, "type Mode = Fast | Slow\nprint Fast\n")?
   test.ok(! rejected.success, rejected.stderr)?
   test.contains(rejected.stderr, "parse.enum-migration")?
 }
 
-proc test_enum_rejects_invalid_declarations(ctx: TestContext) [error] {
+test test_enum_rejects_invalid_declarations [error] { |ctx|
   for source in [
     "enum Empty {}\n",
     "enum Duplicate { Repeated, Repeated }\n",
@@ -33,7 +33,7 @@ proc test_enum_rejects_invalid_declarations(ctx: TestContext) [error] {
   }
 }
 
-proc test_enum_module_constructor_namespace_and_labels(ctx: TestContext) [fs, error] {
+test test_enum_module_constructor_namespace_and_labels [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "enum-module")?
   fp"${root}/choice.xsh".write_atomic("""##! Nominal choices.
 ## A singleton payload.

@@ -1,4 +1,4 @@
-proc test_assert_message_runs_only_on_failure(ctx: TestContext) [error] {
+test test_assert_message_runs_only_on_failure [error] { |ctx|
   let result = test.run_script(ctx, r"""proc context() [io] -> Str {
   print "context"
   "extra context"
@@ -14,7 +14,7 @@ assert 1 == 2, context()
   test.contains(result.stderr, "1 == 2")?
 }
 
-proc test_assert_short_circuit_and_operands_are_evaluated_once(ctx: TestContext) [error] {
+test test_assert_short_circuit_and_operands_are_evaluated_once [error] { |ctx|
   let result = test.run_script(ctx, r"""proc observed(n: Int) [io] -> Int {
   print f"$n"
   n
@@ -40,7 +40,7 @@ assert observed(3) < observed(2) < (1 / 0), "chain context"
   test.contains(disjunction.stderr, "3 == 4")?
 }
 
-proc test_assert_message_propagates_its_own_failure(ctx: TestContext) [error] {
+test test_assert_message_propagates_its_own_failure [error] { |ctx|
   let result = test.run_script(ctx, r"""proc condition() [io] -> Bool {
   print "condition"
   false
@@ -55,7 +55,7 @@ assert condition(), message()
   test.ok(! result.stderr.contains("assertion-failed"), result.stderr)?
 }
 
-proc test_assert_messages_preserve_retry_capture_and_cleanup(ctx: TestContext) [error] {
+test test_assert_messages_preserve_retry_capture_and_cleanup [error] { |ctx|
   let result = test.run_script(ctx, r"""proc cleanup() [io] { print "cleaned" }
 let result: Result[Unit] = retry [] {
   defer cleanup()
@@ -71,7 +71,7 @@ match result {
   test.contains(result.stdout, "retry context")?
 }
 
-proc test_assert_message_failure_takes_precedence_and_runs_cleanup(ctx: TestContext) [error] {
+test test_assert_message_failure_takes_precedence_and_runs_cleanup [error] { |ctx|
   let result = test.run_script(ctx, r"""proc cleanup() [io] { print "cleaned" }
 proc message() [error] -> Str { let value = "bad".parse_int()?; f"$value" }
 let result: Result[Unit] = retry [] {
@@ -88,7 +88,7 @@ match result {
   test.ok(! result.stdout.contains("assertion-failed"), result.stdout)?
 }
 
-proc test_assert_requires_bool_and_str_and_message(ctx: TestContext) [error] {
+test test_assert_requires_bool_and_str_and_message [error] { |ctx|
   for source in [
     "assert 1, \"message\"\n",
     "let value: Any = true\nassert value, \"message\"\n",
@@ -103,7 +103,7 @@ proc test_assert_requires_bool_and_str_and_message(ctx: TestContext) [error] {
   }
 }
 
-proc test_assert_checks_unreached_message_effects_and_error_types(ctx: TestContext) [error] {
+test test_assert_checks_unreached_message_effects_and_error_types [error] { |ctx|
   let effect = test.run_script(ctx, r"""proc message() [io] -> Str { print "message"; "context" }
 proc restricted() [] { assert true, message() }
 restricted()
@@ -119,7 +119,7 @@ restricted()
   test.contains(propagation.stderr, "check.effect-violation")?
 }
 
-proc test_assert_keyword_labels_and_external_argv_remain_literal(ctx: TestContext) [error] {
+test test_assert_keyword_labels_and_external_argv_remain_literal [error] { |ctx|
   let result = test.run_script(ctx, "let row = {assert: \"context\"}\nassert row.assert == \"context\", row.assert\nrun printf \"%s\\n\" assert\n")?
   test.ok(result.success, result.stderr)?
   test.eq(result.stdout, "assert\n")?
@@ -127,14 +127,14 @@ proc test_assert_keyword_labels_and_external_argv_remain_literal(ctx: TestContex
   test.ok(! binding.success, binding.stderr)?
 }
 
-proc test_assert_bounded_operands_do_not_hide_context(ctx: TestContext) [error] {
+test test_assert_bounded_operands_do_not_hide_context [error] { |ctx|
   let result = test.run_script(ctx, "var long = \"x\"\nfor index in range(10000) { long = long + \"x\" }\nassert long == \"y\", \"bounded context\"\n")?
   test.ok(! result.success, result.stderr)?
   test.contains(result.stderr, "bounded context")?
   test.ok(result.stderr.byte_len() < 3000, result.stderr)?
 }
 
-proc test_assert_nested_operand_failure_does_not_evaluate_outer_message(ctx: TestContext) [error] {
+test test_assert_nested_operand_failure_does_not_evaluate_outer_message [error] { |ctx|
   let result = test.run_script(ctx, r"""proc operand() -> Int {
   assert false, "inner failure"
   1
@@ -148,7 +148,7 @@ assert 0 < operand() < 3, message()
   test.ok(! result.stderr.contains("outer context"), result.stderr)?
 }
 
-proc test_assert_context_is_captured_by_nearest_try(ctx: TestContext) [error] {
+test test_assert_context_is_captured_by_nearest_try [error] { |ctx|
   let result = test.run_script(ctx, r"""let result: Result[Str] = try {
   let inner: Result[Unit] = try {
     assert false, "inner context"
@@ -166,7 +166,7 @@ print $value
   test.eq(result.stdout, "boolean assertion failed: inner context\nouter success\n")?
 }
 
-proc test_assert_message_propagation_is_captured_by_try(ctx: TestContext) [error] {
+test test_assert_message_propagation_is_captured_by_try [error] { |ctx|
   let result = test.run_script(ctx, r"""proc message() [error] -> Str {
   let value = "bad".parse_int()?
   f"$value"
@@ -183,7 +183,7 @@ match result {
   test.eq(result.stdout, "invalid integer `bad`\n")?
 }
 
-proc test_assert_cannot_narrow_core_failure_to_a_nominal_error(ctx: TestContext) [error] {
+test test_assert_cannot_narrow_core_failure_to_a_nominal_error [error] { |ctx|
   let result = test.run_script(ctx, r"""error Narrow = Only(message: Str)
 let result: Result[Unit, Narrow] = try {
   assert true, "checked context"

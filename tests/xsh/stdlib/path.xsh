@@ -130,7 +130,7 @@ print \${files[0]}
   )?
 }
 
-proc test_path_interpolation_retains_native_bytes_and_text_boundaries(ctx: TestContext) [error] {
+test test_path_interpolation_retains_native_bytes_and_text_boundaries [error] { |ctx|
   let raw = Path.parse_bytes(b"raw\xff name")?
   test.ok(fp"prefix/${raw}/../end" == Path.parse_bytes(b"prefix/raw\xff name/../end")?)?
   test.ok(fp"${p"left"}/${"right"}/${7}/${false}" == p"left/right/7/false")?
@@ -145,7 +145,7 @@ run printf "%s" "--target=$raw" ?
   test.eq(output.stdout_bytes, b"--target=raw\xff name/'\"")?
 }
 
-proc test_path_interpolation_rejects_nul_and_keeps_effect_order(ctx: TestContext) [error] {
+test test_path_interpolation_rejects_nul_and_keeps_effect_order [error] { |ctx|
   let failed = test.run_script(ctx, r"""
 let text = "\0"
 let invalid = fp"prefix/${text}"

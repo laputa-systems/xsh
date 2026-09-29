@@ -14,6 +14,7 @@ pub(crate) fn migration_lint_code(code: Option<&str>) -> Option<&'static str> {
     match code {
         Some("parse.block-header-migration") => Some("lint.block-header"),
         Some("parse.stream-option-migration") => Some("lint.stream-options"),
+        Some("parse.enum-migration") => Some("lint.enum-declaration"),
         _ => None,
     }
 }

@@ -434,7 +434,7 @@ print \${status.exit_code()?}
   test.contains(json_trace.stderr, "\"code\":7")?
 }
 
-proc test_bytes_stdin_redirection_is_exact_and_explicit() [process, error] {
+test test_bytes_stdin_redirection_is_exact_and_explicit [process, error] {
   let payload = b"a\0\xff\n"
   let echoed = run.bytes cat < (payload) ?
   test.eq(echoed, payload)?
@@ -443,7 +443,7 @@ proc test_bytes_stdin_redirection_is_exact_and_explicit() [process, error] {
   test.eq(run.text cat < (bytes.from_text(text)) ?, text)?
 }
 
-proc test_bytes_stdin_rejects_invalid_targets_and_sources(ctx: TestContext) [error] {
+test test_bytes_stdin_rejects_invalid_targets_and_sources [error] { |ctx|
   for source in [
     "run cat > b\"output\"\n",
     "run cat < b\"first\" < b\"second\"\n",
@@ -456,7 +456,7 @@ proc test_bytes_stdin_rejects_invalid_targets_and_sources(ctx: TestContext) [err
   }
 }
 
-proc test_bytes_stdin_path_strings_and_once_only_expression(ctx: TestContext) [fs, process, error] {
+test test_bytes_stdin_path_strings_and_once_only_expression [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "bytes-stdin-path")?
   let input = fp"${root}/input"
   input.write("file content")?
@@ -470,7 +470,7 @@ print ${copied.utf8()?}
   test.eq(result.stdout, "preparing\ncontent\n")?
 }
 
-proc test_bytes_stdin_trace_does_not_include_payload(ctx: TestContext) [error] {
+test test_bytes_stdin_trace_does_not_include_payload [error] { |ctx|
   let result = test.run_xsht_trace(ctx, r"""let copied = run.bytes cat < b"private-input-payload" ?
 print ${copied.len()}
 """, ["--trace", "--raw", "--trace-format", "jsonl"])?

@@ -1,4 +1,4 @@
-proc test_bare_blocks_preserve_values_and_cleanup(ctx: TestContext) [error] {
+test test_bare_blocks_preserve_values_and_cleanup [error] { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
 var count = 0
 {
@@ -19,7 +19,7 @@ print \${answer} \${negative} \${grouped} \${shorthand.answer}
   test.eq(output.stdout, "statement cleanup\nvalue cleanup\n42 false 42 42\n")?
 }
 
-proc test_bare_statement_blocks_assert_false(ctx: TestContext) [error] {
+test test_bare_statement_blocks_assert_false [error] { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
 {
   defer mark("cleanup")

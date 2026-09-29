@@ -168,7 +168,7 @@ match gather() {
   test.eq(output.stdout, "source\nalpha=1\nbeta=2\nclosed\ncaught=7\n")?
 }
 
-proc test_map_literals_computed_constant_keys_spreads_and_aliases() [error] {
+test test_map_literals_computed_constant_keys_spreads_and_aliases [error] {
   let name = "beta"
   let inferred = {[name]: 2, alpha: 1, "literal.dot": 3}
   test.eq(inferred.keys(), ["alpha", "beta", "literal.dot"])?
@@ -196,7 +196,7 @@ proc test_map_literals_computed_constant_keys_spreads_and_aliases() [error] {
   test.eq(seen, ["alpha", "beta", "literal.dot"])?
 }
 
-proc test_map_literals_evaluate_keys_values_spreads_and_overwrites_once(ctx: TestContext) [error] {
+test test_map_literals_evaluate_keys_values_spreads_and_overwrites_once [error] { |ctx|
   let output = test.run_script(ctx, r"""proc key(value: Str) [io] -> Str {
   print f"key $value"
   return value
@@ -216,7 +216,7 @@ print values.get("same", 0) values.get("last", 0)
   test.eq(output.stdout, "key same\nvalue 1\nvalue 2\nspread\nkey last\nvalue 4\n3 4\n")?
 }
 
-proc test_map_literals_failure_stops_before_value_and_later_entries(ctx: TestContext) [error] {
+test test_map_literals_failure_stops_before_value_and_later_entries [error] { |ctx|
   let output = test.run_script(ctx, r"""error BuildError = Stopped(message: Str)
 proc key() [io] -> Result[Str, BuildError] {
   print "key"
@@ -231,7 +231,7 @@ print values.len()
   test.eq(output.stdout, "value\nkey\n")?
 }
 
-proc test_map_literals_reject_non_string_keys_bad_spreads_and_incompatible_values(ctx: TestContext) [error] {
+test test_map_literals_reject_non_string_keys_bad_spreads_and_incompatible_values [error] { |ctx|
   for source in [
     "let value = {[1]: 2}\n",
     "let key: Any = \"name\"\nlet value = {[key]: 2}\n",
@@ -252,7 +252,7 @@ pure map_literal_tail() -> Map[Int] { {answer: 43} }
 pure map_literal_parameter(input: Map[Int]) -> Int { return input.get("answer", 0) }
 type MapLiteralEnvelope = {values: Map[Int]}
 
-proc test_map_literals_expected_context_reaches_returns_arguments_and_nested_values() [error] {
+test test_map_literals_expected_context_reaches_returns_arguments_and_nested_values [error] {
   test.eq(map_literal_return().get("answer")?, 42)?
   test.eq(map_literal_tail().get("answer")?, 43)?
   test.eq(map_literal_parameter({answer: 44}), 44)?
@@ -273,7 +273,7 @@ proc test_map_literals_expected_context_reaches_returns_arguments_and_nested_val
 pure map_literal_default(input: Map[List[Int]] = {empty: [], ["numbers"]: [1, 2]}) -> Map[List[Int]] { return input }
 pure map_literal_spread_default(input: Map[Int] = {["first"]: 1, ...{second: 2}}) -> Map[Int] { return input }
 
-proc test_map_literal_defaults_keep_context_and_independent_values() [error] {
+test test_map_literal_defaults_keep_context_and_independent_values [error] {
   let first = map_literal_default()
   var second = map_literal_default()
   second["numbers"] = [9]
@@ -284,7 +284,7 @@ proc test_map_literal_defaults_keep_context_and_independent_values() [error] {
 
 type MapLiteralDefaults = {counts: Map[Int] = {fixed: 1, ["other"]: 2}}
 
-proc test_map_literal_record_defaults_retain_map_identity_and_aliases() [error] {
+test test_map_literal_record_defaults_retain_map_identity_and_aliases [error] {
   let earlier = MapLiteralDefaults()
   var changed = MapLiteralDefaults()
   changed.counts = changed.counts.set("fixed", 9)
