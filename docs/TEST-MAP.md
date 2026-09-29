@@ -302,6 +302,12 @@ the differing but valid words.
 | Coordinated language ergonomics and statement/value contexts | `target/debug/xsht test --jobs 1 tests/xsh/ergonomics.xsh` and `target/debug/xsht test --jobs 1 tests/xsh/ergonomics-extended.xsh` plus the nearest feature test module | syntax and checker integration suites, isolated lint acceptance tests, the filtered runtime gate, and native stdlib tests |
 | Ambient filesystem authority policy | `cargo test --test ambient_fs_policy` | relevant filtered tests; unfiltered `cargo test --tests` is owner-run |
 
+The coordinated syntax smoke fixtures are
+`tests/fixtures/runtime/ergonomics-coordinated.xsh` and
+`tests/fixtures/runtime/ergonomics-extended.xsh`. Execute both with the ordinary
+`xsh` binary built using `--no-default-features --features net,tools` to check
+that the language features do not depend on native-test support.
+
 Network link, address, route, and rule reference adapters score the fields they
 can compare when all four route-netlink dumps and entity decodes finished,
 including a partial network section with a separate field issue. An incomplete
