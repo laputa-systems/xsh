@@ -348,8 +348,7 @@ closed
 
 test test_keyed_stages_errors_stop_live_source [error] { |ctx|
   for terminal in ["group-by", "count", "unique-by"] {
-    let source = f"""
-proc close() [io] { print "closed" }
+    let source = f"""\nproc close() [io] { print "closed" }
 
 stream numbers() [io] -> Stream[Int] {
   defer close()

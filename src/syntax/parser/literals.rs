@@ -44,24 +44,8 @@ impl<'a> Parser<'a> {
         arena.begin_fmt_parts();
         let mut diagnostics = Vec::new();
         let mut any_part = false;
-        let content_offset = self.string_content_offset(span);
-        let raw = self.quoted_content(span);
-        let chunks = match literal::interpolation_chunks(raw, content_offset) {
-            Some(chunks) => chunks,
-            None => {
-                diagnostics.push(interpolation_diagnostic(
-                    span,
-                    "unterminated fmt string interpolation",
-                    "interpolation starts in this string",
-                ));
-                let (text, decode_diagnostics) =
-                    decode_interpolation_text_for(source_id, raw, span, content_offset);
-                diagnostics.extend(decode_diagnostics);
-                self.diagnostics.extend(diagnostics);
-                arena.push_fmt_text_part_cooked(&Arc::from(text));
-                return arena.finish_fmt_parts();
-            }
-        };
+        let (chunks, chunk_diagnostics) = self.quoted_text_chunks(span, true);
+        diagnostics.extend(chunk_diagnostics);
         for chunk in chunks {
             match chunk {
                 InterpolationChunk::Text { source, offset } => {
@@ -108,23 +92,41 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn decoded_quoted_text(&mut self, span: Span, raw_literal: bool) -> Arc<str> {
-        let source_id = self.source_id;
-        let (text, diagnostics) = {
-            let raw = self.quoted_content(span);
-            if raw_literal {
-                (Arc::from(raw), Vec::new())
-            } else {
-                let (text, diagnostics) = decode_interpolation_text_for(
-                    source_id,
-                    raw,
-                    span,
-                    self.string_content_offset(span),
-                );
-                (Arc::from(text), diagnostics)
+        let (chunks, mut diagnostics) = self.quoted_text_chunks(span, false);
+        let mut value = String::new();
+        for chunk in chunks {
+            if let InterpolationChunk::Text { source, offset } = chunk {
+                if raw_literal { value.push_str(source); }
+                else {
+                    let (text, decode_diagnostics) = decode_interpolation_text_for(self.source_id, source, span, offset);
+                    diagnostics.extend(decode_diagnostics);
+                    value.push_str(&text);
+                }
             }
-        };
+        }
         self.diagnostics.extend(diagnostics);
-        text
+        Arc::from(value)
+    }
+
+    pub(super) fn quoted_text_chunks(&self, span: Span, interpolates: bool) -> (Vec<InterpolationChunk<'a>>, Vec<Diagnostic>) {
+        let Some(literal::QuotedScan::Terminated(quoted)) = literal::scan_quoted_literal(self.source, span.start(), true) else {
+            return (Vec::new(), Vec::new());
+        };
+        let raw = &self.source[quoted.content_start..quoted.content_end];
+        let mut diagnostics = Vec::new();
+        let chunks = if interpolates {
+            literal::interpolation_chunks(raw, quoted.content_start).unwrap_or_else(|| {
+                diagnostics.push(interpolation_diagnostic(span, "unterminated string interpolation", "interpolation starts in this string"));
+                vec![InterpolationChunk::Text { source: raw, offset: quoted.content_start }]
+            })
+        } else { vec![InterpolationChunk::Text { source: raw, offset: quoted.content_start }] };
+        let (chunks, issues) = literal::block_string_chunks(self.source, quoted, chunks);
+        for issue in issues {
+            diagnostics.push(Diagnostic::error("block string line does not start with the closing delimiter's exact indentation")
+                .with_code("parse.block-string-margin")
+                .with_label(Label::primary(Span::new(self.source_id, issue.start, issue.end), "required space/tab prefix is missing")));
+        }
+        (chunks, diagnostics)
     }
 
     pub(super) fn string_content_offset(&self, span: Span) -> usize {
@@ -236,22 +238,15 @@ pub(in crate::syntax::parser) fn parse_interpolation_expr_arena_only_for(
         parser.diagnostics.extend(lexed.diagnostics);
         let marks = arena.span_marks();
         let expr_id = parser.parse_expr_id_arena_only(arena);
-        if expr_id.is_some() {
-            arena.shift_spans_since(marks, offset);
+        arena.shift_spans_since(marks, offset);
+        let shift = |span: Span| Span::new(source_id, span.start() + offset, span.end() + offset);
+        for diagnostic in &mut parser.diagnostics {
+            diagnostic.span = diagnostic.span.map(shift);
+            for label in &mut diagnostic.labels { label.span = shift(label.span); }
+            for hint in &mut diagnostic.fix_hints { hint.span = hint.span.map(shift); }
         }
         (expr_id, parser.diagnostics)
     })
-}
-
-pub(in crate::syntax::parser) fn dollar_shorthand_end(source: &str, start: usize) -> usize {
-    let bytes = source.as_bytes();
-    let mut end = scan_ident_end(bytes, start);
-    while bytes.get(end) == Some(&b'.')
-        && bytes.get(end + 1).is_some_and(|byte| is_ident_start(*byte))
-    {
-        end = scan_ident_end(bytes, end + 1);
-    }
-    end
 }
 
 /// Split `source` into the expression part and an optional trailing format spec `:<>N` or `:0N`.
@@ -307,20 +302,4 @@ pub(in crate::syntax::parser) fn split_fmt_spec(
         return (source, None);
     }
     (expr_part, Some(FormatSpec { kind, width }))
-}
-
-pub(in crate::syntax::parser) fn is_ident_continue(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_'
-}
-
-pub(in crate::syntax::parser) fn is_ident_start(byte: u8) -> bool {
-    byte.is_ascii_alphabetic() || byte == b'_'
-}
-
-pub(in crate::syntax::parser) fn scan_ident_end(bytes: &[u8], start: usize) -> usize {
-    let mut end = start;
-    while bytes.get(end).is_some_and(|byte| is_ident_continue(*byte)) {
-        end += 1;
-    }
-    end
 }

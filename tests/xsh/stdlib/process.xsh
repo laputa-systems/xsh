@@ -386,8 +386,7 @@ test test_process_spawn_timeout_and_return_transfer [process, time, error] {
 }
 
 test test_process_spawn_traces [process, error] { |ctx|
-  let source = """
-let h = spawn run sh -c "exit 7" ?
+  let source = """\nlet h = spawn run sh -c "exit 7" ?
 let status = wait h?
 let c = spawn run sleep 1 ?
 c.cancel(signal: "TERM", kill_after: 0ms)?

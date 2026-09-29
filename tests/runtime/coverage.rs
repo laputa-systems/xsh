@@ -168,8 +168,7 @@ let records = """{"name":"small"}
   |> sort-by .name
 print ${records[0].name}
 
-let module_source = """
-export proc execute(root: Path) [fs, error] -> Result[Unit] {
+let module_source = """\nexport proc execute(root: Path) [fs, error] -> Result[Unit] {
   let status = {raw: true}
 }
 """

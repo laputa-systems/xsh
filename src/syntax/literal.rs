@@ -141,6 +141,9 @@ pub(crate) fn interpolation_close(source: &str, start: usize) -> Option<usize> {
             continue;
         }
         match bytes[offset] {
+            b'#' => {
+                while offset < bytes.len() && !matches!(bytes[offset], b'\r' | b'\n') { offset += 1; }
+            }
             b'(' | b'[' | b'{' => {
                 depth += 1;
                 offset += 1;
@@ -470,4 +473,209 @@ fn is_bare_path_literal_char(ch: char) -> bool {
                 | '>'
                 | '#'
         )
+}
+
+/// Removes only source layout from text slices, retaining original expression
+/// slices and offsets. Interpolated values and code never participate in margins.
+pub(crate) fn block_string_chunks<'a>(
+    source: &'a str,
+    literal: QuotedLiteral,
+    chunks: Vec<InterpolationChunk<'a>>,
+) -> (Vec<InterpolationChunk<'a>>, Vec<std::ops::Range<usize>>) {
+    if literal.delimiter_len != 3
+        || !matches!(literal.kind, QuotedLiteralKind::Str | QuotedLiteralKind::Fmt)
+    { return (chunks, Vec::new()); }
+    let bytes = source.as_bytes();
+    let opening = line_break_len(bytes, literal.content_start);
+    if opening == 0 { return (chunks, Vec::new()); }
+    let closing_line = source[..literal.content_end].rfind(['\r', '\n']).map_or(0, |offset| offset + 1);
+    let margin = &bytes[closing_line..literal.content_end];
+    let suffix = source[literal.end..].split(['\r', '\n']).next().unwrap_or("");
+    if !margin.iter().all(|byte| matches!(byte, b' ' | b'\t'))
+        || !suffix.bytes().all(|byte| matches!(byte, b' ' | b'\t'))
+    { return (chunks, Vec::new()); }
+    let start = literal.content_start + opening;
+    let closing_break = if closing_line > 1 && bytes[closing_line - 2..closing_line] == *b"\r\n" {
+        closing_line - 2
+    } else { closing_line.saturating_sub(1) };
+    let end = closing_break.max(start);
+    let expressions: Vec<_> = chunks.iter().filter_map(|chunk| match chunk {
+        InterpolationChunk::Expr { source: expression, offset } => {
+            let braced = source[..*offset].ends_with("${");
+            Some(offset - if braced { 2 } else { 1 }..offset + expression.len() + usize::from(braced))
+        }
+        _ => None,
+    }).collect();
+    let mut removed = Vec::new();
+    let mut issues = Vec::new();
+    let mut position = start;
+    let mut line_start = true;
+    let mut expression_index = 0;
+    while position < end {
+        while expressions.get(expression_index).is_some_and(|range| range.end <= position) { expression_index += 1; }
+        if line_start {
+            let line_end = source[position..end].find(['\r', '\n']).map_or(end, |relative| position + relative);
+            let blank = source[position..line_end].chars().all(char::is_whitespace);
+            let matching = margin.iter().zip(&bytes[position..line_end]).take_while(|(expected, actual)| expected == actual).count();
+            if !blank && matching != margin.len() {
+                issues.push(position..(position + margin.len().max(1)).min(line_end));
+            } else if matching > 0 {
+                removed.push(position..position + matching);
+                position += matching;
+            }
+            line_start = false;
+            if position >= end { break; }
+        }
+        if let Some(expression) = expressions.get(expression_index)
+            && expression.start == position
+        {
+            position = expression.end;
+            expression_index += 1;
+            continue;
+        }
+        let newline = line_break_len(bytes, position);
+        if newline > 0 { position += newline; line_start = true; }
+        else { position += 1; }
+    }
+    let mut result = Vec::new();
+    for chunk in chunks {
+        match chunk {
+            InterpolationChunk::Expr { .. } => result.push(chunk),
+            InterpolationChunk::Text { source: text, offset } => {
+                let mut cursor = offset.max(start);
+                let limit = (offset + text.len()).min(end);
+                for range in &removed {
+                    if range.start >= limit || range.end <= cursor { continue; }
+                    if cursor < range.start {
+                        result.push(InterpolationChunk::Text { source: &source[cursor..range.start], offset: cursor });
+                    }
+                    cursor = cursor.max(range.end);
+                }
+                if cursor < limit { result.push(InterpolationChunk::Text { source: &source[cursor..limit], offset: cursor }); }
+            }
+        }
+    }
+    (result, issues)
+}
+
+fn line_break_len(bytes: &[u8], offset: usize) -> usize {
+    match bytes.get(offset) {
+        Some(b'\r') if bytes.get(offset + 1) == Some(&b'\n') => 2,
+        Some(b'\r' | b'\n') => 1,
+        _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod block_string_tests {
+    use super::*;
+
+    fn chunks(source: &str) -> (Vec<InterpolationChunk<'_>>, Vec<std::ops::Range<usize>>) {
+        let Some(QuotedScan::Terminated(quoted)) = scan_quoted_literal(source, 0, false) else { panic!("quoted literal"); };
+        let raw = &source[quoted.content_start..quoted.content_end];
+        let chunks = if quoted.kind == QuotedLiteralKind::Fmt {
+            interpolation_chunks(raw, quoted.content_start).unwrap()
+        } else { vec![InterpolationChunk::Text { source: raw, offset: quoted.content_start }] };
+        block_string_chunks(source, quoted, chunks)
+    }
+
+    fn text(source: &str) -> String {
+        let (chunks, issues) = chunks(source);
+        assert!(issues.is_empty(), "{issues:?}");
+        chunks.into_iter().filter_map(|chunk| match chunk { InterpolationChunk::Text { source, .. } => Some(source), _ => None }).collect()
+    }
+
+    // Physical newline bytes and whitespace prefixes cannot be expressed by
+    // a source file with one fixed checkout line-ending convention.
+    #[test]
+    fn block_string_layout_preserves_crlf_tabs_blank_prefixes_and_shared_breaks() {
+        assert_eq!(text("\"\"\"\r\n\t α\r\n\t \r\n\t \"\"\""), "α\r\n");
+        assert_eq!(text("\"\"\"\n\t first\n\t\n\t  \n\t last\n\t \"\"\""), "first\n\n \nlast");
+        assert_eq!(text("\"\"\"\n\"\"\""), "");
+        assert_eq!(text("\"\"\"\r\n\t\"\"\""), "");
+        assert_eq!(text("\"\"\"\n\n\"\"\""), "");
+        assert_eq!(text("\"\"\"\n\n\n\"\"\""), "\n");
+        assert_eq!(text("\"\"\"\r  first\r  second\r  \"\"\""), "first\rsecond");
+        assert_eq!(text("\"\"\"\n  first\n\u{a0}\n  last\n  \"\"\""), "first\n\u{a0}\nlast");
+    }
+
+    #[test]
+    fn block_string_layout_reports_original_byte_range_for_missing_margin() {
+        let source = "\"\"\"\n  café\n bad\n  \"\"\"";
+        let (_, issues) = chunks(source);
+        assert_eq!(issues.len(), 1);
+        assert_eq!(&source[issues[0].clone()], " b");
+        let (_, issues) = chunks("\"\"\"\n\tgood\n good\n\t\"\"\"");
+        assert_eq!(issues.len(), 1);
+    }
+
+    #[test]
+    fn block_string_layout_never_rewrites_interpolation_code_or_nested_literals() {
+        let source = "f\"\"\"\n  ${if true {\n# } inside comment\nr\"\"\"nested\n unindented\"\"\"\n} else { \"\" }}\n  after\n  \"\"\"";
+        let (parts, issues) = chunks(source);
+        assert!(issues.is_empty(), "{issues:?}");
+        let expressions: Vec<_> = parts.iter().filter_map(|part| match part { InterpolationChunk::Expr { source, offset } => Some((*source, *offset)), _ => None }).collect();
+        assert_eq!(expressions.len(), 1);
+        assert_eq!(expressions[0].0, "if true {\n# } inside comment\nr\"\"\"nested\n unindented\"\"\"\n} else { \"\" }");
+        assert_eq!(&source[expressions[0].1..expressions[0].1 + expressions[0].0.len()], expressions[0].0);
+        assert_eq!(text(source), "\nafter");
+        for part in parts { if let InterpolationChunk::Text { source: piece, offset } = part { assert_eq!(&source[offset..offset + piece.len()], piece); } }
+    }
+
+    #[test]
+    fn block_string_layout_requires_both_structural_boundaries_and_str_domain() {
+        for source in ["\"\"\"inline\n  \"\"\"", "\"\"\"\n  first\n  \"\"\")", "b\"\"\"\n  first\n  \"\"\"", "p\"\"\"\n  first\n  \"\"\"", "g\"\"\"\n  first\n  \"\"\"", "rx\"\"\"\n  first\n  \"\"\"", "fp\"\"\"\n  first\n  \"\"\""] {
+            let Some(QuotedScan::Terminated(quoted)) = scan_quoted_literal(source, 0, false) else { panic!("quoted literal"); };
+            assert_eq!(text(source), &source[quoted.content_start..quoted.content_end]);
+        }
+    }
+}
+
+#[cfg(test)]
+mod block_string_migration_tests {
+    use super::*;
+
+    fn decode_hex(text: &str) -> Vec<u8> {
+        text.as_bytes().chunks_exact(2).map(|pair| u8::from_str_radix(std::str::from_utf8(pair).unwrap(), 16).unwrap()).collect()
+    }
+
+    // This disk-backed inventory pins old text bytes and interpolation pieces
+    // independently of the new layout preparation and later corpus formatting.
+    #[test]
+    fn block_string_corpus_migrations_preserve_old_text_and_interpolation_boundaries() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let inventory = std::fs::read_to_string(root.join("tests/fixtures/syntax/block-string-migration.tsv")).unwrap();
+        let mut count = 0;
+        for row in inventory.lines() {
+            let columns = row.split('\t').collect::<Vec<_>>();
+            let old = String::from_utf8(decode_hex(columns[3])).unwrap();
+            let Some(QuotedScan::Terminated(literal)) = scan_quoted_literal(&old, 0, false) else { panic!("old literal"); };
+            let body = &old[literal.content_start..literal.content_end];
+            let escaped = if literal.raw {
+                body.replace('\\', "\\\\").replace('"', "\\\"").replace('$', "\\$")
+            } else { body.to_string() };
+            let opening = line_break_len(escaped.as_bytes(), 0);
+            let explicit_break = match &escaped[..opening] { "\r\n" => "\\r\\n", "\r" => "\\r", "\n" => "\\n", _ => panic!("structural break") };
+            let prefix = if literal.raw { "" } else { &old[..literal.content_start - 3] };
+            let migrated = format!("{prefix}\"\"\"{explicit_break}{}\"\"\"", &escaped[opening..]);
+            let file = std::fs::read_to_string(root.join(columns[0])).unwrap();
+            assert!(file.contains(&migrated), "review migrated literal bytes in {}", columns[0]);
+            let Some(QuotedScan::Terminated(quoted)) = scan_quoted_literal(&migrated, 0, false) else { panic!("migrated literal"); };
+            let raw = &migrated[quoted.content_start..quoted.content_end];
+            let chunks = interpolation_chunks(raw, quoted.content_start).unwrap();
+            let (chunks, issues) = block_string_chunks(&migrated, quoted, chunks);
+            assert!(issues.is_empty());
+            let pieces = chunks.into_iter().map(|chunk| match chunk {
+                InterpolationChunk::Text { source, offset } => ('T', decode_string_text(source, offset, true).bytes),
+                InterpolationChunk::Expr { source, .. } => ('E', source.as_bytes().to_vec()),
+            }).collect::<Vec<_>>();
+            let expected = columns[4].split(';').map(|piece| {
+                let (kind, value) = piece.split_once(':').unwrap();
+                (kind.chars().next().unwrap(), decode_hex(value))
+            }).collect::<Vec<_>>();
+            assert_eq!(pieces, expected, "old pieces in {}", columns[0]);
+            count += 1;
+        }
+        assert_eq!(count, 8);
+    }
 }

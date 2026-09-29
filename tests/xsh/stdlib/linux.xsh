@@ -463,20 +463,19 @@ test test_linux_module_policy_uses_the_configured_tree [fs, process, env, error]
   # The nested source is a template rather than an f-string: its `${...}`
   # interpolations belong to the nested script, so the outer checker must not
   # resolve them, and only the tree's path is substituted.
-  let template = r"""
-proc main() [io, fs, error] {
-  let info = linux.modinfo("demo-name")?
-  print f"${info.name}|${info.description}|${info.license}|${info.version}"
+  let template = """\nproc main() [io, fs, error] {
+  let info = linux.modinfo(\"demo-name\")?
+  print f\"\${info.name}|\${info.description}|\${info.license}|\${info.version}\"
   for param in info.params {
-    print f"param=${param.name}|${param.type}|${param.description}"
+    print f\"param=\${param.name}|\${param.type}|\${param.description}\"
   }
-  print f"explicit=${linux.modinfo(p"{root}/demo-name.ko".display())?.name}"
-  match linux.modinfo("nothing-here") {
-    Ok(_) => { print "unexpected" }
-    Err(failure) => { print f"missing=${failure.message}" }
+  print f\"explicit=\${linux.modinfo(p\"{root}/demo-name.ko\".display())?.name}\"
+  match linux.modinfo(\"nothing-here\") {
+    Ok(_) => { print \"unexpected\" }
+    Err(failure) => { print f\"missing=\${failure.message}\" }
   }
-  linux.depmod("")?
-  print fs.read_text(p"{root}/modules.dep")?
+  linux.depmod(\"\")?
+  print fs.read_text(p\"{root}/modules.dep\")?
 }
 """
   let source = template.replace("{root}", f"${root}")

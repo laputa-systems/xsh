@@ -242,6 +242,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "path-literals",
     "glob-literals",
     "display-strings",
+    "block-strings",
     "print",
     "abort",
 ];
@@ -821,6 +822,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "list-splicing" => (
             "Builds lists from ordinary elements and explicit List splices.",
             "`[head, @middle, tail, @more]` inserts each spliced List in encounter order; an ordinary List-valued element remains nested. Elements and splice operands evaluate once from left to right, and propagation stops before later elements. Empty lists retain contextual element types and earlier aliases remain independent. Results require explicit handling such as `@(flags()?)`; Streams require explicit collect. Str, Bytes, Map, Any, comprehension clauses, and call argument unpacking are not splice operands.",
+        ),
+        "block-strings" => (
+            "Prepares indentation-aware ordinary, raw, and formatted multiline Str blocks.",
+            "An opening triple delimiter followed immediately by LF, CRLF, or CR and a closing delimiter alone after spaces/tabs selects block layout. The closing delimiter's exact prefix is the margin; missing prefixes on nonblank source lines are errors. Structural opening and closing breaks are removed once, with no implicit trailing newline. Blank lines lose only the longest matching initial margin prefix. Internal line endings remain exact. Layout runs before escapes and interpolation, retaining original source spans and leaving interpolation code and inserted values untouched. Bytes, Path, glob, regex, and non-block triple literals retain exact layout.",
         ),
         "regex-literals" => (
             "Prepares reusable regular expressions during checked program loading.",

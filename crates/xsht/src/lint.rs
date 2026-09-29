@@ -1360,6 +1360,46 @@ impl<'a> Linter<'a> {
         );
     }
 
+    fn lint_block_string_concatenation(&mut self, expr: ExprId) {
+        fn collect(arena: &AstArena, expr: ExprId, output: &mut String, links: &mut usize) -> bool {
+            match arena.expr(expr).kind {
+                ArenaExprKind::Str(text) => { output.push_str(&arena.string_literal(text)); true }
+                ArenaExprKind::Binary { op: BinaryOp::Add, left, right } => {
+                    *links += 1;
+                    collect(arena, left, output, links) && collect(arena, right, output, links)
+                }
+                _ => false,
+            }
+        }
+        let span = self.arena.expr(expr).span;
+        let original = &self.source[span.range()];
+        let mut value = String::new();
+        let mut links = 0;
+        if !collect(self.arena, expr, &mut value, &mut links) || links == 0
+            || !original.contains("\\n") || !value.contains('\n') || value.contains('\r')
+            || original.contains('#')
+        { return; }
+        let suffix = self.source[span.end()..].split(['\r', '\n']).next().unwrap_or("");
+        if !suffix.bytes().all(|byte| matches!(byte, b' ' | b'\t')) { return; }
+        let line_start = self.source[..span.start()].rfind(['\r', '\n']).map_or(0, |offset| offset + 1);
+        let indent: String = self.source[line_start..span.start()].chars().take_while(|ch| matches!(ch, ' ' | '\t')).collect();
+        let margin = format!("{indent}  ");
+        let escaped = value.replace('\\', "\\\\").replace('"', "\\\"").replace('$', "\\$").replace('\0', "\\0");
+        let content = escaped.split('\n').map(|line| format!("{margin}{line}")).collect::<Vec<_>>().join("\n");
+        let replacement = format!("\"\"\"\n{content}\n{margin}\"\"\"");
+        let witness = format!("let block_value = {replacement}\n");
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &witness);
+        if !parsed.diagnostics.is_empty() { return; }
+        let Some(statement) = parsed.arena.statement_ids().next() else { return; };
+        let ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(candidate), .. } = parsed.arena.arena.stmt(statement).kind else { return; };
+        let ArenaExprKind::Str(text) = parsed.arena.arena.expr(candidate).kind else { return; };
+        if parsed.arena.arena.string_literal(text).as_ref() != value { return; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "constant escaped-newline concatenation can use a block string")
+            .with_code("lint.prefer-block-string")
+            .with_label(Label::secondary(span, "all pieces are literal text in source order"))
+            .with_fix_hint(FixHint::replacement(span, "preserve the exact decoded text", replacement)));
+    }
+
     fn lint_redundant_newline_triple_string(&mut self, expr: ExprId) {
         let arena_expr = self.arena.expr(expr);
         let ArenaExprKind::Str(value_id) = arena_expr.kind else {
@@ -1373,7 +1413,7 @@ impl<'a> Linter<'a> {
         let Some(source) = self.source.get(expr_span.range()) else {
             return;
         };
-        if source != "\"\"\"\n\"\"\"" && source != "\"\"\"\r\n\"\"\"" {
+        if source != "\"\"\"\n\n\n\"\"\"" {
             return;
         }
         self.diagnostics.push(
@@ -6523,6 +6563,8 @@ impl LintExprVisitor<'_, '_> {
         if !self.suppress_expr_autofixes {
             self.linter.lint_nested_record_update(expr);
             self.linter.lint_nested_value_pipeline(expr);
+
+            self.linter.lint_block_string_concatenation(expr);
             self.linter.lint_list_splicing(expr);
             self.linter.lint_map_literal_chain(expr);
             self.linter.lint_prepared_regex(expr);

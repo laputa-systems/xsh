@@ -3842,3 +3842,32 @@ fn selective_retry_requires_parenthesized_clause_and_retains_on_names() {
     let ordinary = Parser::parse_source_arena_only(SourceId::new(0), "let on = 1\nlet result = retry [] { on }\nrun echo on\n");
     assert!(ordinary.diagnostics.is_empty(), "{:?}", ordinary.diagnostics);
 }
+
+// These assertions own CST and original byte spans, including offsets into
+// interpolation source that a native value assertion cannot inspect.
+#[test]
+fn block_string_parser_preserves_original_expression_and_diagnostic_spans() {
+    let source = "let name = \"café\"\nlet value = f\"\"\"\n  ${if true {\n# } inside comment\n  r\"\"\"nested\n exact\"\"\"\n} else { \"\" }}\n  $name\n  \"\"\"\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(19), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.cst.get().exact_text(), source);
+    let arena = &parsed.arena.arena;
+    let ArenaExprKind::FmtString(parts) = arena.expr(root_let_init_expr(&parsed, 1)).kind else { panic!("formatted block"); };
+    let expressions = arena.fmt_parts(parts).filter_map(|part| match part { ArenaFmtPart::Expr(expr, _) => Some(arena.expr(expr).span), _ => None }).collect::<Vec<_>>();
+    assert_eq!(expressions.len(), 2);
+    assert!(source[expressions[0].range()].starts_with("if true {"));
+    assert_eq!(&source[expressions[1].range()], "name");
+    assert!(expressions.iter().all(|span| span.source_id == SourceId::new(19)));
+    let formatted = Formatter::new().format_source(SourceId::new(19), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_parse_and_check(SourceId::new(19), &formatted.formatted);
+    assert_eq!(formatted.formatted, Formatter::new().format_source(SourceId::new(19), &formatted.formatted).formatted);
+
+    let invalid = "let name = \"café\"\nlet value = f\"\"\"\n  ${@}\n  \"\"\"\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(19), invalid);
+    assert!(parsed.diagnostics.iter().flat_map(|diagnostic| &diagnostic.labels).any(|label| &invalid[label.span.range()] == "@"), "{:?}", parsed.diagnostics);
+    let invalid = "let name = \"café\"\nlet value = \"\"\"\n  good\n wrong\n  \"\"\"\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(19), invalid);
+    let issue = parsed.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("parse.block-string-margin")).unwrap();
+    assert_eq!(&invalid[issue.labels[0].span.range()], " w");
+}

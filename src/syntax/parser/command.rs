@@ -1,8 +1,7 @@
 use super::{
     CoreCommand, Diagnostic, DurationLiteral, FixHint, IntLiteral, Keyword, Label, Name, Parser,
     RedirectionKind, RunKind, Severity, Span, TokenKindMatch, TokenTag,
-    decode_interpolation_text_for, dollar_shorthand_end, interpolation_diagnostic, is_ident_start,
-    literal, parse_interpolation_expr_arena_only_for,
+    decode_interpolation_text_for, parse_interpolation_expr_arena_only_for,
 };
 use crate::syntax::arena::{
     ArenaCommand, ArenaCommandArg, ArenaEnvAssignmentValue, ArenaProgramBuilder, ArenaRange,
@@ -874,14 +873,7 @@ impl<'a> Parser<'a> {
                             .with_label(Label::primary(span, "expected literal capture mode")),
                     );
                 }
-                let (text, diagnostics) = decode_interpolation_text_for(
-                    self.source_id,
-                    &raw,
-                    span,
-                    self.string_content_offset(span),
-                );
-                self.diagnostics.extend(diagnostics);
-                text
+                self.decoded_quoted_text(span, false).to_string()
             }
             _ => {
                 self.diagnostics.push(
@@ -909,154 +901,33 @@ impl<'a> Parser<'a> {
         raw_literal: bool,
         search_from: &mut usize,
     ) {
-        let source_id = self.source_id;
-        let raw = self.quoted_content(span);
-        if raw_literal || !raw.contains('$') {
-            let text = if raw_literal {
-                Arc::from(raw)
-            } else {
-                let (text, decode_diagnostics) = decode_interpolation_text_for(
-                    source_id,
-                    raw,
-                    span,
-                    self.string_content_offset(span),
-                );
-                self.diagnostics.extend(decode_diagnostics);
-                Arc::from(text)
-            };
-            arena.push_quoted_word_part_text(&text, span, search_from, span.end());
-            return;
-        }
-
-        let mut diagnostics = Vec::new();
+        let (chunks, mut diagnostics) = self.quoted_text_chunks(span, !raw_literal);
         let mut any_part = false;
-        let content_offset = self.string_content_offset(span);
-        let mut rest_start = 0usize;
-        let mut search_start = 0usize;
-        let bytes = raw.as_bytes();
-        while let Some(relative) = raw[search_start..].find('$') {
-            let dollar = search_start + relative;
-            if literal::is_escaped(bytes, dollar) {
-                search_start = dollar + 1;
-                continue;
-            }
-            let Some(next) = bytes.get(dollar + 1).copied() else {
-                break;
-            };
-            if next == b'{' {
-                if dollar > rest_start {
-                    let (text, decode_diagnostics) = decode_interpolation_text_for(
-                        source_id,
-                        &raw[rest_start..dollar],
-                        span,
-                        content_offset + rest_start,
-                    );
-                    diagnostics.extend(decode_diagnostics);
-                    arena.push_quoted_word_part_text(
-                        &Arc::from(text),
-                        span,
-                        search_from,
-                        span.end(),
-                    );
-                }
-                let expr_start = dollar + 2;
-                let Some(close) = literal::interpolation_close(raw, expr_start) else {
-                    diagnostics.push(interpolation_diagnostic(
-                        span,
-                        "unterminated string interpolation",
-                        "interpolation starts in this string",
-                    ));
-                    // Unlike the old recursive-AST path (which discards
-                    // whatever parts it accumulated for this token and
-                    // replaces them with one part covering the whole raw
-                    // content), this pushes directly into the caller's
-                    // already-open word-parts list alongside any earlier
-                    // tokens, so it can't retroactively discard — push one
-                    // more part for just the unparsed remainder instead.
-                    let (text, decode_diagnostics) = decode_interpolation_text_for(
-                        source_id,
-                        &raw[dollar..],
-                        span,
-                        content_offset + dollar,
-                    );
-                    diagnostics.extend(decode_diagnostics);
-                    arena.push_quoted_word_part_text(
-                        &Arc::from(text),
-                        span,
-                        search_from,
-                        span.end(),
-                    );
-                    self.diagnostics.extend(diagnostics);
-                    return;
-                };
-                let (expr_id, parse_diagnostics) = parse_interpolation_expr_arena_only_for(
-                    source_id,
-                    &raw[expr_start..close],
-                    content_offset + expr_start,
-                    arena,
-                );
-                diagnostics.extend(parse_diagnostics);
-                if let Some(expr_id) = expr_id {
+        for chunk in chunks {
+            match chunk {
+                super::InterpolationChunk::Text { source, offset } => {
+                    let text = if raw_literal { Arc::from(source) } else {
+                        let (text, decode_diagnostics) = decode_interpolation_text_for(self.source_id, source, span, offset);
+                        diagnostics.extend(decode_diagnostics);
+                        Arc::from(text)
+                    };
                     any_part = true;
-                    arena.push_interpolation_word_part_expr(expr_id);
+                    arena.push_quoted_word_part_text(&text, span, search_from, span.end());
                 }
-                rest_start = close + 1;
-                search_start = rest_start;
-                continue;
+                super::InterpolationChunk::Expr { source, offset } => {
+                    let (expr_id, parse_diagnostics) = parse_interpolation_expr_arena_only_for(self.source_id, source, offset, arena);
+                    diagnostics.extend(parse_diagnostics);
+                    if let Some(expr_id) = expr_id {
+                        any_part = true;
+                        if self.source[..offset].ends_with("${") { arena.push_interpolation_word_part_expr(expr_id); }
+                        else { arena.push_shorthand_word_part_expr(expr_id); }
+                    }
+                }
             }
-
-            if is_ident_start(next) {
-                if dollar > rest_start {
-                    let (text, decode_diagnostics) = decode_interpolation_text_for(
-                        source_id,
-                        &raw[rest_start..dollar],
-                        span,
-                        content_offset + rest_start,
-                    );
-                    diagnostics.extend(decode_diagnostics);
-                    any_part = true;
-                    arena.push_quoted_word_part_text(
-                        &Arc::from(text),
-                        span,
-                        search_from,
-                        span.end(),
-                    );
-                }
-                let expr_start = dollar + 1;
-                let shorthand_end = dollar_shorthand_end(raw, expr_start);
-                let (expr_id, parse_diagnostics) = parse_interpolation_expr_arena_only_for(
-                    source_id,
-                    &raw[expr_start..shorthand_end],
-                    content_offset + expr_start,
-                    arena,
-                );
-                diagnostics.extend(parse_diagnostics);
-                if let Some(expr_id) = expr_id {
-                    any_part = true;
-                    arena.push_shorthand_word_part_expr(expr_id);
-                }
-                rest_start = shorthand_end;
-                search_start = rest_start;
-                continue;
-            }
-
-            search_start = dollar + 1;
-        }
-        if rest_start < raw.len() {
-            let (text, decode_diagnostics) = decode_interpolation_text_for(
-                source_id,
-                &raw[rest_start..],
-                span,
-                content_offset + rest_start,
-            );
-            diagnostics.extend(decode_diagnostics);
-            any_part = true;
-            arena.push_quoted_word_part_text(&Arc::from(text), span, search_from, span.end());
         }
         self.diagnostics.extend(diagnostics);
-        if !any_part {
-            arena.push_quoted_word_part_text(&Arc::from(""), span, search_from, span.end());
-        }
+        if !any_part { arena.push_quoted_word_part_text(&Arc::from(""), span, search_from, span.end()); }
+
     }
 }
 

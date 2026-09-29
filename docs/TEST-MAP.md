@@ -716,3 +716,13 @@ and lint tests check structural retention, safe migration, refusal, and a stable
 second fix pass, including the isolated CLI convergence/execution test. Run the
 native module, syntax/checker integration suites, and
 focused xsht integration tests before the full relevant gates.
+
+
+Block strings: `tests/xsh/block-strings.xsh` pins exact margins, empty/shared
+breaks, blank lines, raw/formatted text, interpolation order, unaffected literal
+domains, rejection, CRLF/tabs, and isolated formatter/lint execution parity.
+`src/syntax/literal.rs::block_string_tests` covers byte-level layout and untouched
+interpolation source slices; `tests/syntax.rs` covers original diagnostic spans
+and formatter round trips. Run the native module with `xsht test --jobs 1`,
+`cargo test -p xsh --lib block_string`, and the focused xsht `block_string` tests
+before the ordinary syntax/tooling gates.

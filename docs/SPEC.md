@@ -318,8 +318,31 @@ String literals use double quotes and support `\\`, `\"`, `\$`, `\n`, `\r`,
 literals use `r"..."` or `r"""..."""`; their contents are literal text and
 escapes are not decoded. A `Str` literal must decode to valid UTF-8 and cannot
 contain NUL when converted to a path, environment value, or argv item.
-`lint.redundant-newline-triple-string` flags the exact single-newline triple
-string form and autofixes it to the equivalent escaped string literal `"\n"`.
+Ordinary, raw, and formatted triple `Str` literals use block layout only when
+an opening delimiter is immediately followed by LF, CRLF, or CR and the closing
+delimiter is alone on its line apart from spaces/tabs. Trailing syntax or a
+comment on the closing line makes the literal an exact non-block form. The
+closing delimiter's exact space/tab prefix is the margin. Remove the opening
+and closing structural line breaks, counting a shared break only once in an
+empty block. Remove that prefix from every nonblank source content line;
+a missing or different prefix is a source error. Whitespace-only content lines
+lose only the longest matching initial part of the margin. Internal line endings
+and remaining whitespace retain their exact bytes. There is no implicit trailing
+newline; an extra blank content line expresses one.
+
+Layout is removed before escape decoding and interpolation. Only literal text
+participates: interpolation code, nested literals, original expression spans,
+and multiline inserted values are not trimmed or reindented. Rawness retains
+its existing escape/interpolation behavior. Bytes, Path, formatted Path, glob,
+and regex literals retain exact layout. Triple literals outside the block shape
+retain exact behavior; an explicit escaped opening break can preserve an old
+leading newline and indentation without opting into block layout.
+`lint.redundant-newline-triple-string` converts an exact one-newline block
+(`"""` followed by three LF breaks and `"""`) to `"\n"`.
+`lint.prefer-block-string` rewrites constant escaped-newline concatenations only
+when a normally parsed candidate has the identical decoded `Str`. Dynamic or
+formatted operands, comments, CR-containing values, and expression positions
+where the closing delimiter cannot be alone receive no automatic rewrite.
 
 Expression string literals do not interpolate. `${expr}` interpolation is
 recognized only in command words and quoted command word parts. `$name` and

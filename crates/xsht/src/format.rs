@@ -2279,7 +2279,10 @@ impl<'a> Writer<'a> {
             match part {
                 ArenaFmtPart::Text(text) if multiline => {
                     let text = self.text_value(text).to_string();
-                    write_triple_text(&text, index + 1 == len, output);
+                    if prefix == "f" && index == 0 && text.starts_with('\n') {
+                        output.push_str("\\n");
+                        write_triple_text(&text[1..], index + 1 == len, output);
+                    } else { write_triple_text(&text, index + 1 == len, output); }
                 }
                 ArenaFmtPart::Text(text) => {
                     let text = self.text_value(text).to_string();
@@ -3485,7 +3488,11 @@ fn write_str_literal(value: &str, output: &mut String) {
         write_quoted(value, output);
     } else if value.contains('\n') {
         output.push_str("\"\"\"");
-        write_triple_text(value, true, output);
+        // An explicit first break keeps leading newlines from becoming source layout.
+        if let Some(rest) = value.strip_prefix('\n') {
+            output.push_str("\\n");
+            write_triple_text(rest, true, output);
+        } else { write_triple_text(value, true, output); }
         output.push_str("\"\"\"");
     } else {
         write_quoted(value, output);

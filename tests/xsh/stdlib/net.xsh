@@ -292,8 +292,7 @@ test test_net_job_trace_is_correlated_and_redacts_request_secrets [net, env, err
   if url == "" {
     test.skip("requires XSH_NET_TEST_URL fixture")
   } else {
-    let source = """
-let url = env.get_or("XSH_NET_TEST_URL", "")?
+    let source = """\nlet url = env.get_or("XSH_NET_TEST_URL", "")?
 let job = net.start({
   method: "POST",
   url: url + "/echo",

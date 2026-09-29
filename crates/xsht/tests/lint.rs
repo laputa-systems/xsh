@@ -694,6 +694,8 @@ proc convert_all(values: List[Str]) -> List[Item] {
 fn linter_autofixes_single_newline_triple_string() {
     let source = "\
 let newline = \"\"\"
+
+
 \"\"\"
 
 let sample = \"\"\"alpha
@@ -725,6 +727,8 @@ beta\"\"\"
 fn formatter_preserves_single_newline_triple_string_lint_fix() {
     let source = "\
 let newline = \"\"\"
+
+
 \"\"\"
 ";
     let parsed = parse_lint_source(source);
@@ -3801,4 +3805,39 @@ fn duration_arithmetic_conversion_refuses_custom_module_alias() {
     assert!(checked.diagnostics.iter().any(|d| d.code.as_deref() == Some("check.standard-module-shadow")), "{:?}", checked.diagnostics);
     let output = Linter::lint(&loaded.parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
     assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.duration-arithmetic")));
+}
+
+#[test]
+fn block_string_concatenation_fix_rechecks_exact_bytes_and_converges() {
+    let source = "let value = \"first\\n\" + \"  café\\n\"\nprint $value\n";
+    let parsed = parse_lint_source(source);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+    let fix = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")).unwrap().fix_hints.first().unwrap();
+    let mut fixed = source.to_string();
+    fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+    assert_parse_check_standalone("block string fix", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let statement = parsed.arena.statement_ids().next().unwrap();
+    let xsh::frontend::syntax::arena::ArenaStmtKind::Let { initializer: xsh::frontend::syntax::arena::ArenaExprOrRun::Expr(value), .. } = parsed.arena.arena.stmt(statement).kind else { panic!("binding"); };
+    let xsh::frontend::syntax::arena::ArenaExprKind::Str(text) = parsed.arena.arena.expr(value).kind else { panic!("block string"); };
+    assert_eq!(parsed.arena.arena.string_literal(text).as_ref(), "first\n  café\n");
+    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")));
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty());
+    assert_parse_check_standalone("formatted block string fix", &formatted.formatted);
+    assert_eq!(formatted.formatted, Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted);
+}
+
+#[test]
+fn block_string_concatenation_fix_retains_dynamic_interpolation_comments_crlf_and_consumers() {
+    for source in [
+        "let value = \"first\\n\" + dynamic\n",
+        "let value = \"first\\n\" + f\"${dynamic}\"\n",
+        "let value = \"first\\n\" + \"second\" # retain\n",
+        "let value = \"first\\r\\n\" + \"second\"\n",
+        "print (\"first\\n\" + \"second\")\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")), "{source}");
+    }
 }

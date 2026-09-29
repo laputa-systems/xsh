@@ -660,3 +660,12 @@ execution routes use it for `BuildExprRow::PathFmtString`; `lower_run_arg`
 uses that same row for compound process words, covering stored plans and
 redirection operands. Generic command arguments and f-strings retain their
 human text construction path.
+
+Block string preparation is owned by `src/syntax/literal.rs::block_string_chunks`
+and `src/syntax/parser/literals.rs::quoted_text_chunks`. Layout produces slices
+into the original source, rather than rewriting a buffer of interpolation code.
+Text slices decode with their original offsets; interpolation expressions parse
+unchanged and shift arena and diagnostic spans back into the enclosing source.
+The command-word reader consumes the same chunks while retaining shorthand
+versus braced interpolation. Formatter serialization escapes a leading value
+newline to avoid accidentally turning value bytes into structural layout.

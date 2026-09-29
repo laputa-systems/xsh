@@ -884,3 +884,13 @@ fn api_duration_arithmetic_explains_dimensions_and_adapter_boundaries() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("Negative counts clamp to zero"), "{stdout}");
 }
+
+#[test]
+fn api_block_strings_explains_exact_margin_source_boundaries_and_literal_domains() {
+    let output = xsht(&["api", "language:core.block-strings"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for text in ["exact prefix", "no implicit trailing newline", "longest matching", "original source spans", "Bytes, Path, glob, regex", "name=$name"] {
+        assert!(stdout.contains(text), "missing {text}: {stdout}");
+    }
+}

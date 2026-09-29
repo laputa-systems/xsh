@@ -219,13 +219,11 @@ export proc execute() [fs, process, error] -> Result[Unit] {
 }
 """)?
 
-  let optional_contract = """
-type Plugin = module {
+  let optional_contract = """\ntype Plugin = module {
   export optional let description: Str
 }
 """
-  let effect_contract = """
-type Runner = module {
+  let effect_contract = """\ntype Runner = module {
   export proc execute() [fs, error] -> Result[Unit]
 }
 """
@@ -681,17 +679,16 @@ export type Package = {name: Str, root: Path}
 export let pkg: Package = {name: "demo", root: Path("src")}
 """)?
 
-  let source = r"""
-use helper
+  let source = """\nuse helper
 use package as p
-helper.greet("world")?
-helper.greet("namespace")?
+helper.greet(\"world\")?
+helper.greet(\"namespace\")?
 helper.show(p.pkg)?
-print ${p.pkg.name}
-match p.get("Package") {
+print \${p.pkg.name}
+match p.get(\"Package\") {
   Err(error) => {
-    test.error_kind(error, "missing-field")?
-    print "missing-field"
+    test.error_kind(error, \"missing-field\")?
+    print \"missing-field\"
   }
 }
 """
