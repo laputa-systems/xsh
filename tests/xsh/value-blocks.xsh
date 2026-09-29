@@ -296,6 +296,21 @@ print \${choose()} \${fused()} \${serial()}
   test.eq(output.stdout, "7 9 11\n")?
 }
 
+proc test_value_parallel_callback_failure_is_propagation(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, """error WorkerError = failed(message: Str)
+pure outcome() -> Result[Int] { Err(WorkerError.failed(message: "worker failed")) }
+let values = [1, 2] |> par-map --jobs=2 { |number|
+  let value = outcome()?
+  value
+} |> collect
+print "unreachable"
+""")?
+  test.eq(output.status, 3)?
+  test.contains(output.stderr, "WorkerError.failed")?
+  test.eq(output.stderr.contains("return-outside-function"), false)?
+  test.eq(output.stdout, "")?
+}
+
 proc test_value_fold_and_key_callbacks_have_ordinary_scopes() [error] {
   let total = [1, 2] |> fold(0) { |acc, number|
     let added = acc + number

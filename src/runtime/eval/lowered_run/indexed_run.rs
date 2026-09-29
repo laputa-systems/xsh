@@ -315,7 +315,11 @@ impl Evaluator {
             Ok(ControlFlow::Break(value)) => value,
             Err(error) => return Err(error),
         };
-        if self.pending_value_block_flow.is_some() {
+        if let Some(flow) = self.pending_value_block_flow.take() {
+            if let StmtFlow::Propagate(LoweredValue::ResultErr(error)) = flow {
+                return Err(runtime_error_from_value(*error, span));
+            }
+            self.pending_value_block_flow = Some(flow);
             return Ok(item_result);
         }
         Ok(match item_result {
@@ -6336,9 +6340,8 @@ impl Evaluator {
                     value = *inner;
                 }
                 if propagate && matches!(value, LoweredValue::ResultErr(_)) {
-                    return Ok(ControlFlow::Break(
-                        self.lowered_question_propagation_value(value, span)?,
-                    ));
+                    let value = self.lowered_question_propagation_value(value, span)?;
+                    return Ok(self.preserve_lexical_expression_flow(StmtFlow::Propagate(value)));
                 }
                 ControlFlow::Continue(value)
             }
@@ -6571,7 +6574,8 @@ impl Evaluator {
                             LoweredValue::ResultErr(error),
                             call_span,
                         )?;
-                        Ok(ControlFlow::Break(value))
+                        // Statement consumers must distinguish propagation from lexical return.
+                        Ok(self.preserve_lexical_expression_flow(StmtFlow::Propagate(value)))
                     }
                     ControlFlow::Continue(_) => Err(RuntimeError::new(
                         "type-error",

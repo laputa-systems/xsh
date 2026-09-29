@@ -52,6 +52,7 @@ let ready = Path({})
     assert_eq!(output.status.code(), Some(3));
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(stderr.contains("canceled"));
+    assert!(!stderr.contains("return-outside-function"), "{stderr}");
     assert!(stderr.contains("kind=parallel.job.start"), "{stderr}");
     assert!(stderr.contains("kind=parallel.job.end"), "{stderr}");
     assert!(stderr.contains("kind=stream.item.error"), "{stderr}");
