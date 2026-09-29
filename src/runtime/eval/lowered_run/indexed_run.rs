@@ -171,6 +171,20 @@ enum ProcessCommandEntry {
     },
 }
 
+// Only checked language failures cross a local Result boundary. Runtime faults
+// and abort signals retain their original escape behavior.
+fn capture_checked_error(mut error: RuntimeError) -> Result<LoweredValue, RuntimeError> {
+    if error.abort.is_some() || (!error.propagated && error.kind != "assertion-failed") {
+        return Err(error);
+    }
+    error.propagated = false;
+    let value = if let Some(mut original) = error.propagated_run_error.take() {
+        original.contexts = error.contexts;
+        Value::RunError(original)
+    } else { Value::Error(Box::new(error)) };
+    Ok(LoweredValue::ResultErr(Box::new(value)))
+}
+
 fn indexed_error(error: IrVerifyError, span: Span) -> RuntimeError {
     RuntimeError::new(
         "indexed-ir",
@@ -7554,14 +7568,7 @@ impl Evaluator {
         slots: &mut [LoweredValue], span: Span,
     ) -> Result<StmtFlow, RuntimeError> {
         match self.eval_indexed_statement_block(execution, block, header, slots, span) {
-            Err(mut error) if error.abort.is_none() && (error.propagated || error.kind == "assertion-failed") => {
-                error.propagated = false;
-                let value = if let Some(mut original) = error.propagated_run_error.take() {
-                    original.contexts = error.contexts;
-                    Value::RunError(original)
-                } else { Value::Error(Box::new(error)) };
-                Ok(StmtFlow::Propagate(LoweredValue::ResultErr(Box::new(value))))
-            }
+            Err(error) => capture_checked_error(error).map(StmtFlow::Propagate),
             result => result,
         }
     }
