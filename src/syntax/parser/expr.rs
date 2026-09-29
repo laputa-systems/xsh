@@ -196,24 +196,17 @@ impl<'a> Parser<'a> {
 
     fn parse_braced_value_expr_arena_only(
         &mut self,
-        context: &str,
+        _context: &str,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<(ArenaOnlyExpr, usize)> {
-        self.expect(
-            TokenKindMatch::LBrace,
-            &format!("expected `{{` to start {context}"),
-        )?;
-        self.skip_separators();
-        let value = self.parse_precedence_arena_only(0, arena)?;
-        self.skip_separators();
-        let end = self
-            .expect(
-                TokenKindMatch::RBrace,
-                &format!("expected `}}` to close {context}"),
-            )
-            .map(|span| span.end())
-            .unwrap_or_else(|| self.previous_end());
-        Some((value, end))
+        let start = self.current_start();
+        let block = self.parse_block_arena_only(arena)?;
+        let span = self.span(start, self.previous_end());
+        Some((ArenaOnlyExpr {
+            id: arena.push_value_block_expr(block, span),
+            span,
+            bare_ident: None,
+        }, span.end()))
     }
 
     fn parse_match_expr_arena_only(
@@ -257,7 +250,11 @@ impl<'a> Parser<'a> {
             None
         };
         self.expect(TokenKindMatch::FatArrow, "expected `=>` in match arm");
-        let value = self.parse_expr_id_arena_only(arena)?;
+        let value = if self.at(TokenKindMatch::LBrace) && !self.brace_starts_record_value() {
+            self.parse_braced_value_expr_arena_only("match arm", arena)?.0.id
+        } else {
+            self.parse_expr_id_arena_only(arena)?
+        };
         let value_end = self.previous_end();
         if self.consume(TokenKindMatch::Comma).is_some() {
             self.skip_newlines();
@@ -265,6 +262,15 @@ impl<'a> Parser<'a> {
         let span = self.span(start, value_end);
         arena.push_match_expr_arm_input_id(pattern, guard, value, span);
         Some(())
+    }
+
+    fn brace_starts_record_value(&self) -> bool {
+        let mut offset = 1;
+        while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
+        self.peek_tag(offset) == Some(TokenTag::Dot)
+            || self.peek_tag(offset) == Some(TokenTag::RBrace)
+            || (matches!(self.peek_tag(offset), Some(TokenTag::Ident | TokenTag::String))
+                && matches!(self.peek_tag(offset + 1), Some(TokenTag::Colon | TokenTag::Comma | TokenTag::RBrace)))
     }
 
     pub(super) fn parse_expr_id_arena_only(

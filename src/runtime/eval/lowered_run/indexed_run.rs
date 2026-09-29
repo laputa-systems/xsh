@@ -240,7 +240,7 @@ impl Evaluator {
                 Ok(StmtFlow::None) | Ok(StmtFlow::Continue) => {
                     self.eval_indexed_expr(execution, value, slots, span)
                 }
-                Ok(StmtFlow::Return(value)) => Ok(ControlFlow::Break(value)),
+                Ok(StmtFlow::Value(value) | StmtFlow::Return(value)) => Ok(ControlFlow::Break(value)),
                 Ok(StmtFlow::Propagate(value)) => {
                     Err(runtime_error_from_value(value.into_value(), span))
                 }
@@ -433,7 +433,7 @@ impl Evaluator {
                 span,
             )? {
                 StmtFlow::None | StmtFlow::Continue => {}
-                StmtFlow::Propagate(value) | StmtFlow::Return(value) => {
+                StmtFlow::Propagate(value) | StmtFlow::Value(value) | StmtFlow::Return(value) => {
                     return Err(
                         RuntimeError::new("par-map-reduce", lowered_error_message(&value))
                             .with_span(span),
@@ -1925,7 +1925,7 @@ impl Evaluator {
         let flow = result?;
         write_back?;
         match flow {
-            StmtFlow::Return(value) | StmtFlow::Propagate(value) => Ok(value),
+            StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => Ok(value),
             StmtFlow::None => Err(
                 RuntimeError::new("return", "lowered function did not return").with_span(call_span),
             ),
@@ -3414,7 +3414,7 @@ impl Evaluator {
                                             call_span,
                                         )? {
                                             StmtFlow::None => {}
-                                            StmtFlow::Return(value)
+                                            StmtFlow::Value(value) | StmtFlow::Return(value)
                                             | StmtFlow::Propagate(value) => {
                                                 return Ok(ControlFlow::Break(value));
                                             }
@@ -3501,7 +3501,7 @@ impl Evaluator {
                                             call_span,
                                         )? {
                                             StmtFlow::None => {}
-                                            StmtFlow::Return(value)
+                                            StmtFlow::Value(value) | StmtFlow::Return(value)
                                             | StmtFlow::Propagate(value) => {
                                                 return Ok(ControlFlow::Break(value));
                                             }
@@ -3598,7 +3598,7 @@ impl Evaluator {
                                             call_span,
                                         )? {
                                             StmtFlow::None => {}
-                                            StmtFlow::Return(value)
+                                            StmtFlow::Value(value) | StmtFlow::Return(value)
                                             | StmtFlow::Propagate(value) => {
                                                 return Ok(ControlFlow::Break(value));
                                             }
@@ -3940,7 +3940,7 @@ impl Evaluator {
                                         span,
                                     )? {
                                         StmtFlow::None | StmtFlow::Continue => {}
-                                        StmtFlow::Propagate(value) | StmtFlow::Return(value) => {
+                                        StmtFlow::Propagate(value) | StmtFlow::Value(value) | StmtFlow::Return(value) => {
                                             return Ok(ControlFlow::Break(value));
                                         }
                                         StmtFlow::Break(value) => {
@@ -4024,7 +4024,7 @@ impl Evaluator {
                                         span,
                                     )? {
                                         StmtFlow::None | StmtFlow::Continue => {}
-                                        StmtFlow::Propagate(value) | StmtFlow::Return(value) => {
+                                        StmtFlow::Propagate(value) | StmtFlow::Value(value) | StmtFlow::Return(value) => {
                                             return Ok(ControlFlow::Break(value));
                                         }
                                         StmtFlow::Break(value) => {
@@ -4310,7 +4310,7 @@ impl Evaluator {
                                         )?;
                                         match flow {
                                             StmtFlow::None | StmtFlow::Continue => {}
-                                            StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
+                                            StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
                                                 return Ok(ControlFlow::Break(value));
                                             }
                                             StmtFlow::Break(value) => {
@@ -5018,6 +5018,20 @@ impl Evaluator {
                     },
                 )
             }
+            FullTag::ExprValueBlock => {
+                let body = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let header = Self::indexed_block_header(slots.len());
+                match self.eval_indexed_statement_block(execution, body, &header, slots, span)? {
+                    StmtFlow::Value(value) => ControlFlow::Continue(value),
+                    StmtFlow::None => ControlFlow::Continue(LoweredValue::Unit),
+                    flow => {
+                        self.pending_value_block_flow = Some(flow);
+                        ControlFlow::Break(LoweredValue::Unit)
+                    }
+                }
+            }
             FullTag::ExprLoop => {
                 let body = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
@@ -5035,11 +5049,9 @@ impl Evaluator {
                         StmtFlow::Break(value) => {
                             break ControlFlow::Continue(value.unwrap_or(LoweredValue::Unit));
                         }
-                        StmtFlow::Return(value) => {
-                            break ControlFlow::Continue(value);
-                        }
-                        StmtFlow::Propagate(value) => {
-                            break ControlFlow::Break(value);
+                        flow @ (StmtFlow::Value(_) | StmtFlow::Return(_) | StmtFlow::Propagate(_)) => {
+                            self.pending_value_block_flow = Some(flow);
+                            break ControlFlow::Break(LoweredValue::Unit);
                         }
                     }
                 }
@@ -5088,6 +5100,10 @@ impl Evaluator {
                     }
                     let attempt_flow =
                         self.eval_indexed_statement_block(execution, body, &header, slots, span)?;
+                    if matches!(attempt_flow, StmtFlow::Continue | StmtFlow::Break(_)) {
+                        self.pending_value_block_flow = Some(attempt_flow);
+                        return Ok(ControlFlow::Break(LoweredValue::Unit));
+                    }
                     match self.lowered_retry_attempt_value(attempt_flow) {
                         LoweredRetryAttemptValue::Success(value) => {
                             self.trace_lowered_retry_attempt(
@@ -5119,7 +5135,8 @@ impl Evaluator {
                             return Ok(ControlFlow::Continue(LoweredValue::Unit));
                         }
                         LoweredRetryAttemptValue::Escape(value) => {
-                            return Ok(ControlFlow::Break(value));
+                            self.pending_value_block_flow = Some(StmtFlow::Return(value));
+                            return Ok(ControlFlow::Break(LoweredValue::Unit));
                         }
                     }
                 }
@@ -6746,7 +6763,7 @@ impl Evaluator {
             };
             match flow {
                 StmtFlow::None => {}
-                flow @ (StmtFlow::Return(_)
+                flow @ (StmtFlow::Value(_) | StmtFlow::Return(_)
                 | StmtFlow::Propagate(_)
                 | StmtFlow::Break(_)
                 | StmtFlow::Continue) => {
@@ -6775,7 +6792,7 @@ impl Evaluator {
             self.eval_indexed_statement_block(&execution, body, &header, slots, call_span)?;
         match flow {
             StmtFlow::None => Ok(Flow::Continue(Value::Unit)),
-            StmtFlow::Return(value) => Ok(Flow::Continue(value.into_value())),
+            StmtFlow::Value(value) | StmtFlow::Return(value) => Ok(Flow::Continue(value.into_value())),
             StmtFlow::Propagate(value) => {
                 let error = match value {
                     LoweredValue::Error(error) => *error,
@@ -6847,7 +6864,7 @@ impl Evaluator {
         // opaque host resources must survive the block cleanup with the parent.
         if let Ok(flow) = &result {
             match flow {
-                StmtFlow::Return(value) => self.transfer_owned_host_resources_in_value(
+                StmtFlow::Value(value) | StmtFlow::Return(value) => self.transfer_owned_host_resources_in_value(
                     &value.clone().into_value(),
                     scope_id,
                     parent_scope,
@@ -6888,6 +6905,21 @@ impl Evaluator {
     }
 
     fn eval_indexed_stmt(
+        &mut self,
+        execution: &FullExecution<'_>,
+        instruction: u32,
+        header: &FunctionHeader,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<StmtFlow, RuntimeError> {
+        let result = self.eval_indexed_stmt_inner(execution, instruction, header, slots, call_span);
+        match (result, self.pending_value_block_flow.take()) {
+            (Ok(_), Some(flow)) => Ok(flow),
+            (result, _) => result,
+        }
+    }
+
+    fn eval_indexed_stmt_inner(
         &mut self,
         execution: &FullExecution<'_>,
         instruction: u32,
@@ -7169,6 +7201,24 @@ impl Evaluator {
                 }
                 Ok(StmtFlow::None)
             }
+            FullTag::StmtValue => {
+                let value = indexed_raw(&mut payload, call_span)?;
+                indexed_finish(payload, call_span)?;
+                match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                    ControlFlow::Continue(value) => Ok(StmtFlow::Value(value)),
+                    ControlFlow::Break(value) => Ok(StmtFlow::Propagate(value)),
+                }
+            }
+            FullTag::StmtAssert => {
+                let value = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                match self.eval_indexed_expr(execution, value, slots, span)? {
+                    ControlFlow::Continue(LoweredValue::Bool(false)) => Err(RuntimeError::new("assertion-failed", "boolean assertion failed").with_span(span)),
+                    ControlFlow::Continue(_) => Ok(StmtFlow::None),
+                    ControlFlow::Break(value) => Ok(StmtFlow::Propagate(value)),
+                }
+            }
             FullTag::StmtExpr => {
                 let value = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
@@ -7262,7 +7312,7 @@ impl Evaluator {
                     {
                         StmtFlow::None | StmtFlow::Continue => {}
                         StmtFlow::Break(_) => break,
-                        StmtFlow::Return(value) => {
+                        StmtFlow::Value(value) | StmtFlow::Return(value) => {
                             return Ok(StmtFlow::Return(value));
                         }
                         StmtFlow::Propagate(value) => {
@@ -7408,7 +7458,7 @@ impl Evaluator {
                     {
                         StmtFlow::None | StmtFlow::Continue => {}
                         StmtFlow::Break(_) => break,
-                        StmtFlow::Return(value) => {
+                        StmtFlow::Value(value) | StmtFlow::Return(value) => {
                             return Ok(StmtFlow::Return(value));
                         }
                         StmtFlow::Propagate(value) => {
@@ -7460,7 +7510,7 @@ impl Evaluator {
                     {
                         StmtFlow::None | StmtFlow::Continue => {}
                         StmtFlow::Break(_) => break,
-                        flow @ (StmtFlow::Return(_) | StmtFlow::Propagate(_)) => return Ok(flow),
+                        flow @ (StmtFlow::Value(_) | StmtFlow::Return(_) | StmtFlow::Propagate(_)) => return Ok(flow),
                     }
                 }
                 Ok(StmtFlow::None)
@@ -7500,7 +7550,7 @@ impl Evaluator {
                         )? {
                             StmtFlow::None | StmtFlow::Continue => {}
                             StmtFlow::Break(_) => break,
-                            flow @ (StmtFlow::Return(_) | StmtFlow::Propagate(_)) => {
+                            flow @ (StmtFlow::Value(_) | StmtFlow::Return(_) | StmtFlow::Propagate(_)) => {
                                 return Ok(flow);
                             }
                         }
@@ -7543,7 +7593,7 @@ impl Evaluator {
                     {
                         StmtFlow::None | StmtFlow::Continue => {}
                         StmtFlow::Break(_) => break,
-                        flow @ (StmtFlow::Return(_) | StmtFlow::Propagate(_)) => return Ok(flow),
+                        flow @ (StmtFlow::Value(_) | StmtFlow::Return(_) | StmtFlow::Propagate(_)) => return Ok(flow),
                     }
                     let Some(newline) = newline else {
                         break;
@@ -8042,7 +8092,7 @@ impl Evaluator {
                     {
                         StmtFlow::None | StmtFlow::Continue => {}
                         StmtFlow::Break(_) => break,
-                        StmtFlow::Return(value) => {
+                        StmtFlow::Value(value) | StmtFlow::Return(value) => {
                             return Ok(StmtFlow::Return(value));
                         }
                         StmtFlow::Propagate(value) => {

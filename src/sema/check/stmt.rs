@@ -2,7 +2,6 @@
 
 use super::TagVariantInfo;
 use super::expr::expr_or_run_span_arena;
-use super::pattern::collect_covered_constructors_arena;
 use super::{
     AnnotationFact, AnnotationFactKind, BinaryOp, Checker, FxHashSet, Name, Span, Type, UnaryOp,
     call_arg_expr_id_arena, command_stmt_asserts_success_arena, command_ty_auto_propagates,
@@ -18,15 +17,15 @@ use crate::syntax::node::AssignOp;
 use rustc_hash::FxHashMap;
 
 #[derive(Clone, Debug)]
-struct Narrowing {
+pub(super) struct Narrowing {
     name: Name,
     ty: Type,
 }
 
 #[derive(Clone, Debug, Default)]
-struct ConditionNarrowings {
-    when_true: Vec<Narrowing>,
-    when_false: Vec<Narrowing>,
+pub(super) struct ConditionNarrowings {
+    pub(super) when_true: Vec<Narrowing>,
+    pub(super) when_false: Vec<Narrowing>,
 }
 
 fn annotation_type_is_nontrivial(ty: &Type) -> bool {
@@ -139,40 +138,50 @@ fn match_is_exhaustive_arena(
     type_defs: &FxHashMap<Name, TypeDefBody>,
     tag_variants: &FxHashMap<Name, TagVariantInfo>,
 ) -> bool {
-    let has_catch_all = arms.iter().any(|arm| {
-        let pattern = arena.arena.pattern(arm.pattern);
-        matches!(
-            &pattern.kind,
-            crate::syntax::arena::ArenaPatternKind::Wildcard
-        ) || matches!(
-            &pattern.kind,
-            crate::syntax::arena::ArenaPatternKind::Binding(name)
-                if !tag_variants.contains_key(name)
-        )
-    });
-    if has_catch_all {
-        return true;
-    }
-    if matches!(value_ty, Type::Result(_, _)) {
-        let mut covered: FxHashSet<Name> = FxHashSet::default();
-        for arm in arms {
-            collect_covered_constructors_arena(arena, arm.pattern, &mut covered);
+    patterns_are_exhaustive_arena(arena, value_ty, arms.iter().filter(|arm| arm.guard.is_none()).map(|arm| arm.pattern), type_defs, tag_variants)
+}
+
+pub(super) fn patterns_are_exhaustive_arena(
+    arena: &ArenaProgram,
+    value_ty: &Type,
+    patterns: impl Iterator<Item = crate::syntax::arena::PatternId>,
+    type_defs: &FxHashMap<Name, TypeDefBody>,
+    tag_variants: &FxHashMap<Name, TagVariantInfo>,
+) -> bool {
+    use crate::syntax::arena::ArenaPatternKind;
+    fn irrefutable(arena: &ArenaProgram, pattern: crate::syntax::arena::PatternId, variants: &FxHashMap<Name, TagVariantInfo>) -> bool {
+        match arena.arena.pattern(pattern).kind {
+            ArenaPatternKind::Wildcard => true,
+            ArenaPatternKind::Binding(name) => !variants.contains_key(&name),
+            ArenaPatternKind::Tuple(items) => arena.arena.pattern_ids(items).all(|item| irrefutable(arena, item, variants)),
+            ArenaPatternKind::Record { fields, .. } => arena.arena.pattern_fields(fields).iter().all(|field| irrefutable(arena, field.pattern, variants)),
+            _ => false,
         }
-        return covered.contains(&Name::intern("Ok")) && covered.contains(&Name::intern("Err"));
     }
-    let Type::Tag(type_name) = value_ty else {
-        return false;
-    };
-    let Some(TypeDefBody::TagUnion(variants)) = type_defs.get(type_name) else {
-        return false;
-    };
-    let mut covered: FxHashSet<Name> = FxHashSet::default();
-    for arm in arms {
-        collect_covered_constructors_arena(arena, arm.pattern, &mut covered);
+    fn covered(arena: &ArenaProgram, pattern: crate::syntax::arena::PatternId, variants: &FxHashMap<Name, TagVariantInfo>, constructors: &mut FxHashSet<Name>, booleans: &mut [bool; 2]) -> bool {
+        match arena.arena.pattern(pattern).kind {
+            ArenaPatternKind::Wildcard => return true,
+            ArenaPatternKind::Binding(name) if !variants.contains_key(&name) => return true,
+            ArenaPatternKind::Binding(name) => { constructors.insert(name); }
+            ArenaPatternKind::Constructor { name, arg } if arg.is_none_or(|arg| irrefutable(arena, arg, variants)) => { constructors.insert(name); }
+            ArenaPatternKind::Literal(expr) => if let ArenaExprKind::Bool(value) = arena.arena.expr(expr).kind { booleans[usize::from(value)] = true; },
+            ArenaPatternKind::Alternation(items) => for item in arena.arena.pattern_ids(items) { if covered(arena, item, variants, constructors, booleans) { return true; } },
+            _ => {}
+        }
+        false
     }
-    variants
-        .iter()
-        .all(|variant| covered.contains(&variant.name))
+    let mut constructors = FxHashSet::default();
+    let mut booleans = [false; 2];
+    for pattern in patterns { if covered(arena, pattern, tag_variants, &mut constructors, &mut booleans) { return true; } }
+    match value_ty {
+        Type::Bool => booleans.iter().all(|value| *value),
+        Type::Result(_, _) => constructors.contains(&Name::intern("Ok")) && constructors.contains(&Name::intern("Err")),
+        Type::Tag(name) => match type_defs.get(name) {
+            Some(TypeDefBody::TagUnion(variants)) => variants.iter().all(|variant| constructors.contains(&variant.name)),
+            _ => false,
+        },
+        _ => false,
+    }
 }
 
 /// Arena-native mirror of `check_stmt` and the block/binding/assignment
@@ -301,7 +310,7 @@ impl Checker {
         Type::Int
     }
 
-    fn apply_narrowings(&mut self, narrowings: &[Narrowing]) {
+    pub(super) fn apply_narrowings(&mut self, narrowings: &[Narrowing]) {
         for narrowing in narrowings {
             let Some(binding) = self.lookup(narrowing.name).cloned() else {
                 continue;
@@ -337,6 +346,7 @@ impl Checker {
 
     pub(super) fn check_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
         let stmt = arena.arena.stmt(id);
+        self.statement_positions.entry(stmt.span).or_insert(super::StatementPosition::Statement);
         match stmt.kind {
             ArenaStmtKind::Use(use_id) => {
                 let use_stmt = arena.arena.use_stmt(use_id);
@@ -535,7 +545,7 @@ impl Checker {
         }
     }
 
-    fn check_condition_arena(
+    pub(super) fn check_condition_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
@@ -554,7 +564,7 @@ impl Checker {
         ConditionNarrowings::default()
     }
 
-    fn infer_condition_narrowings_arena(
+    pub(super) fn infer_condition_narrowings_arena(
         &self,
         arena: &ArenaProgram,
         condition: ExprId,
@@ -929,6 +939,10 @@ impl Checker {
                     | ArenaStmtKind::Command(_)
                     | ArenaStmtKind::TailBareIdent(_)
                     | ArenaStmtKind::Match { .. }
+                    | ArenaStmtKind::If { .. }
+                    | ArenaStmtKind::Return(_)
+                    | ArenaStmtKind::Break { .. }
+                    | ArenaStmtKind::Continue
             );
             let checked_stmts: &[StmtId] = if tail_producing { non_tail } else { &stmt_ids };
             for &stmt_id in checked_stmts {
@@ -1529,6 +1543,10 @@ impl Checker {
                     | ArenaStmtKind::Command(_)
                     | ArenaStmtKind::TailBareIdent(_)
                     | ArenaStmtKind::Match { .. }
+                    | ArenaStmtKind::If { .. }
+                    | ArenaStmtKind::Return(_)
+                    | ArenaStmtKind::Break { .. }
+                    | ArenaStmtKind::Continue
             );
             for &stmt_id in non_tail {
                 self.check_non_tail_stmt_arena(arena, source, stmt_id);
@@ -1537,7 +1555,7 @@ impl Checker {
                 let ty = self.check_tail_stmt_arena(arena, source, tail, expected);
                 if let Some(expected) = expected {
                     let tail_span = arena.arena.stmt(tail).span;
-                    self.expect_type(expected, &ty, tail_span);
+                    if !tail_type_matches_expected(expected, &ty) { self.expect_type(expected, &ty, tail_span); }
                 }
                 ty
             } else {
@@ -1548,11 +1566,12 @@ impl Checker {
             Type::Unit
         };
         self.block_depth -= 1;
-        result
+        if block_always_returns_arena(arena, block_id) { Type::Unknown } else { result }
     }
 
     fn check_non_tail_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
         let stmt = arena.arena.stmt(id);
+        self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
         if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
             let ty = self.check_expr_arena(arena, source, expr_id, None);
             if expr_ty_auto_propagates(&ty) {
@@ -1560,7 +1579,7 @@ impl Checker {
             }
             let expr_span = arena.arena.expr(expr_id).span;
             self.reject_ignored_result(&ty, expr_span);
-            if !ty.matches_expected(&Type::Unit) {
+            if !ty.matches_expected(&Type::Unit) && ty != Type::Bool {
                 let message = format!(
                     "expression statement must be last to produce a value: expression has type `{ty}`; use `let _ = ...` to discard it"
                 );
@@ -1571,7 +1590,7 @@ impl Checker {
         self.check_stmt_arena(arena, source, id);
     }
 
-    fn check_tail_stmt_arena(
+    pub(super) fn check_tail_stmt_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
@@ -1579,6 +1598,12 @@ impl Checker {
         expected: Option<&Type>,
     ) -> Type {
         let stmt = arena.arena.stmt(id);
+        self.statement_positions.insert(stmt.span, super::StatementPosition::Value);
+        if expected.is_some_and(|ty| ty == &Type::Unit || ty.is_result_unit()) {
+            self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
+            self.check_stmt_arena(arena, source, id);
+            return Type::Unit;
+        }
         match stmt.kind {
             ArenaStmtKind::Expr(expr_id) => {
                 let ctx = tail_expr_context_arena(arena, expr_id, expected);
@@ -1606,8 +1631,36 @@ impl Checker {
                     ty
                 }
             }
+            ArenaStmtKind::If { branches, else_block } => {
+                let mut inferred = None;
+                for branch in arena.arena.if_branches(branches) {
+                    let narrowings = self.check_condition_arena(arena, source, branch.condition, "check.if-condition");
+                    self.push_scope();
+                    self.apply_narrowings(&narrowings.when_true);
+                    let actual = self.check_tail_block_arena(arena, source, branch.block, expected.or(inferred.as_ref()));
+                    self.pop_scope();
+                    if !matches!(actual, Type::Unknown) && inferred.is_none() { inferred = Some(actual); }
+                }
+                if let Some(block) = else_block {
+                    self.push_scope();
+                    if arena.arena.if_branches(branches).len() == 1 {
+                        let narrowings = self.infer_condition_narrowings_arena(arena, arena.arena.if_branches(branches)[0].condition);
+                        self.apply_narrowings(&narrowings.when_false);
+                    }
+                    let actual = self.check_tail_block_arena(arena, source, block, expected.or(inferred.as_ref()));
+                    self.pop_scope();
+                    if !matches!(actual, Type::Unknown) && inferred.is_none() { inferred = Some(actual); }
+                } else {
+                    self.error(stmt.span, "value-producing if requires an else branch", "check.if-value-else");
+                }
+                inferred.unwrap_or(Type::Unknown)
+            }
             ArenaStmtKind::Match { value, arms } => {
-                self.check_tail_match_arena(arena, source, value, arms)
+                self.check_tail_match_arena(arena, source, value, arms, expected)
+            }
+            ArenaStmtKind::Return(_) | ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue => {
+                self.check_stmt_arena(arena, source, id);
+                Type::Unknown
             }
             _ => {
                 self.check_stmt_arena(arena, source, id);
@@ -1622,6 +1675,7 @@ impl Checker {
         source: &str,
         value: ExprId,
         arms: ArenaRange,
+        expected: Option<&Type>,
     ) -> Type {
         let value_ty = self.check_expr_arena(arena, source, value, None);
         let arm_list = arena.arena.match_arms(arms);
@@ -1643,7 +1697,7 @@ impl Checker {
                 let guard_span = arena.arena.expr(guard).span;
                 self.expect_type(&Type::Bool, &guard_ty, guard_span);
             }
-            let arm_ty = self.check_tail_block_arena(arena, source, arm.block, inferred.as_ref());
+            let arm_ty = self.check_tail_block_arena(arena, source, arm.block, expected.or(inferred.as_ref()));
             if inferred.is_none() && !matches!(arm_ty, Type::Unknown) {
                 inferred = Some(arm_ty);
             }
@@ -1659,6 +1713,9 @@ impl Checker {
                 .collect(),
             value_span,
         );
+        if !match_is_exhaustive_arena(arena, &value_ty, arm_list, &self.type_defs, &self.tag_variants) {
+            self.error(value_span, "value-producing match must be exhaustive", "check.match-value-exhaustive");
+        }
         if all_arms_return {
             Type::Unknown
         } else {

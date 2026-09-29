@@ -1059,7 +1059,10 @@ exhaustiveness. Their branches may contain ordinary statements followed by a
 compatible tail value. Diverging branches retain their lexical return, loop,
 and error targets and do not contribute a fabricated Unit to unification.
 Incompatible reachable branch values are errors rather than implicit Any
-widening. Selected values are evaluated before scope cleanup; implicit Ok
+widening. Expression match arms preserve `{}`, shorthand/explicit record fields, quoted
+record keys, and spreads as record literals. Braces containing ordinary statements
+form value blocks; braces in an expression `if` delimit its branch block.
+Selected values are evaluated before scope cleanup; implicit Ok
 wrapping occurs only at the established Result boundary.
 
 Function bodies use a contextual tail-value rule. If the final statement in a
@@ -1069,6 +1072,11 @@ statement result produces the function result. A final expression-style proc
 call that returns `Result[Unit]` propagates failure and produces `Unit`. A
 final plain `run ...` in statement position asserts success and produces
 `Unit`.
+`lint.redundant-tail-return` removes explicit returns from checked function
+value tails, including exhaustive final branches, when the retained return-type
+context preserves the conversion and comments. It leaves callback lexical returns
+and conditional guarded returns intact.
+
 `lint.redundant-tail-return-binding` flags a final `let` or `var` binding that
 is immediately returned, and autofixes it to the initializer as the final tail
 expression when doing so would not remove intervening comments. Annotated
@@ -1085,7 +1093,8 @@ the needed context. `lint.redundant-ok-tail` flags final `return Ok(value)` in
 show the value already has type `T`.
 
 Non-tail expression statements inside value-producing function bodies must have
-type `Unit` or `Result[Unit]`; `Result[Unit]` statements propagate failure by
+type `Unit`, `Result[Unit]`, or `Bool`; Bool statements assert and
+`Result[Unit]` statements propagate failure by
 default. Otherwise bind the value, return it explicitly, or make it the final
 statement. A final exhaustive `if` or `match` produces the enclosing value
 when that context consumes one. `while` and `for` retain statement semantics.

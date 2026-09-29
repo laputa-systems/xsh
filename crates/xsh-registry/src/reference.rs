@@ -749,7 +749,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "statements" => (
             "Defines statement sequencing and result propagation.",
-            "Statement position applies the language's success and error propagation rules rather than silently discarding Result values.",
+            "Checked statement position asserts Bool values and propagates Result[Unit] failures. Value position preserves Bool values; exhaustive if/match tails and their lexical multi-statement branches can supply function and callback values.",
         ),
         "bindings" => (
             "Defines typed bindings and assignment scope.",

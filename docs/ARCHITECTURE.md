@@ -436,3 +436,10 @@ visitor.rs (traversal), checker, runtime, formatter (`canonical_parens_when_empt
 if adding a stream stage), guide, examples, and TODO status. Small features
 should still leave the roadmap and examples in a state that describes what is
 actually implemented.
+
+Checked statement/value positions are explicit facts shared by lowering and tooling.
+`CheckOutput::statement_positions` retains source spans; compact facts retain
+`StmtId` and inferred `block_types`. `ArenaExprKind::ValueBlock` lowers to an
+ordinary indexed scope, with a distinct value flow consumed by that expression.
+The selected value is held before defers and host-resource cleanup, while lexical
+return, propagation, and loop transfers pass to their established owners.

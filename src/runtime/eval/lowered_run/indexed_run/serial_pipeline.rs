@@ -306,7 +306,7 @@ impl IndexedSerialPipeline {
                     slots[*slot] = LoweredValue::Unit;
                     match flow {
                         StmtFlow::None | StmtFlow::Continue => {}
-                        StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
+                        StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
                             return Ok(ControlFlow::Break(value));
                         }
                         StmtFlow::Break(value) => {
@@ -339,7 +339,7 @@ impl IndexedSerialPipeline {
                     )?;
                     match flow {
                         StmtFlow::None => {}
-                        StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
+                        StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
                             return Ok(ControlFlow::Break(value));
                         }
                         StmtFlow::Break(_) | StmtFlow::Continue => {
@@ -399,7 +399,7 @@ impl IndexedSerialPipeline {
                     )?;
                     match flow {
                         StmtFlow::None => {}
-                        StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
+                        StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
                             return Ok(ControlFlow::Break(value));
                         }
                         StmtFlow::Break(_) | StmtFlow::Continue => {
@@ -480,7 +480,7 @@ impl IndexedSerialPipeline {
                     )?;
                     match flow {
                         StmtFlow::None => {}
-                        StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
+                        StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
                             return Ok(ControlFlow::Break(value));
                         }
                         StmtFlow::Break(_) | StmtFlow::Continue => {

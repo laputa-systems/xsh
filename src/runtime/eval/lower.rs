@@ -2660,6 +2660,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::Require { .. } => 36,
         ArenaExprKind::Loop { .. } => 37,
         ArenaExprKind::Retry { .. } => 38,
+        ArenaExprKind::ValueBlock(_) => 39,
     }
 }
 
@@ -2704,6 +2705,7 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
         ArenaExprKind::Require { .. } => "require",
         ArenaExprKind::Loop { .. } => "loop",
         ArenaExprKind::Retry { .. } => "retry",
+        ArenaExprKind::ValueBlock(_) => "value_block",
     }
 }
 
@@ -3090,7 +3092,7 @@ fn compact_body_tail_command_blocker(
 
 const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 8];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 27];
-const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 39];
+const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 40];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 
@@ -4048,10 +4050,13 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             ArenaStmtKind::Expr(value) => {
                 let mut slots = top_level_slots(known);
+                let asserts = self.bodies.expr_types.get(&value) == Some(&Type::Bool);
+                let span = self.program.arena.stmt(id).span;
                 let value = self.lower_expr(value, &mut slots, None, None)?;
+                let kind = if asserts { BuildTopKind::Stmt(push_build_row!(self, stmt, BuildStmtRow::Assert { value, span })) } else { BuildTopKind::Expr(value) };
                 Some(lowered_top_level(
                     &self.scratch,
-                    BuildTopKind::Expr(value),
+                    kind,
                     known,
                     slots,
                 ))
@@ -5769,6 +5774,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 item_slot,
             )?);
         }
+        if self.bodies.statement_positions.get(&tail) == Some(&crate::sema::check::StatementPosition::Statement) {
+            lowered.push(self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?);
+            return Some(lowered);
+        }
         let tail = match self.program.arena.stmt(tail).kind {
             ArenaStmtKind::Expr(expr) => push_build_row!(
                 self,
@@ -5820,9 +5829,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                     ) {
                         Some(value) => value,
                         None => {
-                            // Arms have multi-statement block bodies that produce a
-                            // value; this can't be a `MatchExpr`. Lower it as a
-                            // statement-match whose arm bodies return their tail.
+                            // Retain statement control flow when an arm cannot
+                            // supply a lowered value expression.
                             if let Some(stmt) = self.lower_tail_match_stmt(
                                 value,
                                 arms,
@@ -5871,12 +5879,9 @@ impl CompactLowerConstructProbe<'_, '_> {
         lowered
     }
 
-    /// Lower a `retry` block body. Like `lower_block` it introduces a scope, but
-    /// the trailing expression becomes a `BreakValue` so the block's value is
-    /// carried out as `Break(Some(..))` rather than being discarded. Explicit
-    /// `return` inside the body stays a `Return`, which the retry runtime treats
-    /// as an escape (return from the enclosing proc), and `?` failures surface as
-    /// `Propagate`, which the retry runtime treats as a retryable failure.
+    /// A retry attempt has its own lexical scope. Its implicit tail uses the
+    /// distinct value flow so explicit returns and loop transfers keep their
+    /// enclosing targets, while propagation failures remain retryable.
     fn lower_retry_block(
         &mut self,
         block: BlockId,
@@ -5903,26 +5908,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                     item_slot,
                 )?);
             }
-            let tail_stmt = match self.program.arena.stmt(tail).kind {
-                ArenaStmtKind::Expr(expr) => push_build_row!(
-                    self,
-                    stmt,
-                    BuildStmtRow::BreakValue {
-                        value: self.lower_expr(expr, slots, current_function, item_slot)?,
-                    }
-                ),
-                ArenaStmtKind::TailBareIdent(name) => push_build_row!(
-                    self,
-                    stmt,
-                    BuildStmtRow::BreakValue {
-                        value: self
-                            .lower_bare_ident(name, slots)
-                            .unwrap_or(push_build_row!(self, expr, BuildExprRow::Unit)),
-                    }
-                ),
-                _ => {
-                    self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?
-                }
+            let tail_stmt = if let Some(value) = self.lower_tail_stmt_as_expr(tail, slots, current_function, item_slot) {
+                push_build_row!(self, stmt, BuildStmtRow::Value { value })
+            } else {
+                self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?
             };
             lowered.push(tail_stmt);
             Some(lowered)
@@ -6731,14 +6720,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                 .or_else(|| self.lower_env_stmt(command, slots, current_function, item_slot))
                 .or_else(|| self.lower_run_stmt(command, slots, current_function, item_slot))
                 .or_else(|| self.lower_proc_stmt(command, slots, current_function, item_slot)),
-            ArenaStmtKind::Expr(value) => Some(push_build_row!(
-                self,
-                stmt,
-                BuildStmtRow::Expr {
-                    value: self.lower_expr(value, slots, current_function, item_slot)?,
-                    span: self.program.arena.stmt(id).span,
-                }
-            )),
+            ArenaStmtKind::Expr(value) => {
+                let asserts = self.bodies.expr_types.get(&value) == Some(&Type::Bool);
+                let span = self.program.arena.stmt(id).span;
+                let value = self.lower_expr(value, slots, current_function, item_slot)?;
+                Some(if asserts { push_build_row!(self, stmt, BuildStmtRow::Assert { value, span }) }
+                    else { push_build_row!(self, stmt, BuildStmtRow::Expr { value, span }) })
+            },
             ArenaStmtKind::Defer(ArenaExprOrRun::Expr(value)) => {
                 let value = self.lower_expr(value, slots, current_function, item_slot)?;
                 Some(push_build_row!(self, stmt, BuildStmtRow::Defer { value }))
@@ -6749,8 +6737,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(push_build_row!(self, stmt, BuildStmtRow::Defer { value }))
             }
             ArenaStmtKind::TailBareIdent(name) => {
+                let asserts = slots.binding_type(name) == Some(&Type::Bool);
+                let span = self.program.arena.stmt(id).span;
                 let value = self.lower_bare_ident(name, slots)?;
-                Some(push_build_row!(self, stmt, BuildStmtRow::Return { value }))
+                Some(if asserts { push_build_row!(self, stmt, BuildStmtRow::Assert { value, span }) }
+                    else { push_build_row!(self, stmt, BuildStmtRow::Expr { value, span }) })
             }
             _ => None,
         };
@@ -8094,6 +8085,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 item_slot,
                 span,
             ),
+            ArenaExprKind::ValueBlock(block) => self.lower_block_value_expr(block, slots, current_function, item_slot),
             ArenaExprKind::Loop { block } => Some(push_build_row!(
                 self,
                 expr,
@@ -11939,18 +11931,13 @@ impl CompactLowerConstructProbe<'_, '_> {
             if !self.program.arena.block(arm.block).params.is_empty() {
                 return None;
             }
-            let statements = self.program.arena.block(arm.block).statements;
-            let statements = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
-            let [stmt] = statements.as_slice() else {
-                return None;
-            };
             let (pattern, cleanup) = self.lower_pattern(
                 arm.pattern,
                 slots,
                 ok_binding_ty.as_ref(),
                 err_binding_ty.as_ref(),
             )?;
-            let value = match self.lower_arm_value_expr(*stmt, slots, current_function, item_slot) {
+            let value = match self.lower_block_value_expr(arm.block, slots, current_function, item_slot) {
                 Some(value) => value,
                 None => {
                     cleanup_lowered_pattern_slots(slots, cleanup);
@@ -12330,11 +12317,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
     }
 
-    /// Lower a block whose sole statement produces a value (a bare expression or
-    /// a value-producing tail `if`/`match`) to a single `BuildExprId`. Used by
-    /// pipeline stages whose block yields a key/value (`count {…}`,
-    /// `sort-by {…}`, etc.) where the block body is written as a bare tail
-    /// `if`/`match` statement rather than a parenthesized expression.
+    /// Keep branch statements and their tail in one lexical scope so the
+    /// selected value is evaluated before that scope runs cleanup.
     fn lower_block_value_expr(
         &mut self,
         block: BlockId,
@@ -12344,15 +12328,27 @@ impl CompactLowerConstructProbe<'_, '_> {
     ) -> Option<BuildExprId> {
         let statements = self.program.arena.block(block).statements;
         let statements = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
-        let [stmt] = statements.as_slice() else {
-            return None;
-        };
-        self.lower_tail_stmt_as_expr(*stmt, slots, current_function, item_slot)
+        let saved = slots.enter();
+        let result = (|| {
+            let mut body = Vec::with_capacity(statements.len());
+            if let Some((&tail, prefix)) = statements.split_last() {
+                for &stmt in prefix { body.push(self.lower_stmt_with_blocker_guard(stmt, slots, current_function, item_slot)?); }
+                if let Some(value) = self.lower_tail_stmt_as_expr(tail, slots, current_function, item_slot) {
+                    body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
+                } else {
+                    body.push(self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?);
+                }
+            }
+            let span = self.program.arena.span(self.program.arena.block(block).span);
+            Some(push_build_row!(self, expr, BuildExprRow::ValueBlock { body, span }))
+        })();
+        slots.exit(saved);
+        result
     }
 
     /// Lower a single value-producing tail statement to an expression: a bare
     /// expression, a tail-bare-ident, or a value-producing `if`/`match` whose
-    /// branch blocks are themselves single value statements.
+    /// branch blocks retain ordinary lexical statements and a checked tail.
     fn lower_tail_stmt_as_expr(
         &mut self,
         stmt: StmtId,
@@ -15040,6 +15036,8 @@ pub(super) fn lowered_body_can_return(scratch: &BuildScratch, statements: &[Buil
             | BuildStmtRow::AssignFieldInt { .. }
             | BuildStmtRow::AssignIndex { .. }
             | BuildStmtRow::AssignBool { .. }
+            | BuildStmtRow::Value { .. }
+            | BuildStmtRow::Assert { .. }
             | BuildStmtRow::Expr { .. }
             | BuildStmtRow::Run { .. }
             | BuildStmtRow::Print { .. }
@@ -15286,7 +15284,7 @@ pub(super) fn lowered_match_no_arm(span: Span) -> RuntimeError {
 pub(super) fn lowered_stmt_flow_to_flow(flow: StmtFlow) -> Flow {
     match flow {
         StmtFlow::None => Flow::Continue(Value::Unit),
-        StmtFlow::Return(value) => Flow::Return(value.into_value()),
+        StmtFlow::Value(value) | StmtFlow::Return(value) => Flow::Return(value.into_value()),
         StmtFlow::Propagate(_) => {
             unreachable!("lowered propagation must be handled with evaluator context")
         }

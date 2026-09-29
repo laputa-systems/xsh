@@ -1582,7 +1582,7 @@ pure bad(flag: Bool) -> Int {
 }
 "#,
     );
-    assert!(has_code(&ambiguous, "check.missing-return"));
+    assert!(has_code(&ambiguous, "check.if-value-else"));
 }
 
 #[test]
@@ -3221,4 +3221,22 @@ export let exported: Int = value
         "{output:?}"
     );
     assert!(has_code(&output, "check.orphan-doc-comment"), "{output:?}");
+}
+
+#[test]
+fn checker_records_value_and_statement_bool_positions() {
+    let source = "pure choose(flag: Bool) -> Bool {\n  true\n  if flag { false } else { true }\n}\nproc assertions() {\n  if true { false }\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let true_positions = checked.statement_positions.iter().filter(|(span, _)| source[span.range()].trim() == "true").map(|(_, position)| *position).collect::<Vec<_>>();
+    assert!(true_positions.contains(&xsh::frontend::check::StatementPosition::Value));
+    assert!(true_positions.contains(&xsh::frontend::check::StatementPosition::Statement));
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    for (id, position) in compact.statement_positions {
+        let span = parsed.arena.arena.stmt(id).span;
+        assert_eq!(checked.statement_positions.get(&span), Some(&position));
+    }
 }

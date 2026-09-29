@@ -2234,3 +2234,57 @@ proc main() {
     assert!(unused[0].message.contains("`unused_helper`"));
     assert_eq!(unused[0].labels[0].span.source_id, SourceId::new(1));
 }
+
+#[test]
+fn linter_removes_checked_tail_returns_in_value_branches() {
+    let source = "pure label(code: Int) -> Str {\n  match code {\n    0 => return \"ok\"\n    _ => {\n      let detail: Str = f\"exit $code\"\n      return detail # retain this comment\n    }\n  }\n}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        statement_positions: checked.statement_positions,
+        ..LintOptions::default()
+    }).diagnostics;
+    let fixes = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return")).flat_map(|diagnostic| diagnostic.fix_hints.iter()).collect::<Vec<_>>();
+    assert_eq!(fixes.len(), 2);
+    let mut candidate = source.to_owned();
+    for fix in fixes.iter().rev() { candidate.replace_range(fix.span.unwrap().range(), fix.replacement.as_deref().unwrap()); }
+    assert!(candidate.contains("let detail: Str"));
+    assert!(candidate.contains("detail # retain this comment"));
+    let parsed = parse_lint_source(&candidate);
+    let checked = Checker::check_arena(&parsed.arena, &candidate);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let second = Linter::lint(&parsed.arena, &candidate, LintOptions {
+        expr_types: checked.expr_types,
+        statement_positions: checked.statement_positions,
+        ..LintOptions::default()
+    }).diagnostics;
+    assert!(!second.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return")));
+}
+
+#[test]
+fn linter_tail_return_preserves_grouping_and_unicode_comments() {
+    let source = "pure sum() -> Int {\n  return (1 + 2) # café\n}\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, statement_positions: checked.statement_positions, ..LintOptions::default() }).diagnostics;
+    let fix = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return")).unwrap().fix_hints.first().unwrap();
+    let mut candidate = source.to_owned();
+    candidate.replace_range(fix.span.unwrap().range(), fix.replacement.as_deref().unwrap());
+    assert!(candidate.contains("(1 + 2) # café"));
+    assert_parse_check_standalone("grouped tail", &candidate);
+}
+
+#[test]
+fn linter_keeps_conditional_and_callback_lexical_returns() {
+    let source = "pure conditional(flag: Bool) -> Int {\n  if flag { return 1 }\n  2\n}\npure callback() -> Int {\n  let rows = [1] |> map { |number| return 4 }\n  9\n}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, statement_positions: checked.statement_positions, ..LintOptions::default() }).diagnostics;
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return")));
+}

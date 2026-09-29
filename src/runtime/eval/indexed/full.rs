@@ -153,6 +153,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprSpawnRun,
     ExprSpawnCommand,
     ExprWait,
+    ExprValueBlock,
     ExprLoop,
     ExprRetry,
     ExprFsFiles,
@@ -203,6 +204,8 @@ pub(in crate::runtime::eval) enum FullTag {
     StmtAssignIndex,
     StmtAssignInt,
     StmtAssignBool,
+    StmtValue,
+    StmtAssert,
     StmtExpr,
     StmtIf,
     StmtIfBool,
@@ -6742,6 +6745,9 @@ impl_node_codec! {
             target: BuildExprId,
             span: Span,
         } => BuildExprRow::Wait { target, span },
+        BuildExprRow::ValueBlock { body, span } => ExprValueBlock {
+            body: Vec<BuildStmtId>, span: Span,
+        } => BuildExprRow::ValueBlock { body, span },
         BuildExprRow::Loop { body, span } => ExprLoop {
             body: Vec<BuildStmtId>,
             span: Span,
@@ -7189,6 +7195,8 @@ impl_node_codec! {
             slot: usize,
             value: BuildBoolId,
         } => BuildStmtRow::AssignBool { slot, value },
+        BuildStmtRow::Value { value } => StmtValue { value: BuildExprId } => BuildStmtRow::Value { value },
+        BuildStmtRow::Assert { value, span } => StmtAssert { value: BuildExprId, span: Span } => BuildStmtRow::Assert { value, span },
         BuildStmtRow::Expr { value, span } => StmtExpr {
             value: BuildExprId,
             span: Span,

@@ -3235,3 +3235,16 @@ proc main(input: Path, candidate: Path, tarball: Path, name: Str, suffix: Str) {
     };
     assert!(arena.run_form(*run_id).propagate);
 }
+
+#[test]
+fn formatter_round_trips_value_branch_blocks_and_record_arms() {
+    let source = "let choice = if true { let detail = 2; detail } else { 3 }\nlet record = match choice { 2 => {}, _ => {\"run\": 4} }\nlet text = match choice { 2 => { let detail = \"é\"; detail }, _ => \"other\" }\n";
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert!(!first.formatted.contains("{ {"));
+    assert!(first.formatted.contains("let detail = 2"));
+    assert!(first.formatted.contains("\"run\": 4"));
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+    assert_eq!(first.formatted, second.formatted);
+}

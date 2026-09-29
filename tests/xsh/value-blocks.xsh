@@ -1,0 +1,200 @@
+pure value_label(code: Int) -> Str {
+  match code {
+    0 => "ok"
+    _ => {
+      let detail = f"exit $code"
+      detail
+    }
+  }
+}
+
+pure value_choice(choose: Bool) -> Bool {
+  if choose {
+    let result = false
+    result
+  } else {
+    true
+  }
+}
+
+pure value_optional(name: Str?) -> Str {
+  if name == null {
+    "default"
+  } else {
+    name.trim()
+  }
+}
+
+proc test_value_blocks_and_tails() [error] {
+  let result = if true {
+    let first = 40
+    let second = 2
+    first + second
+  } else {
+    0
+  }
+  test.eq(result, 42)?
+  let matched = match result {
+    42 => {
+      let detail = "selected"
+      detail
+    }
+    _ => "other"
+  }
+  test.eq(matched, "selected")?
+  test.eq(value_label(0), "ok")?
+  test.eq(value_label(3), "exit 3")?
+  test.eq(value_choice(true), false)?
+  test.eq(value_choice(false), true)?
+  test.eq(value_optional("  ready  "), "ready")?
+  test.eq(value_optional(null), "default")?
+}
+
+proc test_value_match_preserves_record_literals() [error] {
+  let field = 9
+  let empty = match 1 { _ => {} }
+  let shorthand = match 1 { _ => {field} }
+  let named = match 1 { _ => {field: 10} }
+  let quoted = match 1 { _ => {"run": 11} }
+  test.eq(empty, {})?
+  test.eq(shorthand.field, 9)?
+  test.eq(named.field, 10)?
+  test.eq(quoted["run"], 11)?
+}
+
+proc value_block_return_keeps_function_target() [] -> Int {
+  let ignored = if true {
+    return 7
+  } else {
+    4
+  }
+  ignored + 1
+}
+
+proc test_value_blocks_preserve_lexical_control() [error] {
+  test.eq(value_block_return_keeps_function_target(), 7)?
+  var visits = 0
+  for number in [1, 2, 3] {
+    let chosen = if number == 2 {
+      continue
+    } else {
+      number
+    }
+    visits += chosen
+  }
+  test.eq(visits, 4)?
+}
+
+proc test_bool_value_callbacks_and_retry() [error] {
+  let filtered = [1, 2, 3] |> where { |number|
+    if number == 2 {
+      false
+    } else {
+      true
+    }
+  } |> collect()
+  test.eq(filtered, [1, 3])?
+  let result = retry [] {
+    let marker = false
+    if marker {
+      true
+    } else {
+      false
+    }
+  }?
+  test.eq(result, false)?
+  let wrapped = retry [] { Ok(false) }?
+  test.eq(wrapped, false)?
+}
+
+proc test_bool_statement_assertions(ctx: TestContext) [error] {
+  let failed = test.run_script(ctx, """proc assertion() {
+  if true {
+    false
+  }
+}
+assertion()
+""")?
+  test.eq(failed.success, false)?
+  test.contains(failed.stderr, "assertion-failed")?
+  let passed = test.run_script(ctx, """proc assertion() {
+  if true {
+    true
+  }
+}
+assertion()
+""")?
+  test.eq(passed.success, true)?
+}
+
+pure value_result_bool(choose: Bool) -> Result[Bool] {
+  if choose {
+    false
+  } else {
+    true
+  }
+}
+
+proc test_result_bool_tails_and_nested_predicates() [error] {
+  test.eq(value_result_bool(true)?, false)?
+  let mapped = [1, 2] |> map { |number|
+    match number {
+      1 => {
+        let selected = false
+        selected
+      }
+      _ => true
+    }
+  }
+  test.eq(mapped, [false, true])?
+}
+
+proc test_value_branch_rejections_have_cli_witnesses(ctx: TestContext) [error] {
+  let inconsistent = test.run_script(ctx, "let bad = if true { 1 } else { \"wrong\" }\n")?
+  test.eq(inconsistent.success, false)?
+  test.contains(inconsistent.stderr, "check.type-mismatch")?
+  let incomplete = test.run_script(ctx, "let bad = match 1 { 1 => 2 }\n")?
+  test.eq(incomplete.success, false)?
+  test.contains(incomplete.stderr, "check.match-value-exhaustive")?
+  let guarded = test.run_script(ctx, "let bad = match 1 { _ if false => 2 }\n")?
+  test.eq(guarded.success, false)?
+  test.contains(guarded.stderr, "check.match-value-exhaustive")?
+}
+
+proc test_value_blocks_evaluate_before_scope_cleanup(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
+proc choose() [] -> Int {
+  let value = if true {
+    defer mark("cleanup")
+    mark("value")
+    7
+  } else { 0 }
+  mark("after")
+  value
+}
+print \${choose()}
+""")?
+  test.eq(output.success, true)?
+  test.eq(output.stdout, "value\ncleanup\nafter\n7\n")?
+}
+
+proc test_value_blocks_return_through_loop_and_retry(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, """proc choose() [] -> Int {
+  let ignored = loop {
+    let selected = if true { return 7 } else { 0 }
+    break selected
+  }
+  ignored
+}
+proc attempted() [] -> Int {
+  let ignored = retry [] {
+    let selected = if true { return 9 } else { 0 }
+    selected
+  }
+  0
+}
+print \${choose()} \${attempted()}
+""")?
+  test.eq(output.success, true)?
+  test.eq(output.stdout, "7 9\n")?
+}

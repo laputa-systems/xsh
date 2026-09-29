@@ -44,6 +44,7 @@ pub struct LintOptions {
     pub runless_except: Vec<String>,
     pub interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
     pub expr_types: BTreeMap<Span, Type>,
+    pub statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
     pub terminating_call_spans: BTreeSet<Span>,
     pub dead_code: bool,
@@ -56,6 +57,7 @@ impl Default for LintOptions {
             runless_except: Vec::new(),
             interactive_command_replacement: None,
             expr_types: BTreeMap::default(),
+            statement_positions: BTreeMap::default(),
             callable_effects: FxHashMap::default(),
             terminating_call_spans: BTreeSet::default(),
             dead_code: true,
@@ -79,6 +81,7 @@ pub struct Linter<'a> {
     scopes: Vec<FxHashMap<String, Binding>>,
     diagnostics: Vec<Diagnostic>,
     expr_types: BTreeMap<Span, Type>,
+    statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
     result_unit_functions: Vec<bool>,
     result_path_functions: Vec<bool>,
     result_return_ok_types: Vec<Option<Type>>,
@@ -171,6 +174,7 @@ impl<'a> Linter<'a> {
             scopes: vec![FxHashMap::default()],
             diagnostics: Vec::new(),
             expr_types: options.expr_types,
+            statement_positions: options.statement_positions,
             result_unit_functions: Vec::new(),
             result_path_functions: Vec::new(),
             result_return_ok_types: Vec::new(),
@@ -858,6 +862,7 @@ impl<'a> Linter<'a> {
         let result_path = result_path_type_expr(self.arena, def.return_ty);
         let result_ok = result_ok_type_expr(self.arena, def.return_ty);
         let return_ty = Type::from_arena(self.arena, def.return_ty);
+
         self.result_unit_functions.push(result_unit);
         self.result_path_functions.push(result_path);
         self.result_return_ok_types.push(result_ok.clone());
@@ -873,6 +878,7 @@ impl<'a> Linter<'a> {
             self.lint_tail_redundant_ok_return(def.body, result_ok.as_ref());
         }
         self.lint_redundant_tail_return_binding(def.body);
+        self.lint_redundant_tail_return(def.body, self.function_return_types.last().cloned().as_ref().unwrap());
         if !def.return_ty_defaulted {
             self.collect_type_expr_refs(def.return_ty);
         }
@@ -1779,6 +1785,38 @@ impl<'a> Linter<'a> {
                     replacement,
                 )),
         );
+    }
+
+    fn lint_redundant_tail_return(&mut self, body: BlockId, expected: &Type) {
+        if expected == &Type::Unit || expected.is_result_unit() { return; }
+        let Some(tail) = self.arena.stmt_ids(self.arena.block(body).statements).last() else { return; };
+        let stmt = self.arena.stmt(tail);
+        match stmt.kind {
+            ArenaStmtKind::If { branches, else_block: Some(other) } => {
+                for branch in self.arena.if_branches(branches).to_vec() { self.lint_redundant_tail_return(branch.block, expected); }
+                self.lint_redundant_tail_return(other, expected);
+            }
+            ArenaStmtKind::Match { arms, .. } => {
+                for arm in self.arena.match_arms(arms).to_vec() { self.lint_redundant_tail_return(arm.block, expected); }
+            }
+            ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value))) => {
+                if self.statement_positions.get(&stmt.span) != Some(&xsh::frontend::check::StatementPosition::Value) { return; }
+                let value_span = self.arena.expr(value).span;
+                if !self.expr_types.get(&value_span).is_some_and(|ty| tail_type_matches_lint_expected(expected, ty)) { return; }
+                let start = stmt.span.start();
+                let Some(text) = self.source.get(start..value_span.start()) else { return; };
+                let Some(after_return) = text.strip_prefix("return") else { return; };
+                let whitespace = after_return.len() - after_return.trim_start().len();
+                let prefix = Span::new(stmt.span.source_id, start, start + "return".len() + whitespace);
+                if self.diagnostics.iter().flat_map(|diagnostic| &diagnostic.fix_hints).filter_map(|fix| fix.span).any(|span| span.source_id == prefix.source_id && span.start() < prefix.end() && prefix.start() < span.end()) { return; }
+                if self.source.get(prefix.range()).is_none_or(|text| text.contains('#')) { return; }
+                self.diagnostics.push(Diagnostic::warning("tail return can supply its value implicitly")
+                    .with_code("lint.redundant-tail-return")
+                    .with_label(Label::primary(prefix, "remove the tail return"))
+                    .with_fix_hint(FixHint::replacement(prefix, "use the tail value", String::new())));
+            }
+            _ => {}
+        }
     }
 
     fn lint_redundant_tail_return_binding(&mut self, body: BlockId) {
@@ -3840,6 +3878,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         | ArenaExprKind::EnvGet { .. }
         | ArenaExprKind::EnvPathList
         | ArenaExprKind::Run(_)
+        | ArenaExprKind::ValueBlock(_)
         | ArenaExprKind::Loop { .. } => {}
     }
     out
@@ -3849,7 +3888,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
 fn expr_child_blocks(arena: &AstArena, expr: ExprId) -> Vec<BlockId> {
     let mut out = Vec::new();
     match arena.expr(expr).kind {
-        ArenaExprKind::Loop { block } | ArenaExprKind::Retry { block, .. } => out.push(block),
+        ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } | ArenaExprKind::Retry { block, .. } => out.push(block),
         ArenaExprKind::Pipeline { stages, .. } => {
             for stage in arena.pipe_stages(stages).to_vec() {
                 if let ArenaPipeStageKind::Stream(stage) = stage.kind
@@ -4281,6 +4320,7 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
                         }
                     })
         }
+        ArenaExprKind::ValueBlock(_) => true,
         ArenaExprKind::Loop { .. } | ArenaExprKind::Retry { .. } => false,
         ArenaExprKind::Null
         | ArenaExprKind::Bool(_)
@@ -4597,7 +4637,7 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
                     })
         }
         ArenaExprKind::Require { value, .. } => rec(value),
-        ArenaExprKind::Loop { block } => block_contains_read_text_lines_call(arena, block),
+        ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => block_contains_read_text_lines_call(arena, block),
         ArenaExprKind::Retry { delays, block } => {
             arena.expr_ids(delays).any(rec) || block_contains_read_text_lines_call(arena, block)
         }
@@ -4892,7 +4932,7 @@ impl LintExprVisitor<'_, '_> {
                 self.visit_expr(value);
                 self.linter.collect_type_expr_refs(schema);
             }
-            ArenaExprKind::Loop { block } => self.linter.lint_block(block),
+            ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => self.linter.lint_block(block),
             ArenaExprKind::Retry { delays, block } => {
                 for delay in arena.expr_ids(delays).collect::<Vec<_>>() {
                     self.visit_expr(delay);
@@ -5555,6 +5595,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Try(_)
         | ArenaExprKind::Require { .. }
+        | ArenaExprKind::ValueBlock(_)
         | ArenaExprKind::Loop { .. }
         | ArenaExprKind::Retry { .. } => false,
     }
@@ -5648,6 +5689,7 @@ fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Wait(_)
         | ArenaExprKind::BuilderCall { .. }
         | ArenaExprKind::Require { .. }
+        | ArenaExprKind::ValueBlock(_)
         | ArenaExprKind::Loop { .. }
         | ArenaExprKind::Retry { .. } => true,
     }
@@ -6045,7 +6087,7 @@ fn collect_expr_effects(
         ArenaExprKind::Require { value, .. } => {
             collect_expr_effects(arena, value, effects, proc_effects)
         }
-        ArenaExprKind::Loop { block } => collect_block_effects(arena, block, effects, proc_effects),
+        ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => collect_block_effects(arena, block, effects, proc_effects),
         ArenaExprKind::Retry { delays, block } => {
             for delay in arena.expr_ids(delays).collect::<Vec<_>>() {
                 collect_expr_effects(arena, delay, effects, proc_effects);
@@ -6828,7 +6870,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                 self.scan_expr(call);
                 self.scan_builder_block(block);
             }
-            ArenaExprKind::Loop { block } => self.scan_block(block),
+            ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => self.scan_block(block),
             ArenaExprKind::Retry { delays, block } => {
                 for delay in self.arena().expr_ids(delays).collect::<Vec<_>>() {
                     self.scan_expr(delay);
@@ -7542,6 +7584,7 @@ fn expr_flow(
             ))
         }
         ArenaExprKind::Require { value, .. } => expr_flow(arena, value, terminating_call_spans),
+        ArenaExprKind::ValueBlock(block) => block_flow(arena, block, terminating_call_spans),
         ArenaExprKind::Loop { block } => loop_flow(arena, block, terminating_call_spans),
         // A retry retries failed attempts, but a normally-completing attempt
         // produces the expression's `Result`; it is not an infinite loop.

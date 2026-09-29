@@ -333,3 +333,12 @@ autofixers as part of this workflow.
 The frontend redesign is complete. Further work begins with a measurable
 user-visible cost, not an attempt to recreate a previous representation.
 This document and `docs/TEST-MAP.md` own measurement and verification rules.
+
+`ArenaExprKind::ValueBlock` retains ordinary lexical statements for expression
+branches. Its scope creates no callable, propagation, or loop target.
+`StatementPosition` facts in `CheckOutput::statement_positions` and
+`CompactBodyProbeOutput::statement_positions` preserve the checked purpose of tails
+through lowering and tooling. Compact `block_types` retain inferred tail types
+before branch scopes disappear. The indexed value-block instruction evaluates its
+selected tail before defers and resource cleanup; lexical transfers keep their
+original targets.

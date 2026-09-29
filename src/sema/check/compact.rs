@@ -85,6 +85,8 @@ pub struct CompactBodyProbeOutput {
     pub unsupported_structured_pipeline_exprs: usize,
     pub unsupported_builder_call_exprs: usize,
     pub expr_types: FxHashMap<ExprId, Type>,
+    pub statement_positions: FxHashMap<StmtId, super::StatementPosition>,
+    pub block_types: FxHashMap<BlockId, Type>,
 }
 
 impl Checker {
@@ -594,6 +596,7 @@ impl CompactBodyProbe<'_> {
     fn check_compact_stmt(&mut self, id: StmtId) {
         self.output.statements += 1;
         let stmt = self.program.arena.stmt(id);
+        self.output.statement_positions.insert(id, super::StatementPosition::Statement);
         match stmt.kind {
             ArenaStmtKind::Use(_)
             | ArenaStmtKind::TypeDef(_)
@@ -784,6 +787,8 @@ impl CompactBodyProbe<'_> {
             }
         }
         self.check_compact_block_in_current_scope(def.body);
+        let expected = self.type_from_arena(def.return_ty);
+        self.mark_tail_position(def.body, expected != Type::Unit && !expected.is_result_unit());
         self.pop_scope();
     }
 
@@ -804,6 +809,47 @@ impl CompactBodyProbe<'_> {
         }
         for stmt in self.program.arena.stmt_ids(*statements) {
             self.check_compact_stmt(stmt);
+        }
+        let ty = self.compact_block_tail_type(id);
+        self.output.block_types.insert(id, ty);
+    }
+
+    fn mark_tail_position(&mut self, block: BlockId, consumes_value: bool) {
+        let ids = self.program.arena.stmt_ids(self.program.arena.block(block).statements).collect::<Vec<_>>();
+        if let Some(&tail) = ids.last() {
+            let position = if consumes_value { super::StatementPosition::Value } else { super::StatementPosition::Statement };
+            self.output.statement_positions.insert(tail, position);
+            match self.program.arena.stmt(tail).kind {
+                ArenaStmtKind::If { branches, else_block } => {
+                    for branch in self.program.arena.if_branches(branches).to_vec() { self.mark_tail_position(branch.block, consumes_value); }
+                    if let Some(block) = else_block { self.mark_tail_position(block, consumes_value); }
+                }
+                ArenaStmtKind::Match { arms, .. } => {
+                    for arm in self.program.arena.match_arms(arms).to_vec() { self.mark_tail_position(arm.block, consumes_value); }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn compact_block_tail_type(&self, block: BlockId) -> Type {
+        if let Some(ty) = self.output.block_types.get(&block) { return ty.clone(); }
+        let tail = self.program.arena.stmt_ids(self.program.arena.block(block).statements).last();
+        match tail.map(|id| self.program.arena.stmt(id).kind) {
+            Some(ArenaStmtKind::Expr(expr)) => self.output.expr_types.get(&expr).cloned().unwrap_or(Type::Unknown),
+            Some(ArenaStmtKind::TailBareIdent(name)) => self.lookup_binding(name).map(|binding| binding.ty.clone()).unwrap_or(Type::Unknown),
+            Some(ArenaStmtKind::If { branches, else_block: Some(block) }) => {
+                let mut ty = Some(self.compact_block_tail_type(block));
+                for branch in self.program.arena.if_branches(branches) { ty = Some(merge_types(ty, self.compact_block_tail_type(branch.block))); }
+                ty.unwrap_or(Type::Unknown)
+            }
+            Some(ArenaStmtKind::Match { arms, .. }) => {
+                let mut ty = None;
+                for arm in self.program.arena.match_arms(arms) { ty = Some(merge_types(ty, self.compact_block_tail_type(arm.block))); }
+                ty.unwrap_or(Type::Unknown)
+            }
+            Some(ArenaStmtKind::Return(_)) | Some(ArenaStmtKind::Break { .. }) | Some(ArenaStmtKind::Continue) => Type::Unknown,
+            _ => Type::Unit,
         }
     }
 
@@ -917,6 +963,14 @@ impl CompactBodyProbe<'_> {
                 }
                 merge_types(ty, self.check_compact_expr(else_value))
             }
+            ArenaExprKind::ValueBlock(block) => {
+                self.push_scope();
+                self.check_compact_block_in_current_scope(block);
+                let ty = self.compact_block_tail_type(block);
+                self.mark_tail_position(block, true);
+                self.pop_scope();
+                ty
+            }
             ArenaExprKind::Loop { block } => {
                 self.check_compact_block(block);
                 Type::Unknown
@@ -925,8 +979,12 @@ impl CompactBodyProbe<'_> {
                 for delay in self.program.arena.expr_ids(delays) {
                     self.check_compact_expr(delay);
                 }
-                self.check_compact_block(block);
-                Type::Result(Box::new(Type::Unknown), Box::new(Type::Error))
+                self.push_scope();
+                self.check_compact_block_in_current_scope(block);
+                let ty = self.compact_block_tail_type(block);
+                self.mark_tail_position(block, true);
+                self.pop_scope();
+                Type::Result(Box::new(ty), Box::new(Type::Error))
             }
             ArenaExprKind::ListComp {
                 expr,
@@ -1307,6 +1365,7 @@ impl CompactBodyProbe<'_> {
         if let Some(block) = stream.block {
             self.stream_items.push(Type::Any);
             self.check_compact_block(block);
+            self.mark_tail_position(block, stream.kind != crate::syntax::node::StreamStageKind::Each);
             self.stream_items.pop();
         }
     }
@@ -1328,6 +1387,7 @@ impl CompactBodyProbe<'_> {
                 }
                 ArenaBuilderEntryKind::Task { block, .. } => {
                     self.check_compact_block(block);
+                    self.mark_tail_position(block, false);
                 }
                 ArenaBuilderEntryKind::Stmt(stmt) => {
                     self.check_compact_stmt(stmt);

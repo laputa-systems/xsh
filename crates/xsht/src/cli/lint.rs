@@ -668,6 +668,7 @@ fn lint_workspace_root(
         }
         let mut options = module.config.lint_options.clone();
         options.expr_types = checked.expr_types.clone();
+        options.statement_positions = checked.statement_positions.clone();
         options.callable_effects = checked.callable_effects.clone();
         options.terminating_call_spans = checked.terminating_call_spans.clone();
         let linted = if key == root {
@@ -1051,6 +1052,7 @@ fn lint_config_for_file(
         runless_except: tool_config.config.lint.runless_except,
         interactive_command_replacement: None,
         expr_types: Default::default(),
+        statement_positions: Default::default(),
         callable_effects: Default::default(),
         terminating_call_spans: Default::default(),
         dead_code: !is_path_excluded(
@@ -1112,6 +1114,7 @@ fn lint_one_file_with_fixes(
         .expect("checked program after clean parse");
     let mut lint_options = config.lint_options.clone();
     lint_options.expr_types = checked.expr_types.clone();
+    lint_options.statement_positions = checked.statement_positions.clone();
     lint_options.callable_effects = checked.callable_effects.clone();
     lint_options.terminating_call_spans = checked.terminating_call_spans.clone();
     let linted = Linter::lint(&checked_program.parsed.arena, &text, lint_options);

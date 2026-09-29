@@ -8,7 +8,7 @@
 pub mod check {
     pub use crate::sema::check::{
         AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, Checker,
-        CompactBodyProbeOutput, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
+        CompactBodyProbeOutput, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo, StatementPosition,
         ErrorFamilyInfo, ErrorVariantInfo, TagVariantInfo,
     };
     pub use crate::sema::records::record_schemas;

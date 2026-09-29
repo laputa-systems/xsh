@@ -281,7 +281,7 @@ pub const COMPACT_TOP_LEVEL_BLOCKER_KIND_COUNT: usize = 11;
 pub const COMPACT_FUNCTION_BLOCKER_KIND_COUNT: usize = 6;
 pub const COMPACT_TYPE_EXPR_TAG_COUNT: usize = 8;
 pub const COMPACT_STMT_KIND_COUNT: usize = 27;
-pub const COMPACT_EXPR_KIND_COUNT: usize = 39;
+pub const COMPACT_EXPR_KIND_COUNT: usize = 40;
 pub const COMPACT_CALL_BLOCKER_KIND_COUNT: usize = 6;
 pub const COMPACT_COMMAND_BLOCKER_KIND_COUNT: usize = 6;
 
@@ -1081,6 +1081,8 @@ enum BuildStmtRow {
         slot: usize,
         value: BuildBoolId,
     },
+    Value { value: BuildExprId },
+    Assert { value: BuildExprId, span: Span },
     Expr {
         value: BuildExprId,
         span: Span,
@@ -1272,6 +1274,7 @@ enum BuildBoolRow {
 
 enum StmtFlow {
     None,
+    Value(LoweredValue),
     Return(LoweredValue),
     Propagate(LoweredValue),
     Break(Option<LoweredValue>),
@@ -1458,6 +1461,7 @@ enum BuildExprRow {
         target: BuildExprId,
         span: Span,
     },
+    ValueBlock { body: Vec<BuildStmtId>, span: Span },
     Loop {
         body: Vec<BuildStmtId>,
         span: Span,
@@ -2762,6 +2766,7 @@ pub struct Evaluator {
     // then consume the value instead of copying it. Cleared for nested
     // expressions, whose arguments and operands may still read the old value.
     consuming_receiver: Option<usize>,
+    pending_value_block_flow: Option<StmtFlow>,
     trace_events: Vec<TraceEvent>,
     event_stack: Vec<TraceFrame>,
     call_stack: Vec<TracebackFrame>,
@@ -2988,6 +2993,7 @@ impl Evaluator {
             last_status: None,
             trace_enabled: false,
             consuming_receiver: None,
+            pending_value_block_flow: None,
             trace_events: Vec::new(),
             event_stack: Vec::new(),
             call_stack: Vec::new(),
@@ -3154,6 +3160,7 @@ impl Evaluator {
             last_status: None,
             trace_enabled: false,
             consuming_receiver: None,
+            pending_value_block_flow: None,
             trace_events: Vec::new(),
             event_stack: Vec::new(),
             call_stack: Vec::new(),

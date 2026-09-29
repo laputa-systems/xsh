@@ -9,12 +9,12 @@
 
 ## Return the SGR reset sequence, ending all active styling.
 export pure reset() -> Str {
-  return "\u{1b}[0m"
+  "\u{1b}[0m"
 }
 
 ## Return the SGR bold-intensify sequence.
 export pure bold() -> Str {
-  return "\u{1b}[1m"
+  "\u{1b}[1m"
 }
 
 ## Return the SGR faint-intensify sequence.

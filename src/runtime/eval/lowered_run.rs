@@ -9940,8 +9940,12 @@ impl Evaluator {
             StmtFlow::None | StmtFlow::Continue => {
                 LoweredRetryAttemptValue::Success(LoweredValue::Unit)
             }
-            // The retry body's trailing expression is lowered as `BreakValue`, so
-            // a successful attempt's value arrives as `Break(Some(..))`.
+            StmtFlow::Value(LoweredValue::ResultOk(value)) => LoweredRetryAttemptValue::Success(*value),
+            StmtFlow::Value(LoweredValue::ResultErr(error)) => LoweredRetryAttemptValue::Failed {
+                error: *error,
+                traceback: self.pending_traceback.take(),
+            },
+            StmtFlow::Value(value) => LoweredRetryAttemptValue::Success(value),
             StmtFlow::Break(Some(value)) => LoweredRetryAttemptValue::Success(value),
             StmtFlow::Break(None) => LoweredRetryAttemptValue::ControlBreak,
             // `?` failures inside the body propagate; the retry catches them and

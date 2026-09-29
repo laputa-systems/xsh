@@ -59,12 +59,20 @@ use self::types::{
     tail_type_matches_expected,
 };
 
+/// The checked purpose of a statement remains fixed when its value is unused.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StatementPosition {
+    Statement,
+    Value,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct CheckOutput {
     pub diagnostics: Vec<Diagnostic>,
     pub annotation_facts: Vec<AnnotationFact>,
     pub reveal_types: Vec<Diagnostic>,
     pub expr_types: BTreeMap<Span, Type>,
+    pub statement_positions: BTreeMap<Span, StatementPosition>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
     pub terminating_call_spans: BTreeSet<Span>,
 }
@@ -255,6 +263,7 @@ pub struct Checker {
     annotation_facts: Vec<AnnotationFact>,
     reveal_types: Vec<Diagnostic>,
     expr_types: BTreeMap<Span, Type>,
+    statement_positions: BTreeMap<Span, StatementPosition>,
     terminating_call_spans: BTreeSet<Span>,
     options: CheckOptions,
     current_return: Option<Type>,
@@ -308,6 +317,7 @@ impl Checker {
                 annotation_facts: checker.annotation_facts,
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
+                statement_positions: checker.statement_positions,
                 callable_effects,
                 terminating_call_spans: checker.terminating_call_spans,
             }
@@ -387,6 +397,7 @@ impl Checker {
                 annotation_facts: checker.annotation_facts,
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
+                statement_positions: checker.statement_positions,
                 callable_effects,
                 terminating_call_spans: checker.terminating_call_spans,
             }
@@ -413,6 +424,7 @@ impl Checker {
             annotation_facts: Vec::new(),
             reveal_types: Vec::new(),
             expr_types: BTreeMap::new(),
+            statement_positions: BTreeMap::new(),
             terminating_call_spans: BTreeSet::new(),
             options,
             current_return: None,

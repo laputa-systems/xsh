@@ -176,6 +176,12 @@ impl Checker {
             ArenaExprKind::Record(fields) => {
                 self.check_record_arena(arena, source, *fields, expected, expr.span)
             }
+            ArenaExprKind::ValueBlock(block) => {
+                self.push_scope();
+                let ty = self.check_tail_block_arena(arena, source, *block, expected);
+                self.pop_scope();
+                ty
+            }
             ArenaExprKind::If {
                 branches,
                 else_value,
@@ -476,19 +482,24 @@ impl Checker {
     ) -> Type {
         let mut inferred = None;
         for branch in arena.arena.if_expr_branches(branches) {
-            let condition =
-                self.check_expr_arena(arena, source, branch.condition, Some(&Type::Bool));
-            let cond_span = arena.arena.expr(branch.condition).span;
-            self.expect_type(&Type::Bool, &condition, cond_span);
+            let narrowings = self.check_condition_arena(arena, source, branch.condition, "check.if-condition");
+            self.push_scope();
+            self.apply_narrowings(&narrowings.when_true);
             let branch_expected = expected.or(inferred.as_ref());
             let actual = self.check_expr_arena(arena, source, branch.value, branch_expected);
             if let Some(branch_expected) = branch_expected {
                 let value_span = arena.arena.expr(branch.value).span;
                 self.expect_type(branch_expected, &actual, value_span);
             }
-            if inferred.is_none() {
+            if inferred.is_none() && !matches!(actual, Type::Unknown) {
                 inferred = Some(actual);
             }
+            self.pop_scope();
+        }
+        self.push_scope();
+        if arena.arena.if_expr_branches(branches).len() == 1 {
+            let narrowings = self.infer_condition_narrowings_arena(arena, arena.arena.if_expr_branches(branches)[0].condition);
+            self.apply_narrowings(&narrowings.when_false);
         }
         let else_expected = expected.or(inferred.as_ref());
         let else_ty = self.check_expr_arena(arena, source, else_value, else_expected);
@@ -496,6 +507,7 @@ impl Checker {
             let else_span = arena.arena.expr(else_value).span;
             self.expect_type(else_expected, &else_ty, else_span);
         }
+        self.pop_scope();
         expected.cloned().or(inferred).unwrap_or(else_ty)
     }
 
@@ -814,10 +826,13 @@ impl Checker {
                 let value_span = arena.arena.expr(arm.value).span;
                 self.expect_type(arm_expected, &actual, value_span);
             }
-            if inferred.is_none() {
+            if inferred.is_none() && !matches!(actual, Type::Unknown) {
                 inferred = Some(actual);
             }
             self.pop_scope();
+        }
+        if !super::stmt::patterns_are_exhaustive_arena(arena, &value_ty, arm_list.iter().filter(|arm| arm.guard.is_none()).map(|arm| arm.pattern), &self.type_defs, &self.tag_variants) {
+            self.error(span, "value-producing match must be exhaustive", "check.match-value-exhaustive");
         }
         self.check_tag_exhaustiveness_arena(
             arena,

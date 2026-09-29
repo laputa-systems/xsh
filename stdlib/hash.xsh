@@ -12,7 +12,7 @@
 # because the baseline rejects emptiness as an incomplete line before it
 # validates hexadecimal digits.
 pure is_hex_text(text: Str) -> Bool {
-  return text.lower().translate("0123456789abcdef", "").byte_len() == 0
+  text.lower().translate("0123456789abcdef", "").byte_len() == 0
 }
 
 # The failures the file verifier reports.

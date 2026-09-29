@@ -1675,6 +1675,7 @@ impl<'a> Writer<'a> {
                 self.write_type(*schema, output);
                 output.push(')');
             }
+            ArenaExprKind::ValueBlock(block) => self.write_block(*block, indent_for_expr(output), output),
             ArenaExprKind::Loop { block } => {
                 output.push_str("loop ");
                 self.write_block(*block, 0, output);
@@ -1901,24 +1902,34 @@ impl<'a> Writer<'a> {
         else_value: ExprId,
         output: &mut String,
     ) {
-        if let Some(first) = self.arena.if_expr_branches(branches).first().cloned() {
-            output.push_str("if ");
-            self.write_expr(first.condition, 0, output);
-            output.push_str(" { ");
-            self.write_expr(first.value, 0, output);
-            output.push_str(" }");
-            for index in 1..branches.len() {
-                let branch = self.arena.if_expr_branches(branches)[index].clone();
-                output.push_str(" else if ");
-                self.write_expr(branch.condition, 0, output);
-                output.push_str(" { ");
-                self.write_expr(branch.value, 0, output);
-                output.push_str(" }");
-            }
+        let indent = indent_for_expr(output);
+        for (index, branch) in self.arena.if_expr_branches(branches).to_vec().iter().enumerate() {
+            output.push_str(if index == 0 { "if " } else { " else if " });
+            self.write_expr(branch.condition, 0, output);
+            output.push(' ');
+            self.write_value_branch(branch.value, indent, output);
         }
-        output.push_str(" else { ");
-        self.write_expr(else_value, 0, output);
-        output.push_str(" }");
+        output.push_str(" else ");
+        self.write_value_branch(else_value, indent, output);
+    }
+
+    fn write_value_branch(&mut self, value: ExprId, indent: usize, output: &mut String) {
+        if let ArenaExprKind::ValueBlock(block) = self.arena.expr(value).kind {
+            let statements = self.arena.stmt_ids(self.arena.block(block).statements).collect::<Vec<_>>();
+            let span = self.arena.span(self.arena.block(block).span);
+            let simple = statements.len() == 1 && !self.source.get(span.range()).is_some_and(|text| text.contains('#'));
+            if simple && (self.inline_only || !self.expr_source_is_multiline(value)) {
+                match self.arena.stmt(statements[0]).kind {
+                    ArenaStmtKind::Expr(expr) => { output.push_str("{ "); self.write_expr(expr, 0, output); output.push_str(" }"); }
+                    ArenaStmtKind::TailBareIdent(name) => { output.push_str("{ "); output.push_str(name.as_str().as_str()); output.push_str(" }"); }
+                    _ => self.write_block(block, indent, output),
+                }
+            } else { self.write_block(block, indent, output); }
+        } else {
+            output.push_str("{ ");
+            self.write_expr(value, 0, output);
+            output.push_str(" }");
+        }
     }
 
     fn write_if_expr_multiline(
@@ -1928,33 +1939,16 @@ impl<'a> Writer<'a> {
         output: &mut String,
     ) {
         let indent = indent_for_expr(output);
-        if let Some(first) = self.arena.if_expr_branches(branches).first().cloned() {
-            output.push_str("if ");
-            self.write_expr(first.condition, 0, output);
-            output.push_str(" {\n");
-            self.write_indent(indent + 1, output);
-            self.write_expr_safe(first.value, output);
-            output.push('\n');
-            self.write_indent(indent, output);
-            output.push('}');
-            for index in 1..branches.len() {
-                let branch = self.arena.if_expr_branches(branches)[index].clone();
-                output.push_str(" else if ");
-                self.write_expr(branch.condition, 0, output);
-                output.push_str(" {\n");
-                self.write_indent(indent + 1, output);
-                self.write_expr_safe(branch.value, output);
-                output.push('\n');
-                self.write_indent(indent, output);
-                output.push('}');
-            }
+        for (index, branch) in self.arena.if_expr_branches(branches).to_vec().iter().enumerate() {
+            output.push_str(if index == 0 { "if " } else { " else if " });
+            self.write_expr(branch.condition, 0, output);
+            output.push(' ');
+            if let ArenaExprKind::ValueBlock(block) = self.arena.expr(branch.value).kind { self.write_block(block, indent, output); }
+            else { output.push_str("{\n"); self.write_indent(indent + 1, output); self.write_expr_safe(branch.value, output); output.push('\n'); self.write_indent(indent, output); output.push('}'); }
         }
-        output.push_str(" else {\n");
-        self.write_indent(indent + 1, output);
-        self.write_expr_safe(else_value, output);
-        output.push('\n');
-        self.write_indent(indent, output);
-        output.push('}');
+        output.push_str(" else ");
+        if let ArenaExprKind::ValueBlock(block) = self.arena.expr(else_value).kind { self.write_block(block, indent, output); }
+        else { output.push_str("{\n"); self.write_indent(indent + 1, output); self.write_expr_safe(else_value, output); output.push('\n'); self.write_indent(indent, output); output.push('}'); }
     }
 
     fn write_match_expr(

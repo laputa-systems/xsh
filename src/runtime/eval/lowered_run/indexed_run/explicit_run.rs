@@ -1304,7 +1304,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 match flow {
                     StmtFlow::None => Ok(()),
-                    StmtFlow::Return(value) => self.complete_call(index, StmtFlow::Return(value)),
+                    StmtFlow::Value(value) | StmtFlow::Return(value) => self.complete_call(index, StmtFlow::Return(value)),
                     StmtFlow::Propagate(value) => {
                         self.complete_call(index, StmtFlow::Propagate(value))
                     }
@@ -1782,6 +1782,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         value: FrameValue,
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
+        if let Some(flow) = self.evaluator.pending_value_block_flow.take() {
+            return match flow {
+                StmtFlow::Break(_) => self.break_loop(index),
+                StmtFlow::Continue => self.continue_loop(index),
+                flow => self.complete_call(index, flow),
+            };
+        }
         match next {
             FrameContinuation::Store(slot) => match value {
                 FrameValue::Value(value) => {
@@ -2798,7 +2805,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             .header()
             .map_err(|error| indexed_error(error, call.call_span))?;
         let value = match flow {
-            StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
+            StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
                 lowered_return_value(header.return_kind, value, call.call_span)
             }
             // A producer ends by running out of statements; that is the end of

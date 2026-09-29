@@ -285,3 +285,20 @@ Diagnostics should name expected and actual types when that helps explain the
 failure. Diagnostics must not expose recovery types as user-facing source types.
 When recovery is necessary, later checks should prefer suppressing cascades over
 guessing a misleading concrete type.
+
+## Checked Statement and Value Positions
+
+The checker records `StatementPosition` for each checked statement in
+`CheckOutput::statement_positions`; compact body facts retain the same distinction
+by `StmtId`. Initializers and call/return payloads consume values. Function tails
+consume their declared non-Unit value, and callback/retry tails infer their result
+before classifying booleans. Unit and Result[Unit] tails retain statement behavior.
+A Bool in statement position asserts; a Bool in value position retains false.
+
+Value branches may contain lexical statements followed by a compatible tail.
+Every reachable value branch must agree; `if` requires `else`, and `match` must
+cover its subject without relying on guards. Diverging branches contribute no
+Unit value. Ordinary branch scopes apply the same null refinements in expression
+and statement syntax. Result success wrapping remains at the function boundary.
+`tests/xsh/value-blocks.xsh` covers branch values, Bool contexts, records, and
+lexical control transfer.

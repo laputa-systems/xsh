@@ -1,6 +1,6 @@
 use super::{
     Binding, Checker, Name, call_arg_expr_id_arena, call_arg_span_arena,
-    command_stmt_asserts_success_arena, command_ty_auto_propagates,
+
 };
 use crate::sema::types::Type;
 use crate::syntax::arena::{
@@ -486,6 +486,7 @@ impl Checker {
             std::slice::from_ref(item_ty),
             1,
             item_ty,
+            (stage.kind == StreamStageKind::Each).then_some(&Type::Unit),
         )
     }
 
@@ -516,6 +517,7 @@ impl Checker {
             &[acc_ty.clone(), item_ty.clone()],
             2,
             item_ty,
+            Some(acc_ty),
         )
     }
 
@@ -527,6 +529,7 @@ impl Checker {
         param_tys: &[Type],
         max_params: usize,
         item_ty: &Type,
+        expected: Option<&Type>,
     ) -> Type {
         let block = arena.arena.block(block_id);
         let params = arena.arena.block_params(block.params);
@@ -555,7 +558,7 @@ impl Checker {
         let stmt_ids: Vec<_> = arena.arena.stmt_ids(block.statements).collect();
         for (index, stmt_id) in stmt_ids.iter().enumerate() {
             if index + 1 == stmt_ids.len() {
-                tail_ty = self.check_stream_tail_stmt_arena(arena, source, *stmt_id);
+                tail_ty = self.check_tail_stmt_arena(arena, source, *stmt_id, expected);
             } else {
                 self.check_stmt_arena(arena, source, *stmt_id);
             }
@@ -563,88 +566,6 @@ impl Checker {
         self.stream_item_types.pop();
         self.pop_scope();
         tail_ty
-    }
-
-    fn check_stream_tail_if_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        branches: crate::syntax::arena::ArenaRange,
-        else_block: Option<crate::syntax::arena::BlockId>,
-    ) -> Type {
-        let branch_list = arena.arena.if_branches(branches);
-        let mut inferred = None;
-        for branch in branch_list {
-            let condition =
-                self.check_expr_arena(arena, source, branch.condition, Some(&Type::Bool));
-            let condition_span = arena.arena.expr(branch.condition).span;
-            self.expect_type(&Type::Bool, &condition, condition_span);
-            self.push_scope();
-            let branch_ty = match else_block {
-                Some(_) => {
-                    self.check_tail_block_arena(arena, source, branch.block, inferred.as_ref())
-                }
-                None => {
-                    self.check_block_arena(arena, source, branch.block);
-                    Type::Unit
-                }
-            };
-            if inferred.is_none() && !matches!(branch_ty, Type::Unknown) {
-                inferred = Some(branch_ty);
-            }
-            self.pop_scope();
-        }
-        let Some(else_block) = else_block else {
-            return Type::Unit;
-        };
-        self.push_scope();
-        let else_ty = self.check_tail_block_arena(arena, source, else_block, inferred.as_ref());
-        self.pop_scope();
-        inferred.unwrap_or(else_ty)
-    }
-
-    fn check_stream_tail_stmt_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        stmt_id: crate::syntax::arena::StmtId,
-    ) -> Type {
-        let stmt = arena.arena.stmt(stmt_id);
-        match stmt.kind {
-            crate::syntax::arena::ArenaStmtKind::Expr(expr_id) => {
-                self.check_expr_arena(arena, source, expr_id, None)
-            }
-            crate::syntax::arena::ArenaStmtKind::TailBareIdent(name) => {
-                self.check_tail_bare_ident_arena(arena, source, name, stmt.span)
-            }
-            crate::syntax::arena::ArenaStmtKind::If {
-                branches,
-                else_block,
-            } => self.check_stream_tail_if_arena(arena, source, branches, else_block),
-            crate::syntax::arena::ArenaStmtKind::Command(command_id) => {
-                if self.in_pure {
-                    self.error(
-                        stmt.span,
-                        "commands are not allowed in pure functions",
-                        "check.pure-command",
-                    );
-                }
-                let command = arena.arena.command_stmt(command_id);
-                let ty = self.check_command_arena(arena, source, &command.command, stmt.span);
-                if command_stmt_asserts_success_arena(arena, &command.command) {
-                    return Type::Unit;
-                }
-                if command.propagate || command_ty_auto_propagates(&ty) {
-                    self.check_propagation(&ty, stmt.span)
-                } else {
-                    ty
-                }
-            }
-            _ => {
-                self.check_stmt_arena(arena, source, stmt_id);
-                Type::Unit
-            }
-        }
     }
 
     fn check_stage_no_args_arena(&mut self, arena: &ArenaProgram, stage: &ArenaStreamStage) {
