@@ -25,6 +25,7 @@ pub enum LiteralConstant {
     Path(Arc<str>),
     Bytes(Arc<[u8]>),
     EmptyMap,
+    Map(Arc<BTreeMap<Arc<str>, LiteralConstant>>),
     List(Arc<Vec<LiteralConstant>>),
     Record(Arc<BTreeMap<Name, LiteralConstant>>),
 }
@@ -32,7 +33,10 @@ pub enum LiteralConstant {
 impl LiteralConstant {
     pub fn in_type(self, expected: &Type) -> Self {
         match (self, expected) {
-            (Self::Record(values), Type::Map(_)) if values.is_empty() => Self::EmptyMap,
+            (Self::Record(values), Type::Map(item)) => Self::Map(Arc::new(values.iter()
+                .map(|(name, value)| (Arc::from(name.as_str().as_str()), value.clone().in_type(item))).collect())),
+            (Self::Map(values), Type::Map(item)) => Self::Map(Arc::new(values.iter()
+                .map(|(name, value)| (name.clone(), value.clone().in_type(item))).collect())),
             (Self::List(values), Type::List(item)) => Self::List(Arc::new(values.iter()
                 .cloned().map(|value| value.in_type(item)).collect())),
             (Self::Record(values), Type::Record(fields)) => Self::Record(Arc::new(values.iter()
@@ -65,6 +69,32 @@ impl LiteralConstant {
                     else { Self::analyze(arena, item.value, bindings) }
                 }).collect::<Option<Vec<_>>>()?,
             )),
+            ArenaExprKind::Record(fields) if arena.record_fields(fields).iter().any(|field|
+                matches!(field.kind, ArenaRecordFieldKind::Computed { .. })) => {
+                let mut values = BTreeMap::new();
+                for field in arena.record_fields(fields) {
+                    let (key, value) = match field.kind {
+                        ArenaRecordFieldKind::Computed { key, value, .. } => {
+                            let Self::Str(key) = Self::analyze(arena, key, bindings)? else { return None; };
+                            (key, Self::analyze(arena, value, bindings)?)
+                        }
+                        ArenaRecordFieldKind::Named { name, value, .. } =>
+                            (Arc::from(name.as_str().as_str()), Self::analyze(arena, value, bindings)?),
+                        ArenaRecordFieldKind::Shorthand { name, .. } =>
+                            (Arc::from(name.as_str().as_str()), bindings.get(&name)?.clone()),
+                        ArenaRecordFieldKind::Spread { value, .. } => {
+                            match Self::analyze(arena, value, bindings)? {
+                                Self::Map(entries) => values.extend(entries.iter().map(|(key, value)| (key.clone(), value.clone()))),
+                                Self::EmptyMap => {},
+                                _ => return None,
+                            }
+                            continue;
+                        }
+                    };
+                    values.insert(key, value);
+                }
+                Self::Map(Arc::new(values))
+            }
             ArenaExprKind::Record(fields) => {
                 let mut values = BTreeMap::new();
                 for field in arena.record_fields(fields) {

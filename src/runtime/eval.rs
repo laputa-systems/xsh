@@ -1316,6 +1316,7 @@ enum BuildExprRow {
     Str(Arc<str>),
     Bytes(Arc<[u8]>),
     PreparedRegex(RegexValue),
+    PreparedConstant(LoweredValue),
     Path(PathValue),
     FunctionRef {
         function: FunctionName,

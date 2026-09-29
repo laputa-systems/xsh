@@ -116,6 +116,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprStr,
     ExprBytes,
     ExprPreparedRegex,
+    ExprPreparedConstant,
     ExprPath,
     ExprFunctionRef,
     ExprPathFrom,
@@ -6628,6 +6629,9 @@ impl_node_codec! {
         BuildExprRow::Str(value) => ExprStr {
             value: Arc<str>,
         } => BuildExprRow::Str(value),
+        BuildExprRow::PreparedConstant(value) => ExprPreparedConstant {
+            value: LoweredValue,
+        } => BuildExprRow::PreparedConstant(value),
         BuildExprRow::PreparedRegex(value) => ExprPreparedRegex {
             value: RegexValue,
         } => BuildExprRow::PreparedRegex(value),

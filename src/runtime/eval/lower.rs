@@ -3006,6 +3006,7 @@ fn lower_literal_constant(value: &crate::sema::constants::LiteralConstant) -> Op
         C::Bytes(value) => LoweredValue::Bytes(value.clone()),
         C::Path(value) => LoweredValue::Path(PathValue::from_text(value).ok()?),
         C::EmptyMap => LoweredValue::Map(Arc::new(BTreeMap::new())),
+        C::Map(values) => LoweredValue::Map(Arc::new(values.iter().map(|(key, value)| Some((key.to_string(), lower_literal_constant(value)?))).collect::<Option<BTreeMap<_, _>>>()?)),
         C::List(values) => LoweredValue::List(values.iter().map(lower_literal_constant).collect::<Option<Vec<_>>>()?),
         C::Record(values) => LoweredValue::Record(Arc::new(values.iter().map(|(name, value)| Some((Arc::<str>::from(name.as_str().as_str()), lower_literal_constant(value)?))).collect::<Option<BTreeMap<_, _>>>()?)),
     })
@@ -9163,6 +9164,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             C::Bytes(value) => BuildExprRow::Bytes(value.clone()),
             C::Path(value) => BuildExprRow::Path(PathValue::from_text(value).ok()?),
             C::EmptyMap => BuildExprRow::EmptyMap,
+            C::Map(_) => BuildExprRow::PreparedConstant(lower_literal_constant(value)?),
             C::List(values) => BuildExprRow::List(values.iter().map(|value| self.lower_record_default(value)).collect::<Option<Vec<_>>>()?),
             C::Record(values) => BuildExprRow::Record(values.iter().map(|(name, value)| Some(LoweredRecordEntry::Field(*name, self.lower_record_default(value)?))).collect::<Option<Vec<_>>>()?),
         };
