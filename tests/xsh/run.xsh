@@ -252,6 +252,26 @@ fs read
   test.contains(output.stderr, "check.unresolved-proc-command")?
 }
 
+test test_call_splices_preserve_shared_and_constant_lists [error] { |ctx|
+  let result = test.run_script(ctx, r"""
+const prepared = ["constant", "backing"]
+proc pair(a: Str, b: Str) -> Result[Unit] {
+  print ${a} ${b}
+  Ok()
+}
+let parts = ["left", "right"]
+pair(@parts)?
+pair(@prepared)?
+pair(@parts)?
+pair(@prepared)?
+var order = 0
+pair(@{ order = order * 10 + 1; ["first"] }, @{ order = order * 10 + 2; ["second"] })?
+print $order
+""")?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "left right\nconstant backing\nleft right\nconstant backing\nfirst second\n12\n")?
+}
+
 test test_nul_run_targets_proc_splice_and_match_diagnostics [error] { |ctx|
   let nul_target = test.run_script(
     ctx,

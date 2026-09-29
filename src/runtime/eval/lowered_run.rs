@@ -3276,6 +3276,10 @@ fn lowered_splice_arg_items(
 ) -> Result<Vec<LoweredValue>, RuntimeError> {
     match value {
         LoweredValue::List(items) => Ok(items),
+        LoweredValue::SharedList(items) => match Arc::try_unwrap(items) {
+            Ok(items) => Ok(items),
+            Err(items) => Ok(items.as_ref().clone()),
+        },
         other => Err(RuntimeError::new(
             "type-error",
             format!("`@` expected List, found {}", other.type_name()),

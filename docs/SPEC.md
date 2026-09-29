@@ -1508,7 +1508,8 @@ In statement position, unsuccessful `Result[Unit]` proc calls propagate by
 default.
 
 Expression-call arguments may splice a list into positional arguments with
-`@expr`, for example `main(@args)?`.
+`@expr`, for example `main(@args)?`. Splicing preserves the source list and
+accepts prepared constant lists under the same contract as ordinary lists.
 
 Procs returning a value may be called in expressions, and the call remains
 effectful:
