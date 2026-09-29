@@ -91,13 +91,53 @@ struct RunSegment {
     cpu_max: Option<u32>,
 }
 
+// Diagnostics retain only bounded scalar text; reporting never traverses or
+// materializes containers and never reevaluates an operand.
+fn assertion_operand_text(value: &LoweredValue, span: Span) -> String {
+    match value {
+        LoweredValue::Str(value) => bounded_assertion_text(value, 160),
+        LoweredValue::StrView(value) => bounded_assertion_text(value.as_str(), 160),
+        LoweredValue::Path(value) => {
+            let bytes = &value.bytes[..value.bytes.len().min(640)];
+            let mut text = bounded_assertion_text(&String::from_utf8_lossy(bytes), 160);
+            if bytes.len() < value.bytes.len() && !text.ends_with('…') { text.push('…'); }
+            text
+        }
+        LoweredValue::Error(value) => match value.as_ref() {
+            Value::Error(error) => bounded_assertion_text(&error.message, 160),
+            _ => "<Error>".into(),
+        },
+        LoweredValue::Int(_) | LoweredValue::Float(_) | LoweredValue::Duration(_)
+        | LoweredValue::Bool(_) | LoweredValue::Status(_) => {
+            let mut text = String::new();
+            if super::push_lowered_display(&mut text, value, span).is_err() {
+                return format!("<{}>", value.type_name());
+            }
+            bounded_assertion_text(&text, 160)
+        }
+        _ => format!("<{}>", value.type_name()),
+    }
+}
+
+fn bounded_assertion_text(text: &str, limit: usize) -> String {
+    let mut chars = text.chars();
+    let mut output: String = chars.by_ref().take(limit).collect();
+    if chars.next().is_some() { output.push('…'); }
+    output
+}
+
 fn comparison_chain_assertion_failure(op: BinaryOp, left: &LoweredValue, right: &LoweredValue, span: Span) -> Result<RuntimeError, RuntimeError> {
-    let mut left_text = String::new();
-    let mut right_text = String::new();
-    super::push_lowered_display(&mut left_text, left, span)?;
-    super::push_lowered_display(&mut right_text, right, span)?;
-    let operator = match op { BinaryOp::Lt => "<", BinaryOp::Le => "<=", BinaryOp::Gt => ">", BinaryOp::Ge => ">=", _ => unreachable!() };
-    Ok(RuntimeError::new("assertion-failed", format!("ordering comparison failed: {left_text} {operator} {right_text}")).with_span(span))
+    let left_text = assertion_operand_text(left, span);
+    let right_text = assertion_operand_text(right, span);
+    let operator = match op { BinaryOp::Eq => "==", BinaryOp::Ne => "!=", BinaryOp::Lt => "<", BinaryOp::Le => "<=", BinaryOp::Gt => ">", BinaryOp::Ge => ">=", _ => unreachable!() };
+    let label = if matches!(op, BinaryOp::Eq | BinaryOp::Ne) { "comparison" } else { "ordering comparison" };
+    Ok(RuntimeError::new("assertion-failed", format!("{label} failed: {left_text} {operator} {right_text}")).with_span(span))
+}
+
+enum AssertionWork {
+    Expr(u32),
+    Left { op: BinaryOp, right: u32 },
+    Right { op: BinaryOp, left_failure: Option<RuntimeError> },
 }
 
 enum BinaryWork {
@@ -7126,6 +7166,113 @@ impl Evaluator {
         Ok(result)
     }
 
+    fn eval_indexed_assertion(
+        &mut self,
+        execution: &FullExecution<'_>,
+        condition: u32,
+        slots: &mut [LoweredValue],
+        span: Span,
+    ) -> Result<ControlFlow<LoweredValue, (bool, Option<RuntimeError>)>, RuntimeError> {
+        let mut work = vec![AssertionWork::Expr(condition)];
+        let mut result = (true, None);
+        while let Some(item) = work.pop() {
+            match item {
+                AssertionWork::Left { op, right } => {
+                    if (op == BinaryOp::And && !result.0) || (op == BinaryOp::Or && result.0) {
+                        if !result.0 {
+                            let failure = result.1.get_or_insert_with(|| RuntimeError::new("assertion-failed", "boolean assertion failed").with_span(span));
+                            failure.message = bounded_assertion_text(&format!("{} (right operand skipped)", failure.message), 1024);
+                        }
+                    } else {
+                        work.push(AssertionWork::Right { op, left_failure: result.1.take() });
+                        work.push(AssertionWork::Expr(right));
+                    }
+                }
+                AssertionWork::Right { op, left_failure } => {
+                    if op == BinaryOp::Or && !result.0 && let Some(left_failure) = left_failure {
+                        let right = result.1.take().map(|error| error.message).unwrap_or_else(|| "boolean assertion failed".into());
+                        result.1 = Some(RuntimeError::new("assertion-failed", bounded_assertion_text(&format!("{}; {}", left_failure.message, right), 1024)).with_span(span));
+                    }
+                }
+                AssertionWork::Expr(instruction) => {
+                    let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), span)?;
+                    if tag == FullTag::ExprBinary {
+                        let op = indexed_decode::<BinaryOp>(&mut payload, execution, span)?;
+                        let left = indexed_raw(&mut payload, span)?;
+                        let right = indexed_raw(&mut payload, span)?;
+                        let operand_span = indexed_decode::<Span>(&mut payload, execution, span)?;
+                        indexed_finish(payload, span)?;
+                        if matches!(op, BinaryOp::And | BinaryOp::Or) {
+                            work.push(AssertionWork::Left { op, right });
+                            work.push(AssertionWork::Expr(left));
+                            continue;
+                        }
+                        if matches!(op, BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge) {
+                            let left = match self.eval_indexed_expr(execution, left, slots, operand_span)? {
+                                ControlFlow::Continue(value) => value,
+                                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                            };
+                            let right = match self.eval_indexed_expr(execution, right, slots, operand_span)? {
+                                ControlFlow::Continue(value) => value,
+                                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                            };
+                            let value = lowered_binary_value(op, left.clone(), right.clone(), operand_span)?;
+                            let LoweredValue::Bool(passed) = value else {
+                                return Err(RuntimeError::new("type-error", "assert condition requires Bool").with_span(operand_span));
+                            };
+                            result = (passed, if passed { None } else { Some(comparison_chain_assertion_failure(op, &left, &right, operand_span)?) });
+                            continue;
+                        }
+                    }
+                    if tag == FullTag::ExprComparisonChain {
+                        let (_, mut pairs) = execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
+                        let len = indexed_raw(&mut pairs, span)? as usize;
+                        indexed_decode::<bool>(&mut payload, execution, span)?;
+                        indexed_finish(payload, span)?;
+                        let mut previous = None;
+                        result = (true, None);
+                        for index in 0..len {
+                            let pair = indexed_raw(&mut pairs, span)?;
+                            let (pair_tag, mut pair_payload) = indexed_value(execution.instruction_id(pair), span)?;
+                            if pair_tag != FullTag::ExprBinary { return Err(RuntimeError::new("indexed-ir", "comparison chain requires binary pairs").with_span(span)); }
+                            let op = indexed_decode::<BinaryOp>(&mut pair_payload, execution, span)?;
+                            let left = indexed_raw(&mut pair_payload, span)?;
+                            let right = indexed_raw(&mut pair_payload, span)?;
+                            let operand_span = indexed_decode::<Span>(&mut pair_payload, execution, span)?;
+                            indexed_finish(pair_payload, span)?;
+                            let left = match previous.take() {
+                                Some(value) => value,
+                                None => match self.eval_indexed_expr(execution, left, slots, operand_span)? {
+                                    ControlFlow::Continue(value) => value,
+                                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                                },
+                            };
+                            let right = match self.eval_indexed_expr(execution, right, slots, operand_span)? {
+                                ControlFlow::Continue(value) => value,
+                                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                            };
+                            if lowered_binary_value(op, left.clone(), right.clone(), operand_span)? == LoweredValue::Bool(false) {
+                                let mut failure = comparison_chain_assertion_failure(op, &left, &right, operand_span)?;
+                                if index + 1 < len { failure.message.push_str(" (later operands skipped)"); }
+                                result = (false, Some(failure));
+                                break;
+                            }
+                            previous = Some(right);
+                        }
+                        continue;
+                    }
+                    match self.eval_indexed_expr(execution, instruction, slots, span) {
+                        Ok(ControlFlow::Continue(LoweredValue::Bool(passed))) => result = (passed, None),
+                        Ok(ControlFlow::Continue(_)) => return Err(RuntimeError::new("type-error", "assert condition requires Bool").with_span(span)),
+                        Ok(ControlFlow::Break(value)) => return Ok(ControlFlow::Break(value)),
+                        Err(error) => return Err(error),
+                    }
+                }
+            }
+        }
+        Ok(ControlFlow::Continue(result))
+    }
+
     fn eval_indexed_binary_stack(
         &mut self,
         execution: &FullExecution<'_>,
@@ -7740,13 +7887,33 @@ impl Evaluator {
             }
             FullTag::StmtAssert => {
                 let value = indexed_raw(&mut payload, call_span)?;
+                let message = match indexed_raw(&mut payload, call_span)? {
+                    0 => None,
+                    1 => Some(indexed_raw(&mut payload, call_span)?),
+                    _ => return Err(RuntimeError::new("indexed-ir", "invalid assertion message option").with_span(call_span)),
+                };
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                match self.eval_indexed_expr(execution, value, slots, span)? {
-                    ControlFlow::Continue(LoweredValue::Bool(false)) => Err(RuntimeError::new("assertion-failed", "boolean assertion failed").with_span(span)),
-                    ControlFlow::Continue(_) => Ok(StmtFlow::None),
-                    ControlFlow::Break(value) => Ok(StmtFlow::Propagate(value)),
+                let failure = match self.eval_indexed_assertion(execution, value, slots, span)? {
+                    ControlFlow::Continue((true, _)) => return Ok(StmtFlow::None),
+                    ControlFlow::Continue((false, failure)) => failure,
+                    ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
+                };
+                let mut failure = failure.unwrap_or_else(|| RuntimeError::new("assertion-failed", "boolean assertion failed").with_span(span));
+                if let Some(message) = message {
+                    let context = match self.eval_indexed_expr(execution, message, slots, span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => return Ok(StmtFlow::Propagate(value)),
+                    };
+                    let context = match context {
+                        LoweredValue::Str(text) => bounded_assertion_text(&text, 1024),
+                        LoweredValue::StrView(text) => bounded_assertion_text(text.as_str(), 1024),
+                        _ => return Err(RuntimeError::new("type-error", "assert message requires Str").with_span(span)),
+                    };
+                    failure.message.push_str(": ");
+                    failure.message.push_str(&context);
                 }
+                Err(failure)
             }
             FullTag::StmtExpr => {
                 let value = indexed_raw(&mut payload, call_span)?;

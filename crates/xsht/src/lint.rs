@@ -433,6 +433,7 @@ impl<'a> Linter<'a> {
             | ArenaStmtKind::Continue
             | ArenaStmtKind::Command(_)
             | ArenaStmtKind::TailBareIdent(_)
+            | ArenaStmtKind::Assert { .. }
             | ArenaStmtKind::Expr(_) => {}
         }
     }
@@ -819,6 +820,10 @@ impl<'a> Linter<'a> {
                 self.lint_expr(condition);
                 self.lint_block(else_block);
             }
+            ArenaStmtKind::Assert { condition, message } => {
+                self.lint_expr(condition);
+                self.lint_expr(message);
+            }
             ArenaStmtKind::GuardedStmt {
                 stmt: inner,
                 condition,
@@ -871,7 +876,10 @@ impl<'a> Linter<'a> {
             }
             ArenaStmtKind::Command(command) => self.lint_command_stmt(command),
             ArenaStmtKind::TailBareIdent(name) => self.mark_used(name.as_str().as_str()),
-            ArenaStmtKind::Expr(expr) => self.lint_expr(expr),
+            ArenaStmtKind::Expr(expr) => {
+                self.lint_core_assert(stmt.span, expr);
+                self.lint_expr(expr);
+            },
             ArenaStmtKind::With {
                 bindings,
                 body,
@@ -888,6 +896,59 @@ impl<'a> Linter<'a> {
                 self.regex_recovery_context = old_regex_context;
             }
         }
+    }
+
+    fn lint_core_assert(&mut self, stmt_span: Span, expression: ExprId) {
+        if self.statement_positions.get(&stmt_span) != Some(&xsh::frontend::check::StatementPosition::Statement) { return; }
+        let call = match self.arena.expr(expression).kind {
+            ArenaExprKind::Try(call) => call,
+            ArenaExprKind::Call { .. } => expression,
+            _ => return,
+        };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(call).kind else { return; };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(module) if module.as_str().as_str() == "test") { return; }
+        let operation = name.as_str();
+        let arity = match operation.as_str() { "ok" => 2, "eq" | "ne" => 3, _ => return };
+        let args = self.arena.call_args(args).to_vec();
+        if args.len() != arity { return; }
+        let mut values = Vec::new();
+        for (index, arg) in args.iter().enumerate() {
+            match arg.kind {
+                ArenaCallArgKind::Positional(value) => values.push(value),
+                ArenaCallArgKind::Named { name: label, value, .. } if index + 1 == arity && label.as_str().as_str() == "message" => values.push(value),
+                _ => return,
+            }
+        }
+        if !matches!(self.expr_types.get(&self.arena.expr(call).span), Some(Type::Result(ok, _)) if **ok == Type::Unit) { return; }
+        let condition = if operation.as_str() == "ok" {
+            if self.expr_types.get(&self.arena.expr(values[0]).span) != Some(&Type::Bool) { return; }
+            self.source[self.arena.expr(values[0]).span.range()].to_string()
+        } else {
+            let left = self.expr_types.get(&self.arena.expr(values[0]).span);
+            let right = self.expr_types.get(&self.arena.expr(values[1]).span);
+            if left != right || !matches!(left, Some(Type::Bool | Type::Int | Type::Float | Type::Duration | Type::Str | Type::Bytes | Type::Path)) { return; }
+            let op = if operation.as_str() == "eq" { "==" } else { "!=" };
+            format!("({}) {op} ({})", &self.source[self.arena.expr(values[0]).span.range()], &self.source[self.arena.expr(values[1]).span.range()])
+        };
+        let message = *values.last().unwrap();
+        if self.expr_types.get(&self.arena.expr(message).span) != Some(&Type::Str) { return; }
+        let mut diagnostic = Diagnostic::warning("use a core assertion for statement assertion context")
+            .with_code("lint.core-assert")
+            .with_label(Label::primary(self.arena.expr(expression).span, "assert condition, message"));
+        // Only a literal message can be delayed without changing eager effects,
+        // failure timing, or observation of a binding changed by an operand.
+        if matches!(self.arena.expr(message).kind, ArenaExprKind::Str(_))
+            && !self.source[self.arena.expr(expression).span.range()].contains('#') {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(
+                self.arena.expr(expression).span,
+                "use failure-only assertion context",
+                format!("assert {condition}, {}", &self.source[self.arena.expr(message).span.range()]),
+            ));
+        } else {
+            diagnostic = diagnostic.with_note("the existing message runs eagerly; retain this call or bind operands and then the message in their original order before asserting");
+        }
+        self.diagnostics.push(diagnostic);
     }
 
     fn lint_inferred_pure_return(&mut self, id: FunctionDefId, exported: bool) {
@@ -5123,6 +5184,10 @@ fn lazy_visit_stmt(
             lazy_visit_expr(arena, condition, out);
             lazy_visit_block(arena, else_block, out);
         }
+        ArenaStmtKind::Assert { condition, message } => {
+            lazy_visit_expr(arena, condition, out);
+            lazy_visit_expr(arena, message, out);
+        }
         ArenaStmtKind::GuardedStmt { stmt, condition, .. } => {
             lazy_visit_expr(arena, condition, out);
             lazy_visit_stmt(arena, stmt, out);
@@ -6301,6 +6366,10 @@ fn stmt_contains_read_text_lines_call(arena: &AstArena, stmt: StmtId) -> bool {
                 || block_contains_read_text_lines_call(arena, else_block)
         }
         ArenaStmtKind::BooleanGuard { condition, else_block } => expr_contains_read_text_lines_call(arena, condition) || block_contains_read_text_lines_call(arena, else_block),
+        ArenaStmtKind::Assert { condition, message } => {
+            expr_contains_read_text_lines_call(arena, condition)
+                || expr_contains_read_text_lines_call(arena, message)
+        }
         ArenaStmtKind::GuardedStmt {
             stmt, condition, ..
         } => {
@@ -7434,6 +7503,10 @@ fn collect_stmt_effects(
             collect_expr_effects(arena, condition, effects, proc_effects);
             collect_block_effects(arena, else_block, effects, proc_effects);
         }
+        ArenaStmtKind::Assert { condition, message } => {
+            collect_expr_effects(arena, condition, effects, proc_effects);
+            collect_expr_effects(arena, message, effects, proc_effects);
+        }
         ArenaStmtKind::GuardedStmt {
             stmt: inner,
             condition,
@@ -7819,6 +7892,10 @@ fn collect_retry_stmt_effects(
         ArenaStmtKind::BooleanGuard { condition, else_block } => {
             collect_retry_expr_effects(arena, condition, effects, proc_effects);
             collect_retry_block_effects(arena, else_block, effects, proc_effects);
+        }
+        ArenaStmtKind::Assert { condition, message } => {
+            collect_retry_expr_effects(arena, condition, effects, proc_effects);
+            collect_retry_expr_effects(arena, message, effects, proc_effects);
         }
         ArenaStmtKind::GuardedStmt {
             stmt, condition, ..
@@ -8306,6 +8383,10 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             ArenaStmtKind::BooleanGuard { condition, else_block } => {
                 self.scan_expr(condition);
                 self.scan_block(else_block);
+            }
+            ArenaStmtKind::Assert { condition, message } => {
+                self.scan_expr(condition);
+                self.scan_expr(message);
             }
             ArenaStmtKind::GuardedStmt {
                 stmt, condition, ..
@@ -8956,6 +9037,11 @@ fn stmt_flow(
                 ArenaExprKind::Bool(false) => condition_flow.then(block_flow(arena, else_block, terminating_call_spans)),
                 _ => condition_flow.then(FlowSummary::fallthrough().union(block_flow(arena, else_block, terminating_call_spans))),
             }
+        }
+        ArenaStmtKind::Assert { condition, message } => {
+            expr_flow(arena, condition, terminating_call_spans).then(
+                FlowSummary::fallthrough().union(expr_flow(arena, message, terminating_call_spans).then(FlowSummary::terminating()))
+            )
         }
         ArenaStmtKind::GuardedStmt { stmt, .. } => {
             // When the guard is false, the inner statement is skipped.

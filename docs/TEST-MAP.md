@@ -42,6 +42,16 @@ rejections. Indexed slot boundaries use
 Focused tooling acceptance uses
 `cargo test -p xsht --test integration pattern_`; run the existing list and
 pattern conditional native modules after changes to the shared matcher.
+## Core assertions
+
+`target/debug/xsht test --jobs 1 tests/xsh/assert.xsh` independently observes
+subprocess status, stdout, and diagnostics for lazy context, operand evaluation,
+short circuiting, bounded rendering, message propagation, retry capture, cleanup,
+and rejected types/effects. Broader gates are the syntax/checker tests,
+`cargo test -p xsh --lib runtime::eval::indexed::full::tests --features native-tests`,
+and `cargo test -p xsht --test integration core_assert --features native-tests`.
+`cargo build -p xsh --bin xsh --no-default-features` witnesses independence from
+native-test support.
 
 ## Routine CI
 

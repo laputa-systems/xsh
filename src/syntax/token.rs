@@ -648,6 +648,7 @@ impl TokenKind {
 #[repr(u8)]
 pub enum Keyword {
     And,
+    Assert,
     Break,
     Continue,
     Defer,
@@ -688,6 +689,7 @@ impl Keyword {
     pub const fn from_payload(payload: u32) -> Option<Self> {
         Some(match payload {
             value if value == Self::And as u32 => Self::And,
+            value if value == Self::Assert as u32 => Self::Assert,
             value if value == Self::Break as u32 => Self::Break,
             value if value == Self::Continue as u32 => Self::Continue,
             value if value == Self::Defer as u32 => Self::Defer,
@@ -729,6 +731,7 @@ impl Keyword {
     pub fn from_ident(ident: &str) -> Option<Self> {
         Some(match ident {
             "and" => Self::And,
+            "assert" => Self::Assert,
             "break" => Self::Break,
             "continue" => Self::Continue,
             "defer" => Self::Defer,
@@ -770,6 +773,7 @@ impl Keyword {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::And => "and",
+            Self::Assert => "assert",
             Self::Break => "break",
             Self::Continue => "continue",
             Self::Defer => "defer",

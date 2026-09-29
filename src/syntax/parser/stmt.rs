@@ -35,6 +35,7 @@ impl<'a> Parser<'a> {
             {
                 self.parse_command_statement_arena_only(start, arena)
             }
+            (TokenTag::Keyword, Some(Keyword::Assert)) => self.parse_assert_arena_only(start, arena),
             (TokenTag::Keyword, Some(Keyword::If)) => self.parse_if_arena_only(start, arena),
             (TokenTag::Keyword, Some(Keyword::While)) => self.parse_while_arena_only(start, arena),
             (TokenTag::Keyword, Some(Keyword::For)) => self.parse_for_arena_only(start, arena),
@@ -96,6 +97,20 @@ impl<'a> Parser<'a> {
             }
             _ => self.parse_expr_statement_arena_only(start, arena),
         }
+    }
+
+    fn parse_assert_arena_only(
+        &mut self,
+        start: usize,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<()> {
+        self.bump();
+        let condition = self.parse_expr_id_arena_only(arena)?;
+        self.expect(TokenKindMatch::Comma, "expected `,` and a message after assertion condition")?;
+        let message = self.parse_expr_id_arena_only(arena)?;
+        let end = self.expect_terminator();
+        arena.push_assert(condition, message, self.span(start, end));
+        Some(())
     }
 
     fn parse_use_arena_only(

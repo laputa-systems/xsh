@@ -265,7 +265,7 @@ blocks are checker errors. Ordinary `#` comments remain non-semantic.
 Reserved keywords:
 
 ```text
-and break continue defer else false for if in let match not null or proc pure
+and assert break continue defer else false for if in let match not null or proc pure
 retry return run spawn stream true try type use var wait while yield
 ```
 
@@ -446,6 +446,7 @@ statement    = use_stmt
              | match_stmt
              | defer_stmt
              | command_stmt
+             | assert_stmt
              | expr_stmt
              ;
 
@@ -1429,6 +1430,25 @@ This also covers typed empty-list temporaries such as
 the needed context. `lint.redundant-ok-tail` flags final `return Ok(value)` in
 `Result[T]` functions and autofixes to the plain tail value when checked types
 show the value already has type `T`.
+
+`assert condition, message` is a Unit statement requiring concrete `Bool` and
+`Str` expressions. A message is required; the message-free assertion is an
+ordinary bare Bool statement. For example, `assert actual == expected,
+f"package $name"` adds context to the failed comparison. The condition runs once. The message runs once
+only after a false condition, and supplements the expression and reached operand
+diagnostics. Reporting bounds operand rendering and identifies skipped operands
+without evaluating them. Containers are reported by type rather than traversed.
+
+Message expressions retain ordinary type, effect, and propagation checks even
+when the condition is true. A message failure propagates as its own failure;
+otherwise the assertion emits the same core `Error` with kind
+`assertion-failed` as a bare Bool statement. Assertions use ordinary propagation,
+retry capture, and lexical cleanup, including in builds without native-test
+support. They are statements, and do not produce a Result value for a consumer.
+`lint.core-assert` fixes checked statement `test.ok`/`test.eq`/`test.ne` calls
+with inert literal messages and compatible concrete operand types. Eager
+nonliteral messages receive guidance to retain their evaluation point; consumed
+Results and dynamic equality remain explicit calls.
 
 Non-tail expression statements inside value-producing function bodies must have
 type `Unit`, `Result[Unit]`, or `Bool`; Bool statements assert and

@@ -877,6 +877,11 @@ impl CompactBodyProbe<'_> {
                 self.check_compact_error_handler(else_block, error);
                 self.define_binding_target(target, expected.unwrap_or(ok), false);
             }
+            ArenaStmtKind::Assert { condition, message } => {
+                self.output.supported_statements += 1;
+                self.check_compact_expr(condition);
+                self.check_compact_expr(message);
+            }
             ArenaStmtKind::GuardedStmt {
                 stmt, condition, ..
             } => {

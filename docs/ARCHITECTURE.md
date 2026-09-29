@@ -127,6 +127,14 @@ are `NetRuntimeOwner`, `NetOperation`, `request_many_with_runtime`,
 `native_xsh_net_single_calls_force_https_http1`. Tokio, `hyper-util`, and
 `hyper-rustls` are intentionally absent from this boundary.
 
+Core assertions retain `ArenaStmtKind::Assert` condition/message expressions.
+`BuildStmtRow::Assert` carries an optional message so bare Bool statements and
+explicit contextual assertions share `FullTag::StmtAssert`, codec verification,
+propagation, and cleanup. `eval_indexed_assertion` uses a work stack for logical
+conditions and retains reached comparison values once; its diagnostic renderer
+bounds scalar text and reports container types without materializing them. The
+message remains an indexed expression and executes only on a false condition.
+
 Guarded control statements use `ArenaStmtKind::GuardedStmt` around ordinary
 return/break/continue/yield statements. `Checker::check_condition_arena` checks
 the Bool/Status guard before applying selected-branch narrowing to the payload.

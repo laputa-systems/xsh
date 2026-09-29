@@ -1118,7 +1118,7 @@ enum BuildStmtRow {
         value: BuildBoolId,
     },
     Value { value: BuildExprId },
-    Assert { value: BuildExprId, span: Span },
+    Assert { value: BuildExprId, message: Option<BuildExprId>, span: Span },
     Expr {
         value: BuildExprId,
         span: Span,

@@ -476,3 +476,17 @@ fn grep_and_refactor_visit_named_stream_configuration_and_spread_values() {
     assert!(rewritten.contains("sort(...{desc: direction(true)})"), "{rewritten}");
     assert!(rewritten.contains("# retain"));
 }
+
+#[test]
+fn core_assert_structural_search_finds_condition_and_message_calls() {
+    let directory = TempDir::new().unwrap();
+    let script = directory.path().join("assert.xsh");
+    fs::write(&script, "assert observed(1) == observed(2), observed(3)\n").unwrap();
+    let output = grep_scripts("observed(EXPR)", &paths(&script));
+    let stdout = output_text(&output.stdout);
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    assert!(stdout.contains("observed(1)"), "{stdout}");
+    assert!(stdout.contains("observed(2)"), "{stdout}");
+    assert!(stdout.contains("observed(3)"), "{stdout}");
+    assert!(stdout.contains("3 matches"), "{stdout}");
+}

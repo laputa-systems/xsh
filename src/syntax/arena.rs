@@ -2527,6 +2527,12 @@ impl<'a> ArenaProgramBuilder<'a> {
         id
     }
 
+    pub fn push_assert(&mut self, condition: ExprId, message: ExprId, span: Span) -> StmtId {
+        let id = self.lowerer.push_stmt_kind(ArenaStmtKind::Assert { condition, message }, span);
+        self.push_current_statement(id);
+        id
+    }
+
     pub fn push_break(&mut self, value: Option<ExprId>, span: Span) -> StmtId {
         let id = self
             .lowerer
@@ -3823,6 +3829,10 @@ impl AstArena {
                     condition: ExprId::new(data.rhs as usize),
                 }
             }
+            ArenaStmtTag::Assert => ArenaStmtKind::Assert {
+                condition: ExprId::new(data.lhs as usize),
+                message: ExprId::new(data.rhs as usize),
+            },
             ArenaStmtTag::BreakNone => ArenaStmtKind::Break { value: None },
             ArenaStmtTag::BreakValue => ArenaStmtKind::Break {
                 value: Some(ExprId::new(data.lhs as usize)),
@@ -4710,6 +4720,7 @@ pub enum ArenaStmtTag {
     BooleanGuard,
     GuardedStmt,
     GuardedStmtNegated,
+    Assert,
     BreakNone,
     BreakValue,
     Continue,
@@ -4804,6 +4815,10 @@ pub enum ArenaStmtKind {
     BooleanGuard {
         condition: ExprId,
         else_block: BlockId,
+    },
+    Assert {
+        condition: ExprId,
+        message: ExprId,
     },
     Break {
         value: Option<ExprId>,
@@ -6150,6 +6165,10 @@ impl ArenaLowerer<'_> {
                     ArenaStmtData::new(raw_stmt_id(stmt), raw_expr_id(condition)),
                 )
             }
+            ArenaStmtKind::Assert { condition, message } => (
+                ArenaStmtTag::Assert,
+                ArenaStmtData::new(raw_expr_id(condition), raw_expr_id(message)),
+            ),
             ArenaStmtKind::Break { value: None } => (ArenaStmtTag::BreakNone, ArenaStmtData::ZERO),
             ArenaStmtKind::Break { value: Some(value) } => (
                 ArenaStmtTag::BreakValue,

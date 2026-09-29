@@ -674,6 +674,10 @@ fn collect_statement(
             add_span(sources, statement.span, by_source);
             collect_block(program, sources, else_block, by_source);
         }
+        ArenaStmtKind::Assert { condition, message } => {
+            add_expr(program, sources, condition, by_source);
+            add_expr(program, sources, message, by_source);
+        }
         ArenaStmtKind::GuardedStmt {
             stmt: inner,
             condition,

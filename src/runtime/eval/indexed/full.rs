@@ -7534,7 +7534,7 @@ impl_node_codec! {
             value: BuildBoolId,
         } => BuildStmtRow::AssignBool { slot, value },
         BuildStmtRow::Value { value } => StmtValue { value: BuildExprId } => BuildStmtRow::Value { value },
-        BuildStmtRow::Assert { value, span } => StmtAssert { value: BuildExprId, span: Span } => BuildStmtRow::Assert { value, span },
+        BuildStmtRow::Assert { value, message, span } => StmtAssert { value: BuildExprId, message: Option<BuildExprId>, span: Span } => BuildStmtRow::Assert { value, message, span },
         BuildStmtRow::Expr { value, span } => StmtExpr {
             value: BuildExprId,
             span: Span,
@@ -8855,6 +8855,52 @@ proc configured() [] -> Int {
                 let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
                 assert_eq!(result.unwrap(), Value::Int(5));
                 assert!(String::from_utf8(evaluator.stdout.clone()).unwrap().contains("row"));
+            }
+        });
+    }
+
+    #[test]
+    fn core_assert_verifier_rejects_invalid_message_presence_and_expression() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/assert.xsh");
+        let program = fixture("assert.xsh", source);
+        let assertion = program.store.tags.iter().position(|tag| *tag == FullTag::StmtAssert).unwrap();
+        let payload = program.store.data[assertion].range().bounds(program.store.extra.len()).unwrap();
+        let mut invalid_presence = program.clone();
+        invalid_presence.store.extra[payload.start + 1] = 2;
+        assert!(FullVerifier::verify(&invalid_presence).unwrap_err().message.contains("optional payload"));
+        let mut invalid_message = program.clone();
+        invalid_message.store.extra[payload.start + 2] = u32::MAX;
+        assert!(FullVerifier::verify(&invalid_message).is_err());
+        let mut statement_message = program;
+        statement_message.store.extra[payload.start + 2] = assertion as u32;
+        assert!(FullVerifier::verify(&statement_message).is_err());
+    }
+
+    #[test]
+    fn core_assert_executes_lazy_context_and_preserves_diagnostics_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/assert.xsh");
+            let program = Arc::new(fixture("assert.xsh", source));
+            for recursive in [false, true] {
+                for (name, detail) in [("passes", None), ("fails", Some("1 == 2")), ("chain_fails", Some("3 < 2")), ("short_circuit_fails", Some("right operand skipped"))] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+                    ).expect("assertion function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    if let Some(detail) = detail {
+                        let error = result.expect_err("false assertion fails");
+                        assert_eq!(error.family, "Error");
+                        assert_eq!(error.kind, "assertion-failed");
+                        assert!(error.message.contains(detail), "{}", error.message);
+                        assert!(error.message.contains("context"));
+                        assert!(!error.message.contains("division-by-zero"));
+                    } else {
+                        assert_eq!(result.unwrap(), Value::Int(7));
+                    }
+                }
             }
         });
     }

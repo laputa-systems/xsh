@@ -364,6 +364,10 @@ by `StmtId`. Initializers and call/return payloads consume values. Function tail
 consume their declared non-Unit value, and callback/retry tails infer their result
 before classifying booleans. Unit and Result[Unit] tails retain statement behavior.
 A Bool in statement position asserts; a Bool in value position retains false.
+`assert condition, message` always consumes Unit and requires concrete Bool and
+Str, rejecting Any, Status, Optional, and Result wrappers. Both expressions are
+checked with ordinary effects and propagation, including a message skipped at
+runtime. The assertion establishes no continuation refinement.
 
 Value branches may contain lexical statements followed by a compatible tail.
 Every reachable value branch must agree; `if` requires `else`, and `match` must

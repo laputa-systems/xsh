@@ -491,6 +491,16 @@ impl Checker {
                 }
                 self.check_loop_control(stmt.span, false);
             }
+            ArenaStmtKind::Assert { condition, message } => {
+                let condition_ty = self.check_expr_arena(arena, source, condition, Some(&Type::Bool));
+                if condition_ty != Type::Bool && !matches!(condition_ty, Type::Unknown | Type::Invalid) {
+                    self.error(arena.arena.expr(condition).span, "assert condition requires Bool", "check.assert-condition");
+                }
+                let message_ty = self.check_expr_arena(arena, source, message, Some(&Type::Str));
+                if message_ty != Type::Str && !matches!(message_ty, Type::Unknown | Type::Invalid) {
+                    self.error(arena.arena.expr(message).span, "assert message requires Str", "check.assert-message");
+                }
+            }
             ArenaStmtKind::Expr(expr_id) => {
                 let expected = matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ValueBlock(_)).then_some(Type::Unit);
                 let ty = self.check_expr_arena(arena, source, expr_id, expected.as_ref());
@@ -1971,6 +1981,11 @@ impl Checker {
             return Type::Unit;
         }
         match stmt.kind {
+            ArenaStmtKind::Assert { .. } => {
+                self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
+                self.check_stmt_arena(arena, source, id);
+                Type::Unit
+            }
             ArenaStmtKind::Expr(expr_id) => {
                 let ctx = tail_expr_context_arena(arena, expr_id, expected);
                 self.check_expr_arena(arena, source, expr_id, ctx.as_ref())

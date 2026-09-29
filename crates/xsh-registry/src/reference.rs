@@ -207,6 +207,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "source-files",
     "comments",
     "statements",
+    "assert",
     "guarded-control",
     "block-parameters",
     "defer",
@@ -829,6 +830,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "map-literals" => (
             "Constructs typed Maps with explicit computed keys and Map spreads.",
             "`{[key]: value, fixed: other, ...more}` selects Map literal mode when any computed key exists or the expected type is Map[T]. Computed keys require Str; constant-key braces otherwise remain Records, and spread-only Maps require context. Spread operands must be Maps. Every key runs before its value, entries run once in source order, and failure skips subsequent entries. Later duplicates replace earlier values; iteration keeps canonical key order and aliases retain earlier contents. Quoted dots are one key, and incompatible concrete values do not widen to Any.",
+        ),
+        "assert" => (
+            "Asserts a Bool condition with failure-only context.",
+            "`assert condition, message` requires concrete Bool and Str and always produces Unit. Evaluate the condition once; evaluate the required message once only on false. Context supplements bounded reached-operand diagnostics without evaluating skipped operands. Messages retain ordinary static effects and propagation, and their failure takes precedence. Successful assertions skip messages. Failures retain the bare Bool assertion's Error family and assertion-failed kind, ordinary capture and cleanup, and work without native-test support. Use a bare Bool statement for a message-free assertion; Result-valued test APIs retain their separate result boundary.",
         ),
         "records" => (
             "Defines structural and named record values.",

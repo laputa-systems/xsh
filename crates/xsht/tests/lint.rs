@@ -3598,3 +3598,63 @@ fn value_pipeline_hole_lint_retains_effect_order_optional_calls_and_context() {
     let diagnostic = linted.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-value-pipeline")).expect("manual pipeline suggestion");
     assert!(diagnostic.fix_hints.is_empty());
 }
+
+#[test]
+fn core_assert_formatter_retains_statement_and_message_comments() {
+    let source = "proc check(value: Int) [error] {\n  # café context\n  assert value == 2, f\"value ${value}\" # useful context\n}\n";
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, source);
+    assert_parse_check_standalone("core assertion", &formatted.formatted);
+    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(second.formatted, formatted.formatted);
+}
+
+#[test]
+#[cfg(feature = "native-tests")]
+fn core_assert_lint_fixes_literal_context_and_refuses_eager_or_consumed_results() {
+    let source = r#"proc context() [io] -> Str { print "context"; "detail" }
+proc assertions(dynamic: Any) [io, error] {
+  test.ok(true, "café")?
+  test.eq(1 + 1, 2, message: "equality")?
+  test.ne("left", "right", "inequality")?
+  test.ok(true, context())?
+  test.eq(dynamic, 1, "dynamic")?
+  let consumed = test.ok(true, "consumed")
+  consumed?
+}
+"#;
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let options = LintOptions {
+        expr_types: checked.expr_types,
+        statement_positions: checked.statement_positions,
+        ..LintOptions::default()
+    };
+    let diagnostics = Linter::lint(&parsed.arena, source, options).diagnostics;
+    let assertions = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.core-assert")).collect::<Vec<_>>();
+    assert_eq!(assertions.len(), 4);
+    assert!(assertions[3].fix_hints.is_empty(), "eager context must retain its effects");
+    let mut fixed = source.to_string();
+    for diagnostic in assertions[..3].iter().rev() {
+        let hint = &diagnostic.fix_hints[0];
+        fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+    }
+    assert!(fixed.contains("assert true, \"café\""));
+    assert!(fixed.contains("test.ok(true, context())?"));
+    assert!(fixed.contains("test.eq(dynamic, 1, \"dynamic\")?"));
+    assert!(fixed.contains("let consumed = test.ok(true, \"consumed\")"));
+    assert_parse_check_standalone("core assertion migration", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let second = Linter::lint(&parsed.arena, &fixed, LintOptions {
+        expr_types: checked.expr_types,
+        statement_positions: checked.statement_positions,
+        ..LintOptions::default()
+    }).diagnostics;
+    let assertions = second.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.core-assert")).collect::<Vec<_>>();
+    assert_eq!(assertions.len(), 1);
+    assert!(assertions[0].fix_hints.is_empty());
+}

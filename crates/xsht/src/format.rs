@@ -538,6 +538,12 @@ impl<'a> Writer<'a> {
                 output.push_str(" else ");
                 self.write_block(*else_block, indent, output);
             }
+            ArenaStmtKind::Assert { condition, message } => {
+                output.push_str("assert ");
+                self.write_expr(*condition, 0, output);
+                output.push_str(", ");
+                self.write_expr(*message, 0, output);
+            }
             ArenaStmtKind::GuardedStmt {
                 stmt: inner,
                 negate,
