@@ -462,6 +462,77 @@ proc test_system_report_power_supply_rooted_reference_reads_signed_current_and_m
   test.error_kind(report_checks.read_power_supply_reference(root), "SystemReportCheckError.Invalid")?
 }
 
+proc test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_tampering(ctx: TestContext) [fs, time, process, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  let battery = p"sys/devices/platform/example/power_supply/BAT0"
+  fs.root_mkdir(source, battery, parents: true)?
+  fs.root_mkdir(source, p"sys/class/power_supply", parents: true)?
+  fs.root_symlink(source, p"../../devices/platform/example/power_supply/BAT0", p"sys/class/power_supply/BAT0")?
+  for item in [
+    {name: "type", value: "Battery\n"},
+    {name: "status", value: "Discharging\n"},
+    {name: "health", value: "Good\n"},
+    {name: "capacity", value: "68\n"},
+    {name: "energy_now", value: "50000000\n"},
+    {name: "energy_full", value: "90000000\n"},
+    {name: "charge_now", value: "1000000\n"},
+    {name: "charge_full", value: "1500000\n"},
+    {name: "voltage_now", value: "12000000\n"},
+    {name: "current_now", value: "-250000\n"},
+    {name: "cycle_count", value: "120\n"},
+  ] {fs.root_write(source, fp"${battery}/${item.name}", item.value)?}
+  report_checks.capture_power_supply_bundle(source, bundle, "synthetic_fixture")?
+  let replay = report_checks.replay_power_supply_bundle(bundle)?
+  test.ok(replay.exact)?
+  test.eq(replay.matched_count, 1)?
+  let bundle_path = fs.root_path(bundle)?
+  let output = test.temp_path(ctx, name: "power-supply-replay.stdout")
+  let stderr = test.temp_path(ctx, name: "power-supply-replay.stderr")
+  let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-power-supply-bundle $bundle_path > $output 2> $stderr
+  test.ok(status.exited_with(0), stderr.read_text()?)?
+  test.contains(output.read_text()?, "power supply raw replay: exact")?
+  fs.root_write(bundle, fp"${battery}/energy_now", "51000000\n")?
+  test.error_kind(report_checks.validate_power_supply_bundle(bundle), "SystemReportCheckError.Invalid")?
+}
+
+proc test_system_report_power_supply_bundle_keeps_absent_class_unscoreable() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  report_checks.capture_power_supply_bundle(source, bundle, "synthetic_fixture")?
+  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  test.contains(metadata, "\"listing_state\": \"absent\"")?
+  test.contains(metadata, "\"scoreable\": false")?
+  test.error_kind(report_checks.validate_power_supply_bundle(bundle), "SystemReportCheckError.Invalid")?
+}
+
+proc test_system_report_power_supply_bundle_keeps_missing_type_unscoreable() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  fs.root_mkdir(source, p"sys/class/power_supply/BAT0", parents: true)?
+  fs.root_write(source, p"sys/class/power_supply/BAT0/status", "Charging\n")?
+  report_checks.capture_power_supply_bundle(source, bundle, "synthetic_fixture")?
+  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  test.contains(metadata, "\"scoreable\": false")?
+  test.error_kind(report_checks.validate_power_supply_bundle(bundle), "SystemReportCheckError.Invalid")?
+}
+
+proc test_system_report_power_supply_bundle_rejects_escaping_class_link() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  fs.root_mkdir(source, p"sys/class/power_supply", parents: true)?
+  fs.root_symlink(source, p"../../devices/../rogue/BAT0", p"sys/class/power_supply/BAT0")?
+  test.error_kind(report_checks.capture_power_supply_bundle(source, bundle, "synthetic_fixture"), "SystemReportCheckError.Invalid")?
+}
+
 proc test_system_report_powercap_reference_scores_nested_zones_constraints_and_counter_brackets() [error] {
   let package: report_checks.PowerCapZoneReference = {
     entry_name: "intel-rapl:0", name: {value: "package-0", complete: true},
@@ -1549,6 +1620,10 @@ proc test_system_report_capture_rejects_simultaneous_live_comparison(ctx: TestCo
   test.ok(!bundle.exists()?)?
   let process_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-process-bundle $bundle --compare-processes 2> $stderr
   test.ok(!process_status.exited_with(0))?
+  test.contains(stderr.read_text()?, "bundle operations cannot be combined")?
+  test.ok(!bundle.exists()?)?
+  let supply_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-power-supply-bundle $bundle --compare-power-supplies 2> $stderr
+  test.ok(!supply_status.exited_with(0))?
   test.contains(stderr.read_text()?, "bundle operations cannot be combined")?
   test.ok(!bundle.exists()?)?
   let identity_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-os-release-bundle $bundle --compare-identity 2> $stderr

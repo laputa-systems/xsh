@@ -111,6 +111,7 @@ commands:
                       [--capture-block-bundle NEW_DIRECTORY | --replay-block-bundle DIRECTORY]
                       [--capture-cgroup2-bundle NEW_DIRECTORY | --replay-cgroup2-bundle DIRECTORY]
                       [--capture-process-bundle NEW_DIRECTORY | --replay-process-bundle DIRECTORY]
+                      [--capture-power-supply-bundle NEW_DIRECTORY | --replay-power-supply-bundle DIRECTORY]
                       [--capture-powercap-bundle NEW_DIRECTORY | --replay-powercap-bundle DIRECTORY]
                       [--capture-pci-bundle NEW_DIRECTORY | --replay-pci-bundle DIRECTORY]
                       [--capture-usb-bundle NEW_DIRECTORY | --replay-usb-bundle DIRECTORY]

@@ -247,6 +247,20 @@ export type PowerSupplyComparison = {
   missing_names: List[Str], unexpected_names: List[Str], field_mismatches: List[Str],
   unstable_fields: List[Str], eligible: Bool, exact: Bool,
 }
+type PowerSupplyBundleEntry = {name: Str, class_target: Str?, storage_path: Str}
+type PowerSupplyBundlePath = {path: Str, changing: Bool}
+type PowerSupplyBundleLayout = {
+  listing_state: Str, entries: List[PowerSupplyBundleEntry], paths: List[PowerSupplyBundlePath], complete: Bool,
+}
+type PowerSupplyBundleSource = {
+  path: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+type PowerSupplyBundleCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  layout: PowerSupplyBundleLayout, stable_static: Bool, changing_sources: List[Str],
+  scoreable: Bool, sources: List[PowerSupplyBundleSource], reference: List[PowerSupplyReference]?,
+}
 ## Retains one indexed powercap constraint and its optional source attributes.
 export type PowerCapConstraintReference = {
   index: Int, name: PowerTextReference,
@@ -1371,6 +1385,8 @@ type CheckOptions = {
   replay_cgroup2_bundle: Str,
   capture_process_bundle: Str,
   replay_process_bundle: Str,
+  capture_power_supply_bundle: Str,
+  replay_power_supply_bundle: Str,
   capture_pressure_bundle: Str,
   replay_pressure_bundle: Str,
   capture_swaps_bundle: Str,
@@ -3029,6 +3045,190 @@ export proc read_power_supply_reference(root: FsRoot) [fs, error] -> Result[List
     })
   }
   return supplies |> sort-by .name
+}
+
+pure power_supply_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
+  let parts = target.split("/")
+  if parts.len() < 4 or parts[0] != ".." or parts[1] != ".." or
+      parts[2] != "devices" or parts[parts.len() - 1] != name {
+    return Err(check_failure("power supply class link has an invalid devices target"))
+  }
+  var components = ["sys"]
+  for index in range(2, parts.len()) {
+    let part = parts[index]
+    if part in ["", ".", ".."] {return Err(check_failure("power supply class link escapes the devices tree"))}
+    components = components.push(part)
+  }
+  return components.join("/")
+}
+
+# Selects every exported power supply attribute through its class entry.
+proc power_supply_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerSupplyBundleLayout] {
+  let listing = fs.root_children(root, p"sys/class/power_supply", max_entries: 1024)?
+  var entries: List[PowerSupplyBundleEntry] = []
+  var paths: List[PowerSupplyBundlePath] = []
+  var complete = listing.state == "complete" or listing.state == "absent"
+  if listing.state != "complete" {
+    return {listing_state: listing.state, entries: entries, paths: paths, complete: complete}
+  }
+  for entry in listing.children {
+    let name = entry.name()
+    if name == "" or name in [".", ".."] or name.contains("/") {
+      return Err(check_failure("power supply class entry has an unsafe name"))
+    }
+    let link = fs.root_readlink_result(root, entry)?
+    var class_target: Str? = null
+    var storage = entry.display()
+    if link.state == "observed" {
+      class_target = link.target.require(Path)?.display()
+      storage = power_supply_bundle_storage_path(name, class_target ?? "")?
+    } else if fs.root_metadata(root, entry)?.kind != "dir" {complete = false}
+    entries = entries.push({name: name, class_target: class_target, storage_path: storage})
+    for attribute in [
+      {name: "type", changing: false},
+      {name: "status", changing: true},
+      {name: "health", changing: true},
+      {name: "capacity", changing: true},
+      {name: "energy_now", changing: true},
+      {name: "energy_full", changing: false},
+      {name: "charge_now", changing: true},
+      {name: "charge_full", changing: false},
+      {name: "voltage_now", changing: true},
+      {name: "current_now", changing: true},
+      {name: "cycle_count", changing: true},
+    ] {paths = paths.push({path: f"${storage}/${attribute.name}", changing: attribute.changing})}
+    if paths.len() > 11264 {return Err(check_failure("power supply capture exceeds its source path bound"))}
+  }
+  return {listing_state: listing.state, entries: entries |> sort-by .name,
+    paths: paths |> sort-by .path, complete: complete}
+}
+
+## Saves bounded power supply class links, values, source states, and digests.
+export proc capture_power_supply_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {return Err(check_failure("power supply capture origin is invalid"))}
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/class/power_supply")? {
+    return Err(check_failure("power supply capture destination is not empty"))
+  }
+  let layout = power_supply_bundle_layout(source)?
+  if layout.listing_state == "complete" {
+    fs.root_mkdir(bundle, p"sys/class/power_supply", mode: 0o700, parents: true)?
+    for entry in layout.entries {
+      let storage = fp"${entry.storage_path}"
+      if !fs.root_exists(bundle, storage)? {fs.root_mkdir(bundle, storage, mode: 0o700, parents: true)?}
+      if entry.class_target != null {
+        fs.root_symlink(bundle, fp"${entry.class_target ?? ""}", fp"sys/class/power_supply/${entry.name}")?
+      }
+    }
+  }
+  var sources: List[PowerSupplyBundleSource] = []
+  var saved_bytes: List[Bytes?] = []
+  var complete = layout.complete
+  for item in layout.paths {
+    let raw = fs.root_read_result(source, fp"${item.path}", max_bytes: 4096)?
+    var sha256_hex: Str? = null
+    var byte_count = 0
+    if raw.data != null {
+      let data = raw.data ?? b""
+      fs.root_write(bundle, fp"${item.path}", data)?
+      sha256_hex = hash.sha256(data).hex()
+      byte_count = data.len()
+    }
+    if raw.truncated or raw.state not in ["observed", "absent"] or
+        (item.path.ends_with("/type") and raw.state != "observed") {complete = false}
+    saved_bytes = saved_bytes.push(raw.data)
+    sources = sources.push({path: item.path, state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind, byte_count: byte_count, sha256_hex: sha256_hex})
+  }
+  let later_layout = power_supply_bundle_layout(source)?
+  var stable_static = layout == later_layout
+  var changing_sources: List[Str] = []
+  for index in range(layout.paths.len()) {
+    let item = layout.paths[index]
+    let raw = fs.root_read_result(source, fp"${item.path}", max_bytes: 4096)?
+    let first = sources[index]
+    if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or
+        raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
+      if item.changing {changing_sources = changing_sources.push(item.path)} else {stable_static = false}
+    }
+  }
+  var reference: List[PowerSupplyReference]? = null
+  if complete {
+    match read_power_supply_reference(bundle) {
+      Ok(value) => reference = value
+      Err(_) => {}
+    }
+  }
+  let scoreable = complete and stable_static and reference != null and (reference ?? []).len() > 0
+  let capture: PowerSupplyBundleCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "power-supply-sysfs-raw-v1", layout: layout,
+    stable_static: stable_static, changing_sources: changing_sources, scoreable: scoreable,
+    sources: sources, reference: reference,
+  }
+  let wire: Any = capture
+  let encoded = json.encode(wire, pretty: true)?
+  if encoded.count_bytes() > 4194304 {return Err(check_failure("power supply capture metadata exceeds its replay bound"))}
+  fs.root_write_atomic(bundle, p"capture.json", encoded)?
+  return Ok()
+}
+
+## Rejects changed power supply links, source bytes, absences, and references.
+export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[PowerSupplyBundleCapture] {
+  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 4194304)?.utf8()?)?.require(PowerSupplyBundleCapture)?
+  if capture.schema_version != 1 or capture.reference_adapter != "power-supply-sysfs-raw-v1" or
+      capture.origin not in ["synthetic_fixture", "live_capture"] or !capture.stable_static or
+      !capture.scoreable or capture.reference == null or (capture.reference ?? []).len() == 0 {
+    return Err(check_failure("power supply capture has no stable scoreable reference"))
+  }
+  let layout = power_supply_bundle_layout(bundle)?
+  if layout != capture.layout or capture.sources.len() != layout.paths.len() {
+    return Err(check_failure("power supply capture layout differs from metadata"))
+  }
+  var changed_seen = set.empty()
+  for relative in capture.changing_sources {
+    if set.has(changed_seen, relative) or !(layout.paths |> any .path == relative and .changing) {
+      return Err(check_failure("power supply changing source metadata is invalid"))
+    }
+    changed_seen = set.add(changed_seen, relative)
+  }
+  for index in range(layout.paths.len()) {
+    let item = layout.paths[index]
+    let expected = capture.sources[index]
+    if expected.path != item.path or expected.truncated {return Err(check_failure("power supply source identity differs"))}
+    let relative = fp"${item.path}"
+    if expected.state == "absent" {
+      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, relative)? {
+        return Err(check_failure(f"power supply absent source ${item.path} differs"))
+      }
+      continue
+    }
+    if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
+      return Err(check_failure(f"power supply capture cannot score ${item.path}"))
+    }
+    let raw = fs.root_read_result(bundle, relative, max_bytes: 4096)?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"power supply capture ${item.path} bytes differ"))
+    }
+  }
+  if read_power_supply_reference(bundle)? != (capture.reference ?? []) {
+    return Err(check_failure("power supply reference differs from raw sources"))
+  }
+  return capture
+}
+
+## Runs the production power collector over validated saved supply sources.
+export proc replay_power_supply_bundle(bundle: FsRoot) [fs, time, error] -> Result[PowerSupplyComparison] {
+  let metadata = capture_metadata_bytes(bundle, max_bytes: 4194304)?
+  let capture = validate_power_supply_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "power", true, false)?
+  if validate_power_supply_bundle(bundle)? != capture {return Err(check_failure("power supply capture changed during replay"))}
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 4194304)?
+  let candidate_json = encode_replayed_report(candidate, true)?
+  let reference = capture.reference ?? []
+  return compare_power_supplies(candidate_json, reference, reference)
 }
 
 pure power_supply_has_issue(issues: List[CandidateIssueField], field: Str) -> Bool {
@@ -17943,6 +18143,14 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
       form: "--replay-process-bundle DIR",
       default: "",
     },
+    capture_power_supply_bundle: {
+      form: "--capture-power-supply-bundle DIR",
+      default: "",
+    },
+    replay_power_supply_bundle: {
+      form: "--replay-power-supply-bundle DIR",
+      default: "",
+    },
     capture_pressure_bundle: {
       form: "--capture-pressure-bundle DIR",
       default: "",
@@ -18184,6 +18392,8 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     replay_cgroup2_bundle: parsed.replay_cgroup2_bundle,
     capture_process_bundle: parsed.capture_process_bundle,
     replay_process_bundle: parsed.replay_process_bundle,
+    capture_power_supply_bundle: parsed.capture_power_supply_bundle,
+    replay_power_supply_bundle: parsed.replay_power_supply_bundle,
     capture_pressure_bundle: parsed.capture_pressure_bundle,
     replay_pressure_bundle: parsed.replay_pressure_bundle,
     capture_swaps_bundle: parsed.capture_swaps_bundle,
@@ -18246,6 +18456,7 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     options.capture_memory_bundle, options.replay_memory_bundle,
     options.capture_cgroup2_bundle, options.replay_cgroup2_bundle,
     options.capture_process_bundle, options.replay_process_bundle,
+    options.capture_power_supply_bundle, options.replay_power_supply_bundle,
     options.capture_pressure_bundle, options.replay_pressure_bundle,
     options.capture_swaps_bundle, options.replay_swaps_bundle,
     options.capture_os_release_bundle, options.replay_os_release_bundle,
@@ -18485,6 +18696,33 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     let state = if result.exact {"exact"} else {"mismatch"}
     print f"process raw replay: ${state}; identity=${result.identity.matched_count}; resource_fields=${result.resources.scored_fields}; candidate=${result.identity.candidate_count}"
     if !result.exact {return Err(check_failure("process raw replay differs from its independent reference"))}
+    return Ok()
+  }
+  if options.capture_power_supply_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_power_supply_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {return Err(check_failure("power supply capture destination already exists"))}
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_power_supply_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 4194304)?.utf8()?)?.require(PowerSupplyBundleCapture)?
+    print f"power supply raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; supplies=${capture.layout.entries.len()}; changing_sources=${capture.changing_sources.len()}"
+    if capture.scoreable {print f"Replay with --replay-power-supply-bundle ${destination}"}
+    return Ok()
+  }
+  if options.replay_power_supply_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_power_supply_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_power_supply_bundle(bundle)?
+    let mismatch = result.missing_names.len() > 0 or result.unexpected_names.len() > 0 or result.field_mismatches.len() > 0
+    let state = if result.exact {"exact"} else if mismatch {"mismatch"} else {"partial"}
+    print f"power supply raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; matched=${result.matched_count}; partial=${result.unstable_fields.len()}"
+    if mismatch {return Err(check_failure("power supply raw replay differs from its independent reference"))}
     return Ok()
   }
   if options.capture_pressure_bundle != "" {
