@@ -1,5 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
+pub use crate::map_key::{MapKey, MapKeyRef};
+
 use crate::runtime::process::ProcessStatus;
 use crate::source::Span;
 use crate::symbol::{Name, NameText, QualifiedName, SymbolOwner};

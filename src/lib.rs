@@ -1,5 +1,6 @@
 extern crate self as xsh;
 
+pub(crate) mod map_key;
 pub mod api {
     //! Read-only language API metadata used by tooling.
 

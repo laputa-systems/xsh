@@ -20,6 +20,17 @@ method named in this document, then open its owner file and nearest test. For
 the complete frontend vocabulary, see `docs/FRONTEND.md`; use the routing
 policy in `AGENTS.md` for task-specific reading and verification.
 
+## Prepared scalar map keys
+
+`map_key.rs::MapKey` retains owned scalar identity for ordered map storage;
+`MapKeyRef` compares borrowed text/native byte slices without allocation.
+Numeric and Duration keys order by value, Bool orders false before true, and
+Bytes/Path order by their unchanged raw bytes. String keys use ordinary text
+order. UInt retains the existing Int representation and is validated at its
+nonnegative typed boundary. `runtime/map.rs` owns conversions to and from
+runtime values; constant preparation can use the key representation directly
+without depending on the evaluator.
+
 ## Producer suspension and delegation
 
 `indexed_run/explicit_run.rs::ProducerStep` returns either an item, a delegated

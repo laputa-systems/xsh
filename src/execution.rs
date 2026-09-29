@@ -60,7 +60,7 @@ pub mod value {
     pub use crate::runtime::value::{
         AbortSignal, CommandPlan, CommandRedirection, CommandRedirectionMode,
         CommandRedirectionStream, DigestValue, DurationValue, ErrorContext, FloatValue,
-        FsEntryKind, FsEntryValue, FunctionName, PathValue, ProcessHandleValue, RecordIter,
+        FsEntryKind, FsEntryValue, FunctionName, MapKey, MapKeyRef, PathValue, ProcessHandleValue, RecordIter,
         RecordKeys, RecordMap, RecordShape, RecordShapeData, RecordValues, RegexValue, ResultValue,
         RunError, RuntimeError, RuntimeShapeStats, SparseRecordMap, StreamItem, StreamValue, Value,
         error_constructor, run_error_constructor, run_error_from_status, runtime_shape_stats,
