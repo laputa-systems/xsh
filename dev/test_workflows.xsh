@@ -3,14 +3,14 @@ use context
 use docker
 use stage as stages
 
-## Runs the repository's ordinary release Rust test contract.
+## Runs the repository's ordinary debug Rust test contract.
 export proc rust(ctx: context.Context) [process, error, io] -> Result[Unit] {
   stages.execute(
     stages.command(
       "test-rust",
       ctx.target.triple,
       "cargo",
-      ["cargo", "test", "--release", "--", "-Zunstable-options", "--report-time"],
+      ["cargo", "test", "--", "-Zunstable-options", "--report-time"],
       ctx.root,
       {},
     ),
@@ -27,7 +27,6 @@ export proc xsh(ctx: context.Context) [process, error, io] -> Result[Unit] {
       [
         "cargo",
         "run",
-        "--release",
         "-p",
         "xsht",
         "--bin",

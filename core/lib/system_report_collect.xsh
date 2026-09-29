@@ -60,10 +60,12 @@ export pure parse_idle_state_index(name: Str) -> Result[Int] {
   if ! name.starts_with("state") {
     return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle directory does not start with state"))
   }
+
   let suffix = (name.split("") |> drop(5)).join("")
   if suffix == "" {
     return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle state index is empty"))
   }
+
   for digit in suffix.split("") {
     if digit not in "0123456789" {
       return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle state index is not decimal"))
@@ -150,6 +152,7 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int]] {
   if ids.len() == 0 {
     return Err(SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership is empty"))
   }
+
   return ids |> sort-by .
 }
 
@@ -246,6 +249,7 @@ export pure parse_pci_decimal_value(value: Str) -> Result[Int] {
   if value == "" {
     return Err(SystemReportSourceError.InvalidPciId(message: "PCI decimal attribute is empty"))
   }
+
   for digit in value.split("") {
     if digit not in "0123456789" {
       return Err(SystemReportSourceError.InvalidPciId(message: "PCI decimal attribute is not unsigned decimal"))
@@ -450,7 +454,7 @@ export pure select_cgroup_mount(group_path: Str, mounts: List[CgroupMount]) -> R
     }
   }
 
-  return Ok(selected)
+  selected
 }
 
 ## Accepts the kernel's fixed two-decimal PSI percentage without special float values.
@@ -507,6 +511,7 @@ export pure parse_block_scheduler(value: Str) -> BlockScheduler? {
   if value.trim() == "" or value.lines().len() != 1 {
     return null
   }
+
   let choices = value.replace("\t", " ").split(" ") |> where .trim() != ""
   var available: List[Str] = []
   var active: Str? = null
@@ -516,6 +521,7 @@ export pure parse_block_scheduler(value: Str) -> BlockScheduler? {
       if active != null {
         return null
       }
+
       name = (choice.split("")
         |> drop(1)
         |> take(choice.count_chars() - 2)).join("")
@@ -525,12 +531,14 @@ export pure parse_block_scheduler(value: Str) -> BlockScheduler? {
     if name == "" or "[" in name or "]" in name or name in available {
       return null
     }
+
     available = available.push(name)
   }
 
   if active == null {
     return null
   }
+
   return {active: active ?? "", available: available}
 }
 
@@ -624,6 +632,7 @@ export pure valid_os_release_id(value: Str) -> Bool {
   if value == "" {
     return false
   }
+
   for character in value.split("") {
     if character not in "0123456789abcdefghijklmnopqrstuvwxyz._-" {
       return false

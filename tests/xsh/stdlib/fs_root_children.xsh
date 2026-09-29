@@ -17,7 +17,7 @@ proc test_fs_root_children_rejects_regular_file_as_directory(ctx: TestContext) [
   fs.root_write(root, p"ordinary-file", "data")?
   let result = fs.root_children(root, p"ordinary-file")?
   test.eq(result.state, "read_failure")?
-  test.ok(!result.enumeration_succeeded)?
+  test.ok(! result.enumeration_succeeded)?
   test.eq(result.children, [])?
   test.ok(result.errno != null)?
 }

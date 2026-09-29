@@ -334,10 +334,12 @@ proc test_net_runtime_descriptors_do_not_survive_exec(ctx: TestContext) [fs, net
 
   let root = test.temp_dir(ctx, name: "net-runtime-fds")?
   let output = fp"${root}/fds.txt"
+  run ${helper} > output ?
+  let inherited = output.read_text()?
   let job = net.start({method: "GET", url: url + "/hello"})?
   run ${helper} > output ?
   job.cancel()?
-  test.eq(output.read_text()?, "")?
+  test.eq(output.read_text()?, inherited)?
 }
 
 proc test_net_transport_http_contracts(ctx: TestContext) [fs, net, env, error] {

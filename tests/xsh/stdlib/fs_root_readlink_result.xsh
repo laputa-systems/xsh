@@ -23,6 +23,6 @@ proc test_fs_root_readlink_result_distinguishes_link_absence_and_read_failure() 
 
   let missing_parent = fs.root_readlink_result(root, p"absent/link")?
   test.eq(missing_parent.state, "absent")?
-  test.error_kind(fs.root_readlink_result(root, p"../escape"), "fs-root-readlink-result")?
+  test.error_kind(fs.root_readlink_result(root, ../escape), "fs-root-readlink-result")?
   test.error_kind(fs.root_readlink_result(root, p"nested/../../escape"), "fs-root-readlink-result")?
 }

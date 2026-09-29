@@ -1646,6 +1646,92 @@ proc overlap(left: List[Str], right: List[Str]) -> List[Str] {
     }
 
     #[test]
+    fn lint_fix_preserves_context_for_optional_conditional() {
+        let source = "pure choose(flag: Bool, value: Int?) -> Int? {\n  let selected: Int? = if flag { null } else { value }\n  return selected\n}\nprint ${choose(true, 1)}\n";
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config());
+        if let LintResultKind::FixDiagnostics {
+            diagnostics,
+            stderr,
+            ..
+        } = &result.kind
+        {
+            panic!(
+                "{stderr}: {}",
+                diagnostics
+                    .iter()
+                    .map(|d| d.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+        }
+        assert!(
+            matches!(
+                result.kind,
+                LintResultKind::Write { .. } | LintResultKind::Clean
+            ),
+            "fixes must preserve the contextual optional type"
+        );
+    }
+
+    #[test]
+    fn lint_fix_preserves_grouped_pipeline_condition() {
+        let source = "proc choose(values: List[Str]) {\n  for value in values {\n    if value == \"\" or (value.split(\"\") |> any { |part| part == \"x\" }) { continue }\n    print ${value}\n  }\n}\nchoose([\"ok\"])\n";
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config());
+        assert!(
+            matches!(result.kind, LintResultKind::Write { .. }),
+            "grouped pipeline guard must stay parseable"
+        );
+    }
+
+    #[test]
+    fn lint_fix_preserves_conditional_membership_receiver() {
+        let source = "pure choose(flag: Bool, value: Str) -> Bool {\n  return !(if flag { \"abc\" } else { \"def\" }).contains(value)\n}\nprint ${choose(true, \"a\")}\n";
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config());
+        assert!(
+            matches!(
+                result.kind,
+                LintResultKind::Write { .. } | LintResultKind::Clean
+            ),
+            "conditional receiver grouping must stay parseable"
+        );
+    }
+
+    #[test]
+    fn lint_fix_retains_record_schema_validation() {
+        let source = "type Item = { value: Str? }\nproc emit(raw: Record) [error] {\n  let item = raw.require(Item)?\n  print ${item.value ?? \"none\"}\n}\nemit({value: null})?\n";
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config());
+        match result.kind {
+            LintResultKind::Clean => {}
+            LintResultKind::Write { text, status, .. } => {
+                assert_eq!(status, 0);
+                assert!(text.contains("raw.require(Item)"));
+            }
+            _ => panic!("schema validation must remain valid after fixing"),
+        }
+    }
+
+    #[test]
+    fn lint_fix_retains_record_collection_element_type() {
+        let source = "type Item = { parent: Str? }\nproc emit() {\n  var items: List[Item] = []\n  for name in [\"one\"] {\n    items = items.push({parent: null})\n  }\n  items = items.push({parent: \"two\"})\n  print ${items.len()}\n}\nemit()\n";
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config());
+        let LintResultKind::Write { text, status, .. } = result.kind else {
+            panic!("record collection rewrite must remain valid");
+        };
+        assert_eq!(status, 0);
+        assert!(text.contains("items: List[Item]"));
+    }
+
+    #[test]
+    fn lint_fix_preserves_fallback_return() {
+        let source = "pure pick(value: Int?) -> Result[Int] {\n  return Ok(value ?? 1)\n}\nprint ${pick(null)?}\n";
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config());
+        assert!(matches!(
+            result.kind,
+            LintResultKind::Clean | LintResultKind::Write { status: 0, .. }
+        ));
+    }
+
+    #[test]
     fn lint_fix_rewrites_tail_ok_return_through_ast() {
         let source = "\
 proc parsed(value: Int) -> Result[Int] {

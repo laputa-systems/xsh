@@ -1,5 +1,4 @@
 ##! Optional cpupower corroboration for CPU frequency and idle metadata.
-
 error CpupowerCheckError = Invalid(message: Str)
 
 pure cpupower_failure(message: Str) -> CpupowerCheckError {
@@ -8,39 +7,67 @@ pure cpupower_failure(message: Str) -> CpupowerCheckError {
 
 ## Holds only the stable fields exported by the selected cpupower commands.
 export type CpupowerReference = {
-  driver: Str, hardware_min_khz: Int, hardware_max_khz: Int,
-  idle_driver: Str, idle_governor: Str, idle_state_names: List[Str],
+  driver: Str,
+  hardware_min_khz: Int,
+  hardware_max_khz: Int,
+  idle_driver: Str,
+  idle_governor: Str,
+  idle_state_names: List[Str],
 }
+
 ## Retains the explicit frequency-info driver and numeric hardware bounds.
 export type CpupowerFrequency = {driver: Str, minimum_khz: Int, maximum_khz: Int}
+
 ## Retains the global idle identity and advertised state names.
 export type CpupowerIdle = {driver: Str, governor: Str, names: List[Str]}
-type CandidatePolicy = {name: Str, related_cpus: List[Int], driver: Str?, hardware_min_khz: Int?, hardware_max_khz: Int?}
-type CandidateIdleState = {cpu_id: Int, state_index: Int, name: Str}
-type CandidateCpu = {
-  frequency_policies: List[CandidatePolicy], global_idle_driver: Str?,
-  global_idle_governor: Str?, idle_states: List[CandidateIdleState],
+
+type CandidatePolicy = {
+  name: Str,
+  related_cpus: List[Int],
+  driver: Str?,
+  hardware_min_khz: Int?,
+  hardware_max_khz: Int?,
 }
+
+type CandidateIdleState = {cpu_id: Int, state_index: Int, name: Str}
+
+type CandidateCpu = {
+  frequency_policies: List[CandidatePolicy],
+  global_idle_driver: Str?,
+  global_idle_governor: Str?,
+  idle_states: List[CandidateIdleState],
+}
+
 type CandidateReport = {cpu: CandidateCpu}
 
 ## Separates unsupported cpupower output from a genuine candidate mismatch.
 export type CpupowerComparison = {matched_fields: Int, mismatches: List[Str], partial: List[Str]}
+
 ## Records the utility identity, timing, and each output digest for a live comparison.
 export type CpupowerRun = {
-  version: Str, executable: Str, comparison: CpupowerComparison,
-  reference_started_unix_ms: Int, candidate_started_unix_ms: Int,
-  driver_sha256_hex: Str, limits_sha256_hex: Str, idle_sha256_hex: Str,
+  version: Str,
+  executable: Str,
+  comparison: CpupowerComparison,
+  reference_started_unix_ms: Int,
+  candidate_started_unix_ms: Int,
+  driver_sha256_hex: Str,
+  limits_sha256_hex: Str,
+  idle_sha256_hex: Str,
 }
 
 pure one_prefixed_line(output: Str, prefix: Str) -> Result[Str] {
   var values: List[Str] = []
   for line in output.lines() {
     let trimmed = line.trim()
-    if trimmed.starts_with(prefix) {values = values.push(trimmed.byte_slice(prefix.byte_len()).trim())}
+    if trimmed.starts_with(prefix) {
+      values = values.push(trimmed.byte_slice(prefix.byte_len()).trim())
+    }
   }
+
   if values.len() != 1 or values[0] == "" {
     return Err(cpupower_failure(f"cpupower output lacks one ${prefix} line"))
   }
+
   return values[0]
 }
 
@@ -48,13 +75,29 @@ pure decimal_khz(value: Str) -> Result[Int] {
   if value == "" or value.starts_with("+") or value.starts_with("-") {
     return Err(cpupower_failure("cpupower hardware limit is not an unsigned decimal number"))
   }
+
   for digit in value.split("") {
-    if digit not in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] {
+    if digit not in [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8",
+      "9",
+    ] {
       return Err(cpupower_failure("cpupower hardware limit is not decimal"))
     }
   }
+
   let number = value.parse_int()?
-  if number > 9007199254740991 {return Err(cpupower_failure("cpupower hardware limit exceeds exact JSON range"))}
+  if number > 9007199254740991 {
+    return Err(cpupower_failure("cpupower hardware limit exceeds exact JSON range"))
+  }
+
   return number
 }
 
@@ -64,15 +107,21 @@ export pure parse_cpupower_frequency(driver_output: Str, limits_output: Str) -> 
   var limits: List[List[Str]] = []
   for line in limits_output.lines() {
     let words = line.trim().split(" ") |> where . != ""
-    if words.len() == 2 and (words[0].parse_int() ?? -1) >= 0 and
-        (words[1].parse_int() ?? -1) >= 0 {
+    if words.len() == 2 and (words[0].parse_int() ?? -1) >= 0 and (words[1].parse_int() ?? -1) >= 0 {
       limits = limits.push(words)
     }
   }
-  if limits.len() != 1 {return Err(cpupower_failure("cpupower hardware limits are absent or ambiguous"))}
+
+  if limits.len() != 1 {
+    return Err(cpupower_failure("cpupower hardware limits are absent or ambiguous"))
+  }
+
   let minimum = decimal_khz(limits[0][0])?
   let maximum = decimal_khz(limits[0][1])?
-  if minimum > maximum {return Err(cpupower_failure("cpupower hardware limits are reversed"))}
+  if minimum > maximum {
+    return Err(cpupower_failure("cpupower hardware limits are reversed"))
+  }
+
   return {driver: driver, minimum_khz: minimum, maximum_khz: maximum}
 }
 
@@ -85,6 +134,7 @@ export pure parse_cpupower_idle(output: Str) -> Result[CpupowerIdle] {
   if names.len() != count or count > 256 {
     return Err(cpupower_failure("cpupower idle names do not match the reported count"))
   }
+
   return {driver: driver, governor: governor, names: names}
 }
 
@@ -99,77 +149,167 @@ export pure compare_cpupower(candidate_json: Str, reference: CpupowerReference) 
     partial = partial.push("cpu0_policy")
   } else {
     let policy = policies[0]
-    if policy.driver == null {partial = partial.push("driver")} else if policy.driver != reference.driver {mismatches = mismatches.push("driver")} else {matched += 1}
-    if policy.hardware_min_khz == null {partial = partial.push("hardware_min_khz")} else if policy.hardware_min_khz != reference.hardware_min_khz {mismatches = mismatches.push("hardware_min_khz")} else {matched += 1}
-    if policy.hardware_max_khz == null {partial = partial.push("hardware_max_khz")} else if policy.hardware_max_khz != reference.hardware_max_khz {mismatches = mismatches.push("hardware_max_khz")} else {matched += 1}
+    if policy.driver == null {
+      partial = partial.push("driver")
+    } else if policy.driver != reference.driver {
+      mismatches = mismatches.push("driver")
+    } else {
+      matched += 1
+    }
+
+    if policy.hardware_min_khz == null {
+      partial = partial.push("hardware_min_khz")
+    } else if policy.hardware_min_khz != reference.hardware_min_khz {
+      mismatches = mismatches.push("hardware_min_khz")
+    } else {
+      matched += 1
+    }
+
+    if policy.hardware_max_khz == null {
+      partial = partial.push("hardware_max_khz")
+    } else if policy.hardware_max_khz != reference.hardware_max_khz {
+      mismatches = mismatches.push("hardware_max_khz")
+    } else {
+      matched += 1
+    }
   }
-  if report.cpu.global_idle_driver == null {partial = partial.push("idle_driver")} else if report.cpu.global_idle_driver != reference.idle_driver {mismatches = mismatches.push("idle_driver")} else {matched += 1}
-  if report.cpu.global_idle_governor == null {partial = partial.push("idle_governor")} else if report.cpu.global_idle_governor != reference.idle_governor {mismatches = mismatches.push("idle_governor")} else {matched += 1}
-  let states = report.cpu.idle_states |> where .cpu_id == 0 |> sort-by .state_index
+
+  if report.cpu.global_idle_driver == null {
+    partial = partial.push("idle_driver")
+  } else if report.cpu.global_idle_driver != reference.idle_driver {
+    mismatches = mismatches.push("idle_driver")
+  } else {
+    matched += 1
+  }
+
+  if report.cpu.global_idle_governor == null {
+    partial = partial.push("idle_governor")
+  } else if report.cpu.global_idle_governor != reference.idle_governor {
+    mismatches = mismatches.push("idle_governor")
+  } else {
+    matched += 1
+  }
+
+  let states = report.cpu.idle_states
+    |> where .cpu_id == 0
+    |> sort-by .state_index
   let names = states |> map .name
   var indexes_match = true
   for index in range(states.len()) {
-    if states[index].state_index != index {indexes_match = false}
+    if states[index].state_index != index {
+      indexes_match = false
+    }
   }
-  if states.len() == 0 {partial = partial.push("idle_state_names")} else if !indexes_match or names != reference.idle_state_names {mismatches = mismatches.push("idle_state_names")} else {matched += 1}
+
+  if states.len() == 0 {
+    partial = partial.push("idle_state_names")
+  } else if ! indexes_match or names != reference.idle_state_names {
+    mismatches = mismatches.push("idle_state_names")
+  } else {
+    matched += 1
+  }
+
   return {matched_fields: matched, mismatches: mismatches, partial: partial}
 }
 
 proc cpupower_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) [fs, process, error] -> Result[Str] {
   let scratch_path = fs.root_path(root)?
-  let status = process.run(process.command_argv(
-    executable, argv, cwd: p"/", env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
-    stdout: fp"${scratch_path}/${name}", stderr: fp"${scratch_path}/${name}-error",
-  ))?
-  if !status.exited_with(0) {return Err(cpupower_failure(f"cpupower ${name} command failed"))}
+  let status = process.run(
+    process.command_argv(
+      executable,
+      argv,
+      cwd: /,
+      env: {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"},
+      stdout: fp"${scratch_path}/${name}",
+      stderr: fp"${scratch_path}/${name}-error",
+    ),
+  )?
+  if ! status.exited_with(0) {
+    return Err(cpupower_failure(f"cpupower ${name} command failed"))
+  }
+
   let raw = fs.root_read_result(root, fp"${name}", max_bytes: 65536)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(cpupower_failure(f"cpupower ${name} output is incomplete"))
   }
+
   return (raw.data ?? b"").utf8()?
 }
 
 ## Runs only explicit utility subcommands around one product collection.
-export proc compare_live_cpupower(xsh_bin: Str, script: Str, executable: Str) [fs, process, time, error] -> Result[CpupowerRun] {
-  if !xsh_bin.starts_with("/") or !script.starts_with("/") or !executable.starts_with("/") {
+export proc compare_live_cpupower(
+  xsh_bin: Str,
+  script: Str,
+  executable: Str,
+) [fs, process, time, error] -> Result[CpupowerRun] {
+  if ! xsh_bin.starts_with("/") or ! script.starts_with("/") or ! executable.starts_with("/") {
     return Err(cpupower_failure("cpupower comparison requires absolute paths"))
   }
+
   let scratch = fs.tempdir()?
   defer fs.close_root(scratch)?
   let version_output = cpupower_output(scratch, executable, "version", [executable, "--version"])?
   let version = version_output.lines().get(0, "").trim()
-  if !version.starts_with("cpupower ") {return Err(cpupower_failure("cpupower version is unsupported"))}
+  if ! version.starts_with("cpupower ") {
+    return Err(cpupower_failure("cpupower version is unsupported"))
+  }
+
   let started = time.now()
-  let driver_output = cpupower_output(scratch, executable, "driver", [executable, "-c", "0", "frequency-info", "--driver"])?
-  let limits_output = cpupower_output(scratch, executable, "limits", [executable, "-c", "0", "frequency-info", "--hwlimits"])?
+  let driver_output = cpupower_output(
+    scratch,
+    executable,
+    "driver",
+    [executable, "-c", "0", "frequency-info", "--driver"],
+  )?
+  let limits_output = cpupower_output(
+    scratch,
+    executable,
+    "limits",
+    [executable, "-c", "0", "frequency-info", "--hwlimits"],
+  )?
   let idle_output = cpupower_output(scratch, executable, "idle", [executable, "-c", "0", "idle-info"])?
   let frequency = parse_cpupower_frequency(driver_output, limits_output)?
   let idle = parse_cpupower_idle(idle_output)?
   let reference: CpupowerReference = {
-    driver: frequency.driver, hardware_min_khz: frequency.minimum_khz,
-    hardware_max_khz: frequency.maximum_khz, idle_driver: idle.driver,
-    idle_governor: idle.governor, idle_state_names: idle.names,
+    driver: frequency.driver,
+    hardware_min_khz: frequency.minimum_khz,
+    hardware_max_khz: frequency.maximum_khz,
+    idle_driver: idle.driver,
+    idle_governor: idle.governor,
+    idle_state_names: idle.names,
   }
   let candidate_started = time.now()
   let scratch_path = fs.root_path(scratch)?
-  let candidate_status = process.run(process.command_argv(
-    xsh_bin, [xsh_bin, script, "--", "--section", "cpu", "--json"], cwd: p"/",
-    env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
-    stdout: fp"${scratch_path}/candidate", stderr: fp"${scratch_path}/candidate-error",
-  ))?
-  if !candidate_status.exited_with(0) {return Err(cpupower_failure("candidate CPU collection failed"))}
+  let candidate_status = process.run(
+    process.command_argv(
+      xsh_bin,
+      [xsh_bin, script, "--", "--section", "cpu", "--json"],
+      cwd: /,
+      env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+      stdout: fp"${scratch_path}/candidate",
+      stderr: fp"${scratch_path}/candidate-error",
+    ),
+  )?
+  if ! candidate_status.exited_with(0) {
+    return Err(cpupower_failure("candidate CPU collection failed"))
+  }
+
   let candidate_raw = fs.root_read_result(scratch, p"candidate", max_bytes: 8388608)?
   if candidate_raw.state != "observed" or candidate_raw.truncated or candidate_raw.data == null {
     return Err(cpupower_failure("candidate CPU output is incomplete"))
   }
+
   let candidate = (candidate_raw.data ?? b"").utf8()?
   if json.get(json.decode(candidate)?, ["source_mode"])?.require(Str)? != "live_linux" {
     return Err(cpupower_failure("candidate is not a live Linux report"))
   }
+
   return {
-    version: version, executable: executable,
+    version: version,
+    executable: executable,
     comparison: compare_cpupower(candidate, reference)?,
-    reference_started_unix_ms: started, candidate_started_unix_ms: candidate_started,
+    reference_started_unix_ms: started,
+    candidate_started_unix_ms: candidate_started,
     driver_sha256_hex: hash.sha256(fp"${scratch_path}/driver")?.hex(),
     limits_sha256_hex: hash.sha256(fp"${scratch_path}/limits")?.hex(),
     idle_sha256_hex: hash.sha256(fp"${scratch_path}/idle")?.hex(),

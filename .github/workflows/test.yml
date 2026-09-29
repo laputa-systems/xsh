@@ -19,20 +19,21 @@ env:
 jobs:
   test:
     name: Test on Ubuntu
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
 
-      - name: Install pinned Rust toolchain
+      - name: Build pinned Linux test image
+        run: docker build --platform linux/arm64 -t xsh-test -f Dockerfile.test .
+
+      - name: Ensure Linux tests pass
         run: |
-          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
-          test -n "$toolchain"
-          rustup toolchain install "$toolchain" --profile minimal --component rust-src --component llvm-tools
-          rustup default "$toolchain"
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-
-      - name: Ensure make test passes
-        run: make test
+          docker run --rm --init --privileged --platform linux/arm64 \
+            -v "$PWD:/work" -w /work \
+            -e CARGO_INCREMENTAL=0 \
+            -e CARGO_BUILD_TARGET=aarch64-unknown-linux-musl \
+            -e TARGET=aarch64-unknown-linux-musl -e DIST_PROFILE=dev \
+            -e 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol' \
+            xsh-test cargo dev internal test-linux-ci

@@ -1239,7 +1239,10 @@ impl<'a> Linter<'a> {
             return;
         }
         let annotation_ty = Type::from_arena(self.arena, ty);
-        if matches!(annotation_ty, Type::Any | Type::Unknown | Type::Invalid) {
+        if matches!(
+            annotation_ty,
+            Type::Any | Type::Unknown | Type::Invalid | Type::Optional(_)
+        ) {
             return;
         }
         let ArenaExprOrRun::Expr(init_expr_id) = initializer else {
@@ -1278,6 +1281,17 @@ impl<'a> Linter<'a> {
     }
 
     fn annotation_is_needless(&self, annotation: &Type, init: &ArenaExpr, exported: bool) -> bool {
+        // Branches and record fields can acquire their types from the binding.
+        // Their checked type alone cannot prove that removing context is safe.
+        if matches!(
+            init.kind,
+            ArenaExprKind::If { .. } | ArenaExprKind::Match { .. } | ArenaExprKind::Record(_)
+        ) {
+            return false;
+        }
+        if matches!(annotation, Type::List(inner) if matches!(inner.as_ref(), Type::Record(_))) {
+            return false;
+        }
         if self.is_empty_collection(init) {
             return false;
         }
@@ -1550,7 +1564,10 @@ impl<'a> Linter<'a> {
         };
         let value_span = self.arena.expr(value).span;
         let value_ty = self.expr_types.get(&value_span)?;
-        if value_ty.is_recovery() || value_ty.contains_any() {
+        if value_ty.is_recovery()
+            || value_ty.contains_any()
+            || matches!(value_ty, Type::Record(fields) if fields.is_empty())
+        {
             return None;
         }
         if expr_is_dynamic_require_boundary(self.arena, value) {
@@ -1802,6 +1819,19 @@ impl<'a> Linter<'a> {
         if self.annotation_is_record_type(ty) {
             return;
         }
+        // A bare conditional at statement position is parsed as control flow,
+        // so replacing an explicit return would lose the returned value.
+        if matches!(
+            self.arena.expr(initializer).kind,
+            ArenaExprKind::If { .. }
+                | ArenaExprKind::Match { .. }
+                | ArenaExprKind::Binary {
+                    op: BinaryOp::ResultFallback,
+                    ..
+                }
+        ) {
+            return;
+        }
         let initializer_span = self.arena.expr(initializer).span;
         let replacement = match self.source.get(initializer_span.range()) {
             Some(source) => format!("{source}\n"),
@@ -1974,6 +2004,17 @@ impl<'a> Linter<'a> {
         let Some(ok_expr) = ok_call_arg(self.arena, expr) else {
             return;
         };
+        if matches!(
+            self.arena.expr(ok_expr).kind,
+            ArenaExprKind::If { .. }
+                | ArenaExprKind::Match { .. }
+                | ArenaExprKind::Binary {
+                    op: BinaryOp::ResultFallback,
+                    ..
+                }
+        ) {
+            return;
+        }
         // Get the full source text of the return value by slicing from
         // `return Ok(` to the matching `)` at the end, then stripping the
         // `return ` prefix for the tail expression. Using the enclosing
@@ -2156,8 +2197,8 @@ impl<'a> Linter<'a> {
         // Match: var <name> = []
         let ArenaStmtKind::Var {
             target,
+            ty,
             initializer: ArenaExprOrRun::Expr(init),
-            ..
         } = var_stmt.kind
         else {
             return;
@@ -2258,14 +2299,22 @@ impl<'a> Linter<'a> {
             return;
         };
         let target_src = format_binding_target(self.arena, for_target);
+        let annotation = ty.filter(|ty| {
+            self.annotation_refs_user_type(*ty)
+                || matches!(Type::from_arena(self.arena, *ty), Type::List(inner) if matches!(inner.as_ref(), Type::Record(_)))
+        }).and_then(|ty| self.source.get(self.arena.type_expr_span(ty).range()))
+            .map(|text| format!(": {text}"))
+            .unwrap_or_default();
         let replacement = if let Some(condition) = condition {
             let cond_span = self.arena.expr(condition).span;
             let Some(guard_src) = self.source.get(cond_span.start()..cond_span.end()) else {
                 return;
             };
-            format!("var {var_name} = [{push_src} for {target_src} in {iter_src} if {guard_src}]\n")
+            format!(
+                "var {var_name}{annotation} = [{push_src} for {target_src} in {iter_src} if {guard_src}]\n"
+            )
         } else {
-            format!("var {var_name} = [{push_src} for {target_src} in {iter_src}]\n")
+            format!("var {var_name}{annotation} = [{push_src} for {target_src} in {iter_src}]\n")
         };
         let combined = Span::new(
             var_stmt.span.source_id,
@@ -2925,6 +2974,14 @@ impl<'a> Linter<'a> {
         if name != "contains" || args.len() != 1 {
             return;
         }
+        // Grouping delimiters are not part of the receiver's arena span.
+        // Keep conditional receivers intact rather than dropping their grouping.
+        if matches!(
+            self.arena.expr(receiver).kind,
+            ArenaExprKind::If { .. } | ArenaExprKind::Match { .. }
+        ) {
+            return;
+        }
         let Some(arg) = self.arena.call_args(args).first() else {
             return;
         };
@@ -2990,8 +3047,12 @@ impl<'a> Linter<'a> {
             ArenaStmtKind::Continue => "continue",
             _ => return,
         };
-        let cond_span = self.arena.expr(branch.condition).span;
-        let cond_text = self.source.get(cond_span.start()..cond_span.end());
+        // The full condition spelling includes grouping that the expression's
+        // arena span can omit, including a pipeline's closing parenthesis.
+        let cond_text = self
+            .source
+            .get(span.start() + 2..self.arena.span(self.arena.block(branch.block).span).start())
+            .map(str::trim);
         let (guard_word, replacement_cond) = match self.arena.expr(branch.condition).kind {
             ArenaExprKind::Unary {
                 op: UnaryOp::Not,

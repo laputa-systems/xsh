@@ -1,5 +1,7 @@
 type JsonFloatMetric = {ratio: Float, samples: List[Float]}
+
 type JsonNestedRow = {cpu: Int, online: Bool}
+
 type JsonNestedRows = {cpus: List[JsonNestedRow]}
 
 proc test_json_require_checks_nested_named_record_fields() [error] {

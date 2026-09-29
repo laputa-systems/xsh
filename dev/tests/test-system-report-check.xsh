@@ -2387,6 +2387,7 @@ proc test_system_report_dmidecode_dump_relocates_smbios3_entry_point() [error] {
   for index in range(24) {
     checksum += dump.byte_at(index)
   }
+
   test.eq(checksum % 256, 0)?
   test.eq(entry.byte_at(17), 16)?
   test.error_kind(
@@ -2445,11 +2446,13 @@ proc test_system_report_dmidecode_dump_relocates_smbios2_entry_point() [error] {
   for index in range(31) {
     primary_checksum += dump.byte_at(index)
   }
+
   test.eq(primary_checksum % 256, 0)?
   var dmi_checksum = 0
   for index in range(16, 31) {
     dmi_checksum += dump.byte_at(index)
   }
+
   test.eq(dmi_checksum % 256, 0)?
 }
 
@@ -2818,6 +2821,7 @@ proc test_system_report_cpufreq_rooted_reference_reads_every_policy() [fs, error
 """,
       )?
     }
+
     fs.root_write(
       root,
       fp"${base}/energy_performance_preference",
@@ -6028,6 +6032,7 @@ proc test_system_report_pressure_capture_keeps_incomplete_sources_unscoreable() 
   while padding.count_chars() <= 16384 {
     padding = f"${padding}${padding}"
   }
+
   fs.root_write(source, p"proc/pressure/cpu", padding)?
   let truncated = fs.tempdir()?
   defer fs.close_root(truncated)?
@@ -7674,6 +7679,7 @@ proc test_system_report_proc_swaps_capture_marks_absent_malformed_and_truncated_
   while padding.count_chars() <= 262144 {
     padding = f"${padding}${padding}"
   }
+
   fs.root_write(
     source,
     p"proc/swaps",
@@ -8808,8 +8814,7 @@ proc test_system_report_kernel_command_line_reference_preserves_bytes_and_redact
     kernel: {
       command_line: {
         state: "observed",
-        value: """  root=UUID=private  quiet  
-  """,
+        value: "  root=UUID=private  quiet  " + "\n",
         raw_bytes_base64: null,
       },
     },
@@ -8990,6 +8995,7 @@ proc test_system_report_kernel_parameter_capture_preserves_malformed_utf8_and_re
   while padding.count_chars() <= 4096 {
     padding = f"${padding}${padding}"
   }
+
   fs.root_write(source, p"proc/sys/kernel/pid_max", padding)?
   let truncated = fs.tempdir()?
   defer fs.close_root(truncated)?
@@ -9261,6 +9267,7 @@ proc test_system_report_device_tree_capture_keeps_unavailable_sources_unscoreabl
   while padding.count_chars() <= 4096 {
     padding = f"${padding}${padding}"
   }
+
   fs.root_write(source, p"sys/firmware/devicetree/base/model", padding)?
   let truncated = fs.tempdir()?
   defer fs.close_root(truncated)?
@@ -9495,6 +9502,7 @@ proc test_system_report_dmi_identity_capture_keeps_unavailable_sources_unscoreab
   while padding.count_chars() <= 4096 {
     padding = f"${padding}${padding}"
   }
+
   fs.root_write(source, p"sys/class/dmi/id/sys_vendor", padding)?
   let truncated = fs.tempdir()?
   defer fs.close_root(truncated)?
@@ -9672,6 +9680,7 @@ proc test_system_report_uptime_capture_keeps_absent_malformed_and_truncated_unsc
   while padding.count_chars() <= 4096 {
     padding = f"${padding}${padding}"
   }
+
   fs.root_write(
     source,
     p"proc/uptime",

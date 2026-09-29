@@ -28,6 +28,12 @@ an unconditional command. Source intent wins when flat and broken forms are
 both readable, but comments, syntax safety, semantic grouping, and width remain
 stronger constraints.
 
+Indentation of a multiline record must preserve the bytes inside nested string,
+path, glob, formatted, and byte literals, including whitespace before a closing
+delimiter. `Writer::write_multiline_inline` uses literal token spans to distinguish
+record layout from literal contents. `test_fmt_nested_multiline_string_preserves_value`
+checks execution before and after formatting and requires the result to be stable.
+
 The design specifically avoids these failure modes:
 
 - collapsing a deliberately multiline `if` or `match` because its flat form

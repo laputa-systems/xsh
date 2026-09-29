@@ -102,7 +102,7 @@ const INDEXED_EVAL_DEPTH_LIMIT: usize = 2048;
 const INDEXED_SMALL_STACK_EVAL_DEPTH_LIMIT: usize = 128;
 
 fn indexed_eval_depth_limit() -> usize {
-    if cfg!(debug_assertions) && std::env::var_os("XSH_TEST_SMALL_EVAL_STACK").is_some() {
+    if cfg!(feature = "native-tests") && std::env::var_os("XSH_TEST_SMALL_EVAL_STACK").is_some() {
         INDEXED_SMALL_STACK_EVAL_DEPTH_LIMIT
     } else {
         INDEXED_EVAL_DEPTH_LIMIT

@@ -6853,7 +6853,7 @@ fn run_eval<R: Send>(f: impl FnOnce() -> R + Send) -> R {
 }
 
 fn debug_test_eval_stack_size(default: usize) -> usize {
-    if cfg!(debug_assertions) && std::env::var_os("XSH_TEST_SMALL_EVAL_STACK").is_some() {
+    if cfg!(feature = "native-tests") && std::env::var_os("XSH_TEST_SMALL_EVAL_STACK").is_some() {
         8 * 1024 * 1024
     } else {
         default

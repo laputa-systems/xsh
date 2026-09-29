@@ -7359,10 +7359,8 @@ impl Evaluator {
                 // A producer's items arrive one pull at a time: the loop never
                 // holds the whole stream, and stopping it early runs the
                 // producer's defers instead of the rest of its body.
-                let script_stream = match &iter {
-                    LoweredValue::Stream(stream) if stream.script().is_some() => true,
-                    _ => false,
-                };
+                let script_stream =
+                    matches!(&iter, LoweredValue::Stream(stream) if stream.script().is_some());
                 if script_stream {
                     let LoweredValue::Stream(mut stream) = iter else {
                         unreachable!("checked above")

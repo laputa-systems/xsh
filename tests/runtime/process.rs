@@ -391,7 +391,7 @@ print ${{values.len()}}
     assert_eq!(output.status.code(), Some(3));
     let stderr = String::from_utf8(output.stderr).expect("UTF-8 trace");
     assert!(stderr.contains("canceled"), "{stderr}");
-    let mut trace = std::collections::HashMap::new();
+    let mut trace = BTreeMap::new();
     for line in stderr.lines().filter(|line| line.starts_with("id=")) {
         let fields = line.split_whitespace().take(4).collect::<Vec<_>>();
         let id = fields[0]

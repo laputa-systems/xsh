@@ -63,6 +63,7 @@ export pure core_install_path(relative_source: Path) -> Path {
   if relative_source.display().starts_with("lib/") {
     return fp"core/${relative_source.display()}"
   }
+
   let relative = relative_source.display()
   let command = if relative.ends_with(".xsh") {
     relative.byte_slice(0, length: relative.byte_len() - 4)

@@ -50,6 +50,7 @@ export pure parse_sensors_json(output: Str) -> Result[List[SensorsJsonReading]] 
     if chip == "" {
       return Err(sensors_check_failure("sensors JSON chip has no name"))
     }
+
     let features = json.get(document, [chip_key])?.require(Record)?
     for label in features.keys() |> sort-by . {
       continue when label == "Adapter"
@@ -247,6 +248,7 @@ export proc compare_live_sensors_json(
   if version == "" {
     return Err(sensors_check_failure("sensors version probe returned no version"))
   }
+
   let argv = [executable, "-j", "-c", "/dev/null"]
   let started = time.now()
   let before_status = process.run(

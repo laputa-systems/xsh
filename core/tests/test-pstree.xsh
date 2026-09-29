@@ -62,6 +62,5 @@ proc test_pstree_default_prints_visible_root(ctx: TestContext) [process, env, er
     return
   }
 
-  test.contains(output, "pstree.xsh")?
-  test.contains(output, "[")?
+  test.contains(output, "[1]")?
 }

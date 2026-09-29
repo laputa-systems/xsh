@@ -149,7 +149,7 @@ fn run_script_in_private_mount_namespace(
             }
             if libc::mount(
                 std::ptr::null(),
-                b"/\0".as_ptr().cast(),
+                c"/".as_ptr(),
                 std::ptr::null(),
                 (libc::MS_REC | libc::MS_PRIVATE) as libc::c_ulong,
                 std::ptr::null(),
@@ -160,7 +160,7 @@ fn run_script_in_private_mount_namespace(
             if let Some(source) = &fstab_source
                 && libc::mount(
                     source.as_ptr(),
-                    b"/etc/fstab\0".as_ptr().cast(),
+                    c"/etc/fstab".as_ptr(),
                     std::ptr::null(),
                     libc::MS_BIND as libc::c_ulong,
                     std::ptr::null(),
@@ -486,15 +486,52 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
     });
 }
 
-// Docker's PID namespace contains the process-wide signal. The helper is in
-// its own session; ChildCleanup reaps it and TempDir removes the marker even
-// when a later assertion panics.
+// A private PID namespace and matching proc mount contain the process-wide
+// signal. The test harness is its init, so neither concurrent tests nor the
+// container's supervising process can be signalled by the fixture.
 #[test]
 fn linux_priv_kill_all_signals_contained_new_session_process() {
     if !is_root() {
         eprintln!("skipped: kill_all fixture requires root in an isolated PID namespace");
         return;
     }
+    const ISOLATED: &str = "XSH_TEST_KILL_ALL_ISOLATED";
+    if std::env::var_os(ISOLATED).is_none() {
+        let output = Command::new("unshare")
+            .args(["--pid", "--fork", "--mount-proc"])
+            .arg(std::env::current_exe().expect("current privileged test executable"))
+            .args([
+                "--exact",
+                "linux_priv_kill_all_signals_contained_new_session_process",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(ISOLATED, "1")
+            .output()
+            .expect("start private PID namespace");
+        if !output.status.success() && lacks_capability(&output) {
+            eprintln!("skipped: CAP_SYS_ADMIN is required for a private PID namespace");
+            return;
+        }
+        assert!(
+            output.status.success(),
+            "stdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    assert_eq!(
+        unsafe { libc::getpid() },
+        1,
+        "fixture must be namespace init"
+    );
+    // The inherited outer session has no visible ID in this PID namespace.
+    // Give descendants a local session before XSH inspects process identity.
+    assert!(
+        unsafe { libc::setsid() } > 0,
+        "create namespace-local session"
+    );
     let root = tempfile::Builder::new()
         .prefix("xsh-linux-priv-kill-all-")
         .tempdir()

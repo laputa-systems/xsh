@@ -10,12 +10,18 @@ them to the owner and report that limit. Unfiltered `cargo test` includes
 
 `.github/workflows/lint.yml` and `.github/workflows/test.yml` run on pull requests
 and pushes to `master` with read-only repository permission. Both run on
-`ubuntu-latest`: lint runs `make lint` and fails on any resulting `git diff`,
-while test runs `make test`, which dispatches through `cargo dev test` to
-`dev/test_workflows.xsh::rust` (`cargo test --release`).
+`ubuntu-24.04-arm` inside the image defined by `Dockerfile.test`, with the
+`aarch64-unknown-linux-musl` target and `dev/targets.xsh::docker_test_env`
+linker flags. Lint runs `cargo dev lint --fix` and fails on any resulting
+`git diff`. Tests run `cargo dev internal test-linux-ci` with the `dev`
+profile, including the privileged Linux features. The internal driver builds
+all three products before testing and supplies the `target/debug` executable
+paths used by native subprocess fixtures.
 
+Locally, `make lint` delegates to `cargo dev lint --fix`, while `make test`
+delegates to `dev/test_workflows.xsh::rust` (`cargo test` in the debug profile).
 The manual release workflow retains the `dist` profile. Lint and its
-formatter/autofix steps are owner-run under the agent workflow rule.
+formatter/autofix steps are owner-run unless the user explicitly requests them.
 
 `Dockerfile.test` installs the reference utilities required by the current
 system-report checker and its opt-in utility corroboration adapters. Alpine splits
@@ -42,6 +48,11 @@ for each target; `dev/release.xsh::validate_artifacts` requires all nine
 binary artifacts and their checksum sidecars. The names and validation
 boundary are covered by `dev/tests/test-targets.xsh`. Actual `dist` builds
 and package smoke checks run in the manual release workflow.
+
+`linux_priv_kill_all_signals_contained_new_session_process` reexecutes the exact
+test under `unshare --pid --fork --mount-proc`. Its harness is namespace PID 1;
+the matching proc mount prevents process-wide signals from targeting concurrent
+tests or the Docker supervisor.
 
 `tests/linux_priv.rs` is included only with `linux-priv-tests`. In the pinned
 privileged image it runs under the CI `dev` profile with `net tools`; use

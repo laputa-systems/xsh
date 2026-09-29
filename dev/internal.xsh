@@ -112,6 +112,49 @@ export proc linux_ci_test(ctx: context.Context) [fs, process, env, error, io] ->
   let environment = targets.docker_test_env(ctx.target.triple)?
   stages.execute(
     stages.command(
+      "linux-ci-build-products",
+      ctx.target.triple,
+      "cargo",
+      [
+        "cargo",
+        "build",
+        "--locked",
+        "--profile",
+        ctx.profile,
+        "--target",
+        ctx.target.triple,
+        "-p",
+        "xsh",
+        "-p",
+        "xshi",
+        "-p",
+        "xsht",
+        "--bin",
+        "xsh",
+        "--bin",
+        "xshi",
+        "--bin",
+        "xsht",
+      ],
+      ctx.root,
+      environment,
+    ),
+  )?
+  if ctx.profile == "dev" {
+    let debug = fp"${ctx.target_dir}/debug"
+    stages.ensure_dir(debug)?
+    for product in targets.products {
+      let destination = fp"${debug}/${product}"
+      let source = fp"${ctx.target_dir}/${ctx.target.triple}/debug/${product}"
+      if destination != source {
+        fs.remove(destination, missing_ok: true)?
+        fs.symlink(source, destination)?
+      }
+    }
+  }
+
+  stages.execute(
+    stages.command(
       "linux-ci-tests",
       ctx.target.triple,
       "cargo",

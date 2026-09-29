@@ -905,7 +905,7 @@ impl Live {
                     })
                     .collect::<Vec<_>>()
                     .join("\n");
-                Some((modified, self.normalize(&text)))
+                Some((modified, self.normalize(&normalize_completion_arena(&text))))
             })
             .collect();
         dumps.sort();
@@ -996,6 +996,54 @@ impl Live {
             effects: self.effects,
         }
     }
+}
+
+// Completion entries are sorted for display, but their arena offsets retain
+// filesystem enumeration order. Compare the same entries with packed offsets.
+fn normalize_completion_arena(text: &str) -> String {
+    let mut lines = text.lines().map(str::to_owned).collect::<Vec<_>>();
+    for index in 0..lines.len().saturating_sub(1) {
+        let Some(encoded) = lines[index].strip_prefix("completion.names: ") else {
+            continue;
+        };
+        let Ok(names) = miniserde::json::from_str::<String>(encoded) else {
+            continue;
+        };
+        let mut canonical_names = String::new();
+        let mut entries = String::new();
+        let mut rest = lines[index + 1].as_str();
+        while let Some((prefix, fields)) = rest.split_once("name_start: ") {
+            entries.push_str(prefix);
+            entries.push_str("name_start: ");
+            let (start, fields) = fields
+                .split_once(", name_len: ")
+                .expect("completion offset");
+            let (len, tail) = fields.split_once(',').expect("completion length");
+            let start = start.parse::<usize>().expect("numeric completion offset");
+            let len = len.parse::<usize>().expect("numeric completion length");
+            entries.push_str(&canonical_names.len().to_string());
+            entries.push_str(", name_len: ");
+            entries.push_str(&len.to_string());
+            entries.push(',');
+            canonical_names.push_str(&names[start..start + len]);
+            rest = tail;
+        }
+        entries.push_str(rest);
+        lines[index] = format!(
+            "completion.names: {}",
+            miniserde::json::to_string(&canonical_names)
+        );
+        lines[index + 1] = entries;
+    }
+    lines.join("\n")
+}
+
+#[test]
+fn completion_dump_ignores_directory_enumeration_order() {
+    let forward = "completion.names: \"aaab\"\ncompletion.entries: [CompletionEntry { name_start: 0, name_len: 2, flags: 0 }, CompletionEntry { name_start: 2, name_len: 2, flags: 0 }]";
+    let reverse = "completion.names: \"abaa\"\ncompletion.entries: [CompletionEntry { name_start: 2, name_len: 2, flags: 0 }, CompletionEntry { name_start: 0, name_len: 2, flags: 0 }]";
+    assert_eq!(normalize_completion_arena(reverse), forward);
+    assert_eq!(normalize_completion_arena(forward), forward);
 }
 
 /// Layout dump file names end in a random 32-digit hex string.

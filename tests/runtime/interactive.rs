@@ -288,6 +288,11 @@ fn a_program_reading_stdin_does_not_consume_the_piped_session() {
 
 #[test]
 fn xshi_pty_master_does_not_survive_exec() {
+    let baseline = Command::new(cargo_env!("CARGO_BIN_EXE_xsh-test-show-fds"))
+        .output()
+        .expect("describe inherited descriptors");
+    assert!(baseline.status.success());
+    let inherited = String::from_utf8(baseline.stdout).expect("descriptor descriptions");
     parity::run_xshi_only(&Fixture::new().size(24, 400), |sh| {
         sh.line(cargo_env!("CARGO_BIN_EXE_xsh-test-show-fds"));
         let screen = sh.screen_text();
@@ -295,7 +300,17 @@ fn xshi_pty_master_does_not_survive_exec() {
             .lines()
             .filter(|row| !row.trim().is_empty())
             .collect();
-        assert_eq!(rows.len(), 2, "the helper printed a descriptor: {screen}");
+        assert_eq!(
+            rows.len(),
+            2 + inherited.lines().count(),
+            "the helper printed an extra descriptor: {screen}"
+        );
+        for descriptor in inherited.lines() {
+            assert!(
+                rows.contains(&descriptor),
+                "inherited descriptor changed: {screen}"
+            );
+        }
     });
 }
 

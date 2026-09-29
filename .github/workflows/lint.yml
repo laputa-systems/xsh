@@ -19,23 +19,29 @@ env:
 jobs:
   lint:
     name: Lint on Ubuntu
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           lfs: true
 
-      - name: Install pinned Rust toolchain
+      - name: Build pinned Linux test image
+        run: docker build --platform linux/arm64 -t xsh-test -f Dockerfile.test .
+
+      - name: Ensure lint passes cleanly
         run: |
-          toolchain="$(sed -n 's/^channel = "\(.*\)"/\1/p' rust-toolchain.toml)"
-          test -n "$toolchain"
-          rustup toolchain install "$toolchain" --profile minimal --component rust-src --component llvm-tools --component rustfmt --component clippy
-          rustup default "$toolchain"
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-
-      - name: Ensure make lint passes cleanly
-        run: make lint
+          docker run --rm --init --platform linux/arm64 \
+            -v "$PWD:/work" -w /work \
+            -e CARGO_INCREMENTAL=0 \
+            -e CARGO_BUILD_TARGET=aarch64-unknown-linux-musl \
+            -e TARGET=aarch64-unknown-linux-musl \
+            -e 'CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS=-C target-feature=+crt-static -C link-arg=--defsym=__isoc23_sscanf=sscanf -C link-arg=--defsym=__isoc23_strtol=strtol' \
+            xsh-test sh -ec '
+              rustup component add rustfmt clippy
+              mkdir -p target/debug
+              ln -sf ../aarch64-unknown-linux-musl/debug/xsht target/debug/xsht
+              cargo dev lint --fix
+            '
 
       - name: Check for lint modifications
         run: git diff --exit-code

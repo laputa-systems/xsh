@@ -15,6 +15,7 @@ proc test_supported_target_records_and_default() [error] {
     Ok(_) => test.fail("unsupported host default resolved")?
     Err(error) => test.eq(error.message, "TargetError.Unsupported")?
   }
+
   let x86 = target_policy.resolve("x86_64-unknown-linux-musl")?
   let arm = target_policy.resolve("aarch64-unknown-linux-musl")?
   let darwin = target_policy.resolve("aarch64-apple-darwin")?
@@ -135,9 +136,12 @@ proc test_core_archive_stages_command_and_library_paths(ctx: TestContext) [fs, e
   fp"${root}/core/bin".mkdir()?
   fp"${root}/core/lib".mkdir()?
   fp"${root}/core/tests".mkdir()?
-  fp"${root}/core/bin/report.xsh-helper.xsh".write("print \"command\"\n")?
-  fp"${root}/core/lib/report.xsh-helper.xsh".write("print \"library\"\n")?
-  fp"${root}/core/tests/ignored.xsh".write("print \"test\"\n")?
+  fp"${root}/core/bin/report.xsh-helper.xsh".write("""print "command"
+""")?
+  fp"${root}/core/lib/report.xsh-helper.xsh".write("""print "library"
+""")?
+  fp"${root}/core/tests/ignored.xsh".write("""print "test"
+""")?
   let release_ctx = fixtures.linux_context(root, "dev")?
   releases.package_core(release_ctx, "fixture")?
   let archive_path = fp"${root}/dist/core-fixture.tar.xz"
@@ -150,16 +154,29 @@ proc test_core_archive_stages_command_and_library_paths(ctx: TestContext) [fs, e
   test.eq((entries |> where .path.display() == "core/lib/report.xsh-helper.xsh")[0].mode.bit_and(0o777), 0o644)?
   let extracted = fp"${root}/extracted"
   archive.tar_extract(archive_path, extracted)?
-  test.eq(fp"${extracted}/core/bin/report.xsh-helper".read_text()?, "print \"command\"\n")?
-  test.eq(fp"${extracted}/core/lib/report.xsh-helper.xsh".read_text()?, "print \"library\"\n")?
-  test.ok(!fp"${extracted}/core/tests/ignored".exists()?)?
-  test.contains(fp"${root}/dist/core-fixture.sha256".read_text()?, "  dist/core-fixture.tar.xz\n")?
+  test.eq(
+    fp"${extracted}/core/bin/report.xsh-helper".read_text()?,
+    """print "command"
+""",
+  )?
+  test.eq(
+    fp"${extracted}/core/lib/report.xsh-helper.xsh".read_text()?,
+    """print "library"
+""",
+  )?
+  test.ok(! fp"${extracted}/core/tests/ignored".exists()?)?
+  test.contains(
+    fp"${root}/dist/core-fixture.sha256".read_text()?,
+    """  dist/core-fixture.tar.xz
+""",
+  )?
 }
 
 proc test_core_archive_rejects_conflicting_artifact_before_writing(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "core-archive-conflict")?
   fp"${root}/core".mkdir()?
-  fp"${root}/core/report.xsh".write("print \"ok\"\n")?
+  fp"${root}/core/report.xsh".write("""print "ok"
+""")?
   fp"${root}/dist".mkdir()?
   let stale = fp"${root}/dist/unrelated.tar.xz"
   stale.write("existing artifact")?
@@ -168,9 +185,10 @@ proc test_core_archive_rejects_conflicting_artifact_before_writing(ctx: TestCont
     Ok(_) => test.fail("conflicting archive was accepted")?
     Err(error) => test.contains(error.message, "StageError.Failed")?
   }
+
   test.eq(stale.read_text()?, "existing artifact")?
-  test.ok(!fp"${root}/dist/core-fixture.tar.xz".exists()?)?
-  test.ok(!fp"${root}/dist/core-fixture.sha256".exists()?)?
+  test.ok(! fp"${root}/dist/core-fixture.tar.xz".exists()?)?
+  test.ok(! fp"${root}/dist/core-fixture.sha256".exists()?)?
 }
 
 proc test_core_archive_contains_current_system_report(ctx: TestContext) [fs, error] {

@@ -265,7 +265,7 @@ proc test_fs_root_operations_reject_traversal(ctx: TestContext) [fs, error] {
   test.eq(observed.state, "observed")?
   test.eq(observed.data, b"rooted")?
   test.eq(observed.errno, null)?
-  test.ok(!observed.truncated)?
+  test.ok(! observed.truncated)?
   let filesystem = fs.root_filesystem_stats(root, p".")?
   test.eq(filesystem.state, "observed")?
   test.ok(filesystem.total_bytes != null and (filesystem.total_bytes ?? 0) > 0)?
@@ -281,7 +281,7 @@ proc test_fs_root_operations_reject_traversal(ctx: TestContext) [fs, error] {
   test.eq(absent_filesystem.state, "absent")?
   test.eq(absent_filesystem.error_kind, "not_found")?
   test.error_kind(
-    fs.root_filesystem_stats(root, p"/tmp"),
+    fs.root_filesystem_stats(root, /tmp),
     "fs-root-filesystem-stats",
   )?
   let limited = fs.root_read_result(root, p"nested/data.txt", max_bytes: 2)?
@@ -302,7 +302,7 @@ proc test_fs_root_operations_reject_traversal(ctx: TestContext) [fs, error] {
   let absent_directory = fs.root_children(root, p"absent")?
   test.eq(absent_directory.state, "absent")?
   test.eq(absent_directory.error_kind, "not_found")?
-  test.ok(!absent_directory.enumeration_succeeded)?
+  test.ok(! absent_directory.enumeration_succeeded)?
   test.eq(
     fs.root_children(root, p"nested")?.children,
     [p"nested/data.txt"],
@@ -314,7 +314,7 @@ proc test_fs_root_operations_reject_traversal(ctx: TestContext) [fs, error] {
   )?
   let truncated_directory = fs.root_children(root, p"nested", max_entries: 1)?
   test.eq(truncated_directory.state, "truncated")?
-  test.ok(!truncated_directory.enumeration_succeeded)?
+  test.ok(! truncated_directory.enumeration_succeeded)?
   test.eq(truncated_directory.children, [p"nested/data.bin"])?
   test.eq(fs.root_read(root, p"nested/data.bin")?, b"rooted\0bytes")?
   fs.root_write_atomic(root, p"nested/data.txt", "atomic")?
@@ -346,9 +346,9 @@ proc test_fs_root_operations_reject_traversal(ctx: TestContext) [fs, error] {
   fs.symlink(fp"${outside}/secret.txt", fp"${root_dir}/nested/link")?
   test.error_kind(fs.root_read_text(root, p"nested/link"), "fs-root-read")?
   let escaped_directory = fs.root_children(root, p"nested/link")?
-  test.ok(!escaped_directory.enumeration_succeeded)?
+  test.ok(! escaped_directory.enumeration_succeeded)?
   let escaped_path = fs.root_children(root, ../outside)?
-  test.ok(!escaped_path.enumeration_succeeded)?
+  test.ok(! escaped_path.enumeration_succeeded)?
   test.error_kind(fs.root_read_text(root, ../secret.txt), "fs-root-read")?
   test.error_kind(fs.root_symlink(root, p"target", ../escape), "fs-root-symlink")?
   test.error_kind(fs.root_write_atomic(root, p"missing/parent.txt", "x"), "fs-root-write")?

@@ -1,4 +1,6 @@
 ##! Typed Linux inventory model and pure presentation helpers.
+let max_cpu_list_identifiers = 65536
+
 ## Describes the outcome for one observed value or field.
 export type ObservationState =
     Observed
@@ -32,7 +34,7 @@ export type SectionState =
 export error SystemReportError = InvalidCpuList(message: Str) | InvalidSection(message: Str) | InvalidJson(message: Str) | UnsupportedSchema(version: Int, message: Str) | InvalidProcStat(message: Str) | InvalidExecutionUnits(message: Str) | DryRun(message: Str) | UnsupportedPlatform(message: Str)
 
 ## Identifies whether observations came from a live host or a replay source.
-type SourceMode =
+export type SourceMode =
     LiveLinux
   | Replay
   | SyntheticFixture
@@ -222,14 +224,12 @@ export type CpuSection = {
 
 ## Selects every CPUFreq policy whose related CPU set includes the requested CPU.
 export pure frequency_policies_for_cpu(policies: List[CpuFreqPolicy], cpu_id: Int) -> List[CpuFreqPolicy] {
-  [policy for policy in policies if policy.related_cpus.contains(cpu_id)]
+  [policy for policy in policies if cpu_id in policy.related_cpus]
 }
 
 pure cpu_list_error(message: Str) -> SystemReportError {
   return SystemReportError.InvalidCpuList(message: message)
 }
-
-let max_cpu_list_identifiers = 65536
 
 pure parse_cpu_list_integer(value: Str, decimal: Regex) -> Result[Int] {
   if ! decimal.matches(value) {
@@ -1634,7 +1634,7 @@ pure optional_firmware_identity_xsh(value: JsonFirmwareIdentity?) -> Result[Firm
     return firmware_identity_xsh(value)
   }
 
-  return Ok(null)
+  null
 }
 
 pure identity_section_json(value: IdentitySection) -> JsonIdentitySection {

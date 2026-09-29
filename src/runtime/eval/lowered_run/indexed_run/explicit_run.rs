@@ -258,7 +258,7 @@ enum FrameWork {
     },
     ForPipeline {
         slot: usize,
-        pipeline: IndexedSerialPipeline,
+        pipeline: Box<IndexedSerialPipeline>,
         body: u32,
         span: Span,
     },
@@ -2019,7 +2019,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         ControlFlow::Continue(pipeline) => {
                             self.calls[index].work.push(FrameWork::ForPipeline {
                                 slot,
-                                pipeline,
+                                pipeline: Box::new(pipeline),
                                 body,
                                 span,
                             });
@@ -3122,7 +3122,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         &mut self,
         index: usize,
         slot: usize,
-        mut pipeline: IndexedSerialPipeline,
+        mut pipeline: Box<IndexedSerialPipeline>,
         body: u32,
         span: Span,
     ) -> Result<(), RuntimeError> {

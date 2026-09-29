@@ -15,12 +15,14 @@ use xsh::frontend::syntax::arena::{
     FunctionDefId, PatternId, StmtId, TypeExprId,
 };
 use xsh::frontend::syntax::cst::SyntaxTree;
+use xsh::frontend::syntax::lexer::Lexer;
 use xsh::frontend::syntax::literal;
 use xsh::frontend::syntax::node::{
     AssignOp, BinaryOp, CoreCommand, Effect, EnvGetKind, FormatSpecKind, RedirectionKind, RunKind,
     StreamStageKind, UnaryOp,
 };
 use xsh::frontend::syntax::parser::{ArenaParseOutput, Parser};
+use xsh::frontend::syntax::token::TokenTag;
 
 pub const DEFAULT_LINE_WIDTH: usize = 120;
 const MULTILINE_LIST_ITEM_THRESHOLD: usize = 8;
@@ -2532,12 +2534,38 @@ impl<'a> Writer<'a> {
 
     fn write_multiline_inline(&self, inline: &str, output: &mut String) {
         let prefix = current_line_indent(output).to_string();
+        let tokens = Lexer::new(SourceId::new(0), inline).lex_compact();
+        let literal_spans: Vec<_> = (0..tokens.token_table.len())
+            .filter(|&index| {
+                matches!(
+                    tokens.token_table.tag_at(index),
+                    Some(
+                        TokenTag::String
+                            | TokenTag::PathString
+                            | TokenTag::GlobString
+                            | TokenTag::FmtString
+                            | TokenTag::PathFmtString
+                            | TokenTag::Bytes
+                    )
+                )
+            })
+            .filter_map(|index| tokens.token_table.span_at(index, SourceId::new(0), inline))
+            .collect();
+        let mut offset = 0;
         for (index, line) in inline.split('\n').enumerate() {
             if index > 0 {
                 output.push('\n');
-                output.push_str(&prefix);
+                // Continuation indentation inside a literal changes its value,
+                // including the whitespace preceding its closing delimiter.
+                if !literal_spans
+                    .iter()
+                    .any(|span| span.start() < offset && offset < span.end())
+                {
+                    output.push_str(&prefix);
+                }
             }
             output.push_str(line);
+            offset += line.len() + 1;
         }
     }
 

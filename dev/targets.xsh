@@ -1,5 +1,11 @@
 ##! Closed target policy for XSH's development lifecycle.
 ## Keep architecture, toolchain, Docker, and verification properties here.
+## Product binaries that belong in every distribution.
+export let products = ["xsh", "xsht", "xshi"]
+
+## Cargo features used by release-like distribution builds.
+export let distribution_features = "xsh/net xsh/tools xsht/native-tests"
+
 ## All properties used by build, container, and verification policy.
 export type Target = {
   triple: Str,
@@ -48,12 +54,6 @@ export pure host_default_triple(os: HostOs, arch: HostArch) -> Result[Str] {
 
   return Err(TargetError.Unsupported(target: "host default target"))
 }
-
-## Product binaries that belong in every distribution.
-export let products = ["xsh", "xsht", "xshi"]
-
-## Cargo features used by release-like distribution builds.
-export let distribution_features = "xsh/net xsh/tools xsht/native-tests"
 
 ## Classifies the host operating system reported by `system.uname`.
 export pure host_os(sysname: Str) -> Result[Str] {

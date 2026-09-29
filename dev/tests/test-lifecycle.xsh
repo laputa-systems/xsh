@@ -155,7 +155,7 @@ match internal.linux_ci_test(ctx) {
     },
   )?
   test.ok(result.success, result.stderr)?
-  test.contains(result.stdout, "[linux-ci-tests target=x86_64-unknown-linux-musl] cargo test", result.stdout)?
+  test.contains(result.stdout, "[linux-ci-build-products target=x86_64-unknown-linux-musl] cargo build", result.stdout)?
   test.contains(result.stdout, "StageError.Failed", result.stdout)?
   test.ok(cargo_marker.exists()?)?
   test.ok(cleanup_marker.exists()?)?
@@ -288,7 +288,7 @@ proc test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary(ctx: T
   let default = process.command {
     cwd = root
     stdout = output
-    run make -n build
+    run make --no-print-directory -n build
   }
   test.ok(process.run(default)?.exited_with(0))?
   test.eq(
@@ -300,7 +300,7 @@ proc test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary(ctx: T
   let override = process.command {
     cwd = root
     stdout = output
-    run make -n build "XSH_DEV=/missing/xsh"
+    run make --no-print-directory -n build "XSH_DEV=/missing/xsh"
   }
   test.ok(process.run(override)?.exited_with(0))?
   test.eq(
@@ -359,6 +359,7 @@ match install.darwin(ctx) {
   test.contains(result.stdout, "StageError.Failed", result.stdout)?
   test.ok(codesign_marker.exists()?)?
   test.contains(cargo_marker.read_text()?, "build-std", cargo_marker.read_text()?)?
+}
 
 proc test_darwin_install_rejects_linux_target_before_building(ctx: TestContext) [fs, error] {
   let root = test.temp_dir(ctx, name: "darwin-rejects-linux")?

@@ -22,3 +22,17 @@ proc test_fmt_fixture(ctx: TestContext) [fs, process, error] {
     "fmt-beauty.xsh",
   )?
 }
+
+proc test_fmt_nested_multiline_string_preserves_value(ctx: TestContext) [fs, process, error] {
+  let source = p"tests/fixtures/fmt/nested-multiline-string.xsh".read_text()?
+  let before = test.run_script(ctx, source)?
+  test.ok(before.success, before.stderr)?
+  let candidate = test.temp_file(ctx, name: "nested-string.xsh", contents: bytes.from_text(source))?
+  let formatted = run.capture --text "xsht" fmt $candidate ?
+  test.ok(formatted.status.exited_with(0), formatted.stderr)?
+  let after = test.run_script(ctx, candidate.read_text()?)?
+  test.ok(after.success, after.stderr)?
+  test.eq(after.stdout, before.stdout)?
+  let stable = run.capture --text "xsht" fmt --check $candidate ?
+  test.ok(stable.status.exited_with(0), stable.stderr)?
+}

@@ -1788,15 +1788,10 @@ fn child_dup(command: &mut Command, stream: RedirectionStream, fd: i32) -> Resul
             "fd duplication target must be non-negative",
         ));
     }
-    let target = stream_fd(stream);
-    // SAFETY: the closure only calls dup2, which is async-signal-safe.
+    // SAFETY: the closure only checks descriptor flags and duplicates stdio;
+    // both descriptor operations are async-signal-safe.
     unsafe {
-        command.pre_exec(move || {
-            if libc::dup2(fd, target) < 0 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
-        });
+        command.pre_exec(move || duplicate_child_stdio(BorrowedFd::borrow_raw(fd), stream));
     }
     Ok(())
 }
@@ -1813,16 +1808,27 @@ fn child_dup_owned(command: &mut Command, stream: RedirectionStream, source: rus
             let fd = source.as_raw_fd();
             if fd == target {
                 // Already in place, but opened close-on-exec.
-                let flags = libc::fcntl(fd, libc::F_GETFD);
-                if flags < 0 || libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
-                    return Err(io::Error::last_os_error());
-                }
-            } else if libc::dup2(fd, target) < 0 {
-                return Err(io::Error::last_os_error());
+                let mut flags = rio::fcntl_getfd(&source)?;
+                flags.remove(rio::FdFlags::CLOEXEC);
+                rio::fcntl_setfd(&source, flags)?;
+            } else {
+                duplicate_child_stdio(source.as_fd(), stream)?;
             }
             Ok(())
         });
     }
+}
+
+fn duplicate_child_stdio(source: BorrowedFd<'_>, stream: RedirectionStream) -> io::Result<()> {
+    // Validate even when source and target coincide: stdio's dup2 helpers
+    // skip the syscall in that case, but a closed source must still fail.
+    rio::fcntl_getfd(source)?;
+    match stream {
+        RedirectionStream::Stdin => stdio::dup2_stdin(source)?,
+        RedirectionStream::Stdout => stdio::dup2_stdout(source)?,
+        RedirectionStream::Stderr => stdio::dup2_stderr(source)?,
+    }
+    Ok(())
 }
 
 fn stdout_stderr_pair(first: RedirectionStream, second: RedirectionStream) -> bool {

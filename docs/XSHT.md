@@ -251,6 +251,15 @@ Safe fixes must satisfy all of these:
 - the edited source parses, resolves imports, and formats; it may retain only
   checker diagnostics that were already present before the edit.
 
+Type annotations that supply optional branch or record collection context stay
+in place. `lint.needless-annotation` cannot use a contextually checked type as
+proof that inference without the annotation will agree. Collection rewrites
+retain record element annotations, and `lint.redundant-require` retains schema
+checks on unconstrained `Record` values. Tail-return fixes keep explicit returns
+when a conditional or fallback would be parsed as a statement or command.
+`lint.prefer-guard` preserves the complete condition spelling, including the
+closing parentheses around pipelines.
+
 When a lint can report a real issue but cannot safely preserve nearby comments,
 it should report the diagnostic without a fix hint. This is better than
 silently moving comments or relying on final formatting to reconstruct intent.
