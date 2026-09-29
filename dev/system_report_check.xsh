@@ -1350,6 +1350,8 @@ type CheckOptions = {
   replay_cpu_topology_bundle: Str,
   capture_memory_bundle: Str,
   replay_memory_bundle: Str,
+  capture_cgroup2_bundle: Str,
+  replay_cgroup2_bundle: Str,
   capture_pressure_bundle: Str,
   replay_pressure_bundle: Str,
   capture_swaps_bundle: Str,
@@ -12437,6 +12439,19 @@ export type Cgroup2ResourceReference = {
 ## Records all visible cgroup2 resource identities and one bounded read interval.
 export type Cgroup2ResourceObservation = {ancestors: List[Str], resources: List[Cgroup2ResourceReference], started: Int, ended: Int}
 
+type Cgroup2BundlePath = {path: Str, max_bytes: Int, changing: Bool}
+type Cgroup2BundleLayout = {ancestors: List[VisibleCgroup2Ancestor], paths: List[Cgroup2BundlePath]}
+type Cgroup2BundleSource = {
+  path: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+type Cgroup2BundleCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  layout: Cgroup2BundleLayout, stable_static: Bool, changing_sources: List[Str],
+  scoreable: Bool, sources: List[Cgroup2BundleSource],
+  reference_ancestors: List[Str], reference_resources: List[Cgroup2ResourceReference],
+}
+
 type CandidateCgroup2Resource = {
   path: CandidateTextObservation, hierarchy_level: Int, controller: Str, resource: Str, state: Str,
   maximum_value: Int?, current_value: Int?, unit: Str, maximum_unlimited: Bool?,
@@ -12774,6 +12789,176 @@ export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> R
     }
   }
   return Ok({ancestors: ancestors, resources: resources, started: started, ended: time.now()})
+}
+
+# Selects the bounded sources for every cgroup2 ancestor visible through this mount.
+proc cgroup2_bundle_layout(root: FsRoot) [fs, error] -> Result[Cgroup2BundleLayout] {
+  let membership = fs.root_read_result(root, p"proc/self/cgroup", max_bytes: 65536)?
+  let mountinfo = fs.root_read_result(root, p"proc/self/mountinfo", max_bytes: 4194304)?
+  var ancestors: List[VisibleCgroup2Ancestor] = []
+  if membership.state == "observed" and !membership.truncated and membership.data != null and
+      mountinfo.state == "observed" and !mountinfo.truncated and mountinfo.data != null {
+    match visible_cgroup2_reference_paths(root) {
+      Ok(value) => ancestors = value
+      Err(_) => {}
+    }
+  }
+  var paths: List[Cgroup2BundlePath] = [
+    {path: "proc/self/cgroup", max_bytes: 65536, changing: false},
+    {path: "proc/self/mountinfo", max_bytes: 4194304, changing: false},
+  ]
+  for ancestor in ancestors {
+    let source = ancestor.source_path
+    if source == "" or source.starts_with("/") or
+        (source != "." and (source.split("/") |> any { |part| part in ["", ".", ".."] })) {
+      return Err(check_failure("cgroup2 bundle ancestor path is unsafe"))
+    }
+    for attribute in [
+      {name: "memory.max", max_bytes: 4096, changing: false},
+      {name: "memory.current", max_bytes: 4096, changing: true},
+      {name: "memory.swap.max", max_bytes: 4096, changing: false},
+      {name: "memory.swap.current", max_bytes: 4096, changing: true},
+      {name: "pids.max", max_bytes: 4096, changing: false},
+      {name: "pids.current", max_bytes: 4096, changing: true},
+      {name: "cpu.max", max_bytes: 4096, changing: false},
+      {name: "cpu.stat", max_bytes: 16384, changing: true},
+      {name: "cpuset.cpus.effective", max_bytes: 65536, changing: false},
+      {name: "io.stat", max_bytes: 262144, changing: true},
+    ] {
+      let relative = if source == "." {attribute.name} else {f"${source}/${attribute.name}"}
+      paths = paths.push({path: relative, max_bytes: attribute.max_bytes, changing: attribute.changing})
+    }
+  }
+  if paths.len() > 642 {return Err(check_failure("cgroup2 bundle exceeds its source path bound"))}
+  return {ancestors: ancestors, paths: paths |> sort-by .path}
+}
+
+## Captures source bytes privately while separating static drift from live counters.
+export proc capture_cgroup2_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {return Err(check_failure("cgroup2 capture origin is invalid"))}
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"proc/self")? {
+    return Err(check_failure("cgroup2 capture destination is not empty"))
+  }
+  let layout = cgroup2_bundle_layout(source)?
+  var sources: List[Cgroup2BundleSource] = []
+  var saved_bytes: List[Bytes?] = []
+  var complete = true
+  for item in layout.paths {
+    let relative = fp"${item.path}"
+    let raw = fs.root_read_result(source, relative, max_bytes: item.max_bytes)?
+    var sha256_hex: Str? = null
+    var byte_count = 0
+    if raw.data != null {
+      let data = raw.data ?? b""
+      let parent = relative.parent()
+      if !fs.root_exists(bundle, parent)? {fs.root_mkdir(bundle, parent, mode: 0o700, parents: true)?}
+      fs.root_write(bundle, relative, data)?
+      sha256_hex = hash.sha256(data).hex()
+      byte_count = data.len()
+    }
+    if raw.truncated or raw.state not in ["observed", "absent"] or
+        (item.path in ["proc/self/cgroup", "proc/self/mountinfo"] and raw.state != "observed") {
+      complete = false
+    }
+    saved_bytes = saved_bytes.push(raw.data)
+    sources = sources.push({path: item.path, state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind, byte_count: byte_count, sha256_hex: sha256_hex})
+  }
+  let later_layout = cgroup2_bundle_layout(source)?
+  var stable_static = layout == later_layout
+  var changing_sources: List[Str] = []
+  for index in range(layout.paths.len()) {
+    let item = layout.paths[index]
+    let raw = fs.root_read_result(source, fp"${item.path}", max_bytes: item.max_bytes)?
+    let first = sources[index]
+    if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or
+        raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
+      if item.changing {changing_sources = changing_sources.push(item.path)} else {stable_static = false}
+    }
+  }
+  var reference_ancestors: List[Str] = []
+  var reference_resources: List[Cgroup2ResourceReference] = []
+  if complete {
+    match read_cgroup2_resource_reference(bundle) {
+      Ok(snapshot) => {reference_ancestors = snapshot.ancestors; reference_resources = snapshot.resources}
+      Err(_) => complete = false
+    }
+  }
+  let scoreable = complete and stable_static and reference_ancestors.len() > 0 and reference_resources.len() > 0
+  let capture: Cgroup2BundleCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "cgroup2-rooted-raw-v1", layout: layout,
+    stable_static: stable_static, changing_sources: changing_sources, scoreable: scoreable,
+    sources: sources, reference_ancestors: reference_ancestors, reference_resources: reference_resources,
+  }
+  let wire: Any = capture
+  let encoded = json.encode(wire, pretty: true)?
+  if encoded.count_bytes() > 1048576 {return Err(check_failure("cgroup2 capture metadata exceeds its replay bound"))}
+  fs.root_write_atomic(bundle, p"capture.json", encoded)?
+  return Ok()
+}
+
+## Requires saved cgroup2 bytes, path selection, and decoded resources to agree.
+export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[Cgroup2BundleCapture] {
+  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 1048576)?.utf8()?)?.require(Cgroup2BundleCapture)?
+  if capture.schema_version != 1 or capture.reference_adapter != "cgroup2-rooted-raw-v1" or
+      capture.origin not in ["synthetic_fixture", "live_capture"] or !capture.stable_static or
+      !capture.scoreable or capture.reference_ancestors.len() == 0 or capture.reference_resources.len() == 0 {
+    return Err(check_failure("cgroup2 capture has no stable scoreable reference"))
+  }
+  let layout = cgroup2_bundle_layout(bundle)?
+  if layout != capture.layout or capture.sources.len() != layout.paths.len() {
+    return Err(check_failure("cgroup2 capture layout differs from metadata"))
+  }
+  var changed_seen = set.empty()
+  for relative in capture.changing_sources {
+    if set.has(changed_seen, relative) or !(layout.paths |> any .path == relative and .changing) {
+      return Err(check_failure("cgroup2 changing source metadata is invalid"))
+    }
+    changed_seen = set.add(changed_seen, relative)
+  }
+  for index in range(layout.paths.len()) {
+    let item = layout.paths[index]
+    let expected = capture.sources[index]
+    if expected.path != item.path or expected.truncated {
+      return Err(check_failure("cgroup2 source identity differs"))
+    }
+    let relative = fp"${item.path}"
+    if expected.state == "absent" {
+      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, relative)? {
+        return Err(check_failure(f"cgroup2 absent source ${item.path} differs"))
+      }
+      continue
+    }
+    if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
+      return Err(check_failure(f"cgroup2 capture cannot score ${item.path}"))
+    }
+    let raw = fs.root_read_result(bundle, relative, max_bytes: item.max_bytes)?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"cgroup2 capture ${item.path} bytes differ"))
+    }
+  }
+  let snapshot = read_cgroup2_resource_reference(bundle)?
+  if snapshot.ancestors != capture.reference_ancestors or snapshot.resources != capture.reference_resources {
+    return Err(check_failure("cgroup2 reference differs from raw sources"))
+  }
+  return capture
+}
+
+## Runs the production memory collector over validated cgroup2 sources.
+export proc replay_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[Cgroup2ResourceComparison] {
+  let metadata = capture_metadata_bytes(bundle, max_bytes: 1048576)?
+  let capture = validate_cgroup2_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "memory", true, false)?
+  if validate_cgroup2_bundle(bundle)? != capture {return Err(check_failure("cgroup2 capture changed during replay"))}
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 1048576)?
+  let candidate_json = encode_replayed_report(candidate, true)?
+  let reference: Cgroup2ResourceObservation = {ancestors: capture.reference_ancestors,
+    resources: capture.reference_resources, started: 0, ended: 0}
+  return compare_cgroup2_resources(candidate_json, reference, reference)
 }
 
 ## Scores stable limits and bracketed monotonic counters without treating changing gauges as exact.
@@ -17480,6 +17665,14 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
       form: "--replay-memory-bundle DIR",
       default: "",
     },
+    capture_cgroup2_bundle: {
+      form: "--capture-cgroup2-bundle DIR",
+      default: "",
+    },
+    replay_cgroup2_bundle: {
+      form: "--replay-cgroup2-bundle DIR",
+      default: "",
+    },
     capture_pressure_bundle: {
       form: "--capture-pressure-bundle DIR",
       default: "",
@@ -17717,6 +17910,8 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     replay_cpu_topology_bundle: parsed.replay_cpu_topology_bundle,
     capture_memory_bundle: parsed.capture_memory_bundle,
     replay_memory_bundle: parsed.replay_memory_bundle,
+    capture_cgroup2_bundle: parsed.capture_cgroup2_bundle,
+    replay_cgroup2_bundle: parsed.replay_cgroup2_bundle,
     capture_pressure_bundle: parsed.capture_pressure_bundle,
     replay_pressure_bundle: parsed.replay_pressure_bundle,
     capture_swaps_bundle: parsed.capture_swaps_bundle,
@@ -17777,6 +17972,7 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     options.capture_cpufreq_bundle, options.replay_cpufreq_bundle,
     options.capture_cpu_topology_bundle, options.replay_cpu_topology_bundle,
     options.capture_memory_bundle, options.replay_memory_bundle,
+    options.capture_cgroup2_bundle, options.replay_cgroup2_bundle,
     options.capture_pressure_bundle, options.replay_pressure_bundle,
     options.capture_swaps_bundle, options.replay_swaps_bundle,
     options.capture_os_release_bundle, options.replay_os_release_bundle,
@@ -17963,6 +18159,32 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     if !result.meminfo.exact_scored or (result.thp.reference_count > 0 and !result.thp.exact) {
       return Err(check_failure("memory raw replay differs from its independent reference"))
     }
+    return Ok()
+  }
+  if options.capture_cgroup2_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_cgroup2_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {return Err(check_failure("cgroup2 capture destination already exists"))}
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_cgroup2_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 1048576)?.utf8()?)?.require(Cgroup2BundleCapture)?
+    print f"cgroup2 raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; ancestors=${capture.layout.ancestors.len()}; resources=${capture.reference_resources.len()}; changing_sources=${capture.changing_sources.len()}"
+    print f"Replay with --replay-cgroup2-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_cgroup2_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_cgroup2_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_cgroup2_bundle(bundle)?
+    let state = if result.exact_scored {"exact"} else if result.exact_stable {"partial"} else {"mismatch"}
+    print f"cgroup2 raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; matched=${result.matched_count}; mismatched=${result.field_mismatches.len()}"
+    if !result.exact_scored {return Err(check_failure("cgroup2 raw replay differs from its independent reference"))}
     return Ok()
   }
   if options.capture_pressure_bundle != "" {

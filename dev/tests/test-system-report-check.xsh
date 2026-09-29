@@ -1543,6 +1543,10 @@ proc test_system_report_capture_rejects_simultaneous_live_comparison(ctx: TestCo
   test.ok(!block_status.exited_with(0))?
   test.contains(stderr.read_text()?, "bundle operations cannot be combined")?
   test.ok(!bundle.exists()?)?
+  let cgroup_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-cgroup2-bundle $bundle --compare-cgroup-v2 2> $stderr
+  test.ok(!cgroup_status.exited_with(0))?
+  test.contains(stderr.read_text()?, "bundle operations cannot be combined")?
+  test.ok(!bundle.exists()?)?
   let identity_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-os-release-bundle $bundle --compare-identity 2> $stderr
   test.ok(!identity_status.exited_with(0))?
   test.contains(stderr.read_text()?, "bundle operations cannot be combined")?
@@ -2534,6 +2538,58 @@ proc test_system_report_cgroup_v2_rooted_reference_reads_all_visible_resource_fa
   test.ok(snapshot.resources |> any .path == "/tenant" and .resource == "cpu.max" and .maximum_unlimited == true)?
   fs.root_write(root, p"sys/fs/cgroup/worker/memory.current", "broken\n")?
   test.error_kind(report_checks.read_cgroup2_resource_reference(root), "SystemReportCheckError.Invalid")?
+}
+
+proc test_system_report_cgroup_v2_bundle_replays_visible_ancestors_and_rejects_tampering() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  fs.root_mkdir(source, p"proc/self", parents: true)?
+  fs.root_mkdir(source, p"sys/fs/cgroup/worker", parents: true)?
+  fs.root_write(source, p"proc/self/cgroup", "0::/tenant/worker\n")?
+  fs.root_write(source, p"proc/self/mountinfo", "31 20 0:25 /tenant /sys/fs/cgroup rw - cgroup2 cgroup rw\n")?
+  fs.root_write(source, p"sys/fs/cgroup/worker/memory.max", "8192\n")?
+  fs.root_write(source, p"sys/fs/cgroup/worker/memory.current", "4096\n")?
+  fs.root_write(source, p"sys/fs/cgroup/worker/cpu.max", "50000 100000\n")?
+  fs.root_write(source, p"sys/fs/cgroup/worker/cpu.stat", "usage_usec 9\nnr_periods 2\n")?
+  fs.root_write(source, p"sys/fs/cgroup/worker/cpuset.cpus.effective", "0,2\n")?
+  fs.root_write(source, p"sys/fs/cgroup/cpu.max", "max 100000\n")?
+  report_checks.capture_cgroup2_bundle(source, bundle, "synthetic_fixture")?
+  let replay = report_checks.replay_cgroup2_bundle(bundle)?
+  test.ok(replay.exact_scored)?
+  test.eq(replay.reference_count, 6)?
+  fs.root_write(bundle, p"sys/fs/cgroup/worker/memory.max", "4096\n")?
+  test.error_kind(report_checks.validate_cgroup2_bundle(bundle), "SystemReportCheckError.Invalid")?
+}
+
+proc test_system_report_cgroup_v2_bundle_keeps_missing_mount_unscoreable() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  fs.root_mkdir(source, p"proc/self", parents: true)?
+  fs.root_write(source, p"proc/self/cgroup", "0::/\n")?
+  fs.root_write(source, p"proc/self/mountinfo", "31 20 8:0 / / rw - ext4 /dev/sda rw\n")?
+  report_checks.capture_cgroup2_bundle(source, bundle, "synthetic_fixture")?
+  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  test.contains(metadata, "\"scoreable\": false")?
+  test.error_kind(report_checks.validate_cgroup2_bundle(bundle), "SystemReportCheckError.Invalid")?
+}
+
+proc test_system_report_cgroup_v2_bundle_records_missing_membership_source() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  fs.root_mkdir(source, p"proc/self", parents: true)?
+  fs.root_write(source, p"proc/self/mountinfo", "31 20 0:25 / /sys/fs/cgroup rw - cgroup2 cgroup rw\n")?
+  report_checks.capture_cgroup2_bundle(source, bundle, "synthetic_fixture")?
+  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  test.contains(metadata, "\"path\": \"proc/self/cgroup\"")?
+  test.contains(metadata, "\"state\": \"absent\"")?
+  test.contains(metadata, "\"scoreable\": false")?
+  test.error_kind(report_checks.validate_cgroup2_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
 proc test_system_report_cgroup_v2_comparison_scores_stable_limits_and_bracketed_counters() [error] {
