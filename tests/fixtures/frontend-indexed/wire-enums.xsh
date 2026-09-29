@@ -16,3 +16,8 @@ pure wire_nested(source: Str) -> Result[Str] {
   let nested = json.decode(source)?.require(WireNested)?
   return json.encode(nested)
 }
+
+const prepared_wire_state = Ready
+pure wire_prepared() -> Result[Str] {
+  return json.encode(prepared_wire_state)
+}

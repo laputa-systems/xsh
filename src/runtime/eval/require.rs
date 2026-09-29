@@ -45,6 +45,15 @@ impl PreparedSchema {
         }
     }
 
+    pub(super) fn visit_wire_mappings(&self, visit: &mut impl FnMut(&Arc<WireEnumMapping>) -> bool) -> bool {
+        match self {
+            Self::WireEnum(mapping) => visit(mapping),
+            Self::Record(fields) => fields.iter().all(|(_, schema)| schema.visit_wire_mappings(visit)),
+            Self::List(schema) | Self::Map(schema) | Self::Optional(schema) => schema.visit_wire_mappings(visit),
+            Self::Validate(_) => true,
+        }
+    }
+
     pub(super) fn matches_type(&self, ty: &Type) -> bool {
         match (self, ty) {
             (Self::Validate(expected), actual) => expected == actual,

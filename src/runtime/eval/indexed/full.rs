@@ -3851,6 +3851,15 @@ impl FullVerifier {
     fn verify(program: &FullProgram) -> Result<(), IrVerifyError> {
         let _symbols = program.symbol_owner().enter();
         let store = &program.store;
+        let mut wire_types = rustc_hash::FxHashSet::default();
+        for mapping in &store.wire_enums {
+            if mapping.variants.is_empty() || mapping.variants.values().collect::<std::collections::BTreeSet<_>>().len() != mapping.variants.len() {
+                return Err(IrVerifyError::new("wire enum mapping is empty or has duplicate strings"));
+            }
+            if !wire_types.insert(mapping.type_name) {
+                return Err(IrVerifyError::new("wire enum declaring identity has multiple mappings"));
+            }
+        }
         if store.tags.len() != store.data.len()
             || store.patterns.len() != store.pattern_data.len()
             || store.stages.len() != store.stage_data.len()
@@ -4803,6 +4812,10 @@ impl FullCodec for PreparedConstantValue {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let index = u32::try_from(builder.store.prepared_constants.len())
             .map_err(|_| IrBuildError::format("constant pool overflow", None, 0, 0))?;
+        visit_value_wire_mappings(&self.0, &mut |mapping| {
+            register_wire_mapping(builder, mapping);
+            true
+        });
         builder.store.prepared_constants.push(self.clone());
         output.push(index);
         Ok(())
@@ -4814,8 +4827,38 @@ impl FullCodec for PreparedConstantValue {
     fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         let value = decoder.store.prepared_constants.get(input.raw()? as usize)
             .ok_or_else(|| IrVerifyError::new("prepared constant is out of bounds"))?;
-        if prepared_constant_is_data(&value.0, 0) { Ok(()) }
-        else { Err(IrVerifyError::new("prepared constant contains a runtime value")) }
+        if !prepared_constant_is_data(&value.0, 0) {
+            return Err(IrVerifyError::new("prepared constant contains a runtime value"));
+        }
+        if !visit_value_wire_mappings(&value.0, &mut |mapping| wire_mapping_matches_pool(mapping, decoder.store)) {
+            return Err(IrVerifyError::new("prepared constant has a contradictory wire mapping"));
+        }
+        Ok(())
+    }
+}
+
+// Constructors, constants, and schema conversions share one declaring mapping.
+// Verification rejects independently altered copies before they can disagree at a boundary.
+fn register_wire_mapping(builder: &mut FullBuilder, mapping: &Arc<crate::sema::wire_enums::WireEnumMapping>) {
+    if !builder.store.wire_enums.iter().any(|stored| Arc::ptr_eq(stored, mapping)) {
+        builder.store.wire_enums.push(mapping.clone());
+    }
+}
+
+fn wire_mapping_matches_pool(mapping: &Arc<crate::sema::wire_enums::WireEnumMapping>, store: &FullStore) -> bool {
+    store.wire_enums.iter().find(|stored| stored.type_name == mapping.type_name)
+        .is_some_and(|stored| stored.as_ref() == mapping.as_ref())
+}
+
+fn visit_value_wire_mappings(value: &LoweredValue, visit: &mut impl FnMut(&Arc<crate::sema::wire_enums::WireEnumMapping>) -> bool) -> bool {
+    match value {
+        LoweredValue::Tag(tag) => tag.wire.as_ref().is_none_or(&mut *visit)
+            && tag.fields.iter().all(|value| visit_value_wire_mappings(value, visit)),
+        LoweredValue::List(values) => values.iter().all(|value| visit_value_wire_mappings(value, visit)),
+        LoweredValue::SharedList(values) => values.iter().all(|value| visit_value_wire_mappings(value, visit)),
+        LoweredValue::Record(values) => values.values().all(|value| visit_value_wire_mappings(value, visit)),
+        LoweredValue::Map(values) => values.values().all(|value| visit_value_wire_mappings(value, visit)),
+        _ => true,
     }
 }
 
@@ -5046,6 +5089,10 @@ impl FullCodec for Arc<super::super::require::PreparedSchema> {
             index
         } else {
             let index = builder.store.prepared_schemas.len();
+            self.visit_wire_mappings(&mut |mapping| {
+                register_wire_mapping(builder, mapping);
+                true
+            });
             builder.store.prepared_schemas.push(self.clone());
             index
         };
@@ -5056,7 +5103,9 @@ impl FullCodec for Arc<super::super::require::PreparedSchema> {
     fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
         let schema = decoder.store.prepared_schemas.get(input.raw()? as usize).cloned()
             .ok_or_else(|| IrVerifyError::new("prepared schema is out of bounds"))?;
-        if !decoder.verified && !schema.valid() { return Err(IrVerifyError::new("prepared schema has an invalid wire mapping")); }
+        if !decoder.verified && (!schema.valid() || !schema.visit_wire_mappings(&mut |mapping| wire_mapping_matches_pool(mapping, decoder.store))) {
+            return Err(IrVerifyError::new("prepared schema has an invalid or contradictory wire mapping"));
+        }
         Ok(schema)
     }
 }
@@ -9540,10 +9589,37 @@ proc configured() [] -> Int {
             let mut missing_schema = (*program).clone();
             missing_schema.store.prepared_schemas.clear();
             assert!(FullVerifier::verify(&missing_schema).is_err());
+            fn change_mapping(schema: &mut super::super::super::require::PreparedSchema) -> bool {
+                use super::super::super::require::PreparedSchema;
+                match schema {
+                    PreparedSchema::WireEnum(mapping) => {
+                        let mapping = Arc::make_mut(mapping);
+                        *mapping.variants.values_mut().next().unwrap() = Arc::from("different");
+                        true
+                    }
+                    PreparedSchema::Record(fields) => fields.iter_mut().any(|(_, schema)| change_mapping(Arc::make_mut(schema))),
+                    PreparedSchema::List(schema) | PreparedSchema::Map(schema) | PreparedSchema::Optional(schema) => change_mapping(Arc::make_mut(schema)),
+                    PreparedSchema::Validate(_) => false,
+                }
+            }
+            let mut contradictory = (*program).clone();
+            assert!(change_mapping(Arc::make_mut(&mut contradictory.store.prepared_schemas[0])));
+            assert!(FullVerifier::verify(&contradictory).is_err(), "schema and constructor mappings must agree");
+            let mut duplicate = (*program).clone();
+            duplicate.store.wire_enums.push(duplicate.store.wire_enums[0].clone());
+            assert!(FullVerifier::verify(&duplicate).unwrap_err().message.contains("multiple mappings"));
+            let mut changed_constant = (*program).clone();
+            let tag = changed_constant.store.prepared_constants.iter_mut().find_map(|value| match &mut value.0 {
+                LoweredValue::Tag(tag) if tag.wire.is_some() => Some(tag),
+                _ => None,
+            }).expect("prepared enum constant");
+            *Arc::make_mut(tag.wire.as_mut().unwrap()).variants.values_mut().next().unwrap() = Arc::from("forged");
+            assert!(FullVerifier::verify(&changed_constant).unwrap_err().message.contains("contradictory"));
             let raw = "{\"state\":\"ready\",\"values\":[\"\"],\"optional\":null}";
             for recursive in [false, true] {
                 for (name, arguments, expected) in [
                     ("wire_direct", Vec::new(), "\"ready\""),
+                    ("wire_prepared", Vec::new(), "\"ready\""),
                     ("wire_round_trip", vec![Value::Str(Arc::from(raw))], "{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}"),
                     ("wire_nested", vec![Value::Str(Arc::from(format!("{{\"packet\":{raw}}}")))], "{\"packet\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}}"),
                 ] {

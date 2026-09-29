@@ -42,6 +42,8 @@ test test_wire_enum_rejects_ambient_coercion_and_invalid_declarations [error] { 
     "enum State: Str { Seen = \"same\", Missing = \"same\" }\n",
     "enum State: Str { Seen(Int) = \"seen\" }\n",
     "enum State: Str { Seen = 1 }\n",
+    "enum State: Str { Upper = \"A\", Lower = \"a\" }\nlet state: Str = Upper\n",
+    "let spelling = \"ready\"\nenum State: Str { Ready = spelling }\n",
   ] {
     let rejected = test.run_script(ctx, source)?
     test.ok(! rejected.success, rejected.stderr)?
@@ -163,4 +165,20 @@ print json.encode(invalid)?
   test.contains(executed.stdout, "true\ntrue\n{\"value\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\",\"ready\"]}}\n")?
   test.contains(executed.stdout, "value.values[1]")?
   test.contains(executed.stdout, "{\"value\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\",\"unknown\"]}}")?
+}
+
+
+test test_wire_enum_strings_preserve_case_escapes_and_unicode [error] { |ctx|
+  let executed = test.run_script(ctx, r"""enum State: Str { Upper = "Ready", Lower = "ready", Escaped = "\0\\\"日本語" }
+let values = [Upper, Lower, Escaped]
+let encoded = json.encode(values)?
+let decoded = json.decode(encoded)?
+print (decoded.require(List[State])? == values)
+print ("Ready".require(State)? == Upper)
+print ("ready".require(State)? == Lower)
+match "READY".require(State) { Err(_) => print "case rejected"; Ok(_) => print "unexpected success" }
+print (json.encode(decoded.require(List[State])?)? == encoded)
+""")?
+  test.ok(executed.success, executed.stderr)?
+  test.eq(executed.stdout, "true\ntrue\ntrue\ncase rejected\ntrue\n")?
 }
