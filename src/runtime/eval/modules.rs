@@ -231,6 +231,7 @@ pub(super) fn test_mock_expected_return_type(op: &str) -> Option<Type> {
 pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
     match ty {
         Type::ReceiverMapKey | Type::ReceiverMapValue | Type::ReceiverMapListItem => false,
+        Type::Inference(_) => false,
         Type::Any | Type::Unknown | Type::Invalid => true,
         Type::Null => matches!(value, Value::Null),
         Type::Bool => matches!(value, Value::Bool(_)),

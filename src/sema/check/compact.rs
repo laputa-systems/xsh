@@ -144,6 +144,7 @@ impl Checker {
             // reallocations of the type-fact map without guessing.
             output.expr_types.reserve(program.stats().expressions);
             let mut probe = CompactBodyProbe {
+                type_constraints: super::super::constraints::TypeConstraints::default(),
                 program,
                 declarations,
                 output,
@@ -564,6 +565,7 @@ enum CompactFunctionKind {
 /// Checks executable bodies directly from arena rows. The `check_compact_*`
 /// method family distinguishes this probe from the general `Checker` paths.
 struct CompactBodyProbe<'a> {
+    type_constraints: super::super::constraints::TypeConstraints,
     with_initializer_errors: Option<Vec<Type>>,
     current_namespace: Option<Name>,
     program: &'a ArenaProgram,

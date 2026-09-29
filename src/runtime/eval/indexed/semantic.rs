@@ -747,6 +747,9 @@ impl SemanticPoolBuilder {
         ty: &Type,
     ) -> Result<TypeId, IrBuildError> {
         let (key, data, extra) = match ty {
+            Type::Inference(_) => {
+                return Err(IrBuildError::format("unresolved_type", None, 0, 0));
+            }
             Type::ReceiverMapKey | Type::ReceiverMapValue | Type::ReceiverMapListItem | Type::Unknown | Type::Invalid => {
                 return Err(IrBuildError::format("recovery_type", None, 0, 0));
             }

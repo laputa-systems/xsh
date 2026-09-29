@@ -440,6 +440,14 @@ availability, and stream item context.
 
 Focused semantic rules live beside it:
 
+- `src/sema/constraints.rs::TypeConstraints` owns bounded monomorphic
+  substitutions for one checked inference problem. `Type::Inference` carries
+  a fresh identity distinct from dynamic and recovery types. Alias constraints
+  preserve that identity; transactional constraints retain initializer and
+  contribution spans and roll back failed nested substitutions. Partial
+  substitution keeps unresolved identities until the owning checker requires
+  a concrete contract. Indexed type pools reject unresolved identities, and
+  runtime type tests cannot satisfy them.
 - `src/modules/signature.rs` declares the standard API registry used by the
   checker and runtime. The `RuntimeOp` enum here names every method and module
   function dispatched at runtime. Deprecated APIs should be removed from both

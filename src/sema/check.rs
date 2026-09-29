@@ -263,6 +263,7 @@ pub(super) struct UserModuleSig {
 
 #[derive(Clone)]
 pub struct Checker {
+    pub(super) type_constraints: super::constraints::TypeConstraints,
     argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
     argument_projection_sources: FxHashMap<crate::syntax::arena::ExprId, crate::syntax::arena::ExprId>,
     record_constructors: RecordConstructors,
@@ -461,6 +462,7 @@ impl Checker {
             qualified_pures: FxHashMap::default(),
             qualified_streams: FxHashMap::default(),
             type_defs: FxHashMap::default(),
+            type_constraints: super::constraints::TypeConstraints::default(),
             argument_projection_types: FxHashMap::default(),
             argument_projection_sources: FxHashMap::default(),
             record_constructors: RecordConstructors::default(),

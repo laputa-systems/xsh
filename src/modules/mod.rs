@@ -94,6 +94,7 @@ fn render_type(ty: &crate::sema::types::Type) -> String {
         Type::ReceiverMapKey => "K".to_string(),
         Type::ReceiverMapValue => "V".to_string(),
         Type::ReceiverMapListItem => "T".to_string(),
+        Type::Inference(_) => "<type needs an annotation>".to_string(),
         Type::Any => "Any".to_string(),
         Type::Unknown => "Unknown".to_string(),
         Type::Invalid => "<invalid>".to_string(),

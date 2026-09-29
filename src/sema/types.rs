@@ -16,6 +16,7 @@ pub enum Type {
     ReceiverMapKey,
     ReceiverMapValue,
     ReceiverMapListItem,
+    Inference(super::constraints::TypeVariableId),
     Any,
     Unknown,
     Invalid,
@@ -301,6 +302,7 @@ impl Type {
             Self::Result(_, _) => Some(BuiltinTypeName::Result),
             Self::Unit => Some(BuiltinTypeName::Unit),
             Self::ReceiverMapKey | Self::ReceiverMapValue | Self::ReceiverMapListItem
+            | Self::Inference(_)
             | Self::Invalid
             | Self::List(_)
             | Self::Stream(_)
@@ -520,7 +522,8 @@ impl Type {
             Self::ReceiverMapKey => Some("K".to_string()),
             Self::ReceiverMapValue => Some("V".to_string()),
             Self::ReceiverMapListItem => Some("T".to_string()),
-            Self::Any
+            Self::Inference(_)
+            | Self::Any
             | Self::Unknown
             | Self::Invalid
             | Self::EnvPathList
@@ -573,6 +576,7 @@ impl fmt::Display for Type {
             Self::ReceiverMapKey => write!(f, "K"),
             Self::ReceiverMapValue => write!(f, "V"),
             Self::ReceiverMapListItem => write!(f, "T"),
+            Self::Inference(_) => write!(f, "<type needs an annotation>"),
             Self::Any => write!(f, "Any"),
             Self::Unknown => write!(f, "<unknown>"),
             Self::Invalid => write!(f, "<invalid>"),
