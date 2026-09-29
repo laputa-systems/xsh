@@ -551,3 +551,20 @@ fn named_argument_spread_matching_retains_splice_and_label_identity() {
     assert!(text.contains("f(first: options)"));
     fs::remove_file(file).unwrap();
 }
+
+#[test]
+fn lexical_ctx_structural_grep_and_refactor_preserve_description_and_body() {
+    let root = TempDir::new().unwrap();
+    let file = root.path().join("context.xsh");
+    fs::write(&file, "let selected = ctx \"café\" { 7 }\nlet other = ctx \"other\" { 9 }\n").unwrap();
+    let output = grep_scripts("ctx \"café\" { BODY }", &paths(&file));
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    assert!(output_text(&output.stdout).contains("ctx \"café\" { 7 }"));
+    assert!(!output_text(&output.stdout).contains("other"));
+    let fixed = refactor_scripts("ctx \"café\" { BODY }", "ctx \"café updated\" { BODY }", &paths(&file), false);
+    assert_eq!(fixed.status, 0, "{}", output_text(&fixed.stderr));
+    let source = fs::read_to_string(&file).unwrap();
+    assert!(source.contains("ctx \"café updated\" { 7 }"));
+    assert_eq!(refactor_scripts("ctx \"café\" { BODY }", "ctx \"café updated\" { BODY }", &paths(&file), false).status, 1);
+    assert_eq!(fs::read_to_string(&file).unwrap(), source);
+}

@@ -3087,6 +3087,10 @@ impl<'a> ArenaProgramBuilder<'a> {
             .push_expr_kind(ArenaExprKind::Match { value, arms }, span)
     }
 
+    pub fn push_error_context_expr(&mut self, message: ExprId, block: BlockId, span: Span) -> ExprId {
+        self.lowerer.push_expr_kind(ArenaExprKind::ErrorContext { message, block }, span)
+    }
+
     pub fn push_value_block_expr(&mut self, block: BlockId, span: Span) -> ExprId {
         self.lowerer.push_expr_kind(ArenaExprKind::ValueBlock(block), span)
     }
@@ -4097,6 +4101,7 @@ impl AstArena {
             },
             ArenaExprTag::Capture => ArenaExprKind::Capture(BlockId::new(data.lhs as usize)),
             ArenaExprTag::ValueBlock => ArenaExprKind::ValueBlock(BlockId::new(data.lhs as usize)),
+            ArenaExprTag::ErrorContext => ArenaExprKind::ErrorContext { message: ExprId::new(data.lhs as usize), block: BlockId::new(data.rhs as usize) },
             ArenaExprTag::Loop => ArenaExprKind::Loop {
                 block: BlockId::new(data.lhs as usize),
             },
@@ -5182,6 +5187,7 @@ pub enum ArenaExprTag {
     Loop,
     Retry,
     ValueBlock,
+    ErrorContext,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -5338,6 +5344,7 @@ pub enum ArenaExprKind {
         block: BlockId,
     },
     ValueBlock(BlockId),
+    ErrorContext { message: ExprId, block: BlockId },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -6474,6 +6481,7 @@ impl ArenaLowerer<'_> {
             ),
             ArenaExprKind::Capture(block) => (ArenaExprTag::Capture, ArenaExprData::new(raw_block_id(block), 0)),
             ArenaExprKind::ValueBlock(block) => (ArenaExprTag::ValueBlock, ArenaExprData::new(raw_block_id(block), 0)),
+            ArenaExprKind::ErrorContext { message, block } => (ArenaExprTag::ErrorContext, ArenaExprData::new(raw_expr_id(message), raw_block_id(block))),
             ArenaExprKind::Loop { block } => (
                 ArenaExprTag::Loop,
                 ArenaExprData::new(raw_block_id(block), 0),

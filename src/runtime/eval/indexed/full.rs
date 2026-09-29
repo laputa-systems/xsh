@@ -162,6 +162,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprWait,
     ExprCapture,
     ExprValueBlock,
+    ExprErrorContext,
     ExprLoop,
     ExprRetry,
     ExprFsFiles,
@@ -7148,6 +7149,9 @@ impl_node_codec! {
         BuildExprRow::Capture { body, span } => ExprCapture {
             body: Vec<BuildStmtId>, span: Span,
         } => BuildExprRow::Capture { body, span },
+        BuildExprRow::ErrorContext { message, body, span } => ExprErrorContext {
+            message: BuildExprId, body: Vec<BuildStmtId>, span: Span,
+        } => BuildExprRow::ErrorContext { message, body, span },
         BuildExprRow::ValueBlock { body, span } => ExprValueBlock {
             body: Vec<BuildStmtId>, span: Span,
         } => BuildExprRow::ValueBlock { body, span },
@@ -8685,6 +8689,20 @@ proc main() [error] {
         let mut duplicate = program.clone();
         duplicate.store.extra[range.start] = 0;
         assert!(FullVerifier::verify(&duplicate).is_err());
+    }
+
+    #[test]
+    fn lexical_ctx_indexed_execution_preserves_context_order_and_region_spans() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/error-context.xsh");
+        let program = Arc::new(fixture("error-context.xsh", source));
+        let value = program_name(&program, "contextual_value");
+        assert_eq!(run_full(program.clone(), value).0.unwrap(), Value::Int(7));
+        let failure = program_name(&program, "contextual_failure");
+        let Value::Result(crate::runtime::value::ResultValue::Err(error)) = run_full(program, failure).0.unwrap() else { panic!("expected propagated error") };
+        let Value::Error(error) = *error else { panic!("expected error") };
+        assert_eq!(error.contexts.iter().map(|context| context.message.as_deref()).collect::<Vec<_>>(), vec![Some("inner"), Some("outer")]);
+        assert!(error.contexts.iter().all(|context| context.span.is_some_and(|span| source.get(span.range()).is_some_and(|text| text.starts_with("ctx ")))));
+        assert_eq!(error.kind, "validation");
     }
 
     #[test]

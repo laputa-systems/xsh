@@ -58,6 +58,11 @@ pub(super) fn stmt_always_returns_arena(arena: &ArenaProgram, id: StmtId) -> boo
     match arena.arena.stmt(id).kind {
         ArenaStmtKind::Return(_) => true,
         ArenaStmtKind::BooleanGuard { condition, else_block } if matches!(arena.arena.expr(condition).kind, ArenaExprKind::Bool(false)) => block_always_returns_arena(arena, else_block),
+        ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
+            ArenaExprKind::ErrorContext { block, .. } => block_always_returns_arena(arena, block),
+            _ => false,
+        },
+
         ArenaStmtKind::If {
             branches,
             else_block: Some(else_block),
@@ -126,6 +131,10 @@ pub(super) fn stmt_has_exit_point_arena(arena: &ArenaProgram, id: StmtId) -> boo
                 || block_has_exit_point_arena(arena, *else_block)
         }
         ArenaStmtKind::Guard { else_block, .. } | ArenaStmtKind::BooleanGuard { else_block, .. } => block_has_exit_point_arena(arena, *else_block),
+        ArenaStmtKind::Expr(expr) => match arena.arena.expr(*expr).kind {
+            ArenaExprKind::ErrorContext { block, .. } => block_has_exit_point_arena(arena, block),
+            _ => false,
+        },
         ArenaStmtKind::GuardedStmt { stmt: inner, .. } => stmt_has_exit_point_arena(arena, *inner),
         _ => false,
     }
@@ -511,6 +520,13 @@ impl Checker {
                 if message_ty != Type::Str && !matches!(message_ty, Type::Unknown | Type::Invalid) {
                     self.error(arena.arena.expr(message).span, "assert message requires Str", "check.assert-message");
                 }
+            }
+            ArenaStmtKind::Expr(expr_id) if matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ErrorContext { .. }) => {
+                let ArenaExprKind::ErrorContext { message, block } = arena.arena.expr(expr_id).kind else { unreachable!() };
+                let ty = self.check_expr_arena(arena, source, message, Some(&Type::Str));
+                self.expect_type(&Type::Str, &ty, arena.arena.expr(message).span);
+                self.check_block_arena(arena, source, block);
+                self.expr_types.insert(arena.arena.expr(expr_id).span, Type::Unit);
             }
             ArenaStmtKind::Expr(expr_id) => {
                 let expected = matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ValueBlock(_)).then_some(Type::Unit);
@@ -1951,6 +1967,10 @@ impl Checker {
                 self.return_inference_block_returns(arena, body)
                     && self.return_inference_block_returns(arena, else_block)
             }
+            ArenaStmtKind::Expr(expr) => match arena.arena.expr(expr).kind {
+                ArenaExprKind::ErrorContext { block, .. } => self.return_inference_block_returns(arena, block),
+                _ => false,
+            },
             ArenaStmtKind::If { branches, else_block: Some(other) } => {
                 arena.arena.if_branches(branches).iter().all(|branch| self.return_inference_block_returns(arena, branch.block))
                     && self.return_inference_block_returns(arena, other)

@@ -780,6 +780,18 @@ impl<'a> Parser<'a> {
                     bare_ident: None,
                 })
             }
+            (TokenTag::Ident | TokenTag::ProcIdent, _) if self.lookahead_is_ctx_block() => {
+                let start = self.current_start();
+                self.bump();
+                let previous = self.condition_expr;
+                self.condition_expr = true;
+                let message = self.parse_precedence_arena_only(0, arena);
+                self.condition_expr = previous;
+                let message = message?;
+                let block = self.parse_block_arena_only(arena)?;
+                let span = self.span(start, self.previous_end());
+                Some(ArenaOnlyExpr { id: arena.push_error_context_expr(message.id, block, span), span, bare_ident: None })
+            }
             (TokenTag::Ident, _) => {
                 let name = self
                     .current_name()

@@ -2478,6 +2478,7 @@ pub(super) fn lowered_result_method_value(
             let context = ErrorContext {
                 kind: kind.to_string(),
                 message,
+                span: None,
             };
             Ok(match result {
                 LoweredValue::ResultOk(value) => LoweredValue::ResultOk(value),

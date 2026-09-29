@@ -70,6 +70,15 @@ and `cargo test -p xsht --test integration core_assert --features native-tests`.
 `cargo build -p xsh --bin xsh --no-default-features` witnesses independence from
 native-test support.
 
+## Lexical error contexts
+
+`target/debug/xsht test --jobs 1 tests/xsh/error-context-blocks.xsh` covers
+nested propagation, untouched error data, handled failures, label evaluation,
+ordinary `ctx` names, value tails, deferred cleanup, and abort behavior.
+Shared boundaries also use the capture/retry/deferred-block native modules,
+`cargo test -p xsh --lib runtime::eval::indexed::full::tests`, and focused
+formatter/lint/structural-tooling acceptance tests.
+
 ## Routine CI
 
 `.github/workflows/lint.yml` and `.github/workflows/test.yml` run on pull requests

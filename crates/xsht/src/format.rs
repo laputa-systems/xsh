@@ -1830,6 +1830,12 @@ impl<'a> Writer<'a> {
                 self.write_type(*schema, output);
                 output.push(')');
             }
+            ArenaExprKind::ErrorContext { message, block } => {
+                output.push_str("ctx ");
+                self.write_expr(*message, 0, output);
+                output.push(' ');
+                self.write_block(*block, indent_for_expr(output), output);
+            }
             ArenaExprKind::Capture(block) => {
                 output.push_str("try ");
                 self.write_block(*block, indent_for_expr(output), output);

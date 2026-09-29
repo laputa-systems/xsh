@@ -78,6 +78,8 @@ impl<'a> Parser<'a> {
                     && matches!(self.peek_tag(1), Some(TokenTag::Ident | TokenTag::ProcIdent))
                 {
                     self.parse_test_declaration_arena_only(start, arena)
+                } else if self.lookahead_is_ctx_block() {
+                    self.parse_expr_statement_arena_only(start, arena)
                 } else if self.current_name().is_some_and(|name| name == "error")
                     && matches!(
                         self.peek_tag(1),

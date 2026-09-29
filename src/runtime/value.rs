@@ -1508,6 +1508,7 @@ pub struct AbortSignal {
 pub struct ErrorContext {
     pub kind: String,
     pub message: Option<String>,
+    pub span: Option<Span>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

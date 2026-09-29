@@ -5577,6 +5577,43 @@ impl Evaluator {
                     flow => self.preserve_lexical_expression_flow(flow),
                 }
             }
+            FullTag::ExprErrorContext => {
+                let message = indexed_raw(&mut payload, call_span)?;
+                let body = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let message = match self.eval_indexed_expr(execution, message, slots, span)? {
+                    ControlFlow::Continue(value) => lowered_str_arg_owned(Some(value), "", "ctx description", span)?,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let context = crate::runtime::value::ErrorContext { kind: "ctx".to_string(), message: Some(message), span: Some(span) };
+                let header = Self::indexed_block_header(slots.len());
+                self.cleanup_error_contexts.push(context.clone());
+                let result = self.eval_indexed_statement_block(execution, body, &header, slots, span);
+                self.cleanup_error_contexts.pop();
+                match result {
+                    Ok(StmtFlow::Propagate(value)) => {
+                        let contextual = match value {
+                            LoweredValue::ResultErr(error) => LoweredValue::ResultErr(Box::new(super::super::add_error_context(*error, context))),
+                            other => LoweredValue::Error(Box::new(super::super::add_error_context(other.into_value(), context))),
+                        };
+                        if let Some(traceback) = &mut self.pending_traceback {
+                            let error = match &contextual { LoweredValue::ResultErr(error) => error.as_ref(), other => &other.clone().into_value() };
+                            if let Some(message) = error.error_message() { traceback.error.message = message.to_string(); }
+                        }
+                        self.preserve_lexical_expression_flow(StmtFlow::Propagate(contextual))
+                    }
+                    Ok(StmtFlow::Value(value)) => ControlFlow::Continue(value),
+                    Ok(StmtFlow::None) => ControlFlow::Continue(LoweredValue::Unit),
+                    Ok(flow) => self.preserve_lexical_expression_flow(flow),
+                    Err(error) if error.abort.is_some() => return Err(error),
+                    Err(error) => {
+                        let Value::Error(error) = super::super::add_error_context(Value::Error(Box::new(error)), context) else { unreachable!() };
+                        if let Some(traceback) = &mut self.pending_traceback { traceback.error.message = error.message.clone(); }
+                        return Err(*error);
+                    }
+                }
+            }
             FullTag::ExprValueBlock => {
                 let body = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;

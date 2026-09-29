@@ -5709,6 +5709,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         ArenaExprKind::Wait(form) => out.push(form.target),
         ArenaExprKind::BuilderCall { call, .. } => out.push(call),
         ArenaExprKind::Require { value, .. } => out.push(value),
+        ArenaExprKind::ErrorContext { message, .. } => out.push(message),
         ArenaExprKind::Retry { delays, .. } => out.extend(arena.expr_ids(delays)),
         ArenaExprKind::Null
         | ArenaExprKind::Bool(_)
@@ -5736,7 +5737,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
 fn expr_child_blocks(arena: &AstArena, expr: ExprId) -> Vec<BlockId> {
     let mut out = Vec::new();
     match arena.expr(expr).kind {
-        ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } | ArenaExprKind::Retry { block, .. } => out.push(block),
+        ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } | ArenaExprKind::Retry { block, .. } | ArenaExprKind::ErrorContext { block, .. } => out.push(block),
         ArenaExprKind::Pipeline { stages, .. } => {
             for stage in arena.pipe_stages(stages).to_vec() {
                 if let ArenaPipeStageKind::Stream(stage) = stage.kind
@@ -6161,7 +6162,7 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
                         }
                     })
         }
-        ArenaExprKind::ValueBlock(_) => true,
+        ArenaExprKind::ValueBlock(_) | ArenaExprKind::ErrorContext { .. } => true,
         ArenaExprKind::Capture(_) | ArenaExprKind::Loop { .. } | ArenaExprKind::Retry { .. } => false,
         ArenaExprKind::Null
         | ArenaExprKind::Bool(_)
@@ -6466,6 +6467,7 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
                     })
         }
         ArenaExprKind::Require { value, .. } => rec(value),
+        ArenaExprKind::ErrorContext { message, block } => expr_contains_read_text_lines_call(arena, message) || block_contains_read_text_lines_call(arena, block),
         ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => block_contains_read_text_lines_call(arena, block),
         ArenaExprKind::Retry { delays, block, .. } => {
             arena.expr_ids(delays).any(rec) || block_contains_read_text_lines_call(arena, block)
@@ -6803,6 +6805,10 @@ impl LintExprVisitor<'_, '_> {
             ArenaExprKind::Require { value, schema } => {
                 self.visit_expr(value);
                 self.linter.collect_type_expr_refs(schema);
+            }
+            ArenaExprKind::ErrorContext { message, block } => {
+                self.visit_expr(message);
+                self.linter.lint_block(block);
             }
             ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) => {
                 let capturing = matches!(arena.expr(expr).kind, ArenaExprKind::Capture(_));
@@ -7503,6 +7509,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Require { .. }
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
         | ArenaExprKind::Loop { .. }
         | ArenaExprKind::Retry { .. } => false,
     }
@@ -7602,6 +7609,7 @@ fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Require { .. }
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::ValueBlock(_)
+        | ArenaExprKind::ErrorContext { .. }
         | ArenaExprKind::Loop { .. }
         | ArenaExprKind::Retry { .. } => true,
     }
@@ -7997,6 +8005,10 @@ fn collect_expr_effects(
             collect_expr_effects(arena, value, effects, proc_effects)
         }
         ArenaExprKind::Capture(block) => collect_retry_block_effects(arena, block, effects, proc_effects),
+        ArenaExprKind::ErrorContext { message, block } => {
+            collect_expr_effects(arena, message, effects, proc_effects);
+            collect_block_effects(arena, block, effects, proc_effects);
+        }
         ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => collect_block_effects(arena, block, effects, proc_effects),
         ArenaExprKind::Retry { delays, block, .. } => {
             for delay in arena.expr_ids(delays).collect::<Vec<_>>() {
@@ -8795,6 +8807,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                 self.scan_expr(call);
                 self.scan_builder_block(block);
             }
+            ArenaExprKind::ErrorContext { message, block } => { self.scan_expr(message); self.scan_block(block); }
             ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => self.scan_block(block),
             ArenaExprKind::Retry { delays, block, .. } => {
                 for delay in self.arena().expr_ids(delays).collect::<Vec<_>>() {
@@ -9518,6 +9531,7 @@ fn expr_flow(
             ))
         }
         ArenaExprKind::Require { value, .. } => expr_flow(arena, value, terminating_call_spans),
+        ArenaExprKind::ErrorContext { message, block } => expr_flow(arena, message, terminating_call_spans).then(block_flow(arena, block, terminating_call_spans)),
         ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) => block_flow(arena, block, terminating_call_spans),
         ArenaExprKind::Loop { block } => loop_flow(arena, block, terminating_call_spans),
         // A retry retries failed attempts, but a normally-completing attempt

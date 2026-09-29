@@ -3,7 +3,7 @@
 use rustc_hash::FxHashMap;
 use xsh::frontend::source::Span;
 use xsh::frontend::syntax::arena::{
-    ArenaCallArgKind, ArenaExprKind, ArenaPatternKind, ArenaProgram, AstArena, BlockId, ExprId, PatternId,
+    ArenaCallArgKind, ArenaExprKind, ArenaPatternKind, ArenaStmtKind, ArenaProgram, AstArena, BlockId, ExprId, PatternId,
 };
 
 /// A structural grep match from `xsht::grep::find_matches_in_program`: the
@@ -219,6 +219,12 @@ fn match_expr_structural(
             *bindings = candidate;
             true
         }
+        (ArenaExprKind::ErrorContext { message: pm, block: pb }, ArenaExprKind::ErrorContext { message: tm, block: tb }) => {
+            let mut candidate = bindings.clone();
+            if !match_expr(p, *pm, t, *tm, source, &mut candidate) || !match_context_block(p, *pb, t, *tb, source, &mut candidate) { return false; }
+            *bindings = candidate;
+            true
+        }
         (ArenaExprKind::Try(pe), ArenaExprKind::Try(te)) => {
             match_expr(p, *pe, t, *te, source, bindings)
         }
@@ -259,6 +265,22 @@ fn match_expr_structural(
         }
         _ => false,
     }
+}
+
+fn match_context_block(p: &AstArena, pb: BlockId, t: &AstArena, tb: BlockId, source: &str, bindings: &mut FxHashMap<String, Span>) -> bool {
+    let ps: Vec<_> = p.stmt_ids(p.block(pb).statements).collect();
+    let ts: Vec<_> = t.stmt_ids(t.block(tb).statements).collect();
+    if ps.len() != ts.len() { return false; }
+    ps.into_iter().zip(ts).all(|(pstmt, tstmt)| match (p.stmt(pstmt).kind, t.stmt(tstmt).kind) {
+        (ArenaStmtKind::Expr(pe), ArenaStmtKind::Expr(te)) => match_expr(p, pe, t, te, source, bindings),
+        (ArenaStmtKind::TailBareIdent(name), _) if is_metavar(name.as_str().as_str()) => {
+            let span = t.stmt(tstmt).span;
+            if let Some(previous) = bindings.get(name.as_str().as_str()) { source.get(previous.range()) == source.get(span.range()) }
+            else { bindings.insert(name.to_string(), span); true }
+        }
+        (ArenaStmtKind::TailBareIdent(pn), ArenaStmtKind::TailBareIdent(tn)) => pn == tn,
+        _ => false,
+    })
 }
 
 fn match_pattern(p: &AstArena, pi: PatternId, t: &AstArena, ti: PatternId, source: &str, bindings: &mut FxHashMap<String, Span>) -> bool {
@@ -495,6 +517,24 @@ fn build_replacement_text(
             for (span, replacement) in replacements.into_iter().rev() {
                 text.replace_range(span.start() - expr.span.start()..span.end() - expr.span.start(), &replacement);
             }
+            Some(text)
+        }
+        ArenaExprKind::ErrorContext { message, block } => {
+            let description = build_replacement_text(arena, *message, m, target_source, pattern_source)?;
+            let mut text = pattern_source.get(expr.span.range())?.to_string();
+            let message_span = arena.expr(*message).span;
+            let mut edits = vec![(message_span, description)];
+            for statement in arena.stmt_ids(arena.block(*block).statements) {
+                let node = arena.stmt(statement);
+                let replacement = match node.kind {
+                    ArenaStmtKind::Expr(value) => build_replacement_text(arena, value, m, target_source, pattern_source)?,
+                    ArenaStmtKind::TailBareIdent(name) if is_metavar(name.as_str().as_str()) => target_source.get(m.bindings.get(name.as_str().as_str())?.range())?.to_string(),
+                    _ => continue,
+                };
+                edits.push((node.span, replacement));
+            }
+            edits.sort_by_key(|(span, _)| std::cmp::Reverse(span.start()));
+            for (span, replacement) in edits { text.replace_range(span.start() - expr.span.start()..span.end() - expr.span.start(), &replacement); }
             Some(text)
         }
         ArenaExprKind::Ident(name) => Some(name.to_string()),

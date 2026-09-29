@@ -2273,6 +2273,10 @@ fn compact_collect_expr_call_edges(
             compact_collect_expr_call_edges(program, key, namespace, index_of, edges);
             compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
         }
+        ArenaExprKind::ErrorContext { message, block } => {
+            compact_collect_expr_call_edges(program, message, namespace, index_of, edges);
+            compact_collect_block_call_edges(program, block, namespace, index_of, edges);
+        }
         ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } | ArenaExprKind::Retry { block, .. } => {
             compact_collect_block_call_edges(program, block, namespace, index_of, edges);
         }
@@ -2675,6 +2679,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::Capture(_) => 42,
         ArenaExprKind::Retry { .. } => 38,
         ArenaExprKind::ValueBlock(_) => 39,
+        ArenaExprKind::ErrorContext { .. } => 42,
         ArenaExprKind::Regex(_) => 41,
         ArenaExprKind::ValuePipelineCall { .. } => 43,
     }
@@ -2726,6 +2731,7 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
         ArenaExprKind::Capture(_) => "try",
         ArenaExprKind::Retry { .. } => "retry",
         ArenaExprKind::ValueBlock(_) => "value_block",
+        ArenaExprKind::ErrorContext { .. } => "error_context",
         ArenaExprKind::Regex(_) => "regex_literal",
         ArenaExprKind::ValuePipelineCall { .. } => "value_pipeline_call",
     }
@@ -8470,6 +8476,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let selected = selected?;
                 let pattern = push_build_row!(self, pattern, BuildPatternRow::Bind { slot });
                 Some(push_build_row!(self, expr, BuildExprRow::MatchExpr { value: input, arms: vec![(pattern, None, selected)], span }))
+            }
+            ArenaExprKind::ErrorContext { message, block } => {
+                let message = self.lower_expr(message, slots, current_function, item_slot)?;
+                let tail = self.program.arena.stmt_ids(self.program.arena.block(block).statements).last();
+                let statement_body = tail.is_some_and(|tail| self.bodies.statement_positions.get(&tail) == Some(&crate::sema::check::StatementPosition::Statement));
+                let body = if statement_body { self.lower_block(block, slots, current_function, item_slot)? }
+                    else { self.lower_retry_block(block, slots, current_function, item_slot)? };
+                Some(push_build_row!(self, expr, BuildExprRow::ErrorContext { message, body, span }))
             }
             ArenaExprKind::ValueBlock(block) => self.lower_block_value_expr(block, slots, current_function, item_slot),
             ArenaExprKind::Loop { block } => Some(push_build_row!(

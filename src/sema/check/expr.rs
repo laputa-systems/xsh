@@ -214,6 +214,14 @@ impl Checker {
             ArenaExprKind::Record(fields) => {
                 self.check_record_arena(arena, source, *fields, expected, expr.span)
             }
+            ArenaExprKind::ErrorContext { message, block } => {
+                let ty = self.check_expr_arena(arena, source, *message, Some(&Type::Str));
+                self.expect_type(&Type::Str, &ty, arena.arena.expr(*message).span);
+                self.push_scope();
+                let ty = self.check_tail_block_arena(arena, source, *block, expected);
+                self.pop_scope();
+                ty
+            }
             ArenaExprKind::ValueBlock(block) => {
                 if let Some(param) = arena.arena.block_params(arena.arena.block(*block).params).first() {
                     self.error(arena.arena.span(param.span), "parameter value blocks require a Result fallback", "check.fallback-block-context");

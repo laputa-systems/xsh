@@ -317,6 +317,23 @@ impl<'a> Parser<'a> {
         )
     }
 
+    pub(in crate::syntax::parser) fn lookahead_is_ctx_block(&self) -> bool {
+        if !self.at_ident("ctx") || self.peek_start(1) == Some(self.current_end()) { return false; }
+        let mut depth = 0usize;
+        for offset in 1.. {
+            match self.peek_tag(offset) {
+                Some(TokenTag::LParen | TokenTag::LBracket) => depth += 1,
+                Some(TokenTag::RParen | TokenTag::RBracket) if depth > 0 => depth -= 1,
+                Some(TokenTag::LBrace) if depth == 0 => return true,
+                Some(TokenTag::Newline | TokenTag::Semicolon | TokenTag::Equals | TokenTag::RBrace) | None if depth == 0 => return false,
+                Some(TokenTag::Dot) if offset == 1 => return false,
+                None => return false,
+                _ => {}
+            }
+        }
+        unreachable!()
+    }
+
     pub(in crate::syntax::parser) fn lookahead_is_assignment(&self) -> bool {
         let mut offset = 1;
         loop {

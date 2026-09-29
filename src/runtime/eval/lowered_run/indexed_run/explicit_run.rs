@@ -108,6 +108,8 @@ enum FrameContinuation {
     AssignSelector(AssignPathState),
     AssignPath(AssignPathState),
     Return,
+    BlockValue,
+    ErrorContextEntry { body: u32, span: Span, next: Box<FrameContinuation> },
     Discard(Span),
     ComparisonLeft {
         pairs: Vec<(BinaryOp, u32, Span)>,
@@ -335,6 +337,9 @@ fn with_initializer_handler(mut continuation: &FrameContinuation) -> Option<(Opt
 enum FrameWork {
     ClearSlots(Vec<usize>),
     GuardFailureEnd(Span),
+    // A lexical expression retains its destination across producer suspension.
+    // Its statement scope owns defers; this boundary consumes only the body value.
+    ExpressionBoundary { context: Option<crate::runtime::value::ErrorContext>, next: FrameContinuation },
     CompCleanup(CompStreams),
     Statements {
         statements: Vec<u32>,
@@ -688,7 +693,7 @@ impl ProducerFrameState {
 impl<'p> CallFrame<'p> {
     /// Drops the body's remaining work, keeping its registered defers.
     pub(super) fn discard_body(&mut self) {
-        self.work.retain(|work| matches!(work, FrameWork::Statements { scope_id: Some(_), .. }));
+        self.work.retain(|work| matches!(work, FrameWork::Statements { scope_id: Some(_), .. } | FrameWork::ExpressionBoundary { .. }));
         for work in &mut self.work {
             if let FrameWork::Statements { statements, .. } = work { statements.clear(); }
         }
@@ -1055,6 +1060,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FrameWork::GuardFailureEnd(span) => Err(RuntimeError::new("guard", "guard else block must diverge").with_span(span)),
+            FrameWork::ExpressionBoundary { next, .. } => {
+                self.push_value(index, FrameValue::Value(LoweredValue::Unit), next);
+                Ok(())
+            }
             FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams),
             FrameWork::Statements {
                 mut statements,
@@ -1088,7 +1097,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.complete_call(index, StmtFlow::None)
                     } else {
                         if let Some(scope_id) = scope_id {
-                            self.exit_block_scope(index, scope_id)?;
+                            self.exit_block_scope(index, scope_id, true)?;
                         }
                         Ok(())
                     };
@@ -1226,7 +1235,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.calls[index].slots[slot] = LoweredValue::Int(value)
                     }
                     ControlFlow::Break(value) => {
-                        return self.complete_call(index, StmtFlow::Return(value));
+                        return self.complete_expression_escape(index, value);
                     }
                 }
                 Ok(())
@@ -1249,7 +1258,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.calls[index].slots[slot] = LoweredValue::Bool(value)
                     }
                     ControlFlow::Break(value) => {
-                        return self.complete_call(index, StmtFlow::Return(value));
+                        return self.complete_expression_escape(index, value);
                     }
                 }
                 Ok(())
@@ -1353,7 +1362,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         }
                         ControlFlow::Continue(false) => {}
                         ControlFlow::Break(value) => {
-                            return self.complete_call(index, StmtFlow::Return(value));
+                            return self.complete_expression_escape(index, value);
                         }
                     }
                 }
@@ -1496,6 +1505,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.calls[index].defers.push(value);
                 Ok(())
             }
+            FullTag::StmtValue => {
+                let value = indexed_raw(&mut payload, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, value, span, FrameContinuation::BlockValue);
+                Ok(())
+            }
             FullTag::StmtReturn => {
                 let value = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
@@ -1516,7 +1531,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 match flow {
                     StmtFlow::None => Ok(()),
-                    StmtFlow::Value(value) | StmtFlow::Return(value) => self.complete_call(index, StmtFlow::Return(value)),
+                    StmtFlow::Value(value) => self.complete_expression_value(index, value),
+                    StmtFlow::Return(value) => self.complete_call(index, StmtFlow::Return(value)),
                     StmtFlow::Propagate(value) => {
                         self.complete_call(index, StmtFlow::Propagate(value))
                     }
@@ -1571,6 +1587,20 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     FrameValue::Value(self.calls[index].slots[slot].clone()),
                     next,
                 );
+            }
+            FullTag::ExprValueBlock => {
+                let body = indexed_raw(&mut payload, span)?;
+                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.calls[index].work.push(FrameWork::ExpressionBoundary { context: None, next });
+                self.push_statement_block(index, body, span)?;
+            }
+            FullTag::ExprErrorContext => {
+                let message = indexed_raw(&mut payload, span)?;
+                let body = indexed_raw(&mut payload, span)?;
+                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, message, span, FrameContinuation::ErrorContextEntry { body, span, next: Box::new(next) });
             }
             FullTag::ExprComparisonChain => {
                 let (_, mut values) = self.calls[index].execution.block(&mut payload, BLOCK_LIST)
@@ -2078,7 +2108,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.calls[index].slot_scopes[slot] = self.evaluator.current_scope_id();
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::Assign { slot, op, singleton, span } => match value {
@@ -2095,7 +2125,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.calls[index].slots[slot] = value;
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::AssignSelector(mut state) => match value {
@@ -2114,12 +2144,23 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 }
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
-            FrameContinuation::Return => {
-                let value = match value {
-                    FrameValue::Value(value) | FrameValue::Break(value) => value,
-                };
-                return self.complete_call(index, StmtFlow::Return(value));
-            }
+            FrameContinuation::Return => return self.complete_call(index, match value {
+                FrameValue::Value(value) => StmtFlow::Return(value),
+                FrameValue::Break(value) => StmtFlow::Propagate(value),
+            }),
+            FrameContinuation::BlockValue => return match value {
+                FrameValue::Value(value) => self.complete_expression_value(index, value),
+                FrameValue::Break(value) => self.complete_call(index, StmtFlow::Propagate(value)),
+            },
+            FrameContinuation::ErrorContextEntry { body, span, next } => match value {
+                FrameValue::Value(value) => {
+                    let description = super::lowered_str_arg_owned(Some(value), "", "ctx description", span)?;
+                    let context = crate::runtime::value::ErrorContext { kind: "ctx".to_string(), message: Some(description), span: Some(span) };
+                    self.calls[index].work.push(FrameWork::ExpressionBoundary { context: Some(context), next: *next });
+                    self.push_statement_block(index, body, span)?;
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
+            },
             FrameContinuation::Discard(span) => match value {
                 FrameValue::Value(value @ LoweredValue::ResultErr(_)) => {
                     let value = self
@@ -2137,7 +2178,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     let (_, right, span) = pairs[0];
                     self.push_expr(index, right, span, FrameContinuation::ComparisonRight { left, pairs, position: 0, assertion, next });
                 }
-                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::ComparisonRight { left, pairs, position, assertion, next } => match value {
                 FrameValue::Value(right) => {
@@ -2152,7 +2193,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.push_expr(index, operand, span, FrameContinuation::ComparisonRight { left: right, pairs, position, assertion, next });
                     }
                 }
-                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
                         FrameContinuation::BinaryLeft {
                 op,
@@ -2185,7 +2226,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 ),
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::BinaryRight {
@@ -2200,7 +2241,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     *next,
                 ),
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::BoolBinaryRight { next, span } => match value {
@@ -2210,7 +2251,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     *next,
                 ),
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::If {
@@ -2247,7 +2288,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::StatementIf {
@@ -2284,7 +2325,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::ForItems { slot, body, span } => match value {
@@ -2323,7 +2364,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     });
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::ForPipelineInput {
@@ -2355,12 +2396,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             });
                         }
                         ControlFlow::Break(value) => {
-                            return self.complete_call(index, StmtFlow::Return(value));
+                            return self.complete_expression_escape(index, value);
                         }
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::ForStrLines { slot, body, span } => match value {
@@ -2386,7 +2427,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     });
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::While {
@@ -2406,13 +2447,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::MatchValue { arms, span } => match value {
                 FrameValue::Value(value) => self.select_match_arm(index, arms, 0, value, span)?,
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::MatchGuard {
@@ -2429,7 +2470,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::MatchExprValue {
@@ -2439,7 +2480,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.select_expr_match_arm(index, arms, 0, value, span, *next)?;
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::MatchExprGuard {
@@ -2464,13 +2505,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::BreakLoop => match value {
                 FrameValue::Value(_) => return self.break_loop(index),
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::CallArguments {
@@ -2516,7 +2557,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::WrapOk(next) => match value {
@@ -2526,7 +2567,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     *next,
                 ),
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::WrapErr(next) => match value {
@@ -2536,7 +2577,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     *next,
                 ),
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::Try { span, next } => match value {
@@ -2611,7 +2652,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::MethodArg {
@@ -2650,7 +2691,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::FmtValue {
@@ -2665,7 +2706,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.step_fmt(index, state, *next)?;
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::ResultFallback { right, span, next } => match value {
@@ -2708,7 +2749,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::MapLiteralItems { entries, index: entry_index, mut fields, key, reading_key, next } => match value {
@@ -2728,7 +2769,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         } else { self.push_value(index, FrameValue::Value(LoweredValue::Map(Arc::new(fields))), *next); }
                     }
                 }
-                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::RecordUpdateBase { updates, span, next } => match value {
                 FrameValue::Value(base) => {
@@ -2790,7 +2831,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::ListCompIter { mut state, next } => match value {
@@ -2814,7 +2855,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                     self.step_list_comp(index, *state, *next)?;
                 }
-                FrameValue::Break(value) => { return self.complete_call(index, StmtFlow::Return(value)); }
+                FrameValue::Break(value) => { return self.complete_call(index, StmtFlow::Propagate(value)); }
             },
             FrameContinuation::ListCompCondition { mut state, next } => match value {
                 FrameValue::Value(value) => {
@@ -2823,7 +2864,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         self.step_comp_qualifier(index, *state, *next)?;
                     } else { self.step_list_comp(index, *state, *next)?; }
                 }
-                FrameValue::Break(value) => { return self.complete_call(index, StmtFlow::Return(value)); }
+                FrameValue::Break(value) => { return self.complete_call(index, StmtFlow::Propagate(value)); }
             },
             FrameContinuation::ListCompKey { state, next } => match value {
                 FrameValue::Value(LoweredValue::Str(key)) => {
@@ -2849,7 +2890,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .with_span(state.span));
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::YieldDelegate { span } => match value {
@@ -2857,7 +2898,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.suspended = Some(ProducerSuspension::Delegated { value, span });
                     return Ok(());
                 }
-                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::Yield => match value {
                 FrameValue::Value(value) => {
@@ -2867,7 +2908,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return Ok(());
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
             FrameContinuation::ListCompValue {
@@ -2886,14 +2927,39 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.step_list_comp(index, *state, *next)?;
                 }
                 FrameValue::Break(value) => {
-                    return self.complete_call(index, StmtFlow::Return(value));
+                    return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
         }
         Ok(())
     }
 
-    fn complete_call(&mut self, index: usize, flow: StmtFlow) -> Result<(), RuntimeError> {
+    fn complete_expression_escape(&mut self, index: usize, value: LoweredValue) -> Result<(), RuntimeError> {
+        match self.evaluator.pending_value_block_flow.take().unwrap_or(StmtFlow::Propagate(value)) {
+            StmtFlow::Value(value) => self.complete_expression_value(index, value),
+            StmtFlow::Break(_) => self.break_loop(index),
+            StmtFlow::Continue => self.continue_loop(index),
+            flow => self.complete_call(index, flow),
+        }
+    }
+
+    fn complete_expression_value(&mut self, index: usize, value: LoweredValue) -> Result<(), RuntimeError> {
+        let Some(boundary) = self.calls[index].work.iter().rposition(|work| matches!(work, FrameWork::ExpressionBoundary { .. })) else {
+            return self.complete_call(index, StmtFlow::Value(value));
+        };
+        self.evaluator.transfer_owned_host_resources_in_lowered_value(&value,
+            self.evaluator.current_scope_id(), self.evaluator.parent_owned_host_scope());
+        self.discard_work_from(index, boundary + 1)?;
+        let Some(FrameWork::ExpressionBoundary { next, .. }) = self.calls[index].work.pop() else { unreachable!() };
+        self.push_value(index, FrameValue::Value(value), next);
+        Ok(())
+    }
+
+    fn complete_call(&mut self, index: usize, mut flow: StmtFlow) -> Result<(), RuntimeError> {
+        let contexts: Vec<_> = self.calls[index].work.iter().rev().filter_map(|work| match work {
+            FrameWork::ExpressionBoundary { context: Some(context), .. } => Some(context.clone()),
+            _ => None,
+        }).collect();
         if let StmtFlow::Return(value) | StmtFlow::Break(Some(value)) = &flow {
             let function_scope = self.calls[index].scope_id;
             let current_scope = self.evaluator.current_scope_id();
@@ -2917,6 +2983,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             if let Err(error) = cleanup { self.evaluator.report_cleanup_error(&error, self.calls[index].call_span); }
         } else {
             cleanup?;
+        }
+        if let StmtFlow::Propagate(value) = flow {
+            let value = contexts.into_iter().fold(value, contextualize_propagation);
+            update_context_traceback(self.evaluator, &value);
+            flow = StmtFlow::Propagate(value);
         }
         if self.calls[index].defers.is_empty() {
             self.finish_call(index, flow)
@@ -3457,7 +3528,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.push_statement_block(index, body, span)
                 }
                 ControlFlow::Continue(false) => Ok(()),
-                ControlFlow::Break(value) => self.complete_call(index, StmtFlow::Return(value)),
+                ControlFlow::Break(value) => self.complete_expression_escape(index, value),
             }
         } else {
             self.push_expr(
@@ -3707,7 +3778,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         Ok(())
     }
 
-    fn exit_block_scope(&mut self, index: usize, scope_id: u64) -> Result<(), RuntimeError> {
+    fn exit_block_scope(&mut self, index: usize, scope_id: u64, include_work_contexts: bool) -> Result<(), RuntimeError> {
+        let previous_contexts = include_work_contexts.then(|| self.install_cleanup_contexts());
         let defer_offset = self.calls[index].block_defer_offsets.pop().expect("live block owns a defer boundary");
         let defers = self.calls[index].defers.split_off(defer_offset);
         let call = &mut self.calls[index];
@@ -3715,6 +3787,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let popped = self.calls[index].block_scopes.pop();
         debug_assert_eq!(popped, Some(scope_id));
         let host_cleanup = self.evaluator.exit_owned_host_scope(scope_id);
+        if let Some(previous) = previous_contexts { self.evaluator.cleanup_error_contexts = previous; }
         match (cleanup, host_cleanup) {
             (Err(error), Err(secondary)) => {
                 self.evaluator.report_cleanup_error(&secondary, self.calls[index].call_span);
@@ -3726,7 +3799,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     }
 
     /// Abandoned work unwinds every lexical cleanup action from innermost to outermost.
+    fn install_cleanup_contexts(&mut self) -> Vec<crate::runtime::value::ErrorContext> {
+        let previous = self.evaluator.cleanup_error_contexts.clone();
+        self.evaluator.cleanup_error_contexts.extend(self.calls.iter().flat_map(|call| call.work.iter()).filter_map(|work| match work {
+            FrameWork::ExpressionBoundary { context: Some(context), .. } => Some(context.clone()),
+            _ => None,
+        }));
+        previous
+    }
+
     fn discard_work_from(&mut self, index: usize, keep: usize) -> Result<(), RuntimeError> {
+        let previous_contexts = self.install_cleanup_contexts();
         let discarded = self.calls[index].work.split_off(keep);
         let mut first_error = None;
         for work in discarded.into_iter().rev() {
@@ -3735,21 +3818,58 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     for slot in slots { self.calls[index].slots[slot] = LoweredValue::Unit; }
                     Ok(())
                 }
+                FrameWork::ExpressionBoundary { context: Some(context), .. } => {
+                    self.evaluator.cleanup_error_contexts.pop();
+                    if let Some(error) = self.pending_error.take() {
+                        self.pending_error = Some(contextualize_runtime_error(error, context.clone()));
+                    }
+                    if let Some(error) = first_error.take() {
+                        first_error = Some(contextualize_runtime_error(error, context));
+                    }
+                    if let Some(error) = &self.pending_error {
+                        if let Some(traceback) = &mut self.evaluator.pending_traceback { traceback.error.message = error.message.clone(); }
+                    }
+                    Ok(())
+                }
                 FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams),
-                FrameWork::Statements { scope_id: Some(scope_id), .. } => self.exit_block_scope(index, scope_id),
+                FrameWork::Statements { scope_id: Some(scope_id), .. } => self.exit_block_scope(index, scope_id, false),
                 FrameWork::ForStream { mut stream, span, .. } => self.evaluator.stream_cancel(&mut stream, span),
                 FrameWork::ForPipeline { mut pipeline, .. } => pipeline.finish(self.evaluator, self.pending_error.as_ref()),
                 _ => Ok(()),
             };
             if let Err(error) = result {
-                if error.abort.as_ref().is_some_and(|signal| signal.force) { return Err(error); }
+                if error.abort.as_ref().is_some_and(|signal| signal.force) {
+                    self.evaluator.cleanup_error_contexts = previous_contexts;
+                    return Err(error);
+                }
                 if first_error.is_none() { first_error = Some(error); }
                 else { self.evaluator.report_cleanup_error(&error, self.calls[index].call_span); }
             }
         }
+        self.evaluator.cleanup_error_contexts = previous_contexts;
         first_error.map_or(Ok(()), Err)
     }
 
+}
+
+fn contextualize_propagation(value: LoweredValue, context: crate::runtime::value::ErrorContext) -> LoweredValue {
+    match value {
+        LoweredValue::ResultErr(error) => LoweredValue::ResultErr(Box::new(crate::runtime::eval::add_error_context(*error, context))),
+        other => LoweredValue::Error(Box::new(crate::runtime::eval::add_error_context(other.into_value(), context))),
+    }
+}
+
+fn contextualize_runtime_error(error: RuntimeError, context: crate::runtime::value::ErrorContext) -> RuntimeError {
+    if error.abort.is_some() { return error; }
+    let crate::runtime::value::Value::Error(error) = crate::runtime::eval::add_error_context(crate::runtime::value::Value::Error(Box::new(error)), context) else { unreachable!() };
+    *error
+}
+
+fn update_context_traceback(evaluator: &mut Evaluator, value: &LoweredValue) {
+    if let Some(traceback) = &mut evaluator.pending_traceback {
+        let error = match value { LoweredValue::ResultErr(error) | LoweredValue::Error(error) => error.as_ref(), _ => return };
+        if let Some(message) = error.error_message() { traceback.error.message = message.to_string(); }
+    }
 }
 
 fn frame_condition_bool(value: LoweredValue, span: Span) -> Result<bool, RuntimeError> {

@@ -1514,6 +1514,7 @@ enum BuildExprRow {
     },
     Capture { body: Vec<BuildStmtId>, span: Span },
     ValueBlock { body: Vec<BuildStmtId>, span: Span },
+    ErrorContext { message: BuildExprId, body: Vec<BuildStmtId>, span: Span },
     Loop {
         body: Vec<BuildStmtId>,
         span: Span,
@@ -2840,6 +2841,7 @@ pub struct Evaluator {
     // expressions, whose arguments and operands may still read the old value.
     consuming_receiver: Option<usize>,
     pending_value_block_flow: Option<StmtFlow>,
+    cleanup_error_contexts: Vec<ErrorContext>,
     trace_events: Vec<TraceEvent>,
     event_stack: Vec<TraceFrame>,
     call_stack: Vec<TracebackFrame>,
@@ -3069,6 +3071,7 @@ impl Evaluator {
             trace_enabled: false,
             consuming_receiver: None,
             pending_value_block_flow: None,
+            cleanup_error_contexts: Vec::new(),
             trace_events: Vec::new(),
             event_stack: Vec::new(),
             call_stack: Vec::new(),
@@ -3238,6 +3241,7 @@ impl Evaluator {
             trace_enabled: false,
             consuming_receiver: None,
             pending_value_block_flow: None,
+            cleanup_error_contexts: Vec::new(),
             trace_events: Vec::new(),
             event_stack: Vec::new(),
             call_stack: Vec::new(),
@@ -3632,6 +3636,12 @@ impl Evaluator {
     }
 
     pub(super) fn report_cleanup_error(&mut self, error: &RuntimeError, fallback: Span) {
+        let contextual = self.cleanup_error_contexts.iter().rev().fold(error.clone(), |error, context| {
+            if error.abort.is_some() { return error; }
+            let Value::Error(error) = add_error_context(Value::Error(Box::new(error)), context.clone()) else { unreachable!() };
+            *error
+        });
+        let error = &contextual;
         let span = error.span.unwrap_or(fallback);
         let location = self.sources.get(span.source_id).and_then(|source| {
             source.location(span.start()).map(|location| format!("{}:{}:{}", source.name(), location.line, location.column))

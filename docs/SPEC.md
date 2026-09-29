@@ -629,6 +629,30 @@ cleanup body retain their local targets and cleanup order. Normal effect checks
 apply even when registration is in an unselected branch. Expression-form
 `defer` keeps its existing type and registration behavior.
 
+`ctx description { ... }` evaluates one `Str` description on entry and adds
+an error-context frame with kind `ctx` when a failure propagates out of the
+lexical body. The frame retains the region's source span. The body follows the
+ordinary statement or value-block contract, and return/break/continue keep
+their enclosing destinations. Context entry has no host effect; description
+and body expressions retain their normal checked effects.
+
+Region defers and owned-resource cleanup finish before its outbound failure is
+annotated. A failed description receives only already enclosing contexts.
+Nested failures acquire one frame per crossed region, from inner to outer;
+nominal error identity, payload, primary source location, and prior contexts
+remain intact. Cleanup failures use the existing primary/secondary failure
+policy. Abort and cancellation retain their control behavior.
+
+Handled failures and `Err` values stored or returned as data are unchanged;
+use `Result.context` to annotate explicit error data. Context annotation owns
+its error value and never changes another alias's context chain. The contextual
+introducer is recognized only when `ctx` is followed by a description and a
+body; ordinary `ctx` bindings, parameters, field access, and calls remain legal.
+Moving explicit `.context(...)` calls into a region changes which failures are
+annotated unless their boundaries and description evaluation timing coincide;
+such a migration requires review rather than a general automatic rewrite.
+
+
 Standard modules are built-in namespaces and cannot be aliased. User modules are
 imported from sibling `.xsh` files relative to the importing source file, then
 from each directory in `XSH_MODULE_PATH` when the file-relative path does not
@@ -953,7 +977,7 @@ arg_list     = arg ("," arg)* ","? ;
 arg          = expr | named_arg | "..." expr | "@" expr ;
 named_arg    = FIELD_LABEL ":" expr | IDENT ":" ;
 primary      = literal | IDENT | list_lit | record_lit | map_comp | if_expr | match_expr
-             | capture_expr | retry_expr | run_form | spawn_form | wait_form | "(" expr ")" ;
+             | capture_expr | retry_expr | context_expr | run_form | spawn_form | wait_form | "(" expr ")" ;
 spawn_form   = "spawn" (run_form | expr) ;
 wait_form    = "wait" expr ;
 if_expr      = "if" condition "{" expr "}" ("else" "if" condition "{" expr "}")*
@@ -962,6 +986,7 @@ match_expr   = "match" expr "{" match_expr_arm* "}" ;
 match_expr_arm = pattern guard? "=>" expr ","? ;
 capture_expr = "try" block ;
 retry_expr   = "retry" "[" (expr ("," expr)* ","?)? "]" ("on" "(" pattern ")")? block ;
+context_expr = "ctx" expr block ;
 ```
 
 In expression-call argument lists, `name:` followed by a comma or closing
