@@ -1544,6 +1544,7 @@ fn lowered_arena_type_inner(
     let tag = arena.type_expr_tags[index];
     let data = arena.type_expr_data[index];
     match tag {
+        ArenaTypeExprTag::Applied => lowered_checked_type(&declarations.record_constructors.resolve_type(arena, ty, None)),
         ArenaTypeExprTag::Named => {
             let name = Name::from_symbol(crate::symbol::Symbol::from_raw(data.lhs));
             if let Some(lowered) = lowered_builtin_type_name(&name.as_str()) {
@@ -2543,6 +2544,7 @@ impl From<LoweredFunctionBlocker> for CompactFunctionBlocker {
 
 fn compact_type_expr_tag_index(tag: ArenaTypeExprTag) -> usize {
     match tag {
+        ArenaTypeExprTag::Applied => 8,
         ArenaTypeExprTag::Named => 0,
         ArenaTypeExprTag::Qualified => 1,
         ArenaTypeExprTag::List => 2,
@@ -3185,7 +3187,7 @@ fn compact_body_tail_command_blocker(
     }
 }
 
-const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 8];
+const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 9];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 29];
 const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 45];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
@@ -4774,8 +4776,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(if guarded { match ty { Type::Optional(inner) | Type::Result(inner, _) => *inner, other => other } } else { ty })
             }
             ArenaExprKind::Call { callee, args } => {
-                if let Some(definition) = self.declarations.record_constructors.resolve_call(&self.program.arena, callee, self.current_namespace) {
-                    return Some(self.declarations.record_constructors.schema_type(&self.program.arena, definition));
+                if let Some(_definition) = self.declarations.record_constructors.resolve_call(&self.program.arena, callee, self.current_namespace) {
+                    return Some(self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace)?);
                 }
                 let args_vec = self.program.arena.call_args(args);
                 if let ArenaExprKind::Ident(name) = self.program.arena.expr(callee).kind {
@@ -5176,8 +5178,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         known: &FxHashMap<Name, LoweredTopLevelBinding>,
     ) -> Option<Type> {
         let args_vec = self.program.arena.call_args(args);
-        if let Some(definition) = self.declarations.record_constructors.resolve_call(&self.program.arena, callee, self.current_namespace) {
-            return Some(self.declarations.record_constructors.schema_type(&self.program.arena, definition));
+        if let Some(_definition) = self.declarations.record_constructors.resolve_call(&self.program.arena, callee, self.current_namespace) {
+            return Some(self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace)?);
         }
         if let ArenaExprKind::Ident(name) = self.program.arena.expr(callee).kind
             && name == "Path"
@@ -9490,7 +9492,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             &self.program.arena, callee, self.current_namespace,
         ) {
             let defaults = self.declarations.record_constructors.defaults(definition).cloned().unwrap_or_default();
-            let schema = self.declarations.record_constructors.schema_type(&self.program.arena, definition);
+            let schema = self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace)?;
             let mut supplied = FxHashSet::default();
             let mut fields = Vec::new();
             for arg in &args_vec {
@@ -9506,14 +9508,21 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             for (name, value) in &defaults {
                 if !supplied.contains(name) {
-                    fields.push(LoweredRecordEntry::Field(*name, self.lower_record_default(value)?));
+                    fields.push(LoweredRecordEntry::Field(*name, self.lower_record_default(&match &schema { Type::Record(fields) => value.clone().in_type(fields.get(name)?), _ => return None })?));
                 }
             }
             let value = push_build_row!(self, expr, BuildExprRow::Record(fields));
             let check = LoweredTypeCheck {
                 schema: None,
                 ty: schema,
-                name: self.program.arena.type_def(definition).name.as_str().to_string().into(),
+                name: match self.program.arena.expr(callee).kind {
+                    ArenaExprKind::Ident(name) => name.to_string(),
+                    ArenaExprKind::Field { base, name } => match self.program.arena.expr(base).kind {
+                        ArenaExprKind::Ident(namespace) => format!("{namespace}.{name}"),
+                        _ => return None,
+                    },
+                    _ => return None,
+                }.into(),
             };
             let checked = push_build_row!(self, expr, BuildExprRow::Require { value, check, span });
             return Some(push_build_row!(self, expr, BuildExprRow::Try(checked)));
@@ -13307,6 +13316,7 @@ fn compact_runtime_type_inner(
     let tag = arena.type_expr_tags[index];
     let data = arena.type_expr_data[index];
     match tag {
+        ArenaTypeExprTag::Applied => Type::Invalid,
         ArenaTypeExprTag::Named => {
             let name = Name::from_symbol(Symbol::from_raw(data.lhs));
             if let Some(builtin) = BuiltinTypeName::parse(&name.as_str()) {
@@ -13448,6 +13458,7 @@ fn compact_type_expr_name_string(arena: &AstArena, ty: TypeExprId) -> String {
     let tag = arena.type_expr_tags[index];
     let data = arena.type_expr_data[index];
     match tag {
+        ArenaTypeExprTag::Applied => format!("{}[{}]", compact_type_expr_name_string(arena, TypeExprId::from_index(data.lhs as usize)), arena.applied_type_arguments(ty).map(|argument| compact_type_expr_name_string(arena, argument)).collect::<Vec<_>>().join(", ")),
         ArenaTypeExprTag::Named => Name::from_symbol(Symbol::from_raw(data.lhs)).to_string(),
         ArenaTypeExprTag::Qualified => {
             let namespace = Name::from_symbol(Symbol::from_raw(data.lhs));

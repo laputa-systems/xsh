@@ -216,6 +216,14 @@ impl<'a> Parser<'a> {
         let introducer_start = self.current_start();
         self.bump();
         let name = self.expect_ident("expected type name")?;
+        let mut parameters = Vec::new();
+        if self.consume(TokenKindMatch::LBracket).is_some() {
+            parameters.push(self.expect_ident("expected record type parameter")?);
+            while self.consume(TokenKindMatch::Comma).is_some() {
+                parameters.push(self.expect_ident("expected record type parameter")?);
+            }
+            self.expect(TokenKindMatch::RBracket, "expected `]` after record type parameters");
+        }
         self.expect(TokenKindMatch::Equals, "expected `=` in type definition");
         let body_start = self.index;
         let body = if self.at_ident("module") {
@@ -248,7 +256,7 @@ impl<'a> Parser<'a> {
         };
         let end = self.expect_terminator();
         let span = self.span(start, end);
-        arena.push_type_def(name, body, span);
+        arena.push_parameterized_type_def(name, parameters, body, span);
         Some(())
     }
 

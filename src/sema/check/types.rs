@@ -172,6 +172,10 @@ impl Checker {
         let data = program.arena.type_expr_data[type_id.index()];
         let span = program.arena.type_expr_span(type_id);
         match tag {
+            ArenaTypeExprTag::Applied => match self.record_constructors.resolve_type_checked(&program.arena, type_id, self.current_namespace) {
+                Ok(ty) => ty,
+                Err(error) => { self.error(span, &error.message, error.code); Type::Invalid }
+            },
             ArenaTypeExprTag::Named => {
                 let name = Name::from_symbol(Symbol::from_raw(data.lhs));
                 self.type_from_name(name, span)
@@ -179,7 +183,14 @@ impl Checker {
             ArenaTypeExprTag::Qualified => {
                 let namespace = Name::from_symbol(Symbol::from_raw(data.lhs));
                 let name = Name::from_symbol(Symbol::from_raw(data.rhs));
-                self.type_from_qualified_name(namespace, name, span)
+                match self.record_constructors.resolve_type_checked(&program.arena, type_id, self.current_namespace) {
+                    Ok(ty) => ty,
+                    Err(error) if matches!(error.code, "check.type-arity" | "check.recursive-type") => {
+                        self.error(span, &error.message, error.code);
+                        Type::Invalid
+                    }
+                    Err(_) => self.type_from_qualified_name(namespace, name, span),
+                }
             }
             ArenaTypeExprTag::List => Type::List(Box::new(
                 self.type_from_arena(program, TypeExprId::from_index(data.lhs as usize)),
@@ -300,6 +311,14 @@ impl Checker {
         }
         self.resolving_types.push(key);
         let ty = match body {
+            TypeDefBody::Declared(program, definition) => match self.record_constructors.resolve_definition_checked(&program.arena, definition) {
+                Ok(ty) => ty,
+                Err(error) => { self.error(span, &error.message, error.code); Type::Invalid }
+            },
+            TypeDefBody::Parameterized(arity) => {
+                self.error(span, &format!("type `{key}` requires {arity} type arguments"), "check.type-arity");
+                Type::Invalid
+            }
             TypeDefBody::Resolved(ty) => ty,
             TypeDefBody::Alias(alias) => self.type_from_ann(&alias),
             TypeDefBody::RecordSchema(fields) => {

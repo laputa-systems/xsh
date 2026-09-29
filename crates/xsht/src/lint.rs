@@ -163,7 +163,7 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
         ArenaTypeExprTag::Named => {
             ArenaTypeExprKind::Named(Name::from_symbol(Symbol::from_raw(data.lhs)))
         }
-        ArenaTypeExprTag::Qualified => ArenaTypeExprKind::Qualified,
+        ArenaTypeExprTag::Applied | ArenaTypeExprTag::Qualified => ArenaTypeExprKind::Qualified,
         ArenaTypeExprTag::List => {
             ArenaTypeExprKind::List(TypeExprId::from_index(data.lhs as usize))
         }
@@ -3989,6 +3989,7 @@ impl<'a> Linter<'a> {
 
     fn lint_record_constructor(&mut self, ty: Option<TypeExprId>, initializer: &ArenaExprOrRun) {
         let (Some(ty), ArenaExprOrRun::Expr(expr)) = (ty, initializer) else { return; };
+        if self.arena.type_expr_tags[ty.index()] == ArenaTypeExprTag::Applied { return; }
         let Some(definition) = self.record_constructors.resolve_annotation(self.arena, ty, None) else { return; };
         let value = self.arena.expr(*expr);
         let ArenaExprKind::Record(fields) = value.kind else { return; };
@@ -3998,7 +3999,7 @@ impl<'a> Linter<'a> {
             .with_label(Label::secondary(value.span, "construct the declared schema"));
         let mut arguments = Vec::new();
         let mut safe = !self.source[value.span.range()].contains('#');
-        let Type::Record(schema_fields) = self.record_constructors.schema_type(self.arena, definition) else { return; };
+        let Type::Record(schema_fields) = self.record_constructors.resolve_type(self.arena, ty, None) else { return; };
         let Some(Type::Record(checked_fields)) = self.expr_types.get(&value.span) else { return; };
         safe &= checked_fields.keys().eq(schema_fields.keys())
             && checked_fields.values().all(|ty| !matches!(ty, Type::Unknown | Type::Invalid));

@@ -182,6 +182,8 @@ impl TypeAnnRef {
 
 #[derive(Clone, Debug)]
 pub(super) enum TypeDefBody {
+    Parameterized(usize),
+    Declared(Arc<ArenaProgram>, crate::syntax::arena::TypeDefId),
     Resolved(Type),
     Alias(TypeAnnRef),
     RecordSchema(Vec<SchemaField>),
@@ -397,46 +399,41 @@ impl Checker {
     /// Check a multi-module program assembled from separately parsed arenas.
     ///
     /// `main` is the entry arena+source; each `(key, name, arena, source)` in
-    /// `modules` is checked as a user module and the matching `use` statements
-    /// in a cloned main arena have their `resolved` field set to `key`. This
-    /// mirrors the module wiring used by the loader.
+    /// `modules` is linked with the entry source in one arena, with matching
+    /// imports resolved by module key or name. Declaring scopes and private
+    /// schema dependencies remain available during concrete instantiation.
     pub fn check_arena_with_modules(
         main: (&crate::syntax::arena::ArenaProgram, &str),
         modules: &[(&str, &str, &crate::syntax::arena::ArenaProgram, &str)],
     ) -> CheckOutput {
         main.0.symbol_owner().with_current(|| {
             let mut checker = Self::new(CheckOptions::default());
-            for (key, name, arena, source) in modules {
-                checker.diagnostics.extend(Self::prepare_regex_literals(arena));
-                let module_program = Arc::new((*arena).clone());
-                let module = crate::syntax::arena::ArenaUserModule {
-                    key: (*key).to_string(),
-                    name: Name::intern(name),
-                    statements: arena.statements,
-                    internal: false,
-                };
-                let sig = checker.check_user_module_arena(arena, module_program, source, &module);
-                checker.user_modules.insert((*key).to_string(), sig);
+            // One arena preserves declaration identities and private type dependencies across modules.
+            let mut builder = crate::syntax::arena::ArenaProgramBuilder::with_token_capacity_and_symbols(
+                main.1.len(), main.0.symbol_owner().clone(),
+            );
+            let entry_source = main.0.statement_ids().next().map(|id| main.0.arena.stmt(id).span.source_id)
+                .unwrap_or(crate::source::SourceId::new(0));
+            let entry = crate::syntax::parser::Parser::parse_source_into_arena_builder(entry_source, main.1, &mut builder);
+            checker.diagnostics.extend(entry.diagnostics);
+            for (index, (key, name, arena, source)) in modules.iter().enumerate() {
+                let source_id = arena.statement_ids().next().map(|id| arena.arena.stmt(id).span.source_id)
+                    .unwrap_or(crate::source::SourceId::new(index + 1));
+                let fragment = crate::syntax::parser::Parser::parse_source_into_arena_builder(source_id, source, &mut builder);
+                checker.diagnostics.extend(fragment.diagnostics);
+                builder.push_arena_module((*key).to_string(), Name::intern(name), fragment.statements);
             }
-
-            let mut main_program = main.0.clone();
-            if let Some((key, ..)) = modules.first() {
-                let resolved = std::sync::Arc::<str>::from(*key);
-                let use_ids = main_program
-                    .statement_ids()
-                    .filter_map(|stmt_id| {
-                        let stmt = main_program.arena.stmt(stmt_id);
-                        match stmt.kind {
-                            crate::syntax::arena::ArenaStmtKind::Use(use_id) => Some(use_id),
-                            _ => None,
-                        }
-                    })
-                    .collect::<Vec<_>>();
-                for use_id in use_ids {
-                    main_program.arena.use_stmts[use_id.index()].resolved = Some(resolved.clone());
+            let mut main_program = builder.finish_with_statements(entry.statements);
+            for index in 0..main_program.arena.use_stmts.len() {
+                let import = &main_program.arena.use_stmts[index];
+                let path = main_program.arena.names(import.path).map(|name| name.to_string()).collect::<Vec<_>>().join(".");
+                // The legacy single-module fixture form accepts the caller's import spelling.
+                let resolved = modules.iter().find(|(key, name, ..)| *key == path || *name == path)
+                    .or_else(|| if modules.len() == 1 { modules.first() } else { None });
+                if let Some((key, ..)) = resolved {
+                    main_program.arena.use_stmts[index].resolved = Some(std::sync::Arc::from(*key));
                 }
             }
-
             checker.check_program_arena(&main_program, main.1);
             let callable_effects = checker.callable_effects();
             CheckOutput {

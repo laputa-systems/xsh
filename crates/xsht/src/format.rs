@@ -196,6 +196,7 @@ struct CallChainSegment {
 /// A decoded type expression node, mirroring the arena's compact type-expr
 /// encoding without referencing the old recursive AST.
 enum ArenaTypeExprKind {
+    Applied { base: TypeExprId, arguments: Vec<TypeExprId> },
     Named(Name),
     Qualified {
         namespace: Name,
@@ -217,6 +218,7 @@ fn type_expr_kind(arena: &AstArena, id: TypeExprId) -> ArenaTypeExprKind {
     let tag = arena.type_expr_tags[index];
     let data = arena.type_expr_data[index];
     match tag {
+        ArenaTypeExprTag::Applied => ArenaTypeExprKind::Applied { base: TypeExprId::from_index(data.lhs as usize), arguments: arena.applied_type_arguments(id).collect() },
         ArenaTypeExprTag::Named => {
             ArenaTypeExprKind::Named(Name::from_symbol(Symbol::from_raw(data.lhs)))
         }
@@ -627,6 +629,14 @@ impl<'a> Writer<'a> {
         }
         output.push_str(if matches!(def.body, ArenaTypeDefBody::TagUnion(_)) { "enum " } else { "type " });
         output.push_str(def.name.as_str().as_str());
+        if !def.type_parameters.is_empty() {
+            output.push('[');
+            for (index, parameter) in self.arena.names(def.type_parameters).enumerate() {
+                if index != 0 { output.push_str(", "); }
+                output.push_str(parameter.as_str().as_str());
+            }
+            output.push(']');
+        }
         match &def.body {
             ArenaTypeDefBody::Alias(ty) => {
                 output.push_str(" = ");
@@ -2401,6 +2411,15 @@ impl<'a> Writer<'a> {
 
     fn write_type(&mut self, ty: TypeExprId, output: &mut String) {
         match type_expr_kind(self.arena, ty) {
+            ArenaTypeExprKind::Applied { base, arguments } => {
+                self.write_type(base, output);
+                output.push('[');
+                for (index, argument) in arguments.iter().enumerate() {
+                    if index != 0 { output.push_str(", "); }
+                    self.write_type(*argument, output);
+                }
+                output.push(']');
+            }
             ArenaTypeExprKind::Named(name) => output.push_str(name.as_str().as_str()),
             ArenaTypeExprKind::Qualified { namespace, name } => {
                 output.push_str(namespace.as_str().as_str());

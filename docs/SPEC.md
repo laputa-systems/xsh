@@ -961,6 +961,23 @@ accept no positional arguments; unknown, duplicate, and missing required fields
 are errors. Supplied values evaluate once in source order. A schema name is not
 a first-class callable value, and callable/type name collisions are errors.
 
+User record schemas and aliases may declare type parameters, for example
+`type Observation[T] = {value: T?, samples: List[T]}` and
+`type CountObservation = Observation[Int]`. Arguments must be fully supplied;
+qualified applications such as `model.Observation[Int]` resolve private schema
+dependencies in the declaring module. Duplicate and reserved parameter names,
+wrong arity, unknown types, and recursive or expanding applications are errors.
+Substitution produces an ordinary concrete record schema with existing
+assignability rules. Generic functions, error families, enums, and module
+contracts are not supported.
+
+Use `let value: Observation[Int] = {...}` for a direct application or the
+existing `CountObservation(...)` constructor for a concrete named alias.
+Expression-level generic constructor calls are not supported. Defaults on a
+parameterized declaration must work for every substitution: `null` for `T?`
+and `[]` for `List[T]` are valid; `1` for `T` is not. Concrete aliases retain
+schema defaults and validation, including `.require(CountObservation)`.
+
 Schema field defaults are bounded immutable constants: `null`, `Bool`, `Int`,
 `Float`, `Duration`, `Str`, `Bytes`, and `Path` literals, signed numeric literals,
 recursively literal lists and records, and references to previous immutable

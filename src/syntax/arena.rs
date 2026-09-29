@@ -461,6 +461,7 @@ pub struct ArenaSpanSource {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum ArenaTypeExprTag {
+    Applied,
     Named,
     Qualified,
     List,
@@ -2172,6 +2173,13 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.push_type_expr_row(tag, data, span)
     }
 
+    pub fn push_applied_type_expr(&mut self, base: TypeExprId, arguments: &[TypeExprId], span: Span) -> TypeExprId {
+        let start = self.lowerer.arena.extra.len();
+        self.lowerer.arena.extra.push(u32::try_from(arguments.len()).expect("AST arena exceeded u32 type argument counts"));
+        self.lowerer.arena.extra.extend(arguments.iter().map(|id| id.index() as u32));
+        self.push_type_expr_row(ArenaTypeExprTag::Applied, ArenaTypeExprData::new(base.index() as u32, u32::try_from(start).expect("AST arena exceeded u32 type argument offsets")), span)
+    }
+
     pub fn push_named_type_expr(&mut self, name: Name, span: Span) -> TypeExprId {
         self.push_type_expr_row(
             ArenaTypeExprTag::Named,
@@ -2786,12 +2794,19 @@ impl<'a> ArenaProgramBuilder<'a> {
         )
     }
 
+    pub fn push_parameterized_type_def(&mut self, name: Name, parameters: Vec<Name>, body: ArenaTypeDefBody, span: Span) -> StmtId {
+        let statement = self.push_type_def(name, body, span);
+        let ArenaStmtKind::TypeDef(id) = self.lowerer.arena.stmt(statement).kind else { unreachable!() };
+        self.lowerer.arena.type_defs[id.index()].type_parameters = self.push_name_range(&parameters);
+        statement
+    }
+
     pub fn push_type_def(&mut self, name: Name, body: ArenaTypeDefBody, span: Span) -> StmtId {
         let type_def_id = TypeDefId::new(self.lowerer.arena.type_defs.len());
         self.lowerer
             .arena
             .type_defs
-            .push(ArenaTypeDef { name, body });
+            .push(ArenaTypeDef { name, type_parameters: ArenaRange::default(), body });
         let id = self
             .lowerer
             .push_stmt_kind(ArenaStmtKind::TypeDef(type_def_id), span);
@@ -4157,6 +4172,12 @@ impl AstArena {
         &self.use_stmts[id.index()]
     }
 
+    pub fn applied_type_arguments(&self, id: TypeExprId) -> impl ExactSizeIterator<Item = TypeExprId> + '_ {
+        let start = self.type_expr_data[id.index()].rhs as usize;
+        let len = self.extra[start] as usize;
+        self.extra[start + 1..start + 1 + len].iter().map(|raw| TypeExprId::from_index(*raw as usize))
+    }
+
     pub fn type_def(&self, id: TypeDefId) -> &ArenaTypeDef {
         &self.type_defs[id.index()]
     }
@@ -4906,6 +4927,7 @@ pub struct ArenaUseStmt {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArenaTypeDef {
     pub name: Name,
+    pub type_parameters: ArenaRange,
     pub body: ArenaTypeDefBody,
 }
 

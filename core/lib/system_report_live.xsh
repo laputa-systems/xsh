@@ -548,11 +548,13 @@ export type UsbDescriptorAlternate = {
   endpoints: List[report.UsbEndpoint],
 }
 
-type UsbCollection = {
+type CollectedDevices[T] = {
   status: report.SectionStatus,
-  devices: List[report.UsbDevice],
+  devices: List[T],
   issues: List[report.CollectionIssue],
 }
+
+type UsbCollection = CollectedDevices[report.UsbDevice]
 
 type BlockCandidate = {
   device: report.BlockDevice,
@@ -645,11 +647,7 @@ type KernelCollection = {
   issues: List[report.CollectionIssue],
 }
 
-type DeviceCollection = {
-  status: report.SectionStatus,
-  devices: List[report.DeviceClassRecord],
-  issues: List[report.CollectionIssue],
-}
+type DeviceCollection = CollectedDevices[report.DeviceClassRecord]
 
 ## Retains valid SMBIOS records alongside malformed-record issues.
 export type SmbiosParseResult = {

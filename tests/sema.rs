@@ -3614,3 +3614,12 @@ fn checker_try_capture_merges_variants_within_their_nominal_family() {
     let output = check(source);
     assert!(output.is_empty(), "{output:?}");
 }
+
+#[test]
+fn parametric_record_separate_module_arenas_keep_private_schema_dependencies() {
+    let output = check_with_module(
+        "use helper as h\ntype Owner = {name: Int}\nlet value: h.Box[Int] = {value: 7, owner: {name: \"module\"}}\n",
+        "##! Parameterized records.\ntype Owner = {name: Str}\n## A declaration-owned schema.\nexport type Box[T] = {value: T, owner: Owner}\n",
+    );
+    assert_no_codes(&output, &["check.unknown-type", "check.type-mismatch", "check.type-application"]);
+}

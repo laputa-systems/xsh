@@ -10,7 +10,7 @@ use crate::syntax::arena::{
 use crate::syntax::node::UnaryOp;
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 /// A bounded literal value, independent of runtime bindings or evaluation.
 /// Float bits preserve signed zero when deciding whether an explicit default
@@ -146,10 +146,22 @@ impl LiteralConstant {
     }
 }
 
+/// A checked schema application failed before a concrete type was published.
+#[derive(Clone, Debug)]
+pub struct SchemaTypeError {
+    pub code: &'static str,
+    pub message: String,
+}
+
+impl SchemaTypeError {
+    fn new(code: &'static str, message: impl Into<String>) -> Self { Self { code, message: message.into() } }
+}
+
 /// Schema symbols are resolved in their defining lexical module. Imported
 /// aliases select an exported symbol; they never inspect a runtime record.
 #[derive(Clone, Debug, Default)]
 pub struct RecordConstructors {
+    instances: Arc<Mutex<Vec<(TypeDefId, Vec<Type>, Type)>>>,
     definitions: FxHashMap<(Option<Name>, Name), TypeDefId>,
     imports: FxHashMap<(Option<Name>, Name), Name>,
     exports: FxHashSet<(Option<Name>, Name)>,
@@ -298,6 +310,7 @@ impl RecordConstructors {
     fn resolve_annotation_inner(&self, arena: &AstArena, ty: TypeExprId, namespace: Option<Name>, depth: usize) -> Option<TypeDefId> {
         let data = arena.type_expr_data[ty.index()];
         match arena.type_expr_tags[ty.index()] {
+            ArenaTypeExprTag::Applied => self.resolve_annotation_inner(arena, TypeExprId::from_index(data.lhs as usize), namespace, depth + 1),
             ArenaTypeExprTag::Named => self.resolve_name(arena, namespace, Name::from_symbol(Symbol::from_raw(data.lhs)), depth),
             ArenaTypeExprTag::Qualified => {
                 let alias = Name::from_symbol(Symbol::from_raw(data.lhs));
@@ -321,77 +334,189 @@ impl RecordConstructors {
     }
 
     pub fn resolve_type(&self, arena: &AstArena, ty: TypeExprId, namespace: Option<Name>) -> Type {
-        self.annotation_type(arena, ty, namespace, 0)
+        self.resolve_type_checked(arena, ty, namespace).unwrap_or(Type::Invalid)
+    }
+
+    pub fn resolve_type_checked(&self, arena: &AstArena, ty: TypeExprId, namespace: Option<Name>) -> Result<Type, SchemaTypeError> {
+        self.resolve_instance_annotation(arena, ty, namespace, &FxHashMap::default(), &mut Vec::new())
+    }
+
+    /// Rigid parameter identities make defaults valid only when they work for every substitution.
+    pub fn template_field_types(&self, arena: &AstArena, definition: &crate::syntax::arena::ArenaTypeDef, namespace: Option<Name>) -> Result<BTreeMap<Name, Type>, SchemaTypeError> {
+        let bindings = arena.names(definition.type_parameters).map(|name| (name, Type::Tag(Name::intern(format!("type parameter {name}"))))).collect();
+        let mut active = self.definition(namespace, definition.name).into_iter().collect();
+        match definition.body {
+            ArenaTypeDefBody::RecordSchema(fields) => arena.schema_fields(fields).iter().map(|field| self.resolve_instance_annotation(arena, field.ty, namespace, &bindings, &mut active).map(|ty| (field.name, ty))).collect(),
+            ArenaTypeDefBody::Alias(ty) => { self.resolve_instance_annotation(arena, ty, namespace, &bindings, &mut active)?; Ok(BTreeMap::new()) }
+            _ => Err(SchemaTypeError::new("check.type-parameters", "type parameters are supported only on record schemas and aliases")),
+        }
+    }
+
+    pub fn resolve_definition_checked(&self, arena: &AstArena, definition: TypeDefId) -> Result<Type, SchemaTypeError> {
+        self.instantiate(arena, definition, &[], &mut Vec::new())
     }
 
     pub fn schema_type(&self, arena: &AstArena, id: TypeDefId) -> Type {
-        self.definition_type(arena, id, 0)
+        self.instantiate(arena, id, &[], &mut Vec::new()).unwrap_or(Type::Invalid)
     }
 
-    fn definition_type(&self, arena: &AstArena, id: TypeDefId, depth: usize) -> Type {
-        if depth > self.definitions.len() + arena.type_expr_tags.len() { return Type::Unknown; }
+    pub fn constructor_type(&self, arena: &AstArena, callee: ExprId, namespace: Option<Name>) -> Option<Type> {
+        let id = match arena.expr(callee).kind {
+            ArenaExprKind::Ident(name) => self.definition(namespace, name)?,
+            ArenaExprKind::Field { base, name } => {
+                let ArenaExprKind::Ident(alias) = arena.expr(base).kind else { return None; };
+                let owner = Some(*self.imports.get(&(namespace, alias))?);
+                if !self.exports.contains(&(owner, name)) { return None; }
+                self.definition(owner, name)?
+            }
+            _ => return None,
+        };
+        let ty = self.instantiate(arena, id, &[], &mut Vec::new()).ok()?;
+        matches!(ty, Type::Record(_)).then_some(ty)
+    }
+
+    fn contains_template_parameter(ty: &Type) -> bool {
+        match ty {
+            Type::Tag(name) => name.as_str().starts_with("type parameter "),
+            Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => Self::contains_template_parameter(inner),
+            Type::Map(key, value) => Self::contains_template_parameter(key) || Self::contains_template_parameter(value),
+            Type::Result(ok, error) => Self::contains_template_parameter(ok) || Self::contains_template_parameter(error),
+            Type::Record(fields) => fields.values().any(Self::contains_template_parameter),
+            Type::Module(exports) => exports.values().any(|export| match export {
+                ModuleExportType::Value { ty, .. } => Self::contains_template_parameter(ty),
+                ModuleExportType::Proc { sig, .. } | ModuleExportType::Pure { sig, .. } => Self::contains_template_parameter(&sig.return_ty) || sig.params.iter().any(|param| Self::contains_template_parameter(&param.ty)),
+            }),
+            _ => false,
+        }
+    }
+
+    fn instantiate(&self, arena: &AstArena, id: TypeDefId, arguments: &[Type], active: &mut Vec<TypeDefId>) -> Result<Type, SchemaTypeError> {
+        let definition = arena.type_def(id);
+        if definition.type_parameters.len() != arguments.len() {
+            return Err(SchemaTypeError::new("check.type-arity", format!("type `{}` requires {} type arguments, found {}", definition.name, definition.type_parameters.len(), arguments.len())));
+        }
+        if active.contains(&id) {
+            return Err(SchemaTypeError::new("check.recursive-type", format!("recursive or expanding application of `{}` is not supported", definition.name)));
+        }
+        let cacheable = !arguments.iter().any(Self::contains_template_parameter);
+        if cacheable && let Some((_, _, ty)) = self.instances.lock().expect("schema instance cache").iter().find(|(cached, args, _)| *cached == id && args == arguments) { return Ok(ty.clone()); }
+        let bindings = arena.names(definition.type_parameters).zip(arguments.iter().cloned()).collect();
         let namespace = self.namespace(id);
-        match arena.type_def(id).body {
-            ArenaTypeDefBody::RecordSchema(fields) => Type::Record(arena.schema_fields(fields).iter()
-                .map(|field| (field.name, self.annotation_type(arena, field.ty, namespace, depth + 1))).collect()),
-            ArenaTypeDefBody::Alias(ty) => self.annotation_type(arena, ty, namespace, depth + 1),
-            ArenaTypeDefBody::TagUnion(_) => Type::Tag(self.nominal_names[&id]),
-            ArenaTypeDefBody::ModuleContract(entries) => Type::Module(arena.module_contract_entries(entries).iter().map(|entry| {
+        active.push(id);
+        let result = match definition.body {
+            ArenaTypeDefBody::RecordSchema(fields) => arena.schema_fields(fields).iter().map(|field| {
+                self.resolve_instance_annotation(arena, field.ty, namespace, &bindings, active).map(|ty| (field.name, ty))
+            }).collect::<Result<BTreeMap<_, _>, _>>().map(Type::Record),
+            ArenaTypeDefBody::Alias(ty) => self.resolve_instance_annotation(arena, ty, namespace, &bindings, active),
+            ArenaTypeDefBody::TagUnion(_) if arguments.is_empty() => Ok(Type::Tag(self.nominal_names[&id])),
+            ArenaTypeDefBody::ModuleContract(entries) if arguments.is_empty() => arena.module_contract_entries(entries).iter().map(|entry| {
                 let export = match entry.kind {
-                    ArenaModuleContractEntryKind::Value(ty) => ModuleExportType::Value { ty: self.annotation_type(arena, ty, namespace, depth + 1), optional: entry.optional },
-                    ArenaModuleContractEntryKind::Proc { params, effects, return_ty } => ModuleExportType::Proc {
-                        sig: self.callable_type(arena, params, return_ty, namespace, depth, effects.map(|effects| arena.effects(effects).collect())), optional: entry.optional },
-                    ArenaModuleContractEntryKind::Pure { params, return_ty } => ModuleExportType::Pure {
-                        sig: self.callable_type(arena, params, return_ty, namespace, depth, None), optional: entry.optional },
+                    ArenaModuleContractEntryKind::Value(ty) => ModuleExportType::Value { ty: self.resolve_instance_annotation(arena, ty, namespace, &bindings, active)?, optional: entry.optional },
+                    ArenaModuleContractEntryKind::Proc { params, effects, return_ty } => ModuleExportType::Proc { sig: self.instance_callable_type(arena, params, return_ty, namespace, &bindings, active, effects.map(|effects| arena.effects(effects).collect()))?, optional: entry.optional },
+                    ArenaModuleContractEntryKind::Pure { params, return_ty } => ModuleExportType::Pure { sig: self.instance_callable_type(arena, params, return_ty, namespace, &bindings, active, None)?, optional: entry.optional },
                 };
-                (entry.name, export)
-            }).collect()),
-        }
+                Ok((entry.name, export))
+            }).collect::<Result<BTreeMap<_, _>, SchemaTypeError>>().map(Type::Module),
+            _ => Err(SchemaTypeError::new("check.type-parameters", "type parameters are supported only on record schemas and aliases")),
+        };
+        active.pop();
+        if cacheable && let Ok(ty) = &result { self.instances.lock().expect("schema instance cache").push((id, arguments.to_vec(), ty.clone())); }
+        result
     }
 
-    fn callable_type(&self, arena: &AstArena, params: crate::syntax::arena::ArenaRange, return_ty: TypeExprId, namespace: Option<Name>, depth: usize, effects: Option<Vec<crate::syntax::node::Effect>>) -> CallableType {
-        CallableType {
-            params: arena.params(params).iter().map(|param| CallableParamType { name: param.name,
-                ty: self.annotation_type(arena, param.ty, namespace, depth + 1), defaulted: param.default.is_some(), rest: param.rest }).collect(),
-            return_ty: Box::new(self.annotation_type(arena, return_ty, namespace, depth + 1)), effects,
-        }
+    fn application_definition(&self, arena: &AstArena, base: TypeExprId, namespace: Option<Name>) -> Result<TypeDefId, SchemaTypeError> {
+        let data = arena.type_expr_data[base.index()];
+        let (owner, name) = match arena.type_expr_tags[base.index()] {
+            ArenaTypeExprTag::Named => (namespace, Name::from_symbol(Symbol::from_raw(data.lhs))),
+            ArenaTypeExprTag::Qualified => {
+                let alias = Name::from_symbol(Symbol::from_raw(data.lhs));
+                let name = Name::from_symbol(Symbol::from_raw(data.rhs));
+                let owner = self.imports.get(&(namespace, alias)).copied().ok_or_else(|| SchemaTypeError::new("check.unknown-type", "unknown type namespace"))?;
+                if !self.exports.contains(&(Some(owner), name)) { return Err(SchemaTypeError::new("check.unknown-type", "unknown exported type")); }
+                (Some(owner), name)
+            }
+            _ => return Err(SchemaTypeError::new("check.type-application", "type applications require a named record schema or alias")),
+        };
+        self.definition(owner, name).ok_or_else(|| SchemaTypeError::new("check.type-application", format!("`{name}` is not a user record schema or alias")))
     }
 
-    fn annotation_type(&self, arena: &AstArena, ty: TypeExprId, namespace: Option<Name>, depth: usize) -> Type {
-        if depth > self.definitions.len() + arena.type_expr_tags.len() { return Type::Unknown; }
+    fn resolve_instance_annotation(&self, arena: &AstArena, ty: TypeExprId, namespace: Option<Name>, bindings: &FxHashMap<Name, Type>, active: &mut Vec<TypeDefId>) -> Result<Type, SchemaTypeError> {
         let data = arena.type_expr_data[ty.index()];
-        match arena.type_expr_tags[ty.index()] {
+        let inner = TypeExprId::from_index(data.lhs as usize);
+        Ok(match arena.type_expr_tags[ty.index()] {
+            ArenaTypeExprTag::Applied => {
+                let id = self.application_definition(arena, inner, namespace)?;
+                if !matches!(arena.type_def(id).body, ArenaTypeDefBody::RecordSchema(_) | ArenaTypeDefBody::Alias(_)) { return Err(SchemaTypeError::new("check.type-application", "only record schemas and aliases accept type arguments")); }
+                let arguments = arena.applied_type_arguments(ty).map(|argument| self.resolve_instance_annotation(arena, argument, namespace, bindings, active)).collect::<Result<Vec<_>, _>>()?;
+                self.instantiate(arena, id, &arguments, active)?
+            }
             ArenaTypeExprTag::Named => {
                 let name = Name::from_symbol(Symbol::from_raw(data.lhs));
-                if let Some(ty) = Type::builtin_from_name(&name.as_str()).or_else(|| standard_record_type(&name.as_str())) { return ty; }
-                if xsh_registry::errors::builtin_error_families().iter().any(|family| family.name == name.as_str().as_str()) {
-                    return Type::ErrorFamily(name);
-                }
-                if xsh_registry::errors::builtin_error_families().iter().any(|family| family.variants.iter().any(|variant| variant.facets.iter().any(|facet| *facet == name.as_str().as_str()))) {
-                    return Type::ErrorFacet(name);
-                }
-                if let Some(ty) = self.error_types.get(&(namespace, name)) { return ty.clone(); }
-                self.definitions.get(&(namespace, name)).map_or(Type::Unknown, |id| self.definition_type(arena, *id, depth + 1))
+                if let Some(ty) = bindings.get(&name) { ty.clone() }
+                else if let Some(ty) = Type::builtin_from_name(&name.as_str()).or_else(|| standard_record_type(&name.as_str())) { ty }
+                else if let Some(ty) = self.error_types.get(&(namespace, name)) { ty.clone() }
+                else if let Some(id) = self.definition(namespace, name) { self.instantiate(arena, id, &[], active)? }
+                else if xsh_registry::errors::builtin_error_families().iter().any(|family| family.name == name.as_str().as_str()) { Type::ErrorFamily(name) }
+                else if xsh_registry::errors::builtin_error_families().iter().any(|family| family.variants.iter().any(|variant| variant.facets.iter().any(|facet| *facet == name.as_str().as_str()))) { Type::ErrorFacet(name) }
+                else { return Err(SchemaTypeError::new("check.unknown-type", format!("unknown type `{name}`"))); }
             }
             ArenaTypeExprTag::Qualified => {
                 let alias = Name::from_symbol(Symbol::from_raw(data.lhs));
                 let name = Name::from_symbol(Symbol::from_raw(data.rhs));
-                let Some(owner) = self.imports.get(&(namespace, alias)) else { return Type::Unknown; };
-                if let Some(ty) = self.error_types.get(&(Some(*owner), name)) { return ty.clone(); }
-                self.definitions.get(&(Some(*owner), name)).map_or(Type::Unknown, |id| self.definition_type(arena, *id, depth + 1))
+                let owner = self.imports.get(&(namespace, alias)).copied().ok_or_else(|| SchemaTypeError::new("check.unknown-type", "unknown type namespace"))?;
+                if let Some(ty) = self.error_types.get(&(Some(owner), name)) { ty.clone() }
+                else { let id = self.application_definition(arena, ty, namespace)?; self.instantiate(arena, id, &[], active)? }
             }
-            ArenaTypeExprTag::List => Type::List(Box::new(self.annotation_type(arena, TypeExprId::from_index(data.lhs as usize), namespace, depth + 1))),
-            ArenaTypeExprTag::Map => Type::Map(Box::new(TypeExprId::from_optional_raw(data.rhs).map_or(Type::Str, |id| self.annotation_type(arena, id, namespace, depth + 1))), Box::new(self.annotation_type(arena, TypeExprId::from_index(data.lhs as usize), namespace, depth + 1))),
-            ArenaTypeExprTag::Stream => Type::Stream(Box::new(self.annotation_type(arena, TypeExprId::from_index(data.lhs as usize), namespace, depth + 1))),
-            ArenaTypeExprTag::Optional => Type::Optional(Box::new(self.annotation_type(arena, TypeExprId::from_index(data.lhs as usize), namespace, depth + 1))),
-            ArenaTypeExprTag::Result => Type::Result(Box::new(self.annotation_type(arena, TypeExprId::from_index(data.lhs as usize), namespace, depth + 1)),
-                Box::new(TypeExprId::from_optional_raw(data.rhs).map_or(Type::Error, |id| self.annotation_type(arena, id, namespace, depth + 1)))),
-            ArenaTypeExprTag::Module => match self.annotation_type(arena, TypeExprId::from_index(data.lhs as usize), namespace, depth + 1) {
+            ArenaTypeExprTag::List => Type::List(Box::new(self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?)),
+            ArenaTypeExprTag::Map => Type::Map(Box::new(TypeExprId::from_optional_raw(data.rhs).map_or(Ok(Type::Str), |key| self.resolve_instance_annotation(arena, key, namespace, bindings, active))?), Box::new(self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?)),
+            ArenaTypeExprTag::Stream => Type::Stream(Box::new(self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?)),
+            ArenaTypeExprTag::Optional => Type::Optional(Box::new(self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?)),
+            ArenaTypeExprTag::Result => Type::Result(Box::new(self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?), Box::new(TypeExprId::from_optional_raw(data.rhs).map_or(Ok(Type::Error), |error| self.resolve_instance_annotation(arena, error, namespace, bindings, active))?)),
+            ArenaTypeExprTag::Module => match self.resolve_instance_annotation(arena, inner, namespace, bindings, active)? {
                 Type::Module(exports) => Type::Module(exports),
                 Type::Record(fields) => Type::Module(fields.into_iter().map(|(name, ty)| (name, ModuleExportType::Value { ty, optional: false })).collect()),
                 _ => Type::Invalid,
             },
-        }
+        })
+    }
+
+    fn instance_callable_type(&self, arena: &AstArena, params: crate::syntax::arena::ArenaRange, return_ty: TypeExprId, namespace: Option<Name>, bindings: &FxHashMap<Name, Type>, active: &mut Vec<TypeDefId>, effects: Option<Vec<crate::syntax::node::Effect>>) -> Result<CallableType, SchemaTypeError> {
+        Ok(CallableType {
+            params: arena.params(params).iter().map(|param| Ok(CallableParamType { name: param.name,
+                ty: self.resolve_instance_annotation(arena, param.ty, namespace, bindings, active)?, defaulted: param.default.is_some(), rest: param.rest })).collect::<Result<_, SchemaTypeError>>()?,
+            return_ty: Box::new(self.resolve_instance_annotation(arena, return_ty, namespace, bindings, active)?), effects,
+        })
+    }
+
+    fn annotation_type(&self, arena: &AstArena, ty: TypeExprId, namespace: Option<Name>, _depth: usize) -> Type {
+        self.resolve_type(arena, ty, namespace)
+    }
+}
+
+#[cfg(test)]
+mod instance_tests {
+    use super::*;
+    use crate::source::SourceId;
+    use crate::syntax::parser::Parser;
+
+    #[test]
+    fn record_schema_instances_share_canonical_resolved_arguments() {
+        let source = "type Box[T] = {value: T}\ntype Count = Box[Int]\ntype Same = Box[Int]\ntype Nested = Box[Box[Int]]\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty());
+        parsed.arena.symbol_owner().with_current(|| {
+            let index = RecordConstructors::collect(&parsed.arena);
+            let definition = |name: &str| index.definition(None, Name::intern(name)).unwrap();
+            let count = index.resolve_definition_checked(&parsed.arena.arena, definition("Count")).unwrap();
+            let first = index.instances.lock().unwrap().len();
+            assert_eq!(index.resolve_definition_checked(&parsed.arena.arena, definition("Count")).unwrap(), count);
+            assert_eq!(index.instances.lock().unwrap().len(), first);
+            assert_eq!(index.resolve_definition_checked(&parsed.arena.arena, definition("Same")).unwrap(), count);
+            let box_id = definition("Box");
+            assert_eq!(index.instances.lock().unwrap().iter().filter(|(id, arguments, _)| *id == box_id && arguments == &[Type::Int]).count(), 1);
+            let nested = index.resolve_definition_checked(&parsed.arena.arena, definition("Nested")).unwrap();
+            assert_eq!(nested, Type::Record(BTreeMap::from([(Name::intern("value"), count)])));
+        });
     }
 }
 
@@ -783,7 +908,7 @@ impl ConstantPreparation<'_> {
                     return Ok(LiteralConstant::Tag { family, variant, fields: Arc::new(values) });
                 }
                 let definition = self.constructors.resolve_call(arena, callee, self.scopes[scope].namespace).ok_or_else(failure)?;
-                let Type::Record(field_types) = self.constructors.schema_type(arena, definition) else { return Err(failure()); };
+                let Some(Type::Record(field_types)) = self.constructors.constructor_type(arena, callee, self.scopes[scope].namespace) else { return Err(failure()); };
                 let mut values = self.constructors.defaults(definition).cloned().unwrap_or_default();
                 let owner = self.constructors.namespace(definition);
                 let default_scope = owner.and_then(|owner| self.module_scopes.get(&owner).copied()).unwrap_or(self.program.arena.blocks.len());
@@ -820,6 +945,11 @@ impl ConstantPreparation<'_> {
                     }
                 }
                 if field_types.keys().any(|name| !values.contains_key(name)) { return Err(failure()); }
+                for (name, value) in &mut values {
+                    let ty = field_types.get(name).ok_or_else(failure)?;
+                    *value = value.clone().in_type(ty);
+                    if !constant_matches_type(value, ty) { return Err(failure()); }
+                }
                 self.prepared.types.insert(id, Type::Record(field_types));
                 LiteralConstant::Record(Arc::new(values))
             }

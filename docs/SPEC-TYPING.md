@@ -91,6 +91,14 @@ Only explicit `.require(Schema)` maps exact declared strings into enum slots,
 recursively and atomically. The backing does not change constructor names or
 allow another enum with identical strings to satisfy the type.
 
+User record schemas and aliases accept lexical type parameters. Applications
+are resolved by declaration identity and fully resolved arguments, then cached
+within the checked program. Their concrete field types participate in ordinary
+record/container assignability, field access, destructuring, and schema checks.
+An unsupplied parameter never becomes `Any`. Defaults are checked against rigid
+parameter identities so they must be valid for every argument type. Imported
+applications retain the declaring module's private dependencies.
+
 ## Assignability
 
 The checker uses structural assignability for built-in container and record

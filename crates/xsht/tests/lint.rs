@@ -3968,3 +3968,30 @@ fn typed_map_keys_formatter_and_checked_literal_fix_converge() {
     assert_parse_check_standalone("computed comprehension key", &formatted.formatted);
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
 }
+
+#[test]
+fn parametric_record_constructor_fix_keeps_concrete_alias_and_converges() {
+    let source = "type Box[T] = {value: T}\ntype Count = Box[Int]\nlet count: Count = {value: 7}\nprint ${count.value + 1}\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-record-constructor")).unwrap();
+    let hint = &diagnostic.fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+    assert!(fixed.contains("let count: Count = Count(value: 7)"));
+    assert_parse_check_standalone("concrete schema alias", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty());
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let repeated = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!repeated.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-record-constructor")));
+    let direct = "type Box[T] = {value: T}\nlet count: Box[Int] = {value: 7}\n";
+    let parsed = parse_lint_source(direct);
+    let checked = Checker::check_arena(&parsed.arena, direct);
+    let output = Linter::lint(&parsed.arena, direct, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-record-constructor")));
+}

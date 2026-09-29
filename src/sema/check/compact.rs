@@ -1555,10 +1555,10 @@ impl CompactBodyProbe<'_> {
             if let Some((index, item)) = item && let Some(arg) = self.program.arena.call_args(args).get(index)
                 && let crate::syntax::arena::ArenaCallArgKind::Positional(value) = arg.kind { self.apply_compact_expected(value, &item); }
         }
-        if let Some(definition) = self.declarations.record_constructors.resolve_call(
+        if let Some(_definition) = self.declarations.record_constructors.resolve_call(
             &self.program.arena, callee, self.current_namespace,
         ) {
-            let schema = self.declarations.record_constructors.schema_type(&self.program.arena, definition);
+            let schema = self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace).unwrap_or(Type::Invalid);
             if let Type::Record(fields) = &schema {
                 for arg in self.program.arena.call_args(args).to_vec() {
                     if let crate::syntax::arena::ArenaCallArgKind::Named { name, value, .. } = arg.kind && let Some(expected) = fields.get(&name) { self.apply_compact_expected(value, expected); }
@@ -2095,6 +2095,7 @@ fn compact_probe_type_from_arena(
     let tag = arena.type_expr_tags[index];
     let data = arena.type_expr_data[index];
     match tag {
+        ArenaTypeExprTag::Applied => declarations.record_constructors.resolve_type(arena, id, None),
         ArenaTypeExprTag::Named => {
             let name = Name::from_symbol(Symbol::from_raw(data.lhs));
             if declarations.error_families_by_name.contains_key(&name) { return Type::ErrorFamily(name); }

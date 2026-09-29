@@ -447,7 +447,11 @@ Focused semantic rules live beside it:
 - `src/modules` contains shared host helpers for standard modules.
 - `src/sema/records.rs` contains shared record schemas.
 - `src/sema/constants.rs::RecordConstructors` resolves user schema constructors
-  and aliases in lexical module namespaces. `LiteralConstant` admits bounded
+  and aliases in lexical module namespaces. Its checked application resolver
+  caches instances by defining schema and resolved arguments, substitutes
+  declaration-owned fields, and rejects recursive applications before caching.
+  Fully substituted instances reuse `Type::Record`; no runtime generic dispatch
+  is introduced. `LiteralConstant` admits bounded
   literal trees and earlier immutable literal bindings; checker, parameter-default
   lowering, constructor lowering, and conservative constructor fixes share this
   analysis. Constructor lowering emits existing record and schema-check rows,

@@ -440,9 +440,9 @@ impl Checker {
                                 def.name,
                                 type_def_body_arena(type_program.clone(), def_id, self.current_namespace),
                             );
-                            exports
-                                .resolved_types
-                                .insert(def.name, self.type_from_name(def.name, inner.span));
+                            if def.type_parameters.is_empty() {
+                                exports.resolved_types.insert(def.name, self.type_from_name(def.name, inner.span));
+                            }
                             if let ArenaTypeDefBody::TagUnion(variants) = def.body {
                                 for variant in program.arena.tag_variants(variants) {
                                     if let Some(info) =
@@ -806,6 +806,8 @@ fn type_def_body_arena(
     namespace: Option<Name>,
 ) -> TypeDefBody {
     let def = program.arena.type_def(id);
+    if !def.type_parameters.is_empty() { return TypeDefBody::Parameterized(def.type_parameters.len()); }
+    if matches!(def.body, ArenaTypeDefBody::Alias(_) | ArenaTypeDefBody::RecordSchema(_)) { return TypeDefBody::Declared(program, id); }
     match def.body {
         ArenaTypeDefBody::Alias(ty) => TypeDefBody::Alias(TypeAnnRef::new(program, ty)),
         ArenaTypeDefBody::RecordSchema(fields) => TypeDefBody::RecordSchema(
@@ -938,6 +940,39 @@ impl Checker {
         def: &ArenaTypeDef,
         span: Span,
     ) {
+        if !def.type_parameters.is_empty() {
+            let mut names = FxHashSet::default();
+            for parameter in arena.arena.names(def.type_parameters) {
+                if !names.insert(parameter) {
+                    self.error(span, "duplicate type parameter", "check.type-parameters");
+                }
+                if Type::builtin_from_name(&parameter.as_str()).is_some() || standard_record_type(&parameter.as_str()).is_some() || matches!(parameter.as_str().as_str(), "List" | "Map" | "Stream" | "Result" | "Module" | "Optional" | "Unknown") {
+                    self.error(span, "type parameter name is reserved", "check.type-parameters");
+                }
+            }
+            let namespace = self.current_namespace;
+            match self.record_constructors.template_field_types(&arena.arena, def, namespace) {
+                Ok(fields) => {
+                    if let ArenaTypeDefBody::RecordSchema(schema_fields) = def.body {
+                        let mut field_names = FxHashSet::default();
+                        for field in arena.arena.schema_fields(schema_fields) {
+                            if !field_names.insert(field.name) { self.error(arena.arena.span(field.span), "duplicate schema field", "check.duplicate-record-field"); }
+                            if let Some(default) = field.default {
+                                let allowed = self.record_constructors.definition(namespace, def.name).and_then(|id| self.record_constructors.defaults(id)).is_some_and(|defaults| defaults.contains_key(&field.name));
+                                if !allowed { self.error(arena.arena.expr(default).span, "record default must be a literal or a previously declared immutable literal constant", "check.record-default"); }
+                                if let Some(expected) = fields.get(&field.name) {
+                                    let actual = self.check_expr_arena(arena, source, default, Some(expected));
+                                    self.expect_type(expected, &actual, arena.arena.expr(default).span);
+                                }
+                            }
+                        }
+                        if field_names.is_empty() { self.error(span, "record schema needs at least one field", "check.schema"); }
+                    }
+                }
+                Err(error) => self.error(span, &error.message, error.code),
+            }
+            return;
+        }
         match &def.body {
             ArenaTypeDefBody::Alias(ty) => {
                 self.type_from_arena(arena, *ty);

@@ -7,3 +7,10 @@ print $config.name
 let settings = {build: {jobs: 2, enabled: true}}
 let updated = {...settings, build.jobs: 4}
 print $updated.build.jobs
+
+type Observation[T] = {value: T? = null, samples: List[T] = []}
+type CountObservation = Observation[Int]
+let count = CountObservation(value: 7)
+let direct: Observation[Str] = {value: "demo", samples: ["demo"]}
+print ${count.value ?? 0}
+print ${direct.samples[0]}

@@ -9519,6 +9519,30 @@ mod tests {
     use crate::syntax::parser::Parser;
 
     #[test]
+    fn parametric_records_keep_concrete_schemas_in_both_call_routes() {
+        crate::runtime::eval::run_eval(|| {
+            let source = r#"type Box[T] = {value: T, items: List[T] = []}
+type Count = Box[Int]
+type Values[T] = List[T]
+pure retain(value: Box[Int]) -> Box[Int] { value }
+pure sum(values: Values[Int]) -> Int { values[0] + values[1] }
+let value = retain(Count(value: 7))
+print ${value.value + value.items.len()}
+print ${sum([3, 4])}
+let raw: Record = {value: 9, items: [1]}
+let checked = raw.require(Count)?
+print ${checked.value + checked.items[0]}
+"#;
+            let frames = run_program_through_route(source, false);
+            let recursive = run_program_through_route(source, true);
+            assert_eq!(frames, recursive);
+            assert_eq!(frames.0, 0);
+            assert_eq!(frames.1, b"7\n7\n10\n");
+            assert!(frames.2.is_empty());
+        });
+    }
+
+    #[test]
     fn assignment_path_copies_only_shared_ancestors() {
         let span = Span::new(crate::source::SourceId::new(0), 0, 0);
         let list = || LoweredValue::SharedList(Arc::new(vec![LoweredValue::Int(1), LoweredValue::Int(2)]));
