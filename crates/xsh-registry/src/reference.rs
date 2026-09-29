@@ -215,6 +215,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "defer",
     "error-context",
     "bindings",
+    "constants",
     "procs",
     "pure-functions",
     "records",
@@ -809,6 +810,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "bindings" => (
             "Defines typed bindings and assignment scope.",
             "Bindings are immutable with `let`; declare a reassignable binding with `var` (`var x = 0; x = x + 1`). Record targets support shorthand, renaming, nesting, and `_` discards: `let {root, build: {jobs, target: target_name, ..}, ..} = config`. All required fields are selected before names become visible. Selected types are retained; Any requires an explicit schema check. `let mut` is not valid syntax. Reassignment cannot create an invalid inferred state.",
+        ),
+        "constants" => (
+            "Defines prepared immutable data with a bounded lexical dependency graph.",
+            "const values are checked and prepared without executing user code. Constants may use scalar, path, regex and homogeneous container data, checked primitive operations, other constants, and static record or tag constructors. Runtime bindings, parameters, ambient names, arbitrary calls and methods, blocks, comprehensions and propagation are rejected. Cycles, invalid arithmetic and preparation limits are diagnosed before execution. Empty collections require concrete type context; Any and resources are excluded. Indexed reads share immutable backing under ordinary value semantics, so mutating a derived var preserves the constant. let retains runtime initialization.",
         ),
         "procs" => (
             "Defines procedure declarations and calls.",

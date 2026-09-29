@@ -926,3 +926,14 @@ fn api_lexical_error_context_retains_contract_and_executable_example() {
     assert!(stdout.contains("let count = ctx"), "{stdout}");
     assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn api_constants_retains_preparation_contract_and_executable_example() {
+    let output = xsht(&["api", "language:core.constants"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: exact"), "{stdout}");
+    assert!(stdout.contains("prepared immutable data"), "{stdout}");
+    assert!(stdout.contains("const format_version = 1"), "{stdout}");
+    assert!(output.stderr.is_empty());
+}
