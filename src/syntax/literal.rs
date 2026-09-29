@@ -4,6 +4,7 @@
 pub(crate) enum QuotedLiteralKind {
     Str,
     Bytes,
+    Regex,
     Path,
     Glob,
     Fmt,
@@ -415,6 +416,11 @@ fn quote_prefix_at(bytes: &[u8], start: usize) -> Option<QuotePrefix> {
             len: 2,
             raw: false,
             kind: QuotedLiteralKind::PathFmt,
+        }),
+        [b'r', b'x', b'"', ..] => Some(QuotePrefix {
+            len: 2,
+            raw: true,
+            kind: QuotedLiteralKind::Regex,
         }),
         [b'r', b'"', ..] => Some(QuotePrefix {
             len: 1,

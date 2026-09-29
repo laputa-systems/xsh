@@ -18,7 +18,7 @@ use crate::runtime::eval::{
     LoweredTagValue, LoweredTopLevelSlot, LoweredTopLevelSlots, LoweredType, LoweredTypeCheck,
     LoweredValue, ProgramBuild, ReduceByOp, ScanBytes, ScanCheck, ScanCondition,
 };
-use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue};
+use crate::runtime::value::{DurationValue, FloatValue, FunctionName, PathValue, RegexValue};
 use crate::sema::check::{CompactBodyProbeOutput, CompactDeclOutput};
 use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 use crate::source::{SourceId, SourceMap, Span};
@@ -115,6 +115,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprBool,
     ExprStr,
     ExprBytes,
+    ExprPreparedRegex,
     ExprPath,
     ExprFunctionRef,
     ExprPathFrom,
@@ -315,6 +316,7 @@ pub(in crate::runtime::eval) enum FullValueTag {
     Bool,
     Str,
     Bytes,
+    Regex,
     Path,
     Record,
     RecordVec,
@@ -483,6 +485,7 @@ struct FullStore {
     string_bytes: Vec<u8>,
     bytes: Vec<IrRange>,
     byte_data: Vec<u8>,
+    prepared_regexes: Vec<RegexValue>,
     locations: Vec<IrLocation>,
     location_sources: Vec<SourceId>,
     runtime_ops: Vec<RuntimeOp>,
@@ -524,6 +527,7 @@ impl Default for FullStore {
             string_bytes: Vec::new(),
             bytes: Vec::new(),
             byte_data: Vec::new(),
+            prepared_regexes: Vec::new(),
             locations: Vec::new(),
             location_sources: Vec::new(),
             runtime_ops: Vec::new(),
@@ -653,6 +657,8 @@ impl FullStore {
             + self.string_bytes.capacity()
             + self.bytes.capacity() * size_of::<IrRange>()
             + self.byte_data.capacity()
+            + self.prepared_regexes.capacity() * size_of::<RegexValue>()
+            + self.prepared_regexes.iter().map(|value| value.pattern.capacity()).sum::<usize>()
             + self.locations.capacity() * size_of::<IrLocation>()
             + self.location_sources.capacity() * size_of::<SourceId>()
             + self.runtime_ops.capacity() * size_of::<RuntimeOp>()
@@ -702,6 +708,7 @@ impl FullStore {
         self.string_bytes.shrink_to_fit();
         self.bytes.shrink_to_fit();
         self.byte_data.shrink_to_fit();
+        self.prepared_regexes.shrink_to_fit();
         self.locations.shrink_to_fit();
         self.location_sources.shrink_to_fit();
         self.runtime_ops.shrink_to_fit();
@@ -1468,6 +1475,7 @@ struct FullCheckpoint {
     string_bytes: usize,
     bytes: usize,
     byte_data: usize,
+    prepared_regexes: usize,
     locations: usize,
     runtime_ops: usize,
     assign_ops: usize,
@@ -2587,6 +2595,7 @@ impl FullBuilder {
             string_bytes: self.store.string_bytes.len(),
             bytes: self.store.bytes.len(),
             byte_data: self.store.byte_data.len(),
+            prepared_regexes: self.store.prepared_regexes.len(),
             locations: self.store.locations.len(),
             runtime_ops: self.store.runtime_ops.len(),
             assign_ops: self.store.assign_ops.len(),
@@ -2625,6 +2634,7 @@ impl FullBuilder {
         self.store.string_bytes.truncate(checkpoint.string_bytes);
         self.store.bytes.truncate(checkpoint.bytes);
         self.store.byte_data.truncate(checkpoint.byte_data);
+        self.store.prepared_regexes.truncate(checkpoint.prepared_regexes);
         self.store.locations.truncate(checkpoint.locations);
         self.store.location_sources.truncate(checkpoint.locations);
         self.store.runtime_ops.truncate(checkpoint.runtime_ops);
@@ -4671,6 +4681,21 @@ impl_copy_pool_codec!(BinaryOp, binary_ops, "binary operation");
 impl_copy_pool_codec!(RunKind, run_kinds, "run kind");
 impl_copy_pool_codec!(RedirectionKind, redirection_kinds, "redirection kind");
 
+impl FullCodec for RegexValue {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        let index = u32::try_from(builder.store.prepared_regexes.len())
+            .map_err(|_| IrBuildError::format("regex pool overflow", None, 0, 0))?;
+        builder.store.prepared_regexes.push(self.clone());
+        output.push(index);
+        Ok(())
+    }
+
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        decoder.store.prepared_regexes.get(input.raw()? as usize).cloned()
+            .ok_or_else(|| IrVerifyError::new("prepared regex is out of bounds"))
+    }
+}
+
 impl FullCodec for LoweredStrPredicate {
     fn encode(
         &self,
@@ -5022,8 +5047,11 @@ impl FullCodec for LoweredValue {
                 value.encode(builder, &mut payload)?;
                 FullValueTag::ResultOk
             }
+            Self::Regex(value) => {
+                value.as_ref().encode(builder, &mut payload)?;
+                FullValueTag::Regex
+            }
             Self::Digest(_)
-            | Self::Regex(_)
             | Self::Status(_)
             | Self::FsEntry(_)
             | Self::Command(_)
@@ -5070,6 +5098,7 @@ impl FullCodec for LoweredValue {
             FullValueTag::Bool => Self::Bool(bool::decode(decoder, &mut payload)?),
             FullValueTag::Str => Self::Str(Arc::<str>::decode(decoder, &mut payload)?),
             FullValueTag::Bytes => Self::Bytes(Arc::<[u8]>::decode(decoder, &mut payload)?),
+            FullValueTag::Regex => Self::Regex(Box::new(RegexValue::decode(decoder, &mut payload)?)),
             FullValueTag::Path => Self::Path(PathValue::decode(decoder, &mut payload)?),
             FullValueTag::Record => Self::Record(Arc::new(
                 BTreeMap::<Arc<str>, LoweredValue>::decode(decoder, &mut payload)?,
@@ -5126,6 +5155,7 @@ impl FullCodec for LoweredValue {
             FullValueTag::Bool => bool::verify(decoder, &mut payload)?,
             FullValueTag::Str => Arc::<str>::verify(decoder, &mut payload)?,
             FullValueTag::Bytes => Arc::<[u8]>::verify(decoder, &mut payload)?,
+            FullValueTag::Regex => RegexValue::verify(decoder, &mut payload)?,
             FullValueTag::Path => PathValue::verify(decoder, &mut payload)?,
             FullValueTag::Record => {
                 BTreeMap::<Arc<str>, LoweredValue>::verify(decoder, &mut payload)?;
@@ -6582,6 +6612,9 @@ impl_node_codec! {
         BuildExprRow::Str(value) => ExprStr {
             value: Arc<str>,
         } => BuildExprRow::Str(value),
+        BuildExprRow::PreparedRegex(value) => ExprPreparedRegex {
+            value: RegexValue,
+        } => BuildExprRow::PreparedRegex(value),
         BuildExprRow::Bytes(value) => ExprBytes {
             value: Arc<[u8]>,
         } => BuildExprRow::Bytes(value),
@@ -7860,6 +7893,49 @@ proc main() [error] {
             std::mem::take(&mut evaluator.stdout),
             normalize_traces(&evaluator.trace_events),
         )
+    }
+
+    #[test]
+    fn prepared_regex_pool_rewinds_with_builder_checkpoint() {
+        let mut builder = FullBuilder::new(SourceId::new(0));
+        let checkpoint = builder.checkpoint();
+        let value = RegexValue {
+            pattern: "[a-z]+".to_string(),
+            regex: Arc::new(crate::modules::regex::compile("[a-z]+", Span::new(SourceId::new(0), 0, 0)).unwrap()),
+        };
+        let mut words = Vec::new();
+        value.encode(&mut builder, &mut words).unwrap();
+        assert_eq!(builder.store.prepared_regexes.len(), 1);
+        builder.rewind(checkpoint);
+        assert!(builder.store.prepared_regexes.is_empty());
+    }
+
+    #[test]
+    fn prepared_regex_pool_survives_frontend_and_evaluator_reuse() {
+        run_with_large_stack(|| {
+            let program = Arc::new(fixture("prepared-regex.xsh", "proc literal() -> Regex { rx\"[a-z]+\" }\n"));
+            let prepared = Arc::clone(&program.store.prepared_regexes[0].regex);
+            let name = program_name(&program, "literal");
+            for _ in 0..3 {
+                let (result, _, _) = run_full(Arc::clone(&program), name);
+                let Value::Regex(value) = result.unwrap() else { panic!("expected prepared regex"); };
+                assert!(Arc::ptr_eq(&prepared, &value.regex));
+                assert!(value.regex.is_match("text"));
+            }
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            for _ in 0..3 {
+                let result = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(name), LoweredFunctionKind::Proc, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).unwrap().unwrap();
+                let Value::Regex(value) = result else { panic!("expected prepared regex"); };
+                assert!(Arc::ptr_eq(&prepared, &value.regex));
+            }
+            let mut broken = (*program).clone();
+            broken.store.prepared_regexes.clear();
+            assert!(FullVerifier::verify(&broken).is_err());
+        });
     }
 
     #[test]

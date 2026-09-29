@@ -95,7 +95,7 @@ proc search_file(
   let needle = if ignore_case { pattern.lower() } else { pattern }
 
   let re = if fixed {
-    regex.compile(".*")?
+    rx".*"
   } else {
     regex.compile(regex_pattern(pattern, ignore_case, word, line_match))?
   }
@@ -103,7 +103,7 @@ proc search_file(
   let fixed_word = if fixed and word {
     regex.compile(regex_pattern(needle, false, true, false))?
   } else {
-    regex.compile(".*")?
+    rx".*"
   }
 
   var matches = 0

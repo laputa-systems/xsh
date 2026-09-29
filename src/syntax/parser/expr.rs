@@ -840,6 +840,15 @@ impl<'a> Parser<'a> {
                     bare_ident: None,
                 })
             }
+            (TokenTag::Regex, _) => {
+                let span = self.bump();
+                let pattern = self.decoded_quoted_text(span, true);
+                Some(ArenaOnlyExpr {
+                    id: arena.push_regex_expr(&pattern, self.span_text(span), span),
+                    span,
+                    bare_ident: None,
+                })
+            }
             (TokenTag::PathString, _) => {
                 let span = self.bump();
                 self.reject_path_string_interpolation(span);

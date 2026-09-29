@@ -334,6 +334,16 @@ escape.
 Bytes literals are `b"..."` and support the same byte escapes except
 `\u{HEX}`. They produce `Bytes`.
 
+Regex literals are `rx"..."` or `rx"""..."""` and produce `Regex`.
+They use raw-string delimiters: backslashes, dollar signs, and inline flags
+are passed unchanged to the existing regex engine, with no escape decoding or
+interpolation. Each occurrence is validated and compiled during checked
+program/module preparation, including unreachable expressions. Invalid syntax
+is a source-located preparation error; `xsht check` reports it without running
+the script. Prepared engines are shared by repeated evaluations of the owning
+program. Use `regex.compile(pattern)` for runtime strings and Result-valued
+error handling.
+
 Path literals are `p"..."` and support the same escapes as string literals.
 They produce `Path` and do not interpolate. An unescaped `${...}` in a p-string
 is rejected; use `fp"..."` when the path should interpolate.
@@ -846,7 +856,7 @@ Literals:
 
 ```ebnf
 literal      = "null" | "true" | "false" | INT | FLOAT | DURATION
-             | STRING | FMT_STRING | BYTES | PATH | PATH_FMT | GLOB ;
+             | STRING | FMT_STRING | BYTES | REGEX | PATH | PATH_FMT | GLOB ;
 list_lit     = "[" list_body "]" ;
 list_body    = (expr ("," expr)* ","?)?
              | expr comp_qualifiers ;
@@ -1084,7 +1094,7 @@ return_stmt  = "return" expr_or_run? terminator ;
 
 Parameters without an explicit type require a default expression whose type is
 syntactically clear. Supported inferred defaults include `Bool`, `Int`,
-`Duration`, `Str`, `Bytes`, and `Path` literals. Parameters
+`Duration`, `Str`, `Bytes`, `Regex`, and `Path` literals. Parameters
 without defaults and rest parameters require an explicit type.
 
 Pure functions are called with expression syntax:
@@ -2720,9 +2730,9 @@ Float-to-`Int` conversions reject `NaN`, infinities, and values outside the
 Regex APIs use Rust `regex-lite` syntax. The common Rust regex surface is
 supported, including captures, alternation, repetition, inline flags, byte
 offsets, and replacement, while Unicode property classes such as `\p{...}` and
-`\P{...}` are outside the v1 surface. Compile errors return structured regex
-compile errors from `regex.compile(...)`. A `Regex` value has already validated
-its pattern, so its methods return plain values instead of `Result`. `captures`
+`\P{...}` are outside the v1 surface. Dynamic compile errors return structured
+regex compile errors from `regex.compile(...)`; literal errors occur at checked
+preparation. A `Regex` value has already validated its pattern, so its methods return plain values instead of `Result`. `captures`
 returns an empty
 list when there is no match; otherwise index 0 is the full match and subsequent
 items are capture groups in order, with unmatched optional groups represented

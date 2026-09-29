@@ -2548,6 +2548,11 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 ControlFlow::Continue(LoweredValue::Str(value))
             }
+            FullTag::ExprPreparedRegex => {
+                let value = indexed_decode::<RegexValue>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                ControlFlow::Continue(LoweredValue::Regex(Box::new(value)))
+            }
             FullTag::ExprBytes => {
                 let value = indexed_decode::<Arc<[u8]>>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;

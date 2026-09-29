@@ -2982,3 +2982,69 @@ fn linter_defer_block_helper_refuses_captures_failures_comments_and_multiple_use
         }
     }
 }
+
+#[test]
+fn linter_regex_literals_decode_patterns_preserve_comments_and_converge() {
+    let source = "let escaped = regex.compile(\"^\\\\s*[A-Z]+$\")? # retained\nlet quoted = regex.compile(\"^\\\".*\\\"$\")?\nlet raw = regex.compile(r\"\\$\\{literal\\}\")?\nprint ${escaped.matches(\"WORD\")} ${quoted.matches(\"\\\"word\\\"\")} ${raw.matches(r\"${literal}\")}\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types, ..LintOptions::default()
+    });
+    let mut edits = diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.prefer-regex-literal"))
+        .flat_map(|d| &d.fix_hints).map(|h| (h.span.unwrap(), h.replacement.as_ref().unwrap())).collect::<Vec<_>>();
+    assert_eq!(edits.len(), 3);
+    edits.sort_by_key(|(span, _)| span.start());
+    let mut fixed = source.to_string();
+    for (span, replacement) in edits.into_iter().rev() { fixed.replace_range(span.range(), replacement); }
+    assert!(fixed.contains("rx\"^\\s*[A-Z]+$\" # retained"));
+    assert!(fixed.contains("rx\"\"\"^\".*\"$\"\"\""));
+    assert_parse_check_standalone("regex literal fixes", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let second = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-regex-literal")));
+}
+
+#[test]
+fn linter_regex_literals_retain_invalid_dynamic_results_contexts_and_recovery() {
+    let source = "let pattern = \"[a-z]+\"\nlet invalid = regex.compile(\"(\")\nlet dynamic = regex.compile(pattern)?\nlet consumed = regex.compile(\"[a-z]+\")\nlet recovered = regex.compile(\"[a-z]+\") ?? rx\".*\"\nlet contextual = regex.compile(\"[a-z]+\").context(\"user pattern\")?\nlet unrepresentable = regex.compile(\"\\\"\\\"\\\"\")?\nlet commented = regex.compile(\n  # explanation\n  \"[a-z]+\",\n)?\nprint ${dynamic.matches(\"x\")} ${recovered.matches(\"x\")} ${contextual.matches(\"x\")} ${unrepresentable.matches(\"x\")} ${commented.matches(\"x\")}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    let regex = diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.prefer-regex-literal")).collect::<Vec<_>>();
+    assert_eq!(regex.len(), 1);
+    assert!(regex[0].fix_hints.is_empty());
+    assert!(!regex[0].notes.is_empty());
+    assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-regex-literal")));
+}
+
+#[test]
+fn regex_literal_formatting_retains_source_delimiters_and_raw_contents() {
+    let source = "let single=rx\"^\\s*\\$\\{literal\\}$\"\nlet multiline=rx\"\"\"(?x)\n  ^ [a-z]+ # raw comment\n  $\n\"\"\"\n";
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("rx\"^\\s*\\$\\{literal\\}$\""));
+    assert!(formatted.formatted.contains("rx\"\"\"(?x)\n  ^ [a-z]+ # raw comment\n  $\n\"\"\""));
+    let before = parse_lint_source(source);
+    let after = parse_lint_source(&formatted.formatted);
+    assert!(after.diagnostics.is_empty(), "{:?}", after.diagnostics);
+    assert_eq!(before.arena.arena.regex_literals.iter().map(|l| l.pattern.clone()).collect::<Vec<_>>(), after.arena.arena.regex_literals.iter().map(|l| l.pattern.clone()).collect::<Vec<_>>());
+    assert_parse_check_standalone("formatted regex literals", &formatted.formatted);
+    let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(formatted.formatted, again.formatted);
+}
+
+#[test]
+fn linter_regex_literals_retains_compile_calls_in_result_recovery_branches() {
+    let source = "with value = regex.compile(\"(\") { print ${value.matches(\"x\")} } else { let fallback = regex.compile(\".*\")?; print ${fallback.matches(\"x\")} }\nlet recovered = regex.compile(\"(\") ?? regex.compile(\".*\")?\nlet matched = match regex.compile(\"(\") {\n  Ok(value) => value,\n  Err(_) => regex.compile(\".*\")?,\n}\nmatch regex.compile(\"(\") {\n  Ok(value) => { print ${value.matches(\"x\")} },\n  Err(_) => { let fallback = regex.compile(\".*\")?; print ${fallback.matches(\"x\")} },\n}\nprint ${recovered.matches(\"x\")} ${matched.matches(\"x\")}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-regex-literal")));
+}

@@ -22,10 +22,10 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let content = file.read_text()?
 
   # Captures key and raw value; value gets everything after the first =
-  let kv_re = regex.compile("^([A-Za-z_][A-Za-z0-9_]*)=(.*)")?
-  let comment_re = regex.compile("^\\s*#")?
-  let dquote_re = regex.compile("^\"(.*)\"$")?
-  let squote_re = regex.compile("^'(.*)'$")?
+  let kv_re = rx"^([A-Za-z_][A-Za-z0-9_]*)=(.*)"
+  let comment_re = rx"^\s*#"
+  let dquote_re = rx"""^"(.*)"$"""
+  let squote_re = rx"^'(.*)'$"
   var pairs: List[KV] = []
 
   for line in content.lines() {

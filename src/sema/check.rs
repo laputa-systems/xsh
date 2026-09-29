@@ -287,6 +287,16 @@ pub struct Checker {
 }
 
 impl Checker {
+    pub(crate) fn prepare_regex_literals(program: &ArenaProgram) -> Vec<Diagnostic> {
+        program.arena.regex_literals.iter().filter_map(|literal| {
+            crate::modules::regex::prepare_literal(literal).as_ref().err().map(|message| {
+                Diagnostic::error(format!("invalid regex literal: {message}"))
+                    .with_code("check.regex-literal")
+                    .with_label(Label::primary(literal.span, "invalid regular expression"))
+            })
+        }).collect()
+    }
+
     pub fn check_arena(program: &crate::syntax::arena::ArenaProgram, source: &str) -> CheckOutput {
         Self::check_arena_with_options(program, source, CheckOptions::default())
     }
@@ -366,6 +376,7 @@ impl Checker {
         main.0.symbol_owner().with_current(|| {
             let mut checker = Self::new(CheckOptions::default());
             for (key, name, arena, source) in modules {
+                checker.diagnostics.extend(Self::prepare_regex_literals(arena));
                 let module_program = Arc::new((*arena).clone());
                 let module = crate::syntax::arena::ArenaUserModule {
                     key: (*key).to_string(),
@@ -507,6 +518,7 @@ impl Checker {
         source: &str,
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
     ) {
+        self.diagnostics.extend(Self::prepare_regex_literals(program));
         self.collect_user_modules_arena(program, type_program.clone(), source);
         self.collect_type_imports_arena(program, program.statement_ids());
         self.collect_definitions_arena(program, type_program, source, program.statement_ids());

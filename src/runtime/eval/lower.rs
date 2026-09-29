@@ -1,7 +1,7 @@
 //! AST -> lowered-IR lowering pass, split out of `eval.rs`.
 
 use crate::modules::{ModuleFnSig, RuntimeOp, api_spec};
-use crate::runtime::value::{DurationValue, PathValue, RecordMap, RuntimeError, Value};
+use crate::runtime::value::{DurationValue, PathValue, RecordMap, RegexValue, RuntimeError, Value};
 use crate::sema::check::{CompactBodyProbeOutput, CompactDeclOutput, CompactTypeDefInfo};
 use crate::sema::records::standard_record_type;
 use crate::sema::types::{CallableParamType, ModuleExportType, Type};
@@ -2662,6 +2662,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::Loop { .. } => 37,
         ArenaExprKind::Retry { .. } => 38,
         ArenaExprKind::ValueBlock(_) => 39,
+        ArenaExprKind::Regex(_) => 41,
     }
 }
 
@@ -2709,6 +2710,7 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
         ArenaExprKind::Loop { .. } => "loop",
         ArenaExprKind::Retry { .. } => "retry",
         ArenaExprKind::ValueBlock(_) => "value_block",
+        ArenaExprKind::Regex(_) => "regex_literal",
     }
 }
 
@@ -2988,6 +2990,11 @@ fn lower_const_param_default(
         ArenaExprKind::Duration(value) => LoweredValue::Duration(DurationValue {
             millis: arena.duration_literal(value).millis()?,
         }),
+        ArenaExprKind::Regex(value) => {
+            let literal = arena.regex_literal(value);
+            let regex = literal.prepared.get()?.as_ref().ok()?.clone();
+            LoweredValue::Regex(Box::new(RegexValue { pattern: literal.pattern.to_string(), regex }))
+        }
         ArenaExprKind::Str(value) => LoweredValue::Str(arena.string_literal(value).clone()),
         ArenaExprKind::PathStr(value) => {
             LoweredValue::Path(PathValue::from_text(arena.string_literal(value).as_ref()).ok()?)
@@ -3102,7 +3109,7 @@ fn compact_body_tail_command_blocker(
 
 const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 8];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 27];
-const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 41];
+const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 42];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 
@@ -7631,6 +7638,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                 PathValue::from_text(path.as_ref())
                     .ok()
                     .map(|value| push_build_row!(self, expr, BuildExprRow::Path(value)))
+            }
+            ArenaExprKind::Regex(value) => {
+                let literal = self.program.arena.regex_literal(value);
+                let regex = literal.prepared.get()?.as_ref().ok()?.clone();
+                Some(push_build_row!(self, expr, BuildExprRow::PreparedRegex(RegexValue {
+                    pattern: literal.pattern.to_string(), regex,
+                })))
             }
             ArenaExprKind::Bytes(value) => Some(push_build_row!(
                 self,

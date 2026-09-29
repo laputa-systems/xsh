@@ -10,7 +10,7 @@ use crate::syntax::token::{TokenTable, TokenTag};
 use std::mem::size_of;
 use std::num::NonZeroU32;
 use std::ops::{Deref, DerefMut};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 macro_rules! id_type {
     ($name:ident) => {
@@ -138,6 +138,7 @@ id_type!(FloatLiteralId);
 id_type!(DurationLiteralId);
 id_type!(StringLiteralId);
 id_type!(BytesLiteralId);
+id_type!(RegexLiteralId);
 id_type!(TextLiteralId);
 
 impl TypeExprId {
@@ -538,6 +539,7 @@ impl ArenaProgram {
             duration_literals: self.arena.duration_literals.len(),
             string_literals: self.arena.string_literals.len(),
             bytes_literals: self.arena.bytes_literals.len(),
+            regex_literals: self.arena.regex_literals.len(),
             text_literals: self.arena.text_tags.len(),
             source_text_literals: self.arena.source_text_literals(),
             cooked_text_literals: self.arena.cooked_texts.len(),
@@ -2363,6 +2365,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             ArenaExprKind::Duration(_) => "Duration",
             ArenaExprKind::Str(_) | ArenaExprKind::FmtString(_) => "Str",
             ArenaExprKind::Bytes(_) => "Bytes",
+            ArenaExprKind::Regex(_) => "Regex",
             ArenaExprKind::PathStr(_) | ArenaExprKind::PathFmtString(_) => "Path",
             ArenaExprKind::Call { callee, args } => {
                 let ArenaExprKind::Ident(callee_name) = self.lowerer.arena.expr(callee).kind else {
@@ -2857,6 +2860,17 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.push_expr_kind(ArenaExprKind::Str(value), span)
     }
 
+    pub fn push_regex_expr(&mut self, pattern: &Arc<str>, source_text: &str, span: Span) -> ExprId {
+        let id = RegexLiteralId::new(self.lowerer.arena.regex_literals.len());
+        self.lowerer.arena.regex_literals.push(ArenaRegexLiteral {
+            pattern: pattern.clone(),
+            source_text: Arc::from(source_text),
+            span,
+            prepared: Arc::new(OnceLock::new()),
+        });
+        self.lowerer.push_expr_kind(ArenaExprKind::Regex(id), span)
+    }
+
     pub fn push_path_str_expr(&mut self, value: &Arc<str>, span: Span) -> ExprId {
         let value = self.lowerer.lower_string_literal(value);
         self.lowerer
@@ -3128,6 +3142,7 @@ pub struct ArenaStats {
     pub duration_literals: usize,
     pub string_literals: usize,
     pub bytes_literals: usize,
+    pub regex_literals: usize,
     pub text_literals: usize,
     pub source_text_literals: usize,
     pub cooked_text_literals: usize,
@@ -3168,6 +3183,23 @@ pub struct ArenaTableStats {
     pub retained_bytes: usize,
 }
 
+/// A source-owned pattern whose checked preparation is shared across arena clones.
+#[derive(Clone, Debug)]
+pub struct ArenaRegexLiteral {
+    pub pattern: Arc<str>,
+    pub source_text: Arc<str>,
+    pub span: Span,
+    pub(crate) prepared: Arc<OnceLock<Result<Arc<regex_lite::Regex>, String>>>,
+}
+
+impl PartialEq for ArenaRegexLiteral {
+    fn eq(&self, other: &Self) -> bool {
+        self.pattern == other.pattern && self.span == other.span
+    }
+}
+
+impl Eq for ArenaRegexLiteral {}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AstArena {
     pub span_source_id: Option<SourceId>,
@@ -3200,6 +3232,7 @@ pub struct AstArena {
     pub duration_literals: Vec<DurationLiteral>,
     pub string_literals: Vec<Arc<str>>,
     pub bytes_literals: Vec<Arc<[u8]>>,
+    pub regex_literals: Vec<ArenaRegexLiteral>,
     pub text_tags: Vec<ArenaTextTag>,
     pub text_data: Vec<ArenaTextData>,
     pub cooked_texts: Vec<Arc<str>>,
@@ -3331,6 +3364,7 @@ impl AstArena {
             + vec_capacity_bytes(&self.duration_literals)
             + vec_capacity_bytes(&self.string_literals)
             + vec_capacity_bytes(&self.bytes_literals)
+            + vec_capacity_bytes(&self.regex_literals)
     }
 
     pub fn pattern_storage_bytes(&self) -> usize {
@@ -3453,6 +3487,7 @@ impl AstArena {
             table!(duration_literals),
             table!(string_literals),
             table!(bytes_literals),
+            table!(regex_literals),
             table!(text_tags),
             table!(text_data),
             table!(cooked_texts),
@@ -3516,6 +3551,7 @@ impl AstArena {
             + vec_capacity_bytes(&self.duration_literals)
             + vec_capacity_bytes(&self.string_literals)
             + vec_capacity_bytes(&self.bytes_literals)
+            + vec_capacity_bytes(&self.regex_literals)
             + self.text_storage_bytes()
             + self.cooked_text_storage_bytes()
             + vec_capacity_bytes(&self.run_forms)
@@ -3793,6 +3829,7 @@ impl AstArena {
             ArenaExprTag::FmtString => ArenaExprKind::FmtString(range_from_data(data)),
             ArenaExprTag::PathFmtString => ArenaExprKind::PathFmtString(range_from_data(data)),
             ArenaExprTag::Bytes => ArenaExprKind::Bytes(BytesLiteralId::new(data.lhs as usize)),
+            ArenaExprTag::Regex => ArenaExprKind::Regex(RegexLiteralId::new(data.lhs as usize)),
             ArenaExprTag::Ident => {
                 ArenaExprKind::Ident(Name::from_symbol(Symbol::from_raw(data.lhs)))
             }
@@ -4043,6 +4080,10 @@ impl AstArena {
 
     pub fn string_literal(&self, id: StringLiteralId) -> &Arc<str> {
         &self.string_literals[id.index()]
+    }
+
+    pub fn regex_literal(&self, id: RegexLiteralId) -> &ArenaRegexLiteral {
+        &self.regex_literals[id.index()]
     }
 
     pub fn bytes_literal(&self, id: BytesLiteralId) -> &Arc<[u8]> {
@@ -4959,6 +5000,7 @@ pub enum ArenaExprTag {
     FmtString,
     PathFmtString,
     Bytes,
+    Regex,
     Ident,
     Item,
     LastStatus,
@@ -5062,6 +5104,7 @@ pub enum ArenaExprKind {
     FmtString(ArenaRange),
     PathFmtString(ArenaRange),
     Bytes(BytesLiteralId),
+    Regex(RegexLiteralId),
     Ident(Name),
     Item,
     LastStatus,
@@ -6125,6 +6168,10 @@ impl ArenaLowerer<'_> {
             ),
             ArenaExprKind::Str(id) => (
                 ArenaExprTag::Str,
+                ArenaExprData::new(raw_index(id.index()), 0),
+            ),
+            ArenaExprKind::Regex(id) => (
+                ArenaExprTag::Regex,
                 ArenaExprData::new(raw_index(id.index()), 0),
             ),
             ArenaExprKind::PathStr(id) => (

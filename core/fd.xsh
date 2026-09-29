@@ -117,7 +117,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   }
 
   let match_pattern = if opts.ignore_case { pattern.lower() } else { pattern }
-  let re = if opts.glob or match_pattern == "" { regex.compile(".*")? } else { regex.compile(match_pattern)? }
+  let re = if opts.glob or match_pattern == "" { rx".*" } else { regex.compile(match_pattern)? }
 
   for root in roots {
     for entry in fs.walk(root, gitignore: opts.ignore, hidden: opts.hidden)? |> sort-by .path {

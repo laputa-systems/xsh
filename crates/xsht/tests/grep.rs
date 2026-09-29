@@ -261,3 +261,16 @@ fn grep_list_pattern_tests_distinguish_exact_lengths_rest_and_nested_elements() 
     assert_eq!(nested.status, 0, "{}", output_text(&nested.stderr));
     assert!(output_text(&nested.stdout).contains("[[1], [2]] is [[_], [_]]"));
 }
+
+#[test]
+fn grep_regex_literal_compares_raw_patterns_across_delimiter_spellings() {
+    let root = TempDir::new().unwrap();
+    let file = root.path().join("regex.xsh");
+    fs::write(&file, "let single = rx\"[a-z]+\"\nlet triple = rx\"\"\"[a-z]+\"\"\"\nlet different = rx\"[0-9]+\"\n").unwrap();
+    let output = grep_scripts("rx\"[a-z]+\"", &paths(&file));
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    let stdout = output_text(&output.stdout);
+    assert!(stdout.contains("[a-z]+"));
+    assert!(stdout.contains("2 matches"), "{stdout}");
+    assert!(!stdout.contains("[0-9]+"));
+}

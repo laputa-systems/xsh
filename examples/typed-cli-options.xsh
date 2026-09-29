@@ -25,10 +25,10 @@ let opts: BuildOptions = cli.parse(
 )?
 
 let line = "WARN build.rs: unused value"
-let word_re = regex.compile("unused|missing")?
-let capture_re = regex.compile("^(\\w+) ([^:]+): (.*)$")?
-let whitespace_re = regex.compile("\\s+")?
-let warn_re = regex.compile("WARN.*unused")?
+let word_re = rx"unused|missing"
+let capture_re = rx"^(\w+) ([^:]+): (.*)$"
+let whitespace_re = rx"\s+"
+let warn_re = rx"WARN.*unused"
 let matches = word_re.find(line)
 let captures = capture_re.captures(line)
 let rewritten = whitespace_re.replace(line, "|")

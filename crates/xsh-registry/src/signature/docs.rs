@@ -1047,7 +1047,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("regex", "compile") => Some((
             "Compiles a regular expression into a reusable Regex value.",
-            "Invalid syntax is reported at compilation and is not deferred to a later match call.",
+            "Dynamic patterns return structured regex-compile errors. Static patterns can use raw rx literals validated once during checked program preparation.",
             &["regex", "parsing", "compiled"],
         )),
         ("set", "empty") => Some((

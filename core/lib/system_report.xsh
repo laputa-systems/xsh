@@ -248,7 +248,7 @@ export pure parse_cpu_list(text: Str) -> Result[List[Int]] {
     return Err(cpu_list_error("CPU list is empty or contains surrounding whitespace"))
   }
 
-  let decimal = regex.compile("^[0-9]+$")?
+  let decimal = rx"^[0-9]+$"
   var identifiers: List[Int] = []
 
   for item in text.split(",") {

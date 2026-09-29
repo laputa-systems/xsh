@@ -1564,6 +1564,10 @@ impl<'a> Writer<'a> {
                     self.write_path_fmt_string(*parts, output);
                 }
             }
+            ArenaExprKind::Regex(value) => {
+                let literal = self.arena.regex_literal(*value);
+                output.push_str(&literal.source_text);
+            }
             ArenaExprKind::Bytes(value) => write_bytes(self.arena.bytes_literal(*value), output),
             ArenaExprKind::Ident(name) => output.push_str(name.as_str().as_str()),
             ArenaExprKind::Item => output.push('.'),
@@ -3041,6 +3045,7 @@ impl<'a> Writer<'a> {
     fn expr_is_multiline_literal(&self, expr_id: ExprId) -> bool {
         match self.arena.expr(expr_id).kind {
             ArenaExprKind::Str(value) => self.arena.string_literal(value).contains('\n'),
+            ArenaExprKind::Regex(value) => self.arena.regex_literal(value).source_text.contains('\n'),
             ArenaExprKind::Record(fields) => {
                 record_fields_original_multiline(
                     self.arena,

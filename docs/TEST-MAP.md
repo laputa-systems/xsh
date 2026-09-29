@@ -600,3 +600,12 @@ and stream cancellation. `tests/syntax.rs::deferred_block_parses_and_formats_as_
 checks comment/span preservation and formatter convergence. The
 `linter_defer_block_helper_*` tests in `crates/xsht/tests/lint.rs` cover the narrow
 `lint.prefer-defer-block` fix and refusal boundaries.
+
+Prepared regex literals: `tests/xsh/regex-literals.xsh` covers raw syntax,
+existing operations, Unicode byte offsets, defaults, repeated calls, and dynamic
+compile errors. `src/modules/regex.rs` checks source spans, unreachable invalid
+patterns, and shared preparation across frontend passes. The indexed-store
+`prepared_regex_pool_survives_frontend_and_evaluator_reuse` test verifies engine
+identity and pool bounds. `crates/xsht/tests/lint.rs` covers exact re-encoding,
+conservative exclusions, comment retention, and convergence; `crates/xsht/tests/cli.rs`
+checks invalid unreachable literals without script execution.

@@ -35,7 +35,7 @@ fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> bool {
     match arena.expr(expr).kind {
         ArenaExprKind::Ident(_) | ArenaExprKind::Int(_) | ArenaExprKind::Str(_)
         | ArenaExprKind::Bool(_) | ArenaExprKind::Null | ArenaExprKind::PathStr(_)
-        | ArenaExprKind::Float(_) | ArenaExprKind::Bytes(_) => true,
+        | ArenaExprKind::Float(_) | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) => true,
         ArenaExprKind::List(items) => arena.list_element_exprs(items).all(|item| list_update_argument_stable(arena, item)),
         _ => false,
     }
@@ -114,6 +114,7 @@ pub struct Linter<'a> {
     record_type_names: FxHashSet<String>,
     used_type_names: FxHashSet<String>,
     assigned_names: FxHashSet<Name>,
+    regex_recovery_context: bool,
 }
 
 /// A decoded type expression node, mirroring the arena's compact type-expr
@@ -207,6 +208,7 @@ impl<'a> Linter<'a> {
             record_type_names: FxHashSet::default(),
             used_type_names: FxHashSet::default(),
             assigned_names: FxHashSet::default(),
+            regex_recovery_context: false,
         };
         linter.define(
             "args",
@@ -781,6 +783,8 @@ impl<'a> Linter<'a> {
                 self.lint_stmt(inner, false);
             }
             ArenaStmtKind::Match { value, arms } => {
+                let old_regex_context = self.regex_recovery_context;
+                self.regex_recovery_context = true;
                 self.lint_expr(value);
                 for arm in self.arena.match_arms(arms).to_vec() {
                     self.push_scope();
@@ -791,6 +795,7 @@ impl<'a> Linter<'a> {
                     self.lint_block_statements(arm.block);
                     self.pop_scope();
                 }
+                self.regex_recovery_context = old_regex_context;
                 let str_literal_arms = self
                     .arena
                     .match_arms(arms)
@@ -826,11 +831,14 @@ impl<'a> Linter<'a> {
                 else_block,
                 ..
             } => {
+                let old_regex_context = self.regex_recovery_context;
+                self.regex_recovery_context = true;
                 for binding in self.arena.with_bindings(bindings).to_vec() {
                     self.lint_expr_or_run(&ArenaExprOrRun::Expr(binding.initializer));
                 }
                 self.lint_block(body);
                 self.lint_block(else_block);
+                self.regex_recovery_context = old_regex_context;
             }
         }
     }
@@ -3231,6 +3239,58 @@ impl<'a> Linter<'a> {
         self.lint_prefer_slice(callee, args, span);
     }
 
+    fn lint_prepared_regex(&mut self, expr: ExprId) {
+        if self.regex_recovery_context { return; }
+        let outer = self.arena.expr(expr);
+        let ArenaExprKind::Try(inner) = outer.kind else { return; };
+        let call = self.arena.expr(inner);
+        let ArenaExprKind::Call { callee, args } = call.kind else { return; };
+        if !is_module_call(self.arena, callee, "regex", "compile")
+            || self.expr_types.get(&outer.span) != Some(&Type::Regex)
+            || args.len() != 1
+        {
+            return;
+        }
+        let argument = match self.arena.call_args(args)[0].kind {
+            ArenaCallArgKind::Positional(value) => value,
+            ArenaCallArgKind::Named { name, value, .. } if name == "pattern" => value,
+            _ => return,
+        };
+        let value = self.arena.expr(argument);
+        let ArenaExprKind::Str(text) = value.kind else { return; };
+        let pattern = self.arena.string_literal(text);
+        // Reparse the proposed raw spelling to prove delimiter and decoded-text identity.
+        let replacement = if !pattern.contains('"') && !pattern.contains(['\n', '\r']) {
+            format!("rx\"{pattern}\"")
+        } else {
+            format!("rx\"\"\"{pattern}\"\"\"")
+        };
+        let candidate = format!("let prepared = {replacement}\n");
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(
+            outer.span.source_id, &candidate,
+        );
+        if !parsed.diagnostics.is_empty()
+            || parsed.arena.arena.regex_literals.len() != 1
+            || parsed.arena.arena.regex_literals[0].pattern.as_ref() != pattern.as_ref()
+            || !xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate)
+                .diagnostics.is_empty()
+        {
+            return;
+        }
+        let comments = self.source[outer.span.start()..value.span.start()].contains('#')
+            || self.source[value.span.end()..outer.span.end()].contains('#');
+        let diagnostic = Diagnostic::new(Severity::Warning, "prepare static regex patterns with a literal")
+            .with_code("lint.prefer-regex-literal")
+            .with_label(Label::secondary(outer.span, "this validated pattern is directly propagated"));
+        self.diagnostics.push(if comments {
+            diagnostic.with_note("no automatic fix: the call contains comments")
+        } else {
+            diagnostic.with_fix_hint(FixHint::replacement(
+                outer.span, "use a prepared regex literal", replacement,
+            ))
+        });
+    }
+
     fn lint_prefer_slice(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
         let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
             return;
@@ -4505,7 +4565,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         | ArenaExprKind::Str(_)
         | ArenaExprKind::PathStr(_)
         | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
         | ArenaExprKind::LastStatus
@@ -4954,7 +5014,7 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
         | ArenaExprKind::Str(_)
         | ArenaExprKind::PathStr(_)
         | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
         | ArenaExprKind::Item
         | ArenaExprKind::LastStatus
         | ArenaExprKind::EnvGet { .. }
@@ -5269,7 +5329,7 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Str(_)
         | ArenaExprKind::PathStr(_)
         | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
         | ArenaExprKind::LastStatus
@@ -5424,6 +5484,7 @@ impl LintExprVisitor<'_, '_> {
     fn visit_expr(&mut self, expr: ExprId) {
         if !self.suppress_expr_autofixes {
             self.linter.lint_list_splicing(expr);
+            self.linter.lint_prepared_regex(expr);
             self.linter.lint_comparison_chain(expr);
 
             self.linter.lint_optional_postfix(expr);
@@ -5486,18 +5547,24 @@ impl LintExprVisitor<'_, '_> {
                 self.visit_expr(else_value);
             }
             ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
+                let old = self.linter.regex_recovery_context;
+                self.linter.regex_recovery_context = true;
                 self.visit_expr(value);
                 for arm in arena.match_expr_arms(arms).to_vec() {
                     self.visit_match_expr_arm(&arm);
                 }
+                self.linter.regex_recovery_context = old;
             }
             ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => self.visit_expr(expr),
             ArenaExprKind::ComparisonChain(pairs) => {
                 for operand in arena.comparison_chain_operands(pairs).collect::<Vec<_>>() { self.visit_expr(operand); }
             }
-            ArenaExprKind::Binary { left, right, .. } => {
+            ArenaExprKind::Binary { op, left, right } => {
+                let old = self.linter.regex_recovery_context;
+                self.linter.regex_recovery_context |= op == BinaryOp::ResultFallback;
                 self.visit_expr(left);
                 self.visit_expr(right);
+                self.linter.regex_recovery_context = old;
             }
             ArenaExprKind::Call { callee, args } => {
                 self.visit_expr(callee);
@@ -5552,10 +5619,13 @@ impl LintExprVisitor<'_, '_> {
             }
             ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => self.linter.lint_block(block),
             ArenaExprKind::Retry { delays, block } => {
+                let old = self.linter.regex_recovery_context;
+                self.linter.regex_recovery_context = true;
                 for delay in arena.expr_ids(delays).collect::<Vec<_>>() {
                     self.visit_expr(delay);
                 }
                 self.linter.lint_block(block);
+                self.linter.regex_recovery_context = old;
             }
             ArenaExprKind::Str(_) => {
                 self.linter.lint_dollar_in_expression_string(expr);
@@ -5570,7 +5640,7 @@ impl LintExprVisitor<'_, '_> {
             | ArenaExprKind::Duration(_)
             | ArenaExprKind::PathStr(_)
             | ArenaExprKind::GlobStr(_)
-            | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
             | ArenaExprKind::Ident(_)
             | ArenaExprKind::EnvGet { .. }
             | ArenaExprKind::EnvPathList
@@ -6173,7 +6243,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Str(_)
         | ArenaExprKind::PathStr(_)
         | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_) => true,
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_) => true,
         ArenaExprKind::List(items) => arena
             .list_element_exprs(items)
             .all(|item| is_safe_const_expr(arena, item)),
@@ -6247,7 +6317,7 @@ fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Str(_)
         | ArenaExprKind::PathStr(_)
         | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
         | ArenaExprKind::LastStatus
@@ -6714,7 +6784,7 @@ fn collect_expr_effects(
         | ArenaExprKind::Str(_)
         | ArenaExprKind::PathStr(_)
         | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
         | ArenaExprKind::LastStatus
@@ -7496,7 +7566,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             | ArenaExprKind::Str(_)
             | ArenaExprKind::PathStr(_)
             | ArenaExprKind::GlobStr(_)
-            | ArenaExprKind::Bytes(_)
+            | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
             | ArenaExprKind::Item
             | ArenaExprKind::LastStatus
             | ArenaExprKind::EnvGet { .. }
@@ -8205,7 +8275,7 @@ fn expr_flow(
         | ArenaExprKind::Str(_)
         | ArenaExprKind::PathStr(_)
         | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_)
+        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
         | ArenaExprKind::Ident(_)
         | ArenaExprKind::Item
         | ArenaExprKind::LastStatus

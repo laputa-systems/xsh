@@ -24,6 +24,7 @@ pub struct Lexer<'a> {
 enum StringLiteralKind {
     Str,
     Bytes,
+    Regex,
     Path,
     Glob,
 }
@@ -84,6 +85,11 @@ impl<'a> Lexer<'a> {
                 Some(b'g') if self.peek_next_byte() == Some(b'"') => {
                     self.offset += 1;
                     self.lex_string(StringLiteralKind::Glob, false, start);
+                }
+                Some(b'r') if self.peek_next_byte() == Some(b'x')
+                    && self.source.as_bytes().get(self.offset + 2) == Some(&b'"') => {
+                    self.offset += 2;
+                    self.lex_string(StringLiteralKind::Regex, true, start);
                 }
                 Some(b'r') if self.peek_next_byte() == Some(b'"') => {
                     self.offset += 1;
@@ -504,6 +510,7 @@ impl<'a> Lexer<'a> {
                         let _ = value;
                         self.push(TokenKind::GlobString, literal_start, self.offset);
                     }
+                    StringLiteralKind::Regex => self.push(TokenKind::Regex, literal_start, self.offset),
                     StringLiteralKind::Bytes => unreachable!(),
                 },
                 Err(_) => self.diagnostics.push(
@@ -654,6 +661,21 @@ mod tests {
                 .map(|flags| (flags.has_interpolation, flags.raw_literal)),
             Some((false, false))
         );
+    }
+
+    #[test]
+    fn regex_tokens_preserve_raw_contents_and_full_delimiter_spans() {
+        let source = "rx\"\\d+\\$\\{name\\}\" rx\"\"\"(?x)\n[a-z]+ # flags\n\"\"\" rx";
+        let output = Lexer::new(SourceId::new(0), source).lex_compact();
+        assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+        let table = output.token_table;
+        assert_eq!(table.tag_at(0), Some(TokenTag::Regex));
+        assert_eq!(table.tag_at(1), Some(TokenTag::Regex));
+        assert_eq!(table.tag_at(2), Some(TokenTag::Ident));
+        let first = table.span_at(0, SourceId::new(0), source).unwrap();
+        let second = table.span_at(1, SourceId::new(0), source).unwrap();
+        assert_eq!(&source[first.range()], r#"rx"\d+\$\{name\}""#);
+        assert_eq!(&source[second.range()], "rx\"\"\"(?x)\n[a-z]+ # flags\n\"\"\"");
     }
 
     #[test]

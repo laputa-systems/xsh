@@ -226,6 +226,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "comprehensions",
     "native-tests",
     "command-interpolation",
+    "regex-literals",
     "path-literals",
     "glob-literals",
     "display-strings",
@@ -786,6 +787,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "list-splicing" => (
             "Builds lists from ordinary elements and explicit List splices.",
             "`[head, @middle, tail, @more]` inserts each spliced List in encounter order; an ordinary List-valued element remains nested. Elements and splice operands evaluate once from left to right, and propagation stops before later elements. Empty lists retain contextual element types and earlier aliases remain independent. Results require explicit handling such as `@(flags()?)`; Streams require explicit collect. Str, Bytes, Map, Any, comprehension clauses, and call argument unpacking are not splice operands.",
+        ),
+        "regex-literals" => (
+            "Prepares reusable regular expressions during checked program loading.",
+            "`rx\"...\"` and `rx\"\"\"...\"\"\"` produce Regex with raw contents: no escapes or interpolation. The existing regex engine validates every occurrence, including unreachable code, before execution; repeated calls share the prepared engine. Dynamic `regex.compile(pattern)` retains Result-valued runtime errors.",
         ),
         "slicing" => (
             "Selects half-open List, Str, and Bytes ranges.",

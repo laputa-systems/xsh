@@ -47,6 +47,7 @@ pub enum TokenTag {
     FmtString,
     PathFmtString,
     Bytes,
+    Regex,
     Comment,
     Newline,
     LParen,
@@ -369,7 +370,7 @@ fn token_end(source: &str, start: usize, tag: TokenTag) -> usize {
         | TokenTag::GlobString
         | TokenTag::FmtString
         | TokenTag::PathFmtString
-        | TokenTag::Bytes => match literal::scan_quoted_literal(source, start, true) {
+        | TokenTag::Bytes | TokenTag::Regex => match literal::scan_quoted_literal(source, start, true) {
             Some(QuotedScan::Terminated(literal)) => literal.end,
             Some(QuotedScan::Unterminated { end }) => end,
             None => start,
@@ -507,6 +508,7 @@ pub enum TokenKind {
     },
     PathFmtString,
     Bytes,
+    Regex,
     Comment,
     Newline,
     LParen,
@@ -564,6 +566,7 @@ impl TokenKind {
             Self::FmtString { .. } => TokenTag::FmtString,
             Self::PathFmtString => TokenTag::PathFmtString,
             Self::Bytes => TokenTag::Bytes,
+            Self::Regex => TokenTag::Regex,
             Self::Comment => TokenTag::Comment,
             Self::Newline => TokenTag::Newline,
             Self::LParen => TokenTag::LParen,

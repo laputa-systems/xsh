@@ -97,6 +97,7 @@ impl Checker {
                 names: FxHashSet::default(),
                 output: CompactDeclOutput::default(),
             };
+            collector.diagnostics.extend(Self::prepare_regex_literals(program));
             collector.collect_program(program);
             let mut output = collector.output;
             output.diagnostics = collector.diagnostics;
@@ -902,6 +903,7 @@ impl CompactBodyProbe<'_> {
             ArenaExprKind::Float(_) => Type::Float,
             ArenaExprKind::Duration(_) => Type::Duration,
             ArenaExprKind::Str(_) => Type::Str,
+            ArenaExprKind::Regex(_) => Type::Regex,
             ArenaExprKind::FmtString(parts) => {
                 self.check_compact_fmt_parts(parts);
                 Type::Str

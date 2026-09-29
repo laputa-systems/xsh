@@ -1600,3 +1600,47 @@ fn lint_returns_interrupted_status_for_pending_sigint() {
             .contains("interrupted by SIGINT")
     );
 }
+
+#[test]
+fn check_rejects_unreachable_invalid_regex_literals_without_execution() {
+    let root = TempDir::new().unwrap();
+    fs::write(root.path().join("invalid.xsh"), "print \"must not execute\"\npure unused() -> Regex { rx\"(\" }\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["check", "invalid.xsh"]).current_dir(root.path()).output().unwrap();
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("must not execute"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("check.regex-literal"), "{stderr}");
+    assert!(stderr.contains("invalid.xsh:2:"), "{stderr}");
+}
+
+#[test]
+fn regex_literal_lint_fixture_preserves_execution_and_is_idempotent() {
+    let root = TempDir::new().unwrap();
+    let fixture = root.path().join("regex.xsh");
+    fs::write(&fixture, "let assignment = regex.compile(\"^([A-Z]+)=([0-9]+)$\")? # keep\nprint ${assignment.matches(\"COUNT=42\")} ${assignment.captures(\"COUNT=42\")[2]} ${assignment.replace(\"COUNT=42\", \"$2\")}\n").unwrap();
+    let run = |arguments: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht")).args(arguments).current_dir(root.path()).output().unwrap();
+    let before = run(&["trace", "regex.xsh"]);
+    assert!(before.status.success(), "{}", String::from_utf8_lossy(&before.stderr));
+    let first = run(&["lint", "--fix", "regex.xsh"]);
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    let fixed = fs::read_to_string(&fixture).unwrap();
+    assert!(fixed.contains("rx\"^([A-Z]+)=([0-9]+)$\" # keep"), "{fixed}");
+    let second = run(&["lint", "--fix", "regex.xsh"]);
+    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    assert_eq!(fixed, fs::read_to_string(&fixture).unwrap());
+    let after = run(&["trace", "regex.xsh"]);
+    assert!(after.status.success(), "{}", String::from_utf8_lossy(&after.stderr));
+    assert_eq!(before.stdout, after.stdout);
+}
+
+#[test]
+fn check_validates_regex_literals_in_unused_imported_functions() {
+    let root = TempDir::new().unwrap();
+    fs::write(root.path().join("main.xsh"), "use broken\nprint \"must not execute\"\n").unwrap();
+    fs::write(root.path().join("broken.xsh"), "pure never_called() -> Regex { rx\"[\" }\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["check", "main.xsh"]).current_dir(root.path()).output().unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("check.regex-literal"), "{stderr}");
+    assert!(stderr.contains("broken.xsh:1:"), "{stderr}");
+}

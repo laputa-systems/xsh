@@ -79,6 +79,9 @@ fn match_expr_structural(
         (ArenaExprKind::Float(a), ArenaExprKind::Float(b)) => {
             p.float_literal(*a) == t.float_literal(*b)
         }
+        (ArenaExprKind::Regex(a), ArenaExprKind::Regex(b)) => {
+            p.regex_literal(*a).pattern == t.regex_literal(*b).pattern
+        }
         (ArenaExprKind::Str(a), ArenaExprKind::Str(b)) => {
             p.string_literal(*a) == t.string_literal(*b)
         }

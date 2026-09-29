@@ -3531,3 +3531,31 @@ fn deferred_block_parses_and_formats_as_statement_body() {
     let again = Formatter::new().format_source(source_id, &formatted.formatted);
     assert_eq!(again.formatted, source);
 }
+
+#[test]
+fn regex_literals_parse_as_prepared_regex_atoms_with_raw_source_spans() {
+    let source = "let rx = \"ordinary identifier\"\nlet single = rx\"^\\d+\\$\\{literal\\}$\"\nlet multiline = rx\"\"\"(?x)\n  ^ [a-z]+ # raw pattern comment\n  $\n\"\"\"\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(7), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    for index in [1, 2] {
+        let expression = parsed.arena.arena.expr(root_let_init_expr(&parsed, index));
+        let ArenaExprKind::Regex(id) = expression.kind else { panic!("expected regex literal"); };
+        let literal = parsed.arena.arena.regex_literal(id);
+        assert_eq!(expression.span, literal.span);
+        assert_eq!(literal.span.source_id, SourceId::new(7));
+        assert_eq!(&source[literal.span.range()], literal.source_text.as_ref());
+    }
+    assert_eq!(parsed.arena.arena.regex_literals[0].pattern.as_ref(), r"^\d+\$\{literal\}$");
+    let formatted = Formatter::new().format_source(SourceId::new(7), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_parse_and_check(SourceId::new(7), &formatted.formatted);
+    assert_eq!(formatted.formatted, Formatter::new().format_source(SourceId::new(7), &formatted.formatted).formatted);
+}
+
+#[test]
+fn regex_literal_unterminated_delimiters_are_lexical_errors() {
+    for source in ["let pattern = rx\"abc", "let pattern = rx\"\"\"abc\n"] {
+        let lexed = Lexer::new(SourceId::new(0), source).lex_compact();
+        assert!(lexed.diagnostics.iter().any(|d| d.code.as_deref() == Some("lex.unterminated-string")), "{:?}", lexed.diagnostics);
+    }
+}

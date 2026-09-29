@@ -296,6 +296,15 @@ The executable frontend has stable owners rather than a migration path:
   pooling, and evaluator/session lifetime. It never owns a second executable
   representation.
 
+Regex literal occurrences in `src/syntax/arena.rs` retain their raw source text,
+span, and a shared preparation cell. `src/modules/regex.rs::prepare_literal`
+uses the same compiler as dynamic `regex.compile`, and checked preparation
+visits every occurrence, including unreachable bodies. Arena clones and
+frontend passes share the cell. Lowering reads completed cells and carries
+immutable engines into the verified `FullStore` regex pool; indexed execution
+clones engine handles. The owning source/program bounds the cache lifetime.
+Builder rewind truncates the pool and the verifier rejects invalid pool indices.
+
 `IrBuildError::span` retains the source ID with its byte range. Imported user
 modules and embedded modules share one arena, so `Evaluator` must render a build
 failure against the span's source rather than reconstructing it in the entry

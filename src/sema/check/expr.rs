@@ -138,6 +138,7 @@ impl Checker {
             ArenaExprKind::Float(_) => Type::Float,
             ArenaExprKind::Duration(_) => Type::Duration,
             ArenaExprKind::Str(_) => Type::Str,
+            ArenaExprKind::Regex(_) => Type::Regex,
             ArenaExprKind::PathStr(_) => Type::Path,
             ArenaExprKind::GlobStr(_) => {
                 if self.in_pure {
