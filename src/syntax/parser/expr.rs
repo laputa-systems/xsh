@@ -271,7 +271,8 @@ impl<'a> Parser<'a> {
     fn brace_starts_record_value(&self) -> bool {
         let mut offset = 1;
         while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
-        if matches!(self.peek_tag(offset), Some(TokenTag::Dot | TokenTag::RBrace)) { return true; }
+        if self.peek_tag(offset) == Some(TokenTag::RBrace)
+            || (self.peek_tag(offset) == Some(TokenTag::Dot) && self.peek_tag(offset + 1) == Some(TokenTag::Dot)) { return true; }
         if self.peek_tag(offset) == Some(TokenTag::LBracket) {
             let mut depth = 1;
             offset += 1;

@@ -245,3 +245,12 @@ print $answer ${row.answer}
   test.ok(checked.success, checked.stderr)?
   test.eq(checked.stdout, "9 9\n")?
 }
+
+proc test_bare_blocks_preserve_implicit_stream_item_values(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, r"""
+let selected = [{value: 7}] |> map { { .value } }
+print ${selected[0]}
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "7\n")?
+}
