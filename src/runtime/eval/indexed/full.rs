@@ -502,6 +502,8 @@ struct FullStore {
     byte_data: Vec<u8>,
     prepared_regexes: Vec<RegexValue>,
     prepared_constants: Vec<PreparedConstantValue>,
+    wire_enums: Vec<Arc<crate::sema::wire_enums::WireEnumMapping>>,
+    prepared_schemas: Vec<Arc<super::super::require::PreparedSchema>>,
     locations: Vec<IrLocation>,
     location_sources: Vec<SourceId>,
     runtime_ops: Vec<RuntimeOp>,
@@ -545,6 +547,8 @@ impl Default for FullStore {
             byte_data: Vec::new(),
             prepared_regexes: Vec::new(),
             prepared_constants: Vec::new(),
+            wire_enums: Vec::new(),
+            prepared_schemas: Vec::new(),
             locations: Vec::new(),
             location_sources: Vec::new(),
             runtime_ops: Vec::new(),
@@ -675,6 +679,8 @@ impl FullStore {
             + self.bytes.capacity() * size_of::<IrRange>()
             + self.byte_data.capacity()
             + self.prepared_constants.capacity() * size_of::<PreparedConstantValue>()
+            + self.prepared_schemas.capacity() * size_of::<Arc<super::super::require::PreparedSchema>>()
+            + self.wire_enums.capacity() * size_of::<Arc<crate::sema::wire_enums::WireEnumMapping>>()
             + self.prepared_regexes.capacity() * size_of::<RegexValue>()
             + self.prepared_regexes.iter().map(|value| value.pattern.capacity()).sum::<usize>()
             + self.locations.capacity() * size_of::<IrLocation>()
@@ -728,6 +734,8 @@ impl FullStore {
         self.byte_data.shrink_to_fit();
         self.prepared_regexes.shrink_to_fit();
         self.prepared_constants.shrink_to_fit();
+        self.wire_enums.shrink_to_fit();
+        self.prepared_schemas.shrink_to_fit();
         self.locations.shrink_to_fit();
         self.location_sources.shrink_to_fit();
         self.runtime_ops.shrink_to_fit();
@@ -1310,6 +1318,7 @@ impl<'a> FullFunctionView<'a> {
                     .get(validation_id as usize)
                     .ok_or_else(|| IrVerifyError::new("validation id is out of bounds"))?;
                 Some(LoweredTypeCheck {
+                    schema: None,
                     ty: self.program.store.semantic.to_type(validation.type_id)?,
                     name: Arc::from(self.program.store.string(validation.name)?),
                 })
@@ -1496,6 +1505,8 @@ struct FullCheckpoint {
     byte_data: usize,
     prepared_regexes: usize,
     prepared_constants: usize,
+    wire_enums: usize,
+    prepared_schemas: usize,
     locations: usize,
     runtime_ops: usize,
     assign_ops: usize,
@@ -2617,6 +2628,8 @@ impl FullBuilder {
             byte_data: self.store.byte_data.len(),
             prepared_regexes: self.store.prepared_regexes.len(),
             prepared_constants: self.store.prepared_constants.len(),
+            wire_enums: self.store.wire_enums.len(),
+            prepared_schemas: self.store.prepared_schemas.len(),
             locations: self.store.locations.len(),
             runtime_ops: self.store.runtime_ops.len(),
             assign_ops: self.store.assign_ops.len(),
@@ -2657,6 +2670,8 @@ impl FullBuilder {
         self.store.byte_data.truncate(checkpoint.byte_data);
         self.store.prepared_regexes.truncate(checkpoint.prepared_regexes);
         self.store.prepared_constants.truncate(checkpoint.prepared_constants);
+        self.store.wire_enums.truncate(checkpoint.wire_enums);
+        self.store.prepared_schemas.truncate(checkpoint.prepared_schemas);
         self.store.locations.truncate(checkpoint.locations);
         self.store.location_sources.truncate(checkpoint.locations);
         self.store.runtime_ops.truncate(checkpoint.runtime_ops);
@@ -4809,8 +4824,36 @@ fn prepared_constant_is_data(value: &LoweredValue, depth: usize) -> bool {
         LoweredValue::SharedList(values) => values.iter().all(|value| prepared_constant_is_data(value, depth + 1)),
         LoweredValue::Record(values) => values.values().all(|value| prepared_constant_is_data(value, depth + 1)),
         LoweredValue::Map(values) => values.values().all(|value| prepared_constant_is_data(value, depth + 1)),
-        LoweredValue::Tag(value) => value.fields.iter().all(|value| prepared_constant_is_data(value, depth + 1)),
+        LoweredValue::Tag(value) => value.fields.iter().all(|value| prepared_constant_is_data(value, depth + 1))
+            && value.wire.as_ref().is_none_or(|mapping| value.fields.is_empty()
+                && mapping.type_name == value.type_name
+                && mapping.variants.contains_key(&Name::intern(value.name.as_ref()))
+                && !mapping.variants.is_empty()
+                && mapping.variants.values().collect::<std::collections::BTreeSet<_>>().len() == mapping.variants.len()),
         _ => false,
+    }
+}
+
+impl FullCodec for Arc<crate::sema::wire_enums::WireEnumMapping> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        let index = if let Some(index) = builder.store.wire_enums.iter().position(|mapping| Arc::ptr_eq(mapping, self)) {
+            index
+        } else {
+            let index = builder.store.wire_enums.len();
+            builder.store.wire_enums.push(self.clone());
+            index
+        };
+        output.push(u32::try_from(index).map_err(|_| IrBuildError::format("wire enum pool overflow", None, 0, 0))?);
+        Ok(())
+    }
+
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        let mapping = decoder.store.wire_enums.get(input.raw()? as usize).cloned()
+            .ok_or_else(|| IrVerifyError::new("wire enum mapping is out of bounds"))?;
+        if !decoder.verified && (mapping.variants.is_empty() || mapping.variants.values().collect::<std::collections::BTreeSet<_>>().len() != mapping.variants.len()) {
+            return Err(IrVerifyError::new("wire enum mapping is empty or has duplicate strings"));
+        }
+        Ok(mapping)
     }
 }
 
@@ -4979,20 +5022,47 @@ impl FullCodec for LoweredType {
     }
 }
 
+impl FullCodec for Arc<super::super::require::PreparedSchema> {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        let index = if let Some(index) = builder.store.prepared_schemas.iter().position(|schema| Arc::ptr_eq(schema, self)) {
+            index
+        } else {
+            let index = builder.store.prepared_schemas.len();
+            builder.store.prepared_schemas.push(self.clone());
+            index
+        };
+        output.push(u32::try_from(index).map_err(|_| IrBuildError::format("schema pool overflow", None, 0, 0))?);
+        Ok(())
+    }
+
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        let schema = decoder.store.prepared_schemas.get(input.raw()? as usize).cloned()
+            .ok_or_else(|| IrVerifyError::new("prepared schema is out of bounds"))?;
+        if !decoder.verified && !schema.valid() { return Err(IrVerifyError::new("prepared schema has an invalid wire mapping")); }
+        Ok(schema)
+    }
+}
+
 impl FullCodec for LoweredTypeCheck {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.ty.encode(builder, output)?;
-        self.name.encode(builder, output)
+        self.name.encode(builder, output)?;
+        self.schema.encode(builder, output)
     }
 
     fn decode(
         decoder: &FullDecoder<'_>,
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
-        Ok(Self {
+        let check = Self {
             ty: Type::decode(decoder, input)?,
             name: Arc::<str>::decode(decoder, input)?,
-        })
+            schema: Option::decode(decoder, input)?,
+        };
+        if !decoder.verified && check.schema.as_ref().is_some_and(|schema| !schema.matches_type(&check.ty)) {
+            return Err(IrVerifyError::new("prepared schema does not match its checked type"));
+        }
+        Ok(check)
     }
 }
 
@@ -5184,6 +5254,8 @@ impl FullCodec for LoweredValue {
                 FullValueTag::Map
             }
             Self::Tag(value) => {
+                value.type_name.encode(builder, &mut payload)?;
+                value.wire.encode(builder, &mut payload)?;
                 value.name.encode(builder, &mut payload)?;
                 value.fields.encode(builder, &mut payload)?;
                 FullValueTag::Tag
@@ -5271,6 +5343,8 @@ impl FullCodec for LoweredValue {
                 &mut payload,
             )?)),
             FullValueTag::Tag => Self::Tag(Box::new(LoweredTagValue {
+                type_name: Name::decode(decoder, &mut payload)?,
+                wire: Option::decode(decoder, &mut payload)?,
                 name: Arc::<str>::decode(decoder, &mut payload)?,
                 fields: Vec::<LoweredValue>::decode(decoder, &mut payload)?,
             })),
@@ -5327,6 +5401,8 @@ impl FullCodec for LoweredValue {
                 BTreeMap::<String, LoweredValue>::verify(decoder, &mut payload)?;
             }
             FullValueTag::Tag => {
+                Name::verify(decoder, &mut payload)?;
+                Option::<Arc<crate::sema::wire_enums::WireEnumMapping>>::verify(decoder, &mut payload)?;
                 Arc::<str>::verify(decoder, &mut payload)?;
                 Vec::<LoweredValue>::verify(decoder, &mut payload)?;
             }
@@ -5385,6 +5461,18 @@ macro_rules! impl_node_codec {
             ) -> Result<(), IrVerifyError> {
                 let (instruction, tag, mut payload) = decoder.instruction(input)?;
                 if tag == FullTag::ExprComparisonChain { decoder.verify_comparison_chain_shape(payload)?; }
+                if tag == FullTag::ExprTag {
+                    let mut metadata = payload;
+                    let type_name = Name::decode(decoder, &mut metadata)?;
+                    let name = Arc::<str>::decode(decoder, &mut metadata)?;
+                    let fields_id = IrBlockId::from_raw(metadata.raw()?).ok_or_else(|| IrVerifyError::new("tag fields block id is invalid"))?;
+                    let fields = decoder.store.blocks.get(fields_id.index()).ok_or_else(|| IrVerifyError::new("tag fields block is out of bounds"))?;
+                    let field_count = decoder.store.payload(fields.instructions)?.first().copied().ok_or_else(|| IrVerifyError::new("tag fields length is missing"))?;
+                    let wire = Option::<Arc<crate::sema::wire_enums::WireEnumMapping>>::decode(decoder, &mut metadata)?;
+                    if wire.as_ref().is_some_and(|mapping| mapping.type_name != type_name || field_count != 0 || !mapping.variants.contains_key(&Name::intern(name.as_ref()))) {
+                        return Err(IrVerifyError::new("wire enum constructor identity or payload is invalid"));
+                    }
+                }
                 match tag {
                     $(
                         FullTag::$tag => {
@@ -6274,7 +6362,7 @@ impl FullCodec for BuildPatternRow {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let mut payload = builder.take_payload();
         let tag = match self {
-            Self::TagType { variants } => { variants.encode(builder, &mut payload)?; FullPatternTag::TagType }
+            Self::TagType { type_name, variants } => { type_name.encode(builder, &mut payload)?; variants.encode(builder, &mut payload)?; FullPatternTag::TagType }
             Self::RecordTest { fields } => {
                 fields.encode(builder, &mut payload)?;
                 FullPatternTag::RecordTest
@@ -6284,7 +6372,8 @@ impl FullCodec for BuildPatternRow {
                 inner.encode(builder, &mut payload)?;
                 FullPatternTag::ResultTest
             }
-            Self::TagTest { name, fields } => {
+            Self::TagTest { type_name, name, fields } => {
+                type_name.encode(builder, &mut payload)?;
                 name.encode(builder, &mut payload)?;
                 fields.encode(builder, &mut payload)?;
                 FullPatternTag::TagTest
@@ -6353,7 +6442,8 @@ impl FullCodec for BuildPatternRow {
                 result_wrapped.encode(builder, &mut payload)?;
                 FullPatternTag::Facet
             }
-            Self::Tag { name, slots } => {
+            Self::Tag { type_name, name, slots } => {
+                type_name.encode(builder, &mut payload)?;
                 name.encode(builder, &mut payload)?;
                 slots.encode(builder, &mut payload)?;
                 FullPatternTag::Tag
@@ -6379,10 +6469,10 @@ impl FullCodec for BuildPatternRow {
         let data = decoder.store.pattern_data[index];
         let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
         let pattern = match tag {
-            FullPatternTag::TagType => Self::TagType { variants: Vec::decode(decoder, &mut payload)? },
+            FullPatternTag::TagType => Self::TagType { type_name: Name::decode(decoder, &mut payload)?, variants: Vec::decode(decoder, &mut payload)? },
             FullPatternTag::RecordTest => Self::RecordTest { fields: Box::decode(decoder, &mut payload)? },
             FullPatternTag::ResultTest => Self::ResultTest { ok: bool::decode(decoder, &mut payload)?, inner: BuildPatternId::decode(decoder, &mut payload)? },
-            FullPatternTag::TagTest => Self::TagTest { name: Name::decode(decoder, &mut payload)?, fields: Vec::decode(decoder, &mut payload)? },
+            FullPatternTag::TagTest => Self::TagTest { type_name: Name::decode(decoder, &mut payload)?, name: Name::decode(decoder, &mut payload)?, fields: Vec::decode(decoder, &mut payload)? },
             FullPatternTag::ErrorTest => Self::ErrorTest { family: Name::decode(decoder, &mut payload)?, variant: Name::decode(decoder, &mut payload)?, fields: Box::decode(decoder, &mut payload)? },
             FullPatternTag::List => Self::List {
                 elements: Vec::decode(decoder, &mut payload)?,
@@ -6418,6 +6508,7 @@ impl FullCodec for BuildPatternRow {
                 result_wrapped: bool::decode(decoder, &mut payload)?,
             },
             FullPatternTag::Tag => Self::Tag {
+                type_name: Name::decode(decoder, &mut payload)?,
                 name: Name::decode(decoder, &mut payload)?,
                 slots: SmallVec::decode(decoder, &mut payload)?,
             },
@@ -6444,13 +6535,14 @@ impl FullCodec for BuildPatternRow {
         let data = decoder.store.pattern_data[index];
         let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
         match tag {
-            FullPatternTag::TagType => Vec::<Name>::verify(decoder, &mut payload)?,
+            FullPatternTag::TagType => { Name::verify(decoder, &mut payload)?; Vec::<Name>::verify(decoder, &mut payload)?; },
             FullPatternTag::RecordTest => Box::<Vec<(Name, BuildPatternId)>>::verify(decoder, &mut payload)?,
             FullPatternTag::ResultTest => {
                 bool::verify(decoder, &mut payload)?;
                 BuildPatternId::verify(decoder, &mut payload)?;
             }
             FullPatternTag::TagTest => {
+                Name::verify(decoder, &mut payload)?;
                 Name::verify(decoder, &mut payload)?;
                 Vec::<BuildPatternId>::verify(decoder, &mut payload)?;
             }
@@ -6514,6 +6606,7 @@ impl FullCodec for BuildPatternRow {
                 bool::verify(decoder, &mut payload)?;
             }
             FullPatternTag::Tag => {
+                Name::verify(decoder, &mut payload)?;
                 Name::verify(decoder, &mut payload)?;
                 BuildPatternIdSlots::verify(decoder, &mut payload)?;
             }
@@ -7003,10 +7096,12 @@ impl_node_codec! {
             end: BuildExprId,
             span: Span,
         } => BuildExprRow::Range { start, end, span },
-        BuildExprRow::Tag { name, fields } => ExprTag {
+        BuildExprRow::Tag { type_name, name, fields, wire } => ExprTag {
+            type_name: Name,
             name: Arc<str>,
             fields: Vec<BuildExprId>,
-        } => BuildExprRow::Tag { name, fields },
+            wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
+        } => BuildExprRow::Tag { type_name, name, fields, wire },
         BuildExprRow::ListComp { value, qualifiers, span } => ExprListComp {
             value: BuildExprId,
             qualifiers: LoweredCompQualifiers,
@@ -9180,6 +9275,44 @@ proc configured() [] -> Int {
                     let error = result.expect_err("checked arithmetic failure");
                     assert_eq!(error.kind, code);
                     assert_eq!(&source[error.span.unwrap().range()], expression);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn wire_enum_preparation_survives_frontend_drop_and_executes_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/wire-enums.xsh");
+            let program = Arc::new(fixture("wire-enums.xsh", source));
+            assert_eq!(program.store.wire_enums.len(), 1, "constructors share one declaring mapping");
+            FullVerifier::verify(&program).unwrap();
+            let mut malformed = (*program).clone();
+            Arc::make_mut(&mut malformed.store.wire_enums[0]).variants.insert(program_name(&program, "Duplicate"), Arc::from("ready"));
+            assert!(FullVerifier::verify(&malformed).unwrap_err().message.contains("duplicate strings"));
+            let mut missing = (*program).clone();
+            missing.store.wire_enums.clear();
+            assert!(FullVerifier::verify(&missing).is_err());
+            let mut mismatched = (*program).clone();
+            mismatched.store.prepared_schemas[0] = Arc::new(super::super::super::require::PreparedSchema::Validate(Type::Int));
+            assert!(FullVerifier::verify(&mismatched).unwrap_err().message.contains("does not match"));
+            let mut missing_schema = (*program).clone();
+            missing_schema.store.prepared_schemas.clear();
+            assert!(FullVerifier::verify(&missing_schema).is_err());
+            let raw = "{\"state\":\"ready\",\"values\":[\"\"],\"optional\":null}";
+            for recursive in [false, true] {
+                for (name, arguments, expected) in [
+                    ("wire_direct", Vec::new(), "\"ready\""),
+                    ("wire_round_trip", vec![Value::Str(Arc::from(raw))], "{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}"),
+                ] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                        &arguments, Span::new(program.store.source_id, 0, 0),
+                    ).expect("wire enum function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from(expected))));
                 }
             }
         });

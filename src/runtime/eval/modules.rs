@@ -296,7 +296,7 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
         Type::NetJob => matches!(value, Value::NetJob(_)),
         Type::Unit => matches!(value, Value::Unit),
         Type::Tag(name) => {
-            matches!(value, Value::Tag { name: tag_name, .. } if tag_name.as_ref() == name)
+            matches!(value, Value::Tag { type_name, .. } if type_name == name)
         }
         Type::Optional(inner) => {
             matches!(value, Value::Null) || test_value_matches_type(value, inner)
@@ -926,7 +926,7 @@ pub(super) fn encode_cache_key_value(value: &Value) -> Result<String, &'static s
             }
             out
         }
-        Value::Tag { name, fields } => {
+        Value::Tag { name, fields, .. } => {
             let mut out = format!("T{}:{}{}", name.len(), name, fields.len());
             for field in fields {
                 let enc = encode_cache_key_value(field)?;

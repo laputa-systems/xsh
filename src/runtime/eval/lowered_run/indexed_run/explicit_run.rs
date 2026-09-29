@@ -16,8 +16,8 @@ use super::{
     append_lowered_list_element, append_lowered_map_literal, lowered_map_literal_key,  apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
     lowered_freeze_large_slot_list, lowered_match_no_arm,
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
-    lowered_result_err_value, lowered_result_ok, lowered_return_value, lowered_splice_arg_items,
-    lowered_str_parts, lowered_value_from_runtime_any, lowered_value_satisfies_require,
+    lowered_return_value, lowered_splice_arg_items,
+    lowered_str_parts, lowered_value_from_runtime_any, 
     push_lowered_fmt_value, push_lowered_native_fmt_value, capture_checked_error,
 };
 
@@ -2638,22 +2638,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::Require { check, span, next } => match value {
                 FrameValue::Value(value) => {
-                    let value =
-                        if lowered_value_satisfies_require(self.evaluator, &value, &check.ty) {
-                            lowered_result_ok(value)
-                        } else {
-                            lowered_result_err_value(
-                                RuntimeError::new(
-                                    "schema",
-                                    format!(
-                                        "schema check failed: expected {}, found {}",
-                                        check.name,
-                                        value.type_name()
-                                    ),
-                                )
-                                .with_span(span),
-                            )
-                        };
+                    let value = super::super::super::require::require_value(self.evaluator, value, &check, span);
                     self.push_value(index, FrameValue::Value(value), *next);
                 }
                 FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),

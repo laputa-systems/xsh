@@ -774,3 +774,12 @@ empty contexts, absent versus null, nested COW updates, and JSON rejection:
 `target/debug/xsht test --jobs 1 tests/xsh/typed-map-keys.xsh`; broaden with native
 stdlib map/collections, syntax and semantics Rust gates, indexed verifier tests,
 and xsht formatter/lint/grep integration coverage.
+
+## Str-backed enum boundaries
+
+`target/debug/xsht test --jobs 1 tests/xsh/wire-enums.xsh` covers constant
+mappings, nested JSON conversion, atomic rejection, nominal imports, ordinary
+enum rejection, and constructor-only defaults. Run the indexed verifier gate
+and `cargo test -p xsht --test api api_core_enums` for pool validity, both runtime
+routes after frontend drop, and API example lookup. System report codec changes
+also require the JSON golden and rejection cases in `tests/xsh/system-report.xsh`.

@@ -1058,6 +1058,7 @@ fn lower_command_word_reference(
     span: Span,
     scratch: &Rc<RefCell<BuildScratch>>,
     constants: &crate::sema::constants::PreparedConstants,
+    wire_enums: &crate::sema::wire_enums::PreparedWireEnums,
     namespace: Option<Name>,
 ) -> Option<BuildExprId> {
     let (root, segments) = parse_command_word_reference(text)?;
@@ -1067,7 +1068,7 @@ fn lower_command_word_reference(
         let origin = constants.origins.get(initializer).copied().unwrap_or(*initializer);
         let cached = scratch.borrow().prepared_constants.get(&origin).cloned();
         let value = if let Some(value) = cached { value } else {
-            let value = lower_literal_constant(constants.values.get(initializer)?)?;
+            let value = lower_literal_constant(constants.values.get(initializer)?, Some(wire_enums))?;
             scratch.borrow_mut().prepared_constants.insert(origin, value.clone());
             value
         };
@@ -2998,11 +2999,11 @@ fn compact_module_exports_for_use(
     Some(exports)
 }
 
-fn lower_literal_constant(value: &crate::sema::constants::LiteralConstant) -> Option<LoweredValue> {
+fn lower_literal_constant(value: &crate::sema::constants::LiteralConstant, enums: Option<&crate::sema::wire_enums::PreparedWireEnums>) -> Option<LoweredValue> {
     use crate::sema::constants::LiteralConstant as C;
     Some(match value {
         C::Regex(literal) => LoweredValue::Regex(Box::new(RegexValue { pattern: literal.pattern.to_string(), regex: literal.prepared.get()?.as_ref().ok()?.clone() })),
-        C::Tag { variant, fields, .. } => LoweredValue::Tag(Box::new(super::LoweredTagValue { name: Arc::from(variant.as_str().as_str()), fields: fields.iter().map(lower_literal_constant).collect::<Option<Vec<_>>>()? })),
+        C::Tag { family, variant, fields } => LoweredValue::Tag(Box::new(super::LoweredTagValue { type_name: *family, wire: enums.and_then(|enums| enums.mappings.get(family)).cloned(), name: Arc::from(variant.as_str().as_str()), fields: fields.iter().map(|value| lower_literal_constant(value, enums)).collect::<Option<Vec<_>>>()? })),
         C::Null => LoweredValue::Null,
         C::Bool(value) => LoweredValue::Bool(*value),
         C::Int(value) => LoweredValue::Int(*value),
@@ -3012,9 +3013,9 @@ fn lower_literal_constant(value: &crate::sema::constants::LiteralConstant) -> Op
         C::Bytes(value) => LoweredValue::Bytes(value.clone()),
         C::Path(value) => LoweredValue::Path(PathValue::from_text(value).ok()?),
         C::EmptyMap => LoweredValue::Map(Arc::new(BTreeMap::new())),
-        C::Map(values) => LoweredValue::Map(Arc::new(values.iter().map(|(key, value)| Some((key.clone(), lower_literal_constant(value)?))).collect::<Option<BTreeMap<_, _>>>()?)),
-        C::List(values) => LoweredValue::SharedList(Arc::new(values.iter().map(lower_literal_constant).collect::<Option<Vec<_>>>()?)),
-        C::Record(values) => LoweredValue::Record(Arc::new(values.iter().map(|(name, value)| Some((Arc::<str>::from(name.as_str().as_str()), lower_literal_constant(value)?))).collect::<Option<BTreeMap<_, _>>>()?)),
+        C::Map(values) => LoweredValue::Map(Arc::new(values.iter().map(|(key, value)| Some((key.clone(), lower_literal_constant(value, enums)?))).collect::<Option<BTreeMap<_, _>>>()?)),
+        C::List(values) => LoweredValue::SharedList(Arc::new(values.iter().map(|value| lower_literal_constant(value, enums)).collect::<Option<Vec<_>>>()?)),
+        C::Record(values) => LoweredValue::Record(Arc::new(values.iter().map(|(name, value)| Some((Arc::<str>::from(name.as_str().as_str()), lower_literal_constant(value, enums)?))).collect::<Option<BTreeMap<_, _>>>()?)),
     })
 }
 
@@ -3050,7 +3051,7 @@ fn lower_const_param_default(
     }
     if let Some(constant) = crate::sema::constants::LiteralConstant::analyze(arena, expr, &FxHashMap::default()) {
         let constant = if let Some(expected) = expected { constant.in_type(expected) } else { constant };
-        let value = lower_literal_constant(&constant)?;
+        let value = lower_literal_constant(&constant, None)?;
         return lowered_value_matches(kind, &value).then_some(value);
     }
     let value = match arena.expr(expr).kind {
@@ -4583,6 +4584,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             .unwrap_or(LoweredType::Any);
         if lowered_type_needs_static_check(kind) || matches!(checked_ty, Some(Type::UInt)) {
             let check = LoweredTypeCheck {
+                schema: None,
                 ty: checked_ty.cloned().unwrap_or_else(|| {
                     compact_runtime_type_in_namespace(&self.program.arena, ty, self.declarations, self.current_namespace)
                 }),
@@ -7281,7 +7283,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if let [ArenaWordPart::Bare(text)] = parts.as_slice() {
                     let text = self.bare_text_value_in_span(text, span)?;
                     if let Some(value) =
-                        lower_command_word_reference(text, slots, span, &self.scratch, &self.declarations.prepared_constants, self.current_namespace)
+                        lower_command_word_reference(text, slots, span, &self.scratch, &self.declarations.prepared_constants, &self.declarations.wire_enums, self.current_namespace)
                     {
                         return Some(value);
                     }
@@ -7880,7 +7882,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             let origin = self.declarations.prepared_constants.origins.get(&id).copied().unwrap_or(id);
             let cached = self.scratch.borrow().prepared_constants.get(&origin).cloned();
             let value = if let Some(value) = cached { value } else {
-                let value = lower_literal_constant(value)?;
+                let value = lower_literal_constant(value, Some(&self.declarations.wire_enums))?;
                 self.scratch.borrow_mut().prepared_constants.insert(origin, value.clone());
                 value
             };
@@ -8119,6 +8121,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                     BuildExprRow::Require {
                         value: self.lower_expr(value, slots, current_function, item_slot)?,
                         check: LoweredTypeCheck {
+                            schema: Some(self.prepared_schema(compact_runtime_type_in_namespace(
+                                &self.program.arena, schema, self.declarations, self.current_namespace,
+                            ))),
                             ty: compact_runtime_type_in_namespace(
                                 &self.program.arena,
                                 schema,
@@ -8298,6 +8303,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::Tag {
+                            type_name: self.compact_tag_type_name(Name::intern(format!("{module}.{name}")))?,
+                            wire: self.compact_tag_wire(Name::intern(format!("{module}.{name}"))),
                             name: Arc::<str>::from(name.as_str().as_str()),
                             fields: Default::default(),
                         }
@@ -9447,7 +9454,7 @@ impl CompactLowerConstructProbe<'_, '_> {
     fn lower_record_default(&mut self, value: &crate::sema::constants::LiteralConstant) -> Option<BuildExprId> {
         use crate::sema::constants::LiteralConstant as C;
         let row = match value {
-            C::Regex(_) | C::Tag { .. } => BuildExprRow::PreparedConstant(super::PreparedConstantValue(lower_literal_constant(value)?)),
+            C::Regex(_) | C::Tag { .. } => BuildExprRow::PreparedConstant(super::PreparedConstantValue(lower_literal_constant(value, Some(&self.declarations.wire_enums))?)),
             C::Null => BuildExprRow::Null,
             C::Bool(value) => BuildExprRow::Bool(*value),
             C::Int(value) => BuildExprRow::Int(*value),
@@ -9457,7 +9464,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             C::Bytes(value) => BuildExprRow::Bytes(value.clone()),
             C::Path(value) => BuildExprRow::Path(PathValue::from_text(value).ok()?),
             C::EmptyMap => BuildExprRow::EmptyMap,
-            C::Map(_) => BuildExprRow::PreparedConstant(super::PreparedConstantValue(lower_literal_constant(value)?)),
+            C::Map(_) => BuildExprRow::PreparedConstant(super::PreparedConstantValue(lower_literal_constant(value, Some(&self.declarations.wire_enums))?)),
             C::List(values) => BuildExprRow::List(values.iter().map(|value| self.lower_record_default(value)).collect::<Option<Vec<_>>>()?),
             C::Record(values) => BuildExprRow::Record(values.iter().map(|(name, value)| Some(LoweredRecordEntry::Field(*name, self.lower_record_default(value)?))).collect::<Option<Vec<_>>>()?),
         };
@@ -9504,6 +9511,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             let value = push_build_row!(self, expr, BuildExprRow::Record(fields));
             let check = LoweredTypeCheck {
+                schema: None,
                 ty: schema,
                 name: self.program.arena.type_def(definition).name.as_str().to_string().into(),
             };
@@ -9565,6 +9573,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                             self,
                             expr,
                             BuildExprRow::Tag {
+                                type_name: self.compact_tag_type_name(Name::intern(format!("{module}.{name}")))?,
+                                wire: self.compact_tag_wire(Name::intern(format!("{module}.{name}"))),
                                 name: Arc::<str>::from(name.as_str().as_str()),
                                 fields,
                             }
@@ -10776,6 +10786,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::Tag {
+                            type_name: self.compact_tag_type_name(name)?,
+                            wire: self.compact_tag_wire(name),
                             name: Arc::<str>::from(name.as_str().as_str()),
                             fields,
                         }
@@ -11244,7 +11256,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         if let Some(origin) = prepared.tail_bindings.get(&self.program.arena.stmt(statement).span) {
             let cached = self.scratch.borrow().prepared_constants.get(origin).cloned();
             let value = if let Some(value) = cached { value } else {
-                let value = lower_literal_constant(prepared.values.get(origin)?)?;
+                let value = lower_literal_constant(prepared.values.get(origin)?, Some(&self.declarations.wire_enums))?;
                 self.scratch.borrow_mut().prepared_constants.insert(*origin, value.clone());
                 value
             };
@@ -11274,11 +11286,14 @@ impl CompactLowerConstructProbe<'_, '_> {
                         }
                     ));
                 }
-                (self.compact_tag_variant_arity(name) == Some(0)).then(|| {
+                if self.compact_tag_variant_arity(name) != Some(0) { return None; }
+                Some({
                     push_build_row!(
                         self,
                         expr,
                         BuildExprRow::Tag {
+                            type_name: self.compact_tag_type_name(name)?,
+                            wire: self.compact_tag_wire(name),
                             name: Arc::<str>::from(name.as_str().as_str()),
                             fields: Default::default(),
                         }
@@ -12234,6 +12249,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
+        let Type::Tag(type_name) = self.infer_checked_expr_type_with_slots(value, slots)? else { return None; };
+        if self.declarations.wire_enums.mappings.contains_key(&type_name) { return None; }
         let arms = self.program.arena.match_arms(arms).to_vec();
         let mut lowered_arms = FxHashMap::default();
         let mut fallback = None;
@@ -12286,6 +12303,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildStmtId> {
+        let Type::Tag(type_name) = self.infer_checked_expr_type_with_slots(value, slots)? else { return None; };
+        if self.declarations.wire_enums.mappings.contains_key(&type_name) { return None; }
         let arms = self.program.arena.match_arms(arms).to_vec();
         let mut lowered_arms = FxHashMap::default();
         let mut fallback = None;
@@ -12328,6 +12347,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
+        let Type::Tag(type_name) = self.infer_checked_expr_type_with_slots(value, slots)? else { return None; };
+        if self.declarations.wire_enums.mappings.contains_key(&type_name) { return None; }
         let arms = self.program.arena.match_expr_arms(arms).to_vec();
         let mut lowered_arms = FxHashMap::default();
         let mut fallback = None;
@@ -12604,7 +12625,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                 }
                 if self.compact_tag_variant_arity(*name) == Some(0) {
-                    Some((push_build_row!(self, pattern, BuildPatternRow::Tag { name: compact_pattern_tag_name(*name), slots: Default::default() }), Vec::new()))
+                    Some((push_build_row!(self, pattern, BuildPatternRow::Tag { type_name: self.compact_tag_type_name(*name)?, name: compact_pattern_tag_name(*name), slots: Default::default() }), Vec::new()))
                 } else {
                     let ty = if let Some(facet) = self.compact_qualified_pattern_facet(*name) {
                         Type::ErrorFacet(facet)
@@ -12618,7 +12639,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         } else {
                             self.declarations.tag_variants_by_name.iter().filter_map(|(name, info)| (info.type_name == type_name).then_some(*name)).collect()
                         };
-                        Some((push_build_row!(self, pattern, BuildPatternRow::TagType { variants }), Vec::new()))
+                        Some((push_build_row!(self, pattern, BuildPatternRow::TagType { type_name, variants }), Vec::new()))
                     } else {
                         Some((push_build_row!(self, pattern, BuildPatternRow::Type { ty, slot: None }), Vec::new()))
                     }
@@ -12664,6 +12685,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         pattern,
                         BuildPatternRow::Tag {
+                            type_name: self.compact_tag_type_name(*name)?,
                             name: compact_pattern_tag_name(*name),
                             slots: Default::default(),
                         }
@@ -12713,7 +12735,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaPatternKind::ErrorVariant { family, variant, fields } => {
                 let qualified = Name::intern(format!("{family}.{variant}"));
                 if fields.len == 0 && self.compact_tag_variant_arity(qualified) == Some(0) {
-                    return Some((push_build_row!(self, pattern, BuildPatternRow::Tag { name: *variant, slots: Default::default() }), Vec::new()));
+                    return Some((push_build_row!(self, pattern, BuildPatternRow::Tag { type_name: self.compact_tag_type_name(qualified)?, name: *variant, slots: Default::default() }), Vec::new()));
                 }
                 let family = self.compact_pattern_error_family(*family).map_or(*family, |(family, _)| family);
                 let mut lowered = Vec::new();
@@ -12755,7 +12777,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         fields.push(field);
                         cleanup.extend(bindings);
                     }
-                    return Some((push_build_row!(self, pattern, BuildPatternRow::TagTest { name: compact_pattern_tag_name(*name), fields }), cleanup));
+                    return Some((push_build_row!(self, pattern, BuildPatternRow::TagTest { type_name: self.compact_tag_type_name(*name)?, name: compact_pattern_tag_name(*name), fields }), cleanup));
                 }
                 if name == "Err"
                     && let Some(arg) = arg
@@ -12829,6 +12851,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         pattern,
                         BuildPatternRow::Tag {
+                            type_name: self.compact_tag_type_name(*name)?,
                             name: compact_pattern_tag_name(*name),
                             slots: field_slots,
                         }
@@ -13111,6 +13134,27 @@ impl CompactLowerConstructProbe<'_, '_> {
         self.declarations.qualified_error_families.iter().any(|(key, info)| key.namespace == namespace && info.variants.values().any(|variant| variant.facets.contains(&facet))).then_some(facet)
     }
 
+    fn prepared_schema(&self, ty: Type) -> Arc<super::require::PreparedSchema> {
+        if let Some(schema) = self.scratch.borrow().prepared_schemas.iter().find_map(|(prepared, schema)| (*prepared == ty).then(|| schema.clone())) {
+            return schema;
+        }
+        let schema = super::require::PreparedSchema::compile(&ty, &self.declarations.wire_enums);
+        self.scratch.borrow_mut().prepared_schemas.push((ty, schema.clone()));
+        schema
+    }
+
+    fn compact_tag_type_name(&self, name: Name) -> Option<Name> {
+        if let Some((namespace, member)) = name.as_str().rsplit_once('.') {
+            return self.declarations.qualified_tag_variants.get(&self.compact_qualified_function_key(Name::intern(namespace), Name::intern(member))).map(|variant| variant.type_name);
+        }
+        self.current_namespace.and_then(|namespace| self.declarations.qualified_tag_variants.get(&QualifiedName::new(namespace, name)))
+            .or_else(|| self.declarations.tag_variants_by_name.get(&name)).map(|variant| variant.type_name)
+    }
+
+    fn compact_tag_wire(&self, name: Name) -> Option<Arc<crate::sema::wire_enums::WireEnumMapping>> {
+        self.declarations.wire_enums.mappings.get(&self.compact_tag_type_name(name)?).cloned()
+    }
+
     fn compact_tag_variant_arity(&self, name: Name) -> Option<usize> {
         if let Some((namespace, member)) = name.as_str().rsplit_once('.') {
             return self.compact_qualified_tag_variant_arity(Name::intern(namespace), Name::intern(member));
@@ -13374,6 +13418,7 @@ fn compact_type_check(
     namespace: Option<Name>,
 ) -> Option<LoweredTypeCheck> {
     lowered_type_needs_static_check(kind).then(|| LoweredTypeCheck {
+                schema: None,
         ty: compact_runtime_type_in_namespace(arena, ty, declarations, namespace),
         name: compact_type_expr_name(arena, ty),
     })

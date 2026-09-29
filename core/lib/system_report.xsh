@@ -2,47 +2,47 @@
 let max_cpu_list_identifiers = 65536
 
 ## Describes the outcome for one observed value or field.
-export enum ObservationState {
-    Observed,
-    Absent,
-    Unsupported,
-    PermissionDenied,
-    NotRequested,
-    Redacted,
-    Malformed,
-    Disappeared,
-    Raced,
-    Truncated,
-    RangeFailure,
-    ReadFailure,
+export enum ObservationState: Str {
+  Observed = "observed",
+  Absent = "absent",
+  Unsupported = "unsupported",
+  PermissionDenied = "permission_denied",
+  NotRequested = "not_requested",
+  Redacted = "redacted",
+  Malformed = "malformed",
+  Disappeared = "disappeared",
+  Raced = "raced",
+  Truncated = "truncated",
+  RangeFailure = "range_failure",
+  ReadFailure = "read_failure",
 }
 
 ## Describes whether a section's requested enumeration completed.
-export enum SectionState {
-    Complete,
-    Partial,
-    SectionAbsent,
-    SectionUnsupported,
-    SectionPermissionDenied,
-    SectionNotRequested,
-    SectionRedacted,
-    SectionMalformed,
-    SectionDisappeared,
-    SectionRaced,
-    SectionTruncated,
+export enum SectionState: Str {
+  Complete = "complete",
+  Partial = "partial",
+  SectionAbsent = "absent",
+  SectionUnsupported = "unsupported",
+  SectionPermissionDenied = "permission_denied",
+  SectionNotRequested = "not_requested",
+  SectionRedacted = "redacted",
+  SectionMalformed = "malformed",
+  SectionDisappeared = "disappeared",
+  SectionRaced = "raced",
+  SectionTruncated = "truncated",
 }
 
 ## Failures returned by report parsing, selection, and schema validation.
 export error SystemReportError = InvalidCpuList(message: Str) | InvalidSection(message: Str) | InvalidJson(message: Str) | UnsupportedSchema(version: Int, message: Str) | InvalidProcStat(message: Str) | InvalidExecutionUnits(message: Str) | DryRun(message: Str) | UnsupportedPlatform(message: Str)
 
 ## Identifies whether observations came from a live host or a replay source.
-export enum SourceMode {
-    LiveLinux,
-    Replay,
-    SyntheticFixture,
-    CapturedReplay,
-    ContainerLive,
-    PhysicalLive,
+export enum SourceMode: Str {
+  LiveLinux = "live_linux",
+  Replay = "replay",
+  SyntheticFixture = "synthetic_fixture",
+  CapturedReplay = "captured_replay",
+  ContainerLive = "container_live",
+  PhysicalLive = "physical_live",
 }
 
 ## Stores text with its observation status and optional original bytes.
@@ -1449,20 +1449,9 @@ pure observation_state_json(state: ObservationState) -> Str {
 }
 
 pure observation_state_xsh(value: Str) -> Result[ObservationState] {
-  match value {
-    "observed" => return Ok(Observed)
-    "absent" => return Ok(Absent)
-    "unsupported" => return Ok(Unsupported)
-    "permission_denied" => return Ok(PermissionDenied)
-    "not_requested" => return Ok(NotRequested)
-    "redacted" => return Ok(Redacted)
-    "malformed" => return Ok(Malformed)
-    "disappeared" => return Ok(Disappeared)
-    "raced" => return Ok(Raced)
-    "truncated" => return Ok(Truncated)
-    "range_failure" => return Ok(RangeFailure)
-    "read_failure" => return Ok(ReadFailure)
-    _ => return Err(SystemReportError.InvalidJson(message: f"unknown observation state '${value}'"))
+  match value.require(ObservationState) {
+    Ok(state) => return Ok(state)
+    Err(_) => return Err(SystemReportError.InvalidJson(message: f"unknown observation state '${value}'"))
   }
 }
 
@@ -1483,19 +1472,9 @@ pure section_state_json(state: SectionState) -> Str {
 }
 
 pure section_state_xsh(value: Str) -> Result[SectionState] {
-  match value {
-    "complete" => return Ok(Complete)
-    "partial" => return Ok(Partial)
-    "absent" => return Ok(SectionAbsent)
-    "unsupported" => return Ok(SectionUnsupported)
-    "permission_denied" => return Ok(SectionPermissionDenied)
-    "not_requested" => return Ok(SectionNotRequested)
-    "redacted" => return Ok(SectionRedacted)
-    "malformed" => return Ok(SectionMalformed)
-    "disappeared" => return Ok(SectionDisappeared)
-    "raced" => return Ok(SectionRaced)
-    "truncated" => return Ok(SectionTruncated)
-    _ => return Err(SystemReportError.InvalidJson(message: f"unknown section state '${value}'"))
+  match value.require(SectionState) {
+    Ok(state) => return Ok(state)
+    Err(_) => return Err(SystemReportError.InvalidJson(message: f"unknown section state '${value}'"))
   }
 }
 
@@ -1511,14 +1490,9 @@ pure source_mode_json(mode: SourceMode) -> Str {
 }
 
 pure source_mode_xsh(value: Str) -> Result[SourceMode] {
-  match value {
-    "live_linux" => return Ok(LiveLinux)
-    "replay" => return Ok(Replay)
-    "synthetic_fixture" => return Ok(SyntheticFixture)
-    "captured_replay" => return Ok(CapturedReplay)
-    "container_live" => return Ok(ContainerLive)
-    "physical_live" => return Ok(PhysicalLive)
-    _ => return Err(SystemReportError.InvalidJson(message: f"unknown source mode '${value}'"))
+  match value.require(SourceMode) {
+    Ok(state) => return Ok(state)
+    Err(_) => return Err(SystemReportError.InvalidJson(message: f"unknown source mode '${value}'"))
   }
 }
 

@@ -949,6 +949,7 @@ fn lowered_compact_json_capacity(value: &LoweredValue) -> usize {
         LoweredValue::Float(value) => value.0.to_string().len(),
         LoweredValue::Str(value) => value.len() + 2,
         LoweredValue::StrView(value) => value.as_str().len() + 2,
+        LoweredValue::Tag(value) => value.wire_string().map_or(4, |text| text.len() + 2),
         LoweredValue::List(items) => lowered_compact_json_seq_capacity(items.iter()),
         LoweredValue::SharedList(items) => lowered_compact_json_seq_capacity(items.iter()),
         LoweredValue::Map(fields) => {
@@ -1085,6 +1086,10 @@ fn lowered_write_compact_json(
         }
         LoweredValue::Str(value) => lowered_write_json_str(value.as_ref(), output),
         LoweredValue::StrView(value) => lowered_write_json_str(value.as_str(), output),
+        LoweredValue::Tag(value) => {
+            let text = value.wire_string().ok_or_else(|| lowered_json_compatible_error(&LoweredValue::Tag(value.clone()), span))?;
+            lowered_write_json_str(text, output);
+        }
         LoweredValue::List(items) => lowered_write_json_seq(items.iter(), output, span)?,
         LoweredValue::SharedList(items) => lowered_write_json_seq(items.iter(), output, span)?,
         LoweredValue::Map(fields) => {
@@ -1295,6 +1300,8 @@ fn lowered_to_json(
         .with_span(span)),
         LoweredValue::Str(value) => Ok(json_module::raw_json_string(value.as_ref())),
         LoweredValue::StrView(value) => Ok(json_module::raw_json_string(value.as_str())),
+        LoweredValue::Tag(value) => value.wire_string().map(json_module::raw_json_string)
+            .ok_or_else(|| lowered_json_compatible_error(&LoweredValue::Tag(value.clone()), span)),
         LoweredValue::List(items) => {
             let mut values = Vec::with_capacity(items.len());
             for item in items {
@@ -1491,7 +1498,7 @@ fn validate_dynamic_module_top_level(
     Ok(())
 }
 
-fn lowered_value_satisfies_require(evaluator: &Evaluator, value: &LoweredValue, ty: &Type) -> bool {
+pub(super) fn lowered_value_satisfies_require(evaluator: &Evaluator, value: &LoweredValue, ty: &Type) -> bool {
     match (value, ty) {
         (LoweredValue::Module(module), Type::Module(exports)) => {
             lowered_module_matches_contract(evaluator, module, exports)
@@ -10337,7 +10344,7 @@ impl Evaluator {
         // the loading program prepared every applicable implementation before
         // execution started, and this module links its standard calls to those
         // already verified functions.
-        let (module_sources, parsed) = parse_load_entry_source_arena_only_with_linkage(
+        let (module_sources, mut parsed) = parse_load_entry_source_arena_only_with_linkage(
             &display_path,
             entry_source,
             Vec::new(),
@@ -10348,6 +10355,7 @@ impl Evaluator {
                 RuntimeError::new("module-load", "loaded module failed to parse").with_span(span),
             );
         }
+        parsed.arena.root_nominal_namespace = Some(Name::intern(&key));
         validate_dynamic_module_top_level(&parsed.arena, &display_path, span)?;
         let module_source_id = module_sources
             .files()
@@ -10445,11 +10453,12 @@ impl Evaluator {
         let harvest_text = Self::module_harvest_source(&parsed.arena, &module_text);
         let harvest_entry = crate::loader::entry_source_from_text(&display_path, harvest_text);
         let exported_let_names = self.module_namespace_export_let_names(&parsed.arena);
-        let (harvest_sources, harvest_parsed) = crate::loader::parse_load_entry_source_arena_only(
+        let (harvest_sources, mut harvest_parsed) = crate::loader::parse_load_entry_source_arena_only(
             &display_path,
             harvest_entry,
             Vec::new(),
         );
+        harvest_parsed.arena.root_nominal_namespace = Some(Name::intern(&key));
         let child_exports = if harvest_parsed.diagnostics.is_empty() {
             let harvest_source_id = harvest_sources
                 .files()

@@ -226,6 +226,7 @@ pub(super) struct ContractParam {
 
 #[derive(Clone, Debug)]
 pub(super) struct TagVariant {
+    type_name: Name,
     name: Name,
     fields: Vec<TypeAnnRef>,
 }
@@ -264,6 +265,7 @@ pub struct Checker {
     argument_projection_sources: FxHashMap<crate::syntax::arena::ExprId, crate::syntax::arena::ExprId>,
     record_constructors: RecordConstructors,
     prepared_constants: super::constants::PreparedConstants,
+    wire_enums: crate::sema::wire_enums::PreparedWireEnums,
     current_namespace: Option<Name>,
     scopes: Vec<FxHashMap<Name, Binding>>,
     procs: FxHashMap<Name, FunctionSig>,
@@ -466,6 +468,7 @@ impl Checker {
             argument_projection_sources: FxHashMap::default(),
             record_constructors: RecordConstructors::default(),
             prepared_constants: super::constants::PreparedConstants::default(),
+            wire_enums: crate::sema::wire_enums::PreparedWireEnums::default(),
             current_namespace: None,
             type_namespaces: FxHashMap::default(),
             tag_variants: FxHashMap::default(),
@@ -568,6 +571,10 @@ impl Checker {
         self.prepared_constants = super::constants::PreparedConstants::collect(program, &self.record_constructors);
         self.diagnostics.extend(self.prepared_constants.diagnostics.clone());
         self.record_constructors.apply_prepared_defaults(program, &self.prepared_constants);
+        let (wire_enums, wire_diagnostics) = crate::sema::wire_enums::PreparedWireEnums::prepare(program, |expr|
+            self.prepared_constants.analyze_expression(&program.arena, expr));
+        self.wire_enums = wire_enums;
+        self.diagnostics.extend(wire_diagnostics);
         self.collect_user_modules_arena(program, type_program.clone(), source);
         self.collect_type_imports_arena(program, program.statement_ids());
         self.collect_definitions_arena(program, type_program, source, program.statement_ids());

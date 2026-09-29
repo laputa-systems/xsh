@@ -21,6 +21,7 @@ use crate::syntax::node::{Effect, EnvGetKind};
 pub struct CompactDeclOutput {
     pub record_constructors: super::RecordConstructors,
     pub prepared_constants: crate::sema::constants::PreparedConstants,
+    pub wire_enums: crate::sema::wire_enums::PreparedWireEnums,
     pub diagnostics: Vec<Diagnostic>,
     pub function_return_types: BTreeMap<crate::source::Span, Type>,
     pub types: FxHashMap<Name, CompactTypeDefInfo>,
@@ -118,6 +119,10 @@ impl Checker {
             output.prepared_constants = crate::sema::constants::PreparedConstants::collect(program, &output.record_constructors);
             collector.diagnostics.extend(output.prepared_constants.diagnostics.clone());
             output.record_constructors.apply_prepared_defaults(program, &output.prepared_constants);
+            let (wire_enums, wire_diagnostics) = crate::sema::wire_enums::PreparedWireEnums::prepare(program, |expr|
+                output.prepared_constants.analyze_expression(&program.arena, expr));
+            output.wire_enums = wire_enums;
+            collector.diagnostics.extend(wire_diagnostics);
             output.diagnostics = collector.diagnostics;
             if let Some(checked) = inferred {
                 output.diagnostics.extend(checked.diagnostics.into_iter().filter(|diagnostic|
@@ -318,7 +323,7 @@ impl CompactDeclCollector {
                         ));
                     }
                     let info = TagVariantInfo {
-                        type_name: def.name,
+                        type_name: crate::sema::wire_enums::nominal_enum_name(namespace.or(program.root_nominal_namespace), def.name),
                         field_count: field_types.len(),
                         field_types,
                     };

@@ -265,6 +265,13 @@ impl<'a> Parser<'a> {
     ) -> Option<()> {
         self.bump();
         let name = self.expect_ident("expected enum name")?;
+        let wire_backed = self.consume(TokenKindMatch::Colon).is_some();
+        if wire_backed {
+            let backing = self.expect_ident("expected Str enum backing type")?;
+            if backing != "Str" {
+                self.diagnostic_previous("wire enums support only Str backing", "parse.enum-backing");
+            }
+        }
         self.expect(TokenKindMatch::LBrace, "expected `{` after enum name")?;
         self.skip_enum_trivia();
         let mut variants = Vec::new();
@@ -282,7 +289,18 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(TokenKindMatch::RParen, "expected `)` after enum payload types")?;
             }
-            variants.push(arena.build_tag_variant(variant_name, &fields, self.span(variant_start, self.previous_end())));
+            let wire_value = if wire_backed {
+                if !fields.is_empty() {
+                    self.diagnostic_previous("Str-backed enum variants cannot have payload fields", "parse.enum-wire-payload");
+                }
+                self.expect(TokenKindMatch::Equals, "every Str-backed enum variant requires `= constant_string`")?;
+                Some(self.parse_expr_id_arena_only(arena)?)
+            } else {
+                None
+            };
+            let mut variant = arena.build_tag_variant(variant_name, &fields, self.span(variant_start, self.previous_end()));
+            variant.wire_value = wire_value;
+            variants.push(variant);
             self.skip_enum_trivia();
             if self.consume(TokenKindMatch::Comma).is_none() { break; }
             self.skip_enum_trivia();

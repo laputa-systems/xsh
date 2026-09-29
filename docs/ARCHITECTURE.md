@@ -37,6 +37,11 @@ nominal tag constructor tables in the full and compact checkers.
 rows as aliases and schemas; indexed preparation and execution reuse tag values
 and constructor patterns. Legacy type-union recovery emits
 `parse.enum-migration` with token edits and remains a parse failure for execution.
+`sema/wire_enums.rs::PreparedWireEnums` shares each validated Str mapping by
+canonical declaring identity. Indexed tag constructors retain that identity and
+mapping after frontend drop. Explicit require lowers a cached `PreparedSchema`
+walk; both execution routes validate and convert a private value before returning
+it. The verifier checks mapping, schema, and constructor metadata before execution.
 
 ## Producer suspension and delegation
 

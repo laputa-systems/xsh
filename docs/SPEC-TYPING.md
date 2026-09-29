@@ -85,6 +85,11 @@ Parameterized types are `List[T]`, `Map[K, V]` (`Map[V]` means `Map[Str, V]`), `
 types. `enum Name { Variant, Payload(T) }` declares a nominal tag type,
 including single-variant types. `type Alias = Name` preserves that identity
 without creating constructors.
+A Str-backed enum such as `enum State: Str { Ready = "ready", Empty = "" }`
+remains nominal: neither Str assignment nor a type pattern performs conversion.
+Only explicit `.require(Schema)` maps exact declared strings into enum slots,
+recursively and atomically. The backing does not change constructor names or
+allow another enum with identical strings to satisfy the type.
 
 ## Assignability
 

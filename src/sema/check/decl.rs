@@ -144,7 +144,7 @@ impl Checker {
                         self.error(span, "duplicate top-level name", "check.duplicate-name");
                     }
                     self.check_enum_constructor_names(program, def, &mut names);
-                    let body = type_def_body_arena(type_program.clone(), def_id);
+                    let body = type_def_body_arena(type_program.clone(), def_id, self.current_namespace);
                     self.type_defs.insert(def.name, body.clone());
                     if let TypeDefBody::TagUnion(variants) = &body {
                         for variant in variants {
@@ -156,7 +156,7 @@ impl Checker {
                             self.tag_variants.insert(
                                 variant.name,
                                 TagVariantInfo {
-                                    type_name: def.name,
+                                    type_name: variant.type_name,
                                     field_count: variant.fields.len(),
                                     field_types,
                                 },
@@ -303,7 +303,7 @@ impl Checker {
                     }
                     self.check_enum_constructor_names(program, def, &mut names);
                     self.type_defs
-                        .insert(def.name, type_def_body_arena(type_program.clone(), def_id));
+                        .insert(def.name, type_def_body_arena(type_program.clone(), def_id, self.current_namespace));
                 }
                 ArenaStmtKind::ErrorDef(def_id) => {
                     let def = program.arena.error_def(def_id);
@@ -438,7 +438,7 @@ impl Checker {
                             self.check_type_def_arena(program, source, def, inner.span);
                             exports.types.insert(
                                 def.name,
-                                type_def_body_arena(type_program.clone(), def_id),
+                                type_def_body_arena(type_program.clone(), def_id, self.current_namespace),
                             );
                             exports
                                 .resolved_types
@@ -716,7 +716,7 @@ impl Checker {
                         self.tag_variants.insert(
                             variant.name,
                             TagVariantInfo {
-                                type_name: name,
+                                type_name: variant.type_name,
                                 field_count: variant.fields.len(),
                                 field_types,
                             },
@@ -736,7 +736,7 @@ impl Checker {
                             self.tag_variants.insert(
                                 variant.name,
                                 TagVariantInfo {
-                                    type_name: name,
+                                    type_name: variant.type_name,
                                     field_count: variant.fields.len(),
                                     field_types,
                                 },
@@ -803,6 +803,7 @@ fn binding_target_simple_name_arena(
 fn type_def_body_arena(
     program: Arc<ArenaProgram>,
     id: crate::syntax::arena::TypeDefId,
+    namespace: Option<Name>,
 ) -> TypeDefBody {
     let def = program.arena.type_def(id);
     match def.body {
@@ -856,6 +857,7 @@ fn type_def_body_arena(
                 .tag_variants(variants)
                 .iter()
                 .map(|variant| TagVariant {
+                    type_name: namespace.map_or_else(|| crate::sema::wire_enums::declaring_enum_name(&program, id), |namespace| crate::sema::wire_enums::nominal_enum_name(Some(namespace), program.arena.type_def(id).name)),
                     name: variant.name,
                     fields: program
                         .arena
@@ -1023,7 +1025,7 @@ impl Checker {
                     self.tag_variants.insert(
                         variant.name,
                         TagVariantInfo {
-                            type_name: def.name,
+                            type_name: crate::sema::wire_enums::nominal_enum_name(self.current_namespace.or(arena.root_nominal_namespace), def.name),
                             field_count: field_types.len(),
                             field_types,
                         },

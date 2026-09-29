@@ -50,6 +50,7 @@ use indexed::full::{FullBuilder, FullProgram};
 mod lowered_ops;
 use lowered_ops::{lowered_value_from_runtime, lowered_value_from_runtime_any};
 mod lowered_run;
+mod require;
 mod modules;
 mod net_job;
 mod process_handle;
@@ -477,6 +478,7 @@ build_id!(BuildTopStmtId);
 
 #[derive(Clone, Debug, Default)]
 struct BuildScratch {
+    prepared_schemas: Vec<(Type, Arc<require::PreparedSchema>)>,
     prepared_constants: FxHashMap<crate::syntax::arena::ExprId, LoweredValue>,
     expressions: Vec<BuildExprRow>,
     /// Checked Duration operands prohibit integer-only specialization even when
@@ -902,6 +904,7 @@ struct LoweredTopLevelBinding {
 
 #[derive(Clone, Debug)]
 struct LoweredTypeCheck {
+    schema: Option<Arc<require::PreparedSchema>>,
     ty: Type,
     name: Arc<str>,
 }
@@ -1433,8 +1436,10 @@ enum BuildExprRow {
         span: Span,
     },
     Tag {
+        type_name: Name,
         name: Arc<str>,
         fields: Vec<BuildExprId>,
+        wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
     },
     ListComp { value: BuildExprId, qualifiers: LoweredCompQualifiers, span: Span },
     MapComp { key: BuildExprId, value: BuildExprId, qualifiers: LoweredCompQualifiers, span: Span },
@@ -1763,10 +1768,10 @@ enum BuildPatternRow {
     Alias { pattern: BuildPatternId, slot: usize },
     Alternation { patterns: Vec<BuildPatternId> },
     List { elements: Vec<BuildPatternId>, rest: Option<BuildPatternId> },
-    TagType { variants: Vec<Name> },
+    TagType { type_name: Name, variants: Vec<Name> },
     RecordTest { fields: Box<Vec<(Name, BuildPatternId)>> },
     ResultTest { ok: bool, inner: BuildPatternId },
-    TagTest { name: Name, fields: Vec<BuildPatternId> },
+    TagTest { type_name: Name, name: Name, fields: Vec<BuildPatternId> },
     ErrorTest { family: Name, variant: Name, fields: Box<Vec<(Name, BuildPatternId)>> },
     Wildcard,
     // `name => …`: always matches, binds the scrutinee to `slot`.
@@ -1804,6 +1809,7 @@ enum BuildPatternRow {
         result_wrapped: bool,
     },
     Tag {
+        type_name: Name,
         name: Name,
         slots: BuildPatternIdSlots,
     },
@@ -2184,8 +2190,18 @@ enum LoweredValue {
 
 #[derive(Clone, Debug, PartialEq)]
 struct LoweredTagValue {
+    type_name: Name,
     name: Arc<str>,
     fields: Vec<LoweredValue>,
+    wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
+}
+
+impl LoweredTagValue {
+    fn wire_string(&self) -> Option<&str> {
+        let mapping = self.wire.as_ref()?;
+        if !self.fields.is_empty() || self.type_name != mapping.type_name { return None; }
+        mapping.variants.get(&Name::intern(self.name.as_ref())).map(AsRef::as_ref)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -2569,6 +2585,8 @@ impl LoweredValue {
                 Value::Map(map)
             }
             Self::Tag(value) => Value::Tag {
+                type_name: value.type_name,
+                wire: value.wire,
                 name: value.name,
                 fields: value
                     .fields
@@ -6546,7 +6564,7 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
         Type::ProcessHandle => matches!(value, Value::ProcessHandle(_)),
         Type::NetJob => matches!(value, Value::NetJob(_)),
         Type::Unit => matches!(value, Value::Unit),
-        Type::Tag(_) => matches!(value, Value::Tag { .. }),
+        Type::Tag(name) => matches!(value, Value::Tag { type_name, .. } if type_name == name),
         Type::Optional(inner) => {
             matches!(value, Value::Null) || value_matches_static_type(value, inner)
         }
@@ -6662,7 +6680,7 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         Type::Pure => matches!(value, LoweredValue::Pure(_)),
         Type::Proc => matches!(value, LoweredValue::Proc(_)),
         Type::Unit => matches!(value, LoweredValue::Unit),
-        Type::Tag(_) => matches!(value, LoweredValue::Tag(_)),
+        Type::Tag(name) => matches!(value, LoweredValue::Tag(tag) if tag.type_name == *name),
         Type::Optional(inner) => {
             matches!(value, LoweredValue::Null) || lowered_value_matches_static_type(value, inner)
         }

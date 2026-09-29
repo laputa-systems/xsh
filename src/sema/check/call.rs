@@ -161,7 +161,7 @@ impl Checker {
     }
 
     pub(super) fn expect_json_compatible(&mut self, ty: &Type, span: Span) {
-        if !ty.is_json_compatible() {
+        if !ty.is_json_compatible_with(&|name| self.wire_enums.mappings.contains_key(&name)) {
             self.error(
                 span,
                 "value is not JSON-compatible; convert Path, Bytes, Status, Result, and errors explicitly",

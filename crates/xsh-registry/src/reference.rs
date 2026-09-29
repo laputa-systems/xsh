@@ -874,7 +874,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "enums" => (
             "Declares nominal tagged unions with explicit enum bodies.",
-            "An enum has at least one variant, including a single payload variant. Constructors retain their declaration module namespace, payload typing, value equality, and exhaustive constructor patterns; they are not qualified by the enum name. A type alias preserves nominal identity without adding constructors. Exports, multiline bodies, and trailing commas are supported. Legacy type-union declarations produce parse.enum-migration and cannot execute; safe migration edits preserve variant order, payload annotations, and comments.",
+            "An enum has at least one variant, including a single payload variant. Constructors retain their declaration module namespace, payload typing, value equality, and exhaustive constructor patterns; they are not qualified by the enum name. A type alias preserves nominal identity without adding constructors. Str-backed payload-free enums declare unique constant wire strings, including empty strings. Explicit require(Schema) converts nested enum slots atomically; type patterns and ordinary assignment never convert Str. JSON encoding and writing emit declared strings while raw decoding remains untyped. Exports, multiline bodies, and trailing commas are supported. Legacy type-union declarations produce parse.enum-migration and cannot execute; safe migration edits preserve variant order, payload annotations, and comments.",
         ),
         "results" => (
             "Defines Result values and error families.",

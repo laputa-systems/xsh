@@ -14,3 +14,12 @@ match token {
   Present(text) => print $text
 }
 print ${jobs(Custom(4))}
+
+
+enum State: Str { Ready = "ready", Empty = "" }
+pure decode_state(text: Str) -> Result[State] {
+  return text.require(State)
+}
+pure encode_state(state: State) -> Result[Str] {
+  return json.encode(state)
+}

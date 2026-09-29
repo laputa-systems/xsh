@@ -489,6 +489,8 @@ pub struct ArenaProgram {
     pub arena: AstArena,
     pub statements: ArenaRange,
     pub modules: Vec<ArenaUserModule>,
+    /// A file loaded as a module keeps the same nominal identities as a static import.
+    pub root_nominal_namespace: Option<Name>,
     pub docs: ArenaDocComments,
     symbols: crate::symbol::SymbolOwner,
 }
@@ -2746,6 +2748,7 @@ impl<'a> ArenaProgramBuilder<'a> {
         ArenaTagVariant {
             name,
             fields,
+            wire_value: None,
             span: self.lowerer.span(span),
         }
     }
@@ -3176,6 +3179,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             arena: self.lowerer.arena,
             statements,
             modules: self.modules,
+            root_nominal_namespace: None,
             docs: self.docs,
             symbols: self.symbols,
         };
@@ -3194,6 +3198,7 @@ impl<'a> ArenaProgramBuilder<'a> {
             arena: self.lowerer.arena,
             statements,
             modules: self.modules,
+            root_nominal_namespace: None,
             docs: self.docs,
             symbols: self.symbols,
         };
@@ -4946,6 +4951,7 @@ pub enum ArenaModuleContractEntryKind {
 pub struct ArenaTagVariant {
     pub name: Name,
     pub fields: ArenaRange,
+    pub wire_value: Option<ExprId>,
     pub span: SpanId,
 }
 

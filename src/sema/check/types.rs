@@ -336,7 +336,7 @@ impl Checker {
                 }
                 Type::Module(exports)
             }
-            TypeDefBody::TagUnion(_) => Type::Tag(key),
+            TypeDefBody::TagUnion(variants) => Type::Tag(variants.first().map_or(key, |variant| variant.type_name)),
         };
         self.resolving_types.pop();
         ty

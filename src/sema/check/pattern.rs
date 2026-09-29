@@ -502,7 +502,8 @@ impl Checker {
         let Type::Tag(type_name) = value_ty else {
             return;
         };
-        let Some(body) = self.type_defs.get(type_name).cloned() else {
+        let Some(body) = self.type_defs.get(type_name).or_else(|| self.type_defs.values().find(|body|
+            matches!(body, TypeDefBody::TagUnion(variants) if variants.first().is_some_and(|variant| variant.type_name == *type_name)))).cloned() else {
             return;
         };
         let TypeDefBody::TagUnion(variants) = body else {

@@ -643,6 +643,9 @@ impl<'a> Writer<'a> {
             ArenaTypeDefBody::TagUnion(variants) => {
                 let variant_range = *variants;
                 let variants = self.arena.tag_variants(variant_range).to_vec();
+                if variants.iter().any(|variant| variant.wire_value.is_some()) {
+                    output.push_str(": Str");
+                }
                 let mut parts = Vec::new();
                 for v in &variants {
                     let mut part = v.name.as_str().to_string();
@@ -662,6 +665,10 @@ impl<'a> Writer<'a> {
                         }
                         part.push_str(&field_strs.join(", "));
                         part.push(')');
+                    }
+                    if let Some(value) = v.wire_value {
+                        part.push_str(" = ");
+                        self.write_expr_safe(value, &mut part);
                     }
                     parts.push(part);
                 }

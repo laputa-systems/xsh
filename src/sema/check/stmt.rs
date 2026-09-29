@@ -215,7 +215,8 @@ pub(super) fn patterns_are_exhaustive_arena(
         Type::List(_) => empty_list && nonempty_list,
         Type::Bool => booleans.iter().all(|value| *value),
         Type::Result(_, _) => constructors.contains(&Name::intern("Ok")) && constructors.contains(&Name::intern("Err")),
-        Type::Tag(name) => match type_defs.get(name) {
+        Type::Tag(name) => match type_defs.get(name).or_else(|| type_defs.values().find(|body|
+            matches!(body, TypeDefBody::TagUnion(variants) if variants.first().is_some_and(|variant| variant.type_name == *name)))) {
             Some(TypeDefBody::TagUnion(variants)) => variants.iter().all(|variant| constructors.contains(&variant.name)),
             _ => false,
         },

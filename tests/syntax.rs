@@ -3913,3 +3913,23 @@ fn named_argument_spread_preserves_source_spans_and_formatter_round_trips() {
     let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
     assert_eq!(second.formatted, formatted.formatted);
 }
+
+#[test]
+fn parser_and_formatter_preserve_wire_enum_constant_expressions() {
+    let source = "const prefix = \"rea\"\nenum State: Str {\n  # External spelling stays stable.\n  Ready = prefix + \"dy\",\n  Empty = \"\",\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.cst.get().exact_text(), source);
+    let ArenaStmtKind::TypeDef(id) = parsed.arena.arena.stmt(parsed.arena.statement_ids().nth(1).unwrap()).kind else { panic!("enum declaration") };
+    let ArenaTypeDefBody::TagUnion(variants) = parsed.arena.arena.type_def(id).body else { panic!("enum variants") };
+    assert!(parsed.arena.arena.tag_variants(variants).iter().all(|variant| variant.wire_value.is_some()));
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    for fragment in ["enum State: Str", "# External spelling stays stable.", "prefix + \"dy\"", "Empty = \"\""] {
+        assert!(formatted.formatted.contains(fragment), "{}", formatted.formatted);
+    }
+    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(second.formatted, formatted.formatted);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+}

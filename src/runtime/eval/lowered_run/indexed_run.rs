@@ -37,7 +37,7 @@ use super::{
     lowered_trace_error_from_value, lowered_trim_is_empty_value, lowered_trim_str_predicate_value,
     lowered_type_name, lowered_unit_result, lowered_value_argv_len, lowered_value_from_runtime,
     lowered_value_from_runtime_any, lowered_value_matches_static_type,
-    lowered_value_satisfies_require, new_temp_fs_root, path_bytes, push_lowered_display,
+    new_temp_fs_root, path_bytes, push_lowered_display,
     push_lowered_fmt_value, push_lowered_native_fmt_value, read_host_path_bytes, read_host_path_bytes_vec, root_path_from_dir,
     run_pipeline_inherit_with_policy, runtime_error_from_value, splice_to_argv,
     structured_error_constructor, value_matches_static_type, value_to_argv_bytes,
@@ -1176,8 +1176,9 @@ impl Evaluator {
             .map_err(|error| indexed_error(error, span))?;
         let matched = match tag {
             FullPatternTag::TagType => {
+                let type_name = indexed_decode::<Name>(&mut payload, execution, span)?;
                 let variants = indexed_decode::<Vec<Name>>(&mut payload, execution, span)?;
-                matches!(value, LoweredValue::Tag(value) if variants.iter().any(|name| value.name.as_ref() == name.as_str()))
+                matches!(value, LoweredValue::Tag(value) if value.type_name == type_name && variants.iter().any(|name| value.name.as_ref() == name.as_str()))
             }
             FullPatternTag::RecordTest => {
                 let fields = Self::decode_indexed_pattern_fields(&mut payload, execution, span)?;
@@ -1202,6 +1203,7 @@ impl Evaluator {
                 }
             }
             FullPatternTag::TagTest => {
+                let type_name = indexed_decode::<Name>(&mut payload, execution, span)?;
                 let name = indexed_decode::<Name>(&mut payload, execution, span)?;
                 let (_, mut patterns) = execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
                 let count = indexed_raw(&mut patterns, span)? as usize;
@@ -1209,7 +1211,7 @@ impl Evaluator {
                 for _ in 0..count { fields.push(indexed_raw(&mut patterns, span)?); }
                 indexed_finish(patterns, span)?;
                 if let LoweredValue::Tag(value) = value {
-                    let mut matched = value.name.as_ref() == name.as_str() && value.fields.len() == fields.len();
+                    let mut matched = value.type_name == type_name && value.name.as_ref() == name.as_str() && value.fields.len() == fields.len();
                     if matched {
                         for (pattern, value) in fields.iter().zip(&value.fields) {
                             if !Self::indexed_pattern_match_pass(execution, *pattern, value, slots, span, bind)? { matched = false; break; }
@@ -1388,6 +1390,7 @@ impl Evaluator {
                 lowered_error_value_has_facet(error, &facet.as_str())
             }
             FullPatternTag::Tag => {
+                let type_name = indexed_decode::<Name>(&mut payload, execution, span)?;
                 let name = indexed_decode::<Name>(&mut payload, execution, span)?;
                 let field_count = indexed_raw(&mut payload, span)? as usize;
                 let mut field_slots = SmallVec::<[Option<usize>; 2]>::with_capacity(field_count);
@@ -1402,7 +1405,7 @@ impl Evaluator {
                     indexed_finish(payload, span)?;
                     return Ok(false);
                 };
-                if value.name.as_ref() != name.as_str() || value.fields.len() != field_slots.len() {
+                if value.type_name != type_name || value.name.as_ref() != name.as_str() || value.fields.len() != field_slots.len() {
                     false
                 } else {
                     for (slot, field) in field_slots.iter().zip(&value.fields) {
@@ -3348,12 +3351,12 @@ impl Evaluator {
                 ControlFlow::Continue(LoweredValue::List(values))
             }
             FullTag::ExprTag => {
+                let type_name = indexed_decode::<Name>(&mut payload, execution, call_span)?;
                 let name = indexed_decode::<Arc<str>>(&mut payload, execution, call_span)?;
                 let (_, mut fields) = execution
                     .block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, call_span))?;
                 let len = indexed_raw(&mut fields, call_span)? as usize;
-                indexed_finish(payload, call_span)?;
                 let mut values = Vec::with_capacity(len);
                 for _ in 0..len {
                     let field = indexed_raw(&mut fields, call_span)?;
@@ -3363,7 +3366,11 @@ impl Evaluator {
                     }
                 }
                 indexed_finish(fields, call_span)?;
+                let wire = indexed_decode::<Option<Arc<crate::sema::wire_enums::WireEnumMapping>>>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
                 ControlFlow::Continue(LoweredValue::Tag(Box::new(LoweredTagValue {
+                    type_name,
+                    wire,
                     name,
                     fields: values,
                 })))
@@ -5545,23 +5552,7 @@ impl Evaluator {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                ControlFlow::Continue(
-                    if lowered_value_satisfies_require(self, &value, &check.ty) {
-                        lowered_result_ok(value)
-                    } else {
-                        lowered_result_err_value(
-                            RuntimeError::new(
-                                "schema",
-                                format!(
-                                    "schema check failed: expected {}, found {}",
-                                    check.name,
-                                    value.type_name()
-                                ),
-                            )
-                            .with_span(span),
-                        )
-                    },
-                )
+                ControlFlow::Continue(super::super::require::require_value(self, value, &check, span))
             }
             FullTag::ExprCapture => {
                 let body = indexed_raw(&mut payload, call_span)?;

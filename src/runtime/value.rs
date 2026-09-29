@@ -882,7 +882,12 @@ pub enum Value {
     ProcessHandle(Box<ProcessHandleValue>),
     NetJob(Box<NetJobValue>),
     Unit,
-    Tag { name: Arc<str>, fields: Vec<Value> },
+    Tag {
+        type_name: Name,
+        name: Arc<str>,
+        fields: Vec<Value>,
+        wire: Option<Arc<crate::sema::wire_enums::WireEnumMapping>>,
+    },
 }
 
 impl Value {

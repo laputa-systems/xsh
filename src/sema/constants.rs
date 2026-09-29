@@ -155,6 +155,7 @@ pub struct RecordConstructors {
     exports: FxHashSet<(Option<Name>, Name)>,
     error_types: FxHashMap<(Option<Name>, Name), Type>,
     namespaces: FxHashMap<TypeDefId, Option<Name>>,
+    nominal_names: FxHashMap<TypeDefId, Name>,
     defaults: FxHashMap<TypeDefId, BTreeMap<Name, LiteralConstant>>,
 }
 
@@ -183,6 +184,7 @@ impl RecordConstructors {
                     let name = program.arena.type_def(id).name;
                     self.definitions.insert((namespace, name), id);
                     self.namespaces.insert(id, namespace);
+                    self.nominal_names.insert(id, crate::sema::wire_enums::declaring_enum_name(program, id));
                     if exported { self.exports.insert((namespace, name)); }
                 }
                 ArenaStmtKind::ErrorDef(id) => {
@@ -333,7 +335,7 @@ impl RecordConstructors {
             ArenaTypeDefBody::RecordSchema(fields) => Type::Record(arena.schema_fields(fields).iter()
                 .map(|field| (field.name, self.annotation_type(arena, field.ty, namespace, depth + 1))).collect()),
             ArenaTypeDefBody::Alias(ty) => self.annotation_type(arena, ty, namespace, depth + 1),
-            ArenaTypeDefBody::TagUnion(_) => Type::Tag(arena.type_def(id).name),
+            ArenaTypeDefBody::TagUnion(_) => Type::Tag(self.nominal_names[&id]),
             ArenaTypeDefBody::ModuleContract(entries) => Type::Module(arena.module_contract_entries(entries).iter().map(|entry| {
                 let export = match entry.kind {
                     ArenaModuleContractEntryKind::Value(ty) => ModuleExportType::Value { ty: self.annotation_type(arena, ty, namespace, depth + 1), optional: entry.optional },
@@ -596,7 +598,7 @@ impl ConstantPreparation<'_> {
             if let ArenaTypeDefBody::TagUnion(variants) = arena.type_def(*definition).body {
                 for variant in arena.tag_variants(variants) {
                     if variant.name == name {
-                        return Some((*family, name, arena.extra_range(variant.fields).iter().map(|raw| TypeExprId::from_index(*raw as usize)).collect()));
+                        return Some((self.constructors.nominal_names[definition], name, arena.extra_range(variant.fields).iter().map(|raw| TypeExprId::from_index(*raw as usize)).collect()));
                     }
                 }
             }

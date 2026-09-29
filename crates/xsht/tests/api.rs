@@ -846,7 +846,7 @@ fn api_core_enums_documents_nominal_constructors_aliases_and_singletons() {
     let output = xsht(&["api", "language:core.enums"]);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let stdout = String::from_utf8(output.stdout).expect("API text");
-    for fragment in ["nominal", "module namespace", "parse.enum-migration", "enum Token { Present(Str) }", "type SelectedMode = Mode"] {
+    for fragment in ["nominal", "module namespace", "parse.enum-migration", "enum Token { Present(Str) }", "type SelectedMode = Mode", "enum State: Str", "atomically", "never convert Str"] {
         assert!(stdout.contains(fragment), "{stdout}");
     }
     let source = reference.docs.example.as_deref().expect("enum source example");

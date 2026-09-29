@@ -490,6 +490,10 @@ impl Type {
     }
 
     pub fn is_json_compatible(&self) -> bool {
+        self.is_json_compatible_with(&|_| false)
+    }
+
+    pub fn is_json_compatible_with(&self, wire_enum: &impl Fn(Name) -> bool) -> bool {
         match self {
             Self::Any
             | Self::Unknown
@@ -501,10 +505,11 @@ impl Type {
             | Self::Float
             | Self::Str => true,
             Self::List(item) | Self::Stream(item) | Self::Optional(item) => {
-                item.is_json_compatible()
+                item.is_json_compatible_with(wire_enum)
             }
-            Self::Map(key, value) => matches!(key.as_ref(), Self::Str) && value.is_json_compatible(),
-            Self::Record(fields) => fields.values().all(Self::is_json_compatible),
+            Self::Map(key, value) => matches!(key.as_ref(), Self::Str) && value.is_json_compatible_with(wire_enum),
+            Self::Record(fields) => fields.values().all(|ty| ty.is_json_compatible_with(wire_enum)),
+            Self::Tag(name) => wire_enum(*name),
             _ => false,
         }
     }

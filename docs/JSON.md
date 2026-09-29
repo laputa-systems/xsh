@@ -36,6 +36,23 @@ Prefer this whenever the script knows what it needs. It produces better errors,
 keeps field access ordinary, and avoids scattering dynamic checks through the
 program.
 
+## Enum Wire Strings
+
+```xsh
+enum State: Str { Ready = "ready", Empty = "" }
+type Packet = {state: State, history: List[State]}
+let packet = json.decode(input)?.require(Packet)?
+json.write(output, packet)?
+```
+
+A Str-backed enum declares one unique constant string per payload-free variant.
+JSON encoding and writing use those strings, including inside records and
+collections. Raw decoding still returns strings. Explicit `.require(Packet)`
+converts only enum slots, checks the whole value before returning it, reports
+unknown strings with field and index paths, and never fills missing defaults.
+Type patterns check existing enum values without conversion. Ordinary enums
+remain incompatible with JSON. `tests/xsh/wire-enums.xsh` covers these boundaries.
+
 ## Do Not Schema Every Temporary Value
 
 Do not invent a named type for every throwaway JSON fragment. Add a schema where
@@ -114,7 +131,7 @@ model application data.
 ## System Report Snapshots
 
 `core/lib/system_report.xsh::SystemReport` keeps observation, section, and
-source states as closed tag unions. JSON v1 uses the `SystemReportJson` wire
+source states as Str-backed nominal enums. JSON v1 uses the `SystemReportJson` wire
 schema and stable lower snake case strings for those union values. Use
 `encode_report_json` and `decode_report_json` at this boundary; the decoder
 rejects unknown state spellings and schema versions. The encoder applies the

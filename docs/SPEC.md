@@ -500,8 +500,8 @@ assign_stmt  = assign_target assign_op expr_or_run terminator ;
 assign_target = IDENT ("." FIELD_LABEL | "[" expr "]")* ;
 assign_op    = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
 type_def     = "type" IDENT "=" type_body terminator ;
-enum_def     = "enum" IDENT "{" enum_variant ("," enum_variant)* ","? "}" terminator ;
-enum_variant = IDENT ("(" (type_expr ("," type_expr)* ","?)? ")")? ;
+enum_def     = "enum" IDENT (":" "Str")? "{" enum_variant ("," enum_variant)* ","? "}" terminator ;
+enum_variant = IDENT ("(" (type_expr ("," type_expr)* ","?)? ")")? ("=" expr)? ;
 type_body    = type_expr | record_schema | module_contract ;
 record_schema = "{" schema_field ("," schema_field)* ","? "}" ;
 schema_field = FIELD_LABEL ":" type_expr ("=" expr)? ;
@@ -790,6 +790,19 @@ variants are called as functions: `Info`, `Stopped("disk full")`. Tag union
 values are matched with constructor patterns. When the matched value is a
 `Tag(T)` type and no arm is a wildcard or binding, the checker emits
 `check.non-exhaustive-match` for uncovered variants.
+
+`enum State: Str { Seen = "seen", Missing = "" }` declares a payload-free
+nominal enum with explicit wire strings. Every variant supplies a unique bounded
+constant Str; empty strings are allowed. Ordinary assignment never converts Str
+into an enum. Explicit `.require(Schema)` converts exact wire strings in enum
+slots recursively through records, lists, optional slots, and supported Map
+values, publishing a trusted value only after the complete schema succeeds.
+Unknown strings and mistyped values produce field/index-aware schema errors;
+missing fields are never filled from defaults. Type patterns test actual enum
+values without conversion. JSON encoding and writing emit declared strings,
+including nested occurrences; raw JSON decoding continues to return untyped data.
+Ordinary enums remain incompatible with JSON. This boundary does not widen
+CLI, environment, argv, or non-Str Map-key conversion.
 
 Runtime values are distinct by type:
 

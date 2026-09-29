@@ -895,8 +895,10 @@ pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Op
         (LoweredType::Module, Value::Module(value)) => lowered_module_from_runtime(value),
         (LoweredType::List, Value::List(value)) => lowered_list_from_runtime(value),
         (LoweredType::Map, Value::Map(value)) => lowered_map_from_runtime(value),
-        (LoweredType::Tag, Value::Tag { name, fields }) => {
+        (LoweredType::Tag, Value::Tag { type_name, name, fields, wire }) => {
             Some(LoweredValue::Tag(Box::new(LoweredTagValue {
+                type_name: *type_name,
+                wire: wire.clone(),
                 name: name.clone(),
                 fields: fields
                     .iter()
@@ -935,7 +937,9 @@ pub(super) fn lowered_value_from_runtime_any(value: &Value) -> Option<LoweredVal
         Value::Module(value) => lowered_module_from_runtime(value),
         Value::List(value) => lowered_list_from_runtime(value),
         Value::Map(value) => lowered_map_from_runtime(value),
-        Value::Tag { name, fields } => Some(LoweredValue::Tag(Box::new(LoweredTagValue {
+        Value::Tag { type_name, name, fields, wire } => Some(LoweredValue::Tag(Box::new(LoweredTagValue {
+            type_name: *type_name,
+            wire: wire.clone(),
             name: name.clone(),
             fields: fields
                 .iter()
