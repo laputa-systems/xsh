@@ -273,6 +273,7 @@ impl<'a> Parser<'a> {
         while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
         self.peek_tag(offset) == Some(TokenTag::Dot)
             || self.peek_tag(offset) == Some(TokenTag::RBrace)
+            || (self.peek_label_name(offset).is_some() && self.peek_tag(offset + 1) == Some(TokenTag::Colon))
             || (matches!(self.peek_tag(offset), Some(TokenTag::Ident | TokenTag::String))
                 && matches!(self.peek_tag(offset + 1), Some(TokenTag::Colon | TokenTag::Comma | TokenTag::RBrace)))
     }

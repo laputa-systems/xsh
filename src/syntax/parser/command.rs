@@ -820,9 +820,7 @@ impl<'a> Parser<'a> {
                     if self.peek_start(1) != Some(self.current_end()) {
                         break;
                     }
-                    let Some(name) = self
-                        .peek_name(1)
-                        .filter(|_| self.peek_tag(1) == Some(TokenTag::Ident))
+                    let Some(name) = self.peek_label_name(1)
                     else {
                         break;
                     };

@@ -58,10 +58,12 @@ proc test_value_match_preserves_record_literals() [error] {
   let shorthand = match 1 { _ => {field} }
   let named = match 1 { _ => {field: 10} }
   let quoted = match 1 { _ => {"run": 11} }
+  let keyword = match 1 { _ => {run: 12} }
   test.eq(empty, {})?
   test.eq(shorthand.field, 9)?
   test.eq(named.field, 10)?
   test.eq(quoted["run"], 11)?
+  test.eq(keyword.run, 12)?
 }
 
 proc value_block_return_keeps_function_target() [] -> Int {

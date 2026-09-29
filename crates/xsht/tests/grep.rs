@@ -282,3 +282,21 @@ fn grep_visits_delegated_source_expressions_with_original_spans() {
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     assert!(output_text(&output.stdout).contains("load(\"α\")"));
 }
+
+#[test]
+fn field_label_grep_and_refactor_preserve_keyword_key_identity() {
+    let root = TempDir::new().unwrap();
+    let file = root.path().join("labels.xsh");
+    fs::write(&file, "let bare = {type: \"file\"}\nlet quoted = {\"type\": \"file\"}\nlet different = {\"wire.type\": \"file\"}\nlet first = bare.type\nlet second = quoted.type\nprint $first $second\n").unwrap();
+    let output = grep_scripts("EXPR.type", &paths(&file));
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    let stdout = output_text(&output.stdout);
+    assert!(stdout.contains("2 matches"), "{stdout}");
+    assert!(!stdout.contains("wire.type"), "{stdout}");
+    let output = refactor_scripts("EXPR.type", "EXPR.type", &paths(&file), false);
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    let source = fs::read_to_string(&file).unwrap();
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert!(xsh::frontend::check::Checker::check_arena(&parsed.arena, &source).diagnostics.is_empty());
+}

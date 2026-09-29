@@ -467,19 +467,18 @@ var_stmt     = "var" binding_target type_ann? "=" expr_or_run terminator ;
 binding_target = IDENT | record_binding_target ;
 record_binding_target = "{"
                  (destructure_field ("," destructure_field)* ","?)? "}" ;
-destructure_field = IDENT (":" binding_target)? | ".." ;
+destructure_field = FIELD_LABEL ":" binding_target | IDENT | ".." ;
 assign_stmt  = assign_target assign_op expr_or_run terminator ;
-assign_target = IDENT ("." IDENT | "[" expr "]")* ;
+assign_target = IDENT ("." FIELD_LABEL | "[" expr "]")* ;
 assign_op    = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
 type_def     = "type" IDENT "=" type_body terminator ;
 type_body    = type_expr | record_schema | module_contract ;
 record_schema = "{" schema_field ("," schema_field)* ","? "}" ;
-schema_field = IDENT ":" type_expr ("=" expr)? ;
+schema_field = FIELD_LABEL ":" type_expr ("=" expr)? ;
 
-Record schema and literal field names are normally identifiers. A reserved word
-used as a field name is rejected with a diagnostic that names the word. Use a
-non-reserved field name in schemas; quoted string keys remain available for
-untyped record literals.
+`FIELD_LABEL` is an identifier or keyword token used as a label, rather than a
+lexical declaration. Field labels keep their exact spelling; quoted string
+keys remain available in record literals for arbitrary text.
 module_contract = "module" "{" module_contract_entry* "}" ;
 module_contract_entry = "export" "optional"? module_contract_kind terminator? ","? ;
 module_contract_kind = ("let")? IDENT ":" type_expr
@@ -539,7 +538,7 @@ pattern      = "_" | IDENT | type_pattern | literal | constructor_pattern
 type_pattern = ("_" | IDENT) "is" type ;
 constructor_pattern = IDENT "(" pattern? ")" ;
 record_pattern = "{" record_pattern_field ("," record_pattern_field)* ","? "}" ;
-record_pattern_field = IDENT (":" pattern)? | ".." ;
+record_pattern_field = FIELD_LABEL ":" pattern | IDENT | ".." ;
 list_pattern = "[" (pattern ("," pattern)* ("," list_rest)? | list_rest)? ","? "]" ;
 list_rest = ".." IDENT? ;
 ```
@@ -846,12 +845,12 @@ term         = factor (("+" | "-") factor)* ;
 factor       = unary (("*" | "/" | "%") unary)* ;
 unary        = ("!" | "-") unary | postfix ;
 postfix      = primary postfix_op* ;
-postfix_op   = "." IDENT | "." "require" "(" type_expr ")" | "?." IDENT
+postfix_op   = "." FIELD_LABEL | "." "require" "(" type_expr ")" | "?." FIELD_LABEL
              | "[" expr "]" | "[" expr? ".." expr? "]" | call_args | "?" ;
 call_args    = "(" arg_list? ")" ;
 arg_list     = arg ("," arg)* ","? ;
 arg          = expr | named_arg ;
-named_arg    = IDENT ":" expr? ;
+named_arg    = FIELD_LABEL ":" expr | IDENT ":" ;
 primary      = literal | IDENT | list_lit | record_lit | map_comp | if_expr | match_expr
              | retry_expr | run_form | spawn_form | wait_form | "(" expr ")" ;
 spawn_form   = "spawn" (run_form | expr) ;
@@ -887,7 +886,7 @@ list_lit     = "[" list_body "]" ;
 list_body    = (expr ("," expr)* ","?)?
              | expr comp_qualifiers ;
 record_lit   = "{" (record_field ("," record_field)* ","?)? "}" ;
-record_field = IDENT ":" expr | STRING ":" expr | IDENT ;
+record_field = FIELD_LABEL ":" expr | STRING ":" expr | IDENT ;
 
 Explicit field labels may use keyword spellings such as `type`, `in`, and
 `match`. This applies to record/error schemas and constructors, literal keys,
@@ -902,7 +901,7 @@ its existing validation boundary.
 map_comp     = "{" field_path ":" expr comp_qualifiers "}" ;
 comp_qualifiers = "for" binding_target "in" expr comp_qualifier* ;
 comp_qualifier = "for" binding_target "in" expr | "if" expr ;
-field_path   = IDENT ("." IDENT)* ;
+field_path   = FIELD_LABEL ("." FIELD_LABEL)* ;
 ```
 
 List and map comprehensions share a textual sequence of one or more `for`
@@ -1658,7 +1657,7 @@ word         = word_part+ ;
 word_part    = bare_word | STRING | interpolation | dollar_shorthand ;
 bare_word    = bare_char+ ;
 interpolation = "${" expr "}" ;
-dollar_shorthand = "$" IDENT ("." IDENT)* ;
+dollar_shorthand = "$" IDENT ("." FIELD_LABEL)* ;
 splice       = "@" (IDENT | "(" expr ")" | glob_literal) ;
 typed_arg    = "(" expr ")" | FMT_STRING | PATH_STRING | PATH_FMT_STRING
              | command_expr_chain ;

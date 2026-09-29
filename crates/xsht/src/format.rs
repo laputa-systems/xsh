@@ -1976,7 +1976,10 @@ impl<'a> Writer<'a> {
         let quoted = self
             .source
             .get(self.arena.span(span).range())
-            .is_some_and(|field| field.starts_with('"'));
+            .is_some_and(|field| {
+                let tokens = Lexer::new(self.arena.span(span).source_id, field).lex_compact();
+                tokens.token_table.tag_at(0) == Some(TokenTag::String)
+            });
         if quoted {
             write_str_literal(text, output);
         } else {

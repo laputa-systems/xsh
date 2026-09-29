@@ -381,7 +381,7 @@ fn parser_rejects_bracketed_map_comprehension_keys() {
         output
             .diagnostics
             .iter()
-            .any(|diagnostic| diagnostic.code.as_deref() == Some("parse.expected-record-field")),
+            .any(|diagnostic| diagnostic.code.as_deref() == Some("parse.expected-label")),
         "{:?}",
         output.diagnostics
     );
@@ -3615,4 +3615,32 @@ fn parser_record_defaults_preserve_spans_and_stable_formatting() {
     let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
     assert_eq!(first.formatted, second.formatted);
     assert_parse_and_check(SourceId::new(0), &first.formatted);
+}
+
+#[test]
+fn field_label_braces_spans_and_formatter_preserve_keyword_and_dotted_keys() {
+    let source = "type Entry = {type: Str, in: Int}\nlet value = Entry(type: \"file\", in: 2)\nlet selected = match true { _ => {type: value.type, in: value.in, r\"wire.type\": 3} }\nlet {type: kind, in: ordinal, ..} = value\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(9), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.cst.get().exact_text(), source);
+    let formatted = Formatter::new().format_source(SourceId::new(9), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("{type: value.type, in: value.in, \"wire.type\": 3}"), "{}", formatted.formatted);
+    assert_parse_and_check(SourceId::new(9), &formatted.formatted);
+    assert_eq!(formatted.formatted, Formatter::new().format_source(SourceId::new(9), &formatted.formatted).formatted);
+}
+
+#[test]
+fn field_label_keywords_cannot_be_shorthand_puns_or_lexical_bindings() {
+    for source in [
+        "let row = {type}\n", "let {type} = {type: 1}\n",
+        "type Entry = {type: Int}\nlet entry = Entry(type:)\n",
+        "let row = {type: 1}\nlet selected = match row { {type} => 1, _ => 2 }\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.iter().any(|d| d.code.as_deref() == Some("parse.keyword-label-binding")), "{source}: {:?}", parsed.diagnostics);
+    }
+    for source in ["let type = 1\n", "pure value(match: Int) -> Int { 1 }\n", "use fs as type\n"] {
+        assert!(!Parser::parse_source_arena_only(SourceId::new(0), source).diagnostics.is_empty(), "{source}");
+    }
 }

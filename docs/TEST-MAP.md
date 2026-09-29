@@ -632,3 +632,12 @@ and the matching CLI tests cover exact opt-in annotation removal, refusal,
 convergence, and `--annotate=returns` preservation. Run the native module, then
 `cargo test -p xsh --test integration sema::` and
 `cargo test -p xsht --test integration private_pure_return`.
+
+Field label semantics: `tests/xsh/field-labels.xsh` covers keyword schemas,
+constructors/error payload patterns, access and mutation, renamed destructuring,
+serialization parity, all keyword spellings, validation, duplicates, and illegal
+bindings/puns. Syntax coverage pins brace disambiguation, lossless key spelling,
+formatter round trips, and quoted dotted keys. Focused tooling acceptance uses
+`cargo test -p xsht --test integration field_label`; safe label/access rewrites
+recheck and converge, while unknown receivers, handled Results, comments,
+consumer conversions, and error contexts stay unchanged.

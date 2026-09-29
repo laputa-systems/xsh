@@ -793,3 +793,13 @@ fn api_private_pure_returns_explain_definition_inference_and_explicit_boundaries
     assert!(stdout.contains("recursive"), "{stdout}");
     assert!(stdout.contains("pure add(left: Int, right: Int) {"), "{stdout}");
 }
+
+#[test]
+fn api_field_labels_distinguishes_wire_names_from_lexical_bindings() {
+    let output = xsht(&["api", "language:core.field-labels"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for text in ["Keyword spellings", "reserved binding and import names", "cannot be shorthand or puns", "dynamic values retain require validation", "Entry(type:", "type: entry_kind"] {
+        assert!(stdout.contains(text), "missing {text}: {stdout}");
+    }
+}

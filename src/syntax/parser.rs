@@ -618,12 +618,7 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn peek_label_name(&self, distance: usize) -> Option<Name> {
-        let index = self.index + distance;
-        match self.token_table.tag_at(index)? {
-            TokenTag::Ident => self.token_table.name_at(index),
-            TokenTag::Keyword => self.token_table.keyword_at(index).map(|keyword| Name::intern(keyword.as_str())),
-            _ => None,
-        }
+        self.token_table.label_text_at(self.index + distance).map(Name::intern)
     }
 
     pub(in crate::syntax::parser) fn expect_label_name(&mut self, message: &str) -> Option<Name> {

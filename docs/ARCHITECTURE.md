@@ -551,3 +551,12 @@ members require explicit signatures. `CheckOutput::function_return_types` and
 `CompactDeclOutput::function_return_types` retain checked body return facts for
 qualified calls, indexed return kinds, lint rechecks, and annotation rendering.
 No caller supplies the inferred definition's return context.
+
+Explicit field labels share `TokenTable::label_text_at` and the parser's
+`current_label_name`, `peek_label_name`, and `expect_label_name` readers. The
+token reader returns owned spelling without interning; the parser interns into
+its source's symbol owner. Binding parsers retain `expect_ident`, and shorthand
+sites call `require_label_binding_name` before creating lexical captures. Labels
+remain ordinary field Names in schemas, literals, accessors, constructor calls,
+and patterns, so checking and indexed execution preserve their existing type
+and key contracts. Tooling reads the same label vocabulary for safe unquoting.

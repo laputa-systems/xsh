@@ -683,6 +683,10 @@ impl<'a> Linter<'a> {
             } => {
                 self.lint_record_constructor(ty, &initializer);
                 self.lint_empty_map_initializer(ty, &initializer);
+                if let ArenaExprOrRun::Expr(expr) = initializer {
+                    let expected = ty.map(|ty| Type::from_arena(self.arena, ty));
+                    self.lint_known_record_get(expr, expected.as_ref());
+                }
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
                     self.lint_needless_annotation(target, false, type_expr, &initializer, exported);
@@ -702,6 +706,10 @@ impl<'a> Linter<'a> {
             } => {
                 self.lint_record_constructor(ty, &initializer);
                 self.lint_empty_map_initializer(ty, &initializer);
+                if let ArenaExprOrRun::Expr(expr) = initializer {
+                    let expected = ty.map(|ty| Type::from_arena(self.arena, ty));
+                    self.lint_known_record_get(expr, expected.as_ref());
+                }
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
                     self.lint_needless_annotation(target, true, type_expr, &initializer, exported);
@@ -3571,6 +3579,73 @@ impl<'a> Linter<'a> {
         self.lint_prefer_slice(callee, args, span);
     }
 
+    fn bare_field_label(&self, text: &str) -> bool {
+        let lexed = xsh::frontend::syntax::lexer::Lexer::new(
+            xsh::frontend::source::SourceId::new(0), text,
+        ).lex_compact();
+        lexed.diagnostics.is_empty()
+            && lexed.token_table.label_text_at(0).is_some_and(|name| name.as_ref() == text)
+            && lexed.token_table.tag_at(1) == Some(xsh::frontend::syntax::token::TokenTag::Eof)
+    }
+
+    fn lint_quoted_field_labels(&mut self, fields: ArenaRange) {
+        for field in self.arena.record_fields(fields) {
+            let ArenaRecordFieldKind::Named { name, span, .. } = field.kind else { continue; };
+            if !self.bare_field_label(name.as_str().as_str()) { continue; }
+            let span = self.arena.span(span);
+            let Some(source) = self.source.get(span.range()) else { continue; };
+            let lexed = xsh::frontend::syntax::lexer::Lexer::new(span.source_id, source).lex_compact();
+            if !lexed.diagnostics.is_empty()
+                || lexed.token_table.tag_at(0) != Some(xsh::frontend::syntax::token::TokenTag::String)
+                || lexed.token_table.tag_at(1) != Some(xsh::frontend::syntax::token::TokenTag::Colon)
+            { continue; }
+            let key = lexed.token_table.span_at(0, span.source_id, source).unwrap();
+            let key = Span::new(span.source_id, span.start() + key.start(), span.start() + key.end());
+            self.diagnostics.push(Diagnostic::new(Severity::Warning, "identifier-shaped field labels can be bare")
+                .with_code("lint.prefer-bare-field-label")
+                .with_label(Label::secondary(key, "quoting does not change this explicit key"))
+                .with_fix_hint(FixHint::replacement(key, "use the exact bare label", name.as_str().to_string())));
+        }
+    }
+
+    // Removing Result[Any] propagation must preserve the binding conversion.
+    // Checked field presence alone cannot prove equivalence for inferred consumers.
+    fn lint_known_record_get(&mut self, expr: ExprId, expected: Option<&Type>) {
+        let outer = self.arena.expr(expr);
+        let ArenaExprKind::Try(call) = outer.kind else { return; };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(call).kind else { return; };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if name != "get" || args.len() != 1
+            || self.expr_types.get(&self.arena.expr(call).span)
+                != Some(&Type::Result(Box::new(Type::Any), Box::new(Type::Error)))
+        { return; }
+        let Some(Type::Record(fields)) = self.expr_types.get(&self.arena.expr(base).span) else { return; };
+        let argument = match self.arena.call_args(args)[0].kind {
+            ArenaCallArgKind::Positional(value) => value,
+            ArenaCallArgKind::Named { name, value, .. } if name == "field" => value,
+            _ => return,
+        };
+        let ArenaExprKind::Str(text) = self.arena.expr(argument).kind else { return; };
+        let key = self.arena.string_literal(text);
+        if !self.bare_field_label(key) { return; }
+        let Some((_, field_type)) = fields.iter().find(|(name, _)| name.as_str().as_str() == key.as_ref()) else { return; };
+        let equivalent_type = expected == Some(field_type)
+            || self.expr_types.get(&outer.span) == Some(field_type);
+        let receiver = self.arena.expr(base);
+        let postfix = matches!(receiver.kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }
+            | ArenaExprKind::Index { .. } | ArenaExprKind::Call { .. });
+        let comments = self.source[outer.span.range()].contains('#');
+        let diagnostic = Diagnostic::new(Severity::Warning, "known record fields can use direct access")
+            .with_code("lint.prefer-known-field-access")
+            .with_label(Label::secondary(outer.span, "the checked record guarantees this field"));
+        self.diagnostics.push(if equivalent_type && postfix && !comments && !self.regex_recovery_context {
+            let replacement = format!("{}.{}", &self.source[receiver.span.range()], key);
+            diagnostic.with_fix_hint(FixHint::replacement(outer.span, "retain the checked field type", replacement))
+        } else {
+            diagnostic.with_note("no automatic fix: consumer conversions, grouping, comments, or error recovery are not proven equivalent")
+        });
+    }
+
     fn lint_prepared_regex(&mut self, expr: ExprId) {
         if self.regex_recovery_context { return; }
         let outer = self.arena.expr(expr);
@@ -5873,6 +5948,7 @@ impl LintExprVisitor<'_, '_> {
                 for _ in 0..scopes { self.linter.pop_scope(); }
             }
             ArenaExprKind::Record(fields) => {
+                if !self.suppress_expr_autofixes { self.linter.lint_quoted_field_labels(fields); }
                 for field in arena.record_fields(fields).to_vec() {
                     self.visit_record_field(&field);
                 }

@@ -3240,3 +3240,42 @@ fn private_pure_return_removal_retains_context_and_result_boundaries() {
         assert!(!linted.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-inferred-pure-return")), "{source}");
     }
 }
+
+#[test]
+fn field_label_fixes_preserve_key_bytes_conversions_comments_and_converge() {
+    let source = "let row = {\"type\": \"file\", r\"in\": 2, \"a.b\": 3, \"x-y\": 4, \"size\": 5} # retained\nlet label: Str = row.get(\"type\")?\nprint $label ${row.in}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let mut edits = output.diagnostics.iter().filter(|d| matches!(d.code.as_deref(), Some("lint.prefer-bare-field-label" | "lint.prefer-known-field-access")))
+        .flat_map(|d| &d.fix_hints).map(|h| (h.span.unwrap(), h.replacement.as_ref().unwrap())).collect::<Vec<_>>();
+    assert_eq!(edits.len(), 4, "{:?}", output.diagnostics);
+    edits.sort_by_key(|(span, _)| span.start());
+    let mut fixed = source.to_string();
+    for (span, replacement) in edits.into_iter().rev() { fixed.replace_range(span.range(), replacement); }
+    assert!(fixed.contains("{type: \"file\", in: 2, \"a.b\": 3, \"x-y\": 4, size: 5} # retained"), "{fixed}");
+    assert!(fixed.contains("let label: Str = row.type"), "{fixed}");
+    assert_parse_check_standalone("field label fixes", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty());
+    assert_eq!(formatted.formatted, Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let again = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!again.diagnostics.iter().any(|d| matches!(d.code.as_deref(), Some("lint.prefer-bare-field-label" | "lint.prefer-known-field-access"))));
+}
+
+#[test]
+fn field_label_access_fixes_retain_dynamic_results_context_recovery_and_consumers() {
+    let source = "let row = {type: \"file\", in: 2}\nlet unknown_consumer = row.get(\"type\")?\nlet consumed = row.get(\"type\")\nlet contextual: Str = row.get(\"type\").context(\"wire\")?\nlet missing = row.get(\"absent\")\nlet recovered = row.get(\"type\") ?? \"none\"\nlet commented: Str = row.get(\n  # keep\n  \"type\",\n)?\nlet dynamic: Record = {}\nlet selected = dynamic.get(\"type\")?\nprint $unknown_consumer $contextual $recovered $commented $selected\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    let fields = diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.prefer-known-field-access")).collect::<Vec<_>>();
+    assert_eq!(fields.len(), 2);
+    assert!(fields.iter().all(|d| d.fix_hints.is_empty() && !d.notes.is_empty()));
+    assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-known-field-access")));
+}

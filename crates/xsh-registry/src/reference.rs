@@ -212,6 +212,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "procs",
     "pure-functions",
     "records",
+    "field-labels",
     "list-concatenation",
     "list-splicing",
     "slicing",
@@ -796,6 +797,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "slicing" => (
             "Selects half-open List, Str, and Bytes ranges.",
             "`value[start..end]` evaluates receiver and explicit Int bounds once in order. Omitted bounds use zero/length, negative bounds count from the end, bounds clamp to length, and reversed ranges are empty. Str counts Unicode scalars; Bytes counts bytes. List results retain value semantics; immutable text/bytes may share backing storage. Offset/count methods retain their distinct error rules.",
+        ),
+        "field-labels" => (
+            "Uses exact wire names as explicit labels without declaring variables.",
+            "Keyword spellings such as type, in, and match are legal explicit labels in schemas, literals, member and update paths, patterns, renamed destructuring, and named record/error constructor arguments. Keywords remain reserved binding and import names; keyword labels cannot be shorthand or puns. Quoted literal keys retain arbitrary bytes, including a dot as one key. Known fields keep their checked types; dynamic values retain require validation.",
         ),
         "records" => (
             "Defines structural and named record values.",
