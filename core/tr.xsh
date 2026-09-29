@@ -48,7 +48,7 @@ pure complement(chars: Str) -> Str {
   let expanded = expand_ranges(chars)
   var out = ""
 
-  for ch in ascii_chars().split("") {
+  for ch in ascii_chars() {
     if ! (ch in expanded) {
       out = f"${out}${ch}"
     }

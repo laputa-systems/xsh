@@ -104,6 +104,7 @@ pub(crate) fn source(id: &str) -> Option<String> {
             include_str!("../../../docs/snippets/api/core-postfix-question.xsh")
         }
         "language.core.streams" => include_str!("../../../docs/snippets/api/core-streams.xsh"),
+        "language.core.scalar-iteration" => include_str!("../../../docs/snippets/api/scalar-iteration.xsh"),
         "language.core.comprehensions" => {
             include_str!("../../../docs/snippets/api/core-comprehensions.xsh")
         }

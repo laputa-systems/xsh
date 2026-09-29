@@ -107,6 +107,16 @@ Shared boundaries also use the capture/retry/deferred-block native modules,
 `cargo test -p xsh --lib runtime::eval::indexed::full::tests`, and focused
 formatter/lint/structural-tooling acceptance tests.
 
+## Direct scalar iteration
+
+`target/debug/xsht test --jobs 1 tests/xsh/scalar-iteration.xsh` covers Unicode
+scalars, invalid UTF-8 bytes, snapshots, nested comprehensions, Result identity,
+immutable bindings, source evaluation, suspension, and lexical cleanup.
+`cargo test -p xsh --lib scalar_cursor` checks retained source representation
+and incremental element construction. Tooling acceptance uses
+`cargo test -p xsht --test integration scalar_iteration`; run the checker,
+indexed verifier, collection, and deferred-block gates after cursor changes.
+
 ## Routine CI
 
 `.github/workflows/lint.yml` and `.github/workflows/test.yml` run on pull requests

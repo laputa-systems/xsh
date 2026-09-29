@@ -26,7 +26,7 @@ pure digit_value(ch: Str) -> Result[Int] {
 pure octal_mode(raw: Str) -> Result[Int] {
   var mode = 0
 
-  for ch in raw.split("") {
+  for ch in raw {
     let digit = digit_value(ch)?
     mode = mode * 8 + digit
   }
@@ -62,7 +62,7 @@ pure perm_mask(perms: Str, who: Str, current: Int, is_dir: Bool) -> Int {
   let classes = who_classes(who)
   let executable = is_dir or current.bit_and(0o111) != 0
 
-  for perm in perms.split("") {
+  for perm in perms {
     if "u" in classes {
       match perm {
         "r" => mask = mask + 0o400
@@ -128,7 +128,7 @@ pure symbolic_mode(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
     var op = ""
     var perms = ""
 
-    for ch in clause.split("") {
+    for ch in clause {
       if op == "" and ch in "ugoa" {
         who = f"${who}${ch}"
       } else if op == "" and ch in "+-=" {

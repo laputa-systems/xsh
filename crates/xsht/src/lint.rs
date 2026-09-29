@@ -894,6 +894,8 @@ impl<'a> Linter<'a> {
                 iter,
                 block,
             } => {
+                self.lint_scalar_split_iteration(iter);
+                self.lint_byte_iteration(stmt_id, target, iter, block);
                 self.lint_map_entry_iteration(stmt_id, target, iter, block);
                 self.lint_yield_delegation(stmt.span, target, iter, block);
                 self.lint_prefer_file_lines(iter);
@@ -3136,6 +3138,108 @@ impl<'a> Linter<'a> {
             }
             self.diagnostics.push(diagnostic);
         }
+    }
+
+    fn lint_scalar_split_iteration(&mut self, iter: ExprId) {
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(iter).kind else { return; };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        let checked_str = self.expr_types.get(&self.arena.expr(base).span) == Some(&Type::Str)
+            || (matches!(self.arena.expr(base).kind, ArenaExprKind::Str(_))
+                && matches!(self.expr_types.get(&self.arena.expr(iter).span), Some(Type::List(item)) if **item == Type::Str));
+        if name != "split" || !checked_str { return; }
+        let arguments = self.arena.call_args(args);
+        if arguments.len() != 1 { return; }
+        let separator = match arguments[0].kind {
+            ArenaCallArgKind::Positional(value) => value,
+            ArenaCallArgKind::Named { name, value, .. } if name == "separator" => value,
+            _ => return,
+        };
+        let ArenaExprKind::Str(text) = self.arena.expr(separator).kind else { return; };
+        if !self.arena.string_literal(text).is_empty() { return; }
+        let span = self.arena.expr(iter).span;
+        if self.source.get(span.range()).is_none_or(|text| text.contains('#')) { return; }
+        let callee_span = self.arena.expr(callee).span;
+        let Some(dot) = self.source.get(callee_span.range()).and_then(|source| source.rfind('.')) else { return; };
+        let suffix = Span::new(span.source_id, callee_span.start() + dot, span.end());
+        self.diagnostics.push(Diagnostic::warning("iterate over Unicode scalars without a split List")
+            .with_code("lint.prefer-scalar-iteration")
+            .with_label(Label::secondary(span, "the checked Str source is retained once"))
+            .with_fix_hint(FixHint::deletion(suffix, "iterate over the Str directly")));
+    }
+
+    fn lint_byte_iteration(&mut self, stmt_id: StmtId, target: BindingTargetId, iter: ExprId, block: BlockId) {
+        let ArenaBindingTargetKind::Name(index) = self.arena.binding_target(target).kind else { return; };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(iter).kind else { return; };
+        if !matches!(self.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "range")
+            || self.is_binding_in_scope_or_assigned("range") { return; }
+        let arguments = self.arena.call_args(args);
+        let [argument] = arguments else { return; };
+        let ArenaCallArgKind::Positional(length) = argument.kind else { return; };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(length).kind else { return; };
+        if !self.arena.call_args(args).is_empty() { return; }
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if name != "len" { return; }
+        let ArenaExprKind::Ident(source) = self.arena.expr(base).kind else { return; };
+        let Some(binding) = self.scopes.iter().rev().find_map(|scope| scope.get(source.as_str().as_str())) else { return; };
+        if self.assigned_names.contains(&source) || source == index || binding.mutable || !binding.comparison_stable { return; }
+        // Constant preparation may replace the length expression before recording its receiver.
+        // The resolved immutable initializer supplies the same checked Bytes proof in that case.
+        let source_type = self.expr_types.get(&self.arena.expr(base).span).or_else(|| {
+            (0..self.arena.stmt_tags.len()).find_map(|index| {
+                let statement = self.arena.stmt(StmtId::from_index(index));
+                if statement.span != binding.span { return None; }
+                match statement.kind {
+                    ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(value), .. }
+                    | ArenaStmtKind::Const { initializer: ArenaExprOrRun::Expr(value), .. } => self.expr_types.get(&self.arena.expr(value).span),
+                    _ => None,
+                }
+            })
+        });
+        if source_type != Some(&Type::Bytes) { return; }
+        let statements: Vec<_> = self.arena.stmt_ids(self.arena.block(block).statements).collect();
+        let Some((&first, remaining)) = statements.split_first() else { return; };
+        let first = self.arena.stmt(first);
+        let ArenaStmtKind::Let { target, ty: None, initializer: ArenaExprOrRun::Expr(mut access) } = first.kind else { return; };
+        let ArenaBindingTargetKind::Name(octet) = self.arena.binding_target(target).kind else { return; };
+        if octet == source || octet == index || octet == "_" { return; }
+        if let ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } = self.arena.expr(access).kind {
+            if !matches!(self.arena.expr(right).kind, ArenaExprKind::Int(_) | ArenaExprKind::Unary { op: UnaryOp::Neg, .. }) { return; }
+            if let ArenaExprKind::Unary { expr: value, .. } = self.arena.expr(right).kind {
+                if !matches!(self.arena.expr(value).kind, ArenaExprKind::Int(_)) { return; }
+            }
+            access = left;
+        }
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(access).kind else { return; };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if name != "byte_at" || !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(name) if name == source) { return; }
+        let [argument] = self.arena.call_args(args) else { return; };
+        if !matches!(argument.kind, ArenaCallArgKind::Positional(value) if matches!(self.arena.expr(value).kind, ArenaExprKind::Ident(name) if name == index)) { return; }
+        // Textual occurrence checks also cover command interpolation and shadowed names.
+        // Rejecting harmless strings or comments is preferable to losing a byte offset.
+        let mentions_index = |text: &str| text.match_indices(index.as_str().as_str()).any(|(offset, matched)| {
+            let identifier_char = |ch: char| ch.is_alphanumeric() || ch == '_';
+            !text[..offset].chars().next_back().is_some_and(identifier_char)
+                && !text[offset + matched.len()..].chars().next().is_some_and(identifier_char)
+        });
+        if remaining.iter().any(|id| self.source.get(self.arena.stmt(*id).span.range()).is_none_or(mentions_index)) { return; }
+        let header = Span::new(first.span.source_id, self.arena.stmt(stmt_id).span.start(), self.arena.expr(iter).span.end());
+        let line_start = self.source[..first.span.start()].rfind('\n').map_or(0, |index| index + 1);
+        if !self.source[line_start..first.span.start()].trim().is_empty() { return; }
+        let deletion = Span::new(first.span.source_id, line_start, span_end_after_following_newlines(self.source, first.span.end()));
+        if [header, deletion].iter().any(|span| self.source.get(span.range()).is_none_or(|source| source.contains('#'))) { return; }
+        let line_end = self.source[first.span.start()..].find('\n').map_or(self.source.len(), |offset| first.span.start() + offset);
+        if self.source[first.span.start()..line_end].contains('#') { return; }
+        let edit = Span::new(header.source_id, header.start(), deletion.end());
+        let replacement = format!("for {octet} in {source}{}", &self.source[header.end()..line_start]);
+        let mut candidate = self.source.to_owned();
+        candidate.replace_range(edit.range(), &replacement);
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(edit.source_id, &candidate);
+        if !parsed.diagnostics.is_empty()
+            || !xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate).diagnostics.is_empty() { return; }
+        self.diagnostics.push(Diagnostic::warning("iterate over bytes instead of constructing unused offsets")
+            .with_code("lint.prefer-scalar-iteration")
+            .with_label(Label::secondary(header, "the immutable Bytes source covers the exact full range"))
+            .with_fix_hint(FixHint::replacement(edit, "bind each byte directly", replacement)));
     }
 
     fn lint_map_entry_iteration(&mut self, stmt_id: StmtId, target: BindingTargetId, iter: ExprId, block: BlockId) {
@@ -6798,6 +6902,7 @@ impl LintExprVisitor<'_, '_> {
     fn visit_comp_qualifiers(&mut self, range: ArenaRange) -> usize {
         let mut scopes = 0;
         for qualifier in self.linter.arena.comp_qualifiers(range).to_vec() {
+            if let ArenaCompQualifier::For { iter, .. } = qualifier { self.linter.lint_scalar_split_iteration(iter); }
             self.visit_expr(qualifier.expr());
             if let ArenaCompQualifier::For { target, .. } = qualifier {
                 self.linter.push_scope(); scopes += 1;

@@ -1148,8 +1148,8 @@ the projection once. List results retain encounter order. Filters consume
 boolean values and never assert.
 
 List comprehensions use `[expr for target in iterable]`; map comprehensions
-use `{item.key: value for item in iterable}` with the existing key syntax. The iterable must be a `List[T]`, `Stream[T]`,
-`Result[List[T], E]`, or `Result[Stream[T], E]`; result iterables are unwrapped
+use `{item.key: value for item in iterable}` with the existing key syntax. The iterable may be a `List[T]`, `Stream[T]`, `Map[T]`, `Str`, or `Bytes`,
+including their supported outer `Result` wrappers; result iterables are unwrapped
 like `?` before iteration. Comprehension guards must be `Bool` or `Status`.
 Map comprehension keys must be `Str`. When two items produce the same key, the
 later value replaces the earlier value. Each surviving map entry evaluates
@@ -1913,8 +1913,8 @@ complement. Its safe fix preserves one subject evaluation, rejects binding
 patterns and guards, and retains matches containing comments. Explicit Result
 Ok/Err complements are eligible only when the checked subject is a Result.
 
-`for` and comprehension clauses iterate over `List[T]`, `Stream[T]`, and
-`Map[K, V]`, including their supported outer `Result` wrappers. A map item has
+`for` and comprehension clauses iterate over `List[T]`, `Stream[T]`, `Map[K, V]`,
+`Str`, and `Bytes`, including their supported outer `Result` wrappers. A map item has
 structural type `{key: K, value: V}` for both simple and destructured targets.
 Entries follow the same deterministic key order as `Map.keys()` and
 `Map.values()`. The receiver is evaluated once; a cursor retains its storage as
@@ -1925,6 +1925,24 @@ and Result values remain the entry's `value` without further unwrapping.
 Result boundary, preserving `E` and checking the required error effect.
 `.keys()`, `.values()`, and `.get()` remain available for their distinct uses.
 This entry iteration rule does not change pipeline map-source semantics.
+
+Direct `Str` iteration produces one-scalar `Str` values in Unicode scalar order;
+combining marks remain separate scalars and no normalization occurs. `Bytes`
+produces `Int` values in 0..255 without decoding. Empty sources have no items.
+Ordinary loops and comprehension clauses evaluate each reached source once and
+retain its storage and view bounds as a snapshot. Reassigning a source binding
+inside a loop does not replace that snapshot. Cursors construct only the next
+scalar view or byte value, preserving checkpoints, immutable bindings, lexical
+transfers, and cleanup without an intermediate element List. Supported outer
+`Result[Str, E]` and `Result[Bytes, E]` sources propagate through the existing
+iterable boundary with `E` and its ordinary error effect. This direct iteration
+rule adds no string/byte pipeline source, List splice, or yield delegation.
+
+`lint.prefer-scalar-iteration` replaces directly iterated checked
+`text.split("")` expressions. Split adapter bindings and bounded splits remain
+Lists. A byte offset loop is eligible only for a proved immutable Bytes source,
+its exact full range, and an offset used solely by the first byte extraction.
+Indexed scanners with meaningful offsets retain their access and bounds.
 
 For existing fallible list and stream sources, `Result` wrappers are auto-unwrapped; an `Err` propagates
 as a runtime error. The loop target is bound immutably for each iteration

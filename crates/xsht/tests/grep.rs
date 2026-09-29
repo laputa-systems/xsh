@@ -583,3 +583,24 @@ fn typed_map_keys_grep_refactor_preserve_computed_domains() {
     assert!(updated.contains("Map[Int, Str]"));
     assert!(updated.contains("{[3]: \"three\", [20]: \"twenty\"}"), "{updated}");
 }
+
+#[test]
+fn scalar_iteration_structural_tools_keep_loop_and_comprehension_sources() {
+    let root = TempDir::new().unwrap();
+    let file = root.path().join("scalar-iteration.xsh");
+    fs::write(&file, "# Unicode loop\nfor character in \"é\" { print $character }\nlet octets = [octet for octet in b\"\\x00\\xff\"]\n").unwrap();
+    let output = grep_scripts("\"é\"", &paths(&file));
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    assert!(output_text(&output.stdout).contains("1 match"));
+    let output = refactor_scripts("\"é\"", "\"🙂\"", &paths(&file), false);
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert!(fixed.contains("# Unicode loop\nfor character in \"🙂\""));
+    assert!(fixed.contains("[octet for octet in b\"\\x00\\xff\"]"));
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert!(xsh::frontend::check::Checker::check_arena(&parsed.arena, &fixed).diagnostics.is_empty());
+    let output = refactor_scripts("\"é\"", "\"🙂\"", &paths(&file), false);
+    assert_eq!(output.status, 1);
+    assert_eq!(fs::read_to_string(&file).unwrap(), fixed);
+}

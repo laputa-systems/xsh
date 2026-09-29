@@ -140,14 +140,17 @@ impl Type {
     pub fn is_map_key(&self) -> bool {
         matches!(self, Self::Str | Self::Int | Self::UInt | Self::Bool | Self::Bytes | Self::Path | Self::Duration)
     }
+    /// Checked item facts for direct loops and comprehension clauses.
     pub(crate) fn iteration_item_type(&self) -> Option<Type> {
         match self {
             Self::List(item) | Self::Stream(item) => Some((**item).clone()),
+            Self::Str => Some(Self::Str),
+            Self::Bytes => Some(Self::Int),
             Self::Map(key, item) => Some(Self::Record(BTreeMap::from([
                 (Name::intern("key"), (**key).clone()),
                 (Name::intern("value"), (**item).clone()),
             ]))),
-            Self::Result(ok, _) if matches!(ok.as_ref(), Self::List(_) | Self::Stream(_) | Self::Map(_, _)) => ok.iteration_item_type(),
+            Self::Result(ok, _) if matches!(ok.as_ref(), Self::List(_) | Self::Stream(_) | Self::Map(_, _) | Self::Str | Self::Bytes) => ok.iteration_item_type(),
             _ => None,
         }
     }

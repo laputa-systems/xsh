@@ -4241,3 +4241,47 @@ fn absence_lookup_sentinel_proof_respects_shadowing_narrowing_and_missing_facts(
     let without_facts = Linter::lint(&parsed.arena, source, LintOptions::default());
     assert!(!without_facts.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.lookup-absence")));
 }
+
+#[test]
+fn scalar_iteration_fixes_recheck_and_converge_with_comments_and_scopes() {
+    let source = "let text = \"éx\"\nfor character in text.split(\"\") { print $character }\nlet characters = [character for character in text.split(separator: \"\")]\nlet payload = b\"\\x00\\xff\"\nfor index in range(payload.len()) {\n  let octet = payload.byte_at(index)\n  # preserve this body comment\n  let _ = octet\n}\nfor character in ([part for part in text.split(\"\")].join(\"\")).split(\"\") { let _ = character }\nfor character in \"ab\".split(\"\") { let _ = character }\nprint ${characters.len()}\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let mut fixes: Vec<_> = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-scalar-iteration")).flat_map(|diagnostic| &diagnostic.fix_hints).collect();
+    assert_eq!(fixes.len(), 6, "{:?}", output.diagnostics);
+    fixes.sort_by_key(|fix| fix.span.unwrap().start());
+    let mut fixed = source.to_string();
+    for fix in fixes.into_iter().rev() { fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_deref().unwrap()); }
+    assert!(fixed.contains("for character in text {"));
+    assert!(fixed.contains("[character for character in text]"));
+    assert!(fixed.contains("for octet in payload {\n  # preserve this body comment"));
+    assert_parse_check_standalone("direct scalar iteration", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty());
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let output = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-scalar-iteration")));
+}
+
+#[test]
+fn scalar_iteration_fixes_refuse_used_adapters_offsets_mutation_and_partial_ranges() {
+    for source in [
+        "let text = \"ab\"\nlet parts = text.split(\"\")\nfor part in parts { print $part }\nprint ${parts.len()}\n",
+        "for character in \"ab\".split(\"\", maxsplit: 1) { print $character }\n",
+        "let payload = b\"ab\"\nfor index in range(payload.len()) {\n  let octet = payload.byte_at(index)\n  print $index\n  let _ = octet\n}\n",
+        "var payload = b\"ab\"\nfor index in range(payload.len()) {\n  let octet = payload.byte_at(index)\n  payload = b\"xy\"\n  let _ = octet\n}\n",
+        "let payload = b\"ab\"\nfor index in range(1, payload.len()) {\n  let octet = payload.byte_at(index)\n  let _ = octet\n}\n",
+        "let text = \"é\"\nfor index in range(text.count_bytes()) {\n  let octet = text.byte_at(index)\n  let _ = octet\n}\n",
+        "let payload = b\"ab\"\nfor index in range(payload.len()) {\n  let octet = payload.byte_at(index) # preserve extraction\n  let _ = octet\n}\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+        let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-scalar-iteration")), "{source}");
+    }
+}

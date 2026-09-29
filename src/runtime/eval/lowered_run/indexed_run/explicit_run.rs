@@ -1,6 +1,6 @@
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::map_key::MapKey;
-use super::LoweredMapCursor;
+use super::{LoweredMapCursor, LoweredScalarCursor};
 use crate::runtime::eval::LoweredCompTarget;
 use super::serial_pipeline::{
     IndexedLiveSerialStage, IndexedSerialPipeline, indexed_for_pipeline_input,
@@ -41,6 +41,7 @@ enum FrameRecordEntry {
 type CompStreams = Arc<std::sync::Mutex<Vec<Option<(StreamValue, Span)>>>>;
 
 enum CompIterator {
+    Scalars { cursor: LoweredScalarCursor, clause: usize },
     Map { cursor: LoweredMapCursor, clause: usize },
     Items { items: std::vec::IntoIter<LoweredValue>, clause: usize },
     Stream { stream: usize, clause: usize },
@@ -365,6 +366,7 @@ enum FrameWork {
         value: FrameValue,
         next: FrameContinuation,
     },
+    ForScalars { slot: usize, cursor: LoweredScalarCursor, body: u32, span: Span },
     ForMap { slot: usize, cursor: LoweredMapCursor, body: u32, span: Span },
     ForItems {
         slot: usize,
@@ -1154,6 +1156,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 if let Some(item) = cursor.next() {
                     self.calls[index].slots[slot] = item;
                     self.calls[index].work.push(FrameWork::ForMap { slot, cursor, body, span });
+                    self.push_statement_block(index, body, span)?;
+                }
+                Ok(())
+            }
+            FrameWork::ForScalars { slot, mut cursor, body, span } => {
+                self.evaluator.service_pending_signal(span)?;
+                if self.evaluator.signal_state.shutdown_complete { return Ok(()); }
+                if let Some(item) = cursor.next() {
+                    self.calls[index].slots[slot] = item;
+                    self.calls[index].work.push(FrameWork::ForScalars { slot, cursor, body, span });
                     self.push_statement_block(index, body, span)?;
                 }
                 Ok(())
@@ -2384,6 +2396,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         });
                         return Ok(());
                     }
+                    let value = match LoweredScalarCursor::try_new(value) {
+                        Ok(cursor) => {
+                            self.calls[index].work.push(FrameWork::ForScalars { slot, cursor, body, span });
+                            return Ok(());
+                        }
+                        Err(value) => value,
+                    };
                     if let LoweredValue::Map(entries) = value {
                         self.calls[index].work.push(FrameWork::ForMap { slot, cursor: LoweredMapCursor::new(entries), body, span });
                         return Ok(());
@@ -2861,6 +2880,13 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Value(value) => {
                     let iterable = lowered_comp_iterable(value, state.span)?;
                     let clause = state.cursor;
+                    let iterable = match LoweredScalarCursor::try_new(iterable) {
+                        Ok(cursor) => {
+                            state.iterators.push(CompIterator::Scalars { cursor, clause });
+                            return self.step_list_comp(index, *state, *next);
+                        }
+                        Err(iterable) => iterable,
+                    };
                     if let LoweredValue::Stream(stream) = iterable {
                         let stream_index = {
                             let mut streams = state.streams.lock().expect("comprehension stream state poisoned");
@@ -3064,6 +3090,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             let (item, clause) = match iterator {
                 CompIterator::Items { items, clause } => (items.next(), *clause),
                 CompIterator::Map { cursor, clause } => (cursor.next(), *clause),
+                CompIterator::Scalars { cursor, clause } => {
+                    self.evaluator.service_pending_signal(state.qualifiers[*clause].span())?;
+                    if self.evaluator.signal_state.shutdown_complete { (None, *clause) }
+                    else { (cursor.next(), *clause) }
+                }
                 CompIterator::Stream { stream, clause } => {
                     self.evaluator.service_pending_signal(state.qualifiers[*clause].span())?;
                     let mut streams = state.streams.lock().expect("comprehension stream state poisoned");
@@ -3581,7 +3612,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let Some(loop_index) = self.calls[index].work.iter().rposition(|work| {
             matches!(
                 work,
-                FrameWork::ForMap { .. } | FrameWork::ForItems { .. }
+                FrameWork::ForScalars { .. } | FrameWork::ForMap { .. } | FrameWork::ForItems { .. }
                     | FrameWork::ForStream { .. }
                     | FrameWork::ForPipeline { .. }
                     | FrameWork::ForStrLines { .. }
@@ -3721,7 +3752,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let Some(loop_index) = self.calls[index].work.iter().rposition(|work| {
             matches!(
                 work,
-                FrameWork::ForMap { .. } | FrameWork::ForItems { .. }
+                FrameWork::ForScalars { .. } | FrameWork::ForMap { .. } | FrameWork::ForItems { .. }
                     | FrameWork::ForStream { .. }
                     | FrameWork::ForPipeline { .. }
                     | FrameWork::ForStrLines { .. }

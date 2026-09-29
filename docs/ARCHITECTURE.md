@@ -614,6 +614,14 @@ that entry representation. `Result[Map]` iterable sources lower through one
 existing propagation operation before cursor creation, preserving nominal errors
 and lexical cleanup. Pipeline map-source conversion has its own owner.
 
+Direct Str/Bytes iteration shares `lowered_run.rs::LoweredScalarCursor` between
+ordinary and heap frame execution. The cursor retains source storage and byte
+bounds; Str steps create one scalar `LoweredStrView`, while Bytes steps produce
+one Int. `FrameWork::ForScalars` and `CompIterator::Scalars` preserve suspension
+and nested clause positions without storing an adapter List. Checked
+`Type::iteration_item_type` facts feed both binding paths; `lower_direct_iterable`
+adds the existing propagation operation for supported outer Results.
+
 Deferred blocks reuse `ArenaExprKind::ValueBlock` under `ArenaStmtKind::Defer`.
 `lower_deferred_expr` lowers every body statement in statement position. Indexed
 execution saves a defer offset for each live lexical scope; suspension carries

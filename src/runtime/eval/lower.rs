@@ -4702,12 +4702,12 @@ impl CompactLowerConstructProbe<'_, '_> {
             .and_then(|ty| ty.iteration_item_type())
     }
 
-    fn lower_map_iterable(&mut self, iter: ExprId, slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>) -> Option<BuildExprId> {
+    fn lower_direct_iterable(&mut self, iter: ExprId, slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>) -> Option<BuildExprId> {
         let checked = self.infer_checked_expr_type_with_slots(iter, slots)
             .or_else(|| self.infer_checked_expr_type(iter, &self.top_level_known))
             .or_else(|| self.bodies.expr_types.get(&iter).cloned());
         let lowered = self.lower_expr(iter, slots, current_function, item_slot)?;
-        if matches!(checked, Some(Type::Result(ok, _)) if matches!(ok.as_ref(), Type::Map(_, _))) {
+        if matches!(checked, Some(Type::Result(ok, _)) if matches!(ok.as_ref(), Type::Map(_, _) | Type::Str | Type::Bytes)) {
             Some(push_build_row!(self, expr, BuildExprRow::Try(lowered)))
         } else { Some(lowered) }
     }
@@ -6624,7 +6624,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         return None;
                     }
                     let item_ty = self.infer_loop_item_checked_type(iter, slots);
-                    let iter = self.lower_map_iterable(iter, slots, current_function, item_slot)?;
+                    let iter = self.lower_direct_iterable(iter, slots, current_function, item_slot)?;
                     let saved = slots.enter();
                     let target = self.lower_comp_target_typed(target, slots, item_ty.as_ref())?;
                     let body =
@@ -6676,7 +6676,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     None
                 };
                 // The text/iter is evaluated once, before the loop scope opens.
-                let text_or_iter = self.lower_map_iterable(
+                let text_or_iter = self.lower_direct_iterable(
                     str_lines_base.unwrap_or(iter),
                     slots,
                     current_function,
@@ -13109,7 +13109,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             match qualifier {
                 crate::syntax::arena::ArenaCompQualifier::For { target, iter, span } => {
                     let item_ty = self.infer_loop_item_checked_type(iter, slots);
-                    let iter = self.lower_map_iterable(iter, slots, current_function, item_slot)?;
+                    let iter = self.lower_direct_iterable(iter, slots, current_function, item_slot)?;
                     slots.enter();
                     let target = Box::new(self.lower_comp_target_typed(target, slots, item_ty.as_ref())?);
                     qualifiers.push(super::LoweredCompQualifier::For { target, iter, span });

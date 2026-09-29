@@ -3272,6 +3272,42 @@ fn lowered_splice_arg_items(
     }
 }
 
+// Direct scalar iteration retains its evaluated source, including view bounds.
+// Advancing produces one scalar view or byte value without an intermediate List.
+enum LoweredScalarCursor {
+    Str { text: Arc<str>, position: usize, end: usize },
+    Bytes { bytes: Arc<[u8]>, position: usize, end: usize },
+}
+
+impl LoweredScalarCursor {
+    fn try_new(value: LoweredValue) -> Result<Self, LoweredValue> {
+        Ok(match value {
+            LoweredValue::Str(text) => { let end = text.len(); Self::Str { text, position: 0, end } }
+            LoweredValue::StrView(view) => Self::Str { position: view.start(), end: view.end(), text: view.text },
+            LoweredValue::Bytes(bytes) => { let end = bytes.len(); Self::Bytes { bytes, position: 0, end } }
+            LoweredValue::BytesView(view) => Self::Bytes { position: view.start(), end: view.end(), bytes: view.bytes },
+            other => return Err(other),
+        })
+    }
+
+    fn next(&mut self) -> Option<LoweredValue> {
+        match self {
+            Self::Str { text, position, end } => {
+                let scalar = text[*position..*end].chars().next()?;
+                let start = *position;
+                *position += scalar.len_utf8();
+                Some(lowered_str_view_value(text.clone(), start, *position))
+            }
+            Self::Bytes { bytes, position, end } => {
+                if *position == *end { return None; }
+                let value = bytes[*position];
+                *position += 1;
+                Some(LoweredValue::Int(i64::from(value)))
+            }
+        }
+    }
+}
+
 // Retaining the source storage keeps keys and values stable across body updates.
 // A range cursor holds only the last key and constructs one structural entry.
 struct LoweredMapCursor {
@@ -11109,5 +11145,45 @@ mod fs_root_identity_tests {
         assert_eq!(lowered_root_id(&capability, &Arc::new(()), span).unwrap_err().kind, "fs-root");
         let forged = LoweredValue::Record(Arc::new(BTreeMap::from([(Arc::from("id"), LoweredValue::Int(1))])));
         assert_eq!(lowered_root_id(&forged, &owner, span).unwrap_err().kind, "type-error");
+    }
+}
+
+#[cfg(test)]
+mod scalar_cursor_tests {
+    use super::*;
+
+    #[test]
+    fn scalar_cursor_retains_one_source_and_builds_only_reached_views() {
+        let source: Arc<str> = Arc::from("é".repeat(65_536));
+        let mut cursor = LoweredScalarCursor::try_new(LoweredValue::Str(source.clone())).ok().unwrap();
+        assert_eq!(Arc::strong_count(&source), 2);
+        for offset in 0..3 {
+            let Some(LoweredValue::StrView(view)) = cursor.next() else { panic!("scalar view") };
+            assert!(Arc::ptr_eq(&source, &view.text));
+            assert_eq!((view.start(), view.end()), (offset * 2, offset * 2 + 2));
+            assert_eq!(view.as_str(), "é");
+            assert_eq!(Arc::strong_count(&source), 3);
+        }
+        let LoweredScalarCursor::Str { position, end, .. } = cursor else { panic!("Str cursor") };
+        assert_eq!((position, end), (6, source.len()));
+        assert_eq!(Arc::strong_count(&source), 2);
+    }
+
+    #[test]
+    fn scalar_cursor_preserves_string_and_byte_view_bounds() {
+        let text: Arc<str> = Arc::from("aé🙂z");
+        let view = lowered_str_view_value(text.clone(), 1, 7);
+        let mut cursor = LoweredScalarCursor::try_new(view).ok().unwrap();
+        assert_eq!(cursor.next().unwrap().into_value(), Value::Str(Arc::from("é")));
+        assert_eq!(cursor.next().unwrap().into_value(), Value::Str(Arc::from("🙂")));
+        assert!(cursor.next().is_none());
+        let source: Arc<[u8]> = Arc::from([7, 0, 128, 255, 8]);
+        let view = crate::runtime::eval::lowered_bytes_view_value(source.clone(), 1, 4);
+        let mut cursor = LoweredScalarCursor::try_new(view).ok().unwrap();
+        assert_eq!(Arc::strong_count(&source), 2);
+        assert!(matches!(cursor.next(), Some(LoweredValue::Int(0))));
+        assert!(matches!(cursor.next(), Some(LoweredValue::Int(128))));
+        assert!(matches!(cursor.next(), Some(LoweredValue::Int(255))));
+        assert!(cursor.next().is_none());
     }
 }

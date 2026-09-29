@@ -3,7 +3,7 @@ use crate::map_key::MapKey;
 use super::{
     Arc, AssignOp, BTreeMap, BinaryOp, Binding, CommandPlan, ControlFlow, Duration, DurationValue,
     Evaluator, FileRedirectionMode, Flow, FormatSpec, FunctionHeader, FunctionName,
-    LoweredMapCursor, LoweredCompTarget, LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind,
+    LoweredScalarCursor, LoweredMapCursor, LoweredCompTarget, LoweredFunctionKey, LoweredFunctionKind, LoweredModuleExportKind,
     LoweredProjectedReduceState, LoweredReduceProjection, LoweredRetryAttemptValue,
     LoweredReturnKind, LoweredStrPredicate, LoweredTagValue, LoweredType, LoweredValue, Name,
     PathValue, ProcessEnd, ProcessInvocation, ProcessRedirection, ProcessStatus, QualifiedName,
@@ -2659,6 +2659,18 @@ impl Evaluator {
                         let cleanup = self.stream_cancel(&mut stream, *span);
                         return match result { Ok(value) => cleanup.map(|()| value), Err(error) => Err(error) };
                     }
+                    let iterable = match LoweredScalarCursor::try_new(iterable) {
+                        Ok(mut cursor) => {
+                            while let Some(item) = cursor.next() {
+                                self.service_pending_signal(*span)?;
+                                if self.signal_state.shutdown_complete { return Ok(ControlFlow::Continue(())); }
+                                bind_lowered_comp_target(target, item, slots, *span)?;
+                                if let ControlFlow::Break(value) = self.eval_indexed_comp_qualifiers(execution, qualifiers, position + 1, key, value, slots, values, map_values, *span)? { return Ok(ControlFlow::Break(value)); }
+                            }
+                            return Ok(ControlFlow::Continue(()));
+                        }
+                        Err(iterable) => iterable,
+                    };
                     if let LoweredValue::Map(entries) = iterable {
                         let mut cursor = LoweredMapCursor::new(entries);
                         while let Some(item) = cursor.next() {
@@ -8269,7 +8281,7 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 let iter = match self.eval_indexed_expr(execution, iter, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
+                    ControlFlow::Break(value) => return Ok(self.pending_value_block_flow.take().unwrap_or(StmtFlow::Propagate(value))),
                 };
                 // A producer's items arrive one pull at a time: the loop never
                 // holds the whole stream, and stopping it early runs the
@@ -8314,6 +8326,22 @@ impl Evaluator {
                         }
                     }
                 }
+                let iter = match LoweredScalarCursor::try_new(iter) {
+                    Ok(mut cursor) => {
+                        while let Some(item) = cursor.next() {
+                            self.service_pending_signal(span)?;
+                            if self.signal_state.shutdown_complete { return Ok(StmtFlow::None); }
+                            bind_lowered_comp_target(&target, item, slots, span)?;
+                            match self.eval_indexed_statement_block(execution, body, header, slots, call_span)? {
+                                StmtFlow::None | StmtFlow::Continue => {},
+                                StmtFlow::Break(_) => break,
+                                flow => return Ok(flow),
+                            }
+                        }
+                        return Ok(StmtFlow::None);
+                    }
+                    Err(iter) => iter,
+                };
                 if let LoweredValue::Map(entries) = iter {
                     let mut cursor = LoweredMapCursor::new(entries);
                     while let Some(item) = cursor.next() {

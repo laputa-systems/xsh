@@ -242,6 +242,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "streams",
     "value-pipelines",
     "comprehensions",
+    "scalar-iteration",
     "native-tests",
     "command-interpolation",
     "regex-literals",
@@ -912,6 +913,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "streams" => (
             "Defines lazy structured stream values.",
             "A stream owns source cleanup until a terminal, cancellation, or failure consumes that lifecycle. Inside stream producers, yield @source delegates List or Stream elements lazily, resumes after exhaustion, and closes children before parent cleanup on early termination. Results require explicit handling.",
+        ),
+        "scalar-iteration" => (
+            "Iterates directly over retained Unicode scalars and raw bytes.",
+            "Direct for loops and comprehension clauses accept Str and Bytes, including their supported outer Results. Str yields one-scalar Str values without normalization; Bytes yields Int values in 0..255 without decoding. The source evaluates once per reached clause and retains its snapshot and view bounds across reassignment. Empty sources have no items. Cursors construct only the next element, preserving immutable bindings, checkpoints, lexical transfers, suspension, cleanup, and error identity. This rule adds no pipeline, List splice, or yield-delegation source. lint.prefer-scalar-iteration removes equivalent direct empty splits or proved full stable byte ranges with unused offsets.",
         ),
         "comprehensions" => (
             "Builds lists and maps through ordered nested iteration and filtering.",

@@ -8873,6 +8873,30 @@ proc main() [error] {
     }
 
     #[test]
+    fn direct_scalar_iteration_runs_after_frontend_drop() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/scalar-iteration.xsh");
+            let program = Arc::new(fixture("scalar-iteration.xsh", source));
+            for recursive in [false, true] {
+                let execute = |name: &str| {
+                    let name = program_name(&program, name);
+                    let work = || run_full(program.clone(), name).0.unwrap();
+                    if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(work) } else { work() }
+                };
+                for (name, expected) in [("scalar_count", 261), ("scalar_comp", 3)] {
+                    assert_eq!(execute(name), Value::Int(expected));
+                }
+                let Value::Result(crate::runtime::value::ResultValue::Ok(value)) = execute("scalar_result") else { panic!("Result iterable") };
+                assert_eq!(*value, Value::Int(255));
+                let Value::Result(crate::runtime::value::ResultValue::Err(error)) = execute("scalar_failure") else { panic!("source failure") };
+                let Value::Error(error) = *error else { panic!("nominal source failure") };
+                assert_eq!(error.kind, "ScalarFailure.Missing");
+                assert_eq!(error.contexts.iter().map(|context| context.message.as_deref()).collect::<Vec<_>>(), [Some("scalar source")]);
+            }
+        });
+    }
+
+    #[test]
     fn lexical_ctx_indexed_execution_preserves_context_order_and_region_spans() {
         let source = include_str!("../../../../tests/fixtures/frontend-indexed/error-context.xsh");
         let program = Arc::new(fixture("error-context.xsh", source));
