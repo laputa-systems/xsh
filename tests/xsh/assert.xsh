@@ -147,3 +147,38 @@ assert 0 < operand() < 3, message()
   test.contains(result.stderr, "inner failure")?
   test.ok(! result.stderr.contains("outer context"), result.stderr)?
 }
+
+proc test_assert_context_is_captured_by_nearest_try(ctx: TestContext) [error] {
+  let result = test.run_script(ctx, r"""let result: Result[Str] = try {
+  let inner: Result[Unit] = try {
+    assert false, "inner context"
+  }
+  match inner {
+    Ok(_) => { print "unexpected" }
+    Err(failure) => { print $failure.message }
+  }
+  "outer success"
+}
+let value = result?
+print $value
+""")?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "boolean assertion failed: inner context\nouter success\n")?
+}
+
+proc test_assert_message_propagation_is_captured_by_try(ctx: TestContext) [error] {
+  let result = test.run_script(ctx, r"""proc message() [error] -> Str {
+  let value = "bad".parse_int()?
+  f"$value"
+}
+let result: Result[Unit] = try {
+  assert false, message()
+}
+match result {
+  Ok(_) => { print "unexpected" }
+  Err(failure) => { print $failure.message }
+}
+""")?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "invalid integer `bad`\n")?
+}
