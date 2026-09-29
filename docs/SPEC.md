@@ -1500,6 +1500,11 @@ computed fields, and spreads remain literals. `{value}` is a shorthand record;
 Malformed field-shaped syntax retains literal diagnostics. A bare block adds
 only a lexical binding and cleanup scope; it adds no error or function-return
 boundary, module statement permission, or top-level integer-exit permission.
+It leaves cwd/env handling unchanged. Scope defers run exactly once before an
+outgoing value is exposed; deferred invalidation still invalidates an escaping
+handle. `lint.lexical-block` removes a literal true conditional only in checked
+statement position, preserving the body scope and its comments. Conditions with
+comments before the opening brace and literal-shaped bodies remain explicit.
 Selected values are evaluated before scope cleanup; implicit Ok
 wrapping occurs only at the established Result boundary. Callback tails share this
 scope rule, including fold and keyed stages. Explicit callback returns retain the

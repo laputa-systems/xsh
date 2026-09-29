@@ -1471,6 +1471,8 @@ fn validate_dynamic_module_top_level(
             crate::syntax::arena::ArenaStmtKind::SignalHook(_) => Some("check.signal-hook-module"),
             crate::syntax::arena::ArenaStmtKind::Var { .. }
             | crate::syntax::arena::ArenaStmtKind::Command(_) => Some("check.module-top-level"),
+            crate::syntax::arena::ArenaStmtKind::Expr(expr)
+                if matches!(program.arena.expr(expr).kind, crate::syntax::arena::ArenaExprKind::ValueBlock(_)) => Some("check.module-top-level"),
             _ => None,
         };
         if let Some(code) = code {

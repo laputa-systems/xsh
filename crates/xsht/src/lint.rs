@@ -4807,7 +4807,10 @@ impl<'a> Linter<'a> {
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "use a lexical block for an unconditional scope")
             .with_code("lint.lexical-block")
             .with_label(Label::secondary(span, "retain the block's binding and cleanup scope"))
-            .with_fix_hint(FixHint::replacement(span, "use a lexical block", body.to_owned())));
+            .with_fix_hint(FixHint::replacement(
+                Span::new(span.source_id, span.start(), block_span.start()),
+                "use a lexical block", String::new(),
+            )));
     }
 
     fn lint_negative_if_as_boolean_guard(&mut self, statement: StmtId) {

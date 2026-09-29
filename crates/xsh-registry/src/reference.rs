@@ -208,6 +208,8 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "comments",
     "statements",
     "assert",
+
+    "bare-blocks",
     "guarded-control",
     "block-parameters",
     "defer",
@@ -778,6 +780,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "statements" => (
             "Defines statement sequencing and result propagation.",
             "Checked statement position asserts Bool values and propagates Result[Unit] failures. Value position preserves Bool values; exhaustive if/match tails and their lexical multi-statement branches can supply function and callback values.",
+        ),
+        "bare-blocks" => (
+            "Delimits lexical bindings and cleanup without a new call or Result boundary.",
+            "Bare braces consume Unit in statement position and preserve their final value in value position. Bool statements assert; Bool values may be false. Defers run before an outgoing value becomes visible, and return, break, continue, and propagation retain enclosing targets. Record and Map literals keep syntactic field shapes: `{value}` is a record; `{ (value) }` is a block value. The checked lint.lexical-block rule replaces safe statement-only literal true conditionals while retaining the block scope.",
         ),
         "guarded-control" => (
             "Defines condition-first guarded return, break, continue, and yield.",

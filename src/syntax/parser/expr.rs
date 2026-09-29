@@ -287,10 +287,15 @@ impl<'a> Parser<'a> {
             while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
             return self.peek_tag(offset) == Some(TokenTag::Colon);
         }
-        let shorthand = self.peek_tag(offset) == Some(TokenTag::Ident);
+        let mut shorthand = self.peek_tag(offset) == Some(TokenTag::Ident)
+            || (self.peek_tag(offset) == Some(TokenTag::Keyword)
+                && !matches!(self.peek_keyword(offset), Some(Keyword::True | Keyword::False | Keyword::Null | Keyword::Return | Keyword::Break | Keyword::Continue)));
         if self.peek_label_name(offset).is_none() && self.peek_tag(offset) != Some(TokenTag::String) { return false; }
         offset += 1;
-        while self.peek_tag(offset) == Some(TokenTag::Dot) && self.peek_label_name(offset + 1).is_some() { offset += 2; }
+        while self.peek_tag(offset) == Some(TokenTag::Dot) && self.peek_label_name(offset + 1).is_some() {
+            shorthand = false;
+            offset += 2;
+        }
         while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
         self.peek_tag(offset) == Some(TokenTag::Colon)
             || (shorthand && matches!(self.peek_tag(offset), Some(TokenTag::Comma | TokenTag::RBrace)))

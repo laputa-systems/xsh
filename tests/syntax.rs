@@ -3228,7 +3228,7 @@ fn formatter_round_trips_value_branch_blocks_and_record_arms() {
 
 #[test]
 fn parser_and_formatter_preserve_bare_block_literal_distinctions() {
-    let source = "let value = 7\nlet record = {value}\nlet empty = {}\nlet named = {if: 1}\nlet computed = {[\"key\"]: 2}\nlet grouped = { (value) }\nlet result = { let next = 8; next }\nlet negative = { false }\n";
+    let source = "let value = 7\nlet shorthand = {value}\nlet empty = {}\nlet named = {if: 1}\nlet computed = {[\"key\"]: 2}\nlet grouped = { (value) }\nlet result = { let next = 8; next }\nlet negative = { false }\nlet accessed = { shorthand.value }\n";
     assert_parse_and_check(SourceId::new(0), source);
     let first = Formatter::new().format_source(SourceId::new(0), source);
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);

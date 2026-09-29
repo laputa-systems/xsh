@@ -204,7 +204,8 @@ fn match_expr_structural(
             *bindings = candidate;
             true
         }
-        (ArenaExprKind::Capture(pb), ArenaExprKind::Capture(tb)) => match_value_block(p, *pb, t, *tb, source, bindings),
+        (ArenaExprKind::Capture(pb), ArenaExprKind::Capture(tb))
+        | (ArenaExprKind::ValueBlock(pb), ArenaExprKind::ValueBlock(tb)) => match_value_block(p, *pb, t, *tb, source, bindings),
         (ArenaExprKind::Retry { delays: pd, pattern: pp, block: pb }, ArenaExprKind::Retry { delays: td, pattern: tp, block: tb }) => {
             let pd = p.expr_ids(*pd).collect::<Vec<_>>();
             let td = t.expr_ids(*td).collect::<Vec<_>>();
@@ -475,6 +476,20 @@ fn build_replacement_text(
             edits.sort_by_key(|(id, _)| std::cmp::Reverse(arena.expr(*id).span.start()));
             for (id, replacement) in edits {
                 let span = arena.expr(id).span;
+                text.replace_range(span.start() - expr.span.start()..span.end() - expr.span.start(), &replacement);
+            }
+            Some(text)
+        }
+        ArenaExprKind::ValueBlock(block) => {
+            let mut replacements = Vec::new();
+            for statement in arena.stmt_ids(arena.block(*block).statements) {
+                let xsh::frontend::syntax::arena::ArenaStmtKind::Expr(value) = arena.stmt(statement).kind else { return None; };
+                let value_span = arena.expr(value).span;
+                let replacement = build_replacement_text(arena, value, m, target_source, pattern_source)?;
+                replacements.push((value_span, replacement));
+            }
+            let mut text = pattern_source.get(expr.span.range())?.to_owned();
+            for (span, replacement) in replacements.into_iter().rev() {
                 text.replace_range(span.start() - expr.span.start()..span.end() - expr.span.start(), &replacement);
             }
             Some(text)

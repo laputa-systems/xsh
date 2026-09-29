@@ -682,3 +682,16 @@ constant origins to full checking and indexed lowering. `BuildScratch` caches
 converted values by origin; `FullStore` retains a verified immutable constant
 pool, including shared List/Map/Record backing and prepared regex handles.
 Constant reads create no runtime initializer evaluations or parameter captures.
+
+
+Bare braces reuse `ArenaExprKind::ValueBlock`. The parser's
+`brace_starts_record_value` selects field-shaped literals from source tokens;
+expected types never choose the grammar. Full statement positions supply Unit
+consumption, and `CompactBodyProbeOutput::value_block_types` retains independent
+value inference while contextual statement positions select indexed tail rows.
+`Writer::write_block_contents` groups an initial identifier to preserve the
+record/block distinction. `lint_lexical_block` requires checked statement
+position and reparses the retained body before offering a CST prefix deletion.
+Structural grep distinguishes value blocks from literal records and local Result
+capture. Expression-only block replacements substitute captures at child source
+spans, retaining parentheses and surrounding block trivia.

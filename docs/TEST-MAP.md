@@ -24,12 +24,19 @@ and rejection at the CLI boundary. Test bodies use `test NAME { ... }`, or
 `test NAME [effects] { |ctx| ... }` for context helpers. Maintain exact old names
 when migrating existing harness entrypoints; new declarations need no prefix.
 
-## List patterns
+## Bare lexical blocks
 
 Bare lexical block consumption, scope cleanup, and lexical transfers are covered
 by `target/debug/xsht test --jobs 1 tests/xsh/lexical-blocks.xsh`. The grammar and
 formatting distinction between blocks and literals is covered by
 `cargo test --test integration syntax::parser_and_formatter_preserve_bare_block_literal_distinctions`.
+
+The native lexical-block module also owns safe lint prefix edits, preserved
+comments, refusal cases, normal rechecking, and second-pass convergence. It also
+covers lexical block grep/refactor, the public API snippet, dynamic module
+permissions, integer exits, and resource escape versus deferred invalidation.
+
+## List patterns
 
 `target/debug/xsht test --jobs 2 tests/xsh/list-pattern.xsh` covers exact and
 prefix lengths, nested captures, dynamic narrowing, rejected subjects, rest
