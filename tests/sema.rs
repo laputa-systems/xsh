@@ -651,15 +651,15 @@ let path = path_value()?
 fn checker_handles_batch_stream_stage() {
     let ok = check(
         r#"
-let chunks = [Path("a"), Path("b")] |> batch --count=1 --max-argv
+let chunks = [Path("a"), Path("b")] |> batch(count: 1, max_argv: true)
 "#,
     );
-    assert_no_codes(&ok, &["check.stream-batch", "check.stream-stage-option"]);
+    assert_no_codes(&ok, &["check.stream-batch", "check.arity"]);
 
     let missing_limit = check("[1, 2] |> batch\n");
     assert!(has_code(&missing_limit, "check.stream-batch"));
 
-    let bad_argv = check("[{ name: \"a\" }] |> batch --max-argv\n");
+    let bad_argv = check("[{ name: \"a\" }] |> batch(max_argv: true)\n");
     assert!(has_code(&bad_argv, "check.stream-batch"));
 }
 
@@ -696,7 +696,7 @@ let byte_count = "hé".count_bytes()
     assert!(has_code(&bad_stream, "check.stream-adapter"));
 
     let missing_chunk_size = check("b\"abc\" |> bytes.chunks()\n");
-    assert!(has_code(&missing_chunk_size, "check.arity"));
+    assert!(has_code(&missing_chunk_size, "check.named-arg"));
 
     let bad_json = check("1 |> json.stream()\n");
     assert!(has_code(&bad_json, "check.type-mismatch"));
@@ -1076,8 +1076,8 @@ fn checker_rejects_removed_verbose_apis() {
         ),
         ("let _ = [1] |> collect(1)\n", "check.arity"),
         (
-            "let _ = [1] |> collect --jobs=1\n",
-            "check.stream-stage-option",
+            "let _ = [1] |> collect(jobs: 1)\n",
+            "check.arity",
         ),
         ("let _ = [1] |> collect { . }\n", "check.arity"),
     ];
@@ -1890,13 +1890,13 @@ fn checker_accepts_group_by_key_sort_by_for_scalar_keys() {
 }
 
 #[test]
-fn checker_accepts_sort_by_desc_flag() {
-    let output = check("[1, 2, 3] |> sort-by --desc .\n");
+fn checker_accepts_sort_by_desc_named_argument() {
+    let output = check("[1, 2, 3] |> sort-by(desc: true) .\n");
     assert!(output.is_empty(), "{:?}", output);
-    let output_bad = check("[1, 2, 3] |> sort-by --unknown .\n");
+    let output_bad = check("[1, 2, 3] |> sort-by(unknown: true) .\n");
     assert!(
-        has_code(&output_bad, "check.stream-stage-option"),
-        "expected check.stream-stage-option in: {:?}",
+        has_code(&output_bad, "check.named-arg"),
+        "expected check.named-arg in: {:?}",
         output_bad
     );
 }

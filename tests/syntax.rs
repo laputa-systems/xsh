@@ -992,65 +992,21 @@ fn parser_accepts_structured_pipeline_stages() {
     let block = arena.block(stages[1].block.unwrap());
     assert_eq!(arena.block_params(block.params)[0].name, "file");
 
-    let batch = Parser::parse_source_arena_only(
-        SourceId::new(0),
-        "[Path(\"a\")] |> batch --count=1 --max-argv\n",
-    );
-    assert!(batch.diagnostics.is_empty(), "{:?}", batch.diagnostics);
-    let barena = &batch.arena.arena;
-    let broot: Vec<_> = batch.arena.statement_ids().collect();
-    let ArenaStmtKind::Expr(bexpr) = barena.stmt(broot[0]).kind else {
-        panic!("expected expression statement");
-    };
-    let ArenaExprKind::StructuredPipeline { stages, .. } = barena.expr(bexpr).kind else {
-        panic!("expected structured pipeline");
-    };
-    let stages = barena.stream_stages(stages);
-    assert_eq!(stages[0].kind, StreamStageKind::Batch);
-    let opts = barena.stream_options(stages[0].options);
-    assert_eq!(opts[0].name, "count");
-    assert!(opts[0].value.is_some());
-    assert_eq!(opts[1].name, "max-argv");
-    assert!(opts[1].value.is_none());
-
-    // A stream-stage option's `${...}`-wrapped value can itself contain a
-    // full nested pipeline with its own options — exercises that staging
-    // `stream_stage_option_inputs`/`fmt_part_inputs` correctly, since the
-    // inner option's begin/finish pair runs fully inside the still-open
-    // outer one.
     let nested = Parser::parse_source_arena_only(
         SourceId::new(0),
-        "[1, 2, 3] |> batch --count=${[4, 5] |> batch --count=1} --max-argv\n",
+        "[1, 2, 3] |> batch(count: ([4, 5] |> batch(count: 1)).len(), max_argv: true)\n",
     );
     assert!(nested.diagnostics.is_empty(), "{:?}", nested.diagnostics);
     let narena = &nested.arena.arena;
     let nroot: Vec<_> = nested.arena.statement_ids().collect();
-    let ArenaStmtKind::Expr(nexpr) = narena.stmt(nroot[0]).kind else {
-        panic!("expected expression statement");
-    };
-    let ArenaExprKind::StructuredPipeline { stages, .. } = narena.expr(nexpr).kind else {
-        panic!("expected outer structured pipeline");
-    };
-    let outer_stages = narena.stream_stages(stages);
-    assert_eq!(outer_stages.len(), 1);
-    let outer_opts = narena.stream_options(outer_stages[0].options);
-    assert_eq!(outer_opts.len(), 2);
-    assert_eq!(outer_opts[0].name, "count");
-    let inner_expr = outer_opts[0].value.expect("count option has a value");
-    let ArenaExprKind::StructuredPipeline {
-        stages: inner_stages,
-        ..
-    } = narena.expr(inner_expr).kind
-    else {
-        panic!("expected nested structured pipeline as option value");
-    };
-    let inner_stages = narena.stream_stages(inner_stages);
-    assert_eq!(inner_stages.len(), 1);
-    let inner_opts = narena.stream_options(inner_stages[0].options);
-    assert_eq!(inner_opts.len(), 1);
-    assert_eq!(inner_opts[0].name, "count");
-    assert_eq!(outer_opts[1].name, "max-argv");
-    assert!(outer_opts[1].value.is_none());
+    let ArenaStmtKind::Expr(nexpr) = narena.stmt(nroot[0]).kind else { panic!("expected expression"); };
+    let ArenaExprKind::StructuredPipeline { stages, .. } = narena.expr(nexpr).kind else { panic!("expected pipeline"); };
+    let stage = &narena.stream_stages(stages)[0];
+    assert_eq!(stage.kind, StreamStageKind::Batch);
+    let args = narena.call_args(stage.args);
+    assert_eq!(args.len(), 2);
+    assert!(matches!(args[0].kind, xsh::frontend::syntax::arena::ArenaCallArgKind::Named { name, .. } if name == "count"));
+    assert!(matches!(args[1].kind, xsh::frontend::syntax::arena::ArenaCallArgKind::Named { name, .. } if name == "max_argv"));
 
     let table = Parser::parse_source_arena_only(
         SourceId::new(0),
@@ -3783,4 +3739,44 @@ fn parser_value_pipeline_holes_reject_nested_multiple_and_spread_arguments() {
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
         assert!(parsed.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("parse.pipeline-hole")), "{source}: {:?}", parsed.diagnostics);
     }
+}
+
+#[test]
+fn stream_stage_flags_are_fatal_migration_diagnostics_with_exact_fixes() {
+    let source = "# café\nlet values = [1] |> par-map --jobs=workers { |item| item } # retain\nlet groups = values |> reduce-by --sum --jobs=2 { |item| {key: \"all\", value: item} }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert_eq!(parsed.diagnostics.len(), 2, "{:?}", parsed.diagnostics);
+    let mut fixed = source.to_string();
+    for diagnostic in parsed.diagnostics.iter().rev() {
+        assert_eq!(diagnostic.code.as_deref(), Some("parse.stream-option-migration"));
+        let hint = diagnostic.fix_hints.first().expect("unambiguous stage flag fix");
+        fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+    }
+    assert!(fixed.contains("par-map (jobs: workers) { |item| item } # retain"));
+    assert!(fixed.contains("reduce-by (sum: true, jobs: 2)"));
+    assert!(fixed.starts_with("# café\n"));
+    let second = Parser::parse_source_arena_only(SourceId::new(0), &fixed);
+    assert!(second.diagnostics.is_empty(), "{:?}", second.diagnostics);
+}
+
+#[test]
+fn stream_stage_flag_migration_refuses_ambiguous_argument_lists() {
+    let source = "let values = [1] |> sort-by --desc (.size)\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    let migration = parsed.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("parse.stream-option-migration")).expect("stage migration diagnostic");
+    assert!(migration.fix_hints.is_empty());
+    let command = Parser::parse_source_arena_only(SourceId::new(0), "run printf --jobs --desc --max-bytes\n");
+    assert!(command.diagnostics.is_empty(), "{:?}", command.diagnostics);
+}
+
+#[test]
+fn formatter_keeps_named_stream_configuration_and_spreads_idempotent() {
+    let source = "let jobs = 2\nlet values = [1, 2] |> par-map(jobs:) { |item| item + 1 } |> sort(...{desc: true})\nlet batches = values |> batch(count: 2, max_argv: false)\nprint batches.len()\n";
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert_parse_and_check(SourceId::new(0), &first.formatted);
+    assert!(first.formatted.contains("par-map(jobs:)"));
+    assert!(first.formatted.contains("sort(...{desc: true})"));
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(first.formatted, second.formatted);
 }

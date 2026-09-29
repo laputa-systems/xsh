@@ -12,6 +12,7 @@ pub mod reference;
 pub mod runtime_op;
 pub mod signature;
 pub mod symbols;
+pub mod stream_parameters;
 pub mod types;
 
 pub use runtime_op::RuntimeOp;

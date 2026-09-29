@@ -1851,6 +1851,7 @@ enum LoweredPipelineStage {
     BatchMaxBytes {
         max_bytes: BuildExprId,
     },
+    BatchLimits { configuration: BuildExprId },
     Shuffle {
         seed: Option<BuildExprId>,
     },
@@ -1867,6 +1868,12 @@ enum LoweredPipelineStage {
         value: BuildExprId,
         op: ReduceByOp,
         jobs: Option<BuildExprId>,
+    },
+    ReduceByConfigured {
+        item_slot: usize,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
+        configuration: BuildExprId,
     },
     ParMap {
         slot: usize,
@@ -1901,6 +1908,7 @@ enum LoweredPipelineStage {
     TablePrint {
         columns: Option<Vec<String>>,
     },
+    TablePrintConfigured { columns: BuildExprId },
     Enumerate,
     Zip {
         other: BuildExprId,

@@ -2,7 +2,7 @@
 error AppletError = Usage(message: Str) : Usage
 
 proc remove_tree(root: Path) [fs, error] {
-  for entry in fs.walk(root) |> sort-by --desc .path {
+  for entry in fs.walk(root) |> sort-by(desc: true) .path {
     if entry.kind == "dir" {
       entry.path.remove_dir()?
     } else {

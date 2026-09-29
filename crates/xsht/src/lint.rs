@@ -3782,11 +3782,6 @@ impl<'a> Linter<'a> {
     }
 
     fn lint_stream_stage(&mut self, stage: &ArenaStreamStage) {
-        for option in self.arena.stream_options(stage.options).to_vec() {
-            if let Some(value) = option.value {
-                self.lint_expr(value);
-            }
-        }
         for arg in self.arena.call_args(stage.args).to_vec() {
             self.lint_call_arg(&arg);
         }
@@ -4789,7 +4784,7 @@ impl<'a> Linter<'a> {
     fn lint_redundant_stream_stages(&mut self, stages: ArenaRange) {
         for stage in self.arena.stream_stages(stages).to_vec() {
             let stage_span = self.arena.span(stage.span);
-            if !stage.args.is_empty() || !stage.options.is_empty() {
+            if !stage.args.is_empty() {
                 continue;
             }
             let Some(block) = stage.block else {
@@ -5430,9 +5425,6 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         ArenaExprKind::StructuredPipeline { input, stages } => {
             out.push(input);
             for stage in arena.stream_stages(stages).to_vec() {
-                for option in arena.stream_options(stage.options) {
-                    out.extend(option.value);
-                }
                 for arg in arena.call_args(stage.args) {
                     match arg.kind {
                         ArenaCallArgKind::Positional(e)
@@ -5930,11 +5922,6 @@ fn stream_stage_references_name(arena: &AstArena, stage: &ArenaStreamStage, name
             | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. } => {
                 expr_references_name(arena, expr, name)
             }
-        })
-        || arena.stream_options(stage.options).iter().any(|option| {
-            option
-                .value
-                .is_some_and(|value| expr_references_name(arena, value, name))
         })
         || stage.block.is_some_and(|block| {
             arena
@@ -8544,11 +8531,6 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
     }
 
     fn scan_stream_stage(&mut self, stage: &ArenaStreamStage) {
-        for option in self.arena().stream_options(stage.options).to_vec() {
-            if let Some(value) = option.value {
-                self.scan_expr(value);
-            }
-        }
         for arg in self.arena().call_args(stage.args).to_vec() {
             self.scan_call_arg(&arg);
         }
@@ -9319,11 +9301,6 @@ fn stream_stage_flow(
     terminating_call_spans: &BTreeSet<Span>,
 ) -> FlowSummary {
     let mut flow = FlowSummary::fallthrough();
-    for option in arena.stream_options(stage.options) {
-        if let Some(value) = option.value {
-            flow = flow.then(expr_flow(arena, value, terminating_call_spans));
-        }
-    }
     for arg in arena.call_args(stage.args) {
         flow = flow.then(call_arg_flow(arena, arg, terminating_call_spans));
     }

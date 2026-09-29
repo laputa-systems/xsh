@@ -477,11 +477,11 @@ fn api_stream_sort_by_shows_options_before_block() {
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
     assert!(stdout.contains("status: exact"), "{stdout}");
     assert!(
-        stdout.contains("signature: sort-by(--desc: Bool = false, block) -> Stream[T]"),
+        stdout.contains("signature: sort-by(desc: Bool = false, block) -> Stream[T]"),
         "{stdout}"
     );
     assert!(
-        stdout.contains("|> sort-by --desc { |e| e.size }"),
+        stdout.contains("|> sort-by(desc: true) { |e| e.size }"),
         "{stdout}"
     );
     assert!(

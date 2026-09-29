@@ -21,7 +21,7 @@ let root = if path_arg != "" { fp"${path_arg}" } else { fs.cwd()? }
 # records; the size path keeps one {count, size} record per extension.
 if show_size {
   let stats = fs.files(root, stat: true)
-    |> reduce-by --sum { |entry|
+    |> reduce-by(sum: true) { |entry|
       {key: entry.ext.lower(), value: {count: 1, size: entry.size}}
     }
 

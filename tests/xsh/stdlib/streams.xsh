@@ -149,7 +149,7 @@ beta
     [2, 4, 6],
   )?
 
-  test.eq([1, 2, 3, 4] |> batch --count=2, [[1, 2], [3, 4]])?
+  test.eq([1, 2, 3, 4] |> batch(count: 2), [[1, 2], [3, 4]])?
   let enumerated = ["x", "y"] |> enumerate()
   test.eq(enumerated[1].index, 1)?
   test.eq(enumerated[1].value, "y")?
@@ -795,17 +795,17 @@ proc test_reduce_by_stream_aggregates() [error] {
   let nums = [1, 2, 3, 4, 5, 6]
 
   let agg = nums
-    |> reduce-by --sum { |n|
+    |> reduce-by(sum: true) { |n|
       {key: if n % 2 == 0 { "even" } else { "odd" }, value: {count: 1, total: n}}
     }
 
   let lo = nums
-    |> reduce-by --min { |n|
+    |> reduce-by(min: true) { |n|
       {key: "all", value: n}
     }
 
   let hi = nums
-    |> reduce-by --max { |n|
+    |> reduce-by(max: true) { |n|
       {key: "all", value: n}
     }
 
@@ -833,7 +833,7 @@ proc observed(n: Int) [io] -> Int {
 
 proc main() [io, error] {
   let groups = numbers()
-    |> reduce-by --sum --jobs=1 { |n|
+    |> reduce-by(sum: true, jobs: 1) { |n|
       {key: "all", value: observed(n)}
     }
   print f"total=${groups.get("all", 0)}"
@@ -870,7 +870,7 @@ stream numbers(pulled: Path, closed: Path) [fs, error] -> Stream[Int] {
 
 proc main() [fs, error] {
   let groups = numbers(Path("${pulled.display()}"), Path("${closed.display()}"))
-    |> reduce-by --sum { |n|
+    |> reduce-by(sum: true) { |n|
       {key: "all", value: 10 / (1 - n)}
     }
   print \${groups.get("all", 0)}
@@ -887,12 +887,12 @@ proc test_reduce_by_jobs_hint_preserves_results() [error] {
   let nums = [0] |> range(0, 50000)
 
   let serial = nums
-    |> reduce-by --sum { |n|
+    |> reduce-by(sum: true) { |n|
       {key: if n % 3 == 0 { "a" } else if n % 3 == 1 { "b" } else { "c" }, value: {count: 1, total: n}}
     }
 
   let par = nums
-    |> reduce-by --sum --jobs=8 { |n|
+    |> reduce-by(sum: true, jobs: 8) { |n|
       {key: if n % 3 == 0 { "a" } else if n % 3 == 1 { "b" } else { "c" }, value: {count: 1, total: n}}
     }
 
@@ -904,7 +904,7 @@ proc test_reduce_by_jobs_hint_preserves_results() [error] {
 
   test.eq(
     (nums
-      |> reduce-by --min --jobs=8 { |n|
+      |> reduce-by(min: true, jobs: 8) { |n|
         {key: "all", value: n}
       }).get("all", -1),
     0,
@@ -912,7 +912,7 @@ proc test_reduce_by_jobs_hint_preserves_results() [error] {
 
   test.eq(
     (nums
-      |> reduce-by --max --jobs=8 { |n|
+      |> reduce-by(max: true, jobs: 8) { |n|
         {key: "all", value: n}
       }).get("all", -1),
     49999,
@@ -930,11 +930,11 @@ proc jobs(label: Str) [io] -> Int {
 
 proc main() [io, error] {
   let reduced = [1, 2]
-    |> reduce-by --sum --jobs=jobs("reduce") { |n| {key: "all", value: n} }
+    |> reduce-by(sum: true, jobs: jobs("reduce")) { |n| {key: "all", value: n} }
   print f"total=${reduced.get("all", 0)}"
   let from_workers = [1, 2]
-    |> par-map --jobs=2 { |n| n }
-    |> reduce-by --sum --jobs=jobs("after-map") { |n| {key: "all", value: n} }
+    |> par-map(jobs: 2) { |n| n }
+    |> reduce-by(sum: true, jobs: jobs("after-map")) { |n| {key: "all", value: n} }
   print f"worker-total=${from_workers.get("all", 0)}"
   print "done"
 }
@@ -954,14 +954,14 @@ done
 
 proc test_serial_stages_reject_jobs_option(ctx: TestContext) [error] {
   for script in [
-    "proc main() [io] { [1] |> each --jobs=2 { |n| print $n } }",
-    "proc main() [] { let _ = [1] |> group-by --jobs=2 { |n| n } }",
-    "proc main() [] { let _ = [1] |> count --jobs=2 { |n| n } }",
-    "proc main() [] { let _ = [1] |> count --jobs=2 }",
+    "proc main() [io] { [1] |> each(jobs: 2) { |n| print $n } }",
+    "proc main() [] { let _ = [1] |> group-by(jobs: 2) { |n| n } }",
+    "proc main() [] { let _ = [1] |> count(jobs: 2) { |n| n } }",
+    "proc main() [] { let _ = [1] |> count(jobs: 2) }",
   ] {
     let output = test.run_script(ctx, script)?
     test.ok(! output.success, script)?
-    test.contains(output.stderr, "check.stream-stage-option", output.stderr)?
+    test.contains(output.stderr, "check.arity", output.stderr)?
   }
 }
 
@@ -983,7 +983,7 @@ stream numbers(pulled: Path) [fs, error] -> Stream[Int] {
 
 proc main() [fs, error] {
   let totals = numbers(Path("${pulled.display()}"))
-    |> reduce-by --sum --jobs=zero_jobs(Path("${evaluated.display()}")) { |n| {key: "all", value: n} }
+    |> reduce-by(sum: true, jobs: zero_jobs(Path("${evaluated.display()}"))) { |n| {key: "all", value: n} }
   print \${totals.get("all", 0)}
 }
 """,
@@ -1001,7 +1001,7 @@ proc test_par_map_jobs_rejects_dynamic_zero(ctx: TestContext) [error] {
 proc zero_jobs() [] -> Int { return 0 }
 
 proc main() [error] {
-  let values = [1, 2] |> par-map --jobs=zero_jobs() { |n| n }
+  let values = [1, 2] |> par-map(jobs: zero_jobs()) { |n| n }
   print \${values.len()}
 }
 """,
@@ -1015,7 +1015,7 @@ proc test_reduce_by_jobs_rejects_static_zero_in_checker(ctx: TestContext) [error
     ctx,
     """
 proc main() [error] {
-  let grouped = [1] |> reduce-by --sum --jobs=0 { |n| {key: "all", value: n} }
+  let grouped = [1] |> reduce-by(sum: true, jobs: 0) { |n| {key: "all", value: n} }
   print \${grouped.get("all", 0)}
 }
 """,
@@ -1028,26 +1028,26 @@ proc test_par_map_reduce_by_fuses_to_worker_aggregation() [error] {
   let nums = [0] |> range(0, 50000)
 
   let fused = nums
-    |> par-map --jobs=8 { |n|
+    |> par-map(jobs: 8) { |n|
       {
         bucket: if n % 4 == 0 { "a" } else if n % 4 == 1 { "b" } else if n % 4 == 2 { "c" } else { "d" },
         doubled: n * 2,
         count: 1,
       }
     }
-    |> reduce-by --sum { |row|
+    |> reduce-by(sum: true) { |row|
       {key: row.bucket, value: {count: row.count, total: row.doubled}}
     }
 
   let unfused = nums
-    |> par-map --jobs=8 { |n|
+    |> par-map(jobs: 8) { |n|
       {
         bucket: if n % 4 == 0 { "a" } else if n % 4 == 1 { "b" } else if n % 4 == 2 { "c" } else { "d" },
         doubled: n * 2,
         count: 1,
       }
     }
-    |> reduce-by --sum --jobs=1 { |row|
+    |> reduce-by(sum: true, jobs: 1) { |row|
       {key: row.bucket, value: {count: row.count, total: row.doubled}}
     }
 
@@ -1069,7 +1069,7 @@ proc test_flat_map_identity_reduce_by_matches_direct_rows() [error] {
     |> flat-map { |rows|
       rows
     }
-    |> reduce-by --sum { |row|
+    |> reduce-by(sum: true) { |row|
       {key: row.key, value: {count: row.count, total: row.total}}
     }
 
@@ -1077,7 +1077,7 @@ proc test_flat_map_identity_reduce_by_matches_direct_rows() [error] {
     |> par-map { |n|
       {key: if n % 2 == 0 { "even" } else { "odd" }, count: 1, total: n}
     }
-    |> reduce-by --sum { |row|
+    |> reduce-by(sum: true) { |row|
       {key: row.key, value: {count: row.count, total: row.total}}
     }
 
@@ -1093,21 +1093,21 @@ proc test_live_files_flat_map_reduce_by_matches_collected_rows(ctx: TestContext)
   fp"${root}/nested/c.md".write("fghi")?
 
   let streamed = fs.files(root)
-    |> par-map --jobs=4 { |entry|
+    |> par-map(jobs: 4) { |entry|
       [{ext: entry.ext, count: 1, size: entry.size}]
     }
     |> flat-map { |rows|
       rows
     }
-    |> reduce-by --sum { |row|
+    |> reduce-by(sum: true) { |row|
       {key: row.ext, value: {count: row.count, size: row.size}}
     }
   let collected_rows = fs.files(root) |> collect()
   let collected = collected_rows
-    |> par-map --jobs=4 { |entry|
+    |> par-map(jobs: 4) { |entry|
       {ext: entry.ext, count: 1, size: entry.size}
     }
-    |> reduce-by --sum { |row|
+    |> reduce-by(sum: true) { |row|
       {key: row.ext, value: {count: row.count, size: row.size}}
     }
   test.eq(streamed, collected)?
@@ -1127,7 +1127,7 @@ proc test_live_files_par_map_for_matches_collected_rows(ctx: TestContext) [fs, e
   var streamed_md_count = 0
   var streamed_md_size = 0
   for row in fs.files(root)
-    |> par-map --jobs=4 { |entry|
+    |> par-map(jobs: 4) { |entry|
       {ext: entry.ext, count: 1, size: entry.size}
     }
     |> where .ext != "" {
@@ -1146,10 +1146,10 @@ proc test_live_files_par_map_for_matches_collected_rows(ctx: TestContext) [fs, e
 
   let collected_rows = fs.files(root) |> collect()
   let collected = collected_rows
-    |> par-map --jobs=4 { |entry|
+    |> par-map(jobs: 4) { |entry|
       {ext: entry.ext, count: 1, size: entry.size}
     }
-    |> reduce-by --sum { |row|
+    |> reduce-by(sum: true) { |row|
       {key: row.ext, value: {count: row.count, size: row.size}}
     }
   test.eq({count: streamed_txt_count, size: streamed_txt_size}, collected.get("txt", {count: 0, size: 0}))?
@@ -1167,7 +1167,7 @@ proc test_par_map_filesystem_reads_preserve_all_results(ctx: TestContext) [fs, e
 
   let entries = fs.files(root, stat: false)? |> collect()
   let lengths = entries
-    |> par-map --jobs=8 { |entry|
+    |> par-map(jobs: 8) { |entry|
       entry.path.read_text()?.count_chars()
     }
   test.eq(lengths.len(), 32)?
@@ -1184,7 +1184,7 @@ let rows = [
   {key: "g", a: 3, b: 30},
 ]
 let reduced = (rows)
-  |> reduce-by --sum { |row|
+  |> reduce-by(sum: true) { |row|
     {key: row.key, value: {x: row.a, y: row.b}}
   }
 let g = reduced.get("g", {x: 0, y: 0})
@@ -2122,7 +2122,7 @@ proc descending() [io, error] -> Bool {
 }
 
 proc main() [io, error] {
-  let sorted = numbers() |> sort-by --desc=descending() { |n| n }
+  let sorted = numbers() |> sort-by(desc: descending()) { |n| n }
   print "after"
 }
 """,
@@ -2156,12 +2156,12 @@ proc test_sort_by_desc_reverses_sort_order() [error] {
     }
 
   let desc = nums
-    |> sort-by --desc { |n|
+    |> sort-by(desc: true) { |n|
       n
     }
 
   let words = ["banana", "apple", "cherry"]
-    |> sort-by --desc { |word|
+    |> sort-by(desc: true) { |word|
       word
     }
 
@@ -2199,7 +2199,7 @@ proc test_sort_by_compound_record_keys_and_stability() [error] {
 
   # --desc reverses the compound comparison.
   let desc = records
-    |> sort-by --desc { |r|
+    |> sort-by(desc: true) { |r|
       {c: r.count, n: r.name}
     }
 
@@ -2278,14 +2278,14 @@ proc test_sort_by_map_accumulator_any_typed_fields() [error] {
 }
 
 proc test_structured_stream_batch_count_and_argv_limits() [process, error] {
-  let by_count = [1, 2, 3, 4, 5] |> batch --count=2
-  let by_size = [p"aaaa", p"bbbb", p"cccc"] |> batch --max-bytes=10
+  let by_count = [1, 2, 3, 4, 5] |> batch(count: 2)
+  let by_size = [p"aaaa", p"bbbb", p"cccc"] |> batch(max_bytes: 10)
   test.eq(by_count, [[1, 2], [3, 4], [5]])?
   test.eq(by_size[0], [p"aaaa", p"bbbb"])?
   test.eq(by_size[1], [p"cccc"])?
 
   [p"one", p"two"]
-    |> batch --max-argv
+    |> batch(max_argv: true)
     |> each { |files|
       run true @files ?
     }
@@ -2293,7 +2293,7 @@ proc test_structured_stream_batch_count_and_argv_limits() [process, error] {
   test.eq(
     [1]
       |> where false
-      |> batch --count=2
+      |> batch(count: 2)
       |> count(),
     0,
   )?
@@ -2314,7 +2314,7 @@ stream paths() [io] -> Stream[Path] {
 }
 
 proc main() [io, error] {
-  let batches = paths() |> batch --max-bytes=3
+  let batches = paths() |> batch(max_bytes: 3)
   print "after"
 }
 """,
@@ -2477,7 +2477,7 @@ proc test_parallel_stream_preserves_filtered_order() [error] {
   test.eq(
     [0, 1, 2, 3, 4, 5]
       |> where . >= 2
-      |> par-map --jobs=3 { |x|
+      |> par-map(jobs: 3) { |x|
         x * 10
       },
     [20, 30, 40, 50],
@@ -2598,7 +2598,7 @@ count=1
 
   let batch_trace = test.run_xsht_trace(
     ctx,
-    """[1, 2, 3] |> batch --count=2
+    """[1, 2, 3] |> batch(count: 2)
 """,
     ["--raw"],
   )?
@@ -2648,7 +2648,7 @@ proc main() [error] {
     ctx,
     """
 let xs = ["only"]
-let values = [1, 2, 3] |> par-map --jobs=1 { |index| xs[index] }
+let values = [1, 2, 3] |> par-map(jobs: 1) { |index| xs[index] }
 """,
     ["--trace", "--raw"],
   )?
@@ -2664,7 +2664,7 @@ let values = [1, 2, 3] |> par-map --jobs=1 { |index| xs[index] }
     ctx,
     """
 let xs = ["only"]
-let values = [1, 2, 3] |> par-map --jobs=8 { |index| xs[index] }
+let values = [1, 2, 3] |> par-map(jobs: 8) { |index| xs[index] }
 """,
     ["--trace", "--raw"],
   )?

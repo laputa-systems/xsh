@@ -458,3 +458,21 @@ fn refactor_value_pipeline_holes_retains_optional_calls_and_result_boundaries() 
         assert!(fixed.contains("|>") && fixed.contains('_') && fixed.contains('?'), "{fixed}");
     }
 }
+
+#[test]
+fn grep_and_refactor_visit_named_stream_configuration_and_spread_values() {
+    let root = TempDir::new().expect("create stage configuration fixture");
+    let file = root.path().join("stage-config.xsh");
+    fs::write(&file, "let values = [1] |> par-map(jobs: worker_limit(1)) { |item| item } |> sort(...{desc: direction(true)}) # retain\n").unwrap();
+    for query in ["worker_limit(EXPR)", "direction(EXPR)"] {
+        let found = grep_scripts(query, &paths(&file));
+        assert_eq!(found.status, 0, "{}", output_text(&found.stderr));
+        assert!(output_text(&found.stdout).contains("1 match"));
+    }
+    let changed = refactor_scripts("worker_limit(X)", "bounded_workers(X)", &paths(&file), false);
+    assert_eq!(changed.status, 0, "{}", output_text(&changed.stderr));
+    let rewritten = fs::read_to_string(&file).unwrap();
+    assert!(rewritten.contains("jobs: bounded_workers(1)"), "{rewritten}");
+    assert!(rewritten.contains("sort(...{desc: direction(true)})"), "{rewritten}");
+    assert!(rewritten.contains("# retain"));
+}

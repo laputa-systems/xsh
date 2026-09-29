@@ -60,7 +60,7 @@ mod serial_pipeline;
 
 use serial_pipeline::IndexedPipelineItems;
 
-const DEFAULT_PAR_MAP_WORKERS: usize = 6;
+use xsh_registry::stream_parameters::DEFAULT_PAR_MAP_WORKERS;
 
 #[derive(Clone)]
 struct RunArg {
@@ -2212,17 +2212,17 @@ impl Evaluator {
             FullStageTag::Map | FullStageTag::MapBlock => "map",
             FullStageTag::FlatMap | FullStageTag::FlatMapBlock => "flat-map",
             FullStageTag::BytesChunks => "bytes.chunks",
-            FullStageTag::BatchCount | FullStageTag::BatchMaxArgv | FullStageTag::BatchMaxBytes => {
+            FullStageTag::BatchCount | FullStageTag::BatchMaxArgv | FullStageTag::BatchMaxBytes | FullStageTag::BatchLimits => {
                 "batch"
             }
             FullStageTag::Shuffle => "shuffle",
             FullStageTag::Fold => "fold",
-            FullStageTag::ReduceBy => "reduce-by",
+            FullStageTag::ReduceBy | FullStageTag::ReduceByConfigured => "reduce-by",
             FullStageTag::ParMap | FullStageTag::ParMapBlock => "par-map",
             FullStageTag::ParMapFlatMapReduceBy => "par-map",
             FullStageTag::Tee => "tee",
             FullStageTag::Each => "each",
-            FullStageTag::TablePrint => "table.print",
+            FullStageTag::TablePrint | FullStageTag::TablePrintConfigured => "table.print",
             FullStageTag::Enumerate => "enumerate",
             FullStageTag::Zip => "zip",
             FullStageTag::Sort => "sort",
@@ -2259,7 +2259,7 @@ impl Evaluator {
             ControlFlow::Continue(LoweredValue::Bool(value)) => Ok(value),
             ControlFlow::Continue(value) => Err(RuntimeError::new(
                 "type-error",
-                format!("--desc expected Bool, found {}", value.type_name()),
+                format!("desc expected Bool, found {}", value.type_name()),
             )
             .with_span(span)),
             ControlFlow::Break(value) => Err(runtime_error_from_value(value.into_value(), span)),
@@ -4079,6 +4079,68 @@ impl Evaluator {
                                     }
                                     LoweredValue::List(lowered)
                                 }
+                                FullStageTag::BatchLimits => {
+                                    let configuration = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let configuration = match self.eval_indexed_expr(execution, configuration, slots, span)? {
+                                        ControlFlow::Continue(value) => value,
+                                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                                    };
+                                    let fields = match configuration {
+                                            LoweredValue::Record(fields) => fields,
+                                            LoweredValue::RecordVec(fields) => Arc::new(fields.iter().map(|(name, value)| (Arc::<str>::from(name.as_str().as_str()), value.clone())).collect()),
+                                            _ => return Err(RuntimeError::new("indexed-ir", "stage configuration must be a record").with_span(span)),
+                                        };
+                                    let positive_limit = |name: &str| -> Result<Option<usize>, RuntimeError> {
+                                        match fields.get(name) {
+                                            None => Ok(None),
+                                            Some(LoweredValue::Int(value)) if *value > 0 => Ok(Some(*value as usize)),
+                                            _ => Err(RuntimeError::new("stream-batch", format!("batch {name} must be a positive Int")).with_span(span)),
+                                        }
+                                    };
+                                    let count = positive_limit("count")?;
+                                    let max_bytes = positive_limit("max_bytes")?;
+                                    let max_argv = match fields.get("max_argv") {
+                                        None | Some(LoweredValue::Bool(false)) => None,
+                                        Some(LoweredValue::Bool(true)) => Some(super::super::stream::platform_arg_max().saturating_sub(4096).clamp(1, 128 * 1024)),
+                                        _ => return Err(RuntimeError::new("type-error", "batch max_argv must be Bool").with_span(span)),
+                                    };
+                                    if count.is_none() && max_bytes.is_none() && max_argv.is_none() {
+                                        return Err(RuntimeError::new("stream-batch", "batch requires an enabled limit").with_span(span));
+                                    }
+                                    let mut items = IndexedPipelineItems::new(self, current, span)?;
+                                    let driven = (|| -> Result<Vec<LoweredValue>, RuntimeError> {
+                                        let mut batches = Vec::new();
+                                        let mut batch = Vec::new();
+                                        let mut bytes = 0usize;
+                                        let mut argv_bytes = 0usize;
+                                        while let Some(item) = items.next(self, span)? {
+                                            let item_bytes = if max_bytes.is_some() || max_argv.is_some() { lowered_value_argv_len(&item) } else { 0 };
+                                            if max_bytes.is_some_and(|limit| item_bytes > limit) {
+                                                return Err(RuntimeError::new("argv-limit", "batch item exceeds byte budget").with_span(span));
+                                            }
+                                            let argv_cost = item_bytes.saturating_add(usize::from(!batch.is_empty()));
+                                            let full = count.is_some_and(|limit| batch.len() >= limit)
+                                                || max_bytes.is_some_and(|limit| bytes.saturating_add(item_bytes) > limit)
+                                                || max_argv.is_some_and(|limit| argv_bytes.saturating_add(argv_cost) > limit);
+                                            if !batch.is_empty() && full {
+                                                batches.push(LoweredValue::List(std::mem::take(&mut batch)));
+                                                bytes = 0;
+                                                argv_bytes = 0;
+                                            }
+                                            bytes = bytes.saturating_add(item_bytes);
+                                            argv_bytes = argv_bytes.saturating_add(item_bytes).saturating_add(usize::from(!batch.is_empty()));
+                                            batch.push(item);
+                                        }
+                                        if !batch.is_empty() { batches.push(LoweredValue::List(batch)); }
+                                        Ok(batches)
+                                    })();
+                                    let close = items.cancel(self, span);
+                                    match driven {
+                                        Ok(batches) => { close?; LoweredValue::List(batches) }
+                                        Err(error) => { let _ = close; return Err(error); }
+                                    }
+                                }
                                 FullStageTag::BatchCount => {
                                     let count = indexed_raw(&mut stage_payload, span)?;
                                     indexed_finish(stage_payload, span)?;
@@ -4093,7 +4155,7 @@ impl Evaluator {
                                         ControlFlow::Continue(LoweredValue::Int(_)) => {
                                             return Err(RuntimeError::new(
                                                 "stream-stage-option",
-                                                "--count must be positive",
+                                                "count must be positive",
                                             )
                                             .with_span(span));
                                         }
@@ -4101,7 +4163,7 @@ impl Evaluator {
                                             return Err(RuntimeError::new(
                                                 "type-error",
                                                 format!(
-                                                    "--count expected Int, found {}",
+                                                    "count expected Int, found {}",
                                                     value.type_name()
                                                 ),
                                             )
@@ -4322,7 +4384,7 @@ impl Evaluator {
                                     slots[item_slot] = LoweredValue::Unit;
                                     acc
                                 }
-                                FullStageTag::ReduceBy => {
+                                FullStageTag::ReduceBy | FullStageTag::ReduceByConfigured => {
                                     let item_slot = indexed_decode::<usize>(
                                         &mut stage_payload,
                                         execution,
@@ -4330,18 +4392,43 @@ impl Evaluator {
                                     )?;
                                     let body = indexed_raw(&mut stage_payload, span)?;
                                     let value = indexed_raw(&mut stage_payload, span)?;
-                                    let op = indexed_decode::<ReduceByOp>(
-                                        &mut stage_payload,
-                                        execution,
-                                        span,
-                                    )?;
-                                    let jobs = indexed_optional_raw(&mut stage_payload, span)?;
-                                    indexed_finish(stage_payload, span)?;
-                                    if let ControlFlow::Break(value) =
-                                        self.eval_indexed_jobs_option(execution, jobs, slots, span)?
-                                    {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
+                                    let op = if tag == FullStageTag::ReduceByConfigured {
+                                        let configuration = indexed_raw(&mut stage_payload, span)?;
+                                        indexed_finish(stage_payload, span)?;
+                                        let configuration = match self.eval_indexed_expr(execution, configuration, slots, span)? {
+                                            ControlFlow::Continue(value) => value,
+                                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                                        };
+                                        let fields = match configuration {
+                                            LoweredValue::Record(fields) => fields,
+                                            LoweredValue::RecordVec(fields) => Arc::new(fields.iter().map(|(name, value)| (Arc::<str>::from(name.as_str().as_str()), value.clone())).collect()),
+                                            _ => return Err(RuntimeError::new("indexed-ir", "stage configuration must be a record").with_span(span)),
+                                        };
+                                        let mut selected = None;
+                                        for (name, mode) in [("sum", ReduceByOp::Sum), ("min", ReduceByOp::Min), ("max", ReduceByOp::Max)] {
+                                            match fields.get(name) {
+                                                Some(LoweredValue::Bool(true)) => {
+                                                    if selected.replace(mode).is_some() { return Err(RuntimeError::new("stream-reduce-mode", "reduce-by requires exactly one enabled reduction mode").with_span(span)); }
+                                                }
+                                                None | Some(LoweredValue::Bool(false)) => {}
+                                                _ => return Err(RuntimeError::new("type-error", "reduction modes must be Bool").with_span(span)),
+                                            }
+                                        }
+                                        if let Some(jobs) = fields.get("jobs") {
+                                            if !matches!(jobs, LoweredValue::Int(value) if *value > 0) {
+                                                return Err(RuntimeError::new("stream-jobs", "stream worker count must be a positive Int").with_span(span));
+                                            }
+                                        }
+                                        selected.ok_or_else(|| RuntimeError::new("stream-reduce-mode", "reduce-by requires exactly one enabled reduction mode").with_span(span))?
+                                    } else {
+                                        let op = indexed_decode::<ReduceByOp>(&mut stage_payload, execution, span)?;
+                                        let jobs = indexed_optional_raw(&mut stage_payload, span)?;
+                                        indexed_finish(stage_payload, span)?;
+                                        if let ControlFlow::Break(value) = self.eval_indexed_jobs_option(execution, jobs, slots, span)? {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                        op
+                                    };
                                     let mut items = IndexedPipelineItems::new(self, current, span)?;
                                     let block_header = Self::indexed_block_header(slots.len());
                                     let mut projection = Self::indexed_reduce_projection(
@@ -4696,14 +4783,35 @@ impl Evaluator {
                                         LoweredValue::Unit
                                     }
                                 }
-                                FullStageTag::TablePrint => {
-                                    let columns = indexed_decode::<Option<Vec<String>>>(
-                                        &mut stage_payload,
-                                        execution,
-                                        span,
-                                    )?;
-                                    indexed_finish(stage_payload, span)?;
-                                    let records = lowered_pipeline_record_list(&current, span)?;
+                                FullStageTag::TablePrint | FullStageTag::TablePrintConfigured => {
+                                    let columns = if tag == FullStageTag::TablePrintConfigured {
+                                        let expression = indexed_raw(&mut stage_payload, span)?;
+                                        indexed_finish(stage_payload, span)?;
+                                        let values = match self.eval_indexed_expr(execution, expression, slots, span)? {
+                                            ControlFlow::Continue(value) => self.lowered_pipeline_input_items(value, span)?,
+                                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                                        };
+                                        Some(values.into_iter().map(|value| match value {
+                                            LoweredValue::Str(text) => Ok(text.to_string()),
+                                            _ => Err(RuntimeError::new("type-error", "table columns must be Str").with_span(span)),
+                                        }).collect::<Result<Vec<_>, _>>()?)
+                                    } else {
+                                        let columns = indexed_decode::<Option<Vec<String>>>(&mut stage_payload, execution, span)?;
+                                        indexed_finish(stage_payload, span)?;
+                                        columns
+                                    };
+                                    let mut items = IndexedPipelineItems::new(self, current, span)?;
+                                    let collected = (|| -> Result<Vec<LoweredValue>, RuntimeError> {
+                                        let mut records = Vec::new();
+                                        while let Some(item) = items.next(self, span)? { records.push(item); }
+                                        Ok(records)
+                                    })();
+                                    let close = items.cancel(self, span);
+                                    let collected = match collected {
+                                        Ok(records) => { close?; records }
+                                        Err(error) => { let _ = close; return Err(error); }
+                                    };
+                                    let records = lowered_pipeline_record_list(&LoweredValue::List(collected), span)?;
                                     let columns = columns.unwrap_or_else(|| {
                                         let mut seen = std::collections::BTreeSet::new();
                                         let mut columns = Vec::new();

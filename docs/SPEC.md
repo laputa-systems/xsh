@@ -3560,12 +3560,38 @@ continues.
 
 `fs.ls(...) |> table.print(...)` is the accepted standard listing interface.
 
+Structured stage configuration uses ordinary named arguments, including
+punning and statically checked record spreading. Option labels use snake_case:
+`par-map(jobs:)`, `sort-by(desc: true) .size`, and
+`batch(count: 2, max_bytes: 4096, max_argv: true)`. External argv and `run`
+options retain their command syntax. Stage flags such as `--jobs` are migration
+errors; tooling can replace a diagnosed flag range when comments and argument
+order are preserved.
+
+`xsh_registry::stream_parameters::stage_parameters` owns each accepted label, type, default,
+and validation. No other stage accepts these configuration parameters.
+`reduce-by` requires exactly one enabled Bool among `sum`, `min`, and `max`.
+`batch` requires at least one enabled count or byte limit; combined limits close
+a batch at the first reached bound and retain a final short batch. Disabled
+`max_argv: false` adds no limit. Batch `count` and `max_bytes`, chunk `size`, and
+`jobs` must be positive; take/drop/repeat counts may be zero.
+
+Configuration arguments are evaluated once, in their written order, at the
+stage's established entry boundary. They do not run once per item. In
+particular, preceding serial stage effects finish before a downstream worker
+configuration runs; a direct worker configuration runs before source pulls.
+`sort-by` checks its direction before pulling input; `sort` checks its direction
+after materializing input. Nameable positional roles retain their stage timing:
+`count`, range `start`/`end`, chunk `size`, zip `other`, fold/reduce `init`, shuffle
+`seed`, and table `columns`. Inline projections and block parameters retain
+their per-item roles.
+
 `par-map` defaults to a bounded worker count based on available CPUs. Use
-`--jobs=N` to override the worker count. `each` runs serially and does not
-accept `--jobs`; it does not emit parallel-job trace events.
-Every accepted `--jobs` expression runs once before its stage consumes input,
+`par-map(jobs: N)` to override the worker count. `each` runs serially and does not
+accept `jobs:`; it does not emit parallel-job trace events.
+Every accepted `jobs:` expression runs once before its stage consumes input,
 and its result must be positive. Explicit bounded parallel stage limits must be
-positive. `group-by` and both forms of `count` also reject `--jobs` because
+positive. `group-by` and both forms of `count` also reject `jobs:` because
 their indexed handlers run serially.
 
 When a block uses `?` and an item fails, parallel stages stop scheduling
@@ -3582,9 +3608,9 @@ boundary, but the runtime may fuse adjacent `par-map |> reduce-by` so
 worker-local aggregation avoids building one intermediate list. Suffixes such as
 `par-map |> where |> flat-map |> reduce-by` currently materialize between
 stages. `reduce-by` folds a live source one item at a time before pulling the
-next item and closes that source if reduction fails. Its `--jobs` option is
+next item and closes that source if reduction fails. Its `jobs:` parameter is
 currently accepted but does not start reduce workers; the indexed fold is serial.
-An explicit `reduce-by --jobs` prevents adjacent `par-map` fusion so its option
+An explicit `reduce-by(jobs: ...)` prevents adjacent `par-map` fusion so its option
 expression runs at the reduction stage.
 `fold` also combines each live item before pulling the next and closes the
 source if the combine fails. `each` runs its body before pulling the next live
@@ -3598,7 +3624,7 @@ the same live key timing and keeps the first item for each distinct key.
 left source, then pairs one left item with each right item until either side
 ends. When the right side ends first, it closes a live left producer without
 pulling later items.
-`batch --max-bytes=N` checks each live item as it arrives. An item larger than
+`batch(max_bytes: N)` checks each live item as it arrives. An item larger than
 the byte budget fails the stage, closes the producer, and leaves later items
 unpulled.
 `repeat(0)` produces an empty list without pulling a live source.
@@ -3613,8 +3639,8 @@ not orderable. Records compare field by field in sorted
 field-name order, so `sort-by { |r| {c: r.count, n: r.name} }` sorts by `count`
 then `name`. A `group-by` result exposes its projected key as the concrete type
 of the grouping block, so `group-by { |x| x.id } |> sort-by { |g| g.key }` is
-valid when that key is sortable. The default order is ascending and `--desc`
-reverses it. `sort-by --desc=expr` evaluates the option before pulling its
+valid when that key is sortable. The default order is ascending and `desc: true`
+reverses it. `sort-by(desc: expr)` evaluates the option before pulling its
 source or projecting keys, so an option error stops before those effects.
 Both stages are stable: items with equal keys keep their source
 order, so sorting by

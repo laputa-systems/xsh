@@ -88,14 +88,14 @@ print parse_uint("not-a-number", 10)
 
 proc test_implicit_result_return_in_par_map() [error] {
   let values = [1, 2]
-    |> par-map --jobs=2 { |_|
+    |> par-map(jobs: 2) { |_|
       build()
     }
 
   test.eq(values, [["ok"], ["ok"]])?
 
   let block_values = [1, 2]
-    |> par-map --jobs=2 { |_|
+    |> par-map(jobs: 2) { |_|
       let built = ["ok"]
       built
     }
@@ -120,7 +120,7 @@ proc test_result_return_shapes_agree() [error] {
 
 proc test_nested_result_calls_in_par_map() [error] {
   let values = [1, 2]
-    |> par-map --jobs=2 { |value|
+    |> par-map(jobs: 2) { |value|
       middle(value)
     }
 
@@ -185,7 +185,7 @@ export proc build() [error] -> Result[List[Str]] {
     """
 use helper
 
-let values = [1, 2] |> par-map --jobs=2 { |_|
+let values = [1, 2] |> par-map(jobs: 2) { |_|
   helper.build()
 }
 print values[0][0] values[1][0]

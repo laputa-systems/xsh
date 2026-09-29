@@ -198,7 +198,7 @@ proc main(...argv: List[Str]) [fs, error] {
       # Descending path = children before parents. A non-root `chmod -R` that
       # clears a directory's execute bit would otherwise lock itself out of
       # resolving paths to that directory's children; chmod them first.
-      for entry in fs.walk(target) |> sort-by --desc .path {
+      for entry in fs.walk(target) |> sort-by(desc: true) .path {
         entry.path.chmod(mode_for(mode_spec, entry.mode, entry.kind == "dir")?)?
       }
     } else {

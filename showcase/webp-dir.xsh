@@ -44,7 +44,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     |> collect()
 
   let results = entries
-    |> par-map --jobs=opts.jobs { |entry|
+    |> par-map(jobs: opts.jobs) { |entry|
       var out: WebpResult = {converted: false}
       let rel = entry.path.relative_to(opts.root)
       let safe = rel.display().replace("/", "_")

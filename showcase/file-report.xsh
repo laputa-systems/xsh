@@ -47,7 +47,7 @@ proc main(...argv: List[Str]) [fs, error] {
       let sha = entry.path.read_bytes()?.sha256().hex()
       {path: rel.display(), size: entry.size, sha256: sha}
     }
-    |> sort-by --desc .size
+    |> sort-by(desc: true) .size
 
   if entries.len() == 0 {
     print f"no .${opts.ext} files found in ${root}"

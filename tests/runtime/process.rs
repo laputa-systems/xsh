@@ -363,7 +363,7 @@ let job = net.start({{method: \"GET\", url: {}}})?
 while ! request_started.exists()? or ! process_ready.exists()? {{
   time.sleep(1ms)?
 }}
-let values = [1, 2] |> par-map --jobs=2 {{ |value|
+let values = [1, 2] |> par-map(jobs: 2) {{ |value|
   fs.write(stream_ready, \"ready\")?
   time.sleep(2s)?
   fs.write(worker_leaked, \"leaked\")?

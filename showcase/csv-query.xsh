@@ -93,7 +93,7 @@ proc main(...argv: List[Str]) [fs, error] {
 
     let groups = rows
       |> group-by .get(group_col, "")
-      |> sort-by --desc .items.len()
+      |> sort-by(desc: true) .items.len()
 
     print f"  ${groups.len()} group(s) by ${group_col}"
 

@@ -13,7 +13,7 @@ proc main(root: Path = p".", ...exts: List[Str]) [fs, error] {
     |> where { |entry|
       exts.len() == 0 or set.has(ext_set, entry.path.ext())
     }
-    |> reduce-by --sum { |entry|
+    |> reduce-by(sum: true) { |entry|
       {key: entry.path.ext(), value: {files: 1, lines: entry.path.read_text()?.count_lines()}}
     }
 
@@ -22,7 +22,7 @@ proc main(root: Path = p".", ...exts: List[Str]) [fs, error] {
       let row = totals.get(ext, {files: 0, lines: 0})
       {ext: ext, files: row.files, lines: row.lines}
     }
-    |> sort-by --desc .lines
+    |> sort-by(desc: true) .lines
 
   counts |> table.print(columns: ["ext", "files", "lines"])
 

@@ -157,6 +157,7 @@ pub const STREAM_STAGES: &[&str] = &[
     "group-by",
     "fold",
     "reduce",
+    "reduce-by",
     "flat-map",
     "any",
     "all",
@@ -440,7 +441,7 @@ fn stream_doc(stage: &str) -> ReferenceDoc {
             "Transforms stream items with bounded parallel workers.",
             "The worker bound is explicit, output order is deterministic for the ordered form, and cancellation still runs stream cleanup.",
             &["stream", "parallel", "bounded", "ordered"],
-            "par-map(block, --jobs: Int = default) -> Stream[U]",
+            "par-map(jobs: Int = default, block) -> Stream[U]",
         ),
         "each" => (
             "Runs a side-effecting block for each stream item.",
@@ -450,21 +451,21 @@ fn stream_doc(stage: &str) -> ReferenceDoc {
         ),
         "batch" => (
             "Groups stream items into bounded lists.",
-            "The final short batch is retained and the configured batch size must be positive.",
+            "The final short batch is retained. At least one limit must be enabled; count and max_bytes must be positive, max_argv is a Boolean platform argv budget switch, and all enabled limits apply together.",
             &["stream", "batch", "bounded"],
-            "batch(size: Int) -> Stream[List[T]]",
+            "batch(count: Int = absent, max_bytes: Int = absent, max_argv: Bool = false) -> Stream[List[T]]",
         ),
         "sort" => (
             "Sorts all stream items.",
             "Sorting materializes the input and therefore requires a finite source and a defined item ordering. Supported items are Int, Str, Bool, Path, and Records whose fields are themselves supported items; records compare field by field in sorted field-name order. The sort is stable, so equal items keep their source order.",
             &["stream", "sorting", "materialization", "stable"],
-            "sort() -> Stream[T]",
+            "sort(desc: Bool = false) -> Stream[T]",
         ),
         "sort-by" => (
             "Sorts stream items by a projected key.",
-            "The key projection controls ordering and the stage materializes the input before emitting results. Supported key types are Int, Str, Bool, Path, and Records whose fields are themselves supported keys; records compare field by field in sorted field-name order. The default order is ascending and --desc reverses it. The sort is stable, so items with equal keys keep their source order and the two-pass idiom (sort by the secondary key first, then by the primary key) produces a reliable compound ordering. Other key types are rejected at check time and fail with a runtime diagnostic that names the stage and key type. A block is supplied as a command argument, so put the named flag before the block without parentheses: `|> sort-by --desc { |e| e.size }`.",
+            "The key projection controls ordering and the stage materializes the input before emitting results. Supported key types are Int, Str, Bool, Path, and Records whose fields are themselves supported keys; records compare field by field in sorted field-name order. The default order is ascending and desc: true reverses it. The sort is stable, so items with equal keys keep their source order and the two-pass idiom (sort by the secondary key first, then by the primary key) produces a reliable compound ordering. Other key types are rejected at check time and fail with a runtime diagnostic that names the stage and key type. Configuration uses ordinary named arguments before the projection block: `|> sort-by(desc: true) { |e| e.size }`.",
             &["stream", "sorting", "projection", "stable"],
-            "sort-by(--desc: Bool = false, block) -> Stream[T]",
+            "sort-by(desc: Bool = false, block) -> Stream[T]",
         ),
         "take" => (
             "Keeps at most a requested number of stream items.",
@@ -562,6 +563,12 @@ fn stream_doc(stage: &str) -> ReferenceDoc {
             &["stream", "reduction", "accumulator"],
             "reduce(init, block) -> A",
         ),
+        "reduce-by" => (
+            "Reduces keyed values in source order.",
+            "Exactly one of sum, min, or max must be enabled. The projection produces {key, value}; sums combine numeric values or compatible records field by field. The jobs parameter must be positive when supplied and keeps the ordinary serial reduction boundary, disabling adjacent worker aggregation fusion. Configuration arguments run once in written order before pulling the reduction input.",
+            &["stream", "reduction", "grouping"],
+            "reduce-by(sum: Bool = false, min: Bool = false, max: Bool = false, jobs: Int = serial, block) -> Map[V]",
+        ),
         "flat-map" => (
             "Replaces each item with and flattens a child stream.",
             "Child streams are consumed under the parent stream's cleanup scope and their order is preserved.",
@@ -590,7 +597,7 @@ fn stream_doc(stage: &str) -> ReferenceDoc {
             "Renders stream records as a terminal table.",
             "Rendering is a terminal presentation boundary and uses terminal width policy rather than raw byte length.",
             &["stream", "terminal", "tui", "display"],
-            "table.print() -> Unit",
+            "table.print(columns: List[Str] = default) -> Unit",
         ),
         "text.lines" => (
             "Adapts text into a lazy line stream.",

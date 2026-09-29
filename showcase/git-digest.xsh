@@ -71,7 +71,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   print ""
 
   let top = file_stats
-    |> sort-by --desc .total
+    |> sort-by(desc: true) .total
     |> take(opts.limit)
 
   print f"top ${top.len()} file(s) by change volume:"

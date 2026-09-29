@@ -576,6 +576,7 @@ stack boundaries.
 | retry blocks | `tests/xsh/retry.xsh` |
 | stack depth and explicit lowered frames | `tests/runtime/stack_depth.rs` |
 | structured stream behavior | `tests/xsh/stdlib/streams.xsh` |
+| Structured stage named configuration, spreads, modes, entry timing, and migration | `tests/xsh/stream-options.xsh`, `tests/syntax.rs::stream_stage_flags_are_fatal_migration_diagnostics_with_exact_fixes`, and xsht CLI migration tests |
 | stream argv and signal process boundaries | `tests/runtime/streams.rs` |
 
 ## Fixture Locations

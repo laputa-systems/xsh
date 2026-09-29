@@ -270,7 +270,7 @@ pure offenders_from_text(
     )
   }
 
-  return offenders |> sort-by --desc .duplicated_lines
+  return offenders |> sort-by(desc: true) .duplicated_lines
 }
 
 pure total_from_llvm_lines(text: Str) -> Result[Int] {

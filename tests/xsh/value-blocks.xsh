@@ -272,21 +272,21 @@ print \${mapped[0]}
 
 proc test_value_parallel_callback_keeps_lexical_return(ctx: TestContext) [error] {
   let output = test.run_script(ctx, """proc choose() [] -> Int {
-  let ignored = [1, 2] |> par-map --jobs=2 { |number|
+  let ignored = [1, 2] |> par-map(jobs: 2) { |number|
     let selected = if true { return 7 } else { number }
     selected
   } |> collect
   0
 }
 proc fused() [] -> Int {
-  let ignored = [1, 2] |> par-map --jobs=2 { |number|
+  let ignored = [1, 2] |> par-map(jobs: 2) { |number|
     let selected = if true { return 9 } else { number }
     selected
-  } |> reduce-by --sum { |number| {key: "all", value: number} }
+  } |> reduce-by(sum: true) { |number| {key: "all", value: number} }
   0
 }
 proc serial() [] -> Int {
-  let ignored = [1, 2] |> par-map --jobs=1 { |number|
+  let ignored = [1, 2] |> par-map(jobs: 1) { |number|
     let selected = if true { return 11 } else { number }
     selected
   } |> collect
@@ -301,7 +301,7 @@ print \${choose()} \${fused()} \${serial()}
 proc test_value_parallel_callback_failure_is_propagation(ctx: TestContext) [error] {
   let output = test.run_script(ctx, """error WorkerError = failed(message: Str)
 pure outcome() -> Result[Int] { Err(WorkerError.failed(message: "worker failed")) }
-let values = [1, 2] |> par-map --jobs=2 { |number|
+let values = [1, 2] |> par-map(jobs: 2) { |number|
   let value = outcome()?
   value
 } |> collect
@@ -322,7 +322,7 @@ proc test_value_fold_and_key_callbacks_have_ordinary_scopes() [error] {
     }
   }
   test.eq(total, 3)?
-  let grouped = [1, 2] |> reduce-by --sum { |number|
+  let grouped = [1, 2] |> reduce-by(sum: true) { |number|
     let key = "all"
     if number == 1 { {key, value: number} } else { {key, value: number} }
   }

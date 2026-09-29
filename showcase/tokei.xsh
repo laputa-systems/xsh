@@ -1289,7 +1289,7 @@ proc json_main(root: Path, ignore_patterns: List[Str]) [fs, error] {
       {language, report: {stats: scan.stats, name: candidate.path.display()}, deep: scan.deep}
     }
     |> where .language != LangUnknown
-    |> reduce-by --sum { |scanned|
+    |> reduce-by(sum: true) { |scanned|
       {
         key: language_label(scanned.language),
         value: {
@@ -1476,7 +1476,7 @@ proc main(...argv: List[Str]) [fs, error] {
       |> flat-map { |rows|
         rows
       }
-      |> reduce-by --sum { |item|
+      |> reduce-by(sum: true) { |item|
         {
           key: item.key,
           value: {

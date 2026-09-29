@@ -4995,15 +4995,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                     Type::List(item) | Type::Stream(item) => item.as_ref().clone(),
                     _ => return None,
                 };
-                let [arg] = self.program.arena.call_args(stage.args) else {
-                    return None;
-                };
-                let ArenaCallArgKind::Positional(other) = arg.kind else {
-                    return None;
-                };
-                let right = self
-                    .infer_checked_expr_type_with_slots(other, slots)
-                    .or_else(|| self.infer_checked_expr_type(other, &self.top_level_known))?;
+                let expanded = crate::sema::arguments::expand_named_arguments(self.program, self.program.arena.call_args(stage.args), |expr| {
+                    self.bodies.expr_types.get(&expr).cloned().or_else(|| self.infer_checked_expr_type_with_slots(expr, slots))
+                }).ok()?;
+                let params = crate::sema::stage_arguments::stage_argument_params("zip");
+                let binding = crate::sema::arguments::bind_static_arguments(&params, &expanded).ok()?;
+                let index = binding.argument_slots.iter().position(|slot| *slot == 0)?;
+                let right = expanded[index].ty.clone();
                 let right = right.result_ok().cloned().unwrap_or(right);
                 let right = match right {
                     Type::List(item) | Type::Stream(item) => *item,
@@ -11214,144 +11212,78 @@ impl CompactLowerConstructProbe<'_, '_> {
         current_function: Option<Name>,
         item_ty: Option<&Type>,
     ) -> Option<LoweredPipelineStage> {
+        if !xsh_registry::stream_parameters::stage_parameters(stage.kind.as_str()).is_empty() {
+            return self.lower_configured_pipeline_stage(stage, slots, current_function, item_ty);
+        }
         match stage.kind {
             StreamStageKind::TextStreamLines => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if stage.block.is_some() || !stage.args.is_empty() {
                     return None;
                 }
                 Some(LoweredPipelineStage::TextLines)
             }
             StreamStageKind::JsonLines | StreamStageKind::JsonStream => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if stage.block.is_some() || !stage.args.is_empty() {
                     return None;
                 }
                 Some(LoweredPipelineStage::JsonLines)
             }
             StreamStageKind::Enumerate => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if stage.block.is_some() || !stage.args.is_empty() {
                     return None;
                 }
                 Some(LoweredPipelineStage::Enumerate)
             }
-            StreamStageKind::Zip => {
-                if !stage.options.is_empty() || stage.block.is_some() {
-                    return None;
-                }
-                let [arg] = self.program.arena.call_args(stage.args) else {
-                    return None;
-                };
-                let ArenaCallArgKind::Positional(other) = arg.kind else {
-                    return None;
-                };
-                Some(LoweredPipelineStage::Zip {
-                    other: self.lower_expr(other, slots, current_function, None)?,
-                })
-            }
-            StreamStageKind::Sort => {
-                if stage.block.is_some() || !stage.args.is_empty() {
-                    return None;
-                }
-                Some(LoweredPipelineStage::Sort {
-                    descending: self.lower_pipeline_stage_desc_option(
-                        stage,
-                        slots,
-                        current_function,
-                    )?,
-                })
-            }
+            StreamStageKind::Zip => None,
+            StreamStageKind::Sort => None,
             StreamStageKind::Sum => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if stage.block.is_some() || !stage.args.is_empty() {
                     return None;
                 }
                 Some(LoweredPipelineStage::Sum)
             }
             StreamStageKind::Collect => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if stage.block.is_some() || !stage.args.is_empty() {
                     return None;
                 }
                 Some(LoweredPipelineStage::Collect)
             }
             StreamStageKind::First => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if stage.block.is_some() || !stage.args.is_empty() {
                     return None;
                 }
                 Some(LoweredPipelineStage::First)
             }
             StreamStageKind::Last => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if stage.block.is_some() || !stage.args.is_empty() {
                     return None;
                 }
                 Some(LoweredPipelineStage::Last)
             }
             StreamStageKind::Min => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if stage.block.is_some() || !stage.args.is_empty() {
                     return None;
                 }
                 Some(LoweredPipelineStage::Min)
             }
             StreamStageKind::Max => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if stage.block.is_some() || !stage.args.is_empty() {
                     return None;
                 }
                 Some(LoweredPipelineStage::Max)
             }
-            StreamStageKind::SortBy => {
-                if let Some((slot, key)) =
-                    self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
-                {
-                    return Some(LoweredPipelineStage::SortBy {
-                        slot,
-                        key,
-                        descending: self.lower_pipeline_stage_desc_option(
-                            stage,
-                            slots,
-                            current_function,
-                        )?,
-                    });
-                }
-                let (slot, key) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
-                Some(LoweredPipelineStage::SortBy {
-                    slot,
-                    key,
-                    descending: self.lower_pipeline_stage_desc_option(
-                        stage,
-                        slots,
-                        current_function,
-                    )?,
-                })
-            }
+            StreamStageKind::SortBy => None,
             StreamStageKind::UniqueBy => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if let Some((slot, key)) =
                     self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
                 {
@@ -11394,9 +11326,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(LoweredPipelineStage::CountBy { slot, key })
             }
             StreamStageKind::Where => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if let Some((slot, predicate)) =
                     self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
                 {
@@ -11412,9 +11342,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(LoweredPipelineStage::WhereBlock { slot, body, value })
             }
             StreamStageKind::Map => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if !stage.args.is_empty() {
                     if stage.block.is_some() {
                         return None;
@@ -11442,9 +11370,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(LoweredPipelineStage::MapBlock { slot, body, value })
             }
             StreamStageKind::FlatMap => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if let Some((slot, value)) =
                     self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
                 {
@@ -11460,9 +11386,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(LoweredPipelineStage::FlatMapBlock { slot, body, value })
             }
             StreamStageKind::Any => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if let Some((slot, predicate)) =
                     self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
                 {
@@ -11478,9 +11402,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(LoweredPipelineStage::AnyBlock { slot, body, value })
             }
             StreamStageKind::All => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
+
                 if let Some((slot, predicate)) =
                     self.try_lower_pipeline_stage_shorthand(stage, slots, current_function, item_ty)
                 {
@@ -11495,131 +11417,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
                 Some(LoweredPipelineStage::AllBlock { slot, body, value })
             }
-            StreamStageKind::Take | StreamStageKind::Drop => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
-                if stage.block.is_some() {
-                    return None;
-                }
-                let [arg] = self.program.arena.call_args(stage.args) else {
-                    return None;
-                };
-                let ArenaCallArgKind::Positional(arg) = arg.kind else {
-                    return None;
-                };
-                let arg = self.lower_expr(arg, slots, current_function, None)?;
-                match stage.kind {
-                    StreamStageKind::Take => Some(LoweredPipelineStage::Take(arg)),
-                    StreamStageKind::Drop => Some(LoweredPipelineStage::Drop(arg)),
-                    _ => None,
-                }
-            }
-            StreamStageKind::Repeat => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
-                if stage.block.is_some() {
-                    return None;
-                }
-                let [arg] = self.program.arena.call_args(stage.args) else {
-                    return None;
-                };
-                let ArenaCallArgKind::Positional(arg) = arg.kind else {
-                    return None;
-                };
-                let count = self.lower_expr(arg, slots, current_function, None)?;
-                Some(LoweredPipelineStage::Repeat { count })
-            }
-            StreamStageKind::Range => {
-                if !stage.options.is_empty() {
-                    return None;
-                }
-                if stage.block.is_some() {
-                    return None;
-                }
-                let [start_arg, end_arg] = self.program.arena.call_args(stage.args) else {
-                    return None;
-                };
-                let ArenaCallArgKind::Positional(start) = start_arg.kind else {
-                    return None;
-                };
-                let ArenaCallArgKind::Positional(end) = end_arg.kind else {
-                    return None;
-                };
-                let start = self.lower_expr(start, slots, current_function, None)?;
-                let end = self.lower_expr(end, slots, current_function, None)?;
-                Some(LoweredPipelineStage::Range { start, end })
-            }
-            StreamStageKind::BytesChunks => {
-                if !stage.options.is_empty() || stage.block.is_some() {
-                    return None;
-                }
-                let [arg] = self.program.arena.call_args(stage.args) else {
-                    return None;
-                };
-                let ArenaCallArgKind::Positional(arg) = arg.kind else {
-                    return None;
-                };
-                Some(LoweredPipelineStage::BytesChunks {
-                    size: self.lower_expr(arg, slots, current_function, None)?,
-                })
-            }
-            StreamStageKind::Batch => {
-                if stage.block.is_some() {
-                    return None;
-                }
-                let options = self.program.arena.stream_options(stage.options);
-                match options {
-                    [] => None,
-                    [option] if option.name == "count" => {
-                        let value = option.value?;
-                        let count = self.lower_expr(value, slots, current_function, None)?;
-                        Some(LoweredPipelineStage::BatchCount { count })
-                    }
-                    [option] if option.name == "max-argv" => {
-                        let max_argv = match option.value {
-                            Some(value) => {
-                                Some(self.lower_expr(value, slots, current_function, None)?)
-                            }
-                            None => None,
-                        };
-                        Some(LoweredPipelineStage::BatchMaxArgv { max_argv })
-                    }
-                    [option] if option.name == "max-bytes" => {
-                        let value = option.value?;
-                        let max_bytes = self.lower_expr(value, slots, current_function, None)?;
-                        Some(LoweredPipelineStage::BatchMaxBytes { max_bytes })
-                    }
-                    _ => None,
-                }
-            }
-            StreamStageKind::ParMap => {
-                if !stage.args.is_empty() {
-                    return None;
-                }
-                let mut jobs = None;
-                for option in self.program.arena.stream_options(stage.options) {
-                    if option.name.as_str() != "jobs" {
-                        return None;
-                    }
-                    let value = option.value?;
-                    jobs = Some(self.lower_expr(value, slots, current_function, None)?);
-                }
-                if let Some((slot, value)) =
-                    self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)
-                {
-                    return Some(LoweredPipelineStage::ParMap { slot, jobs, value });
-                }
-                let (slot, body, value) =
-                    self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
-                Some(LoweredPipelineStage::ParMapBlock {
-                    slot,
-                    body,
-                    jobs,
-                    value,
-                })
-            }
+            StreamStageKind::Take | StreamStageKind::Drop => None,
+            StreamStageKind::Repeat => None,
+            StreamStageKind::Range => None,
+            StreamStageKind::BytesChunks => None,
+            StreamStageKind::Batch => None,
+            StreamStageKind::ParMap => None,
             StreamStageKind::Each => {
                 let block = stage.block?;
                 let (slot, cleanup) = self.lower_pipeline_stage_item_slot(stage, slots, item_ty)?;
@@ -11640,96 +11443,94 @@ impl CompactLowerConstructProbe<'_, '_> {
                 cleanup_pipeline_stage_item_slot(slots, cleanup, slot);
                 Some(LoweredPipelineStage::Tee { slot, body })
             }
-            StreamStageKind::TablePrint => {
-                if stage.block.is_some() || !stage.options.is_empty() {
-                    return None;
-                }
-                let columns = if stage.args.is_empty() {
-                    None
-                } else {
-                    Some(self.lower_pipeline_stage_table_print_columns(
-                        stage,
-                        slots,
-                        current_function,
-                    )?)
-                };
-                Some(LoweredPipelineStage::TablePrint { columns })
-            }
-            StreamStageKind::ReduceBy => {
-                let mut op = None;
-                let mut jobs = None;
-                for option in self.program.arena.stream_options(stage.options) {
-                    let selected = match option.name.as_str().as_str() {
-                        "sum" => ReduceByOp::Sum,
-                        "min" => ReduceByOp::Min,
-                        "max" => ReduceByOp::Max,
-                        "jobs" => {
-                            let value = option.value?;
-                            if jobs
-                                .replace(self.lower_expr(value, slots, current_function, None)?)
-                                .is_some()
-                            {
-                                return None;
-                            }
-                            continue;
-                        }
-                        _ => return None,
-                    };
-                    // exactly one of --sum/--min/--max
-                    if op.replace(selected).is_some() {
-                        return None;
-                    }
-                }
-                self.lower_pipeline_stage_reduce_by(
-                    stage,
-                    slots,
-                    current_function,
-                    op?,
-                    jobs,
-                    item_ty,
-                )
-            }
-            StreamStageKind::Shuffle => {
-                if !stage.options.is_empty() || stage.block.is_some() {
-                    return None;
-                }
-                let args = self.program.arena.call_args(stage.args);
-                let seed = match args {
-                    [] => None,
-                    [arg] => {
-                        let ArenaCallArgKind::Positional(seed) = arg.kind else {
-                            return None;
-                        };
-                        Some(self.lower_expr(seed, slots, current_function, None)?)
-                    }
-                    _ => return None,
-                };
-                Some(LoweredPipelineStage::Shuffle { seed })
-            }
-            StreamStageKind::Fold | StreamStageKind::Reduce => {
-                self.lower_pipeline_stage_fold(stage, slots, current_function, item_ty)
-            }
+            StreamStageKind::TablePrint => None,
+            StreamStageKind::ReduceBy => None,
+            StreamStageKind::Shuffle => None,
+            StreamStageKind::Fold | StreamStageKind::Reduce => None,
         }
     }
 
-    fn lower_pipeline_stage_desc_option(
+    // The first consumed configuration value initializes source-ordered checked
+    // temporaries. Later configuration fields read those slots at the same stage
+    // boundary; record spreads and effectful expressions are never repeated.
+    fn lower_configured_pipeline_stage(
         &mut self,
         stage: &ArenaStreamStage,
         slots: &mut SlotScope,
         current_function: Option<Name>,
-    ) -> Option<Option<BuildExprId>> {
-        let options = self.program.arena.stream_options(stage.options);
-        match options {
-            [] => Some(None),
-            [option] if option.name == "desc" => match option.value {
-                Some(value) => Some(Some(self.lower_expr(
-                    value,
-                    slots,
-                    current_function,
-                    None,
-                )?)),
-                None => Some(Some(push_build_row!(self, expr, BuildExprRow::Bool(true)))),
+        item_ty: Option<&Type>,
+    ) -> Option<LoweredPipelineStage> {
+        use crate::sema::arguments::{ArgumentValueSource, bind_static_arguments, expand_named_arguments};
+        let params = crate::sema::stage_arguments::stage_argument_params(stage.kind.as_str());
+        let expanded = expand_named_arguments(self.program, self.program.arena.call_args(stage.args), |expr| {
+            self.bodies.expr_types.get(&expr).cloned().or_else(|| self.infer_checked_expr_type_with_slots(expr, slots))
+        }).ok()?;
+        let binding = bind_static_arguments(&params, &expanded).ok()?;
+        let lowered = self.lower_expanded_argument_values(&expanded, slots, current_function, None)?;
+        let mut values = vec![None; params.len()];
+        let mut types = vec![None; params.len()];
+        let mut booleans = vec![Some(false); params.len()];
+        for ((argument, slot), value) in expanded.iter().zip(binding.argument_slots).zip(lowered.values) {
+            values[slot] = Some(value);
+            types[slot] = Some(argument.ty.clone());
+            booleans[slot] = match argument.value {
+                ArgumentValueSource::Expression(expr) => match self.program.arena.expr(expr).kind { ArenaExprKind::Bool(value) => Some(value), _ => None },
+                _ => None,
+            };
+        }
+        let span = self.program.arena.span(stage.span);
+        let wrap = |this: &mut Self, value| this.wrap_argument_bindings(value, lowered.bindings.clone(), span);
+        let record = |this: &mut Self| {
+            let fields = params.iter().zip(&values).filter_map(|(parameter, value)| value.map(|value| LoweredRecordEntry::Field(parameter.name, value))).collect();
+            let record = push_build_row!(this, expr, BuildExprRow::Record(fields));
+            wrap(this, record)
+        };
+        match stage.kind {
+            StreamStageKind::ParMap => {
+                let jobs = values[0].map(|value| wrap(self, value));
+                if let Some((slot, value)) = self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty) {
+                    return Some(LoweredPipelineStage::ParMap { slot, jobs, value });
+                }
+                let (slot, body, value) = self.lower_pipeline_stage_block(stage, slots, current_function, item_ty)?;
+                Some(LoweredPipelineStage::ParMapBlock { slot, body, jobs, value })
+            }
+            StreamStageKind::Sort => Some(LoweredPipelineStage::Sort { descending: values[0].map(|value| wrap(self, value)) }),
+            StreamStageKind::SortBy => {
+                let (slot, key) = self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
+                Some(LoweredPipelineStage::SortBy { slot, key, descending: values[0].map(|value| wrap(self, value)) })
+            }
+            StreamStageKind::Batch => match values.as_slice() {
+                [Some(count), None, None] => Some(LoweredPipelineStage::BatchCount { count: wrap(self, *count) }),
+                [None, Some(max_bytes), None] => Some(LoweredPipelineStage::BatchMaxBytes { max_bytes: wrap(self, *max_bytes) }),
+                [None, None, Some(_)] if booleans[2] == Some(true) => Some(LoweredPipelineStage::BatchMaxArgv { max_argv: None }),
+                _ => Some(LoweredPipelineStage::BatchLimits { configuration: record(self) }),
             },
+            StreamStageKind::ReduceBy => {
+                let (item_slot, value) = self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
+                let body = Vec::new();
+                if booleans[..3].iter().all(Option::is_some) {
+                    let op = match booleans[..3].iter().position(|value| *value == Some(true))? { 0 => ReduceByOp::Sum, 1 => ReduceByOp::Min, _ => ReduceByOp::Max };
+                    let jobs = values[3].map(|value| wrap(self, value));
+                    Some(LoweredPipelineStage::ReduceBy { item_slot, body, value, op, jobs })
+                } else {
+                    Some(LoweredPipelineStage::ReduceByConfigured { item_slot, body, value, configuration: record(self) })
+                }
+            }
+            StreamStageKind::Take => Some(LoweredPipelineStage::Take(wrap(self, values[0]?))),
+            StreamStageKind::Drop => Some(LoweredPipelineStage::Drop(wrap(self, values[0]?))),
+            StreamStageKind::Repeat => Some(LoweredPipelineStage::Repeat { count: wrap(self, values[0]?) }),
+            StreamStageKind::Range => Some(LoweredPipelineStage::Range { start: wrap(self, values[0]?), end: values[1]? }),
+            StreamStageKind::BytesChunks => Some(LoweredPipelineStage::BytesChunks { size: wrap(self, values[0]?) }),
+            StreamStageKind::Zip => Some(LoweredPipelineStage::Zip { other: wrap(self, values[0]?) }),
+            StreamStageKind::Fold | StreamStageKind::Reduce => {
+                let initial = wrap(self, values[0]?);
+                self.lower_pipeline_stage_fold(stage, slots, current_function, item_ty, initial, types[0].clone())
+            }
+            StreamStageKind::Shuffle => Some(LoweredPipelineStage::Shuffle { seed: values[0].map(|value| wrap(self, value)) }),
+            StreamStageKind::TablePrint => Some(match values[0] {
+                Some(value) => LoweredPipelineStage::TablePrintConfigured { columns: wrap(self, value) },
+                None => LoweredPipelineStage::TablePrint { columns: None },
+            }),
             _ => None,
         }
     }
@@ -11756,62 +11557,19 @@ impl CompactLowerConstructProbe<'_, '_> {
         Some((slot, value))
     }
 
-    fn lower_pipeline_stage_table_print_columns(
-        &mut self,
-        stage: &ArenaStreamStage,
-        _slots: &mut SlotScope,
-        _current_function: Option<Name>,
-    ) -> Option<Vec<String>> {
-        let args = self.program.arena.call_args(stage.args);
-        let mut columns = Vec::with_capacity(args.len());
-        for arg in args {
-            let ArenaCallArgKind::Named { name, value, .. } = &arg.kind else {
-                return None;
-            };
-            if name.as_str() != "columns" {
-                return None;
-            }
-            let ArenaExprKind::List(items) = self.program.arena.expr(*value).kind else {
-                return None;
-            };
-            if self.program.arena.list_elements(items).any(|item| item.splice_span.is_some()) { return None; }
-            for item in self.program.arena.list_element_exprs(items) {
-                let ArenaExprKind::Str(s) = self.program.arena.expr(item).kind else {
-                    return None;
-                };
-                columns.push(self.program.arena.string_literal(s).to_string());
-            }
-        }
-        Some(columns)
-    }
-
+    // The bound initializer type stays on the accumulator slot. Nested pipeline
+    // tails resolve their field and stage argument types from that slot, so
+    // retaining the checked type is necessary for valid compositions to lower.
     fn lower_pipeline_stage_fold(
         &mut self,
         stage: &ArenaStreamStage,
         slots: &mut SlotScope,
         current_function: Option<Name>,
         item_ty: Option<&Type>,
+        initial: BuildExprId,
+        acc_ty: Option<Type>,
     ) -> Option<LoweredPipelineStage> {
-        if !stage.options.is_empty() {
-            return None;
-        }
-        let [arg] = self.program.arena.call_args(stage.args) else {
-            return None;
-        };
-        let ArenaCallArgKind::Positional(initial) = arg.kind else {
-            return None;
-        };
         let block = stage.block?;
-        // Preserve the accumulator's checked type while lowering the block.
-        // Nested pipelines, especially in a tail `if`, use slot types to
-        // resolve fields and stage arguments. Losing this type makes a valid
-        // composition look like an unsupported function body and eventually
-        // surfaces as the opaque indexed-IR blocker.
-        let acc_ty = self
-            .infer_checked_expr_type(initial, &self.top_level_known)
-            .or_else(|| self.infer_checked_expr_type_with_slots(initial, slots));
-        self.last_blocker_detail = None;
-        let initial = self.lower_expr(initial, slots, current_function, None)?;
         let saved = slots.enter();
         let params = self
             .program
@@ -11853,31 +11611,6 @@ impl CompactLowerConstructProbe<'_, '_> {
             initial,
             body,
             value,
-        })
-    }
-
-    fn lower_pipeline_stage_reduce_by(
-        &mut self,
-        stage: &ArenaStreamStage,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        op: ReduceByOp,
-        jobs: Option<BuildExprId>,
-        item_ty: Option<&Type>,
-    ) -> Option<LoweredPipelineStage> {
-        // `reduce-by` takes no positional args; the block maps each item to a
-        // `{key, value}` record and the runtime aggregates `value` per key.
-        if !stage.args.is_empty() {
-            return None;
-        }
-        let (item_slot, value) = self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
-        let body = Vec::new();
-        Some(LoweredPipelineStage::ReduceBy {
-            item_slot,
-            body,
-            value,
-            op,
-            jobs,
         })
     }
 

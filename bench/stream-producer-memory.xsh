@@ -15,23 +15,23 @@ proc main(...argv: List[Str]) [io, error] {
     let value = numbers(size) |> first()?
     print f"value=${value}"
   } else if mode == "take-first" {
-    let value = numbers(size) |> take(1) |> par-map --jobs=8 { |n| n } |> first()?
+    let value = numbers(size) |> take(1) |> par-map(jobs: 8) { |n| n } |> first()?
     print f"value=${value}"
   } else if mode == "par-first" {
-    let value = numbers(size) |> par-map --jobs=8 { |n| n } |> first()?
+    let value = numbers(size) |> par-map(jobs: 8) { |n| n } |> first()?
     print f"value=${value}"
   } else if mode == "count" {
     let value = numbers(size) |> count()
     print f"value=${value}"
   } else if mode == "fused" {
     let totals = numbers(size)
-      |> par-map --jobs=8 { |n| n }
-      |> reduce-by --sum { |n| {key: "all", value: 1} }
+      |> par-map(jobs: 8) { |n| n }
+      |> reduce-by(sum: true) { |n| {key: "all", value: 1} }
     print f"value=${totals.get("all", 0)}"
   } else if mode == "unfused" {
     let totals = numbers(size)
-      |> par-map --jobs=8 { |n| n }
-      |> reduce-by --sum --jobs=8 { |n| {key: "all", value: 1} }
+      |> par-map(jobs: 8) { |n| n }
+      |> reduce-by(sum: true, jobs: 8) { |n| {key: "all", value: 1} }
     print f"value=${totals.get("all", 0)}"
   } else {
     abort(2)

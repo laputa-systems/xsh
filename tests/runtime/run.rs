@@ -189,7 +189,7 @@ fn runtime_stats_preserves_parallel_script_output_and_reports_worker_traffic() {
         "runtime-stats-par-map",
         r#"
 let values = [0] |> range(0, 100)
-let total = values |> par-map --jobs=2 { |value| value * 2 } |> sum
+let total = values |> par-map(jobs: 2) { |value| value * 2 } |> sum
 print $total
 "#,
     );

@@ -283,15 +283,18 @@ pub(in crate::runtime::eval) enum FullStageTag {
     BatchCount,
     BatchMaxArgv,
     BatchMaxBytes,
+    BatchLimits,
     Shuffle,
     Fold,
     ReduceBy,
+    ReduceByConfigured,
     ParMap,
     ParMapBlock,
     ParMapFlatMapReduceBy,
     Tee,
     Each,
     TablePrint,
+    TablePrintConfigured,
     Enumerate,
     Zip,
     Sort,
@@ -6576,6 +6579,9 @@ impl_stage_codec! {
     LoweredPipelineStage::BatchMaxBytes { max_bytes } => BatchMaxBytes {
         max_bytes: BuildExprId,
     } => LoweredPipelineStage::BatchMaxBytes { max_bytes },
+    LoweredPipelineStage::BatchLimits { configuration } => BatchLimits {
+        configuration: BuildExprId,
+    } => LoweredPipelineStage::BatchLimits { configuration },
     LoweredPipelineStage::Shuffle { seed } => Shuffle {
         seed: Option<BuildExprId>,
     } => LoweredPipelineStage::Shuffle { seed },
@@ -6617,6 +6623,12 @@ impl_stage_codec! {
         op,
         jobs,
     },
+    LoweredPipelineStage::ReduceByConfigured { item_slot, body, value, configuration } => ReduceByConfigured {
+        item_slot: usize,
+        body: Vec<BuildStmtId>,
+        value: BuildExprId,
+        configuration: BuildExprId,
+    } => LoweredPipelineStage::ReduceByConfigured { item_slot, body, value, configuration },
     LoweredPipelineStage::ParMap { slot, jobs, value } => ParMap {
         slot: usize,
         jobs: Option<BuildExprId>,
@@ -6686,6 +6698,9 @@ impl_stage_codec! {
     LoweredPipelineStage::TablePrint { columns } => TablePrint {
         columns: Option<Vec<String>>,
     } => LoweredPipelineStage::TablePrint { columns },
+    LoweredPipelineStage::TablePrintConfigured { columns } => TablePrintConfigured {
+        columns: BuildExprId,
+    } => LoweredPipelineStage::TablePrintConfigured { columns },
     LoweredPipelineStage::Enumerate => Enumerate {} => LoweredPipelineStage::Enumerate,
     LoweredPipelineStage::Zip { other } => Zip {
         other: BuildExprId,
@@ -8803,6 +8818,43 @@ proc main() [error] {
                 ).expect("capture function exists");
                 let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
                 assert_eq!(result.unwrap(), Value::Result(crate::runtime::value::ResultValue::Ok(Box::new(Value::Int(7)))));
+            }
+        });
+    }
+
+    #[test]
+    fn stage_named_configuration_verifies_children_and_executes_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = r#"
+proc configured() [] -> Int {
+  let limits = {count: 2, max_bytes: 4, max_argv: false}
+  let batches = ["aa", "bb", "cc"] |> batch(...limits)
+  let mode = true
+  let totals = [1, 2] |> reduce-by(sum: mode) { |item| {key: "all", value: item} }
+  let columns = ["name"]
+  [{name: "row"}] |> table.print(columns:)
+  return batches.len() + totals.get("all", 0)
+}
+"#;
+            let program = fixture("stage-named-configuration.xsh", source);
+            for (tag, configuration_offset) in [(FullStageTag::BatchLimits, 0), (FullStageTag::ReduceByConfigured, 3), (FullStageTag::TablePrintConfigured, 0)] {
+                let stage = program.store.stages.iter().position(|actual| *actual == tag).expect("configured stage opcode");
+                let payload = program.store.stage_data[stage].range().bounds(program.store.extra.len()).unwrap();
+                let mut malformed = program.clone();
+                malformed.store.extra[payload.start + configuration_offset] = u32::MAX;
+                assert!(FullVerifier::verify(&malformed).is_err());
+            }
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "configured")),
+                    LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("configuration function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(5));
+                assert!(String::from_utf8(evaluator.stdout.clone()).unwrap().contains("row"));
             }
         });
     }

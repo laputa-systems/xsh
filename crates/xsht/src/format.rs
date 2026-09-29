@@ -2157,15 +2157,6 @@ impl<'a> Writer<'a> {
 
     fn write_stream_stage(&mut self, stage: &ArenaStreamStage, indent: usize, output: &mut String) {
         output.push_str(stage.kind.as_str());
-        let options = self.arena.stream_options(stage.options).to_vec();
-        for option in &options {
-            output.push_str(" --");
-            output.push_str(option.name.as_str().as_str());
-            if let Some(value) = option.value {
-                output.push('=');
-                self.write_expr(value, 0, output);
-            }
-        }
         if !stage.args.is_empty()
             || (stage.block.is_none() && stage.kind.canonical_parens_when_empty())
         {

@@ -1,10 +1,10 @@
 use super::{
-    Binding, Checker, Name, call_arg_expr_id_arena, call_arg_span_arena,
+    Binding, Checker, Name,
 
 };
 use crate::sema::types::Type;
 use crate::syntax::arena::{
-    ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStreamStage, ArenaStreamStageOption, ExprId,
+    ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaStreamStage, ExprId,
 };
 use crate::syntax::node::{StreamStageKind, UnaryOp};
 use std::collections::BTreeMap;
@@ -71,10 +71,10 @@ impl Checker {
             return Type::Unknown;
         };
         let item_ty = *item_ty;
+        let arguments = self.check_stage_arguments_arena(arena, source, stage);
         match stage.kind {
             StreamStageKind::Where => {
                 self.check_stage_no_args_arena(arena, stage);
-                self.check_stage_options_arena(arena, source, stage, &[]);
                 let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 let predicate_ty = result_ok_or_self(&actual);
                 self.expect_type(&Type::Bool, &predicate_ty, stage_span);
@@ -82,7 +82,6 @@ impl Checker {
             }
             StreamStageKind::Map => {
                 self.check_stage_no_args_arena(arena, stage);
-                self.check_stage_options_arena(arena, source, stage, &[]);
                 let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 let output_ty = result_ok_or_self(&actual);
                 if output_ty == Type::Unit {
@@ -92,7 +91,6 @@ impl Checker {
             }
             StreamStageKind::ParMap => {
                 self.check_stage_no_args_arena(arena, stage);
-                self.check_stage_options_arena(arena, source, stage, &["jobs"]);
                 let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 let output_ty = result_ok_or_self(&actual);
                 if output_ty == Type::Unit {
@@ -106,7 +104,6 @@ impl Checker {
             }
             StreamStageKind::Each => {
                 self.check_stage_no_args_arena(arena, stage);
-                self.check_stage_options_arena(arena, source, stage, &[]);
                 let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 match actual {
                     Type::Unit => {}
@@ -121,13 +118,12 @@ impl Checker {
                 Type::Unit
             }
             StreamStageKind::Batch => {
-                self.check_batch_stage_arena(arena, source, stage, &item_ty);
+                self.check_batch_stage_arena(arena, source, stage, &item_ty, &arguments);
                 Type::Stream(Box::new(Type::List(Box::new(item_ty))))
             }
             StreamStageKind::Sort => {
-                self.check_stage_no_options_arena(arena, source, stage);
-                if !stage.args.is_empty() || stage.block.is_some() {
-                    self.error(stage_span, "sort accepts no arguments", "check.arity");
+                if stage.block.is_some() {
+                    self.error(stage_span, "sort does not accept a block", "check.stream-stage-block");
                 }
                 if matches!(
                     item_ty,
@@ -146,24 +142,6 @@ impl Checker {
             }
             StreamStageKind::SortBy => {
                 self.check_stage_no_args_arena(arena, stage);
-                for option in arena.arena.stream_options(stage.options) {
-                    let option_span = arena.arena.span(option.span);
-                    match option.name.as_str().as_str() {
-                        "desc" => {
-                            if let Some(value) = option.value {
-                                let actual =
-                                    self.check_expr_arena(arena, source, value, Some(&Type::Bool));
-                                let value_span = arena.arena.expr(value).span;
-                                self.expect_type(&Type::Bool, &actual, value_span);
-                            }
-                        }
-                        _ => self.error(
-                            option_span,
-                            "unsupported stream stage option",
-                            "check.stream-stage-option",
-                        ),
-                    }
-                }
                 let key_ty = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 let key_ty = result_ok_or_self(&key_ty);
                 if !is_sortable_key_type(&key_ty) {
@@ -176,16 +154,6 @@ impl Checker {
                 Type::Stream(Box::new(item_ty))
             }
             StreamStageKind::Take | StreamStageKind::Drop => {
-                self.check_stage_no_options_arena(arena, source, stage);
-                let args = arena.arena.call_args(stage.args);
-                if args.len() != 1 {
-                    self.error(stage_span, "stage expects a count", "check.arity");
-                }
-                if let Some(arg) = args.first() {
-                    let actual =
-                        self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Int));
-                    self.expect_type(&Type::Int, &actual, call_arg_span_arena(arena, &arg.kind));
-                }
                 if stage.block.is_some() {
                     self.error(
                         stage_span,
@@ -196,7 +164,6 @@ impl Checker {
                 Type::Stream(Box::new(item_ty))
             }
             StreamStageKind::First | StreamStageKind::Last => {
-                self.check_stage_no_options_arena(arena, source, stage);
                 if !stage.args.is_empty() || stage.block.is_some() {
                     self.error(stage_span, "stage accepts no arguments", "check.arity");
                 }
@@ -204,12 +171,10 @@ impl Checker {
             }
             StreamStageKind::UniqueBy => {
                 self.check_stage_no_args_arena(arena, stage);
-                self.check_stage_options_arena(arena, source, stage, &[]);
                 let _ = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 Type::Stream(Box::new(item_ty))
             }
             StreamStageKind::Enumerate => {
-                self.check_stage_no_options_arena(arena, source, stage);
                 if !stage.args.is_empty() || stage.block.is_some() {
                     self.error(
                         stage_span,
@@ -223,18 +188,14 @@ impl Checker {
                 ]))))
             }
             StreamStageKind::Zip => {
-                self.check_stage_no_options_arena(arena, source, stage);
-                let args = arena.arena.call_args(stage.args);
-                if args.len() != 1 {
-                    self.error(stage_span, "zip expects one stream or list", "check.arity");
-                }
-                let other_ty = args
-                    .first()
-                    .map(|arg| self.check_call_arg_arena(arena, source, &arg.kind, None))
-                    .unwrap_or(Type::Unknown);
+                let other_ty = arguments.first().and_then(Option::as_ref).map(|argument| argument.ty.clone()).unwrap_or(Type::Unknown);
                 let other_item = match stream_type_from_input(other_ty) {
                     Some(Type::Stream(item)) => *item,
-                    _ => Type::Unknown,
+                    _ => {
+                        let span = arguments.first().and_then(Option::as_ref).map(|argument| argument.span).unwrap_or(stage_span);
+                        self.error(span, "zip other must be a Stream or List", "check.type-mismatch");
+                        Type::Unknown
+                    }
                 };
                 Type::Stream(Box::new(Type::Record(btree_map(vec![
                     ("left".to_string(), item_ty),
@@ -242,34 +203,15 @@ impl Checker {
                 ]))))
             }
             StreamStageKind::Range => {
-                self.check_stage_no_options_arena(arena, source, stage);
-                let args = arena.arena.call_args(stage.args);
-                if args.len() != 2 || stage.block.is_some() {
-                    self.error(stage_span, "range expects start and end", "check.arity");
-                }
-                for arg in args {
-                    let actual =
-                        self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Int));
-                    self.expect_type(&Type::Int, &actual, call_arg_span_arena(arena, &arg.kind));
-                }
+                if stage.block.is_some() { self.error(stage_span, "range does not accept a block", "check.stream-stage-block"); }
                 Type::Stream(Box::new(Type::Int))
             }
             StreamStageKind::Repeat => {
-                self.check_stage_no_options_arena(arena, source, stage);
-                let args = arena.arena.call_args(stage.args);
-                if args.len() != 1 || stage.block.is_some() {
-                    self.error(stage_span, "repeat expects a count", "check.arity");
-                }
-                if let Some(arg) = args.first() {
-                    let actual =
-                        self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Int));
-                    self.expect_type(&Type::Int, &actual, call_arg_span_arena(arena, &arg.kind));
-                }
+                if stage.block.is_some() { self.error(stage_span, "repeat does not accept a block", "check.stream-stage-block"); }
                 Type::Stream(Box::new(item_ty))
             }
             StreamStageKind::Tee => {
                 self.check_stage_no_args_arena(arena, stage);
-                self.check_stage_options_arena(arena, source, stage, &[]);
                 let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 match actual {
                     Type::Unit | Type::Unknown => {}
@@ -283,7 +225,6 @@ impl Checker {
                 Type::Stream(Box::new(item_ty))
             }
             StreamStageKind::Sum => {
-                self.check_stage_no_options_arena(arena, source, stage);
                 if !stage.args.is_empty() || stage.block.is_some() {
                     self.error(stage_span, "sum() accepts no arguments", "check.arity");
                 }
@@ -291,7 +232,6 @@ impl Checker {
                 Type::Int
             }
             StreamStageKind::Min | StreamStageKind::Max => {
-                self.check_stage_no_options_arena(arena, source, stage);
                 if !stage.args.is_empty() || stage.block.is_some() {
                     self.error(stage_span, "min/max accept no arguments", "check.arity");
                 }
@@ -299,7 +239,6 @@ impl Checker {
             }
             StreamStageKind::GroupBy => {
                 self.check_stage_no_args_arena(arena, stage);
-                self.check_stage_options_arena(arena, source, stage, &[]);
                 let key_ty = result_ok_or_self(
                     &self.check_required_stream_block_arena(arena, source, stage, &item_ty),
                 );
@@ -309,19 +248,7 @@ impl Checker {
                 ]))))
             }
             StreamStageKind::Fold | StreamStageKind::Reduce => {
-                self.check_stage_no_options_arena(arena, source, stage);
-                let args = arena.arena.call_args(stage.args);
-                if args.len() != 1 {
-                    self.error(
-                        stage_span,
-                        "fold/reduce expects an initial value",
-                        "check.arity",
-                    );
-                }
-                let acc_ty = args
-                    .first()
-                    .map(|arg| self.check_call_arg_arena(arena, source, &arg.kind, None))
-                    .unwrap_or(Type::Unknown);
+                let acc_ty = arguments.first().and_then(Option::as_ref).map(|argument| argument.ty.clone()).unwrap_or(Type::Unknown);
                 // A `fold`/`reduce` block binds the accumulator (typed by the
                 // initial value) before the stream item, so it accepts up to
                 // two parameters: `|acc, item| ...`. The tail must produce the
@@ -334,7 +261,6 @@ impl Checker {
             }
             StreamStageKind::FlatMap => {
                 self.check_stage_no_args_arena(arena, stage);
-                self.check_stage_options_arena(arena, source, stage, &[]);
                 let actual = result_ok_or_self(
                     &self.check_required_stream_block_arena(arena, source, stage, &item_ty),
                 );
@@ -353,7 +279,6 @@ impl Checker {
             }
             StreamStageKind::Any | StreamStageKind::All => {
                 self.check_stage_no_args_arena(arena, stage);
-                self.check_stage_options_arena(arena, source, stage, &[]);
                 let actual = result_ok_or_self(
                     &self.check_required_stream_block_arena(arena, source, stage, &item_ty),
                 );
@@ -361,20 +286,7 @@ impl Checker {
                 Type::Bool
             }
             StreamStageKind::Shuffle => {
-                self.check_stage_no_options_arena(arena, source, stage);
-                let args = arena.arena.call_args(stage.args);
-                if args.len() > 1 || stage.block.is_some() {
-                    self.error(
-                        stage_span,
-                        "shuffle accepts an optional seed",
-                        "check.arity",
-                    );
-                }
-                if let Some(arg) = args.first() {
-                    let actual =
-                        self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Int));
-                    self.expect_type(&Type::Int, &actual, call_arg_span_arena(arena, &arg.kind));
-                }
+                if stage.block.is_some() { self.error(stage_span, "shuffle does not accept a block", "check.stream-stage-block"); }
                 Type::Stream(Box::new(item_ty))
             }
             StreamStageKind::TablePrint => {
@@ -393,7 +305,6 @@ impl Checker {
                 Type::Unknown
             }
             StreamStageKind::Count => {
-                self.check_stage_options_arena(arena, source, stage, &[]);
                 if !stage.args.is_empty() {
                     self.error(stage_span, "count does not accept arguments", "check.arity");
                 }
@@ -407,7 +318,6 @@ impl Checker {
                 }
             }
             StreamStageKind::Collect => {
-                self.check_stage_no_options_arena(arena, source, stage);
                 if !stage.args.is_empty() || stage.block.is_some() {
                     self.error(
                         stage_span,
@@ -419,36 +329,6 @@ impl Checker {
             }
             StreamStageKind::ReduceBy => {
                 self.check_stage_no_args_arena(arena, stage);
-                for option in arena.arena.stream_options(stage.options) {
-                    let option_span = arena.arena.span(option.span);
-                    match option.name.as_str().as_str() {
-                        "sum" | "min" | "max" => {}
-                        "jobs" => {
-                            if let Some(value) = option.value {
-                                let actual =
-                                    self.check_expr_arena(arena, source, value, Some(&Type::Int));
-                                let value_span = arena.arena.expr(value).span;
-                                self.expect_type(&Type::Int, &actual, value_span);
-                                self.check_static_positive_value_arena(
-                                    arena,
-                                    value,
-                                    "check.stream-jobs",
-                                );
-                            } else {
-                                self.error(
-                                    option_span,
-                                    "stream stage option requires a value",
-                                    "check.stream-stage-option",
-                                );
-                            }
-                        }
-                        _ => self.error(
-                            option_span,
-                            "reduce-by options are --sum, --min, --max, --jobs",
-                            "check.stream-stage-option",
-                        ),
-                    }
-                }
                 let block_ty = result_ok_or_self(
                     &self.check_required_stream_block_arena(arena, source, stage, &item_ty),
                 );
@@ -568,8 +448,80 @@ impl Checker {
         tail_ty
     }
 
+    fn check_stage_arguments_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        stage: &ArenaStreamStage,
+    ) -> Vec<Option<crate::sema::arguments::ExpandedArgument>> {
+        use crate::sema::arguments::{ArgumentValueSource, bind_static_arguments, expand_named_arguments};
+        use xsh_registry::stream_parameters::{StageParameterValidation, stage_parameters};
+        let contract = stage_parameters(stage.kind.as_str());
+        let params = crate::sema::stage_arguments::stage_argument_params(stage.kind.as_str());
+        if params.is_empty() { return Vec::new(); }
+        let args = arena.arena.call_args(stage.args);
+        let mut positional = 0;
+        for arg in args {
+            let expected = match arg.kind {
+                ArenaCallArgKind::Named { name, .. } => params.iter().find(|param| param.name == name).map(|param| &param.ty),
+                ArenaCallArgKind::Positional(_) => { let expected = params.get(positional).map(|param| &param.ty); positional += 1; expected }
+                _ => None,
+            };
+            if let ArenaCallArgKind::NamedSpread { value, .. } = arg.kind {
+                self.check_expr_arena(arena, source, value, None);
+            } else {
+                self.check_call_arg_arena(arena, source, &arg.kind, expected);
+            }
+        }
+        let expanded = match expand_named_arguments(arena, args, |expr| self.expr_types.get(&arena.arena.expr(expr).span).cloned()) {
+            Ok(expanded) => expanded,
+            Err(error) => { self.error(error.span, &error.message, "check.named-spread"); return vec![None; params.len()]; }
+        };
+        let binding = match bind_static_arguments(&params, &expanded) {
+            Ok(binding) => binding,
+            Err(error) => {
+                let span = if args.is_empty() { arena.arena.span(stage.span) } else { error.span };
+                self.error(span, &error.message, "check.named-arg");
+                return vec![None; params.len()];
+            }
+        };
+        let mut values = vec![None; params.len()];
+        for (argument, slot) in expanded.into_iter().zip(binding.argument_slots) {
+            if argument.name.is_none() && !contract[slot].positional {
+                self.error(argument.span, "stage configuration parameters must be named", "check.named-arg");
+            }
+            self.expect_type(&params[slot].ty, &argument.ty, argument.span);
+            if contract[slot].validation == StageParameterValidation::Positive
+                && let ArgumentValueSource::Expression(value) = argument.value
+            {
+                let code = match contract[slot].name { "jobs" => "check.stream-jobs", "size" => "check.bytes-chunks", _ => "check.stream-batch" };
+                self.check_static_positive_value_arena(arena, value, code);
+            }
+            values[slot] = Some(argument);
+        }
+        let literal_bool = |argument: &crate::sema::arguments::ExpandedArgument| match argument.value {
+            ArgumentValueSource::Expression(expr) => match arena.arena.expr(expr).kind { ArenaExprKind::Bool(value) => Some(value), _ => None },
+            _ => None,
+        };
+        if stage.kind == StreamStageKind::ReduceBy {
+            let modes = &values[..3];
+            let enabled = modes.iter().flatten().filter(|argument| literal_bool(argument) == Some(true)).count();
+            let dynamic = modes.iter().flatten().any(|argument| literal_bool(argument).is_none());
+            if enabled > 1 || !dynamic && enabled != 1 {
+                self.error(arena.arena.span(stage.span), "reduce-by requires exactly one enabled reduction mode", "check.stream-reduce-mode");
+            }
+        }
+        if stage.kind == StreamStageKind::Batch
+            && values[0].is_none() && values[1].is_none()
+            && values[2].as_ref().is_none_or(|argument| literal_bool(argument) == Some(false))
+        {
+            self.error(arena.arena.span(stage.span), "batch requires an enabled count or byte limit", "check.stream-batch");
+        }
+        values
+    }
+
     fn check_stage_no_args_arena(&mut self, arena: &ArenaProgram, stage: &ArenaStreamStage) {
-        if !stage.args.is_empty() {
+        if !stage.args.is_empty() && xsh_registry::stream_parameters::stage_parameters(stage.kind.as_str()).is_empty() {
             self.error(
                 arena.arena.span(stage.span),
                 "stream stage does not accept call arguments",
@@ -578,53 +530,13 @@ impl Checker {
         }
     }
 
-    fn check_stage_no_options_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        stage: &ArenaStreamStage,
-    ) {
-        self.check_stage_options_arena(arena, source, stage, &[]);
-    }
-
-    fn check_stage_options_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        stage: &ArenaStreamStage,
-        allowed: &[&str],
-    ) {
-        for option in arena.arena.stream_options(stage.options) {
-            if !allowed.contains(&option.name.as_str().as_str()) {
-                self.error(
-                    arena.arena.span(option.span),
-                    "unsupported stream stage option",
-                    "check.stream-stage-option",
-                );
-            }
-            let Some(value) = option.value else {
-                self.error(
-                    arena.arena.span(option.span),
-                    "stream stage option requires a value",
-                    "check.stream-stage-option",
-                );
-                continue;
-            };
-            let actual = self.check_expr_arena(arena, source, value, Some(&Type::Int));
-            let value_span = arena.arena.expr(value).span;
-            self.expect_type(&Type::Int, &actual, value_span);
-            if option.name == "jobs" {
-                self.check_static_positive_value_arena(arena, value, "check.stream-jobs");
-            }
-        }
-    }
-
     fn check_batch_stage_arena(
         &mut self,
         arena: &ArenaProgram,
-        source: &str,
+        _source: &str,
         stage: &ArenaStreamStage,
         item_ty: &Type,
+        arguments: &[Option<crate::sema::arguments::ExpandedArgument>],
     ) {
         self.check_stage_no_args_arena(arena, stage);
         if stage.block.is_some() {
@@ -634,68 +546,22 @@ impl Checker {
                 "check.stream-stage-block",
             );
         }
-        let mut has_limit = false;
-        for option in arena.arena.stream_options(stage.options) {
-            match option.name.as_str().as_str() {
-                "count" | "max-bytes" => {
-                    has_limit = true;
-                    let Some(value) = self.check_required_option_value_arena(arena, option) else {
-                        continue;
-                    };
-                    let actual = self.check_expr_arena(arena, source, value, Some(&Type::Int));
-                    let value_span = arena.arena.expr(value).span;
-                    self.expect_type(&Type::Int, &actual, value_span);
-                    self.check_static_positive_value_arena(arena, value, "check.stream-batch");
-                    if option.name == "max-bytes"
-                        && !item_ty.can_be_argv_item()
-                        && !matches!(item_ty, Type::Unknown)
-                    {
-                        self.error(
-                            arena.arena.span(option.span),
-                            "batch --max-bytes requires argv-compatible stream items",
-                            "check.stream-batch",
-                        );
-                    }
-                }
-                "max-argv" => {
-                    has_limit = true;
-                    if let Some(value) = option.value {
-                        let actual = self.check_expr_arena(arena, source, value, Some(&Type::Bool));
-                        let value_span = arena.arena.expr(value).span;
-                        self.expect_type(&Type::Bool, &actual, value_span);
-                    }
-                    if !item_ty.can_be_argv_item() && !matches!(item_ty, Type::Unknown) {
-                        self.error(
-                            arena.arena.span(option.span),
-                            "batch --max-argv requires argv-compatible stream items",
-                            "check.stream-batch",
-                        );
-                    }
-                }
-                _ => self.error(
-                    arena.arena.span(option.span),
-                    "unsupported stream stage option",
-                    "check.stream-stage-option",
-                ),
+        for (slot, argument) in arguments.iter().enumerate().skip(1).filter_map(|(slot, argument)| argument.as_ref().map(|argument| (slot, argument))) {
+            if slot == 2 && let crate::sema::arguments::ArgumentValueSource::Expression(expr) = argument.value
+                && matches!(arena.arena.expr(expr).kind, ArenaExprKind::Bool(false)) { continue; }
+            if !item_ty.can_be_argv_item() && !matches!(item_ty, Type::Unknown) {
+                self.error(argument.span, "byte-bounded batches require argv-compatible items", "check.stream-batch");
             }
-        }
-        if !has_limit {
-            self.error(
-                arena.arena.span(stage.span),
-                "batch requires --count=N, --max-bytes=N, or --max-argv",
-                "check.stream-batch",
-            );
         }
     }
 
     fn check_table_print_stage_arena(
         &mut self,
         arena: &ArenaProgram,
-        source: &str,
+        _source: &str,
         stage: &ArenaStreamStage,
         item_ty: &Type,
     ) {
-        self.check_stage_no_options_arena(arena, source, stage);
         let stage_span = arena.arena.span(stage.span);
         if stage.block.is_some() {
             self.error(
@@ -711,32 +577,6 @@ impl Checker {
                 "check.table-print",
             );
         }
-        let args = arena.arena.call_args(stage.args);
-        if args.len() > 1 {
-            self.error(stage_span, "incorrect function arity", "check.arity");
-        }
-        if let Some(arg) = args.first() {
-            if let ArenaCallArgKind::Named { name, .. } = &arg.kind
-                && name != "columns"
-            {
-                self.error(
-                    call_arg_span_arena(arena, &arg.kind),
-                    "unexpected named parameter",
-                    "check.named-arg",
-                );
-            }
-            let actual = self.check_call_arg_arena(
-                arena,
-                source,
-                &arg.kind,
-                Some(&Type::List(Box::new(Type::Str))),
-            );
-            self.expect_type(
-                &Type::List(Box::new(Type::Str)),
-                &actual,
-                call_arg_span_arena(arena, &arg.kind),
-            );
-        }
     }
 
     fn check_adapter_stage_arena(
@@ -746,8 +586,8 @@ impl Checker {
         stage: &ArenaStreamStage,
         input_ty: Type,
     ) -> Type {
-        self.check_stage_no_options_arena(arena, source, stage);
         let stage_span = arena.arena.span(stage.span);
+        let _arguments = self.check_stage_arguments_arena(arena, source, stage);
         if stage.block.is_some() {
             self.error(
                 stage_span,
@@ -762,20 +602,6 @@ impl Checker {
                 Type::Stream(Box::new(Type::Str))
             }
             StreamStageKind::BytesChunks => {
-                let args = arena.arena.call_args(stage.args);
-                if args.len() != 1 {
-                    self.error(stage_span, "bytes.chunks expects a size", "check.arity");
-                }
-                if let Some(arg) = args.first() {
-                    let actual =
-                        self.check_call_arg_arena(arena, source, &arg.kind, Some(&Type::Int));
-                    self.expect_type(&Type::Int, &actual, call_arg_span_arena(arena, &arg.kind));
-                    self.check_static_positive_value_arena(
-                        arena,
-                        call_arg_expr_id_arena(&arg.kind),
-                        "check.bytes-chunks",
-                    );
-                }
                 self.expect_type(&Type::Bytes, &input_ty, stage_span);
                 Type::Stream(Box::new(Type::Bytes))
             }
@@ -786,22 +612,6 @@ impl Checker {
             }
             _ => unreachable!("adapter stage"),
         }
-    }
-
-    fn check_required_option_value_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        option: &ArenaStreamStageOption,
-    ) -> Option<ExprId> {
-        let Some(value) = option.value else {
-            self.error(
-                arena.arena.span(option.span),
-                "batch option requires a value",
-                "check.stream-stage-option",
-            );
-            return None;
-        };
-        Some(value)
     }
 
     fn check_static_positive_value_arena(

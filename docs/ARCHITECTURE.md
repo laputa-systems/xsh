@@ -422,6 +422,12 @@ Focused semantic rules live beside it:
   analysis. Constructor lowering emits existing record and schema-check rows,
   preserving supplied field order and independent aggregate values.
 - `src/sema/check/stream.rs` checks structured stream pipelines.
+  Stage configuration lives in ordinary `ArenaCallArg` lists and uses
+  `sema::arguments::expand_named_arguments` and `bind_static_arguments`, with
+  fixed parameter contracts in `xsh_registry::stream_parameters`. Lowering
+  evaluates supplied entries in source order into checked temporary slots at
+  the existing stage boundary; indexed stage opcodes retain their specialized
+  configuration and worker machinery.
 - `crates/xsht/src/lint.rs` reports non-fatal quality issues. Its `LintExprVisitor`
   implements `syntax::visitor::Visitor`; add new lint rules by adding methods
   there, not by expanding the traversal switch.

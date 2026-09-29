@@ -1770,11 +1770,6 @@ impl CompactBodyProbe<'_> {
     }
 
     fn check_compact_stream_stage(&mut self, stream: &crate::syntax::arena::ArenaStreamStage) {
-        for option in self.program.arena.stream_options(stream.options) {
-            if let Some(value) = option.value {
-                self.check_compact_expr(value);
-            }
-        }
         for arg in self.program.arena.call_args(stream.args) {
             match &arg.kind {
                 crate::syntax::arena::ArenaCallArgKind::Positional(expr)

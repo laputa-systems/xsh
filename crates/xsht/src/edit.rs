@@ -13,6 +13,7 @@ pub(crate) struct SourceEdit {
 pub(crate) fn migration_lint_code(code: Option<&str>) -> Option<&'static str> {
     match code {
         Some("parse.block-header-migration") => Some("lint.block-header"),
+        Some("parse.stream-option-migration") => Some("lint.stream-options"),
         _ => None,
     }
 }
@@ -26,9 +27,9 @@ pub(crate) fn apply_cst_guarded_edits(
     let mut sources = SourceMap::new();
     let source_id = sources.add_file(file, text);
     let parsed = Parser::parse_source_arena_only(source_id, text);
-    // Only the diagnosed header moves may repair this rejected syntax. All
+    // Only exact diagnosed migration edits may repair this rejected syntax. All
     // other parser failures remain errors, and rewritten source parses normally.
-    let migrating_headers = !parsed.diagnostics.is_empty()
+    let migrating_syntax = !parsed.diagnostics.is_empty()
         && parsed.diagnostics.iter().all(|diagnostic| {
             migration_lint_code(diagnostic.code.as_deref()).is_some()
                 && diagnostic.fix_hints.iter().any(|hint| {
@@ -38,7 +39,7 @@ pub(crate) fn apply_cst_guarded_edits(
                     }))
                 })
         });
-    if !parsed.diagnostics.is_empty() && !migrating_headers {
+    if !parsed.diagnostics.is_empty() && !migrating_syntax {
         return Err(DiagnosticRenderer::new().render(&parsed.diagnostics, &sources));
     }
 
@@ -64,7 +65,7 @@ pub(crate) fn apply_cst_guarded_edits(
         return Ok(None);
     }
 
-    if migrating_headers {
+    if migrating_syntax {
         let rewritten_parse = Parser::parse_source_arena_only(source_id, &rewritten);
         if !rewritten_parse.diagnostics.is_empty() {
             return Err(DiagnosticRenderer::new().render(&rewritten_parse.diagnostics, &sources));

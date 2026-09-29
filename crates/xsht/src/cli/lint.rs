@@ -646,7 +646,7 @@ fn lint_workspace_root(
     }
 
     if fix && !relevant_diagnostics.is_empty() {
-        return migrate_workspace_headers(workspace, root, &reachable, linted_modules);
+        return migrate_workspace_syntax(workspace, root, &reachable, linted_modules);
     }
 
     let mut keys = reachable
@@ -734,9 +734,9 @@ fn lint_workspace_root(
     results
 }
 
-/// Validate the complete rewritten import graph before publishing any header
+/// Validate the complete rewritten import graph before publishing any migration
 /// edit. Multiple entries may share a module; each source is emitted once.
-fn migrate_workspace_headers(
+fn migrate_workspace_syntax(
     workspace: &LintWorkspace,
     root: &str,
     reachable: &FxHashSet<String>,
@@ -1386,7 +1386,7 @@ fn apply_cst_fixes(
     original_check_diagnostics: &[Diagnostic],
     is_module: bool,
 ) -> Result<Option<String>, String> {
-    let migrating_headers = Parser::parse_source_arena_only(SourceId::new(0), text)
+    let migrating_syntax = Parser::parse_source_arena_only(SourceId::new(0), text)
         .diagnostics.iter().any(|diagnostic| migration_lint_code(diagnostic.code.as_deref()).is_some());
     let mut candidate = text.to_owned();
     let mut fixes = fixes.to_vec();
@@ -1419,7 +1419,7 @@ fn apply_cst_fixes(
         if !check_diagnostics_are_preserved(original_check_diagnostics, &checked.diagnostics) {
             return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &program.sources));
         }
-        if migrating_headers { return Ok(Some(candidate)); }
+        if migrating_syntax { return Ok(Some(candidate)); }
         let mut options = config.lint_options.clone();
         options.function_return_types = checked.function_return_types.clone();
         options.expr_types = checked.expr_types.clone();

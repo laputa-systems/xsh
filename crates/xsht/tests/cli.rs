@@ -1275,7 +1275,7 @@ proc build_world_package(pkg: Package) [error] -> Result[List[BuiltPackage]] {
 
 proc main(...argv: List[Str]) [error] -> Result[Unit] {
   let pending: List[Package] = [{name: \"demo\"}]
-  let built_batches = pending |> par-map --jobs=1 { |pkg| build_world_package(pkg) }
+  let built_batches = pending |> par-map(jobs: 1) { |pkg| build_world_package(pkg) }
   for built in built_batches {
     print ${built.len()}
   }

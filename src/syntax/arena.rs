@@ -790,8 +790,6 @@ pub struct ArenaProgramBuilder<'a> {
     word_part_input_starts: Vec<usize>,
     fmt_part_inputs: Vec<(ArenaFmtPartTag, ArenaFmtPartData)>,
     fmt_part_input_starts: Vec<usize>,
-    stream_stage_option_inputs: Vec<(Name, Option<ExprId>, Span)>,
-    stream_stage_option_input_starts: Vec<usize>,
     builder_entry_inputs: Vec<ArenaBuilderEntry>,
     builder_entry_input_starts: Vec<usize>,
     modules: Vec<ArenaUserModule>,
@@ -851,8 +849,6 @@ impl<'a> ArenaProgramBuilder<'a> {
             word_part_input_starts: Vec::new(),
             fmt_part_inputs: Vec::new(),
             fmt_part_input_starts: Vec::new(),
-            stream_stage_option_inputs: Vec::new(),
-            stream_stage_option_input_starts: Vec::new(),
             builder_entry_inputs: Vec::new(),
             builder_entry_input_starts: Vec::new(),
             modules: Vec::new(),
@@ -913,8 +909,6 @@ impl<'a> ArenaProgramBuilder<'a> {
             word_part_input_starts: Vec::new(),
             fmt_part_inputs: Vec::new(),
             fmt_part_input_starts: Vec::new(),
-            stream_stage_option_inputs: Vec::new(),
-            stream_stage_option_input_starts: Vec::new(),
             builder_entry_inputs: Vec::new(),
             builder_entry_input_starts: Vec::new(),
             modules: Vec::new(),
@@ -1861,53 +1855,9 @@ impl<'a> ArenaProgramBuilder<'a> {
         )
     }
 
-    // Stream-stage options are staged too: an option's value can itself be an
-    // arbitrary `${...}` expression containing another full pipeline with its
-    // own options, so the same nesting hazard as fmt parts applies.
-    pub fn begin_stream_stage_options(&mut self) {
-        self.stream_stage_option_input_starts
-            .push(self.stream_stage_option_inputs.len());
-    }
-
-    pub fn push_stream_stage_option_input(
-        &mut self,
-        name: Name,
-        value: Option<ExprId>,
-        span: Span,
-    ) {
-        self.stream_stage_option_inputs.push((name, value, span));
-    }
-
-    pub fn finish_stream_stage_options(&mut self) -> ArenaRange {
-        let start = self
-            .stream_stage_option_input_starts
-            .pop()
-            .expect("finish_stream_stage_options called without begin_stream_stage_options");
-        let range_start = self.lowerer.arena.stream_options.len();
-        for (name, value, span) in self.stream_stage_option_inputs.drain(start..) {
-            let span = self.lowerer.span(span);
-            self.lowerer
-                .arena
-                .stream_options
-                .push(ArenaStreamStageOption { name, value, span });
-        }
-        ArenaRange::new(
-            range_start,
-            self.lowerer.arena.stream_options.len() - range_start,
-        )
-    }
-
-    pub fn discard_stream_stage_options(&mut self) {
-        let start = self
-            .stream_stage_option_input_starts
-            .pop()
-            .expect("discard_stream_stage_options called without begin_stream_stage_options");
-        self.stream_stage_option_inputs.truncate(start);
-    }
-
     // Builder-block entries can nest (an `Entry` can itself carry a nested
     // builder block), so this needs the same stage-then-drain treatment as
-    // fmt parts / stream-stage options.
+    // fmt parts.
     pub fn begin_builder_entries(&mut self) {
         self.builder_entry_input_starts
             .push(self.builder_entry_inputs.len());
@@ -1970,14 +1920,12 @@ impl<'a> ArenaProgramBuilder<'a> {
     pub fn build_stream_stage(
         &mut self,
         kind: StreamStageKind,
-        options: ArenaRange,
         block: Option<BlockId>,
         args: ArenaRange,
         span: Span,
     ) -> ArenaStreamStage {
         ArenaStreamStage {
             kind,
-            options,
             block,
             args,
             span: self.lowerer.span(span),
@@ -3350,7 +3298,6 @@ pub struct AstArena {
     pub call_args: Vec<ArenaCallArg>,
     pub pipe_stages: Vec<ArenaPipeStage>,
     pub stream_stages: Vec<ArenaStreamStage>,
-    pub stream_options: Vec<ArenaStreamStageOption>,
     pub builder_entries: ArenaColdVec<ArenaBuilderEntry>,
     pub command_args: Vec<ArenaCommandArg>,
     pub env_assignments: Vec<ArenaEnvAssignment>,
@@ -3502,7 +3449,6 @@ impl AstArena {
             + vec_capacity_bytes(&self.call_args)
             + vec_capacity_bytes(&self.pipe_stages)
             + vec_capacity_bytes(&self.stream_stages)
-            + vec_capacity_bytes(&self.stream_options)
     }
 
     pub fn builder_storage_bytes(&self) -> usize {
@@ -3621,7 +3567,6 @@ impl AstArena {
             table!(call_args),
             table!(pipe_stages),
             table!(stream_stages),
-            table!(stream_options),
             table!(builder_entries),
             table!(command_args),
             table!(env_assignments),
@@ -3678,7 +3623,6 @@ impl AstArena {
             + vec_capacity_bytes(&self.call_args)
             + vec_capacity_bytes(&self.pipe_stages)
             + vec_capacity_bytes(&self.stream_stages)
-            + vec_capacity_bytes(&self.stream_options)
             + vec_capacity_bytes(&self.builder_entries)
             + vec_capacity_bytes(&self.command_args)
             + vec_capacity_bytes(&self.env_assignments)
@@ -3709,7 +3653,6 @@ impl AstArena {
             + self.call_args.len()
             + self.pipe_stages.len()
             + self.stream_stages.len()
-            + self.stream_options.len()
             + self.builder_entries.len()
             + self.command_args.len()
             + self.env_assignments.len()
@@ -4336,10 +4279,6 @@ impl AstArena {
 
     pub fn stream_stages(&self, range: ArenaRange) -> &[ArenaStreamStage] {
         range_slice(&self.stream_stages, range)
-    }
-
-    pub fn stream_options(&self, range: ArenaRange) -> &[ArenaStreamStageOption] {
-        range_slice(&self.stream_options, range)
     }
 
     pub fn builder_entries(&self, range: ArenaRange) -> &[ArenaBuilderEntry] {
@@ -5539,16 +5478,8 @@ pub enum ArenaPipeStageKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ArenaStreamStage {
     pub kind: StreamStageKind,
-    pub options: ArenaRange,
     pub block: Option<BlockId>,
     pub args: ArenaRange,
-    pub span: SpanId,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ArenaStreamStageOption {
-    pub name: Name,
-    pub value: Option<ExprId>,
     pub span: SpanId,
 }
 

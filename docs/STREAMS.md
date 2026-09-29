@@ -22,6 +22,19 @@ Three result shapes:
   require materialization keep their ordinary expression boundary. A raw
   script producer is also pulled by the loop one item at a time.
 
+Structured stage configuration uses ordinary named arguments, identifier puns,
+and statically known nonempty record spreads. The canonical parameter types,
+defaults, positional roles, and validation categories are defined by
+`xsh_registry::stream_parameters::stage_parameters`; stages without parameters
+reject configuration arguments. `batch` combines any enabled `count`,
+`max_bytes`, and `max_argv` limits and requires at least one. `max_argv: false`
+disables that limit. `reduce-by` requires exactly one of `sum`, `min`, or `max`
+to evaluate to true. Arguments run once in written order when execution reaches
+the established configuration boundary. `sort` evaluates `desc` after collecting
+its input; `sort-by` evaluates it before pulling a live input. A preceding serial
+map prefix retains its materialization boundary. Old stage flags produce a fatal
+migration diagnostic; external process argv flags retain their usual meaning.
+
 The verified indexed pipeline is executed by `FullTag::ExprPipeline` in
 `src/runtime/eval/lowered_run/indexed_run.rs`. Live serial prefixes are driven
 by `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs`.
@@ -68,10 +81,10 @@ cancels the left producer if the right side ends first. Its result is still a li
 Stages that need a complete result (`sort`, `sort-by`, `shuffle`, `collect`,
 `table.print`, positive `repeat`, and `batch`) retain their materialization
 boundary. `par-map` retains its worker boundary.
-`sort-by --desc=expr` evaluates that option before draining a live source and
+`sort-by(desc: expr)` evaluates that option before draining a live source and
 before running key projections.
 The size-limited `batch` handlers consume live input one item at a time;
-`batch --max-bytes` closes the producer on an oversized item without pulling
+`batch(max_bytes: limit)` closes the producer on an oversized item without pulling
 the following item.
 `repeat(0)` cancels a live source without pulling an item.
 `FullTag::StmtFor` in `indexed_run/explicit_run.rs` keeps a supported serial
@@ -107,28 +120,28 @@ Consumers needing deterministic order use `|> sort-by .path`.
 
 ## 4. `reduce-by` — streaming grouped aggregate
 
-`… |> reduce-by --sum|--min|--max [--jobs=N] { |item| {key: K, value: V} }` →
+`… |> reduce-by(sum: true) { |item| {key: K, value: V} }` →
 a `Map` of key → reduced value. It keeps **one accumulator per key**
 (O(distinct) live), unlike `group-by` which buffers every item per group (O(N)).
-`--sum` adds `Int`s/`Float`s or two records **field-wise**, so a count+size
+`sum: true` adds `Int`s/`Float`s or two records **field-wise**, so a count+size
 aggregate is one pass:
 
 ```
-|> reduce-by --sum { |e| {key: e.ext.lower(), value: {count: 1, size: e.size}} }
+|> reduce-by(sum: true) { |e| {key: e.ext.lower(), value: {count: 1, size: e.size}} }
 ```
 
 The indexed `reduce-by` handler folds serially. For a live source, it reduces
 each row before pulling the next one, uses O(distinct) group storage, and closes
-the producer when reduction fails. The accepted `--jobs=N` option is currently
+the producer when reduction fails. The accepted `jobs: N` option is currently
 evaluated once and validated before the fold, but it does not start reduce
 workers. `par-map |> reduce-by` and `par-map |> flat-map |> reduce-by` with an
 identity flattening block may fuse into worker-local aggregation when `par-map`
-supplies the workers; an explicit `reduce-by --jobs` keeps the ordinary stage.
+supplies the workers; an explicit `reduce-by(jobs: N, sum: true)` keeps the ordinary stage.
 
 ### Parallelism boundaries
 
 The indexed `group-by` and keyed `count { block }` handlers also run serially;
-they and plain `count` reject `--jobs`. On live input they evaluate each key
+they and plain `count` reject `jobs`. On live input they evaluate each key
 before the next pull; `group-by` retains its grouped items, while keyed `count`
 retains one count per key. The stages below are serial as well:
 
@@ -147,10 +160,10 @@ traversal when pulled.
 
 ## 5. `par-map` and adapters
 
-- **`par-map`** (`--jobs=N` optional) materializes the lazy source, then maps
+- **`par-map`** (`jobs: N` optional) materializes the lazy source, then maps
   items on bounded workers. It defaults to the available CPU count capped at
-  `DEFAULT_PAR_MAP_WORKERS`; `--jobs=N` overrides that limit. Output retains
-  input order. `each` runs serially and rejects `--jobs`. Use
+  `DEFAULT_PAR_MAP_WORKERS`; `jobs: N` overrides that limit. Output retains
+  input order. `each` runs serially and rejects `jobs`. Use
   `par-map` for heavy independent per-item work.
 - **Result handling.** `par-map` does not unwrap `Result` return values — the
   block's return type flows through unchanged. Use `?` inside the block for
@@ -164,12 +177,14 @@ traversal when pulled.
   projection as ordinary `reduce-by`. A measured attempt to carry other
   `where`/`map`/`flat-map` suffix stages into that fusion regressed the
   `showcase/tokei.xsh` workload, so those shapes keep the ordinary materialized
-  path. An explicit `reduce-by --jobs` keeps the ordinary reduction stage, so
-  its option expression runs once at that boundary.
+  path. An explicit `reduce-by(jobs: N, sum: true)` keeps the ordinary reduction stage, so
+  its option expression runs once at that boundary. Computed reduction modes
+  also keep that boundary so their expressions cannot move into a preceding
+  worker stage.
   Keep eligible fusion as the default: on a 20,000-file flat corpus it used
   about 26% less peak RSS on macOS and 33% less on pinned Linux. Ten paired
   release runs showed about 2.5% slower median wall time on macOS and a tie
-  within Linux's 10 ms timer resolution. `--jobs` remains the opt-out when
+  within Linux's 10 ms timer resolution. `jobs` remains the opt-out when
   throughput matters more than peak memory. Raw samples and exact output
   parity are in `bench/stream-fusion-large-corpus-a04-2026-09-24.json`.
 - **Adapters** (`text.lines`/`bytes.chunks`/`json.lines`/`json.stream`) are valid
@@ -178,7 +193,7 @@ traversal when pulled.
 ## 6. Performance model
 
 The pipeline is a **single-threaded tree-walking interpreter over boxed heap
-`Value`s** unless an explicit `par-map` or `reduce-by --jobs` stage engages. The
+`Value`s** unless an explicit `par-map` or `reduce-by(jobs: N, sum: true)` stage engages. The
 cost is interpreter dispatch + heap traffic, **not** memory bandwidth or cache layout —
 there is no contiguous columnar buffer to vectorize. Levers applied (all landed):
 

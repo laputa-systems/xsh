@@ -1440,8 +1440,7 @@ impl<'a> Parser<'a> {
             self.diagnostic_previous("unknown stream stage", "parse.unknown-stream-stage");
             StreamStageKind::Map
         });
-        let options = self.parse_stream_stage_options_arena_only(arena)?;
-        let mut args = ArenaRange::default();
+        let mut args = self.parse_legacy_stream_stage_flags_arena_only(arena)?;
         if self.consume(TokenKindMatch::LParen).is_some() {
             args = self.parse_call_args_arena_only(arena);
             self.expect(TokenKindMatch::RParen, "expected `)` after stage arguments");
@@ -1455,7 +1454,7 @@ impl<'a> Parser<'a> {
         };
         let end = self.previous_end();
         let span = self.span(start, end);
-        Some(arena.build_stream_stage(kind, options, block, args, span))
+        Some(arena.build_stream_stage(kind, block, args, span))
     }
 
     fn parse_inline_stream_block_arena_only(
@@ -1470,11 +1469,14 @@ impl<'a> Parser<'a> {
         Some(arena.finish_block(&[], span))
     }
 
-    fn parse_stream_stage_options_arena_only(
+    fn parse_legacy_stream_stage_flags_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaRange> {
-        arena.begin_stream_stage_options();
+        arena.begin_call_args();
+        let migration_start = self.current_start();
+        let mut named_arguments = Vec::new();
+        let mut migration_end = migration_start;
         while self.at(TokenKindMatch::Minus) && self.peek_tag(1) == Some(TokenTag::Minus) {
             let start = self.current_start();
             self.bump();
@@ -1482,34 +1484,57 @@ impl<'a> Parser<'a> {
             let Some(name) = self.expect_stream_option_name() else {
                 break;
             };
+            let mut value_text = "true".to_string();
             let value = if self.consume(TokenKindMatch::Equals).is_some() {
                 if self.consume(TokenKindMatch::DollarLBrace).is_some() {
+                    let value_start = self.current_start();
                     let Some(value) = self.parse_expr_id_arena_only(arena) else {
-                        arena.discard_stream_stage_options();
+                        let _ = arena.finish_call_args();
                         return None;
                     };
+                    value_text = self.source[value_start..self.previous_end()].to_string();
                     self.expect(
                         TokenKindMatch::RBrace,
                         "expected `}` after option interpolation",
                     );
                     Some(value)
                 } else {
-                    let Some(value) = self.parse_stream_option_expr_arena_only(arena) else {
-                        arena.discard_stream_stage_options();
+                    let value_start = self.current_start();
+                    let Some(value) = self.parse_legacy_stream_option_expr_arena_only(arena) else {
+                        let _ = arena.finish_call_args();
                         return None;
                     };
+                    value_text = self.source[value_start..self.previous_end()].to_string();
                     Some(value)
                 }
             } else {
                 None
             };
             let end = self.previous_end();
-            arena.push_stream_stage_option_input(name, value, self.span(start, end));
+            let value = value.unwrap_or_else(|| arena.push_bool_expr(true, self.span(start, end)));
+            arena.push_call_arg_input(ArenaCallArgInput::Named {
+                name: Name::intern(name.as_str().replace('-', "_").as_str()),
+                value,
+                span: self.span(start, end),
+            });
+            named_arguments.push(format!("{}: {value_text}", name.as_str().replace('-', "_")));
+            migration_end = end;
         }
-        Some(arena.finish_stream_stage_options())
+        if !named_arguments.is_empty() {
+            let span = self.span(migration_start, migration_end);
+            let mut diagnostic = Diagnostic::error("structured stream options use ordinary named arguments")
+                .with_code("parse.stream-option-migration")
+                .with_label(Label::primary(span, "replace stage flags with named arguments"));
+            if !self.source[span.range()].contains('#') && !self.at(TokenKindMatch::LParen) {
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use named stage arguments", format!("({})", named_arguments.join(", "))));
+            }
+            self.diagnostics.push(diagnostic);
+        }
+        Some(arena.finish_call_args())
     }
 
-    fn parse_stream_option_expr_arena_only(
+    // Only migration recovery reads expressions outside an ordinary argument list.
+    fn parse_legacy_stream_option_expr_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ExprId> {
