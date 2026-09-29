@@ -361,6 +361,57 @@ print ${selector.select(["unknown"]).len()}
   )?
 }
 
+test test_imported_error_constructor_named_fields_preserve_identity_and_order [fs, error] { |ctx|
+  let root = test.temp_dir(ctx)?
+  fp"${root}/helper.xsh".write(r"""
+##! Imported error constructor fixture.
+## A checked failure with two named fields.
+export error HelperError = Failed(detail: Str, code: Int) : Temporary
+## Constructs a failure inside the defining module.
+export pure failure() -> Result[Unit] {
+  Err(HelperError.Failed(detail: "loaded", code: 9))
+}
+""")?
+  let result = test.run_script(ctx, r"""
+use helper
+var order = 0
+let failure = helper.HelperError.Failed(
+  code: { order = order * 10 + 1; 7 },
+  detail: { order = order * 10 + 2; "failed" },
+)
+match failure {
+  helper.HelperError.Failed {detail, code} => print $detail $code $order
+  _ => print "wrong family"
+}
+let dynamic: Any = failure
+match dynamic {
+  _ is helper.Temporary => print "temporary"
+  _ => print "wrong facet"
+}
+""", [], {XSH_MODULE_PATH: root.display()})?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "failed 7 12\ntemporary\n")?
+  let aliased = test.run_script(ctx, r"""
+use helper as h
+let failure = h.HelperError.Failed(detail: "aliased", code: 8)
+match failure {
+  h.HelperError.Failed {detail, code} => print $detail $code
+  _ => print "wrong family"
+}
+""", [], {XSH_MODULE_PATH: root.display()})?
+  test.ok(aliased.success, aliased.stderr)?
+  test.eq(aliased.stdout, "aliased 8\n")?
+  let loaded = test.run_script(ctx, f"""
+type FailureProvider = module {
+  export pure failure() -> Result[Unit]
+}
+let provider = module.load(p"${root.display()}/helper.xsh")?.require(FailureProvider)?
+print \${provider.failure() is Err(_)}
+""", [], {XSH_MODULE_PATH: root.display()})?
+  test.ok(loaded.success, loaded.stderr)?
+  test.eq(loaded.stdout, "true\n")?
+}
+
 test test_static_module_exports_bind_one_namespace [fs, error] { |ctx|
   let root = test.temp_dir(ctx, name: "module-namespace")?
   fp"${root}/helper.xsh".write("""

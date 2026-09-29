@@ -938,7 +938,9 @@ error FsError = NotFound(file: Path) : NotFound | PermissionDenied(file: Path, o
 ```
 
 Constructors are qualified by family, for example
-`FsError.NotFound(file: target)`. Error values expose `.message`. Exact variant
+`FsError.NotFound(file: target)`. Imported families use their checked module
+namespace or import alias; named payload expressions evaluate once in written
+order without evaluating a runtime family receiver. Error values expose `.message`. Exact variant
 payload fields are available after exact variant matching, and facets are
 matched with `is Facet`. Family and variant labels may be rendered in
 diagnostics, but source programs must not branch on string error kinds.

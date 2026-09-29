@@ -9384,7 +9384,9 @@ impl CompactLowerConstructProbe<'_, '_> {
         // Namespaces and static function names have no runtime receiver. A
         // method's value receiver is evaluated before its argument entries.
         if let ArenaExprKind::Field { base, .. } = self.program.arena.expr(callee).kind {
-            let namespace = matches!(self.infer_checked_expr_type_with_slots(base, slots), Some(Type::ErrorFamily(_)))
+            let namespace = self.resolved_compact_error_family_key(base)
+                .and_then(|key| compact_error_family_info(self.declarations, key)).is_some()
+                || matches!(self.infer_checked_expr_type_with_slots(base, slots), Some(Type::ErrorFamily(_)))
                 || matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if slots.resolve(module).is_none() && matches!(self.infer_checked_expr_type_with_slots(base, slots), Some(Type::Module(_))))
                 || matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(module) if api_spec().module(&module.as_str()).is_some() || self.declarations.error_families_by_name.contains_key(&module))
                 || self.declarations.record_constructors.resolve_call(&self.program.arena, callee, self.current_namespace).is_some();
@@ -11128,16 +11130,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         else {
             return None;
         };
-        let family_key = match compact_error_family_key(self.program, base)? {
-            CompactErrorFamilyKey::Local(name) => CompactErrorFamilyKey::Local(name),
-            CompactErrorFamilyKey::Qualified(name) => {
-                CompactErrorFamilyKey::Qualified(QualifiedName::new(
-                    self.compact_imported_module_owner(name.namespace)
-                        .unwrap_or(name.namespace),
-                    name.member,
-                ))
-            }
-        };
+        let family_key = self.resolved_compact_error_family_key(base)?;
         let family_name = compact_error_family_display(family_key);
         let info = compact_error_family_info(self.declarations, family_key)
             .and_then(|family| family.variants.get(&variant))?;
@@ -11176,6 +11169,18 @@ impl CompactLowerConstructProbe<'_, '_> {
             variant: variant.to_string(),
             fields,
             facets: info.facets.clone(),
+        })
+    }
+
+    // Constructor namespaces resolve through their defining module, including
+    // import aliases; they have no runtime receiver to evaluate.
+    fn resolved_compact_error_family_key(&self, base: ExprId) -> Option<CompactErrorFamilyKey> {
+        Some(match compact_error_family_key(self.program, base)? {
+            CompactErrorFamilyKey::Local(name) => CompactErrorFamilyKey::Local(name),
+            CompactErrorFamilyKey::Qualified(name) => CompactErrorFamilyKey::Qualified(QualifiedName::new(
+                self.compact_imported_module_owner(name.namespace).unwrap_or(name.namespace),
+                name.member,
+            )),
         })
     }
 
