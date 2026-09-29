@@ -3,8 +3,8 @@ proc test_fd_finds_by_name_extension_and_type(ctx: TestContext) [fs, process, en
   fp"${root}/alpha.txt".write("a")?
   fp"${root}/beta.log".write("b")?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/fd.xsh" -- alpha -t f -e txt $root ?
-  test.contains(output, "alpha.txt")?
-  test.ok(! ("beta.log" in output))?
+  "alpha.txt" in output
+  ! ("beta.log" in output)
 }
 
 proc test_fd_hidden_and_glob(ctx: TestContext) [fs, process, env, error] {
@@ -12,11 +12,11 @@ proc test_fd_hidden_and_glob(ctx: TestContext) [fs, process, env, error] {
   fp"${root}/.hidden.txt".write("hidden")?
   fp"${root}/visible.txt".write("visible")?
   let hidden_default = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/fd.xsh" -- hidden $root ?
-  test.eq(hidden_default, "")?
+  hidden_default == ""
   let hidden = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/fd.xsh" -- --hidden hidden $root ?
-  test.contains(hidden, ".hidden.txt")?
+  ".hidden.txt" in hidden
   let globbed = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/fd.xsh" -- --glob "*.txt" $root ?
-  test.contains(globbed, "visible.txt")?
+  "visible.txt" in globbed
 }
 
 proc test_fd_multiple_roots_exclude_depth_and_executable(ctx: TestContext) [fs, process, env, error] {
@@ -30,8 +30,8 @@ proc test_fd_multiple_roots_exclude_depth_and_executable(ctx: TestContext) [fs, 
   fp"${right}/other.sh".write("other")?
   fs.chmod(fp"${right}/other.sh", 0o755)?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/fd.xsh" -- --glob "*.sh" -t x -E "skip*" -d1 $left $right ?
-  test.contains(output, "keep.sh")?
-  test.contains(output, "other.sh")?
-  test.ok(! ("skip.log" in output))?
-  test.ok(! ("deep.sh" in output))?
+  "keep.sh" in output
+  "other.sh" in output
+  ! ("skip.log" in output)
+  ! ("deep.sh" in output)
 }

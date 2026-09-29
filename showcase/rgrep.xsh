@@ -51,7 +51,7 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   let files = fs.files(root)
-    |> where set.has(ext_set, .path.ext())
+    |> where .path.ext() in ext_set
     |> sort-by .path
 
   let file_results: List[FileSearch] = files

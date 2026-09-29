@@ -309,5 +309,5 @@ only if a workload warrants changing the indexed record boundary itself.
   with live streams, but it is not a fully interleaved nested lazy pipeline.
 - **Whole-buffer scanners stay whole-buffer.** `Path.bytes_lines()` gives scripts
   a byte-safe file line source, but existing scanners written around `Bytes`
-  prechecks such as `.contains()` and `.count_lines()` still read the whole file
+  prechecks such as substring membership and `.count_lines()` still read the whole file
   until they are refactored to line-state APIs.

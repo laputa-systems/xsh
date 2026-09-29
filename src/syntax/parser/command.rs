@@ -118,19 +118,6 @@ impl<'a> Parser<'a> {
         false
     }
 
-    pub(super) fn lookahead_is_keyword_builtin_command(&self) -> bool {
-        matches!(
-            self.peek_tag(1),
-            Some(
-                TokenTag::Newline
-                    | TokenTag::Semicolon
-                    | TokenTag::RBrace
-                    | TokenTag::Eof
-                    | TokenTag::Question
-            )
-        )
-    }
-
     pub(super) fn parse_core_command_arena_only(
         &mut self,
         name: CoreCommand,

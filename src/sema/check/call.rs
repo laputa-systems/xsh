@@ -772,6 +772,18 @@ impl Checker {
             );
             return Type::Str;
         }
+        if (module == "test" && matches!(name, "contains" | "not_contains"))
+            || (module == "set" && name == "has")
+        {
+            self.membership_migration_spans.insert(span);
+            self.standard_call_spans.insert(span, (module.to_string(), name.to_string()));
+            self.error(span, "standard membership API was removed; use `in` or `not in`", "check.removed-membership");
+            for arg in args { self.check_call_arg_arena(arena, source, &arg.kind, None); }
+            return if module == "test" {
+                Type::Result(Box::new(Type::Unit), Box::new(Type::ErrorFamily(Name::intern("AssertionError"))))
+            } else { Type::Bool };
+        }
+        self.standard_call_spans.insert(span, (module.to_string(), name.to_string()));
         let Some(overloads) = module_sig.function_overloads(name) else {
             self.error(span, "unknown module API", "check.unknown-module-api");
             return Type::Unknown;

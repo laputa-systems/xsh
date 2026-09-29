@@ -631,7 +631,7 @@ fn lint_workspace_root(
             type_program.clone(),
         )
     });
-    if !fix && !checked.diagnostics.is_empty() {
+    if !fix && checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() != Some("check.removed-membership")) {
         return vec![LintResult {
             index: 0,
             kind: LintResultKind::Diagnostics {
@@ -670,6 +670,10 @@ fn lint_workspace_root(
         options.expr_types = checked.expr_types.clone();
         options.callable_effects = checked.callable_effects.clone();
         options.terminating_call_spans = checked.terminating_call_spans.clone();
+        options.assertion_effect_spans = checked.assertion_effect_spans.clone();
+        options.statement_expression_spans = checked.statement_expression_spans.clone();
+        options.membership_migration_spans = checked.membership_migration_spans.clone();
+        options.standard_call_spans = checked.standard_call_spans.clone();
         let linted = if key == root {
             Linter::lint(bundle, &module.text, options)
         } else {
@@ -1053,6 +1057,10 @@ fn lint_config_for_file(
         expr_types: Default::default(),
         callable_effects: Default::default(),
         terminating_call_spans: Default::default(),
+        assertion_effect_spans: Default::default(),
+        statement_expression_spans: Default::default(),
+        membership_migration_spans: Default::default(),
+        standard_call_spans: Default::default(),
         dead_code: !is_path_excluded(
             &tool_config.config_dir,
             Path::new(file),
@@ -1114,6 +1122,10 @@ fn lint_one_file_with_fixes(
     lint_options.expr_types = checked.expr_types.clone();
     lint_options.callable_effects = checked.callable_effects.clone();
     lint_options.terminating_call_spans = checked.terminating_call_spans.clone();
+    lint_options.assertion_effect_spans = checked.assertion_effect_spans.clone();
+    lint_options.statement_expression_spans = checked.statement_expression_spans.clone();
+    lint_options.membership_migration_spans = checked.membership_migration_spans.clone();
+    lint_options.standard_call_spans = checked.standard_call_spans.clone();
     let linted = Linter::lint(&checked_program.parsed.arena, &text, lint_options);
 
     let mut ast_fixes = collect_fix_spans(&linted.diagnostics);

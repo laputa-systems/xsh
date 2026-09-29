@@ -10,11 +10,8 @@ c
   let prefix = fp"${root}/chunk-"
   run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/split.xsh" -- -l 2 $input $prefix ?
 
-  test.contains(
-    fp"${root}/chunk-aa".read_text()?,
-    """a
-b""",
-  )?
+  """a
+b""" in fp"${root}/chunk-aa".read_text()?
 
-  test.contains(fp"${root}/chunk-ab".read_text()?, "c")?
+  "c" in fp"${root}/chunk-ab".read_text()?
 }

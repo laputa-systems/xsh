@@ -101,27 +101,20 @@ impl Evaluator {
     }
 }
 
-#[cfg(feature = "native-tests")]
-pub(super) fn test_failure(message: impl Into<String>) -> Value {
-    Value::err(Value::Error(Box::new(RuntimeError::new(
-        "test-fail",
-        message.into(),
-    ))))
+pub(super) fn assertion_error(message: impl Into<String>, span: Option<Span>) -> RuntimeError {
+    let message = message.into();
+    let mut error = RuntimeError::structured(
+        "AssertionError", "Failed",
+        RecordMap::from([("message".into(), Value::Str(message.as_str().into()))]),
+        Vec::new(), message,
+    );
+    if let Some(span) = span { error = error.with_span(span); }
+    error
 }
 
 #[cfg(feature = "native-tests")]
-pub(super) fn test_contains_value(haystack: &Value, needle: &Value) -> bool {
-    match (haystack, needle) {
-        (Value::Str(haystack), Value::Str(needle)) => haystack.contains(&**needle),
-        (Value::Bytes(haystack), Value::Bytes(needle)) => {
-            needle.is_empty()
-                || haystack
-                    .windows(needle.len())
-                    .any(|window| window == needle)
-        }
-        (Value::List(items), needle) => items.iter().any(|item| item == needle),
-        _ => false,
-    }
+pub(super) fn test_failure(message: impl Into<String>) -> Value {
+    Value::err(Value::Error(Box::new(assertion_error(message, None))))
 }
 
 #[cfg(feature = "native-tests")]

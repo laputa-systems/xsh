@@ -83,6 +83,7 @@ pub enum Type {
     EnvPathList,
     Error,
     ProcessError,
+    ErrorFamily(&'static str),
     Pure,
     Proc,
     Command,

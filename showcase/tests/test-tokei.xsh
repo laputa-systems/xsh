@@ -91,16 +91,16 @@ comment */
   test.eq(data["Total"]["code"], 16)?
   test.eq(data["Total"]["comments"], 23)?
   test.eq(data["Total"]["blanks"], 5)?
-  test.ok(! data["Total"]["children"]["JSON"][0]["name"].contains(".hidden"))?
+  ".hidden" not in data["Total"]["children"]["JSON"][0]["name"].require(Str)?
   test.eq(data["Rust"]["reports"].len(), 1)?
   let table = run.text "xsh" "showcase/tokei.xsh" -- $root ?
 
   # tokei-format table: heavy rules, capitalized header, embedded ("|-") child rows,
   # per-language "(Total)" subtotals, and the grand "Total".
-  test.ok("Language" in table)?
-  test.ok("\u{2501}" in table)?
-  test.ok("|- JavaScript" in table)?
-  test.ok(! ("|- TSX" in table))?
-  test.ok("(Total)" in table)?
-  test.ok("Total" in table)?
+  ("Language" in table)
+  ("\u{2501}" in table)
+  ("|- JavaScript" in table)
+  ! ("|- TSX" in table)
+  ("(Total)" in table)
+  ("Total" in table)
 }

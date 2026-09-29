@@ -484,7 +484,7 @@ pure count_hash_unindented(text: Bytes) -> Scan {
 }
 
 pure count_hash_language(text: Bytes) -> Scan {
-  if ! text.contains(b"#") {
+  if b"#" not in text {
     return count_code_text(text)
   }
 

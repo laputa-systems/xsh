@@ -110,13 +110,13 @@ pure word_separator(text: Str) -> Str {
   let candidates = ["\0", "\x01", "\x02", "\x03"]
   var candidate_index = 0
   while candidate_index < candidates.len() {
-    if !text.contains(candidates[candidate_index]) {
+    if candidates[candidate_index] not in text {
       return candidates[candidate_index]
     }
     candidate_index = candidate_index + 1
   }
   var wide_separator = "\x01\x01"
-  while text.contains(wide_separator) {
+  while wide_separator in text {
     wide_separator = wide_separator + "\x01"
   }
   return wide_separator

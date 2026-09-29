@@ -915,15 +915,6 @@ fn set_module() -> ModuleSig {
             ),
         ),
         (
-            "has",
-            sig(
-                vec![param("set", set_type()), param("item", Type::Str)],
-                Type::Bool,
-                true,
-                RuntimeOp::SetHas,
-            ),
-        ),
-        (
             "add",
             sig(
                 vec![param("set", set_type()), param("item", Type::Str)],
@@ -3435,7 +3426,7 @@ fn test_module() -> ModuleSig {
                     param("condition", Type::Bool),
                     default_param("message", Type::Str),
                 ],
-                result(Type::Unit),
+                Type::Result(Box::new(Type::Unit), Box::new(Type::ErrorFamily("AssertionError"))),
                 true,
                 RuntimeOp::TestOk,
             ),
@@ -3448,7 +3439,7 @@ fn test_module() -> ModuleSig {
                     param("right", unknown()),
                     default_param("message", Type::Str),
                 ],
-                result(Type::Unit),
+                Type::Result(Box::new(Type::Unit), Box::new(Type::ErrorFamily("AssertionError"))),
                 true,
                 RuntimeOp::TestEq,
             ),
@@ -3461,35 +3452,9 @@ fn test_module() -> ModuleSig {
                     param("right", unknown()),
                     default_param("message", Type::Str),
                 ],
-                result(Type::Unit),
+                Type::Result(Box::new(Type::Unit), Box::new(Type::ErrorFamily("AssertionError"))),
                 true,
                 RuntimeOp::TestNe,
-            ),
-        ),
-        (
-            "contains",
-            sig(
-                vec![
-                    param("haystack", unknown()),
-                    param("needle", unknown()),
-                    default_param("message", Type::Str),
-                ],
-                result(Type::Unit),
-                true,
-                RuntimeOp::TestContains,
-            ),
-        ),
-        (
-            "not_contains",
-            sig(
-                vec![
-                    param("haystack", unknown()),
-                    param("needle", unknown()),
-                    default_param("message", Type::Str),
-                ],
-                result(Type::Unit),
-                true,
-                RuntimeOp::TestNotContains,
             ),
         ),
         (

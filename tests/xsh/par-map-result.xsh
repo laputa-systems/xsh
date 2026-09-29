@@ -33,8 +33,8 @@ main()?
   )?
 
   test.ok(! failed.success, failed.stderr)?
-  test.eq(failed.status, 3)?
-  test.eq(failed.stdout, "")?
+  failed.status == 3
+  failed.stdout == ""
   test.ok("DivisionByZero" in failed.stderr or "division by zero" in failed.stderr, failed.stderr)?
 }
 
@@ -44,8 +44,8 @@ proc test_par_map_all_ok() [error] {
       safe_div(x)
     }
 
-  test.eq(results.len(), 3)?
-  test.eq(results[0], 100)?
-  test.eq(results[1], 50)?
-  test.eq(results[2], 33)?
+  results.len() == 3
+  results[0] == 100
+  results[1] == 50
+  results[2] == 33
 }

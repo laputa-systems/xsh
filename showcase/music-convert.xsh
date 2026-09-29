@@ -126,7 +126,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
   let audio_ext_set = set.from(audio_exts)
 
   let files = fs.files(root)
-    |> where set.has(audio_ext_set, .path.ext())
+    |> where .path.ext() in audio_ext_set
     |> sort-by .path
 
   if files.len() == 0 {

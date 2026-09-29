@@ -4,5 +4,5 @@ proc test_rm_force_recursive(ctx: TestContext) [fs, process, env, error] {
   dir.mkdir()?
   fp"${dir}/nested.txt".write("nested")?
   run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/rm.xsh" -- -rf $dir fp"${root}/missing" ?
-  test.ok(! dir.exists()?)?
+  ! dir.exists()?
 }

@@ -26,13 +26,13 @@ export proc execute(root: Path) [fs, error] -> Result[Unit] {
   )?
 
   let plugin = module.load(plugin_path)?.require(Plugin)?
-  test.eq(plugin.name, "demo")?
-  test.ok(plugin.has("description"))?
-  test.ok(! plugin.has("missing"))?
-  test.ok(plugin.keys().contains("name"))?
-  test.eq(plugin.keys().len(), 3)?
+  plugin.name == "demo"
+  "description" in plugin.keys()
+  "missing" not in plugin.keys()
+  ("name" in plugin.keys())
+  plugin.keys().len() == 3
   plugin.execute(root)?
-  test.eq(fp"${root}/out.txt".read_text()?, "demo")?
+  fp"${root}/out.txt".read_text()? == "demo"
 }
 
 proc test_module_load_exports_private_fields_and_contract_errors(ctx: TestContext) [fs, error] {
@@ -95,12 +95,9 @@ checked.build("built")?
     module_env,
   )?
   test.ok(success.success, success.stderr)?
-  test.eq(
-    success.stdout,
-    """demo-demo
+  success.stdout == """demo-demo
 demo-built
-""",
-  )?
+"""
 
   let private = test.run_script(
     ctx,
@@ -110,9 +107,9 @@ let value = loaded.prefix
     [],
     module_env,
   )?
-  test.eq(private.status, 3)?
-  test.contains(private.stderr, "missing-field")?
-  test.contains(private.stderr, "prefix")?
+  private.status == 3
+  "missing-field" in private.stderr
+  "prefix" in private.stderr
 
   let mismatch = test.run_script(
     ctx,
@@ -147,8 +144,8 @@ proc test_module_load_rejects_undocumented_export(ctx: TestContext) [fs, error] 
 """,
   )?
 
-  test.ok(! output.success)?
-  test.contains(output.stderr, "undocumented exports")?
+  ! output.success
+  "undocumented exports" in output.stderr
 }
 
 proc test_module_load_rejects_forbidden_top_level_forms(ctx: TestContext) [fs, error] {
@@ -176,10 +173,10 @@ export let name = "bad"
       f"""let _ = module.load(p"${module_path.display()}")?
 """,
     )?
-    test.eq(output.status, 3)?
-    test.contains(output.stderr, "module-check")?
-    test.contains(output.stderr, "check.module-top-level")?
-    test.contains(output.stderr, module_path.name())?
+    output.status == 3
+    "module-check" in output.stderr
+    "check.module-top-level" in output.stderr
+    module_path.name() in output.stderr
   }
 
   let hook = fp"${root}/signal-hook.xsh"
@@ -194,10 +191,10 @@ export let name = "bad"
     f"""let _ = module.load(p"${hook.display()}")?
 """,
   )?
-  test.eq(output.status, 3)?
-  test.contains(output.stderr, "module-check")?
-  test.contains(output.stderr, "check.signal-hook-module")?
-  test.contains(output.stderr, hook.name())?
+  output.status == 3
+  "module-check" in output.stderr
+  "check.signal-hook-module" in output.stderr
+  hook.name() in output.stderr
 }
 
 proc test_static_and_loaded_modules_reject_the_same_contract_mismatches(ctx: TestContext) [fs, error] {
@@ -281,7 +278,7 @@ main()?
     {XSH_MODULE_PATH: root.display()},
   )?
   test.ok(result.success, result.stderr)?
-  test.eq(fp"${root}/out.txt".read_text()?, "static")?
+  fp"${root}/out.txt".read_text()? == "static"
 }
 
 proc test_same_basename_modules_keep_separate_top_level_bindings(ctx: TestContext) [fs, error] {
@@ -327,12 +324,9 @@ print ${beta.count_words()}
     {XSH_MODULE_PATH: root.display()},
   )?
   test.ok(result.success, result.stderr)?
-  test.eq(
-    result.stdout,
-    """5
+  result.stdout == """5
 3
-""",
-  )?
+"""
 }
 
 proc test_imported_local_args_shadows_predeclared_script_arguments(ctx: TestContext) [fs, error] {
@@ -356,11 +350,8 @@ print ${selector.select(["unknown"]).len()}
     {XSH_MODULE_PATH: root.display()},
   )?
   test.ok(result.success, result.stderr)?
-  test.eq(
-    result.stdout,
-    """1
-""",
-  )?
+  result.stdout == """1
+"""
 }
 
 proc test_static_module_exports_bind_one_namespace(ctx: TestContext) [fs, error] {
@@ -522,12 +513,9 @@ shower.call(pkg)?
     {XSH_MODULE_PATH: root.display()},
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(
-    output.stdout,
-    """pkg:demo
+  output.stdout == """pkg:demo
 pkg:demo
-""",
-  )?
+"""
 }
 
 proc test_qualified_record_fields_pass_to_effectful_module_proc(ctx: TestContext) [fs, error] {
@@ -572,11 +560,8 @@ l.normalize(context)?
     {XSH_MODULE_PATH: root.display()},
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(
-    output.stdout,
-    """workspace x86_64-unknown-linux-musl crt-static
-""",
-  )?
+  output.stdout == """workspace x86_64-unknown-linux-musl crt-static
+"""
 }
 
 proc test_module_proc_call_preserves_runtime_cwd(ctx: TestContext) [fs, error] {
@@ -614,7 +599,7 @@ c.invoke(p"${src.display()}", p"${out.display()}")?
     {XSH_MODULE_PATH: root.display()},
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(out.read_text()?, src.display())?
+  out.read_text()? == src.display()
 }
 
 proc test_module_path_resolves_nested_module_with_default_alias(ctx: TestContext) [fs, error] {
@@ -640,12 +625,9 @@ print ${configure.label("pkgconf")}
     {XSH_MODULE_PATH: lib.display()},
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(
-    output.stdout,
-    """configured pkgconf
-""",
-  )?
-  test.eq(output.stderr, "")?
+  output.stdout == """configured pkgconf
+"""
+  output.stderr == ""
 }
 
 proc test_module_import_alias_trace_and_cycle(ctx: TestContext) [fs, error] {
@@ -698,21 +680,18 @@ match p.get("Package") {
   let module_env = {XSH_MODULE_PATH: root.display()}
   let output = test.run_script(ctx, source, [], module_env)?
   test.ok(output.success, output.stderr)?
-  test.eq(
-    output.stdout,
-    """hi world
+  output.stdout == """hi world
 hi namespace
 hi demo
 demo
 missing-field
-""",
-  )?
-  test.eq(output.stderr, "")?
+"""
+  output.stderr == ""
 
   let traced = test.run_xsht_trace(ctx, source, ["--raw"], [], module_env)?
   test.ok(traced.success, traced.stderr)?
-  test.contains(traced.stderr, "kind=pure.enter")?
-  test.contains(traced.stderr, "greet")?
+  "kind=pure.enter" in traced.stderr
+  "greet" in traced.stderr
 
   fp"${root}/a.xsh".write("""##! Cycle fixture A.
 ## Public cycle value.
@@ -731,8 +710,8 @@ export let value = 2
     [],
     module_env,
   )?
-  test.eq(cycle.status, 2)?
-  test.contains(cycle.stderr, "parse.module-cycle")?
+  cycle.status == 2
+  "parse.module-cycle" in cycle.stderr
 }
 
 proc test_package_hook_module_calls_keep_dynamic_and_static_cwd(ctx: TestContext) [fs, error] {
@@ -768,11 +747,8 @@ pkg.build(p"${dynamic_out.display()}")?
     {XSH_MODULE_PATH: root.display()},
   )?
   test.ok(dynamic.success, dynamic.stderr)?
-  test.eq(
-    fp"${dynamic_out}/ok".read_text()?,
-    f"""demo:${fs.cwd()?.name()}
-""",
-  )?
+  fp"${dynamic_out}/ok".read_text()? == f"""demo:${fs.cwd()?.name()}
+"""
 
   let static_output = test.run_script(
     ctx,
@@ -791,11 +767,8 @@ main(@args)?
     {XSH_MODULE_PATH: root.display()},
   )?
   test.ok(static_output.success, static_output.stderr)?
-  test.eq(
-    fp"${static_out}/ok".read_text()?,
-    """demo:static-src
-""",
-  )?
+  fp"${static_out}/ok".read_text()? == """demo:static-src
+"""
 }
 
 proc test_stream_exports_are_namespace_members_not_module_contract_members(ctx: TestContext) [fs, error] {

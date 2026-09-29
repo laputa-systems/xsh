@@ -9,10 +9,10 @@ proc test_dns_module_with_mocks(ctx: TestContext) [net, error] {
   test.mock(ctx, "dns.resolve_host", {name: "localhost"}, Ok([{name: "localhost", family: "inet", addr: "127.0.0.1"}]))?
   test.mock(ctx, "dns.reverse", {addr: "127.0.0.1"}, Ok(["localhost"]))?
   test.mock(ctx, "dns.nameservers", {}, Ok(["127.0.0.53"]))?
-  test.eq(dns.lookup("example.test", "AAAA", "127.0.0.1:5353", 2s)?[0].value, "127.0.0.1")?
-  test.eq(dns.resolve_host("localhost", "ipv4")?[0].family, "inet")?
-  test.eq(dns.reverse("127.0.0.1")?[0], "localhost")?
-  test.eq(dns.nameservers()?[0], "127.0.0.53")?
+  dns.lookup("example.test", "AAAA", "127.0.0.1:5353", 2s)?[0].value == "127.0.0.1"
+  dns.resolve_host("localhost", "ipv4")?[0].family == "inet"
+  dns.reverse("127.0.0.1")?[0] == "localhost"
+  dns.nameservers()?[0] == "127.0.0.53"
   test.eq(test.calls(ctx, "dns.lookup")[0].args.name, "example.test")?
   test.eq(test.calls(ctx, "dns.lookup")[0].args.record, "AAAA")?
   test.eq(test.calls(ctx, "dns.lookup")[0].args.server, "127.0.0.1:5353")?
@@ -37,12 +37,12 @@ proc test_dns_explicit_server_transport() [net, env, error] {
 
   let a = dns.lookup("fixture.test", "A", server, 1s)?
   let aaaa = dns.lookup("fixture.test", "AAAA", server, 1s)?
-  test.eq(a[0].name, "fixture.test")?
-  test.eq(a[0].record, "A")?
-  test.eq(a[0].value, "192.0.2.10")?
-  test.eq(a[0].ttl, 60)?
-  test.eq(aaaa[0].name, "fixture.test")?
-  test.eq(aaaa[0].record, "AAAA")?
-  test.eq(aaaa[0].value, "2001:db8::42")?
-  test.eq(aaaa[0].ttl, 60)?
+  a[0].name == "fixture.test"
+  a[0].record == "A"
+  a[0].value == "192.0.2.10"
+  a[0].ttl == 60
+  aaaa[0].name == "fixture.test"
+  aaaa[0].record == "AAAA"
+  aaaa[0].value == "2001:db8::42"
+  aaaa[0].ttl == 60
 }

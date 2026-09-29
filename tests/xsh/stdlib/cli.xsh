@@ -60,63 +60,50 @@ proc test_cli_usage_renders_the_command_line_and_its_sections() [error] {
   # each is bare when it is required and bracketed when it is not. A positional
   # with no explicit `required` and no default is required; an explicit
   # `required: false` always wins, as it does everywhere else.
-  test.eq(
-    cli.usage(
+  cli.usage(
       {zebra: {positional: true}, alpha: {positional: true, required: false}},
       "demo",
-    ),
-    """usage: demo [ALPHA] ZEBRA [OPTIONS]
+    ) == """usage: demo [ALPHA] ZEBRA [OPTIONS]
 
 options:
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
 
   # A form supplies the label a positional shows, and a `...NAME` form makes it
   # repeated and therefore optional. Labels are sorted with their names, so
   # `rest` comes before `root`.
-  test.eq(
-    cli.usage(
+  cli.usage(
       {root: {positional: true, form: "ROOT"}, rest: {positional: true, form: "...RAW"}},
       "demo",
-    ),
-    """usage: demo [...RAW] ROOT [OPTIONS]
+    ) == """usage: demo [...RAW] ROOT [OPTIONS]
 
 options:
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
 
   # A form that names a bare positional marks it positional, and a default makes
   # it optional.
-  test.eq(
-    cli.usage({kind: {form: "KIND", default: "rust"}}, "dev"),
-    """usage: dev [KIND] [OPTIONS]
+  cli.usage({kind: {form: "KIND", default: "rust"}}, "dev") == """usage: dev [KIND] [OPTIONS]
 
 options:
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
 
   # The `arguments:` section lists the visible positionals that carry help, and
   # it comes before the options. A hidden option appears in neither section.
-  test.eq(
-    cli.usage(
+  cli.usage(
       {secret: {kind: "Bool", hidden: true}, name: {positional: true, help: "a name"}},
       "demo",
-    ),
-    """usage: demo NAME [OPTIONS]
+    ) == """usage: demo NAME [OPTIONS]
 
 arguments:
   NAME  a name
 
 options:
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
 
   # An option line lists every short name, then every long name, then the value
   # placeholder — the descriptor's own metavar when its form names one and the
   # option's name in upper case otherwise — and a value that may be omitted is
   # bracketed after `=`.
-  test.eq(
-    cli.usage(
+  cli.usage(
       {
         out: {
           kind: "Path",
@@ -135,39 +122,31 @@ options:
         },
       },
       "demo",
-    ),
-    """usage: demo [OPTIONS]
+    ) == """usage: demo [OPTIONS]
 
 options:
   --count COUNT
   --mode[=MODE]
   -o, --out OUT  where to write
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
 
   # A deprecated option carries the bare word when the descriptor only asked
   # for deprecation, and the descriptor's own message when it wrote one.
-  test.eq(
-    cli.usage(
+  cli.usage(
       {old: {kind: "Bool", deprecated: true}, older: {kind: "Bool", deprecated: "use --new"}},
       "demo",
-    ),
-    """usage: demo [OPTIONS]
+    ) == """usage: demo [OPTIONS]
 
 options:
   --old  deprecated
   --older  deprecated: use --new
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
 
   # An empty schema still renders the command line and the implicit help option.
-  test.eq(
-    cli.usage({}, "demo"),
-    """usage: demo [OPTIONS]
+  cli.usage({}, "demo") == """usage: demo [OPTIONS]
 
 options:
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
 }
 
 proc test_cli_usage_rejects_a_schema_it_cannot_interpret(ctx: TestContext) [error] {
@@ -183,8 +162,8 @@ print cli.usage({count: {kind: "Nope"}}, "demo")
 """,
   )?
 
-  test.eq(unknown_type.status, 3)?
-  test.contains(unknown_type.stderr, "cli-parse: unsupported option type `Nope`")?
+  unknown_type.status == 3
+  "cli-parse: unsupported option type `Nope`" in unknown_type.stderr
 
   # The schema is read in sorted name order, so the first rejected descriptor
   # reported is the first one the baseline would report — `broken` sorts before
@@ -196,8 +175,8 @@ print cli.usage({good: {kind: "Int"}, broken: 7}, "demo")
 """,
   )?
 
-  test.contains(first_rejection.stderr, "cli-parse: option `broken` descriptor must be Str or Record, found Int")?
-  test.not_contains(first_rejection.stderr, "usage: demo")?
+  "cli-parse: option `broken` descriptor must be Str or Record, found Int" in first_rejection.stderr
+  "usage: demo" not in first_rejection.stderr
 
   # The two help spellings are reserved by the strict reader the parser uses.
   let reserved_help = test.run_script(
@@ -207,7 +186,7 @@ print cli.usage({helper: {kind: "Bool", long: ["help"]}}, "demo")
 """,
   )?
 
-  test.contains(reserved_help.stderr, "cli-parse: `--help` is reserved by cli.parse")?
+  "cli-parse: `--help` is reserved by cli.parse" in reserved_help.stderr
 }
 
 proc test_cli_tokens_splits_values_clusters_and_operands() [error] {
@@ -215,8 +194,7 @@ proc test_cli_tokens_splits_values_clusters_and_operands() [error] {
   # consumes the rest of its cluster or the next argument; a negative number,
   # `-`, and everything after `--` are operands. A token with no value records
   # the empty string rather than a null.
-  test.eq(
-    token_spellings(
+  token_spellings(
       cli.tokens(
         [
           "--output=result.txt",
@@ -230,31 +208,29 @@ proc test_cli_tokens_splits_values_clusters_and_operands() [error] {
         ],
         ["I", "output"],
       ),
-    ),
-    "long:output:result.txt,short:I:include,operand:-1:,operand:-:,operand:-x:,operand:-abc:",
-  )?
+    ) == "long:output:result.txt,short:I:include,operand:-1:,operand:-:,operand:-x:,operand:-abc:"
 
   # A cluster splits into one token per name, and the first name that takes a
   # value takes the rest of the cluster as that value.
-  test.eq(token_spellings(cli.tokens(["-abc"], [])), "short:a:,short:b:,short:c:")?
-  test.eq(token_spellings(cli.tokens(["-ab"], ["a"])), "short:a:b")?
+  token_spellings(cli.tokens(["-abc"], [])) == "short:a:,short:b:,short:c:"
+  token_spellings(cli.tokens(["-ab"], ["a"])) == "short:a:b"
 
   # A declared value name with nothing left to consume is a rejection rather
   # than a token with an empty value.
-  test.eq(token_spellings(cli.tokens(["-I"], ["I"])), "rejected")?
+  token_spellings(cli.tokens(["-I"], ["I"])) == "rejected"
   test.error_kind(cli.tokens(["-I"], ["I"]), "cli-parse")?
-  test.eq(token_spellings(cli.tokens(["--output"], ["output"])), "rejected")?
+  token_spellings(cli.tokens(["--output"], ["output"])) == "rejected"
   test.error_kind(cli.tokens(["--output"], ["output"]), "cli-parse")?
 
   # A name takes a value only when `value_flags` names it, so an undeclared
   # short name is an ordinary token.
-  test.eq(token_spellings(cli.tokens(["-I"])), "short:I:")?
+  token_spellings(cli.tokens(["-I"])) == "short:I:"
 
   # An empty long name is not an option and not a value flag, so the whole
   # argument stays an operand, and `--` itself is not a token.
-  test.eq(token_spellings(cli.tokens(["--", "-a"], ["a"])), "operand:-a:")?
-  test.eq(token_spellings(cli.tokens(["--="], ["output"])), "operand:--=:")?
-  test.eq(cli.tokens([])?.len(), 0)?
+  token_spellings(cli.tokens(["--", "-a"], ["a"])) == "operand:-a:"
+  token_spellings(cli.tokens(["--="], ["output"])) == "operand:--=:"
+  cli.tokens([])?.len() == 0
 }
 
 proc test_cli_commands_dispatch_names_aliases_and_forms() [fs, error] {
@@ -282,9 +258,9 @@ proc test_cli_commands_dispatch_names_aliases_and_forms() [fs, error] {
   let named = cli.commands(["build", "target/demo", "extra"], schema)?
   test.eq(named.get("command") ?? null, "build")?
   test.eq(named.get("action") ?? null, "build")?
-  test.eq(f"${named.get("root") ?? null}", "target/demo")?
-  test.eq(rest_field(cli.commands(["build", "target/demo", "extra"], schema), "raw"), "extra")?
-  test.eq(named.keys().join(","), "action,command,raw,root")?
+  f"${named.get("root") ?? null}" == "target/demo"
+  rest_field(cli.commands(["build", "target/demo", "extra"], schema), "raw") == "extra"
+  named.keys().join(",") == "action,command,raw,root"
 
   # An alias dispatches to the same command, and `action` reports the spelling
   # the list used while `command` reports the declared name.
@@ -296,14 +272,8 @@ proc test_cli_commands_dispatch_names_aliases_and_forms() [fs, error] {
   # while a command is stored under its name exactly as written. A dashed
   # canonical name is therefore reachable neither by its own spelling nor by the
   # underscored one — the baseline's own asymmetry, preserved here.
-  test.eq(
-    failure_message(cli.commands(["my-command"], {"my-command": {rest: "raw"}})),
-    "unknown command `my-command`",
-  )?
-  test.eq(
-    failure_message(cli.commands(["my_command"], {"my-command": {rest: "raw"}})),
-    "unknown command `my_command`",
-  )?
+  failure_message(cli.commands(["my-command"], {"my-command": {rest: "raw"}})) == "unknown command `my-command`"
+  failure_message(cli.commands(["my_command"], {"my-command": {rest: "raw"}})) == "unknown command `my_command`"
   test.eq(
     cli.commands(["my_command", "one"], {my_command: {rest: "raw"}})?.get("command") ?? null,
     "my_command",
@@ -323,34 +293,28 @@ proc test_cli_commands_dispatch_names_aliases_and_forms() [fs, error] {
   # and the rest name it declares wins over the descriptor's own `rest` field. A
   # form token is not a turn of the argument list: the command word and any
   # token that looks like an option are skipped.
-  test.eq(
-    rest_field(
+  rest_field(
       cli.commands(
         ["push", "R", "a", "b"],
         {push: {form: "push ROOT ...RAW", rest: "ignored", types: {root: "Str"}}},
       ),
       "raw",
-    ),
-    "a,b",
-  )?
+    ) == "a,b"
 
   # A command that matches nothing is reported with the token that named
   # nothing, and an empty list has nothing to report.
-  test.eq(failure_message(cli.commands(["nope"], schema)), "unknown command `nope`")?
-  test.eq(failure_message(cli.commands([], schema)), "missing command")?
+  failure_message(cli.commands(["nope"], schema)) == "unknown command `nope`"
+  failure_message(cli.commands([], schema)) == "missing command"
   test.error_kind(cli.commands([], schema), "cli-commands")?
 
   # An alias another command already claims is rejected while the schema is
   # interpreted, before any argument is read.
-  test.eq(
-    failure_message(
+  failure_message(
       cli.commands(
         ["b"],
         {build: {rest: "raw", aliases: ["b"]}, bale: {rest: "raw", aliases: ["b"]}},
       ),
-    ),
-    "duplicate command alias `b`",
-  )?
+    ) == "duplicate command alias `b`"
 }
 
 proc test_cli_commands_rootless_and_fallback_routing() [fs, error] {
@@ -379,32 +343,23 @@ proc test_cli_commands_rootless_and_fallback_routing() [fs, error] {
     cli.commands(["plain", "one"], "", schema, {rest: "raw", command_like: true})?.get("action") ?? null,
     "plain",
   )?
-  test.eq(
-    failure_message(cli.commands(["./tool"], "", schema, {rest: "raw", command_like: true})),
-    "unknown command `./tool`",
-  )?
-  test.eq(
-    failure_message(
+  failure_message(cli.commands(["./tool"], "", schema, {rest: "raw", command_like: true})) == "unknown command `./tool`"
+  failure_message(
       cli.commands(
         ["./tool", "a"],
         "",
         schema,
         {positionals: ["tool"], command_like: true},
       ),
-    ),
-    "unknown command `./tool`",
-  )?
+    ) == "unknown command `./tool`"
 
   # With no fallback and no rootless default, the first token is reported
   # itself, and an empty list has nothing to report.
-  test.eq(failure_message(cli.commands(["nope"], "", schema)), "unknown command `nope`")?
-  test.eq(failure_message(cli.commands([], "", schema)), "missing command")?
+  failure_message(cli.commands(["nope"], "", schema)) == "unknown command `nope`"
+  failure_message(cli.commands([], "", schema)) == "missing command"
 
   # A rootless default that names no command in the schema is its own rejection.
-  test.eq(
-    failure_message(cli.commands(["x"], "nope", {clean: {rest: "raw"}})),
-    "unknown rootless default command `nope`",
-  )?
+  failure_message(cli.commands(["x"], "nope", {clean: {rest: "raw"}})) == "unknown rootless default command `nope`"
 }
 
 proc test_cli_commands_convert_positionals_and_collect_the_rest() [fs, error] {
@@ -414,7 +369,7 @@ proc test_cli_commands_convert_positionals_and_collect_the_rest() [fs, error] {
   # spelling, and a duration.
   let parsed = cli.commands(["t", "+12", "src/main.xsh"], basic)?
   test.eq(parsed.get("n") ?? null, 12)?
-  test.eq(f"${parsed.get("where") ?? null}", "src/main.xsh")?
+  f"${parsed.get("where") ?? null}" == "src/main.xsh"
   test.eq(
     cli.commands(["t", "yes"], {t: {positionals: ["n"], types: {n: "Bool"}}})?.get("n") ?? null,
     true,
@@ -430,78 +385,39 @@ proc test_cli_commands_convert_positionals_and_collect_the_rest() [fs, error] {
 
   # A value the declared type cannot hold is rejected with the operand's own
   # index in the operand list, and its own type spelling.
-  test.eq(
-    failure_message(cli.commands(["t", "1x", "p"], basic)),
-    "positional `n` expects Int at argv[0], got `1x`",
-  )?
-  test.eq(
-    failure_message(cli.commands(["t", "-1"], {t: {positionals: ["n"], types: {n: "UInt"}}})),
-    "positional `n` expects UInt at argv[0], got `-1`",
-  )?
-  test.eq(
-    failure_message(cli.commands(["t", "maybe"], {t: {positionals: ["n"], types: {n: "Bool"}}})),
-    "positional `n` expects Bool at argv[0], got `maybe`",
-  )?
-  test.eq(
-    failure_message(cli.commands(["t", "soon"], {t: {positionals: ["n"], types: {n: "Duration"}}})),
-    "positional `n` expects Duration at argv[0], got `soon`",
-  )?
+  failure_message(cli.commands(["t", "1x", "p"], basic)) == "positional `n` expects Int at argv[0], got `1x`"
+  failure_message(cli.commands(["t", "-1"], {t: {positionals: ["n"], types: {n: "UInt"}}})) == "positional `n` expects UInt at argv[0], got `-1`"
+  failure_message(cli.commands(["t", "maybe"], {t: {positionals: ["n"], types: {n: "Bool"}}})) == "positional `n` expects Bool at argv[0], got `maybe`"
+  failure_message(cli.commands(["t", "soon"], {t: {positionals: ["n"], types: {n: "Duration"}}})) == "positional `n` expects Duration at argv[0], got `soon`"
 
   # A type spelling the command reader cannot convert is a rejection of the
   # schema, reported once, before any argument is converted.
-  test.eq(
-    failure_message(cli.commands(["t", "x"], {t: {positionals: ["n"], types: {n: "Weird"}}})),
-    "unsupported command positional type `Weird`",
-  )?
-  test.eq(
-    failure_message(cli.commands(["t", "x"], {t: {positionals: ["n"], types: {n: "List[Str]"}}})),
-    "command `t` type for `n` cannot be List",
-  )?
-  test.eq(
-    failure_message(cli.commands(["t", "x"], {t: {positionals: ["n"], types: {n: 7}}})),
-    "command `t` type for `n` must be Str",
-  )?
+  failure_message(cli.commands(["t", "x"], {t: {positionals: ["n"], types: {n: "Weird"}}})) == "unsupported command positional type `Weird`"
+  failure_message(cli.commands(["t", "x"], {t: {positionals: ["n"], types: {n: "List[Str]"}}})) == "command `t` type for `n` cannot be List"
+  failure_message(cli.commands(["t", "x"], {t: {positionals: ["n"], types: {n: 7}}})) == "command `t` type for `n` must be Str"
 
   # An operand with no positional left is rejected, and the rest name takes what
   # remains once the declared positionals are filled. Positionals consume
   # operands in declared order, so the first one missing a value is the one
   # reported.
-  test.eq(
-    failure_message(cli.commands(["t", "1", "x", "y"], basic)),
-    "unexpected positional argument for command `t`: y",
-  )?
-  test.eq(failure_message(cli.commands(["t"], basic)), "missing positional `n` for command `t`")?
-  test.eq(rest_field(cli.commands(["t", "one", "two"], {t: {rest: "raw"}}), "raw"), "one,two")?
-  test.eq(
-    failure_message(cli.commands(["t", "one"], {t: {rest: "raw", min_rest: 2}})),
-    "command `t` expects at least 2 rest arguments",
-  )?
-  test.eq(
-    rest_field(cli.commands(["t", "one", "two"], {t: {rest: "raw", min_rest: 2}}), "raw"),
-    "one,two",
-  )?
+  failure_message(cli.commands(["t", "1", "x", "y"], basic)) == "unexpected positional argument for command `t`: y"
+  failure_message(cli.commands(["t"], basic)) == "missing positional `n` for command `t`"
+  rest_field(cli.commands(["t", "one", "two"], {t: {rest: "raw"}}), "raw") == "one,two"
+  failure_message(cli.commands(["t", "one"], {t: {rest: "raw", min_rest: 2}})) == "command `t` expects at least 2 rest arguments"
+  rest_field(cli.commands(["t", "one", "two"], {t: {rest: "raw", min_rest: 2}}), "raw") == "one,two"
 
   # A malformed descriptor is reported against the field that is malformed.
-  test.eq(failure_message(cli.commands(["t"], {t: "Str"})), "command `t` descriptor must be Record")?
-  test.eq(
-    failure_message(cli.commands(["t"], {t: {positionals: "root"}})),
-    "command `t` descriptor field `positionals` must be List[Str]",
-  )?
-  test.eq(
-    failure_message(cli.commands(["t"], {t: {min_rest: -1}})),
-    "command `t` descriptor field `min_rest` cannot be negative",
-  )?
-  test.eq(
-    failure_message(cli.commands(["t"], {t: {command_like: "yes"}})),
-    "command `t` descriptor field `command_like` must be Bool, found Str",
-  )?
+  failure_message(cli.commands(["t"], {t: "Str"})) == "command `t` descriptor must be Record"
+  failure_message(cli.commands(["t"], {t: {positionals: "root"}})) == "command `t` descriptor field `positionals` must be List[Str]"
+  failure_message(cli.commands(["t"], {t: {min_rest: -1}})) == "command `t` descriptor field `min_rest` cannot be negative"
+  failure_message(cli.commands(["t"], {t: {command_like: "yes"}})) == "command `t` descriptor field `command_like` must be Bool, found Str"
 
   # Every rejection in this walk is a `cli-commands` error, and none of them
   # carries usage text: attaching it is entry-point policy, and this walk
   # renders none.
   test.error_kind(cli.commands(["t", "1", "x", "y"], basic), "cli-commands")?
-  test.not_contains(failure_message(cli.commands(["t", "1", "x", "y"], basic)), "usage:")?
-  test.not_contains(failure_message(cli.commands([], basic)), "usage:")?
+  "usage:" not in failure_message(cli.commands(["t", "1", "x", "y"], basic))
+  "usage:" not in failure_message(cli.commands([], basic))
 }
 
 proc test_cli_command_options_split_values_and_defaults() [fs, error] {
@@ -541,7 +457,7 @@ proc test_cli_command_options_split_values_and_defaults() [fs, error] {
   test.eq((parsed.get("tag") ?? []).join(","), "a,b")?
   test.eq(parsed.get("mode") ?? null, "fast")?
   test.eq(parsed.get("level") ?? null, "info")?
-  test.eq(parsed.keys().join(","), "action,command,level,mode,root,tag,verbose")?
+  parsed.keys().join(",") == "action,command,level,mode,root,tag,verbose"
 
   # A value may be carried separately or inline, an option that may omit its
   # value falls back to its default when nothing supplies one, and an option
@@ -571,21 +487,12 @@ proc test_cli_command_options_split_values_and_defaults() [fs, error] {
   # argument looks like an option, and the value reader then refuses a value
   # that starts with `--` — so the option is the one reported, not the one it
   # swallowed.
-  test.eq(
-    failure_message(cli.commands(["go", "r", "--mode", "--tag"], schema)),
-    "missing value for --mode at argv[0]",
-  )?
-  test.eq(
-    failure_message(cli.commands(["go", "r", "--tag"], schema)),
-    "missing value for --tag at argv[0]",
-  )?
+  failure_message(cli.commands(["go", "r", "--mode", "--tag"], schema)) == "missing value for --mode at argv[0]"
+  failure_message(cli.commands(["go", "r", "--tag"], schema)) == "missing value for --tag at argv[0]"
 
   # A second value for an option that does not repeat is a rejection, and its
   # index is the one it has in the split option list rather than in `argv`.
-  test.eq(
-    failure_message(cli.commands(["go", "r", "-v", "-v"], schema)),
-    "duplicate argument at argv[1]: -v",
-  )?
+  failure_message(cli.commands(["go", "r", "-v", "-v"], schema)) == "duplicate argument at argv[1]: -v"
   test.error_kind(cli.commands(["go", "r", "-v", "-v"], schema), "cli-parse")?
 
   # A token that names no declared option is an operand, not an unknown option:
@@ -593,62 +500,40 @@ proc test_cli_command_options_split_values_and_defaults() [fs, error] {
   # when nothing is left to fill. A short cluster is claimed only by a name the
   # command actually declares, and only a declared name carries a value, so
   # `-tag` is an operand rather than `-t ag`.
-  test.eq(
-    failure_message(cli.commands(["go", "r", "--nope"], schema)),
-    "unexpected positional argument for command `go`: --nope",
-  )?
-  test.eq(
-    failure_message(cli.commands(["go", "r", "--tag", "a", "extra"], schema)),
-    "unexpected positional argument for command `go`: extra",
-  )?
-  test.eq(
-    failure_message(cli.commands(["go", "r", "-tag", "b"], schema)),
-    "unexpected positional argument for command `go`: -tag",
-  )?
+  failure_message(cli.commands(["go", "r", "--nope"], schema)) == "unexpected positional argument for command `go`: --nope"
+  failure_message(cli.commands(["go", "r", "--tag", "a", "extra"], schema)) == "unexpected positional argument for command `go`: extra"
+  failure_message(cli.commands(["go", "r", "-tag", "b"], schema)) == "unexpected positional argument for command `go`: -tag"
 
   # `--` ends option splitting only when the command declares options. A
   # command that declares none takes every argument as an operand, `--`
   # included — the baseline's own early return.
-  test.eq(
-    failure_message(cli.commands(["go", "r", "--", "--tag", "x"], schema)),
-    "unexpected positional argument for command `go`: --tag",
-  )?
-  test.eq(rest_field(cli.commands(["build", "--", "-x"], {build: {rest: "raw"}}), "raw"), "--,-x")?
+  failure_message(cli.commands(["go", "r", "--", "--tag", "x"], schema)) == "unexpected positional argument for command `go`: --tag"
+  rest_field(cli.commands(["build", "--", "-x"], {build: {rest: "raw"}}), "raw") == "--,-x"
 }
 
 proc test_cli_command_options_validate_values_and_relationships() [fs, error] {
   # Conflicting, required, and grouped options are checked after the walk, in
   # sorted schema-name order, so the first relationship that fails is the one
   # reported.
-  test.eq(
-    failure_message(
+  failure_message(
       cli.commands(
         ["go", "r", "--a", "--b"],
         {go: {positionals: ["root"], options: {a: {kind: "Bool", conflicts: ["b"]}, b: {kind: "Bool"}}}},
       ),
-    ),
-    "--a conflicts with --b",
-  )?
-  test.eq(
-    failure_message(
+    ) == "--a conflicts with --b"
+  failure_message(
       cli.commands(
         ["go", "r", "--a"],
         {go: {positionals: ["root"], options: {a: {kind: "Bool", requires: ["b"]}, b: {kind: "Bool"}}}},
       ),
-    ),
-    "--a requires --b",
-  )?
-  test.eq(
-    failure_message(
+    ) == "--a requires --b"
+  failure_message(
       cli.commands(
         ["go", "r"],
         {go: {positionals: ["root"], options: {a: {kind: "Bool", required: true}}}},
       ),
-    ),
-    "missing required argument --a",
-  )?
-  test.eq(
-    failure_message(
+    ) == "missing required argument --a"
+  failure_message(
       cli.commands(
         ["go", "r"],
         {
@@ -669,11 +554,8 @@ proc test_cli_command_options_validate_values_and_relationships() [fs, error] {
           },
         },
       ),
-    ),
-    "one of required group `pick` is required: --a, --c",
-  )?
-  test.eq(
-    failure_message(
+    ) == "one of required group `pick` is required: --a, --c"
+  failure_message(
       cli.commands(
         ["go", "r", "--a"],
         {
@@ -694,65 +576,45 @@ proc test_cli_command_options_validate_values_and_relationships() [fs, error] {
           },
         },
       ),
-    ),
-    "",
-  )?
+    ) == ""
 
   # Numeric bounds, choices, and value types are the option reader's own.
-  test.eq(
-    failure_message(
+  failure_message(
       cli.commands(
         ["go", "r", "--mode", "quick"],
         {go: {positionals: ["root"], options: {mode: {kind: "Str", choices: ["slow", "fast"]}}}},
       ),
-    ),
-    "option --mode expects one of slow|fast, got `quick` at argv[0]",
-  )?
-  test.eq(
-    failure_message(
+    ) == "option --mode expects one of slow|fast, got `quick` at argv[0]"
+  failure_message(
       cli.commands(
         ["go", "r", "--n", "2"],
         {go: {positionals: ["root"], options: {n: {kind: "Int", min: 3}}}},
       ),
-    ),
-    "option --n expects value >= 3",
-  )?
-  test.eq(
-    failure_message(
+    ) == "option --n expects value >= 3"
+  failure_message(
       cli.commands(
         ["go", "r", "--n", "9"],
         {go: {positionals: ["root"], options: {n: {kind: "Int", max: 3}}}},
       ),
-    ),
-    "option --n expects value <= 3",
-  )?
-  test.eq(
-    failure_message(
+    ) == "option --n expects value <= 3"
+  failure_message(
       cli.commands(
         ["go", "r", "--n", "0"],
         {go: {positionals: ["root"], options: {n: {kind: "Int", positive: true}}}},
       ),
-    ),
-    "option --n expects a positive integer",
-  )?
-  test.eq(
-    failure_message(
+    ) == "option --n expects a positive integer"
+  failure_message(
       cli.commands(
         ["go", "r", "--n", "0"],
         {go: {positionals: ["root"], options: {n: {kind: "Int", nonzero: true}}}},
       ),
-    ),
-    "option --n expects a non-zero integer",
-  )?
-  test.eq(
-    failure_message(
+    ) == "option --n expects a non-zero integer"
+  failure_message(
       cli.commands(
         ["go", "r", "--n", "x"],
         {go: {positionals: ["root"], options: {n: {kind: "Int"}}}},
       ),
-    ),
-    "option --n expects Int at argv[1], got `x`",
-  )?
+    ) == "option --n expects Int at argv[1], got `x`"
 
   # The command walk supplies an empty environment, so an option whose
   # descriptor names one still starts at its default, and a deprecated option
@@ -775,18 +637,12 @@ proc test_cli_command_options_validate_values_and_relationships() [fs, error] {
   # A command's option schema is read under the strict policy, so the two help
   # spellings are reserved here as well — and a rejection of the *schema* is a
   # `cli-parse` error, not a `cli-commands` one.
-  test.eq(
-    failure_message(cli.commands(["go", "r"], {go: {options: {helpful: {kind: "Bool", short: ["h"]}}}})),
-    "`-h` is reserved by cli.parse",
-  )?
+  failure_message(cli.commands(["go", "r"], {go: {options: {helpful: {kind: "Bool", short: ["h"]}}}})) == "`-h` is reserved by cli.parse"
   test.error_kind(
     cli.commands(["go", "r"], {go: {options: {helpful: {kind: "Bool", short: ["h"]}}}}),
     "cli-parse",
   )?
-  test.eq(
-    failure_message(cli.commands(["go", "r"], {go: {options: {helper: {kind: "Bool", long: ["help"]}}}})),
-    "`--help` is reserved by cli.parse",
-  )?
+  failure_message(cli.commands(["go", "r"], {go: {options: {helper: {kind: "Bool", long: ["help"]}}}})) == "`--help` is reserved by cli.parse"
 }
 
 proc test_cli_command_option_path_constraints(ctx: TestContext) [fs, error] {
@@ -796,95 +652,68 @@ proc test_cli_command_option_path_constraints(ctx: TestContext) [fs, error] {
 
   # A descriptor that asks for none of the three constraints probes nothing, so
   # a value that does not exist is accepted.
-  test.eq(
-    failure_message(cli.commands(["go", missing.display()], {go: {positionals: ["target"]}})),
-    "",
-  )?
+  failure_message(cli.commands(["go", missing.display()], {go: {positionals: ["target"]}})) == ""
 
   # The three constraints are asked in this order — an existing path, then a
   # file, then a directory — so a value that fails several of them is reported
   # against the first.
-  test.eq(
-    failure_message(
+  failure_message(
       cli.commands(
         ["go", "--target", missing.display()],
         {go: {options: {target: {kind: "Path", exists: true}}}},
       ),
-    ),
-    f"option --target expects an existing path: ${missing.display()}",
-  )?
-  test.eq(
-    failure_message(
+    ) == f"option --target expects an existing path: ${missing.display()}"
+  failure_message(
       cli.commands(
         ["go", "--target", root.display()],
         {go: {options: {target: {kind: "Path", file: true}}}},
       ),
-    ),
-    f"option --target expects a file path: ${root.display()}",
-  )?
-  test.eq(
-    failure_message(
+    ) == f"option --target expects a file path: ${root.display()}"
+  failure_message(
       cli.commands(
         ["go", "--target", present.display()],
         {go: {options: {target: {kind: "Path", dir: true}}}},
       ),
-    ),
-    f"option --target expects a directory path: ${present.display()}",
-  )?
-  test.eq(
-    failure_message(
+    ) == f"option --target expects a directory path: ${present.display()}"
+  failure_message(
       cli.commands(
         ["go", "--target", missing.display()],
         {go: {options: {target: {kind: "Path", exists: true, file: true}}}},
       ),
-    ),
-    f"option --target expects an existing path: ${missing.display()}",
-  )?
+    ) == f"option --target expects an existing path: ${missing.display()}"
 
   # A present file and a present directory satisfy every spelling that asks for
   # them, and a symbolic link is resolved the way the baseline's probes resolve
   # it: a link to a present target answers for the target, while a link to a
   # missing one is not an existing path.
-  test.eq(
-    failure_message(
+  failure_message(
       cli.commands(
         ["go", "--target", present.display()],
         {go: {options: {target: {kind: "Path", exists: true, file: true}}}},
       ),
-    ),
-    "",
-  )?
-  test.eq(
-    failure_message(
+    ) == ""
+  failure_message(
       cli.commands(
         ["go", "--target", root.display()],
         {go: {options: {target: {kind: "Path", exists: true, dir: true}}}},
       ),
-    ),
-    "",
-  )?
+    ) == ""
   let file_link = test.temp_path(ctx, name: "cli-file-link")
   fs.symlink(present, file_link)?
-  test.eq(
-    failure_message(
+  failure_message(
       cli.commands(
         ["go", "--target", file_link.display()],
         {go: {options: {target: {kind: "Path", exists: true, file: true}}}},
       ),
-    ),
-    "",
-  )?
+    ) == ""
   let dangling = test.temp_path(ctx, name: "cli-dangling")
   fs.symlink(missing, dangling)?
-  test.eq(
-    failure_message(
+  failure_message(
       cli.commands(
         ["go", "--target", dangling.display()],
         {go: {options: {target: {kind: "Path", exists: true}}}},
       ),
-    ),
-    f"option --target expects an existing path: ${dangling.display()}",
-  )?
+    ) == f"option --target expects an existing path: ${dangling.display()}"
 }
 
 proc test_cli_parse_returns_values_and_asks_for_help() [fs, error] {
@@ -922,61 +751,46 @@ proc test_cli_parse_returns_values_and_asks_for_help() [fs, error] {
   # A rejection carries its kind and the usage text appended to its message,
   # and a duplicate is the same shape with the second spelling's argv index.
   test.error_kind(cli.parse(["--nope"], {name: "Str"}, "demo"), "cli-parse")?
-  test.eq(
-    failure_message(cli.parse(["--nope"], {name: "Str"}, "demo")),
-    """unknown argument at argv[0]: --nope
+  failure_message(cli.parse(["--nope"], {name: "Str"}, "demo")) == """unknown argument at argv[0]: --nope
 
 usage: demo [OPTIONS]
 
 options:
   --name NAME
-  -h, --help  show this help""",
-  )?
-  test.eq(
-    failure_message(cli.parse(["--name", "a", "--name", "b"], {name: "Str"}, "demo")),
-    """duplicate argument at argv[2]: --name
+  -h, --help  show this help"""
+  failure_message(cli.parse(["--name", "a", "--name", "b"], {name: "Str"}, "demo")) == """duplicate argument at argv[2]: --name
 
 usage: demo [OPTIONS]
 
 options:
   --name NAME
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
 
   # A schema the reader cannot interpret rejects before the walk, so its
   # rejection is a `cli-parse` one without the usage text; the same reading
   # reserves the `-h` short for `parse` alone.
-  test.eq(failure_message(cli.parse([], {count: {kind: "Nope"}}, "demo")), "unsupported option type `Nope`")?
-  test.eq(
-    failure_message(cli.parse(["-h"], {handle: {short: "h", kind: "Bool"}}, "demo")),
-    "`-h` is reserved by cli.parse",
-  )?
+  failure_message(cli.parse([], {count: {kind: "Nope"}}, "demo")) == "unsupported option type `Nope`"
+  failure_message(cli.parse(["-h"], {handle: {short: "h", kind: "Bool"}}, "demo")) == "`-h` is reserved by cli.parse"
 
   # `--help`, `-h`, and any short cluster carrying an unclaimed `h` ask for
   # help: the rejection's kind is `cli-help` and its message is the usage text
   # alone.
   test.error_kind(cli.parse(["--help"], {}, "demo"), "cli-help")?
-  test.eq(
-    failure_message(cli.parse(["--help"], {}, "demo")),
-    """usage: demo [OPTIONS]
+  failure_message(cli.parse(["--help"], {}, "demo")) == """usage: demo [OPTIONS]
 
 options:
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
   test.error_kind(cli.parse(["-h"], {}, "demo"), "cli-help")?
   test.error_kind(cli.parse(["-vh"], {v: {short: "v", kind: "Bool"}}, "demo"), "cli-help")?
 
   # `--` ends option parsing before any help spelling is read, so the spelling
   # after it is an operand the schema has no place for.
-  test.eq(
-    failure_message(cli.parse(["--", "-h"], {}, "demo")),
-    """unexpected positional argument at argv[1]: -h
+  failure_message(cli.parse(["--", "-h"], {}, "demo")) == """unexpected positional argument at argv[1]: -h
 
 usage: demo [OPTIONS]
 
 options:
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
 }
 
 proc test_cli_parse_full_reports_sources_and_warnings() [fs, error] {
@@ -986,89 +800,62 @@ proc test_cli_parse_full_reports_sources_and_warnings() [fs, error] {
   # descriptor default names `default` — which is also what a flag that
   # appeared nowhere reports, its `false` being the descriptor's — and an entry
   # nothing supplied names `absent`.
-  test.eq(
-    json.encode(
+  (json.encode(
       cli.parse_full(
         ["--name", "x"],
         {name: {kind: "Str", env: "DEMO_NAME"}},
         {DEMO_NAME: "from-env"},
         "demo",
       )?,
-    ) ?? "",
-    """{"sources":{"name":"argv"},"values":{"name":"x"},"warnings":[]}""",
-  )?
-  test.eq(
-    json.encode(cli.parse_full([], {verbose: "Bool", mode: {kind: "Str", optional_value: true}}, {}, "demo")?) ?? "",
-    """{"sources":{"mode":"absent","verbose":"default"},"values":{"mode":null,"verbose":false},"warnings":[]}""",
-  )?
+    ) ?? "") == """{"sources":{"name":"argv"},"values":{"name":"x"},"warnings":[]}"""
+  (json.encode(cli.parse_full([], {verbose: "Bool", mode: {kind: "Str", optional_value: true}}, {}, "demo")?) ?? "") == """{"sources":{"mode":"absent","verbose":"default"},"values":{"mode":null,"verbose":false},"warnings":[]}"""
 
   # An environment name is consulted only when no argument supplied the option,
   # and it wins over a declared default; a repeated option's default is the
   # list the descriptor declares.
-  test.eq(
-    json.encode(
+  (json.encode(
       cli.parse_full(
         [],
         {name: {kind: "Str", env: "DEMO_NAME", default: "d"}},
         {DEMO_NAME: "from-env"},
         "demo",
       )?,
-    ) ?? "",
-    """{"sources":{"name":"env"},"values":{"name":"from-env"},"warnings":[]}""",
-  )?
-  test.eq(
-    json.encode(cli.parse_full([], {tag: {kind: "Str", repeated: true, default: ["x", "y"]}}, {}, "demo")?) ?? "",
-    """{"sources":{"tag":"default"},"values":{"tag":["x","y"]},"warnings":[]}""",
-  )?
+    ) ?? "") == """{"sources":{"name":"env"},"values":{"name":"from-env"},"warnings":[]}"""
+  (json.encode(cli.parse_full([], {tag: {kind: "Str", repeated: true, default: ["x", "y"]}}, {}, "demo")?) ?? "") == """{"sources":{"tag":"default"},"values":{"tag":["x","y"]},"warnings":[]}"""
 
   # An environment value is converted like an argument, so one the declared
   # type rejects rejects the call with the usage text appended.
-  test.eq(
-    failure_message(cli.parse_full([], {count: {kind: "Int", env: "DEMO_COUNT"}}, {DEMO_COUNT: "nope"}, "demo")),
-    """option --count expects Int at argv[0], got `nope`
+  failure_message(cli.parse_full([], {count: {kind: "Int", env: "DEMO_COUNT"}}, {DEMO_COUNT: "nope"}, "demo")) == """option --count expects Int at argv[0], got `nope`
 
 usage: demo [OPTIONS]
 
 options:
   --count COUNT
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
 
   # A deprecated descriptor warns once when it was used, in the order the walk
   # used it, with the text the descriptor declares when it declares one.
-  test.eq(
-    json.encode(
+  (json.encode(
       cli.parse_full(
         ["--bb", "--aa"],
         {aa: {kind: "Bool", deprecated: true}, bb: {kind: "Bool", deprecated: true}},
         {},
         "demo",
       )?,
-    ) ?? "",
-    """{"sources":{"aa":"argv","bb":"argv"},"values":{"aa":true,"bb":true},"warnings":["option `bb` is deprecated","option `aa` is deprecated"]}""",
-  )?
-  test.eq(
-    json.encode(cli.parse_full(["--old"], {old: {kind: "Bool", deprecated: "use --new"}}, {}, "demo")?) ?? "",
-    """{"sources":{"old":"argv"},"values":{"old":true},"warnings":["use --new"]}""",
-  )?
+    ) ?? "") == """{"sources":{"aa":"argv","bb":"argv"},"values":{"aa":true,"bb":true},"warnings":["option `bb` is deprecated","option `aa` is deprecated"]}"""
+  (json.encode(cli.parse_full(["--old"], {old: {kind: "Bool", deprecated: "use --new"}}, {}, "demo")?) ?? "") == """{"sources":{"old":"argv"},"values":{"old":true},"warnings":["use --new"]}"""
 }
 
 proc test_cli_applet_applies_the_three_policy_deltas() [fs, error] {
   # One: the short `h` is not reserved, so an applet may claim it. The strict
   # reader rejects that schema outright, and the applet's help line then names
   # `--help` alone because `-h` belongs to the descriptor.
-  test.eq(
-    failure_message(cli.parse(["--help"], {handle: {short: "h", kind: "Bool"}}, "demo")),
-    "`-h` is reserved by cli.parse",
-  )?
-  test.eq(
-    failure_message(cli.applet(["--help"], {handle: {short: "h", kind: "Bool"}}, "demo")),
-    """usage: demo [OPTIONS]
+  failure_message(cli.parse(["--help"], {handle: {short: "h", kind: "Bool"}}, "demo")) == "`-h` is reserved by cli.parse"
+  failure_message(cli.applet(["--help"], {handle: {short: "h", kind: "Bool"}}, "demo")) == """usage: demo [OPTIONS]
 
 options:
   -h, --handle
-  --help  show this help""",
-  )?
+  --help  show this help"""
 
   # Two: help is asked for only by a spelling no descriptor claims, so a
   # claimed `h` is the option, alone or inside a cluster, while an unclaimed
@@ -1091,16 +878,13 @@ options:
   # flag. The reset follows the schema entry that was just set, so a conflict
   # the other option declares is still reported by the relationship check.
   test.eq(cli.applet(["--name", "a", "--name", "b"], {name: "Str"}, "demo")?.get("name") ?? "", "b")?
-  test.eq(
-    failure_message(cli.parse(["--name", "a", "--name", "b"], {name: "Str"}, "demo")),
-    """duplicate argument at argv[2]: --name
+  failure_message(cli.parse(["--name", "a", "--name", "b"], {name: "Str"}, "demo")) == """duplicate argument at argv[2]: --name
 
 usage: demo [OPTIONS]
 
 options:
   --name NAME
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
   let reset_flag = cli.applet(["--bb", "--aa"], {aa: {kind: "Bool", conflicts: ["bb"]}, bb: "Bool"}, "demo")?
   test.eq(reset_flag.get("aa") ?? "missing", true)?
   test.eq(reset_flag.get("bb") ?? "missing", false)?
@@ -1111,17 +895,14 @@ options:
   )?
   test.eq(reset_default.get("aa") ?? "", "A")?
   test.eq(reset_default.get("bb") ?? "", "bd")?
-  test.eq(
-    failure_message(cli.parse(["--bb", "--aa"], {aa: {kind: "Bool", conflicts: ["bb"]}, bb: "Bool"}, "demo")),
-    """--aa conflicts with --bb
+  failure_message(cli.parse(["--bb", "--aa"], {aa: {kind: "Bool", conflicts: ["bb"]}, bb: "Bool"}, "demo")) == """--aa conflicts with --bb
 
 usage: demo [OPTIONS]
 
 options:
   --aa
   --bb
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
 
   # The three deltas are the whole difference: a repeated option still
   # collects, and `requires`, required entries, and required groups are
@@ -1130,40 +911,31 @@ options:
     (cli.applet(["--tag", "a", "--tag", "b"], {tag: {kind: "Str", repeated: true}}, "demo")?.get("tag") ?? []).join(","),
     "a,b",
   )?
-  test.eq(
-    failure_message(cli.applet(["--aa"], {aa: {kind: "Bool", requires: ["bb"]}, bb: "Bool"}, "demo")),
-    """--aa requires --bb
+  failure_message(cli.applet(["--aa"], {aa: {kind: "Bool", requires: ["bb"]}, bb: "Bool"}, "demo")) == """--aa requires --bb
 
 usage: demo [OPTIONS]
 
 options:
   --aa
   --bb
-  -h, --help  show this help""",
-  )?
-  test.eq(
-    failure_message(cli.applet([], {name: {kind: "Str", required: true}}, "demo")),
-    """missing required argument --name
+  -h, --help  show this help"""
+  failure_message(cli.applet([], {name: {kind: "Str", required: true}}, "demo")) == """missing required argument --name
 
 usage: demo [OPTIONS]
 
 options:
   --name NAME
-  -h, --help  show this help""",
-  )?
-  test.eq(
-    failure_message(
+  -h, --help  show this help"""
+  failure_message(
       cli.applet([], {aa: {kind: "Bool", required_group: "g"}, bb: {kind: "Bool", required_group: "g"}}, "demo"),
-    ),
-    """one of required group `g` is required: --aa, --bb
+    ) == """one of required group `g` is required: --aa, --bb
 
 usage: demo [OPTIONS]
 
 options:
   --aa
   --bb
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
 }
 
 proc test_cli_parse_names_the_program_and_presents_at_the_boundary(ctx: TestContext) [fs, error] {
@@ -1188,25 +960,19 @@ proc main() [io, error, fs] {
     b"",
     "mytool.xsh",
   )?
-  test.eq(help.status, 0)?
-  test.contains(help.stdout, "usage: mytool.xsh-")?
-  test.contains(
-    help.stdout,
-    """ [OPTIONS]
+  help.status == 0
+  "usage: mytool.xsh-" in help.stdout
+  """ [OPTIONS]
 
 options:
   -h, --help  show this help
-""",
-  )?
-  test.eq(help.stderr, "")?
-  test.not_contains(help.stdout, "unreached")?
-  test.eq(
-    failure_message(cli.parse(["--help"], {}, "named")),
-    """usage: named [OPTIONS]
+""" in help.stdout
+  help.stderr == ""
+  "unreached" not in help.stdout
+  failure_message(cli.parse(["--help"], {}, "named")) == """usage: named [OPTIONS]
 
 options:
-  -h, --help  show this help""",
-  )?
+  -h, --help  show this help"""
 
   # An unhandled help request is the usage text on stdout with status 0, and an
   # unhandled value rejection is the message with the usage text appended on
@@ -1227,24 +993,18 @@ proc main() [io, error, fs] {
     b"",
     "mytool.xsh",
   )?
-  test.eq(rejected.status, 2)?
-  test.contains(rejected.stderr, "unknown argument at argv[0]: --nope")?
-  test.contains(
-    rejected.stderr,
-    """
+  rejected.status == 2
+  "unknown argument at argv[0]: --nope" in rejected.stderr
+  """
 
-usage: mytool.xsh-""",
-  )?
-  test.contains(
-    rejected.stderr,
-    """ [OPTIONS]
+usage: mytool.xsh-""" in rejected.stderr
+  """ [OPTIONS]
 
 options:
   --name NAME
   -h, --help  show this help
-""",
-  )?
-  test.eq(rejected.stdout, "")?
+""" in rejected.stderr
+  rejected.stdout == ""
 
   # A schema the reader cannot interpret is not a usage rejection, so the
   # boundary leaves it alone: it aborts with status 3 and a traceback whose
@@ -1267,9 +1027,9 @@ proc main() [io, error, fs] {
     b"",
     "mytool.xsh",
   )?
-  test.eq(descriptor.status, 3)?
-  test.contains(descriptor.stderr, "cli-parse: unsupported option type `Nope`")?
-  test.not_contains(descriptor.stderr, "usage: mytool")?
+  descriptor.status == 3
+  "cli-parse: unsupported option type `Nope`" in descriptor.stderr
+  "usage: mytool" not in descriptor.stderr
 
   let nul_path = test.run_script(
     ctx,
@@ -1284,6 +1044,6 @@ proc main() [io, error, fs] {
     b"",
     "mytool.xsh",
   )?
-  test.eq(nul_path.status, 3)?
-  test.contains(nul_path.stderr, "nul-path: paths cannot contain NUL bytes")?
+  nul_path.status == 3
+  "nul-path: paths cannot contain NUL bytes" in nul_path.stderr
 }

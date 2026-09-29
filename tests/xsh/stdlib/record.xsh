@@ -5,11 +5,11 @@ proc test_record_require_and_any_require() [error] {
   test.eq(required.name, "pkg")?
   test.error_kind(record.require({name: 1}, {name: "Str"}), "record-contract")?
   let typed: JsonPackage = json.decode("{\"name\":\"pkg\",\"version\":\"1\"}")?.require(JsonPackage)?
-  test.eq(typed.version, "1")?
+  typed.version == "1"
   let row = {name: "pkg", version: "1"}
-  test.ok(row.has("version"))?
+  ("version" in row)
   test.eq(row.get("name")?, "pkg")?
-  test.eq(row.keys()[0], "name")?
+  row.keys()[0] == "name"
   test.error_kind(row.get("missing"), "missing-field")?
 }
 
@@ -38,8 +38,8 @@ print ${entry_name(raw)}
 """,
   )?
 
-  test.eq(output.status, 3)?
-  test.contains(output.stderr, "expected FsEntry, found Record")?
+  output.status == 3
+  "expected FsEntry, found Record" in output.stderr
 }
 
 proc test_schema_runtime_checks_unknown_values(ctx: TestContext) [error] {
@@ -53,6 +53,6 @@ print ${pkg.name}
 """,
   )?
 
-  test.eq(output.status, 3)?
-  test.contains(output.stderr, "expected Package, found Record")?
+  output.status == 3
+  "expected Package, found Record" in output.stderr
 }

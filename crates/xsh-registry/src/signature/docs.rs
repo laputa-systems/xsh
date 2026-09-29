@@ -1060,11 +1060,6 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Duplicate values collapse to one membership entry while input order does not become set ordering.",
             &["set", "collection", "deduplication"],
         )),
-        ("set", "has") => Some((
-            "Checks membership in a string-key set.",
-            "The result is a pure membership value and does not mutate the set.",
-            &["set", "collection", "lookup"],
-        )),
         ("set", "add" | "remove") => Some((
             "Adds or removes one string membership entry.",
             "The operation returns the updated set value; it does not mutate an unrelated alias in place.",
@@ -1100,7 +1095,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
             "Missing or malformed release metadata remains an error rather than an invented version.",
             &["system", "os", "host-state"],
         )),
-        ("test", "ok" | "eq" | "ne" | "contains" | "not_contains" | "error_kind") => Some((
+        ("test", "ok" | "eq" | "ne" | "error_kind") => Some((
             "Asserts one native-test condition.",
             "A failed assertion marks the owning XSH test as failed and preserves the reported value or error context.",
             &["test", "assertion", "native-tests"],
@@ -1483,11 +1478,6 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "Domain errors follow the numeric result contract rather than being hidden as text or status values.",
             &["numeric", "math"],
         )),
-        ("Record", "has") => Some((
-            "Checks whether a record contains a field.",
-            "Field presence is distinct from the field's value and does not require a typed field lookup.",
-            &["record", "lookup"],
-        )),
         ("Record", "get") => Some((
             "Reads a dynamic record field.",
             "Missing fields return an error result so callers cannot confuse absence with a null-like value.",
@@ -1502,11 +1492,6 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "Returns the number of entries in a map.",
             "The count is a pure snapshot of the map value.",
             &["map", "collection"],
-        )),
-        ("Map", "has") => Some((
-            "Checks whether a map contains a key.",
-            "Key presence is distinct from the stored value and does not mutate the map.",
-            &["map", "lookup"],
         )),
         ("Map", "get") => Some((
             "Reads a map value with or without a fallback.",
@@ -1538,11 +1523,6 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The count is a pure snapshot of the list value.",
             &["list", "collection"],
         )),
-        ("List", "contains") => Some((
-            "Checks whether a list contains a value.",
-            "Comparison follows XSH value equality and does not mutate the list.",
-            &["list", "lookup"],
-        )),
         ("List", "get") => Some((
             "Reads a list element with or without a fallback.",
             "The fallback overload distinguishes an out-of-range index from a stored value and does not resize the list.",
@@ -1568,7 +1548,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "Only the boundary is changed; interior characters remain in order.",
             &["text", "unicode"],
         )),
-        ("Str", "starts_with" | "ends_with" | "contains") => Some((
+        ("Str", "starts_with" | "ends_with") => Some((
             "Checks a text relationship.",
             "Matching operates on UTF-8 text values and returns a pure boolean.",
             &["text", "lookup"],
@@ -1694,11 +1674,6 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "Compares two byte buffers.",
             "Comparison is bytewise and independent of UTF-8 decoding.",
             &["bytes", "comparison"],
-        )),
-        ("Bytes", "contains") => Some((
-            "Checks whether one byte buffer contains another.",
-            "Matching is bytewise and does not decode either value as text.",
-            &["bytes", "lookup"],
         )),
         ("Bytes", "byte_at") => Some((
             "Reads one byte at an explicit offset.",

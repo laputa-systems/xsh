@@ -31,10 +31,10 @@ proc test_px_finds_current_test_process() [process, error] {
   let pid = process.current_pid()?
   let pid_arg = f"${pid}"
   let output = run.text "xsh" "showcase/px.xsh" -- $pid_arg ?
-  test.contains(output, f"${pid}")?
-  test.contains(output, "pid")?
-  test.contains(output, "user")?
-  test.contains(output, "mem")?
+  f"${pid}" in output
+  "pid" in output
+  "user" in output
+  "mem" in output
 }
 
 proc test_px_default_search_matches_executable_substrings(ctx: TestContext) [fs, process, time, error] {
@@ -44,8 +44,8 @@ proc test_px_default_search_matches_executable_substrings(ctx: TestContext) [fs,
   defer process.kill(child.pid, signal: "TERM")
   wait_for_process_marker(child.pid, marker)?
   let output = run.text "xsh" "showcase/px.xsh" -- "pxexec" ?
-  test.contains(output, marker)?
-  test.contains(output, f"${child.pid}")?
+  marker in output
+  f"${child.pid}" in output
 }
 
 proc test_px_kill_signals_default_matches(ctx: TestContext) [fs, process, time, error] {
@@ -55,10 +55,10 @@ proc test_px_kill_signals_default_matches(ctx: TestContext) [fs, process, time, 
   wait_for_process_marker(child.pid, marker)?
   let pid_arg = f"${child.pid}"
   let output = run.text "xsh" "showcase/px.xsh" -- "--kill=15" $pid_arg ?
-  test.contains(output, "signaled 1 process(es) with signal 15")?
+  "signaled 1 process(es) with signal 15" in output
   let status = wait child?
-  test.ok(status.signaled())?
-  test.eq(status.signal_number()?, 15)?
+  status.signaled()
+  status.signal_number()? == 15
 }
 
 proc test_px_kill_accepts_numeric_signal(ctx: TestContext) [fs, process, time, error] {
@@ -68,7 +68,7 @@ proc test_px_kill_accepts_numeric_signal(ctx: TestContext) [fs, process, time, e
   wait_for_process_marker(child.pid, marker)?
   let pid_arg = f"${child.pid}"
   let output = run.text "xsh" "showcase/px.xsh" -- "--kill" "0" $pid_arg ?
-  test.contains(output, "signaled 1 process(es) with signal 0")?
+  "signaled 1 process(es) with signal 0" in output
   child.cancel(signal: "TERM", kill_after: 10ms)?
 }
 

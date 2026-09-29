@@ -11,9 +11,9 @@ proc main(...argv: List[Str]) [fs, error] {
   let json_b = json.read(opts.b.resolve()?)?.require(Map[Any])?
   let keys_a = json_a.keys()
   let keys_b = json_b.keys()
-  let removed = keys_a |> where ! json_b.has(.)
-  let added = keys_b |> where ! json_a.has(.)
-  let common = keys_a |> where json_b.has(.)
+  let removed = keys_a |> where { |key| key not in json_b }
+  let added = keys_b |> where { |key| key not in json_a }
+  let common = keys_a |> where { |key| key in json_b }
   var changed: List[Str] = []
   var same = 0
 

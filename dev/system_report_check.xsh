@@ -2617,7 +2617,7 @@ export pure parse_lscpu_topology(output: Str) -> Result[List[LscpuTopologyCpu]] 
   var rows: List[LscpuTopologyCpu] = []
   for item in data.cpus {
     let key = f"${item.cpu}"
-    if item.cpu < 0 or set.has(seen, key) or item.socket != null and (item.socket ?? -1) < 0 or item.core != null and (item.core ?? -1) < 0 or item.node != null and (item.node ?? -1) < 0 {
+    if item.cpu < 0 or key in seen or item.socket != null and (item.socket ?? -1) < 0 or item.core != null and (item.core ?? -1) < 0 or item.node != null and (item.node ?? -1) < 0 {
       return Err(check_failure("lscpu topology has an invalid or duplicate CPU identity"))
     }
 
@@ -2640,7 +2640,7 @@ export pure select_present_lscpu_topology(
   var present_set = set.empty()
   for id in present {
     let key = f"${id}"
-    if id < 0 or set.has(present_set, key) {
+    if id < 0 or key in present_set {
       return Err(check_failure("CPU present reference has an invalid or duplicate ID"))
     }
 
@@ -2651,12 +2651,12 @@ export pure select_present_lscpu_topology(
   var seen = set.empty()
   for item in rows {
     let key = f"${item.cpu}"
-    if item.cpu < 0 or set.has(seen, key) {
+    if item.cpu < 0 or key in seen {
       return Err(check_failure("lscpu topology has an invalid or duplicate CPU ID"))
     }
 
     seen = set.add(seen, key)
-    if set.has(present_set, key) {
+    if key in present_set {
       selected = selected.push(item)
     }
   }
@@ -2692,13 +2692,13 @@ pure topology_group_difference(reference: List[Str], candidate: List[Str]) -> Li
   }
 
   for item in reference {
-    if ! set.has(candidate_set, item) {
+    if item not in candidate_set {
       mismatches = mismatches.push(f"missing:${item}")
     }
   }
 
   for item in candidate {
-    if ! set.has(reference_set, item) {
+    if item not in reference_set {
       mismatches = mismatches.push(f"unexpected:${item}")
     }
   }
@@ -2729,7 +2729,7 @@ export pure compare_lscpu_topology(
   for index in range(before.len()) {
     let item = before[index]
     let key = f"${item.cpu}"
-    if item.cpu < 0 or reference_by_id.has(key) {
+    if item.cpu < 0 or key in reference_by_id {
       return Err(check_failure("lscpu topology reference has an invalid or duplicate CPU"))
     }
 
@@ -2748,7 +2748,7 @@ export pure compare_lscpu_topology(
   for index in range(candidate.len()) {
     let item = candidate[index]
     let key = f"${item.id}"
-    if item.id < 0 or candidate_by_id.has(key) {
+    if item.id < 0 or key in candidate_by_id {
       return Err(check_failure("candidate topology has an invalid or duplicate CPU"))
     }
 
@@ -2768,7 +2768,7 @@ export pure compare_lscpu_topology(
   var matched_count = 0
   for item in before {
     let key = f"${item.cpu}"
-    if ! candidate_by_id.has(key) {
+    if key not in candidate_by_id {
       missing_ids = missing_ids.push(item.cpu)
       continue
     }
@@ -2803,7 +2803,7 @@ export pure compare_lscpu_topology(
   }
 
   for item in candidate {
-    if ! reference_by_id.has(f"${item.id}") {
+    if f"${item.id}" not in reference_by_id {
       unexpected_ids = unexpected_ids.push(item.id)
     }
   }
@@ -2853,7 +2853,7 @@ pure cache_reference_sources(rows: List[CpuCacheReference]) -> Result[Map[CpuCac
     var seen = set.empty()
     for cpu_id in row.shared_cpus {
       let key = f"${cpu_id}"
-      if cpu_id < 0 or set.has(seen, key) {
+      if cpu_id < 0 or key in seen {
         return Err(check_failure("cache reference repeats a shared CPU"))
       }
 
@@ -2861,7 +2861,7 @@ pure cache_reference_sources(rows: List[CpuCacheReference]) -> Result[Map[CpuCac
     }
 
     let source_key = f"${row.owner_cpu_id}:${row.sysfs_index}"
-    if sources.has(source_key) {
+    if source_key in sources {
       return Err(check_failure("cache reference repeats a CPU cache index"))
     }
 
@@ -2884,7 +2884,7 @@ export pure compare_cpu_cache_sharing(
   }
 
   for key in first_sources.keys() {
-    if ! last_sources.has(key) or first_sources.get(key)? != last_sources.get(key)? {
+    if key not in last_sources or first_sources.get(key)? != last_sources.get(key)? {
       return Err(check_failure("cache source changed around candidate collection"))
     }
   }
@@ -2897,7 +2897,7 @@ export pure compare_cpu_cache_sharing(
     }
 
     let key = cache_instance_key(source)
-    if instances.has(key) {
+    if key in instances {
       let first = instances.get(key)?
       if first.level != source.level or first.kind != source.kind or first.shared_cpus != source.shared_cpus or first.size_bytes != source.size_bytes or first.line_size_bytes != source.line_size_bytes or first.sets != source.sets {
         return Err(check_failure("shared cache attributes disagree across CPUs"))
@@ -2915,7 +2915,7 @@ export pure compare_cpu_cache_sharing(
   for instance_key in instances.keys() {
     let source = instances.get(instance_key)?
     let key = f"${source.owner_cpu_id}:${source.sysfs_index}"
-    if reference_by_key.has(key) {
+    if key in reference_by_key {
       return Err(check_failure("distinct cache instances share one owner index"))
     }
 
@@ -2931,9 +2931,7 @@ export pure compare_cpu_cache_sharing(
   for cache in candidate {
     let key = f"${cache.owner_cpu_id}:${cache.sysfs_index}"
     let id_key = f"${cache.id}"
-    if cache.id < 0 or cache.owner_cpu_id < 0 or cache.sysfs_index < 0 or cache.level <= 0 or cache.kind == "" or candidate_by_key.has(
-      key,
-    ) or candidate_key_by_id.has(id_key) {
+    if cache.id < 0 or cache.owner_cpu_id < 0 or cache.sysfs_index < 0 or cache.level <= 0 or cache.kind == "" or key in candidate_by_key or id_key in candidate_key_by_id {
       return Err(check_failure("candidate cache inventory has an invalid or duplicate identity"))
     }
 
@@ -2953,7 +2951,7 @@ export pure compare_cpu_cache_sharing(
       expected_by_cpu = expected_by_cpu.set(cpu_key, expected_by_cpu.get(cpu_key, []).push(key))
     }
 
-    if ! candidate_by_key.has(key) {
+    if key not in candidate_by_key {
       missing_keys = missing_keys.push(key)
       continue
     }
@@ -2994,7 +2992,7 @@ export pure compare_cpu_cache_sharing(
   }
 
   for key in candidate_by_key.keys() {
-    if ! reference_by_key.has(key) {
+    if key not in reference_by_key {
       unexpected_keys = unexpected_keys.push(key)
     }
   }
@@ -3004,7 +3002,7 @@ export pure compare_cpu_cache_sharing(
   var relationship_mismatches: List[Str] = []
   for cpu_item in cpus {
     let cpu_key = f"${cpu_item.id}"
-    if cpu_item.id < 0 or set.has(seen_cpu, cpu_key) {
+    if cpu_item.id < 0 or cpu_key in seen_cpu {
       return Err(check_failure("candidate cache membership repeats a CPU"))
     }
 
@@ -3013,12 +3011,12 @@ export pure compare_cpu_cache_sharing(
     var seen_id = set.empty()
     for cache_id in cpu_item.cache_ids {
       let id_key = f"${cache_id}"
-      if set.has(seen_id, id_key) {
+      if id_key in seen_id {
         return Err(check_failure("candidate CPU repeats a cache link"))
       }
 
       seen_id = set.add(seen_id, id_key)
-      if ! candidate_key_by_id.has(id_key) {
+      if id_key not in candidate_key_by_id {
         relationship_mismatches = relationship_mismatches.push(f"${cpu_item.id}.unknown_cache_id")
       } else {
         keys = keys.push(candidate_key_by_id.get(id_key)?)
@@ -3037,7 +3035,7 @@ export pure compare_cpu_cache_sharing(
   }
 
   for cpu_key in actual_by_cpu.keys() {
-    if ! expected_by_cpu.has(cpu_key) and actual_by_cpu.get(cpu_key, []).len() > 0 {
+    if cpu_key not in expected_by_cpu and actual_by_cpu.get(cpu_key, []).len() > 0 {
       relationship_mismatches = relationship_mismatches.push(f"${cpu_key}.cache_ids")
     }
   }
@@ -3226,7 +3224,7 @@ export pure parse_reference_cpu_list(output: Str, allow_empty: Bool) -> Result[L
     var id = first
     while id <= last {
       let key = f"${id}"
-      if set.has(seen, key) {
+      if key in seen {
         return Err(check_failure("CPU set contains a duplicate identifier"))
       }
 
@@ -3250,7 +3248,7 @@ export pure compare_cpufreq_policies(
   var after_by_name: Map[Int] = {}
   for index in range(before.len()) {
     let item = before[index]
-    if ! item.name.starts_with("policy") or item.name == "policy" or before_by_name.has(item.name) {
+    if ! item.name.starts_with("policy") or item.name == "policy" or item.name in before_by_name {
       return Err(check_failure("CPUFreq before reference has an invalid or duplicate policy"))
     }
 
@@ -3259,7 +3257,7 @@ export pure compare_cpufreq_policies(
 
   for index in range(after.len()) {
     let item = after[index]
-    if ! before_by_name.has(item.name) or after_by_name.has(item.name) {
+    if item.name not in before_by_name or item.name in after_by_name {
       return Err(check_failure("CPUFreq policy set changed around collection"))
     }
 
@@ -3280,7 +3278,7 @@ export pure compare_cpufreq_policies(
   let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
   var candidate_by_name: Map[Int] = {}
   for index in range(candidate.len()) {
-    if candidate[index].name == "" or candidate_by_name.has(candidate[index].name) {
+    if candidate[index].name == "" or candidate[index].name in candidate_by_name {
       return Err(check_failure("candidate CPUFreq policy has an empty or duplicate name"))
     }
 
@@ -3300,7 +3298,7 @@ export pure compare_cpufreq_policies(
   var eligible_controls = false
   var matched_count = 0
   for item in before {
-    if ! candidate_by_name.has(item.name) {
+    if item.name not in candidate_by_name {
       missing_names = missing_names.push(item.name)
       continue
     }
@@ -3447,7 +3445,7 @@ export pure compare_cpufreq_policies(
   }
 
   for item in candidate {
-    if ! before_by_name.has(item.name) {
+    if item.name not in before_by_name {
       unexpected_names = unexpected_names.push(item.name)
     }
   }
@@ -3535,7 +3533,7 @@ export pure compare_usb_topology(
   for index in range(before.len()) {
     let item = before[index]
     let parsed = parse_usb_topology_name(item.name)?
-    if before_by_name.has(item.name) or item.parent_name != parsed.parent_name or item.port_path != parsed.port_path or item.is_root_hub != parsed.is_root_hub or item.bus_number != null and item.bus_number != parsed.bus_number {
+    if item.name in before_by_name or item.parent_name != parsed.parent_name or item.port_path != parsed.port_path or item.is_root_hub != parsed.is_root_hub or item.bus_number != null and item.bus_number != parsed.bus_number {
       return Err(check_failure("USB topology reference has duplicate or inconsistent device identity"))
     }
 
@@ -3545,7 +3543,7 @@ export pure compare_usb_topology(
   for index in range(after.len()) {
     let item = after[index]
     let parsed = parse_usb_topology_name(item.name)?
-    if after_by_name.has(item.name) or item.parent_name != parsed.parent_name or item.port_path != parsed.port_path or item.is_root_hub != parsed.is_root_hub or item.bus_number != null and item.bus_number != parsed.bus_number {
+    if item.name in after_by_name or item.parent_name != parsed.parent_name or item.port_path != parsed.port_path or item.is_root_hub != parsed.is_root_hub or item.bus_number != null and item.bus_number != parsed.bus_number {
       return Err(check_failure("USB topology after reference has duplicate or inconsistent device identity"))
     }
 
@@ -3554,7 +3552,7 @@ export pure compare_usb_topology(
 
   for index in range(section.devices.len()) {
     let name = section.devices[index].sysfs_name ?? ""
-    if name == "" or candidate_by_name.has(name) {
+    if name == "" or name in candidate_by_name {
       return Err(check_failure("candidate USB device has an empty or duplicate name"))
     }
 
@@ -3567,12 +3565,12 @@ export pure compare_usb_topology(
   var unstable_fields: List[Str] = []
   var matched_count = 0
   for item in before {
-    if ! after_by_name.has(item.name) {
+    if item.name not in after_by_name {
       unstable_fields = unstable_fields.push(f"${item.name}.presence")
       continue
     }
 
-    if ! candidate_by_name.has(item.name) {
+    if item.name not in candidate_by_name {
       missing_names = missing_names.push(item.name)
       continue
     }
@@ -3656,14 +3654,14 @@ export pure compare_usb_topology(
   }
 
   for item in after {
-    if ! before_by_name.has(item.name) {
+    if item.name not in before_by_name {
       unstable_fields = unstable_fields.push(f"${item.name}.presence")
     }
   }
 
   for item in section.devices {
     let name = item.sysfs_name ?? ""
-    if ! before_by_name.has(name) and ! after_by_name.has(name) {
+    if name not in before_by_name and name not in after_by_name {
       unexpected_names = unexpected_names.push(name)
     }
   }
@@ -3767,7 +3765,7 @@ export pure compare_usb_ids(
   for index in range(before.len()) {
     let name = before[index].name
     let _ = parse_usb_topology_name(name)?
-    if before_by_name.has(name) {
+    if name in before_by_name {
       return Err(check_failure("USB identity reference repeats a name"))
     }
 
@@ -3777,7 +3775,7 @@ export pure compare_usb_ids(
   for index in range(after.len()) {
     let name = after[index].name
     let _ = parse_usb_topology_name(name)?
-    if after_by_name.has(name) {
+    if name in after_by_name {
       return Err(check_failure("USB identity after reference repeats a name"))
     }
 
@@ -3786,7 +3784,7 @@ export pure compare_usb_ids(
 
   for index in range(section.devices.len()) {
     let name = section.devices[index].sysfs_name ?? ""
-    if name == "" or candidate_by_name.has(name) {
+    if name == "" or name in candidate_by_name {
       return Err(check_failure("candidate USB identity has an empty or duplicate name"))
     }
 
@@ -3810,12 +3808,12 @@ export pure compare_usb_ids(
       eligible = true
     }
 
-    if ! after_by_name.has(item.name) {
+    if item.name not in after_by_name {
       unstable_fields = unstable_fields.push(f"${item.name}.presence")
       continue
     }
 
-    if ! candidate_by_name.has(item.name) {
+    if item.name not in candidate_by_name {
       missing_names = missing_names.push(item.name)
       continue
     }
@@ -3911,14 +3909,14 @@ export pure compare_usb_ids(
   }
 
   for item in after {
-    if ! before_by_name.has(item.name) {
+    if item.name not in before_by_name {
       unstable_fields = unstable_fields.push(f"${item.name}.presence")
     }
   }
 
   for item in section.devices {
     let name = item.sysfs_name ?? ""
-    if ! before_by_name.has(name) and ! after_by_name.has(name) {
+    if name not in before_by_name and name not in after_by_name {
       unexpected_names = unexpected_names.push(name)
     }
   }
@@ -4369,7 +4367,7 @@ pure usb_interface_settings_match(
   var matched = set.empty()
   for expected in reference {
     let key = f"${expected.configuration_value ?? -1}:${expected.number}"
-    if set.has(matched, key) {
+    if key in matched {
       return false
     }
 
@@ -4409,7 +4407,7 @@ export pure compare_usb_interfaces(
   for index in range(before.len()) {
     let item = before[index]
     let identity = parse_usb_interface_name(item.name)?
-    if identity.device_name != item.device_name or identity.number != item.number or before_by_name.has(item.name) {
+    if identity.device_name != item.device_name or identity.number != item.number or item.name in before_by_name {
       return Err(check_failure("USB interface before reference has an invalid identity"))
     }
 
@@ -4419,7 +4417,7 @@ export pure compare_usb_interfaces(
   for index in range(after.len()) {
     let item = after[index]
     let identity = parse_usb_interface_name(item.name)?
-    if identity.device_name != item.device_name or identity.number != item.number or after_by_name.has(item.name) {
+    if identity.device_name != item.device_name or identity.number != item.number or item.name in after_by_name {
       return Err(check_failure("USB interface after reference has an invalid identity"))
     }
 
@@ -4436,7 +4434,7 @@ export pure compare_usb_interfaces(
     for item in device.interfaces {
       let name = item.name ?? ""
       let identity = parse_usb_interface_name(name)?
-      if identity.device_name != device_name or identity.number != item.number or candidate_by_name.has(name) {
+      if identity.device_name != device_name or identity.number != item.number or name in candidate_by_name {
         return Err(check_failure("candidate USB interface has an invalid or duplicate identity"))
       }
 
@@ -4452,12 +4450,12 @@ export pure compare_usb_interfaces(
   var matched_count = 0
   let eligible = before.len() > 0 or after.len() > 0
   for item in before {
-    if ! after_by_name.has(item.name) {
+    if item.name not in after_by_name {
       unstable_fields = unstable_fields.push(f"${item.name}.presence")
       continue
     }
 
-    if ! candidate_by_name.has(item.name) {
+    if item.name not in candidate_by_name {
       if section.status.enumeration_succeeded {
         missing_names = missing_names.push(item.name)
       } else {
@@ -4562,14 +4560,14 @@ export pure compare_usb_interfaces(
   }
 
   for item in after {
-    if ! before_by_name.has(item.name) {
+    if item.name not in before_by_name {
       unstable_fields = unstable_fields.push(f"${item.name}.presence")
     }
   }
 
   for item in candidate_interfaces {
     let name = item.name ?? ""
-    if ! before_by_name.has(name) and ! after_by_name.has(name) {
+    if name not in before_by_name and name not in after_by_name {
       unexpected_names = unexpected_names.push(name)
     }
   }
@@ -4920,7 +4918,7 @@ export proc validate_power_supply_bundle(bundle: FsRoot) [fs, error] -> Result[P
 
   var changed_seen = set.empty()
   for relative in capture.changing_sources {
-    if set.has(changed_seen, relative) or ! (layout.paths |> any .path == relative and .changing) {
+    if relative in changed_seen or ! (layout.paths |> any .path == relative and .changing) {
       return Err(check_failure("power supply changing source metadata is invalid"))
     }
 
@@ -5003,7 +5001,7 @@ export pure compare_power_supplies(
   var candidate_by_name: Map[Int] = {}
   for index in range(before.len()) {
     let name = before[index].name
-    if name == "" or before_by_name.has(name) {
+    if name == "" or name in before_by_name {
       return Err(check_failure("power supply before reference has an invalid name"))
     }
 
@@ -5012,7 +5010,7 @@ export pure compare_power_supplies(
 
   for index in range(after.len()) {
     let name = after[index].name
-    if name == "" or after_by_name.has(name) {
+    if name == "" or name in after_by_name {
       return Err(check_failure("power supply after reference has an invalid name"))
     }
 
@@ -5021,7 +5019,7 @@ export pure compare_power_supplies(
 
   for index in range(section.supplies.len()) {
     let name = section.supplies[index].name
-    if name == "" or candidate_by_name.has(name) {
+    if name == "" or name in candidate_by_name {
       return Err(check_failure("candidate power supply has an invalid name"))
     }
 
@@ -5035,12 +5033,12 @@ export pure compare_power_supplies(
   let supply_enumeration_complete = ! power_supply_has_issue(issues, "supplies") and section.status.state != "not_requested"
   var matched_count = 0
   for item in before {
-    if ! after_by_name.has(item.name) {
+    if item.name not in after_by_name {
       unstable_fields = unstable_fields.push(f"${item.name}.presence")
       continue
     }
 
-    if ! candidate_by_name.has(item.name) {
+    if item.name not in candidate_by_name {
       if supply_enumeration_complete {
         missing_names = missing_names.push(item.name)
       } else {
@@ -5156,13 +5154,13 @@ export pure compare_power_supplies(
   }
 
   for item in after {
-    if ! before_by_name.has(item.name) {
+    if item.name not in before_by_name {
       unstable_fields = unstable_fields.push(f"${item.name}.presence")
     }
   }
 
   for item in section.supplies {
-    if ! before_by_name.has(item.name) and ! after_by_name.has(item.name) {
+    if item.name not in before_by_name and item.name not in after_by_name {
       unexpected_names = unexpected_names.push(item.name)
     }
   }
@@ -5584,7 +5582,7 @@ export pure compare_powercap(
   var candidate_by_name: Map[Int] = {}
   for index in range(before.len()) {
     let name = before[index].entry_name
-    if name == "" or before_by_name.has(name) {
+    if name == "" or name in before_by_name {
       return Err(check_failure("powercap before reference repeats or omits a zone name"))
     }
 
@@ -5593,7 +5591,7 @@ export pure compare_powercap(
 
   for index in range(after.len()) {
     let name = after[index].entry_name
-    if name == "" or after_by_name.has(name) {
+    if name == "" or name in after_by_name {
       return Err(check_failure("powercap after reference repeats or omits a zone name"))
     }
 
@@ -5602,7 +5600,7 @@ export pure compare_powercap(
 
   for index in range(section.cap_zones.len()) {
     let name = section.cap_zones[index].entry_name
-    if name == "" or candidate_by_name.has(name) {
+    if name == "" or name in candidate_by_name {
       return Err(check_failure("candidate powercap report repeats or omits a zone name"))
     }
 
@@ -5617,12 +5615,12 @@ export pure compare_powercap(
   var matched_count = 0
   for zone in before {
     let name = zone.entry_name
-    if ! after_by_name.has(name) {
+    if name not in after_by_name {
       unstable_fields = unstable_fields.push(f"${name}.presence")
       continue
     }
 
-    if ! candidate_by_name.has(name) {
+    if name not in candidate_by_name {
       if enumeration_complete {
         missing_names = missing_names.push(name)
       } else {
@@ -5709,7 +5707,7 @@ export pure compare_powercap(
     var candidate_by_index: Map[Int] = {}
     for index in range(zone.constraints.len()) {
       let key = zone.constraints[index].index
-      if key < 0 or key > 9007199254740991 or before_by_index.has(f"${key}") {
+      if key < 0 or key > 9007199254740991 or f"${key}" in before_by_index {
         return Err(check_failure("powercap before reference has an invalid constraint index"))
       }
 
@@ -5718,7 +5716,7 @@ export pure compare_powercap(
 
     for index in range(later.constraints.len()) {
       let key = later.constraints[index].index
-      if key < 0 or key > 9007199254740991 or after_by_index.has(f"${key}") {
+      if key < 0 or key > 9007199254740991 or f"${key}" in after_by_index {
         return Err(check_failure("powercap after reference has an invalid constraint index"))
       }
 
@@ -5727,7 +5725,7 @@ export pure compare_powercap(
 
     for index in range(actual.constraints.len()) {
       let key = actual.constraints[index].index
-      if key < 0 or key > 9007199254740991 or candidate_by_index.has(f"${key}") {
+      if key < 0 or key > 9007199254740991 or f"${key}" in candidate_by_index {
         return Err(check_failure("candidate powercap zone has an invalid constraint index"))
       }
 
@@ -5737,12 +5735,12 @@ export pure compare_powercap(
     for constraint in zone.constraints {
       let key = f"${constraint.index}"
       let prefix = f"${name}.constraint_${constraint.index}"
-      if ! after_by_index.has(key) {
+      if key not in after_by_index {
         unstable_fields = unstable_fields.push(f"${prefix}.presence")
         continue
       }
 
-      if ! candidate_by_index.has(key) {
+      if key not in candidate_by_index {
         field_mismatches = field_mismatches.push(f"${prefix}.presence")
         continue
       }
@@ -5778,27 +5776,27 @@ export pure compare_powercap(
     }
 
     for constraint in later.constraints {
-      if ! before_by_index.has(f"${constraint.index}") {
+      if f"${constraint.index}" not in before_by_index {
         unstable_fields = unstable_fields.push(f"${name}.constraint_${constraint.index}.presence")
       }
     }
 
     for constraint in actual.constraints {
       let key = f"${constraint.index}"
-      if ! before_by_index.has(key) and ! after_by_index.has(key) {
+      if key not in before_by_index and key not in after_by_index {
         field_mismatches = field_mismatches.push(f"${name}.constraint_${constraint.index}.presence")
       }
     }
   }
 
   for zone in after {
-    if ! before_by_name.has(zone.entry_name) {
+    if zone.entry_name not in before_by_name {
       unstable_fields = unstable_fields.push(f"${zone.entry_name}.presence")
     }
   }
 
   for zone in section.cap_zones {
-    if ! before_by_name.has(zone.entry_name) and ! after_by_name.has(zone.entry_name) {
+    if zone.entry_name not in before_by_name and zone.entry_name not in after_by_name {
       unexpected_names = unexpected_names.push(zone.entry_name)
     }
   }
@@ -5998,7 +5996,7 @@ export pure compare_device_classes(
   var candidate_by_key: Map[Int] = {}
   for index in range(before.len()) {
     let key = f"${before[index].class}:${before[index].entry_name}"
-    if before_by_key.has(key) {
+    if key in before_by_key {
       return Err(check_failure("device-class before reference repeats an entry"))
     }
 
@@ -6007,7 +6005,7 @@ export pure compare_device_classes(
 
   for index in range(after.len()) {
     let key = f"${after[index].class}:${after[index].entry_name}"
-    if after_by_key.has(key) {
+    if key in after_by_key {
       return Err(check_failure("device-class after reference repeats an entry"))
     }
 
@@ -6021,7 +6019,7 @@ export pure compare_device_classes(
     }
 
     let key = f"${item.class}:${item.entry_name.value ?? ""}"
-    if candidate_by_key.has(key) {
+    if key in candidate_by_key {
       return Err(check_failure("candidate device-class entries repeat an identity"))
     }
 
@@ -6036,12 +6034,12 @@ export pure compare_device_classes(
   let enumeration_complete = section.status.enumeration_succeeded and section.status.state != "not_requested"
   for item in before {
     let key = f"${item.class}:${item.entry_name}"
-    if ! after_by_key.has(key) {
+    if key not in after_by_key {
       unstable_fields = unstable_fields.push(f"${key}.presence")
       continue
     }
 
-    if ! candidate_by_key.has(key) {
+    if key not in candidate_by_key {
       if enumeration_complete {
         missing_names = missing_names.push(key)
       } else {
@@ -6115,14 +6113,14 @@ export pure compare_device_classes(
 
   for item in after {
     let key = f"${item.class}:${item.entry_name}"
-    if ! before_by_key.has(key) {
+    if key not in before_by_key {
       unstable_fields = unstable_fields.push(f"${key}.presence")
     }
   }
 
   for item in section.devices {
     let key = f"${item.class}:${item.entry_name.value ?? ""}"
-    if ! before_by_key.has(key) and ! after_by_key.has(key) {
+    if key not in before_by_key and key not in after_by_key {
       unexpected_names = unexpected_names.push(key)
     }
   }
@@ -6536,7 +6534,7 @@ export proc validate_hwmon_bundle(bundle: FsRoot) [fs, error] -> Result[HwmonBun
 
   var changing_seen = set.empty()
   for gauge in capture.changing_gauges {
-    if ! hwmon_bundle_gauge(gauge) or gauge not in layout.source_paths or set.has(changing_seen, gauge) {
+    if ! hwmon_bundle_gauge(gauge) or gauge not in layout.source_paths or gauge in changing_seen {
       return Err(check_failure("hwmon changing gauge metadata is invalid"))
     }
 
@@ -6633,7 +6631,7 @@ export pure compare_hwmon(
   var candidate_by_key: Map[Int] = {}
   for index in range(before.len()) {
     let key = f"${before[index].chip_entry_name}:${before[index].channel}"
-    if before_by_key.has(key) {
+    if key in before_by_key {
       return Err(check_failure("hwmon before reference repeats a channel"))
     }
 
@@ -6642,7 +6640,7 @@ export pure compare_hwmon(
 
   for index in range(after.len()) {
     let key = f"${after[index].chip_entry_name}:${after[index].channel}"
-    if after_by_key.has(key) {
+    if key in after_by_key {
       return Err(check_failure("hwmon after reference repeats a channel"))
     }
 
@@ -6656,7 +6654,7 @@ export pure compare_hwmon(
     }
 
     let key = f"${item.chip_entry_name ?? ""}:${item.channel}"
-    if candidate_by_key.has(key) {
+    if key in candidate_by_key {
       return Err(check_failure("candidate hwmon report repeats a channel"))
     }
 
@@ -6673,12 +6671,12 @@ export pure compare_hwmon(
   )
   for channel in before {
     let key = f"${channel.chip_entry_name}:${channel.channel}"
-    if ! after_by_key.has(key) {
+    if key not in after_by_key {
       unstable_fields = unstable_fields.push(f"${key}.presence")
       continue
     }
 
-    if ! candidate_by_key.has(key) {
+    if key not in candidate_by_key {
       if enumeration_complete {
         missing_names = missing_names.push(key)
       } else {
@@ -6823,14 +6821,14 @@ export pure compare_hwmon(
 
   for channel in after {
     let key = f"${channel.chip_entry_name}:${channel.channel}"
-    if ! before_by_key.has(key) {
+    if key not in before_by_key {
       unstable_fields = unstable_fields.push(f"${key}.presence")
     }
   }
 
   for channel in section.channels {
     let key = f"${channel.chip_entry_name ?? ""}:${channel.channel}"
-    if ! before_by_key.has(key) and ! after_by_key.has(key) {
+    if key not in before_by_key and key not in after_by_key {
       unexpected_names = unexpected_names.push(key)
     }
   }
@@ -6866,7 +6864,7 @@ export pure compare_usb_power(
   for index in range(before.len()) {
     let name = before[index].name
     let _ = parse_usb_topology_name(name)?
-    if before_by_name.has(name) {
+    if name in before_by_name {
       return Err(check_failure("USB power reference repeats a name"))
     }
 
@@ -6876,7 +6874,7 @@ export pure compare_usb_power(
   for index in range(after.len()) {
     let name = after[index].name
     let _ = parse_usb_topology_name(name)?
-    if after_by_name.has(name) {
+    if name in after_by_name {
       return Err(check_failure("USB power after reference repeats a name"))
     }
 
@@ -6885,7 +6883,7 @@ export pure compare_usb_power(
 
   for index in range(section.devices.len()) {
     let name = section.devices[index].sysfs_name ?? ""
-    if name == "" or candidate_by_name.has(name) {
+    if name == "" or name in candidate_by_name {
       return Err(check_failure("candidate USB power device has an empty or duplicate name"))
     }
 
@@ -6905,12 +6903,12 @@ export pure compare_usb_power(
   }
 
   for item in before {
-    if ! after_by_name.has(item.name) {
+    if item.name not in after_by_name {
       unstable_fields = unstable_fields.push(f"${item.name}.presence")
       continue
     }
 
-    if ! candidate_by_name.has(item.name) {
+    if item.name not in candidate_by_name {
       missing_names = missing_names.push(item.name)
       continue
     }
@@ -6982,14 +6980,14 @@ export pure compare_usb_power(
   }
 
   for item in after {
-    if ! before_by_name.has(item.name) {
+    if item.name not in before_by_name {
       unstable_fields = unstable_fields.push(f"${item.name}.presence")
     }
   }
 
   for item in section.devices {
     let name = item.sysfs_name ?? ""
-    if ! before_by_name.has(name) and ! after_by_name.has(name) {
+    if name not in before_by_name and name not in after_by_name {
       unexpected_names = unexpected_names.push(name)
     }
   }
@@ -7024,7 +7022,7 @@ export pure compare_cpuidle(
     }
 
     let key = f"${state.cpu_id}:${state.state_index}"
-    if before_by_key.has(key) {
+    if key in before_by_key {
       return Err(check_failure("CPUIdle reference repeats a state identity"))
     }
 
@@ -7038,7 +7036,7 @@ export pure compare_cpuidle(
     }
 
     let key = f"${state.cpu_id}:${state.state_index}"
-    if after_by_key.has(key) {
+    if key in after_by_key {
       return Err(check_failure("CPUIdle after reference repeats a state identity"))
     }
 
@@ -7060,7 +7058,7 @@ export pure compare_cpuidle(
     }
 
     let key = f"${cpu_id}:${state.state_index}"
-    if candidate_by_key.has(key) {
+    if key in candidate_by_key {
       return Err(check_failure("candidate CPUIdle states repeat an identity"))
     }
 
@@ -7093,12 +7091,12 @@ export pure compare_cpuidle(
   var matched_count = 0
   for expected in before.states {
     let key = f"${expected.cpu_id}:${expected.state_index}"
-    if ! after_by_key.has(key) {
+    if key not in after_by_key {
       unstable_fields = unstable_fields.push(f"${key}.presence")
       continue
     }
 
-    if ! candidate_by_key.has(key) {
+    if key not in candidate_by_key {
       missing_keys = missing_keys.push(key)
       continue
     }
@@ -7176,14 +7174,14 @@ export pure compare_cpuidle(
 
   for state in after.states {
     let key = f"${state.cpu_id}:${state.state_index}"
-    if ! before_by_key.has(key) {
+    if key not in before_by_key {
       unstable_fields = unstable_fields.push(f"${key}.presence")
     }
   }
 
   for state in states {
     let key = f"${state.cpu_id ?? -1}:${state.state_index}"
-    if ! before_by_key.has(key) and ! after_by_key.has(key) {
+    if key not in before_by_key and key not in after_by_key {
       unexpected_keys = unexpected_keys.push(key)
     }
   }
@@ -7309,7 +7307,7 @@ pure reference_cpufreq_members(output: Str) -> Result[List[Int]] {
     continue when word == ""
     let id = reference_cpu_number(word)?
     let key = f"${id}"
-    if set.has(seen, key) {
+    if key in seen {
       return Err(check_failure("CPUFreq CPU membership repeats an identifier"))
     }
 
@@ -7877,7 +7875,7 @@ export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFre
 
   var gauge_paths = set.empty()
   for relative in capture.changing_gauges {
-    if relative not in layout.source_paths or ! cpufreq_bundle_is_gauge(relative) or set.has(gauge_paths, relative) {
+    if relative not in layout.source_paths or ! cpufreq_bundle_is_gauge(relative) or relative in gauge_paths {
       return Err(check_failure("CPUFreq capture has an invalid changing gauge path"))
     }
 
@@ -8076,7 +8074,7 @@ export pure compare_cpu_topology_raw(
   for index in range(candidate.len()) {
     let id = candidate[index].id
     let key = f"${id}"
-    if id < 0 or by_id.has(key) {
+    if id < 0 or key in by_id {
       return Err(check_failure("candidate CPU topology repeats an ID"))
     }
 
@@ -8089,12 +8087,12 @@ export pure compare_cpu_topology_raw(
   var matched_count = 0
   for item in reference {
     let key = f"${item.id}"
-    if item.id < 0 or set.has(seen, key) {
+    if item.id < 0 or key in seen {
       return Err(check_failure("CPU topology reference repeats an ID"))
     }
 
     seen = set.add(seen, key)
-    if ! by_id.has(key) {
+    if key not in by_id {
       missing_ids = missing_ids.push(item.id)
       continue
     }
@@ -8130,7 +8128,7 @@ export pure compare_cpu_topology_raw(
     }
   }
 
-  var unexpected_ids = [item.id for item in candidate if ! set.has(seen, f"${item.id}")]
+  var unexpected_ids = [item.id for item in candidate if f"${item.id}" not in seen]
   let eligible = reference.len() > 0
   return {
     reference_count: reference.len(),
@@ -8522,7 +8520,7 @@ pure compare_cpu_id_sets(candidate: List[Int], reference: List[Int]) -> Result[C
   var reference_seen = set.empty()
   for cpu_id in reference {
     let key = f"${cpu_id}"
-    if cpu_id < 0 or set.has(reference_seen, key) {
+    if cpu_id < 0 or key in reference_seen {
       return Err(check_failure("reference CPU set has a negative or duplicate ID"))
     }
 
@@ -8534,19 +8532,19 @@ pure compare_cpu_id_sets(candidate: List[Int], reference: List[Int]) -> Result[C
   var unexpected_ids: List[Int] = []
   for cpu_id in candidate {
     let key = f"${cpu_id}"
-    if cpu_id < 0 or set.has(candidate_seen, key) {
+    if cpu_id < 0 or key in candidate_seen {
       return Err(check_failure("candidate report has a negative or duplicate CPU ID"))
     }
 
     candidate_seen = set.add(candidate_seen, key)
-    if set.has(reference_seen, key) {
+    if key in reference_seen {
       matched_count += 1
     } else {
       unexpected_ids = unexpected_ids.push(cpu_id)
     }
   }
 
-  var missing_ids = [cpu_id for cpu_id in reference if ! set.has(candidate_seen, f"${cpu_id}")]
+  var missing_ids = [cpu_id for cpu_id in reference if f"${cpu_id}" not in candidate_seen]
   return {
     reference_count: reference.len(),
     candidate_count: candidate.len(),
@@ -8650,7 +8648,7 @@ export pure parse_meminfo_reference(output: Str) -> Result[List[MeminfoReference
     }
 
     let name = pair[0].trim()
-    if name == "" or set.has(seen, name) {
+    if name == "" or name in seen {
       return Err(check_failure("meminfo reference has an empty or duplicate field name"))
     }
 
@@ -8674,7 +8672,7 @@ export pure parse_meminfo_reference(output: Str) -> Result[List[MeminfoReference
     seen = set.add(seen, name)
   }
 
-  if ! set.has(seen, "MemTotal") {
+  if "MemTotal" not in seen {
     return Err(check_failure("meminfo reference is missing MemTotal"))
   }
 
@@ -8711,9 +8709,7 @@ export pure compare_meminfo(
   var candidate_by_name: Map[Int] = {}
   for index in range(before.len()) {
     let item = before[index]
-    if item.name == "" or item.unit == "" or item.value < 0 or item.value > 9007199254740991 or before_by_name.has(
-      item.name,
-    ) {
+    if item.name == "" or item.unit == "" or item.value < 0 or item.value > 9007199254740991 or item.name in before_by_name {
       return Err(check_failure("before meminfo reference contains an invalid or duplicate field"))
     }
 
@@ -8722,9 +8718,7 @@ export pure compare_meminfo(
 
   for index in range(after.len()) {
     let item = after[index]
-    if item.name == "" or item.unit == "" or item.value < 0 or item.value > 9007199254740991 or after_by_name.has(
-      item.name,
-    ) {
+    if item.name == "" or item.unit == "" or item.value < 0 or item.value > 9007199254740991 or item.name in after_by_name {
       return Err(check_failure("after meminfo reference contains an invalid or duplicate field"))
     }
 
@@ -8736,16 +8730,14 @@ export pure compare_meminfo(
   }
 
   for item in before {
-    if ! after_by_name.has(item.name) or after[after_by_name.get(item.name, -1)].unit != item.unit {
+    if item.name not in after_by_name or after[after_by_name.get(item.name, -1)].unit != item.unit {
       return Err(check_failure("meminfo reference field or unit changed around candidate collection"))
     }
   }
 
   for index in range(candidates.len()) {
     let item = candidates[index]
-    if item.name == "" or item.unit == "" or item.value < 0 or item.value > 9007199254740991 or candidate_by_name.has(
-      item.name,
-    ) {
+    if item.name == "" or item.unit == "" or item.value < 0 or item.value > 9007199254740991 or item.name in candidate_by_name {
       return Err(check_failure("candidate meminfo contains an invalid or duplicate counter"))
     }
 
@@ -8760,7 +8752,7 @@ export pure compare_meminfo(
   var mismatched_names: List[Str] = []
   var scalar_mismatches: List[Str] = []
   for first in before {
-    if ! candidate_by_name.has(first.name) {
+    if first.name not in candidate_by_name {
       missing_names = missing_names.push(first.name)
       continue
     }
@@ -8793,7 +8785,7 @@ export pure compare_meminfo(
   }
 
   for candidate in candidates {
-    if ! before_by_name.has(candidate.name) {
+    if candidate.name not in before_by_name {
       unexpected_names = unexpected_names.push(candidate.name)
     }
   }
@@ -8837,7 +8829,7 @@ export pure parse_thp_reference(output: Str) -> Result[Str] {
     } else {
       word
     }
-    if name == "" or "[" in name or "]" in name or set.has(names, name) {
+    if name == "" or "[" in name or "]" in name or name in names {
       return Err(check_failure("THP reference has an invalid or duplicate policy name"))
     }
 
@@ -8864,7 +8856,7 @@ export pure compare_thp(
   var after_by_name: Map[Int] = {}
   for index in range(before.len()) {
     let item = before[index]
-    if item.name not in ["enabled", "defrag"] or before_by_name.has(item.name) or parse_thp_reference(item.value)? != item.value {
+    if item.name not in ["enabled", "defrag"] or item.name in before_by_name or parse_thp_reference(item.value)? != item.value {
       return Err(check_failure("before THP reference has an invalid policy"))
     }
 
@@ -8873,7 +8865,7 @@ export pure compare_thp(
 
   for index in range(after.len()) {
     let item = after[index]
-    if item.name not in ["enabled", "defrag"] or after_by_name.has(item.name) or parse_thp_reference(item.value)? != item.value {
+    if item.name not in ["enabled", "defrag"] or item.name in after_by_name or parse_thp_reference(item.value)? != item.value {
       return Err(check_failure("after THP reference has an invalid policy"))
     }
 
@@ -8885,7 +8877,7 @@ export pure compare_thp(
   }
 
   for item in before {
-    if ! after_by_name.has(item.name) or after[after_by_name.get(item.name, -1)].value != item.value {
+    if item.name not in after_by_name or after[after_by_name.get(item.name, -1)].value != item.value {
       return Err(check_failure("THP reference policy changed around collection"))
     }
   }
@@ -8895,7 +8887,7 @@ export pure compare_thp(
   var candidate_by_name: Map[Str] = {}
   for entry in candidate_values {
     let parts = entry.split("=", maxsplit: 1)
-    if parts.len() != 2 or parts[0] not in ["enabled", "defrag"] or candidate_by_name.has(parts[0]) {
+    if parts.len() != 2 or parts[0] not in ["enabled", "defrag"] or parts[0] in candidate_by_name {
       return Err(check_failure("candidate THP policy has an invalid or duplicate name"))
     }
 
@@ -8907,7 +8899,7 @@ export pure compare_thp(
   var mismatched_names: List[Str] = []
   var matched_count = 0
   for item in before {
-    if ! candidate_by_name.has(item.name) {
+    if item.name not in candidate_by_name {
       missing_names = missing_names.push(item.name)
       continue
     }
@@ -8919,7 +8911,7 @@ export pure compare_thp(
   }
 
   for name in candidate_by_name.keys() {
-    if ! before_by_name.has(name) {
+    if name not in before_by_name {
       unexpected_names = unexpected_names.push(name)
     }
   }
@@ -8948,7 +8940,7 @@ export pure compare_vulnerabilities(
   var before_by_name: Map[Str] = {}
   var after_by_name: Map[Str] = {}
   for item in before {
-    if ! valid_vulnerability_name(item.name) or before_by_name.has(item.name) {
+    if ! valid_vulnerability_name(item.name) or item.name in before_by_name {
       return Err(check_failure("before vulnerability reference has an invalid or duplicate name"))
     }
 
@@ -8956,7 +8948,7 @@ export pure compare_vulnerabilities(
   }
 
   for item in after {
-    if ! valid_vulnerability_name(item.name) or after_by_name.has(item.name) {
+    if ! valid_vulnerability_name(item.name) or item.name in after_by_name {
       return Err(check_failure("after vulnerability reference has an invalid or duplicate name"))
     }
 
@@ -8968,7 +8960,7 @@ export pure compare_vulnerabilities(
   }
 
   for item in before {
-    if ! after_by_name.has(item.name) or after_by_name.get(item.name, "") != item.description {
+    if item.name not in after_by_name or after_by_name.get(item.name, "") != item.description {
       return Err(check_failure("vulnerability reference description changed around collection"))
     }
   }
@@ -8977,7 +8969,7 @@ export pure compare_vulnerabilities(
   let candidate_values = json.get(data, ["cpu", "vulnerabilities"])?.require(List[CandidateVulnerability])?
   var candidate_by_name: Map[CandidateRawTextObservation] = {}
   for item in candidate_values {
-    if ! valid_vulnerability_name(item.name) or candidate_by_name.has(item.name) {
+    if ! valid_vulnerability_name(item.name) or item.name in candidate_by_name {
       return Err(check_failure("candidate vulnerability has an invalid or duplicate name"))
     }
 
@@ -8989,7 +8981,7 @@ export pure compare_vulnerabilities(
   var mismatched_names: List[Str] = []
   var matched_count = 0
   for item in before {
-    if ! candidate_by_name.has(item.name) {
+    if item.name not in candidate_by_name {
       missing_names = missing_names.push(item.name)
       continue
     }
@@ -9002,7 +8994,7 @@ export pure compare_vulnerabilities(
   }
 
   for name in candidate_by_name.keys() {
-    if ! before_by_name.has(name) {
+    if name not in before_by_name {
       unexpected_names = unexpected_names.push(name)
     }
   }
@@ -9208,7 +9200,7 @@ export pure compare_huge_pages(
   for index in range(before.len()) {
     let pool = before[index]
     let key = huge_page_pool_key(pool)
-    if ! valid_huge_page_reference(pool) or before_by_key.has(key) {
+    if ! valid_huge_page_reference(pool) or key in before_by_key {
       return Err(check_failure("before huge-page reference has an invalid or duplicate pool"))
     }
 
@@ -9218,7 +9210,7 @@ export pure compare_huge_pages(
   for index in range(after.len()) {
     let pool = after[index]
     let key = huge_page_pool_key(pool)
-    if ! valid_huge_page_reference(pool) or after_by_key.has(key) {
+    if ! valid_huge_page_reference(pool) or key in after_by_key {
       return Err(check_failure("after huge-page reference has an invalid or duplicate pool"))
     }
 
@@ -9230,7 +9222,7 @@ export pure compare_huge_pages(
   }
 
   for pool in before {
-    if ! after_by_key.has(huge_page_pool_key(pool)) {
+    if huge_page_pool_key(pool) not in after_by_key {
       return Err(check_failure("huge-page reference pool identity changed around collection"))
     }
   }
@@ -9240,7 +9232,7 @@ export pure compare_huge_pages(
   var candidate_by_key: Map[Int] = {}
   for index in range(candidates.len()) {
     let key = huge_page_pool_key(candidates[index])
-    if ! valid_huge_page_reference(candidates[index]) or candidate_by_key.has(key) {
+    if ! valid_huge_page_reference(candidates[index]) or key in candidate_by_key {
       return Err(check_failure("candidate huge-page pool has invalid values or duplicate identity"))
     }
 
@@ -9254,7 +9246,7 @@ export pure compare_huge_pages(
   var matched_count = 0
   for first in before {
     let key = huge_page_pool_key(first)
-    if ! candidate_by_key.has(key) {
+    if key not in candidate_by_key {
       missing_keys = missing_keys.push(key)
       continue
     }
@@ -9298,7 +9290,7 @@ export pure compare_huge_pages(
   }
 
   for key in candidate_by_key.keys() {
-    if ! before_by_key.has(key) {
+    if key not in before_by_key {
       unexpected_keys = unexpected_keys.push(key)
     }
   }
@@ -9386,7 +9378,7 @@ export pure parse_psi_reference(output: Str, resource: Str) -> Result[List[PsiRe
   var kinds = set.empty()
   for line in output.lines() {
     let columns = line.replace("\t", " ").split(" ") |> where .trim() != ""
-    if columns.len() != 5 or columns[0] not in ["some", "full"] or set.has(kinds, columns[0]) {
+    if columns.len() != 5 or columns[0] not in ["some", "full"] or columns[0] in kinds {
       return Err(check_failure("PSI reference has an invalid or duplicate row"))
     }
 
@@ -9399,7 +9391,7 @@ export pure parse_psi_reference(output: Str, resource: Str) -> Result[List[PsiRe
     var fields = set.empty()
     for column in columns |> drop(1) {
       let pair = column.split("=", maxsplit: 1)
-      if pair.len() != 2 or set.has(fields, pair[0]) {
+      if pair.len() != 2 or pair[0] in fields {
         return Err(check_failure("PSI reference has an invalid or duplicate field"))
       }
 
@@ -9453,7 +9445,7 @@ export pure compare_psi(
   for index in range(before.len()) {
     let row = before[index]
     let key = psi_reference_key(row.resource, row.kind)
-    if ! valid_psi_reference_row(row) or before_by_key.has(key) {
+    if ! valid_psi_reference_row(row) or key in before_by_key {
       return Err(check_failure("before PSI reference has an invalid or duplicate row"))
     }
 
@@ -9463,7 +9455,7 @@ export pure compare_psi(
   for index in range(after.len()) {
     let row = after[index]
     let key = psi_reference_key(row.resource, row.kind)
-    if ! valid_psi_reference_row(row) or after_by_key.has(key) {
+    if ! valid_psi_reference_row(row) or key in after_by_key {
       return Err(check_failure("after PSI reference has an invalid or duplicate row"))
     }
 
@@ -9476,7 +9468,7 @@ export pure compare_psi(
 
   for row in before {
     let key = psi_reference_key(row.resource, row.kind)
-    if ! after_by_key.has(key) or after[after_by_key.get(key, -1)].total_us < row.total_us {
+    if key not in after_by_key or after[after_by_key.get(key, -1)].total_us < row.total_us {
       return Err(check_failure("PSI reference identity changed or cumulative total decreased"))
     }
   }
@@ -9487,7 +9479,7 @@ export pure compare_psi(
   for index in range(candidates.len()) {
     let row = candidates[index]
     let key = psi_reference_key(row.resource, row.kind)
-    if row.resource not in ["cpu", "memory", "io"] or row.kind not in ["some", "full"] or candidate_by_key.has(key) {
+    if row.resource not in ["cpu", "memory", "io"] or row.kind not in ["some", "full"] or key in candidate_by_key {
       return Err(check_failure("candidate PSI report has an invalid or duplicate row"))
     }
 
@@ -9501,7 +9493,7 @@ export pure compare_psi(
   var matched_count = 0
   for first in before {
     let key = psi_reference_key(first.resource, first.kind)
-    if ! candidate_by_key.has(key) {
+    if key not in candidate_by_key {
       missing_keys = missing_keys.push(key)
       continue
     }
@@ -9545,7 +9537,7 @@ export pure compare_psi(
   }
 
   for key in candidate_by_key.keys() {
-    if ! before_by_key.has(key) {
+    if key not in before_by_key {
       unexpected_keys = unexpected_keys.push(key)
     }
   }
@@ -9767,7 +9759,7 @@ export pure parse_swapon_raw(output: Str) -> Result[List[SwapReferenceDevice]] {
   var seen = set.empty()
   for line in lines |> drop(1) {
     let columns = line.replace("\t", " ").split(" ") |> where .trim() != ""
-    if columns.len() != 5 or columns[0] == "" or set.has(seen, columns[0]) {
+    if columns.len() != 5 or columns[0] == "" or columns[0] in seen {
       return Err(check_failure("swapon reference has ambiguous or duplicate swap identity"))
     }
 
@@ -9809,7 +9801,7 @@ export pure parse_proc_swaps_raw_reference(raw: Str) -> Result[List[SwapReferenc
     }
 
     let name = proc_swap_name(columns[0])
-    if name == "" or set.has(seen, name) {
+    if name == "" or name in seen {
       return Err(check_failure("proc swap reference has an ambiguous or duplicate identity"))
     }
 
@@ -9943,7 +9935,7 @@ export pure compare_swap_devices(
   let data = json.decode(candidate_json)?
   var reference_seen = set.empty()
   for device in reference {
-    if device.name == "" or set.has(reference_seen, device.name) or device.size_bytes < 0 or device.size_bytes > 9007199254740991 or device.used_bytes < 0 or device.used_bytes > device.size_bytes or device.priority < -9007199254740991 or device.priority > 9007199254740991 {
+    if device.name == "" or device.name in reference_seen or device.size_bytes < 0 or device.size_bytes > 9007199254740991 or device.used_bytes < 0 or device.used_bytes > device.size_bytes or device.priority < -9007199254740991 or device.priority > 9007199254740991 {
       return Err(check_failure("swap reference contains an invalid or duplicate device"))
     }
 
@@ -10005,12 +9997,12 @@ export pure compare_swap_devices(
     }
 
     let name = device.name.value ?? ""
-    if set.has(candidate_seen, name) {
+    if name in candidate_seen {
       return Err(check_failure("candidate swap report contains a duplicate identity"))
     }
 
     candidate_seen = set.add(candidate_seen, name)
-    if ! set.has(reference_seen, name) {
+    if name not in reference_seen {
       unexpected_names = unexpected_names.push(name)
       continue
     }
@@ -10041,7 +10033,7 @@ export pure compare_swap_devices(
     }
   }
 
-  var missing_names = [device.name for device in reference if ! set.has(candidate_seen, device.name)]
+  var missing_names = [device.name for device in reference if device.name not in candidate_seen]
   return {
     reference_count: reference.len(),
     candidate_count: candidates.len(),
@@ -10103,7 +10095,7 @@ pure pci_reference_bdf(value: Str) -> Result[PciReferenceBdf] {
 }
 
 pure pci_reference_optional_hex(fields: Map[Str], key: Str, width: Int) -> Result[Int?] {
-  if ! fields.has(key) {
+  if key not in fields {
     return Ok(null)
   }
 
@@ -10153,7 +10145,7 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
         "NUMANode",
         "IOMMUGroup",
       ] {
-        if fields.has(key) or value == "" {
+        if key in fields or value == "" {
           return Err(check_failure("lspci reference has a duplicate or empty identity field"))
         }
 
@@ -10161,14 +10153,12 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
       }
     }
 
-    if ! fields.has("Slot") or ! fields.has("Class") or ! fields.has("Vendor") or ! fields.has("Device") or fields.has(
-      "SVendor",
-    ) != fields.has("SDevice") {
+    if "Slot" not in fields or "Class" not in fields or "Vendor" not in fields or "Device" not in fields or "SVendor" in fields != "SDevice" in fields {
       return Err(check_failure("lspci reference is missing a required numeric identity"))
     }
 
     let bdf = pci_reference_bdf(fields.get("Slot", ""))?
-    if set.has(seen, bdf.address) {
+    if bdf.address in seen {
       return Err(check_failure("lspci reference has a duplicate slot address"))
     }
 
@@ -10177,7 +10167,7 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
     let prog_if = pci_reference_optional_hex(fields, "ProgIf", 2)?
     let revision = pci_reference_optional_hex(fields, "Rev", 2)?
     var numa_node: Int? = null
-    if fields.has("NUMANode") {
+    if "NUMANode" in fields {
       let numa_text = fields.get("NUMANode", "")
       for digit in numa_text.split("") {
         if digit not in "0123456789" {
@@ -10194,12 +10184,12 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
     }
 
     var driver: Str? = null
-    if fields.has("Driver") {
+    if "Driver" in fields {
       driver = fields.get("Driver")?
     }
 
     var iommu_group: Str? = null
-    if fields.has("IOMMUGroup") {
+    if "IOMMUGroup" in fields {
       iommu_group = fields.get("IOMMUGroup")?
     }
 
@@ -10249,7 +10239,7 @@ export pure compare_lspci_identity(
     }
 
     let address = function.address ?? ""
-    if candidates.has(address) {
+    if address in candidates {
       return Err(check_failure("candidate PCI inventory has a duplicate slot address"))
     }
 
@@ -10261,12 +10251,12 @@ export pure compare_lspci_identity(
   var field_mismatches: List[Str] = []
   var matched_count = 0
   for item in reference {
-    if set.has(references, item.address) {
+    if item.address in references {
       return Err(check_failure("lspci reference has a duplicate slot address"))
     }
 
     references = set.add(references, item.address)
-    if ! candidates.has(item.address) {
+    if item.address not in candidates {
       missing_addresses = missing_addresses.push(item.address)
       continue
     }
@@ -10337,7 +10327,7 @@ export pure compare_lspci_identity(
     }
   }
 
-  var unexpected_addresses = [address for address in candidates.keys() if ! set.has(references, address)]
+  var unexpected_addresses = [address for address in candidates.keys() if address not in references]
   return {
     reference_count: reference.len(),
     candidate_count: section.functions.len(),
@@ -10360,7 +10350,7 @@ export pure compare_pci_links(
   var after_by_address: Map[Int] = {}
   for index in range(before.len()) {
     let item = before[index]
-    if item.address == "" or before_by_address.has(item.address) {
+    if item.address == "" or item.address in before_by_address {
       return Err(check_failure("PCI link before reference has an empty or duplicate address"))
     }
 
@@ -10369,7 +10359,7 @@ export pure compare_pci_links(
 
   for index in range(after.len()) {
     let item = after[index]
-    if item.address == "" or after_by_address.has(item.address) {
+    if item.address == "" or item.address in after_by_address {
       return Err(check_failure("PCI link after reference has an empty or duplicate address"))
     }
 
@@ -10388,7 +10378,7 @@ export pure compare_pci_links(
       continue
     }
 
-    if candidate_by_address.has(address) {
+    if address in candidate_by_address {
       return Err(check_failure("candidate PCI link inventory repeats an address"))
     }
 
@@ -10407,7 +10397,7 @@ export pure compare_pci_links(
       eligible = true
     }
 
-    if ! after_by_address.has(address) {
+    if address not in after_by_address {
       unstable_fields = unstable_fields.push(f"${address}.presence")
       continue
     }
@@ -10417,7 +10407,7 @@ export pure compare_pci_links(
       eligible = true
     }
 
-    if ! candidate_by_address.has(address) {
+    if address not in candidate_by_address {
       missing_addresses = missing_addresses.push(address)
       continue
     }
@@ -10472,14 +10462,14 @@ export pure compare_pci_links(
       eligible = true
     }
 
-    if ! before_by_address.has(item.address) {
+    if item.address not in before_by_address {
       unstable_fields = unstable_fields.push(f"${item.address}.presence")
     }
   }
 
   for item in candidate {
     let address = item.address ?? ""
-    if address != "" and ! before_by_address.has(address) and ! after_by_address.has(address) {
+    if address != "" and address not in before_by_address and address not in after_by_address {
       unexpected_addresses = unexpected_addresses.push(address)
     }
   }
@@ -10508,7 +10498,7 @@ export pure compare_pci_bindings(
   var after_by_address: Map[Int] = {}
   for index in range(before.len()) {
     let address = before[index].address
-    if address == "" or before_by_address.has(address) {
+    if address == "" or address in before_by_address {
       return Err(check_failure("PCI binding before reference repeats an address"))
     }
 
@@ -10517,7 +10507,7 @@ export pure compare_pci_bindings(
 
   for index in range(after.len()) {
     let address = after[index].address
-    if address == "" or after_by_address.has(address) {
+    if address == "" or address in after_by_address {
       return Err(check_failure("PCI binding after reference repeats an address"))
     }
 
@@ -10536,7 +10526,7 @@ export pure compare_pci_bindings(
       continue
     }
 
-    if candidate_by_address.has(address) {
+    if address in candidate_by_address {
       return Err(check_failure("candidate PCI binding inventory repeats an address"))
     }
 
@@ -10550,13 +10540,13 @@ export pure compare_pci_bindings(
   var matched_count = 0
   for item in before {
     let address = item.address
-    if ! after_by_address.has(address) {
+    if address not in after_by_address {
       unstable_fields = unstable_fields.push(f"${address}.presence")
       continue
     }
 
     let later = after[after_by_address.get(address)?]
-    if ! candidate_by_address.has(address) {
+    if address not in candidate_by_address {
       missing_addresses = missing_addresses.push(address)
       continue
     }
@@ -10612,14 +10602,14 @@ export pure compare_pci_bindings(
   }
 
   for item in after {
-    if ! before_by_address.has(item.address) {
+    if item.address not in before_by_address {
       unstable_fields = unstable_fields.push(f"${item.address}.presence")
     }
   }
 
   for item in candidate {
     let address = item.address ?? ""
-    if address != "" and ! before_by_address.has(address) and ! after_by_address.has(address) {
+    if address != "" and address not in before_by_address and address not in after_by_address {
       unexpected_addresses = unexpected_addresses.push(address)
     }
   }
@@ -10660,7 +10650,7 @@ export pure compare_thermal_zones(
   var candidate_by_id: Map[Int] = {}
   for index in range(before.len()) {
     let key = f"${before[index].id}"
-    if before[index].id < 0 or before_by_id.has(key) {
+    if before[index].id < 0 or key in before_by_id {
       return Err(check_failure("thermal before reference has duplicate or invalid zone IDs"))
     }
 
@@ -10669,7 +10659,7 @@ export pure compare_thermal_zones(
 
   for index in range(after.len()) {
     let key = f"${after[index].id}"
-    if after[index].id < 0 or after_by_id.has(key) {
+    if after[index].id < 0 or key in after_by_id {
       return Err(check_failure("thermal after reference has duplicate or invalid zone IDs"))
     }
 
@@ -10678,7 +10668,7 @@ export pure compare_thermal_zones(
 
   for index in range(section.thermal_zones.len()) {
     let key = f"${section.thermal_zones[index].id}"
-    if section.thermal_zones[index].id < 0 or candidate_by_id.has(key) {
+    if section.thermal_zones[index].id < 0 or key in candidate_by_id {
       return Err(check_failure("candidate thermal zones repeat or invalidate an ID"))
     }
 
@@ -10689,12 +10679,12 @@ export pure compare_thermal_zones(
   var unstable_fields: List[Str] = []
   for zone in before {
     let zone_key = f"${zone.id}"
-    if ! after_by_id.has(zone_key) {
+    if zone_key not in after_by_id {
       unstable_fields = unstable_fields.push(f"zone.${zone.id}.presence")
       continue
     }
 
-    if ! candidate_by_id.has(zone_key) {
+    if zone_key not in candidate_by_id {
       field_mismatches = field_mismatches.push(f"zone.${zone.id}.presence")
       continue
     }
@@ -10718,7 +10708,7 @@ export pure compare_thermal_zones(
     var candidate_trips: Map[Int] = {}
     for index in range(zone.trips.len()) {
       let key = f"${zone.trips[index].index}"
-      if zone.trips[index].index < 0 or before_trips.has(key) {
+      if zone.trips[index].index < 0 or key in before_trips {
         return Err(check_failure("thermal before reference repeats a trip index"))
       }
 
@@ -10727,7 +10717,7 @@ export pure compare_thermal_zones(
 
     for index in range(later.trips.len()) {
       let key = f"${later.trips[index].index}"
-      if later.trips[index].index < 0 or after_trips.has(key) {
+      if later.trips[index].index < 0 or key in after_trips {
         return Err(check_failure("thermal after reference repeats a trip index"))
       }
 
@@ -10743,7 +10733,7 @@ export pure compare_thermal_zones(
 
       let known_index = trip_index ?? -1
       let key = f"${known_index}"
-      if known_index < 0 or candidate_trips.has(key) {
+      if known_index < 0 or key in candidate_trips {
         return Err(check_failure("candidate thermal zone repeats a trip index"))
       }
 
@@ -10753,12 +10743,12 @@ export pure compare_thermal_zones(
     for trip in zone.trips {
       let key = f"${trip.index}"
       let field = f"zone.${zone.id}.trip.${trip.index}"
-      if ! after_trips.has(key) {
+      if key not in after_trips {
         unstable_fields = unstable_fields.push(f"${field}.presence")
         continue
       }
 
-      if ! candidate_trips.has(key) {
+      if key not in candidate_trips {
         field_mismatches = field_mismatches.push(f"${field}.presence")
         continue
       }
@@ -10785,7 +10775,7 @@ export pure compare_thermal_zones(
     }
 
     for trip in later.trips {
-      if ! before_trips.has(f"${trip.index}") {
+      if f"${trip.index}" not in before_trips {
         unstable_fields = unstable_fields.push(f"zone.${zone.id}.trip.${trip.index}.presence")
       }
     }
@@ -10793,7 +10783,7 @@ export pure compare_thermal_zones(
     for trip in actual.trips {
       if trip.index != null {
         let known_index = trip.index ?? -1
-        if ! before_trips.has(f"${known_index}") and ! after_trips.has(f"${known_index}") {
+        if f"${known_index}" not in before_trips and f"${known_index}" not in after_trips {
           field_mismatches = field_mismatches.push(f"zone.${zone.id}.trip.${known_index}.presence")
         }
       }
@@ -10801,13 +10791,13 @@ export pure compare_thermal_zones(
   }
 
   for zone in after {
-    if ! before_by_id.has(f"${zone.id}") {
+    if f"${zone.id}" not in before_by_id {
       unstable_fields = unstable_fields.push(f"zone.${zone.id}.presence")
     }
   }
 
   for zone in section.thermal_zones {
-    if ! before_by_id.has(f"${zone.id}") and ! after_by_id.has(f"${zone.id}") {
+    if f"${zone.id}" not in before_by_id and f"${zone.id}" not in after_by_id {
       field_mismatches = field_mismatches.push(f"zone.${zone.id}.presence")
     }
   }
@@ -10903,7 +10893,7 @@ export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List
     continue unless zone_name.starts_with("thermal_zone")
     let suffix = (zone_name.split("") |> drop("thermal_zone".count_chars())).join("")
     let id = reference_thermal_index(suffix)?
-    if zone_name != f"thermal_zone${id}" or set.has(seen_zones, f"${id}") {
+    if zone_name != f"thermal_zone${id}" or f"${id}" in seen_zones {
       return Err(check_failure("thermal reference has a noncanonical or duplicate zone ID"))
     }
 
@@ -10924,7 +10914,7 @@ export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List
       }
 
       let trip_index = reference_thermal_index(parts[2])?
-      if name != f"trip_point_${trip_index}_temp" or set.has(seen_trips, f"${trip_index}") {
+      if name != f"trip_point_${trip_index}_temp" or f"${trip_index}" in seen_trips {
         return Err(check_failure("thermal reference has a noncanonical or duplicate trip index"))
       }
 
@@ -11211,7 +11201,7 @@ export proc read_pci_binding_reference(root: FsRoot) [fs, error] -> Result[List[
   var seen = set.empty()
   for device_path in listing.children {
     let address = pci_reference_bdf(device_path.name())?.address
-    if set.has(seen, address) {
+    if address in seen {
       return Err(check_failure("PCI binding reference repeats a BDF"))
     }
 
@@ -11291,7 +11281,7 @@ export proc read_pci_link_reference(root: FsRoot) [fs, error] -> Result[List[Pci
   var seen = set.empty()
   for device_path in listing.children {
     let address = pci_reference_bdf(device_path.name())?.address
-    if set.has(seen, address) {
+    if address in seen {
       return Err(check_failure("PCI link reference repeats a BDF"))
     }
 
@@ -12004,7 +11994,7 @@ export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference]] {
     }
 
     let id_key = f"${ifindex}"
-    if set.has(ids, id_key) or set.has(names, name) {
+    if id_key in ids or name in names {
       return Err(check_failure("ip link reference has a duplicate interface identity"))
     }
 
@@ -12012,7 +12002,7 @@ export pure parse_ip_link_json(output: Str) -> Result[List[IpLinkReference]] {
     names = set.add(names, name)
     var flag_seen = set.empty()
     for flag in flags {
-      if flag == "" or set.has(flag_seen, flag) {
+      if flag == "" or flag in flag_seen {
         return Err(check_failure("ip link reference has an invalid flag list"))
       }
 
@@ -12065,7 +12055,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
   var position = 0
   while position < candidate.len() {
     let ifindex = candidate[position].ifindex
-    if ifindex <= 0 or ifindex > 9007199254740991 or candidate_by_id.has(f"${ifindex}") {
+    if ifindex <= 0 or ifindex > 9007199254740991 or f"${ifindex}" in candidate_by_id {
       return Err(check_failure("candidate network links have an invalid or duplicate interface index"))
     }
 
@@ -12076,7 +12066,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
   var reference_ids = set.empty()
   var reference_by_name: Map[Int] = {}
   for link in reference {
-    if reference_by_name.has(link.name) {
+    if link.name in reference_by_name {
       return Err(check_failure("ip link reference has a duplicate interface name"))
     }
 
@@ -12088,12 +12078,12 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
   var matched_count = 0
   for link in reference {
     let id_key = f"${link.ifindex}"
-    if set.has(reference_ids, id_key) {
+    if id_key in reference_ids {
       return Err(check_failure("ip link reference has a duplicate interface index"))
     }
 
     reference_ids = set.add(reference_ids, id_key)
-    if ! candidate_by_id.has(id_key) {
+    if id_key not in candidate_by_id {
       missing_ids = missing_ids.push(link.ifindex)
       continue
     }
@@ -12123,7 +12113,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     var expected_master: Int? = null
     if link.master_name != null {
       let master_name = link.master_name ?? ""
-      if ! reference_by_name.has(master_name) {
+      if master_name not in reference_by_name {
         return Err(check_failure("ip link reference has an unresolved master interface"))
       }
 
@@ -12137,7 +12127,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     var expected_lower = link.lower_index
     if link.lower_name != null {
       let lower_name = link.lower_name ?? ""
-      if ! reference_by_name.has(lower_name) {
+      if lower_name not in reference_by_name {
         return Err(check_failure("ip link reference has an unresolved lower interface"))
       }
 
@@ -12149,7 +12139,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     }
   }
 
-  var unexpected_ids = [link.ifindex for link in candidate if ! set.has(reference_ids, f"${link.ifindex}")]
+  var unexpected_ids = [link.ifindex for link in candidate if f"${link.ifindex}" not in reference_ids]
   let candidate_field_missing = ! network_candidate_enumerated(state, enumeration_succeeded)
   return {
     reference_count: reference.len(),
@@ -12261,7 +12251,7 @@ proc network_raw_number(
   }
 
   for digit in digits.split("") {
-    if ! (if hexadecimal { "0123456789abcdef" } else { "0123456789" }).contains(digit) {
+    if digit not in (if hexadecimal { "0123456789abcdef" } else { "0123456789" }) {
       return Ok({value: null, complete: false})
     }
   }
@@ -12294,7 +12284,7 @@ export proc read_network_link_raw_reference(root: FsRoot) [fs, error] -> Result[
   var seen_names = set.empty()
   for entry in listing.children {
     let name = entry.name()
-    if name == "" or set.has(seen_names, name) {
+    if name == "" or name in seen_names {
       return Err(check_failure("network link reference has an invalid interface name"))
     }
 
@@ -12305,7 +12295,7 @@ export proc read_network_link_raw_reference(root: FsRoot) [fs, error] -> Result[
     }
 
     let index = ifindex.value ?? 0
-    if set.has(seen_indices, f"${index}") {
+    if f"${index}" in seen_indices {
       return Err(check_failure("network link reference repeats an interface index"))
     }
 
@@ -12342,7 +12332,7 @@ export pure compare_network_link_raw(
   for index in range(before.len()) {
     let item = before[index]
     let key = f"${item.ifindex}"
-    if item.ifindex <= 0 or item.name == "" or before_by_index.has(key) {
+    if item.ifindex <= 0 or item.name == "" or key in before_by_index {
       return Err(check_failure("network raw before reference has an invalid link identity"))
     }
 
@@ -12352,7 +12342,7 @@ export pure compare_network_link_raw(
   for index in range(after.len()) {
     let item = after[index]
     let key = f"${item.ifindex}"
-    if item.ifindex <= 0 or item.name == "" or after_by_index.has(key) {
+    if item.ifindex <= 0 or item.name == "" or key in after_by_index {
       return Err(check_failure("network raw after reference has an invalid link identity"))
     }
 
@@ -12362,7 +12352,7 @@ export pure compare_network_link_raw(
   for index in range(section.links.len()) {
     let item = section.links[index]
     let key = f"${item.ifindex}"
-    if item.ifindex <= 0 or candidate_by_index.has(key) {
+    if item.ifindex <= 0 or key in candidate_by_index {
       return Err(check_failure("candidate network report repeats or invalidates a link index"))
     }
 
@@ -12375,12 +12365,12 @@ export pure compare_network_link_raw(
   let enumerated = network_candidate_enumerated(section.status.state, section.status.enumeration_succeeded)
   for item in before {
     let key = f"${item.ifindex}"
-    if ! after_by_index.has(key) or item.name != after[after_by_index.get(key)?].name {
+    if key not in after_by_index or item.name != after[after_by_index.get(key)?].name {
       unstable_fields = unstable_fields.push(f"${key}.presence")
       continue
     }
 
-    if ! candidate_by_index.has(key) {
+    if key not in candidate_by_index {
       if enumerated {
         field_mismatches = field_mismatches.push(f"${key}.presence")
       } else {
@@ -12422,7 +12412,7 @@ export pure compare_network_link_raw(
     var counter_by_name: Map[Int] = {}
     for index in range(observed.counters.len()) {
       let counter = observed.counters[index]
-      if counter_by_name.has(counter.name) {
+      if counter.name in counter_by_name {
         return Err(check_failure("candidate network link repeats a counter name"))
       }
 
@@ -12444,7 +12434,7 @@ export pure compare_network_link_raw(
       let field = f"${key}.${spec.name}"
       if spec.first == null or spec.last == null or (spec.last ?? 0) < (spec.first ?? 0) {
         unstable_fields = unstable_fields.push(field)
-      } else if ! counter_by_name.has(spec.name) {
+      } else if spec.name not in counter_by_name {
         field_mismatches = field_mismatches.push(field)
       } else {
         let counter = observed.counters[counter_by_name.get(spec.name)?]
@@ -12456,14 +12446,14 @@ export pure compare_network_link_raw(
   }
 
   for item in after {
-    if ! before_by_index.has(f"${item.ifindex}") {
+    if f"${item.ifindex}" not in before_by_index {
       unstable_fields = unstable_fields.push(f"${item.ifindex}.presence")
     }
   }
 
   for item in section.links {
     let key = f"${item.ifindex}"
-    if ! before_by_index.has(key) and ! after_by_index.has(key) {
+    if key not in before_by_index and key not in after_by_index {
       field_mismatches = field_mismatches.push(f"${key}.presence")
     }
   }
@@ -12521,7 +12511,7 @@ export pure parse_ip_address_json(output: Str) -> Result[List[IpAddressReference
     let ifindex = json.get(row, ["ifindex"])?.require(Int)?
     let name = json.get(row, ["ifname"])?.require(Str)?
     let id_key = f"${ifindex}"
-    if ifindex <= 0 or ifindex > 9007199254740991 or name == "" or set.has(interfaces, id_key) {
+    if ifindex <= 0 or ifindex > 9007199254740991 or name == "" or id_key in interfaces {
       return Err(check_failure("ip address reference has an invalid or duplicate interface identity"))
     }
 
@@ -12562,7 +12552,7 @@ export pure parse_ip_address_json(output: Str) -> Result[List[IpAddressReference
       }
 
       let key = ip_address_key(ifindex, family, local, prefix_length)
-      if set.has(identities, key) {
+      if key in identities {
         return Err(check_failure("ip address reference has a duplicate address identity"))
       }
 
@@ -12617,7 +12607,7 @@ export pure compare_ip_addresses(
   var candidate_field_missing = ! network_candidate_enumerated(state, enumeration_succeeded)
   for link in candidate_links {
     let link_key = f"${link.ifindex}"
-    if link.ifindex <= 0 or link.ifindex > 9007199254740991 or set.has(candidate_links_seen, link_key) {
+    if link.ifindex <= 0 or link.ifindex > 9007199254740991 or link_key in candidate_links_seen {
       return Err(check_failure("candidate network addresses have an invalid or duplicate interface index"))
     }
 
@@ -12630,7 +12620,7 @@ export pure compare_ip_addresses(
       }
 
       let key = ip_address_key(link.ifindex, address.family, address.address.value ?? "", address.prefix_length)
-      if candidate_by_key.has(key) {
+      if key in candidate_by_key {
         return Err(check_failure("candidate network addresses have a duplicate address identity"))
       }
 
@@ -12644,12 +12634,12 @@ export pure compare_ip_addresses(
   var matched_count = 0
   for address in reference {
     let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
-    if set.has(reference_keys, key) {
+    if key in reference_keys {
       return Err(check_failure("ip address reference has a duplicate address identity"))
     }
 
     reference_keys = set.add(reference_keys, key)
-    if ! candidate_by_key.has(key) {
+    if key not in candidate_by_key {
       missing_keys = missing_keys.push(key)
       continue
     }
@@ -12669,7 +12659,7 @@ export pure compare_ip_addresses(
     }
   }
 
-  var unexpected_keys = [key for key in candidate_by_key.keys() if ! set.has(reference_keys, key)]
+  var unexpected_keys = [key for key in candidate_by_key.keys() if key not in reference_keys]
   return {
     reference_count: reference.len(),
     candidate_count: candidate_count,
@@ -12697,7 +12687,7 @@ export pure compare_ip_address_lifetimes(
   var candidate_count = 0
   for link in links {
     let link_key = f"${link.ifindex}"
-    if link.ifindex <= 0 or set.has(seen_links, link_key) {
+    if link.ifindex <= 0 or link_key in seen_links {
       return Err(check_failure("candidate address lifetime comparison has a duplicate link identity"))
     }
 
@@ -12706,7 +12696,7 @@ export pure compare_ip_address_lifetimes(
       candidate_count += 1
       continue when address.address.state != "observed" or address.address.value == null
       let key = ip_address_key(link.ifindex, address.family, address.address.value ?? "", address.prefix_length)
-      if observed_by_key.has(key) {
+      if key in observed_by_key {
         return Err(check_failure("candidate address lifetime comparison has a duplicate address identity"))
       }
 
@@ -12717,7 +12707,7 @@ export pure compare_ip_address_lifetimes(
   var after_by_key: Map[IpAddressReference] = {}
   for address in after {
     let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
-    if after_by_key.has(key) {
+    if key in after_by_key {
       return Err(check_failure("after address reference repeats an identity"))
     }
 
@@ -12729,17 +12719,17 @@ export pure compare_ip_address_lifetimes(
   var unstable_fields: List[Str] = []
   for address in before {
     let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
-    if set.has(seen_before, key) {
+    if key in seen_before {
       return Err(check_failure("before address reference repeats an identity"))
     }
 
     seen_before = set.add(seen_before, key)
-    if ! after_by_key.has(key) {
+    if key not in after_by_key {
       unstable_fields = unstable_fields.push(f"${key}.presence")
       continue
     }
 
-    if ! observed_by_key.has(key) {
+    if key not in observed_by_key {
       field_mismatches = field_mismatches.push(f"${key}.presence")
       continue
     }
@@ -12771,7 +12761,7 @@ export pure compare_ip_address_lifetimes(
 
   for address in after {
     let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
-    if ! set.has(seen_before, key) {
+    if key not in seen_before {
       unstable_fields = unstable_fields.push(f"${key}.presence")
     }
   }
@@ -13016,7 +13006,7 @@ export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleRe
       unscored_fields: unscored_fields |> sort-by .,
     }
     let key = ip_rule_key(rule)?
-    if set.has(keys, key) {
+    if key in keys {
       return Err(check_failure("ip rule reference has duplicate static selectors"))
     }
 
@@ -13052,7 +13042,7 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
   }
 
   for link in links {
-    if link.ifindex <= 0 or names_by_index.has(f"${link.ifindex}") {
+    if link.ifindex <= 0 or f"${link.ifindex}" in names_by_index {
       return Err(check_failure("candidate network rules have an invalid or duplicate link index"))
     }
 
@@ -13117,9 +13107,7 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
 
     let input_index = rule.input_ifindex ?? 0
     let output_index = rule.output_ifindex ?? 0
-    if input_index != 0 and ! names_by_index.has(f"${input_index}") or output_index != 0 and ! names_by_index.has(
-      f"${output_index}",
-    ) {
+    if input_index != 0 and f"${input_index}" not in names_by_index or output_index != 0 and f"${output_index}" not in names_by_index {
       candidate_field_missing = true
       continue
     }
@@ -13181,7 +13169,7 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
       unscored_fields: [],
     }
     let key = ip_rule_key(normalized)?
-    if set.has(candidate_keys, key) {
+    if key in candidate_keys {
       return Err(check_failure("candidate network rules have duplicate static selectors"))
     }
 
@@ -13194,19 +13182,19 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
   var matched_count = 0
   for rule in reference {
     let key = ip_rule_key(rule)?
-    if set.has(reference_keys, key) {
+    if key in reference_keys {
       return Err(check_failure("ip rule reference has duplicate static selectors"))
     }
 
     reference_keys = set.add(reference_keys, key)
-    if set.has(candidate_keys, key) {
+    if key in candidate_keys {
       matched_count += 1
     } else {
       missing_keys = missing_keys.push(key)
     }
   }
 
-  var unexpected_keys = [key for key in candidate_key_list if ! set.has(reference_keys, key)]
+  var unexpected_keys = [key for key in candidate_key_list if key not in reference_keys]
   let exact_static = ! candidate_field_missing and missing_keys.len() == 0 and unexpected_keys.len() == 0
   return {
     reference_count: reference.len(),
@@ -13594,7 +13582,7 @@ export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRoute
       unscored_fields: unscored_fields |> sort-by .,
     }
     let key = ip_route_key(route)?
-    if set.has(keys, key) {
+    if key in keys {
       return Err(check_failure("ip route reference has duplicate static identities"))
     }
 
@@ -13630,7 +13618,7 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
   }
 
   for link in links {
-    if link.ifindex <= 0 or names_by_index.has(f"${link.ifindex}") {
+    if link.ifindex <= 0 or f"${link.ifindex}" in names_by_index {
       return Err(check_failure("candidate network routes have an invalid or duplicate link index"))
     }
 
@@ -13695,7 +13683,7 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
     }
 
     let output_index = route.output_ifindex ?? 0
-    if output_index != 0 and ! names_by_index.has(f"${output_index}") {
+    if output_index != 0 and f"${output_index}" not in names_by_index {
       candidate_field_missing = true
       continue
     }
@@ -13709,7 +13697,7 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
     var hop_missing = false
     for hop in route.nexthops {
       let hop_index = hop.ifindex
-      if hop_index <= 0 or ! names_by_index.has(f"${hop_index}") or hop.hops < 0 or hop.hops > 255 or hop.flags < 0 or hop.flags > 255 or hop.gateway.state == "observed" and hop.gateway.value == null or hop.gateway.state == "absent" and hop.gateway.value != null or hop.gateway.state not in [
+      if hop_index <= 0 or f"${hop_index}" not in names_by_index or hop.hops < 0 or hop.hops > 255 or hop.flags < 0 or hop.flags > 255 or hop.gateway.state == "observed" and hop.gateway.value == null or hop.gateway.state == "absent" and hop.gateway.value != null or hop.gateway.state not in [
         "observed",
         "absent",
       ] {
@@ -13753,7 +13741,7 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
       unscored_fields: [],
     }
     let key = ip_route_key(normalized)?
-    if set.has(candidate_keys, key) {
+    if key in candidate_keys {
       return Err(check_failure("candidate network routes have duplicate static identities"))
     }
 
@@ -13766,19 +13754,19 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
   var matched_count = 0
   for route in reference {
     let key = ip_route_key(route)?
-    if set.has(reference_keys, key) {
+    if key in reference_keys {
       return Err(check_failure("ip route reference has duplicate static identities"))
     }
 
     reference_keys = set.add(reference_keys, key)
-    if set.has(candidate_keys, key) {
+    if key in candidate_keys {
       matched_count += 1
     } else {
       missing_keys = missing_keys.push(key)
     }
   }
 
-  var unexpected_keys = [key for key in candidate_key_list if ! set.has(reference_keys, key)]
+  var unexpected_keys = [key for key in candidate_key_list if key not in reference_keys]
   let exact_static = ! candidate_field_missing and missing_keys.len() == 0 and unexpected_keys.len() == 0
   return {
     reference_count: reference.len(),
@@ -13894,12 +13882,12 @@ export pure parse_lsblk_json(output: Str) -> Result[BlockReference] {
       read_only: read_only,
     }
     let numeric_identity = f"${numbers[0]}:${numbers[1]}"
-    if by_name.has(name) {
+    if name in by_name {
       if devices[by_name.get(name)?] != device {
         return Err(check_failure("lsblk reference has conflicting duplicate device facts"))
       }
     } else {
-      if by_major_minor.has(numeric_identity) {
+      if numeric_identity in by_major_minor {
         return Err(check_failure("lsblk reference has duplicate major:minor identity"))
       }
 
@@ -13912,7 +13900,7 @@ export pure parse_lsblk_json(output: Str) -> Result[BlockReference] {
       let parent_name = item.parent_name ?? ""
       let edge: BlockReferenceEdge = {parent_name: parent_name, child_name: name, partition: kind == "part"}
       let key = block_edge_key(edge)
-      if ! set.has(edge_seen, key) {
+      if key not in edge_seen {
         edge_seen = set.add(edge_seen, key)
         edges = edges.push(edge)
       }
@@ -13962,7 +13950,7 @@ export pure compare_block_devices(candidate_json: Str, reference: BlockReference
   var reference_by_name: Map[Int] = {}
   for index in range(reference.devices.len()) {
     let name = reference.devices[index].name
-    if name == "" or reference_by_name.has(name) {
+    if name == "" or name in reference_by_name {
       return Err(check_failure("block reference contains duplicate or empty device identity"))
     }
 
@@ -13987,12 +13975,12 @@ export pure compare_block_devices(candidate_json: Str, reference: BlockReference
     }
 
     let name = device.name ?? ""
-    if candidate_by_name.has(name) {
+    if name in candidate_by_name {
       return Err(check_failure("candidate block report contains a duplicate device identity"))
     }
 
     candidate_by_name = candidate_by_name.set(name, index)
-    if ! reference_by_name.has(name) {
+    if name not in reference_by_name {
       unexpected_names = unexpected_names.push(name)
       continue
     }
@@ -14032,7 +14020,7 @@ export pure compare_block_devices(candidate_json: Str, reference: BlockReference
     }
   }
 
-  var missing_names = [device.name for device in reference.devices if ! candidate_by_name.has(device.name)]
+  var missing_names = [device.name for device in reference.devices if device.name not in candidate_by_name]
   var matched_edges = 0
   var missing_edges = 0
   var unexpected_edges = 0
@@ -14057,7 +14045,7 @@ export pure compare_block_devices(candidate_json: Str, reference: BlockReference
 
       let parent_name = candidates[parent_index].name ?? ""
       let edge_key = block_edge_key({parent_name: parent_name, child_name: child_name, partition: true})
-      if ! set.has(candidate_edges, edge_key) {
+      if edge_key not in candidate_edges {
         candidate_edges = set.add(candidate_edges, edge_key)
         candidate_edge_keys = candidate_edge_keys.push(edge_key)
       }
@@ -14065,17 +14053,14 @@ export pure compare_block_devices(candidate_json: Str, reference: BlockReference
 
     for parent_index in child.slave_indices {
       let index_key = f"${parent_index}"
-      if parent_index < 0 or parent_index >= candidates.len() or parent_index == child_index or candidates[parent_index].name == null or set.has(
-        slave_seen,
-        index_key,
-      ) {
+      if parent_index < 0 or parent_index >= candidates.len() or parent_index == child_index or candidates[parent_index].name == null or index_key in slave_seen {
         return Err(check_failure("candidate block report has an invalid slave index"))
       }
 
       slave_seen = set.add(slave_seen, index_key)
       let parent_name = candidates[parent_index].name ?? ""
       let edge_key = block_edge_key({parent_name: parent_name, child_name: child_name, partition: false})
-      if ! set.has(candidate_edges, edge_key) {
+      if edge_key not in candidate_edges {
         candidate_edges = set.add(candidate_edges, edge_key)
         candidate_edge_keys = candidate_edge_keys.push(edge_key)
       }
@@ -14083,17 +14068,14 @@ export pure compare_block_devices(candidate_json: Str, reference: BlockReference
 
     for holder_index in child.holder_indices {
       let index_key = f"${holder_index}"
-      if holder_index < 0 or holder_index >= candidates.len() or holder_index == child_index or candidates[holder_index].name == null or set.has(
-        holder_seen,
-        index_key,
-      ) {
+      if holder_index < 0 or holder_index >= candidates.len() or holder_index == child_index or candidates[holder_index].name == null or index_key in holder_seen {
         return Err(check_failure("candidate block report has an invalid holder index"))
       }
 
       holder_seen = set.add(holder_seen, index_key)
       let holder_name = candidates[holder_index].name ?? ""
       let edge_key = block_edge_key({parent_name: child_name, child_name: holder_name, partition: false})
-      if ! set.has(candidate_edges, edge_key) {
+      if edge_key not in candidate_edges {
         candidate_edges = set.add(candidate_edges, edge_key)
         candidate_edge_keys = candidate_edge_keys.push(edge_key)
       }
@@ -14101,13 +14083,13 @@ export pure compare_block_devices(candidate_json: Str, reference: BlockReference
   }
 
   for candidate_edge in candidate_edge_keys {
-    if ! set.has(reference_edges, candidate_edge) {
+    if candidate_edge not in reference_edges {
       unexpected_edges += 1
     }
   }
 
   for edge in reference.edges {
-    if ! candidate_by_name.has(edge.parent_name) or ! candidate_by_name.has(edge.child_name) {
+    if edge.parent_name not in candidate_by_name or edge.child_name not in candidate_by_name {
       missing_edges += 1
       continue
     }
@@ -14183,7 +14165,7 @@ export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReferen
     let safe_read_ahead = read_ahead ?? 0
     let safe_discard_granularity = discard_granularity ?? 0
     let safe_discard_max = discard_max ?? 0
-    if name == "" or set.has(seen, name) or safe_read_ahead < 0 or safe_read_ahead > 9007199254740991 or safe_discard_granularity < 0 or safe_discard_granularity > 9007199254740991 or safe_discard_max < 0 or safe_discard_max > 9007199254740991 {
+    if name == "" or name in seen or safe_read_ahead < 0 or safe_read_ahead > 9007199254740991 or safe_discard_granularity < 0 or safe_discard_granularity > 9007199254740991 or safe_discard_max < 0 or safe_discard_max > 9007199254740991 {
       return Err(check_failure("lsblk queue reference has a duplicate identity or unsafe value"))
     }
 
@@ -14234,7 +14216,7 @@ export pure compare_block_queue_fields(
   var reference_by_name: Map[Int] = {}
   for index in range(reference.len()) {
     let name = reference[index].name
-    if name == "" or reference_by_name.has(name) {
+    if name == "" or name in reference_by_name {
       return Err(check_failure("queue reference has duplicate or empty identity"))
     }
 
@@ -14258,12 +14240,12 @@ export pure compare_block_queue_fields(
     }
 
     let name = device.name ?? ""
-    if set.has(candidate_seen, name) {
+    if name in candidate_seen {
       return Err(check_failure("candidate queue report has duplicate identity"))
     }
 
     candidate_seen = set.add(candidate_seen, name)
-    if ! reference_by_name.has(name) {
+    if name not in reference_by_name {
       unexpected_names = unexpected_names.push(name)
       continue
     }
@@ -14303,7 +14285,7 @@ export pure compare_block_queue_fields(
     }
   }
 
-  var missing_names = [device.name for device in reference if ! set.has(candidate_seen, device.name)]
+  var missing_names = [device.name for device in reference if device.name not in candidate_seen]
   return {
     reference_count: reference.len(),
     candidate_count: candidates.len(),
@@ -14418,7 +14400,7 @@ export proc read_block_queue_sources(
   var seen = set.empty()
   for device in queue {
     let name = device.name
-    if name == "" or name in [".", ".."] or "/" in name or set.has(seen, name) {
+    if name == "" or name in [".", ".."] or "/" in name or name in seen {
       return Err(check_failure("block reference has an unsafe or duplicate kernel name"))
     }
 
@@ -14615,7 +14597,7 @@ proc block_bundle_layout(root: FsRoot) [fs, error] -> Result[BlockBundleLayout] 
       },
     ] {
       for link in relation.links {
-        if ! storage_by_name.has(link.name) {
+        if link.name not in storage_by_name {
           return Err(check_failure("block relation peer is not listed"))
         }
 
@@ -14786,14 +14768,14 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
       }
 
       let parent = parts[parts.len() - 2]
-      if ! set.has(listed, parent) {
+      if parent not in listed {
         return Err(check_failure("block partition parent is not listed"))
       }
 
       parent_name = parent
       let edge: BlockReferenceEdge = {parent_name: parent, child_name: name, partition: true}
       let key = block_edge_key(edge)
-      if ! set.has(edge_seen, key) {
+      if key not in edge_seen {
         edges = edges.push(edge)
         edge_seen = set.add(edge_seen, key)
       }
@@ -14810,7 +14792,7 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
       },
     ] {
       for link in relation.links {
-        if ! set.has(listed, link.name) {
+        if link.name not in listed {
           return Err(check_failure("block layer peer is not listed"))
         }
 
@@ -14820,7 +14802,7 @@ export proc read_block_raw_reference(root: FsRoot) [fs, error] -> Result[BlockRa
           {parent_name: link.name, child_name: name, partition: false}
         }
         let key = block_edge_key(edge)
-        if ! set.has(edge_seen, key) {
+        if key not in edge_seen {
           edges = edges.push(edge)
           edge_seen = set.add(edge_seen, key)
         }
@@ -14902,7 +14884,7 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
   var reference_by_name: Map[Int] = {}
   for index in range(reference.devices.len()) {
     let name = reference.devices[index].name
-    if reference_by_name.has(name) {
+    if name in reference_by_name {
       return Err(check_failure("block raw reference repeats a device"))
     }
 
@@ -14921,12 +14903,12 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
     }
 
     let name = device.name ?? ""
-    if candidate_by_name.has(name) {
+    if name in candidate_by_name {
       return Err(check_failure("candidate block report repeats a device"))
     }
 
     candidate_by_name = candidate_by_name.set(name, index)
-    if ! reference_by_name.has(name) {
+    if name not in reference_by_name {
       unexpected_names = unexpected_names.push(name)
       continue
     }
@@ -14993,7 +14975,7 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
   }
 
   for expected in reference.devices {
-    if ! candidate_by_name.has(expected.name) {
+    if expected.name not in candidate_by_name {
       missing_names = missing_names.push(expected.name)
     }
   }
@@ -15010,7 +14992,7 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
 
       let edge = {parent_name: candidates[index].name ?? "", child_name: child_name, partition: true}
       let key = block_edge_key(edge)
-      if ! set.has(candidate_edges, key) {
+      if key not in candidate_edges {
         candidate_edges = set.add(candidate_edges, key)
         candidate_edge_keys = candidate_edge_keys.push(key)
       }
@@ -15023,7 +15005,7 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
 
       let edge = {parent_name: candidates[parent_index].name ?? "", child_name: child_name, partition: false}
       let key = block_edge_key(edge)
-      if ! set.has(candidate_edges, key) {
+      if key not in candidate_edges {
         candidate_edges = set.add(candidate_edges, key)
         candidate_edge_keys = candidate_edge_keys.push(key)
       }
@@ -15036,7 +15018,7 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
 
       let edge = {parent_name: child_name, child_name: candidates[holder_index].name ?? "", partition: false}
       let key = block_edge_key(edge)
-      if ! set.has(candidate_edges, key) {
+      if key not in candidate_edges {
         candidate_edges = set.add(candidate_edges, key)
         candidate_edge_keys = candidate_edge_keys.push(key)
       }
@@ -15048,12 +15030,12 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
   var missing_edges = 0
   for edge in reference.edges {
     let key = block_edge_key(edge)
-    if set.has(reference_edges, key) {
+    if key in reference_edges {
       return Err(check_failure("block raw reference repeats an edge"))
     }
 
     reference_edges = set.add(reference_edges, key)
-    if set.has(candidate_edges, key) {
+    if key in candidate_edges {
       matched_edges += 1
     } else {
       missing_edges += 1
@@ -15062,7 +15044,7 @@ export pure compare_block_raw(candidate_json: Str, reference: BlockRawReference)
 
   var unexpected_edges = 0
   for key in candidate_edge_keys {
-    if ! set.has(reference_edges, key) {
+    if key not in reference_edges {
       unexpected_edges += 1
     }
   }
@@ -15245,7 +15227,7 @@ export proc validate_block_bundle(bundle: FsRoot) [fs, error] -> Result[BlockBun
 
   var changed_seen = set.empty()
   for relative in capture.changing_stats {
-    if ! relative.ends_with("/stat") or relative not in layout.source_paths or set.has(changed_seen, relative) {
+    if ! relative.ends_with("/stat") or relative not in layout.source_paths or relative in changed_seen {
       return Err(check_failure("block changing stat metadata is invalid"))
     }
 
@@ -15341,7 +15323,7 @@ export pure compare_block_queue_sources(
   var after_by_name: Map[Int] = {}
   for index in range(before.len()) {
     let name = before[index].name
-    if name == "" or before_by_name.has(name) {
+    if name == "" or name in before_by_name {
       return Err(check_failure("block source reference has duplicate identity"))
     }
 
@@ -15350,7 +15332,7 @@ export pure compare_block_queue_sources(
 
   for index in range(after.len()) {
     let name = after[index].name
-    if name == "" or after_by_name.has(name) {
+    if name == "" or name in after_by_name {
       return Err(check_failure("block source reference has duplicate identity"))
     }
 
@@ -15359,7 +15341,7 @@ export pure compare_block_queue_sources(
 
   var unstable = before.len() != after.len()
   for source in before {
-    if ! after_by_name.has(source.name) {
+    if source.name not in after_by_name {
       unstable = true
     }
   }
@@ -15377,19 +15359,19 @@ export pure compare_block_queue_sources(
     }
 
     let name = device.name ?? ""
-    if set.has(candidate_seen, name) {
+    if name in candidate_seen {
       return Err(check_failure("candidate block source report has duplicate identity"))
     }
 
     candidate_seen = set.add(candidate_seen, name)
-    if ! before_by_name.has(name) {
+    if name not in before_by_name {
       unexpected_names = unexpected_names.push(name)
       continue
     }
 
     matched_count += 1
     let first = before[before_by_name.get(name)?]
-    if ! after_by_name.has(name) {
+    if name not in after_by_name {
       unstable = true
       continue
     }
@@ -15412,7 +15394,7 @@ export pure compare_block_queue_sources(
     var candidate_by_counter: Map[Int] = {}
     for index in range(device.io_counters.len()) {
       let counter = device.io_counters[index]
-      if counter.name == "" or candidate_by_counter.has(counter.name) {
+      if counter.name == "" or counter.name in candidate_by_counter {
         return Err(check_failure("candidate block report has duplicate or empty I/O counter"))
       }
 
@@ -15431,7 +15413,7 @@ export pure compare_block_queue_sources(
         continue
       }
 
-      if ! candidate_by_counter.has(earlier.name) {
+      if earlier.name not in candidate_by_counter {
         counter_mismatches += 1
         continue
       }
@@ -15454,7 +15436,7 @@ export pure compare_block_queue_sources(
     }
   }
 
-  var missing_names = [source.name for source in before if ! set.has(candidate_seen, source.name)]
+  var missing_names = [source.name for source in before if source.name not in candidate_seen]
   return {
     reference_count: before.len(),
     candidate_count: candidates.len(),
@@ -15676,10 +15658,7 @@ export pure parse_mountinfo_raw_reference(source: Str) -> Result[List[MountRefer
     let parent_id = fields[1].parse_int()?
     let device = parse_major_minor_reference(fields[2], "mountinfo")?
     let key = f"${mount_id}"
-    if mount_id <= 0 or mount_id > 9007199254740991 or parent_id < 0 or parent_id > 9007199254740991 or set.has(
-      seen,
-      key,
-    ) {
+    if mount_id <= 0 or mount_id > 9007199254740991 or parent_id < 0 or parent_id > 9007199254740991 or key in seen {
       return Err(check_failure("mountinfo reference has an invalid or duplicate mount ID"))
     }
 
@@ -15864,10 +15843,7 @@ export pure parse_findmnt_json(output: Str) -> Result[List[MountReference]] {
     let fs_options = json.get(row, ["fs-options"])?.require(Str)?
     let propagation = json.get(row, ["propagation"])?.require(Str)?
     let identity = f"${mount_id}"
-    if mount_id <= 0 or mount_id > 9007199254740991 or parent_id < 0 or parent_id > 9007199254740991 or set.has(
-      seen,
-      identity,
-    ) or root == "" or ! target.starts_with("/") or filesystem == "" or source == "" or vfs_options == "" or fs_options == "" or propagation not in [
+    if mount_id <= 0 or mount_id > 9007199254740991 or parent_id < 0 or parent_id > 9007199254740991 or identity in seen or root == "" or ! target.starts_with("/") or filesystem == "" or source == "" or vfs_options == "" or fs_options == "" or propagation not in [
       "private",
       "shared",
       "slave",
@@ -15928,7 +15904,7 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
   for index in range(reference.len()) {
     let id = reference[index].mount_id
     let key = f"${id}"
-    if id <= 0 or reference_by_id.has(key) {
+    if id <= 0 or key in reference_by_id {
       return Err(check_failure("mount reference has invalid or duplicate ID"))
     }
 
@@ -15948,12 +15924,12 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
   var propagation_mismatches = 0
   for mount in candidates {
     let key = f"${mount.mount_id}"
-    if mount.mount_id <= 0 or set.has(candidate_seen, key) {
+    if mount.mount_id <= 0 or key in candidate_seen {
       return Err(check_failure("candidate mount report has invalid or duplicate ID"))
     }
 
     candidate_seen = set.add(candidate_seen, key)
-    if ! reference_by_id.has(key) {
+    if key not in reference_by_id {
       unexpected_ids = unexpected_ids.push(mount.mount_id)
       continue
     }
@@ -16006,7 +15982,7 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
     }
   }
 
-  var missing_ids = [mount.mount_id for mount in reference if ! set.has(candidate_seen, f"${mount.mount_id}")]
+  var missing_ids = [mount.mount_id for mount in reference if f"${mount.mount_id}" not in candidate_seen]
   return {
     reference_count: reference.len(),
     candidate_count: candidates.len(),
@@ -16066,7 +16042,7 @@ export pure mount_usage_eligible_ids(mounts: List[MountReference]) -> List[Int] 
     var depth = 0
     while depth < mounts.len() {
       let key = f"${current_id}"
-      if set.has(seen, key) or ! by_id.has(key) {
+      if key in seen or key not in by_id {
         safe = false
         break
       }
@@ -16078,7 +16054,7 @@ export pure mount_usage_eligible_ids(mounts: List[MountReference]) -> List[Int] 
         break
       }
 
-      break when current.parent_id == 0 or ! by_id.has(f"${current.parent_id}")
+      break when current.parent_id == 0 or f"${current.parent_id}" not in by_id
       if current.parent_id == current_id {
         safe = false
         break
@@ -16116,7 +16092,7 @@ export pure parse_findmnt_usage_json(output: Str, mount_id: Int) -> Result[Mount
   let row = rows[0]
   let id = json.get(row, ["id"])?.require(Int)?
   for field in ["size", "used", "avail"] {
-    if ! row.has(field) {
+    if field not in row {
       return Err(check_failure("findmnt usage reference lacks a capacity field"))
     }
   }
@@ -16151,7 +16127,7 @@ export pure compare_mount_usage(
   var after_by_id: Map[Int] = {}
   for index in range(before.len()) {
     let key = f"${before[index].mount_id}"
-    if before_by_id.has(key) {
+    if key in before_by_id {
       return Err(check_failure("duplicate before mount usage ID"))
     }
 
@@ -16160,7 +16136,7 @@ export pure compare_mount_usage(
 
   for index in range(after.len()) {
     let key = f"${after[index].mount_id}"
-    if after_by_id.has(key) {
+    if key in after_by_id {
       return Err(check_failure("duplicate after mount usage ID"))
     }
 
@@ -16172,7 +16148,7 @@ export pure compare_mount_usage(
   }
 
   for id in eligible {
-    if ! before_by_id.has(f"${id}") or ! after_by_id.has(f"${id}") {
+    if f"${id}" not in before_by_id or f"${id}" not in after_by_id {
       return Err(check_failure("mount usage reference lacks an eligible mount"))
     }
   }
@@ -16190,7 +16166,7 @@ export pure compare_mount_usage(
   var unstable = false
   for candidate in candidates {
     let key = f"${candidate.mount_id}"
-    if ! set.has(expected_ids, key) or set.has(seen, key) {
+    if key not in expected_ids or key in seen {
       return Err(check_failure("candidate mount usage has unexpected or duplicate ID"))
     }
 
@@ -16230,7 +16206,7 @@ export pure compare_mount_usage(
   }
 
   for mount in mounts {
-    if ! set.has(seen, f"${mount.mount_id}") {
+    if f"${mount.mount_id}" not in seen {
       mismatched_ids = mismatched_ids.push(mount.mount_id)
     }
   }
@@ -16280,7 +16256,7 @@ export pure parse_proc_modules_raw_reference(raw: Str) -> Result[List[KernelModu
   for row in lines |> enumerate() {
     continue when row.index == lines.len() - 1 and row.value == ""
     let words = module_reference_words(row.value)
-    if words.len() not in [6, 7] or words[0] == "" or set.has(seen, words[0]) {
+    if words.len() not in [6, 7] or words[0] == "" or words[0] in seen {
       return Err(check_failure("proc module raw reference has an incomplete or duplicate row"))
     }
 
@@ -16304,7 +16280,7 @@ export pure parse_lsmod_reference(formatted: Str, raw: Str) -> Result[List[Kerne
   var formatted_count = 0
   for line in lines |> drop(1) {
     let words = module_reference_words(line)
-    if words.len() < 3 or words[0] == "" or formatted_by_name.has(words[0]) {
+    if words.len() < 3 or words[0] == "" or words[0] in formatted_by_name {
       return Err(check_failure("lsmod reference has an ambiguous or duplicate row"))
     }
 
@@ -16319,9 +16295,7 @@ export pure parse_lsmod_reference(formatted: Str, raw: Str) -> Result[List[Kerne
   if raw.trim() != "" {
     for line in raw.trim().split("\n") {
       let words = module_reference_words(line)
-      if words.len() not in [6, 7] or words[0] == "" or words[4] == "" or set.has(raw_seen, words[0]) or ! formatted_by_name.has(
-        words[0],
-      ) {
+      if words.len() not in [6, 7] or words[0] == "" or words[4] == "" or words[0] in raw_seen or words[0] not in formatted_by_name {
         return Err(check_failure("proc module reference has an ambiguous, duplicate, or unmatched row"))
       }
 
@@ -16393,7 +16367,7 @@ export pure compare_kernel_modules(
   var reference_by_name: Map[Int] = {}
   for index in range(reference.len()) {
     let name = reference[index].name
-    if name == "" or reference_by_name.has(name) {
+    if name == "" or name in reference_by_name {
       return Err(check_failure("module reference has duplicate or empty identity"))
     }
 
@@ -16408,12 +16382,12 @@ export pure compare_kernel_modules(
   var users_mismatches = 0
   var state_mismatches = 0
   for module_item in candidates {
-    if module_item.name == "" or set.has(candidate_seen, module_item.name) {
+    if module_item.name == "" or module_item.name in candidate_seen {
       return Err(check_failure("candidate module report has duplicate or empty identity"))
     }
 
     candidate_seen = set.add(candidate_seen, module_item.name)
-    if ! reference_by_name.has(module_item.name) {
+    if module_item.name not in reference_by_name {
       unexpected_names = unexpected_names.push(module_item.name)
       continue
     }
@@ -16440,7 +16414,7 @@ export pure compare_kernel_modules(
     }
   }
 
-  var missing_names = [module_item.name for module_item in reference if ! set.has(candidate_seen, module_item.name)]
+  var missing_names = [module_item.name for module_item in reference if module_item.name not in candidate_seen]
   return {
     reference_count: reference.len(),
     candidate_count: candidates.len(),
@@ -16704,7 +16678,7 @@ export pure compare_kernel_parameters(
     let observed = source.state == "observed" and source.value != null and source.raw_bytes_base64 == null
     let absent = source.state == "absent" and source.value == null and source.raw_bytes_base64 == null
     let malformed = source.state == "malformed" and source.value == null and source.raw_bytes_base64 != null
-    if source.name == "" or source.source not in ["sysctl", "module"] or reference_by_key.has(key) or ! observed and ! absent and ! malformed {
+    if source.name == "" or source.source not in ["sysctl", "module"] or key in reference_by_key or ! observed and ! absent and ! malformed {
       return Err(check_failure("kernel parameter reference has an invalid or duplicate observation"))
     }
 
@@ -16745,12 +16719,12 @@ export pure compare_kernel_parameters(
   var field_mismatches: List[Str] = []
   for candidate in candidates {
     let key = f"${candidate.source}:${candidate.name}"
-    if candidate.name == "" or set.has(seen, key) {
+    if candidate.name == "" or key in seen {
       return Err(check_failure("candidate kernel parameters contain an empty or duplicate identity"))
     }
 
     seen = set.add(seen, key)
-    if ! reference_by_key.has(key) {
+    if key not in reference_by_key {
       unexpected_names = unexpected_names.push(key)
       continue
     }
@@ -16765,7 +16739,7 @@ export pure compare_kernel_parameters(
   var missing_names: List[Str] = []
   for source in reference {
     let key = f"${source.source}:${source.name}"
-    if ! set.has(seen, key) {
+    if key not in seen {
       missing_names = missing_names.push(key)
     }
   }
@@ -18613,7 +18587,7 @@ export pure parse_cgroup2_cpu_stat(output: Str) -> Result[List[Cgroup2CounterRef
       "nr_bursts",
       "burst_usec",
     ]
-    if set.has(seen, name) {
+    if name in seen {
       return Err(check_failure("cgroup2 cpu.stat reference repeats a counter"))
     }
 
@@ -18637,7 +18611,7 @@ export pure parse_cgroup2_io_stat(output: Str) -> Result[List[Cgroup2CounterRefe
     continue when fields.len() == 0
     let device = fields[0]
     let device_parts = device.split(":")
-    if device_parts.len() != 2 or set.has(devices, device) {
+    if device_parts.len() != 2 or device in devices {
       return Err(check_failure("cgroup2 io.stat reference has an invalid or duplicate device"))
     }
 
@@ -18657,7 +18631,7 @@ export pure parse_cgroup2_io_stat(output: Str) -> Result[List[Cgroup2CounterRefe
       }
 
       continue when pair[0] not in ["rbytes", "wbytes", "rios", "wios", "dbytes", "dios"]
-      if set.has(seen_fields, pair[0]) {
+      if pair[0] in seen_fields {
         return Err(check_failure("cgroup2 io.stat reference repeats a device counter"))
       }
 
@@ -19130,7 +19104,7 @@ export proc validate_cgroup2_bundle(bundle: FsRoot) [fs, time, error] -> Result[
 
   var changed_seen = set.empty()
   for relative in capture.changing_sources {
-    if set.has(changed_seen, relative) or ! (layout.paths |> any .path == relative and .changing) {
+    if relative in changed_seen or ! (layout.paths |> any .path == relative and .changing) {
       return Err(check_failure("cgroup2 changing source metadata is invalid"))
     }
 
@@ -19209,7 +19183,7 @@ export pure compare_cgroup2_resources(
   var after_by_key: Map[Cgroup2ResourceReference] = {}
   for resource in before.resources {
     let key = f"${resource.hierarchy_level}:${resource.resource}"
-    if before_by_key.has(key) {
+    if key in before_by_key {
       return Err(check_failure("cgroup2 reference repeats a resource identity"))
     }
 
@@ -19218,7 +19192,7 @@ export pure compare_cgroup2_resources(
 
   for resource in after.resources {
     let key = f"${resource.hierarchy_level}:${resource.resource}"
-    if after_by_key.has(key) or ! before_by_key.has(key) {
+    if key in after_by_key or key not in before_by_key {
       return Err(check_failure("cgroup2 resource identities changed around collection"))
     }
 
@@ -19246,12 +19220,12 @@ export pure compare_cgroup2_resources(
   var unscored_gauges: List[Str] = []
   for candidate in candidates {
     let key = f"${candidate.hierarchy_level}:${candidate.resource}"
-    if set.has(seen, key) {
+    if key in seen {
       return Err(check_failure("candidate cgroup2 resources repeat an identity"))
     }
 
     seen = set.add(seen, key)
-    if ! before_by_key.has(key) {
+    if key not in before_by_key {
       unexpected = unexpected.push(key)
       continue
     }
@@ -19284,7 +19258,7 @@ export pure compare_cgroup2_resources(
   var missing: List[Str] = []
   for resource in before.resources {
     let key = f"${resource.hierarchy_level}:${resource.resource}"
-    if ! set.has(seen, key) {
+    if key not in seen {
       missing = missing.push(key)
     }
   }
@@ -19339,7 +19313,7 @@ export pure compare_cpu_scope_cgroup(
   var by_level: Map[CpuScopeAncestorReference] = {}
   for ancestor in before.ancestors {
     let key = f"${ancestor.hierarchy_level}"
-    if ancestor.hierarchy_level < 0 or by_level.has(key) {
+    if ancestor.hierarchy_level < 0 or key in by_level {
       return Err(check_failure("CPU scope reference has a duplicate ancestor level"))
     }
 
@@ -19352,14 +19326,14 @@ export pure compare_cpu_scope_cgroup(
   for candidate in candidates {
     continue when candidate.resource not in ["cpu.max", "cpuset.cpus.effective"]
     let key = f"${candidate.hierarchy_level}:${candidate.resource}"
-    if set.has(seen, key) {
+    if key in seen {
       return Err(check_failure("candidate CPU scope has duplicate resource identities"))
     }
 
     seen = set.add(seen, key)
     checked += 1
     let level = f"${candidate.hierarchy_level}"
-    if ! by_level.has(level) {
+    if level not in by_level {
       mismatches = mismatches.push(key)
       continue
     }
@@ -19393,7 +19367,7 @@ export pure compare_cpu_scope_cgroup(
     for resource in ["cpu.max", "cpuset.cpus.effective"] {
       let key = f"${ancestor.hierarchy_level}:${resource}"
       let observed = if resource == "cpu.max" { ancestor.quota != null } else { ancestor.effective_cpus != null }
-      if observed and ! set.has(seen, key) {
+      if observed and key not in seen {
         mismatches = mismatches.push(key)
       }
     }
@@ -19909,10 +19883,7 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
     if skip.name == "" or (skip.name.split("")
       |> any { |part|
         part not in "0123456789"
-      }) or skip.source not in ["pid", "stat", "statm", "status", "cgroup"] or skip.state == "" or set.has(
-        skipped_names,
-        skip.name,
-      ) or set.has(selected_names, skip.name) {
+      }) or skip.source not in ["pid", "stat", "statm", "status", "cgroup"] or skip.state == "" or skip.name in skipped_names or skip.name in selected_names {
       return Err(check_failure("process bundle skipped PID metadata is invalid"))
     }
 
@@ -19921,7 +19892,7 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
 
   var source_by_path: Map[ProcessBundleSource] = {}
   for item in capture.sources {
-    if source_by_path.has(item.path) {
+    if item.path in source_by_path {
       return Err(check_failure("process bundle repeats a source path"))
     }
 
@@ -19931,7 +19902,7 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
   var seen_pids = set.empty()
   for pid in capture.pids {
     let pid_key = f"${pid}"
-    if pid <= 0 or pid > 9007199254740991 or set.has(seen_pids, pid_key) {
+    if pid <= 0 or pid > 9007199254740991 or pid_key in seen_pids {
       return Err(check_failure("process bundle has an invalid or duplicate PID"))
     }
 
@@ -19955,7 +19926,7 @@ export proc validate_process_bundle(bundle: FsRoot) [fs, error] -> Result[Proces
       },
     ] {
       let relative = f"proc/${pid}/${field.name}"
-      if ! source_by_path.has(relative) {
+      if relative not in source_by_path {
         return Err(check_failure("process bundle source is missing"))
       }
 
@@ -20026,9 +19997,7 @@ export pure compare_process_identity(
   for index in range(before.len()) {
     let item = before[index]
     let key = f"${item.pid}"
-    if item.pid <= 0 or item.pid > 9007199254740991 or item.parent_pid < 0 or item.parent_pid > 9007199254740991 or item.start_ticks < 0 or item.start_ticks > 9007199254740991 or item.uid < 0 or item.uid > 9007199254740991 or before_by_pid.has(
-      key,
-    ) {
+    if item.pid <= 0 or item.pid > 9007199254740991 or item.parent_pid < 0 or item.parent_pid > 9007199254740991 or item.start_ticks < 0 or item.start_ticks > 9007199254740991 or item.uid < 0 or item.uid > 9007199254740991 or key in before_by_pid {
       return Err(check_failure("before process reference contains an invalid or duplicate identity"))
     }
 
@@ -20038,9 +20007,7 @@ export pure compare_process_identity(
   for index in range(after.len()) {
     let item = after[index]
     let key = f"${item.pid}"
-    if item.pid <= 0 or item.pid > 9007199254740991 or item.parent_pid < 0 or item.parent_pid > 9007199254740991 or item.start_ticks < 0 or item.start_ticks > 9007199254740991 or item.uid < 0 or item.uid > 9007199254740991 or after_by_pid.has(
-      key,
-    ) {
+    if item.pid <= 0 or item.pid > 9007199254740991 or item.parent_pid < 0 or item.parent_pid > 9007199254740991 or item.start_ticks < 0 or item.start_ticks > 9007199254740991 or item.uid < 0 or item.uid > 9007199254740991 or key in after_by_pid {
       return Err(check_failure("after process reference contains an invalid or duplicate identity"))
     }
 
@@ -20049,7 +20016,7 @@ export pure compare_process_identity(
 
   for index in range(candidates.len()) {
     let key = f"${candidates[index].pid}"
-    if candidates[index].pid <= 0 or candidate_by_pid.has(key) {
+    if candidates[index].pid <= 0 or key in candidate_by_pid {
       return Err(check_failure("candidate process report contains an invalid or duplicate PID"))
     }
 
@@ -20063,7 +20030,7 @@ export pure compare_process_identity(
   var mismatched_pids: List[Int] = []
   for first in before {
     let key = f"${first.pid}"
-    if ! after_by_pid.has(key) {
+    if key not in after_by_pid {
       unstable_count += 1
       continue
     }
@@ -20075,7 +20042,7 @@ export pure compare_process_identity(
     }
 
     stable_count += 1
-    if ! candidate_by_pid.has(key) {
+    if key not in candidate_by_pid {
       missing_pids = missing_pids.push(first.pid)
       continue
     }
@@ -20124,7 +20091,7 @@ export pure compare_process_resources(
   for index in range(before.len()) {
     let item = before[index]
     let key = f"${item.pid}"
-    if ! valid_process_resource_reference(item) or before_by_pid.has(key) {
+    if ! valid_process_resource_reference(item) or key in before_by_pid {
       return Err(check_failure("before process resource reference has an invalid or duplicate identity"))
     }
 
@@ -20134,7 +20101,7 @@ export pure compare_process_resources(
   for index in range(after.len()) {
     let item = after[index]
     let key = f"${item.pid}"
-    if ! valid_process_resource_reference(item) or after_by_pid.has(key) {
+    if ! valid_process_resource_reference(item) or key in after_by_pid {
       return Err(check_failure("after process resource reference has an invalid or duplicate identity"))
     }
 
@@ -20143,7 +20110,7 @@ export pure compare_process_resources(
 
   for index in range(candidates.len()) {
     let key = f"${candidates[index].pid}"
-    if candidates[index].pid <= 0 or candidate_by_pid.has(key) {
+    if candidates[index].pid <= 0 or key in candidate_by_pid {
       return Err(check_failure("candidate process resource report has an invalid or duplicate PID"))
     }
 
@@ -20159,13 +20126,13 @@ export pure compare_process_resources(
   var mismatched_fields: List[Str] = []
   for first in before {
     let key = f"${first.pid}"
-    if ! after_by_pid.has(key) or after[after_by_pid.get(key, -1)].start_ticks != first.start_ticks {
+    if key not in after_by_pid or after[after_by_pid.get(key, -1)].start_ticks != first.start_ticks {
       unstable_count += 1
       continue
     }
 
     stable_count += 1
-    if ! candidate_by_pid.has(key) or candidates[candidate_by_pid.get(key, -1)].start_ticks != first.start_ticks {
+    if key not in candidate_by_pid or candidates[candidate_by_pid.get(key, -1)].start_ticks != first.start_ticks {
       missing_pids = missing_pids.push(first.pid)
       continue
     }
@@ -25715,7 +25682,7 @@ proc run_fixture_cases(
   for fixture_case in fixture_cases {
     var case_passed = true
     for test_name in fixture_case.tests {
-      if test_results.has(test_name) {
+      if test_name in test_results {
         if ! test_results.get(test_name, false) {
           case_passed = false
           print f"fixture ${fixture_case.scenario}: failed ${test_name} (${test_failures.get(

@@ -6,7 +6,7 @@ type JsonNestedRows = {cpus: List[JsonNestedRow]}
 
 proc test_json_require_checks_nested_named_record_fields() [error] {
   let valid = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":true}]}")?
-  test.eq(valid.require(JsonNestedRows)?.cpus[0].online, true)?
+  valid.require(JsonNestedRows)?.cpus[0].online == true
   let wrong_type = json.decode("{\"cpus\":[{\"cpu\":0,\"online\":\"yes\"}]}")?
   test.error_kind(wrong_type.require(JsonNestedRows), "schema")?
   let missing_field = json.decode("{\"cpus\":[{\"cpu\":0}]}")?
@@ -19,9 +19,9 @@ proc test_float_arithmetic_and_json_record_boundary() [error] {
   adjusted += 0.25
   let metric = json.decode("{\"ratio\":1.5,\"samples\":[0.25,1.25]}")?.require(JsonFloatMetric)?
   let encoded = json.encode({ratio: metric.ratio, value: adjusted})?
-  test.eq(ratio.format(precision: 2), "2.50")?
-  test.eq(adjusted.floor()?, 2)?
-  test.eq(encoded, "{\"ratio\":1.5,\"value\":2.75}")?
+  ratio.format(precision: 2) == "2.50"
+  adjusted.floor()? == 2
+  encoded == "{\"ratio\":1.5,\"value\":2.75}"
 }
 
 proc test_json_read_write_lines_and_paths(ctx: TestContext) [fs, error] {
@@ -33,14 +33,14 @@ proc test_json_read_write_lines_and_paths(ctx: TestContext) [fs, error] {
   test.eq(json.get(updated, ["meta", "status"])?, "ready")?
   let removed = json.remove(updated, ["items", 0])?
   test.eq(json.get(removed, ["items", 0])?, 2)?
-  test.contains(json.encode(updated, pretty: true)?, "\"status\"")?
-  test.contains(json.encode_lines([{a: 1}, {a: 2}])?, "{\"a\":1}")?
+  "\"status\"" in json.encode(updated, pretty: true)?
+  "{\"a\":1}" in json.encode_lines([{a: 1}, {a: 2}])?
   let json_path = fp"${root}/data.json"
   json.write(json_path, updated, pretty: false)?
   test.eq(json.read(json_path)?["name"], "pkg")?
   let lines_path = fp"${root}/lines.jsonl"
   json.write_lines(lines_path, [{a: 1}, {a: 2}])?
-  test.eq(lines_path.read_text()?.count_lines(), 2)?
+  lines_path.read_text()?.count_lines() == 2
   test.error_kind(json.decode("{"), "json")?
   test.error_kind(json.get(value, ["items", "bad"]), "json-path")?
 }
@@ -57,14 +57,14 @@ b""",
 
   test.eq(decoded.snow, "\u{2603}")?
   test.eq(decoded.music, "\u{1d11e}")?
-  test.eq(json.decode("1.25")?.require(Float)?.format(precision: 2), "1.25")?
+  json.decode("1.25")?.require(Float)?.format(precision: 2) == "1.25"
   test.error_kind(json.decode("9223372036854775808"), "json")?
-  test.eq(json_label(json.decode("1")?)?, "int 1.0")?
-  test.eq(json_label(json.decode("1.25")?)?, "float 1.25")?
-  test.eq(json_label(json.decode("\"x\"")?)?, "str x")?
-  test.eq(json_label(json.decode("null")?)?, "null")?
-  test.eq(json_label(json.decode("[1,2]")?)?, "int-list")?
-  test.eq(json_label(json.decode("[1,\"x\"]")?)?, "other")?
+  json_label(json.decode("1")?)? == "int 1.0"
+  json_label(json.decode("1.25")?)? == "float 1.25"
+  json_label(json.decode("\"x\"")?)? == "str x"
+  json_label(json.decode("null")?)? == "null"
+  json_label(json.decode("[1,2]")?)? == "int-list"
+  json_label(json.decode("[1,\"x\"]")?)? == "other"
 
   let rows = """
 {"b":2}
@@ -75,7 +75,7 @@ b""",
   let encoded = json.encode({z: 1, a: 2, nested: {b: 1, a: 2}})?
   test.eq(rows[0].b, 2)?
   test.eq(rows[1].a, 1)?
-  test.eq(encoded, "{\"a\":2,\"nested\":{\"a\":2,\"b\":1},\"z\":1}")?
+  encoded == "{\"a\":2,\"nested\":{\"a\":2,\"b\":1},\"z\":1}"
   test.error_kind(json.decode("not json"), "json")?
   let data = {path: p"src"}
   let path_value = data["path"]
@@ -112,11 +112,11 @@ let _encoded = json.encode(value) ?
     ["--trace", "--raw"],
   )?
 
-  test.eq(output.status, 3)?
-  test.contains(output.stderr, "kind=result.propagate")?
-  test.contains(output.stderr, "json-compatible")?
-  test.contains(output.stderr, "Path is not JSON-compatible")?
-  test.contains(output.stderr, "traceback")?
+  output.status == 3
+  "kind=result.propagate" in output.stderr
+  "json-compatible" in output.stderr
+  "Path is not JSON-compatible" in output.stderr
+  "traceback" in output.stderr
 }
 
 # Reads the message out of a rejected `json.*` path entry.
@@ -175,20 +175,20 @@ proc test_json_path_get_walks_records_and_lists() [error] {
   test.eq(json.get(value, ["deep", "rows", 0, "cell"])?, 7)?
 
   # A missing key is reported by the step that needed it.
-  test.eq(rejection_message(json.get(value, ["absent"]))?, "missing object key `absent`")?
-  test.eq(rejection_message(json.get(value, ["absent", "deeper"]))?, "missing object key `absent`")?
+  rejection_message(json.get(value, ["absent"]))? == "missing object key `absent`"
+  rejection_message(json.get(value, ["absent", "deeper"]))? == "missing object key `absent`"
 
   # A `null` member is a value, not an absence.
   test.eq(json.get(value, ["nil"])?, null)?
   test.eq(json.get(value, ["nil"], "fallback"), null)?
 
   # An out-of-range index is rejected; the last index is not.
-  test.eq(rejection_message(json.get(value, ["items", 2]))?, "list index 2 out of bounds")?
+  rejection_message(json.get(value, ["items", 2]))? == "list index 2 out of bounds"
 
   # The step decides which shape is required of the value it lands on.
-  test.eq(rejection_message(json.get(value, ["name", "x"]))?, "expected object at key `x`, found Str")?
-  test.eq(rejection_message(json.get(value, ["name", 0]))?, "expected list at index 0, found Str")?
-  test.eq(rejection_message(json.get(value, ["items", "x"]))?, "expected object at key `x`, found List")?
+  rejection_message(json.get(value, ["name", "x"]))? == "expected object at key `x`, found Str"
+  rejection_message(json.get(value, ["name", 0]))? == "expected list at index 0, found Str"
+  rejection_message(json.get(value, ["items", "x"]))? == "expected object at key `x`, found List"
 }
 
 proc test_json_path_get_keeps_maps_and_passes_values_through() [error] {
@@ -196,7 +196,7 @@ proc test_json_path_get_keeps_maps_and_passes_values_through() [error] {
   let tree: Any = empty.set("inner", empty.set("leaf", 0)).set("nil", null)
   test.eq(json.get(tree, ["inner", "leaf"])?, 0)?
   test.eq(json.get(tree, ["nil"])?, null)?
-  test.eq(rejection_message(json.get(tree, ["inner", "absent"]))?, "missing object key `absent`")?
+  rejection_message(json.get(tree, ["inner", "absent"]))? == "missing object key `absent`"
   expect_map("get over a Map keeps it a Map", json.get(tree, [])?)?
 
   # Values that are not JSON at all are ordinary members: the walk returns them
@@ -220,22 +220,22 @@ proc test_json_path_is_interpreted_before_traversal() [error] {
   let value = json.decode("{\"name\":\"pkg\",\"items\":[1,2]}")?
 
   # Indexes are positions, so a negative one is rejected outright.
-  test.eq(rejection_message(json.get(value, [-1]))?, "path list indexes must be non-negative")?
-  test.eq(rejection_message(json.get(value, ["items", -1]))?, "path list indexes must be non-negative")?
+  rejection_message(json.get(value, [-1]))? == "path list indexes must be non-negative"
+  rejection_message(json.get(value, ["items", -1]))? == "path list indexes must be non-negative"
 
   # Only keys and indexes are segments.
-  test.eq(rejection_message(json.get(value, [1.5]))?, "path segments must be Str or Int, found Float")?
-  test.eq(rejection_message(json.get(value, [null]))?, "path segments must be Str or Int, found Null")?
+  rejection_message(json.get(value, [1.5]))? == "path segments must be Str or Int, found Float"
+  rejection_message(json.get(value, [null]))? == "path segments must be Str or Int, found Null"
 
   # The whole path is interpreted before it is walked: `name` is a `Str`, so
   # traversal would fail at the second step, yet the invalid segment is what all
   # three entries report.
   test.eq(json.get(value, ["name", "x"], "fallback"), "fallback")?
-  test.eq(rejection_message(json.get(value, ["name", 1.5]))?, "path segments must be Str or Int, found Float")?
-  test.eq(rejection_message(json.set(value, ["name", 1.5], 1))?, "path segments must be Str or Int, found Float")?
-  test.eq(rejection_message(json.remove(value, ["name", 1.5]))?, "path segments must be Str or Int, found Float")?
-  test.eq(rejection_message(json.set(value, [-1], 1))?, "path list indexes must be non-negative")?
-  test.eq(rejection_message(json.remove(value, [null]))?, "path segments must be Str or Int, found Null")?
+  rejection_message(json.get(value, ["name", 1.5]))? == "path segments must be Str or Int, found Float"
+  rejection_message(json.set(value, ["name", 1.5], 1))? == "path segments must be Str or Int, found Float"
+  rejection_message(json.remove(value, ["name", 1.5]))? == "path segments must be Str or Int, found Float"
+  rejection_message(json.set(value, [-1], 1))? == "path list indexes must be non-negative"
+  rejection_message(json.remove(value, [null]))? == "path segments must be Str or Int, found Null"
 
   # The rejections carry the `json-path` kind as well as the message.
   test.error_kind(json.get(value, [-1]), "json-path")?
@@ -257,15 +257,15 @@ proc test_json_set_updates_the_named_position() [error] {
   # A list index is replaced in place; a list is neither grown nor shrunk.
   test.eq(json.get(json.set(value, ["items", 0], 9)?, ["items", 0])?, 9)?
   test.eq(json.get(json.set(value, ["items", 0], 9)?, ["items", 1])?, 2)?
-  test.eq(rejection_message(json.set(value, ["items", 2], 9))?, "list index 2 out of bounds")?
+  rejection_message(json.set(value, ["items", 2], 9))? == "list index 2 out of bounds"
 
   # A missing intermediate key cannot be created, whatever the next step is.
-  test.eq(rejection_message(json.set(value, ["absent", "deep"], 1))?, "missing intermediate object key `absent`")?
-  test.eq(rejection_message(json.set(value, ["absent", 0], 1))?, "missing intermediate object key `absent`")?
+  rejection_message(json.set(value, ["absent", "deep"], 1))? == "missing intermediate object key `absent`"
+  rejection_message(json.set(value, ["absent", 0], 1))? == "missing intermediate object key `absent`"
 
   # The step decides which shape is required of the value it lands on.
-  test.eq(rejection_message(json.set(value, ["items", "x"], 1))?, "expected object at key `x`, found List")?
-  test.eq(rejection_message(json.set(value, ["name", 0], 1))?, "expected list at index 0, found Str")?
+  rejection_message(json.set(value, ["items", "x"], 1))? == "expected object at key `x`, found List"
+  rejection_message(json.set(value, ["name", 0], 1))? == "expected list at index 0, found Str"
 
   # The result is the same kind of container, rebuilt once per changed field.
   expect_record("set keeps a Record", json.set(value, ["added"], 1)?)?
@@ -303,18 +303,18 @@ proc test_json_remove_drops_the_named_position() [error] {
 
   # A list element is dropped and the list shifts left.
   test.eq(json.get(json.remove(value, ["items", 0])?, ["items", 0])?, 2)?
-  test.eq(rejection_message(json.remove(value, ["items", 2]))?, "list index 2 out of bounds")?
+  rejection_message(json.remove(value, ["items", 2]))? == "list index 2 out of bounds"
 
   # A missing leaf key and a missing intermediate key are distinct, and removal
   # never creates one.
-  test.eq(rejection_message(json.remove(value, ["absent"]))?, "missing object key `absent`")?
-  test.eq(rejection_message(json.remove(value, ["absent", "deep"]))?, "missing intermediate object key `absent`")?
-  test.eq(rejection_message(json.remove(value, ["meta", "absent"]))?, "missing object key `absent`")?
-  test.eq(rejection_message(json.remove(value, ["absent", 0]))?, "missing intermediate object key `absent`")?
+  rejection_message(json.remove(value, ["absent"]))? == "missing object key `absent`"
+  rejection_message(json.remove(value, ["absent", "deep"]))? == "missing intermediate object key `absent`"
+  rejection_message(json.remove(value, ["meta", "absent"]))? == "missing object key `absent`"
+  rejection_message(json.remove(value, ["absent", 0]))? == "missing intermediate object key `absent`"
 
   # The step decides which shape is required of the value it lands on.
-  test.eq(rejection_message(json.remove(value, ["name", 0]))?, "expected list at index 0, found Str")?
-  test.eq(rejection_message(json.remove(value, ["items", "x"]))?, "expected object at key `x`, found List")?
+  rejection_message(json.remove(value, ["name", 0]))? == "expected list at index 0, found Str"
+  rejection_message(json.remove(value, ["items", "x"]))? == "expected object at key `x`, found List"
 
   # The result is the same kind of container.
   expect_record("remove keeps a Record", json.remove(value, ["name"])?)?
@@ -326,7 +326,7 @@ proc test_json_remove_drops_the_named_position() [error] {
   # dynamic method call, so the binding names the type the walk already uses.
   let pruned: Any = json.remove(tree, ["inner", "leaf"])?
   expect_map("remove keeps a nested Map", pruned.get("inner", null))?
-  test.eq(pruned.get("inner", null).require(Map[Any])?.has("leaf"), false)?
+  "leaf" not in pruned.get("inner", null).require(Map[Any])?
   test.eq(json.get(pruned, ["inner", "leaf"], "gone"), "gone")?
 
   # Members the JSON codec would reject are ordinary values: they survive a
@@ -342,8 +342,8 @@ proc test_json_get_overloads_and_encoded_lines() [error] {
 
   # The two-argument overload answers with the read or with the rejection.
   test.eq(json.get(value, ["name"])?, "pkg")?
-  test.eq(rejection_message(json.get(value, ["absent"]))?, "missing object key `absent`")?
-  test.eq(rejection_message(json.get(value, ["items", 2]))?, "list index 2 out of bounds")?
+  rejection_message(json.get(value, ["absent"]))? == "missing object key `absent`"
+  rejection_message(json.get(value, ["items", 2]))? == "list index 2 out of bounds"
 
   # The three-argument overload answers with the fallback whenever the path is
   # rejected, whatever the step was.
@@ -358,41 +358,26 @@ proc test_json_get_overloads_and_encoded_lines() [error] {
   test.eq(json.get(value, ["nil"], "fallback"), null)?
 
   # Every item is encoded compactly and each is followed by a newline.
-  test.eq(json.encode_lines([])?, "")?
-  test.eq(
-    json.encode_lines([1])?,
-    """1
-""",
-  )?
-  test.eq(
-    json.encode_lines([1, "two", null, true])?,
-    """1
+  json.encode_lines([])? == ""
+  json.encode_lines([1])? == """1
+"""
+  json.encode_lines([1, "two", null, true])? == """1
 "two"
 null
 true
-""",
-  )?
-  test.eq(
-    json.encode_lines(["a\"b"])?,
-    """"a\\"b"
-""",
-  )?
-  test.eq(
-    json.encode_lines(
+"""
+  json.encode_lines(["a\"b"])? == """"a\\"b"
+"""
+  json.encode_lines(
   [
   """a
 b""",
 ],
-)?,
-    """"a\\nb"
-""",
-  )?
-  test.eq(
-    json.encode_lines([value, value])?,
-    """{"items":[1,2],"name":"pkg","nil":null}
+)? == """"a\\nb"
+"""
+  json.encode_lines([value, value])? == """{"items":[1,2],"name":"pkg","nil":null}
 {"items":[1,2],"name":"pkg","nil":null}
-""",
-  )?
+"""
 
   # An item that cannot be encoded fails the whole composition, whichever item
   # it is; the message and the empty output are checked in the trace test.
@@ -415,9 +400,9 @@ let _read = json.get(value, where) ?
 """,
     ["--trace", "--raw"],
   )?
-  test.eq(read.status, 3)?
-  test.contains(read.stderr, "type-error")?
-  test.contains(read.stderr, "List[Any]")?
+  read.status == 3
+  "type-error" in read.stderr
+  "List[Any]" in read.stderr
 
   # The fallback overload converts a rejected path, not a failed call: a
   # non-`json-path` failure is propagated instead of answering the fallback.
@@ -430,9 +415,9 @@ let _read = json.get(value, where, "fallback") ?
 """,
     ["--trace", "--raw"],
   )?
-  test.eq(with_fallback.status, 3)?
-  test.contains(with_fallback.stderr, "type-error")?
-  test.contains(with_fallback.stderr, "List[Any]")?
+  with_fallback.status == 3
+  "type-error" in with_fallback.stderr
+  "List[Any]" in with_fallback.stderr
 
   # An item that cannot be encoded fails the whole composition, and the failure
   # is reported before any output exists.
@@ -445,8 +430,8 @@ let _lines = json.encode_lines(items) ?
 """,
     ["--trace", "--raw"],
   )?
-  test.eq(lines.status, 3)?
-  test.eq(lines.stdout, "")?
-  test.contains(lines.stderr, "json-compatible")?
-  test.contains(lines.stderr, "Path is not JSON-compatible")?
+  lines.status == 3
+  lines.stdout == ""
+  "json-compatible" in lines.stderr
+  "Path is not JSON-compatible" in lines.stderr
 }

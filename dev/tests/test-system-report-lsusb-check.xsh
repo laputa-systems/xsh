@@ -21,24 +21,24 @@ Device Descriptor:
   )?
   let candidate = """{"usb":{"devices":[{"bus_number":1,"device_number":1,"vendor_id":7531,"product_id":2,"class_code":9,"configuration_count":1,"port_path":null,"interfaces":[]},{"bus_number":1,"device_number":2,"vendor_id":1507,"product_id":1552,"class_code":9,"configuration_count":1,"port_path":"2","interfaces":[{"number":0,"driver":"hub"}]}]}}"""
   let exact = lsusb_reference.compare_lsusb(candidate, devices, tree, descriptor)?
-  test.eq(exact.matched_devices, 2)?
-  test.eq(exact.matched_tree_rows, 2)?
-  test.eq(exact.matched_descriptor_fields, 4)?
-  test.ok(exact.mismatches.len() == 0 and exact.partial.len() == 0)?
+  exact.matched_devices == 2
+  exact.matched_tree_rows == 2
+  exact.matched_descriptor_fields == 4
+  (exact.mismatches.len() == 0 and exact.partial.len() == 0)
   let wrong = lsusb_reference.compare_lsusb(
     candidate.replace("\"driver\":\"hub\"", "\"driver\":\"wrong\""),
     devices,
     tree,
     descriptor,
   )?
-  test.ok("1:2.driver" in wrong.mismatches)?
+  ("1:2.driver" in wrong.mismatches)
   let wrong_port = lsusb_reference.compare_lsusb(
     candidate.replace("\"port_path\":\"2\"", "\"port_path\":\"3\""),
     devices,
     tree,
     descriptor,
   )?
-  test.ok("1:2.port" in wrong_port.mismatches)?
+  ("1:2.port" in wrong_port.mismatches)
 }
 
 proc test_system_report_lsusb_rejects_duplicate_and_unsupported_utility_rows() [error] {
@@ -113,8 +113,8 @@ printf '{"source_mode":"live_linux","usb":{"devices":[{"bus_number":1,"device_nu
     fp"${root_path}/script".display(),
     fp"${root_path}/lsusb".display(),
   )?
-  test.eq(result.comparison.matched_devices, 1)?
-  test.eq(result.comparison.matched_tree_rows, 1)?
-  test.eq(result.comparison.matched_descriptor_fields, 4)?
-  test.ok(result.comparison.mismatches.len() == 0 and result.comparison.partial.len() == 0)?
+  result.comparison.matched_devices == 1
+  result.comparison.matched_tree_rows == 1
+  result.comparison.matched_descriptor_fields == 4
+  (result.comparison.mismatches.len() == 0 and result.comparison.partial.len() == 0)
 }

@@ -6,7 +6,7 @@ proc test_parse_log(ctx: TestContext) [fs, process, error] {
   )?
 
   let output = run.text "xsh" "showcase/parse-log.xsh" -- $input ?
-  test.contains(output, "parsed 2 entries")?
-  test.contains(output, "has errors: true")?
-  test.contains(output, "<IP>")?
+  "parsed 2 entries" in output
+  "has errors: true" in output
+  "<IP>" in output
 }

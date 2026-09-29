@@ -1408,7 +1408,7 @@ fn check_any_record_get_can_be_narrowed_by_binding_annotation() {
         &script,
         "proc main(...argv: List[Str]) [error] -> Result[Unit] {
   let exports: Any = {sources: [\"a\", \"b\"]}
-  if exports.has(\"sources\") {
+  if \"sources\" in exports {
     let sources: List[Str] = exports.get(\"sources\")?
     print ${sources.len()}
   }
@@ -1574,4 +1574,34 @@ fn lint_returns_interrupted_status_for_pending_sigint() {
             .unwrap()
             .contains("interrupted by SIGINT")
     );
+}
+
+#[test]
+fn membership_migration_after_removal_fixes_shared_import_once_and_is_idempotent() {
+    let root = TempDir::new().expect("create migration project");
+    let helper = root.path().join("helper.xsh");
+    fs::write(&helper, "##! Membership fixture.\n## Tests membership.\nexport pure present(text: Str) -> Bool { return text.contains(\"needle\") }\n").unwrap();
+    for entry in ["first.xsh", "second.xsh"] {
+        fs::write(root.path().join(entry), "use helper\nhelper.present(\"needle\")\n").unwrap();
+    }
+    let removed = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["check", "first.xsh"]).current_dir(root.path()).output().unwrap();
+    assert_eq!(removed.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&removed.stderr).contains("check.removed-membership"));
+    let fixed = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["lint", "--fix", "first.xsh", "second.xsh"]).current_dir(root.path()).output().unwrap();
+    assert!(fixed.status.success(), "{}", String::from_utf8_lossy(&fixed.stderr));
+    let text = fs::read_to_string(&helper).unwrap();
+    assert!(text.contains("\"needle\" in text"), "{text}");
+    let second = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["lint", "--fix", "first.xsh", "second.xsh"]).current_dir(root.path()).output().unwrap();
+    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    assert_eq!(fs::read_to_string(helper).unwrap(), text);
+}
+
+#[test]
+fn membership_migration_does_not_suppress_unrelated_checker_failure() {
+    let root = TempDir::new().expect("create migration project");
+    let script = root.path().join("main.xsh");
+    fs::write(&script, "let result: Int = \"abc\".contains(\"a\")\nlet count: Int = \"invalid\"\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["lint", "--fix", "main.xsh"]).current_dir(root.path()).output().unwrap();
+    assert_eq!(output.status.code(), Some(2), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("check.type-mismatch"));
 }

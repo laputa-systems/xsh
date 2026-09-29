@@ -29,15 +29,15 @@ proc test_path_audit_findings(ctx: TestContext) [fs, process, env, error] {
 
   env XSH_SHOWCASE_PATH=$raw {
     let output = run.text "xsh" "showcase/path-audit.xsh" -- --var XSH_SHOWCASE_PATH ?
-    test.contains(output, "Directory problems")?
-    test.contains(output, "duplicate-directory")?
-    test.contains(output, "missing-directory")?
-    test.contains(output, "not-directory")?
-    test.contains(output, "empty-entry")?
-    test.contains(output, "world-writable-directory")?
-    test.contains(output, "non-executable-directory")?
-    test.contains(output, "Command shadowing")?
-    test.contains(output, "shadowed-command tool")?
+    "Directory problems" in output
+    "duplicate-directory" in output
+    "missing-directory" in output
+    "not-directory" in output
+    "empty-entry" in output
+    "world-writable-directory" in output
+    "non-executable-directory" in output
+    "Command shadowing" in output
+    "shadowed-command tool" in output
   } ?
 }
 

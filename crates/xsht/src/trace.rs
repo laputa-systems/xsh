@@ -3272,6 +3272,7 @@ mod tests {
 
         let rendered = TracebackRenderer::new().render(&traceback, &sources);
 
+        assert!(rendered.contains("at sample.xsh:2:3-2:12\n"), "{rendered}");
         assert!(rendered.contains("  1. proc main at sample.xsh:1:1-1:5\n"));
         assert!(rendered.contains("  2. pure helper at sample.xsh:1:6-1:12\n"));
     }

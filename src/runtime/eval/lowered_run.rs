@@ -78,7 +78,7 @@ use super::modules::{
 };
 #[cfg(feature = "native-tests")]
 use super::modules::{
-    test_contains_value, test_error_kind, test_failure, test_mock_expected_return_type,
+    test_error_kind, test_failure, test_mock_expected_return_type,
     test_temp_path, test_value_matches_type,
 };
 use super::net_job::NetJobTask;
@@ -7032,11 +7032,6 @@ impl Evaluator {
                 }
                 LoweredValue::Map(Arc::new(set))
             }
-            RuntimeOp::SetHas if values.len() == 2 => {
-                let item = lowered_str_arg_owned(values.pop(), "", "set.has", span)?;
-                let set = lowered_bool_map_arg(values.pop(), "set.has", span)?;
-                LoweredValue::Bool(set.contains_key(&item))
-            }
             RuntimeOp::SetAdd if values.len() == 2 => {
                 let item = lowered_str_arg_owned(values.pop(), "", "set.add", span)?;
                 let set = lowered_bool_map_arg(values.pop(), "set.add", span)?;
@@ -7124,48 +7119,6 @@ impl Evaluator {
                 } else {
                     let detail = if message.is_empty() {
                         format!("expected inequality, both={}", display_value(&left, span)?)
-                    } else {
-                        message
-                    };
-                    lowered_runtime_value(test_failure(detail), span)?
-                }
-            }
-            #[cfg(feature = "native-tests")]
-            RuntimeOp::TestContains if values.len() == 2 || values.len() == 3 => {
-                let haystack = values[0].clone().into_value();
-                let needle = values[1].clone().into_value();
-                let message =
-                    lowered_str_arg_owned(values.get(2).cloned(), "", "test.contains", span)?;
-                if test_contains_value(&haystack, &needle) {
-                    lowered_result_ok(LoweredValue::Unit)
-                } else {
-                    let detail = if message.is_empty() {
-                        format!(
-                            "expected {} to contain {}",
-                            display_value(&haystack, span)?,
-                            display_value(&needle, span)?
-                        )
-                    } else {
-                        message
-                    };
-                    lowered_runtime_value(test_failure(detail), span)?
-                }
-            }
-            #[cfg(feature = "native-tests")]
-            RuntimeOp::TestNotContains if values.len() == 2 || values.len() == 3 => {
-                let haystack = values[0].clone().into_value();
-                let needle = values[1].clone().into_value();
-                let message =
-                    lowered_str_arg_owned(values.get(2).cloned(), "", "test.not_contains", span)?;
-                if !test_contains_value(&haystack, &needle) {
-                    lowered_result_ok(LoweredValue::Unit)
-                } else {
-                    let detail = if message.is_empty() {
-                        format!(
-                            "expected {} to not contain {}",
-                            display_value(&haystack, span)?,
-                            display_value(&needle, span)?
-                        )
                     } else {
                         message
                     };

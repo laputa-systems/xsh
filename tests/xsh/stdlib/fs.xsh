@@ -6,8 +6,8 @@ proc test_missing_file_read_propagates_structured_error(ctx: TestContext) [fs, e
 """,
   )?
 
-  test.eq(output.status, 3)?
-  test.contains(output.stderr, "fs-read")?
+  output.status == 3
+  "fs-read" in output.stderr
 }
 
 proc test_fs_walk_and_files_take_any_break_and_count(ctx: TestContext) [fs, error] {
@@ -21,8 +21,8 @@ proc test_fs_walk_and_files_take_any_break_and_count(ctx: TestContext) [fs, erro
   let first3 = fs.files(root)
     |> take(3)
     |> map .name
-  test.eq(first3.len(), 3)?
-  test.ok(fs.walk(root) |> any .kind == "file")?
+  first3.len() == 3
+  fs.walk(root) |> any .kind == "file"
 
   var visited: List[Str] = []
   for entry in fs.files(root) {
@@ -30,11 +30,8 @@ proc test_fs_walk_and_files_take_any_break_and_count(ctx: TestContext) [fs, erro
     break when visited.len() >= 2
   }
 
-  test.eq(visited.len(), 2)?
-  test.eq(
-    fs.files(root) |> count(),
-    50,
-  )?
+  visited.len() == 2
+  fs.files(root) |> count() == 50
 }
 
 proc test_fs_walk_dynamic_stat_flag_preserves_metadata_boundary(ctx: TestContext) [fs, error] {
@@ -49,8 +46,8 @@ let entry = (fs.walk(root, stat: use_stat) |> first())?
 print \${entry.size}
 """,
   )?
-  test.eq(output.status, 3)?
-  test.contains(output.stderr, "metadata-unavailable")?
+  output.status == 3
+  "metadata-unavailable" in output.stderr
 }
 
 proc test_fs_walk_stat_true_matches_direct_record_and_snapshots_metadata(ctx: TestContext) [fs, error] {
@@ -60,12 +57,12 @@ proc test_fs_walk_stat_true_matches_direct_record_and_snapshots_metadata(ctx: Te
 
   let walked = (fs.files(root, gitignore: false) |> first())?
   let direct = (fs.children(root)? |> first())?
-  test.eq(walked, direct)?
-  test.eq(walked.keys(), direct.keys())?
-  test.eq(walked.size, 3)?
+  walked == direct
+  walked.keys() == direct.keys()
+  walked.size == 3
 
   file.write("new longer content")?
-  test.eq(walked.size, 3)?
+  walked.size == 3
   test.eq(walked.get("size")?, 3)?
 }
 
@@ -82,19 +79,19 @@ proc test_fs_files_dynamic_walk_flags_are_evaluated(ctx: TestContext) [fs, error
 
   let include_hidden = true
   let exclude_hidden = false
-  test.ok(fs.files(root, gitignore: false, hidden: include_hidden) |> any .name == ".hidden.txt")?
-  test.ok(! (fs.files(root, gitignore: false, hidden: exclude_hidden) |> any .name == ".hidden.txt"))?
+  fs.files(root, gitignore: false, hidden: include_hidden) |> any .name == ".hidden.txt"
+  ! (fs.files(root, gitignore: false, hidden: exclude_hidden) |> any .name == ".hidden.txt")
 
   let use_gitignore = true
   let skip_gitignore = false
-  test.ok(! (fs.files(root, gitignore: use_gitignore) |> any .name == "ignored.txt"))?
-  test.ok(fs.files(root, gitignore: skip_gitignore) |> any .name == "ignored.txt")?
+  ! (fs.files(root, gitignore: use_gitignore) |> any .name == "ignored.txt")
+  fs.files(root, gitignore: skip_gitignore) |> any .name == "ignored.txt"
 
   let use_stat = true
   let normal = (fs.files(root, stat: use_stat)
     |> where .name == "normal.txt"
     |> first())?
-  test.eq(normal.size, 4)?
+  normal.size == 4
 
   let unstat = test.run_script(
     ctx,
@@ -105,8 +102,8 @@ let entry = (fs.files(root, stat: use_stat) |> where .name == "normal.txt" |> fi
 print \${entry.size}
 """,
   )?
-  test.eq(unstat.status, 3)?
-  test.contains(unstat.stderr, "metadata-unavailable")?
+  unstat.status == 3
+  "metadata-unavailable" in unstat.stderr
 }
 
 proc test_fs_tree_metadata_install_and_locking(ctx: TestContext) [fs, error] {
@@ -120,43 +117,43 @@ proc test_fs_tree_metadata_install_and_locking(ctx: TestContext) [fs, error] {
   fs.write_atomic(fp"${nested}/atomic.txt", "atomic")?
   fs.write_atomic(fp"${nested}/atomic.bin", b"atomic-bytes")?
   fs.chmod(file, 0o755)?
-  test.eq(fs.read_text(file)?, "hello")?
-  test.ok(fs.exists(file)?)?
-  test.ok(fs.executable(file)?)?
+  (fs.read_text(file)?) == "hello"
+  (fs.exists(file)?)
+  (fs.executable(file)?)
   let file_meta = fs.metadata(file)?
-  test.eq(file_meta.name, "data.txt")?
-  test.ok(file_meta.executable)?
-  test.ok(file_meta.owner_executable)?
-  test.ok(file_meta.group_executable)?
-  test.ok(file_meta.other_executable)?
-  test.ok(fs.executable(file_meta.mode))?
-  test.ok(fs.owner_executable(file_meta.mode))?
-  test.ok(fs.group_executable(file_meta.mode))?
-  test.ok(fs.other_executable(file_meta.mode))?
-  test.ok(! fs.world_writable(file_meta.mode))?
-  test.ok(fs.setuid(0o4755))?
-  test.ok(fs.setgid(0o2755))?
-  test.ok(fs.sticky(0o1777))?
-  test.ok(! fs.setuid(0o0755))?
-  test.ok(! fs.setgid(0o0755))?
-  test.ok(! fs.sticky(0o0755))?
-  test.ok(! file_meta.world_writable)?
-  test.ok(fs.filesystem_stats(root)?.blocks_1k > 0)?
+  file_meta.name == "data.txt"
+  file_meta.executable
+  file_meta.owner_executable
+  file_meta.group_executable
+  file_meta.other_executable
+  fs.executable(file_meta.mode)
+  fs.owner_executable(file_meta.mode)
+  fs.group_executable(file_meta.mode)
+  fs.other_executable(file_meta.mode)
+  ! fs.world_writable(file_meta.mode)
+  fs.setuid(0o4755)
+  fs.setgid(0o2755)
+  fs.sticky(0o1777)
+  ! fs.setuid(0o0755)
+  ! fs.setgid(0o0755)
+  ! fs.sticky(0o0755)
+  ! file_meta.world_writable
+  (fs.filesystem_stats(root)?.blocks_1k > 0)
   let mounts = fs.mounts()?.collect()
-  test.ok(mounts.len() > 0)?
-  test.ok(mounts |> any .mounted_on.display() == "/")?
+  (mounts.len() > 0)
+  mounts |> any .mounted_on.display() == "/"
   let root_mount = fs.mount_for(root)?
-  test.ok(root_mount.blocks_1k > 0)?
-  test.ok(root_mount.available_1k >= 0)?
-  test.ok(root_mount.capacity_percent >= 0)?
-  test.ok(root_mount.fstype != "")?
-  test.ok(fs.cwd()?.display() != "")?
+  (root_mount.blocks_1k > 0)
+  (root_mount.available_1k >= 0)
+  (root_mount.capacity_percent >= 0)
+  (root_mount.fstype != "")
+  (fs.cwd()?.display() != "")
   let gitroot = fs.gitroot()?
-  test.ok(fp"${gitroot}/docs/SPEC.md".exists()?)?
+  (fp"${gitroot}/docs/SPEC.md".exists()?)
   let children = fs.children(nested)? |> sort-by .name
   let listed = fs.ls(nested)? |> sort-by .name
-  test.eq(children.len(), listed.len())?
-  test.ok(fs.children(nested, stat: false, ordered: false)? |> any .name == "data.txt")?
+  children.len() == listed.len()
+  fs.children(nested, stat: false, ordered: false)? |> any .name == "data.txt"
   let unstat_children = test.run_script(
     ctx,
     f"""
@@ -164,11 +161,11 @@ let entry = (fs.children(fp"${nested}", stat: false, ordered: false)? |> first()
 print \$entry.size
 """,
   )?
-  test.eq(unstat_children.status, 3)?
-  test.contains(unstat_children.stderr, "metadata-unavailable")?
-  test.ok(fs.walk(src)? |> any .name == "data.txt")?
-  test.ok(fs.files(src)? |> any .name == "data.txt")?
-  test.ok(fs.dirs(src)? |> any .name == "nested")?
+  unstat_children.status == 3
+  "metadata-unavailable" in unstat_children.stderr
+  fs.walk(src)? |> any .name == "data.txt"
+  fs.files(src)? |> any .name == "data.txt"
+  fs.dirs(src)? |> any .name == "nested"
   let cache = fp"${root}/remote-cache"
   fs.mkdir(fp"${cache}/packages")?
   let tarball = fp"${cache}/packages/pkg.tar"
@@ -182,67 +179,67 @@ print \$entry.size
     }
   }
 
-  test.ok(fs.exists(cache)?)?
-  test.ok(cache.exists()?)?
-  test.ok(fs.exists(tarball)?)?
+  (fs.exists(cache)?)
+  (cache.exists()?)
+  (fs.exists(tarball)?)
   let copied = fp"${root}/copied.txt"
   fs.copy(file, copied)?
-  test.eq(fs.read_text(copied)?, "hello")?
+  (fs.read_text(copied)?) == "hello"
   let renamed = fp"${root}/renamed.txt"
   fs.rename(copied, renamed)?
-  test.ok(! fs.exists(copied)?)?
-  test.eq(fs.read_text(renamed)?, "hello")?
+  ! fs.exists(copied)?
+  (fs.read_text(renamed)?) == "hello"
   let tree = fp"${root}/tree-copy"
   let tree_result = fs.copy_tree(src, tree)?
-  test.ok(tree_result.files >= 4)?
-  test.eq(fp"${tree}/nested/data.txt".read_text()?, "hello")?
+  (tree_result.files >= 4)
+  (fp"${tree}/nested/data.txt".read_text()?) == "hello"
   let install_dest = fp"${root}/install/bin/data.txt"
   fs.install(file, install_dest, 0o600)?
-  test.eq(fs.metadata(install_dest)?.mode % 512, 0o600)?
+  (fs.metadata(install_dest)?.mode % 512) == 0o600
   let current_user = user.current()?
   let current_group = group.current()?
   fs.install_as(file, fp"${root}/install-as/data.txt", 0o600, current_user, current_group)?
   fs.chmod(install_dest, 0o644)?
   fs.chown(install_dest, current_user)?
   fs.chgrp(install_dest, current_group)?
-  test.eq(fs.metadata(install_dest)?.mode % 512, 0o644)?
+  (fs.metadata(install_dest)?.mode % 512) == 0o644
   let fifo = fp"${root}/fifo"
   fs.mkfifo(fifo, 0o600)?
-  test.ok(fs.exists(fifo)?)?
+  (fs.exists(fifo)?)
   fs.fsync(file)?
   fs.sync()?
   let link = fp"${root}/link"
   fs.symlink(file, link)?
-  test.eq(link.readlink()?.display(), file.display())?
+  link.readlink()?.display() == file.display()
   let lock_file = fp"${root}/lock"
   let lock = fs.lock(lock_file, shared: true)?
-  test.eq(lock.path, lock_file)?
-  test.ok(lock.shared)?
+  lock.path == lock_file
+  lock.shared
   fs.unlock(lock)?
   let manifest_result = fs.remove_manifest(root, [p"renamed.txt", p"missing.txt"], missing_ok: true, prune_dirs: false)?
-  test.eq(manifest_result.removed, 1)?
-  test.eq(manifest_result.missing, 1)?
+  manifest_result.removed == 1
+  manifest_result.missing == 1
   fs.remove(fp"${root}/missing-again", missing_ok: true)?
   fs.remove(tree, missing_ok: false)?
   let temp_file = fs.tempfile()?
-  test.ok(fs.root_exists(temp_file.root, temp_file.path)?)?
+  (fs.root_exists(temp_file.root, temp_file.path)?)
   fs.root_write(temp_file.root, temp_file.path, "temp")?
-  test.eq(fs.root_read_text(temp_file.root, temp_file.path)?, "temp")?
+  (fs.root_read_text(temp_file.root, temp_file.path)?) == "temp"
   fs.close_root(temp_file.root)?
   let temp_dir = fs.tempdir()?
   fs.root_mkdir(temp_dir, p"child")?
-  test.eq(fs.root_metadata(temp_dir, p"child")?.kind, "dir")?
+  fs.root_metadata(temp_dir, p"child")?.kind == "dir"
   let temp_path = fs.root_path(temp_dir)?
   fp"${temp_path}/host-path.txt".write("host")?
-  test.eq(fs.root_read_text(temp_dir, p"host-path.txt")?, "host")?
+  (fs.root_read_text(temp_dir, p"host-path.txt")?) == "host"
   fs.close_root(temp_dir)?
   test.error_kind(fs.root_path(temp_dir), "fs-root")?
   let home = fs.user_root("home")?
-  test.ok(fs.root_exists(home, p".")?)
+  (fs.root_exists(home, p".")?)
   fs.close_root(home)?
   let project = fs.project_root("cache", "dev", "LaputaSystems", "xsh-test")?
   fs.root_mkdir(project, p"project-directories-check", parents: true)?
-  test.ok(fs.root_exists(project, p"project-directories-check")?)
+  (fs.root_exists(project, p"project-directories-check")?)
   fs.root_remove(project, p"project-directories-check", dir: true)?
   fs.close_root(project)?
   test.error_kind(fs.user_root("bogus"), "fs-dir")?
@@ -256,84 +253,78 @@ proc test_fs_root_operations_reject_traversal(ctx: TestContext) [fs, error] {
   let root = fs.open_root(root_dir)?
   fs.root_mkdir(root, p"nested")?
   fs.root_mkdir(root, p"restricted", mode: 0o700)?
-  test.eq(fs.root_metadata(root, p"restricted")?.mode % 512, 0o700)?
+  (fs.root_metadata(root, p"restricted")?.mode % 512) == 0o700
   fs.root_mkdir(root, p"parents/child", parents: true)?
-  test.ok(fs.root_exists(root, p"parents/child")?)
+  (fs.root_exists(root, p"parents/child")?)
   fs.root_write(root, p"nested/data.txt", "rooted")?
-  test.eq(fs.root_read_text(root, p"nested/data.txt")?, "rooted")?
+  (fs.root_read_text(root, p"nested/data.txt")?) == "rooted"
   let observed = fs.root_read_result(root, p"nested/data.txt")?
-  test.eq(observed.state, "observed")?
-  test.eq(observed.data, b"rooted")?
-  test.eq(observed.errno, null)?
-  test.ok(! observed.truncated)?
+  observed.state == "observed"
+  observed.data == b"rooted"
+  observed.errno == null
+  ! observed.truncated
   let filesystem = fs.root_filesystem_stats(root, p".")?
-  test.eq(filesystem.state, "observed")?
-  test.ok(filesystem.total_bytes != null and (filesystem.total_bytes ?? 0) > 0)?
-  test.ok(filesystem.used_bytes != null and (filesystem.used_bytes ?? -1) >= 0)?
-  test.ok(filesystem.available_bytes != null and (filesystem.available_bytes ?? -1) >= 0)?
-  test.ok(filesystem.block_size_bytes != null and (filesystem.block_size_bytes ?? 0) > 0)?
+  filesystem.state == "observed"
+  (filesystem.total_bytes != null and (filesystem.total_bytes ?? 0) > 0)
+  (filesystem.used_bytes != null and (filesystem.used_bytes ?? -1) >= 0)
+  (filesystem.available_bytes != null and (filesystem.available_bytes ?? -1) >= 0)
+  (filesystem.block_size_bytes != null and (filesystem.block_size_bytes ?? 0) > 0)
   let nested_filesystem = fs.root_filesystem_stats(root, p"nested")?
-  test.eq(nested_filesystem.state, "observed")?
+  nested_filesystem.state == "observed"
   let file_filesystem = fs.root_filesystem_stats(root, p"nested/data.txt")?
-  test.eq(file_filesystem.state, "observed")?
-  test.eq(file_filesystem.total_bytes, nested_filesystem.total_bytes)?
+  file_filesystem.state == "observed"
+  file_filesystem.total_bytes == nested_filesystem.total_bytes
   let absent_filesystem = fs.root_filesystem_stats(root, p"nested/missing")?
-  test.eq(absent_filesystem.state, "absent")?
-  test.eq(absent_filesystem.error_kind, "not_found")?
+  absent_filesystem.state == "absent"
+  absent_filesystem.error_kind == "not_found"
   test.error_kind(
     fs.root_filesystem_stats(root, /tmp),
     "fs-root-filesystem-stats",
   )?
   let limited = fs.root_read_result(root, p"nested/data.txt", max_bytes: 2)?
-  test.eq(limited.data, b"ro")?
-  test.ok(limited.truncated)?
+  limited.data == b"ro"
+  limited.truncated
   let missing = fs.root_read_result(root, p"nested/missing.txt")?
-  test.eq(missing.state, "absent")?
-  test.eq(missing.error_kind, "not_found")?
-  test.ok(missing.errno != null)?
+  missing.state == "absent"
+  missing.error_kind == "not_found"
+  (missing.errno != null)
   test.error_kind(
     fs.root_read_result(root, p"nested/data.txt", max_bytes: -1),
     "fs-root-read-result",
   )?
   let empty_directory = fs.root_children(root, p"parents/child")?
-  test.eq(empty_directory.state, "complete")?
-  test.ok(empty_directory.enumeration_succeeded)?
-  test.eq(empty_directory.children, [])?
+  empty_directory.state == "complete"
+  empty_directory.enumeration_succeeded
+  empty_directory.children == []
   let absent_directory = fs.root_children(root, p"absent")?
-  test.eq(absent_directory.state, "absent")?
-  test.eq(absent_directory.error_kind, "not_found")?
-  test.ok(! absent_directory.enumeration_succeeded)?
-  test.eq(
-    fs.root_children(root, p"nested")?.children,
-    [p"nested/data.txt"],
-  )?
+  absent_directory.state == "absent"
+  absent_directory.error_kind == "not_found"
+  ! absent_directory.enumeration_succeeded
+  fs.root_children(root, p"nested")?.children == [p"nested/data.txt"]
   fs.root_write(root, p"nested/data.bin", b"rooted\0bytes")?
-  test.eq(
-    fs.root_children(root, p"nested")?.children,
-    [p"nested/data.bin", p"nested/data.txt"],
-  )?
+  fs.root_children(root, p"nested")?.children == [p"nested/data.bin", p"nested/data.txt"]
   let truncated_directory = fs.root_children(root, p"nested", max_entries: 1)?
-  test.eq(truncated_directory.state, "truncated")?
-  test.ok(! truncated_directory.enumeration_succeeded)?
-  test.eq(truncated_directory.children, [p"nested/data.bin"])?
-  test.eq(fs.root_read(root, p"nested/data.bin")?, b"rooted\0bytes")?
+  truncated_directory.state == "truncated"
+  ! truncated_directory.enumeration_succeeded
+  truncated_directory.children == [p"nested/data.bin"]
+  (fs.root_read(root, p"nested/data.bin")?) == b"rooted\0bytes"
   fs.root_write_atomic(root, p"nested/data.txt", "atomic")?
-  test.eq(fs.root_read_text(root, p"nested/data.txt")?, "atomic")?
+  (fs.root_read_text(root, p"nested/data.txt")?) == "atomic"
   fs.root_chmod(root, p"nested/data.txt", 0o700)?
-  test.eq(fs.root_metadata(root, p"nested/data.txt")?.mode % 512, 0o700)?
-  test.ok(fs.root_exists(root, p"nested/data.txt")?)
-  test.ok(! fs.root_exists(root, p"nested/missing.txt")?)
-  test.eq(fs.root_metadata(root, p"nested/data.txt")?.kind, "file")?
+  (fs.root_metadata(root, p"nested/data.txt")?.mode % 512) == 0o700
+  (fs.root_exists(root, p"nested/data.txt")?)
+  ! fs.root_exists(root, p"nested/missing.txt")?
+  fs.root_metadata(root, p"nested/data.txt")?.kind == "file"
   let nested_root = fs.root(root, p"nested")?
-  test.eq(fs.root_read_text(nested_root, p"data.txt")?, "atomic")?
+  (fs.root_read_text(nested_root, p"data.txt")?) == "atomic"
   fs.root_symlink(root, p"data.txt", p"nested/internal-link")?
-  test.eq(fs.root_readlink(root, p"nested/internal-link")?.display(), "data.txt")?
-  test.eq(fs.root_read_text(root, p"nested/internal-link")?, "atomic")?
-  test.eq(fs.root_read_text(root, p"nested/../nested/data.txt")?, "atomic")?
+  fs.root_readlink(root, p"nested/internal-link")?.display() == "data.txt"
+  (fs.root_read_text(root, p"nested/internal-link")?) == "atomic"
+  (fs.root_read_text(root, p"nested/../nested/data.txt")?) == "atomic"
   let source_root = fs.open_root(outside)?
   fs.root_install_file(source_root, p"secret.txt", root, p"installed/secret.txt", 0o600)?
-  test.eq(fs.root_read_text(root, p"installed/secret.txt")?, "secret")?
-  test.eq(fs.root_metadata(root, p"installed/secret.txt")?.mode % 512, 0o600)?
+  (fs.root_read_text(root, p"installed/secret.txt")?) == "secret"
+  (fs.root_metadata(root, p"installed/secret.txt")?.mode % 512) == 0o600
   fs.root_write(source_root, p"secret.txt", "changed")?
 
   test.error_kind(
@@ -342,19 +333,19 @@ proc test_fs_root_operations_reject_traversal(ctx: TestContext) [fs, error] {
   )?
 
   fs.root_install_file(source_root, p"secret.txt", root, p"installed/secret.txt", 0o600, overwrite: true)?
-  test.eq(fs.root_read_text(root, p"installed/secret.txt")?, "changed")?
+  (fs.root_read_text(root, p"installed/secret.txt")?) == "changed"
   fs.symlink(fp"${outside}/secret.txt", fp"${root_dir}/nested/link")?
   test.error_kind(fs.root_read_text(root, p"nested/link"), "fs-root-read")?
   let escaped_directory = fs.root_children(root, p"nested/link")?
-  test.ok(! escaped_directory.enumeration_succeeded)?
+  ! escaped_directory.enumeration_succeeded
   let escaped_path = fs.root_children(root, ../outside)?
-  test.ok(! escaped_path.enumeration_succeeded)?
+  ! escaped_path.enumeration_succeeded
   test.error_kind(fs.root_read_text(root, ../secret.txt), "fs-root-read")?
   test.error_kind(fs.root_symlink(root, p"target", ../escape), "fs-root-symlink")?
   test.error_kind(fs.root_write_atomic(root, p"missing/parent.txt", "x"), "fs-root-write")?
   test.error_kind(fs.root_install_file(source_root, ../secret.txt, root, p"escape.txt", 0o600), "fs-root-install")?
   fs.root_remove(root, p"nested/data.txt")?
-  test.ok(! fs.root_exists(root, p"nested/data.txt")?)
+  ! fs.root_exists(root, p"nested/data.txt")?
   fs.close_root(source_root)?
   fs.close_root(nested_root)?
   fs.close_root(root)?
@@ -370,8 +361,8 @@ proc test_fs_root_and_children_preserve_non_utf8_name(ctx: TestContext) [fs, env
   let root = fs.open_root(dir)?
   let raw_name = Path.parse_bytes(b"raw\xfffile")?
   fs.root_write(root, raw_name, b"ok")?
-  test.eq(fs.root_read(root, raw_name)?, b"ok")?
-  test.eq(fs.root_children(root, p".")?.children, [raw_name])?
+  (fs.root_read(root, raw_name)?) == b"ok"
+  fs.root_children(root, p".")?.children == [raw_name]
 
   let entries = fs.children(dir)?.collect()
   test.eq(entries.len(), 1)?
@@ -385,7 +376,7 @@ proc test_fs_root_symlink_preserves_default_parents_with_named_overwrite(ctx: Te
   let root = fs.open_root(root_dir)?
   let overwrite = false
   fs.root_symlink(root, p"target", p"nested/link", overwrite: overwrite)?
-  test.eq(fs.root_readlink(root, p"nested/link")?.display(), "target")?
+  fs.root_readlink(root, p"nested/link")?.display() == "target"
   fs.close_root(root)?
 }
 
@@ -415,9 +406,9 @@ proc test_fs_walk_filters_large_flat_directory(ctx: TestContext) [fs, error] {
   let has_hidden = paths |> any "hidden" in .
 
   # 200 .txt files survive; plus root and sub directories.
-  test.eq(paths.len(), 202)?
-  test.eq(file_count, 200)?
-  test.eq(has_hidden, false)?
+  paths.len() == 202
+  file_count == 200
+  has_hidden == false
 }
 
 proc test_fs_walk_honors_gitignore_by_default_and_can_disable_it(ctx: TestContext) [fs, error] {
@@ -462,26 +453,26 @@ proc test_fs_walk_honors_gitignore_by_default_and_can_disable_it(ctx: TestContex
       entry.path.strip_prefix(root)?.display()
     }
 
-  test.ok("visible.txt" in filtered)?
-  test.ok("keep.log" in filtered)?
-  test.ok(! ("a.log" in filtered))?
-  test.ok(! ("ignored/hidden.txt" in filtered))?
-  test.ok(! ("nested/a.log" in filtered))?
-  test.ok(! ("build/output.txt" in filtered))?
-  test.ok(! (".git/config" in filtered))?
-  test.ok(! (".cache/secret.txt" in filtered))?
-  test.ok(! (".env" in filtered))?
-  test.ok("a.log" in raw)?
-  test.ok("ignored/hidden.txt" in raw)?
-  test.ok("nested/a.log" in raw)?
-  test.ok("build/output.txt" in raw)?
-  test.ok(! (".git/config" in raw))?
-  test.ok(! (".cache/secret.txt" in raw))?
-  test.ok(! (".env" in raw))?
-  test.ok(".gitignore" in raw_hidden)?
-  test.ok(".git/config" in raw_hidden)?
-  test.ok(".cache/secret.txt" in raw_hidden)?
-  test.ok(".env" in raw_hidden)?
+  ("visible.txt" in filtered)
+  ("keep.log" in filtered)
+  ! ("a.log" in filtered)
+  ! ("ignored/hidden.txt" in filtered)
+  ! ("nested/a.log" in filtered)
+  ! ("build/output.txt" in filtered)
+  ! (".git/config" in filtered)
+  ! (".cache/secret.txt" in filtered)
+  ! (".env" in filtered)
+  ("a.log" in raw)
+  ("ignored/hidden.txt" in raw)
+  ("nested/a.log" in raw)
+  ("build/output.txt" in raw)
+  ! (".git/config" in raw)
+  ! (".cache/secret.txt" in raw)
+  ! (".env" in raw)
+  (".gitignore" in raw_hidden)
+  (".git/config" in raw_hidden)
+  (".cache/secret.txt" in raw_hidden)
+  (".env" in raw_hidden)
 }
 
 proc test_fs_optional_arguments_accept_positional_forms(ctx: TestContext) [fs, error] {
@@ -510,7 +501,7 @@ proc test_fs_optional_arguments_accept_positional_forms(ctx: TestContext) [fs, e
       e.path.display()
     }
     |> collect()
-  test.eq(by_position.join(","), by_name.join(","))?
+  by_position.join(",") == by_name.join(",")
 
   let walk_by_name = fs.walk(root, gitignore: false)
     |> sort-by .path
@@ -524,9 +515,9 @@ proc test_fs_optional_arguments_accept_positional_forms(ctx: TestContext) [fs, e
       e.path.display()
     }
     |> collect()
-  test.eq(walk_by_position.join(","), walk_by_name.join(","))?
-  test.ok("b.log" in by_name.join(","))?
-  test.ok("nested/c.txt" in by_name.join(","))?
+  walk_by_position.join(",") == walk_by_name.join(",")
+  ("b.log" in by_name.join(","))
+  ("nested/c.txt" in by_name.join(","))
 }
 
 proc test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext(ctx: TestContext) [fs, error] {
@@ -578,30 +569,30 @@ proc test_fs_files_recurses_with_raw_walk_and_preserves_entry_ext(ctx: TestConte
     }
 
   let cheap_c = (fs.files(root, gitignore: false, stat: false, exts: ["c"]) |> first())?
-  test.eq(raw_headers.len(), 3)?
-  test.ok("include/top.h" in raw_headers)?
-  test.ok("include/bits/alltypes.h" in raw_headers)?
-  test.ok("include/sys/stat.h" in raw_headers)?
-  test.ok("include/top.h" in filtered)?
-  test.ok("include/bits/alltypes.h" in filtered)?
-  test.ok("include/sys/stat.h" in filtered)?
-  test.ok("src/main.c" in filtered)?
-  test.ok(! ("src/skip.lo" in filtered))?
-  test.ok(! ("obj/hidden.h" in filtered))?
-  test.eq(c_files.len(), 1)?
-  test.eq(c_files[0].name, "main.c")?
-  test.eq(c_files[0].ext, "c")?
-  test.eq(dot_c_files.len(), 0)?
-  test.eq(source_headers.len(), 4)?
-  test.ok("include/top.h" in source_headers)?
-  test.ok("src/main.c" in source_headers)?
-  test.ok(! ("src/skip.lo" in source_headers))?
-  test.eq(fs.files(root, exts: [".c"]) |> count(), 0)?
-  test.eq(extensionless.len(), 1)?
-  test.ok("src/Makefile" in extensionless)?
-  test.eq(cheap_c.name, "main.c")?
-  test.eq(cheap_c.ext, "c")?
-  test.eq(cheap_c.kind, "file")?
+  raw_headers.len() == 3
+  ("include/top.h" in raw_headers)
+  ("include/bits/alltypes.h" in raw_headers)
+  ("include/sys/stat.h" in raw_headers)
+  ("include/top.h" in filtered)
+  ("include/bits/alltypes.h" in filtered)
+  ("include/sys/stat.h" in filtered)
+  ("src/main.c" in filtered)
+  ! ("src/skip.lo" in filtered)
+  ! ("obj/hidden.h" in filtered)
+  c_files.len() == 1
+  c_files[0].name == "main.c"
+  c_files[0].ext == "c"
+  dot_c_files.len() == 0
+  source_headers.len() == 4
+  ("include/top.h" in source_headers)
+  ("src/main.c" in source_headers)
+  ! ("src/skip.lo" in source_headers)
+  fs.files(root, exts: [".c"]) |> count() == 0
+  extensionless.len() == 1
+  ("src/Makefile" in extensionless)
+  cheap_c.name == "main.c"
+  cheap_c.ext == "c"
+  cheap_c.kind == "file"
   let unstat_files = test.run_script(
     ctx,
     f"""
@@ -609,9 +600,9 @@ let entry = (fs.files(fp"${root}", false, false, [], true) |> first())?
 print \$entry.size
 """,
   )?
-  test.eq(unstat_files.status, 3)?
-  test.contains(unstat_files.stderr, "metadata-unavailable")?
-  test.eq(cheap_c.path.strip_prefix(root)?.display(), "src/main.c")?
+  unstat_files.status == 3
+  "metadata-unavailable" in unstat_files.stderr
+  cheap_c.path.strip_prefix(root)?.display() == "src/main.c"
 }
 
 proc test_filesystem_path_and_install_apis(ctx: TestContext) [fs, error] {
@@ -635,26 +626,23 @@ proc test_filesystem_path_and_install_apis(ctx: TestContext) [fs, error] {
   let cwd = fs.cwd()?
   let scratch = fs.tempdir()?
   let temp = fs.tempfile()?
-  test.eq(entries[0].name, "note.link")?
-  test.eq(entries[1].name, "note.txt")?
-  test.eq(files[0].mode % 512, 0o600)?
-  test.ok(files[0].uid >= 0)?
-  test.ok(files[0].modified > 0)?
-  test.eq(renamed.name, "note.log")?
-  test.eq(renamed.ext, "log")?
-  test.eq(note.parent().name(), root.name())?
-  test.eq(stripped.display(), "note.txt")?
-  test.ok(usage >= 6)?
-  test.eq(resolved.name(), root.name())?
+  entries[0].name == "note.link"
+  entries[1].name == "note.txt"
+  (files[0].mode % 512) == 0o600
+  (files[0].uid >= 0)
+  (files[0].modified > 0)
+  renamed.name == "note.log"
+  renamed.ext == "log"
+  note.parent().name() == root.name()
+  stripped.display() == "note.txt"
+  (usage >= 6)
+  resolved.name() == root.name()
 
-  test.eq(
-    note_text,
-    """hello
-""",
-  )?
+  note_text == """hello
+"""
 
-  test.ok(fs.root_exists(scratch, p".")?)?
-  test.ok(fs.root_exists(temp.root, temp.path)?)?
+  (fs.root_exists(scratch, p".")?)
+  (fs.root_exists(temp.root, temp.path)?)
   let copy = fp"${root}/copy.txt"
   let moved = fp"${root}/moved.txt"
   let hard = fp"${root}/hard.txt"
@@ -683,13 +671,13 @@ proc test_filesystem_path_and_install_apis(ctx: TestContext) [fs, error] {
   moved.hardlink(hard)?
   hard.unlink()?
   let link_target = link.readlink()?
-  test.eq(moved_text, "hell")?
-  test.eq(moved_meta.size, 4)?
-  test.eq(link_target.display(), note.display())?
-  test.ok(cwd.name() != "")?
-  test.eq(installed_meta.mode % 512, 0o700)?
-  test.eq(installed.read_text()?, moved_text)?
-  test.eq(fifo_meta.kind, "other")?
+  moved_text == "hell"
+  moved_meta.size == 4
+  link_target.display() == note.display()
+  (cwd.name() != "")
+  (installed_meta.mode % 512) == 0o700
+  (installed.read_text()?) == moved_text
+  fifo_meta.kind == "other"
   test.error_kind(refused, "fs-copy")?
   test.error_kind(install_refused, "fs-install")?
   test.error_kind(symlink_refused, "fs-install")?
@@ -715,20 +703,20 @@ proc test_filesystem_package_policy_apis(ctx: TestContext) [fs, error] {
   fs.chown(copied_tool, me)?
   fs.chgrp(copied_tool, grp)?
   let lock = fs.lock(fp"${root}/pm.lock")?
-  test.ok(lock.id > 0)?
-  test.ok(! lock.shared)?
+  (lock.id > 0)
+  ! lock.shared
   fs.unlock(lock)?
   let installed = fp"${root}/image/usr/bin/tool"
   fs.install_as(copied_tool, installed, 0o755, me, grp)?
   let installed_meta = installed.metadata()?
   let removed = fs.remove_manifest(fp"${root}/image", [p"usr/bin/tool"])?
-  test.eq(copied.files, 1)?
-  test.eq(copied.dirs, 2)?
-  test.eq(copied.symlinks, 1)?
-  test.eq(installed_meta.mode % 512, 0o755)?
-  test.eq(removed.removed, 1)?
-  test.eq(removed.pruned_dirs, 2)?
-  test.ok(! fs.exists(installed)?)?
+  copied.files == 1
+  copied.dirs == 2
+  copied.symlinks == 1
+  (installed_meta.mode % 512) == 0o755
+  removed.removed == 1
+  removed.pruned_dirs == 2
+  ! fs.exists(installed)?
   test.error_kind(fs.remove_manifest(fp"${root}/image", [../escape], missing_ok: true), "fs-remove-manifest")?
   test.error_kind(fs.copy_tree(src, fp"${root}/copy"), "fs-copy-tree")?
 }
@@ -738,9 +726,9 @@ proc test_stable_tables_sort_files_and_process_records(ctx: TestContext) [fs, pr
   fp"${root}/small".write("a")?
   fp"${root}/large".write("abcd")?
   let entries = fs.ls(root) |> sort-by .size
-  test.eq(entries[0].name, "small")?
-  test.eq(entries[0].size, 1)?
-  test.eq(entries[1].name, "large")?
-  test.eq(entries[1].size, 4)?
-  test.ok((process.list() |> count()) > 0)?
+  entries[0].name == "small"
+  entries[0].size == 1
+  entries[1].name == "large"
+  entries[1].size == 4
+  ((process.list() |> count()) > 0)
 }

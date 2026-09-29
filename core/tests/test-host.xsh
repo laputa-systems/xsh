@@ -4,7 +4,7 @@ proc test_host_localhost(ctx: TestContext) [process, env, error] {
   }
 
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/host.xsh" -- localhost ?
-  test.contains(output, "localhost")?
+  "localhost" in output
 }
 
 proc test_host_type_and_usage(ctx: TestContext) [fs, process, env, error] {
@@ -13,10 +13,10 @@ proc test_host_type_and_usage(ctx: TestContext) [fs, process, env, error] {
   }
 
   let typed = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/host.xsh" -- -t A localhost ?
-  test.contains(typed, "localhost")?
-  test.contains(typed, "A")?
+  "localhost" in typed
+  "A" in typed
   let err = test.temp_path(ctx, name: "host.err")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/host.xsh" -- localhost extra third 2> $err
-  test.ok(! status.exited_with(0))?
-  test.contains(err.read_text()?, "expected NAME [SERVER]")?
+  ! status.exited_with(0)
+  "expected NAME [SERVER]" in err.read_text()?
 }

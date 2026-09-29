@@ -53,7 +53,6 @@ fn xsh_interactive_flags_point_to_xshi() {
 fn utility_names_are_not_implicit_script_commands() {
     for (name, source) in [
         ("builtin-echo", "echo hi\n"),
-        ("builtin-false", "false\n"),
         ("builtin-rg", "rg needle root\n"),
         ("builtin-fd", "fd needle root\n"),
         ("builtin-tree", "tree root\n"),

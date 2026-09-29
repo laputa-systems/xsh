@@ -65,6 +65,9 @@ enum FrameContinuation {
     },
     Return,
     Discard(Span),
+    Assert { span: Span, next: Box<FrameContinuation> },
+    AssertLeft { op: BinaryOp, right: u32, span: Span, next: Box<FrameContinuation> },
+    AssertRight { op: BinaryOp, left: LoweredValue, span: Span, next: Box<FrameContinuation> },
     BinaryLeft {
         op: BinaryOp,
         right: u32,
@@ -1360,6 +1363,26 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     next,
                 );
             }
+            FullTag::ExprAssert => {
+                let value = indexed_raw(&mut payload, span)?;
+                let assertion_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                let (tag, mut predicate) = indexed_value(self.calls[index].execution.instruction_id(value), assertion_span)?;
+                let mut comparison = None;
+                if tag == FullTag::ExprBinary {
+                    let op = indexed_decode::<BinaryOp>(&mut predicate, &self.calls[index].execution, assertion_span)?;
+                    let left = indexed_raw(&mut predicate, assertion_span)?;
+                    let right = indexed_raw(&mut predicate, assertion_span)?;
+                    let _ = indexed_decode::<Span>(&mut predicate, &self.calls[index].execution, assertion_span)?;
+                    indexed_finish(predicate, assertion_span)?;
+                    if super::assertion_comparison_op(op) { comparison = Some((op, left, right)); }
+                }
+                if let Some((op, left, right)) = comparison {
+                    self.push_expr(index, left, assertion_span, FrameContinuation::AssertLeft { op, right, span: assertion_span, next: Box::new(next) });
+                } else {
+                    self.push_expr(index, value, assertion_span, FrameContinuation::Assert { span: assertion_span, next: Box::new(next) });
+                }
+            }
             FullTag::ExprBinary => {
                 let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let left = indexed_raw(&mut payload, span)?;
@@ -1783,6 +1806,28 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         next: FrameContinuation,
     ) -> Result<(), RuntimeError> {
         match next {
+            FrameContinuation::Assert { span, next } => match value {
+                FrameValue::Value(value) => {
+                    let passed = frame_condition_bool(value, span)?;
+                    let outcome = self.evaluator.indexed_assertion_outcome(passed, None, span)?;
+                    let value = match outcome { ControlFlow::Continue(value) => FrameValue::Value(value), ControlFlow::Break(value) => FrameValue::Break(value) };
+                    self.push_value(index, value, *next);
+                }
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::AssertLeft { op, right, span, next } => match value {
+                FrameValue::Value(left) => self.push_expr(index, right, span, FrameContinuation::AssertRight { op, left, span, next }),
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::AssertRight { op, left, span, next } => match value {
+                FrameValue::Value(right) => {
+                    let passed = crate::runtime::eval::lowered_ops::lowered_assertion_comparison(op, &left, &right, span)?;
+                    let outcome = self.evaluator.indexed_assertion_outcome(passed, Some((&left, &right)), span)?;
+                    let value = match outcome { ControlFlow::Continue(value) => FrameValue::Value(value), ControlFlow::Break(value) => FrameValue::Break(value) };
+                    self.push_value(index, value, *next);
+                }
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
             FrameContinuation::Store(slot) => match value {
                 FrameValue::Value(value) => {
                     self.calls[index].slots[slot] = value;

@@ -385,6 +385,25 @@ mod tests {
     use crate::{records, reference};
 
     #[test]
+    fn membership_aliases_are_absent_from_callable_and_documentation_inventory() {
+        for (receiver, name) in [
+            (super::MethodReceiver::Str, "contains"),
+            (super::MethodReceiver::Bytes, "contains"),
+            (super::MethodReceiver::List, "contains"),
+            (super::MethodReceiver::Map, "has"),
+            (super::MethodReceiver::Record, "has"),
+        ] {
+            assert!(!api_spec().methods.iter().any(|entry| entry.receiver == receiver && entry.methods.iter().any(|method| method.name == name)));
+            assert!(api_spec().docs(&super::method_api_id(receiver, name)).is_none());
+        }
+        for (module, name) in [("set", "has"), ("test", "contains"), ("test", "not_contains")] {
+            assert!(!api_spec().modules.iter().any(|entry| entry.name == module && entry.sig.functions.iter().any(|function| function.name == name)));
+            assert!(api_spec().docs(&super::module_api_id(module, name)).is_none());
+        }
+        assert!(crate::errors::builtin_error_families().iter().any(|family| family.name == "AssertionError"));
+    }
+
+    #[test]
     fn public_api_items_have_complete_registry_docs() {
         api_spec()
             .validate_docs()

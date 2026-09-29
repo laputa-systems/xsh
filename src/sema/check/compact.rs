@@ -85,6 +85,7 @@ pub struct CompactBodyProbeOutput {
     pub unsupported_structured_pipeline_exprs: usize,
     pub unsupported_builder_call_exprs: usize,
     pub expr_types: FxHashMap<ExprId, Type>,
+    pub assertion_spans: std::collections::BTreeSet<crate::source::Span>,
 }
 
 impl Checker {
@@ -95,6 +96,7 @@ impl Checker {
                 names: FxHashSet::default(),
                 output: CompactDeclOutput::default(),
             };
+            collector.output.error_families_by_name = Checker::new(super::CheckOptions::default()).error_families;
             collector.collect_program(program);
             let mut output = collector.output;
             output.diagnostics = collector.diagnostics;
@@ -122,6 +124,9 @@ impl Checker {
             };
             probe.seed_declarations();
             probe.check_compact_program();
+            // The general checker owns statement-use classification, including
+            // contextual tails and narrowing; the execution probe carries its facts.
+            probe.output.assertion_spans = Checker::check_arena(program, "").assertion_spans;
             probe.output
         })
     }
@@ -1483,6 +1488,9 @@ fn compact_probe_type_from_arena(
     match tag {
         ArenaTypeExprTag::Named => {
             let name = Name::from_symbol(Symbol::from_raw(data.lhs));
+            if declarations.error_families_by_name.contains_key(&name) {
+                return if name == "ProcessError" { Type::ProcessError } else { Type::ErrorFamily(name) };
+            }
             match Type::from_name(&name.as_str()) {
                 Type::Unknown => match declarations.types.get(&name) {
                     Some(CompactTypeDefInfo::Alias(alias)) => {

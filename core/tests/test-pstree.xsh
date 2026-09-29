@@ -32,17 +32,17 @@ proc test_pstree_renders_tree_with_pid_labels(ctx: TestContext) [process, env, t
   let child = spawn run sleep 30 ?
   let parent_pid = parent_for(child.pid)?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" -- -p $parent_pid ?
-  test.contains(output, f"[${parent_pid}]")?
-  test.contains(output, f"sleep [${child.pid}]")?
-  test.ok("\u{251c}\u{2500}" in output or "\u{2514}\u{2500}" in output or "|-" in output or "`-" in output)?
-  test.ok(! ("->" in output))?
+  f"[${parent_pid}]" in output
+  f"sleep [${child.pid}]" in output
+  ("\u{251c}\u{2500}" in output or "\u{2514}\u{2500}" in output or "|-" in output or "`-" in output)
+  ! ("->" in output)
 }
 
 proc test_pstree_rejects_unknown_pid(ctx: TestContext) [fs, process, env, error] {
   let err = test.temp_path(ctx, name: "pstree.err")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" -- 999999999 2> $err
-  test.ok(! status.exited_with(0))?
-  test.contains(err.read_text()?, "no such pid")?
+  ! status.exited_with(0)
+  "no such pid" in (err.read_text()?)
 }
 
 proc test_pstree_default_prints_visible_root(ctx: TestContext) [process, env, error] {
@@ -54,13 +54,13 @@ proc test_pstree_default_prints_visible_root(ctx: TestContext) [process, env, er
   }
 
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/pstree.xsh" ?
-  test.ok(output.trim() != "")?
+  (output.trim() != "")
 
   if system.uname()?.sysname == "Darwin" {
-    test.contains(output, "launchd")?
-    test.contains(output, "00001")?
+    "launchd" in output
+    "00001" in output
     return
   }
 
-  test.contains(output, "[1]")?
+  "[1]" in output
 }

@@ -1,13 +1,13 @@
 proc test_run_retry() [process, error] {
   let ok = run.text "xsh" "showcase/run-retry.xsh" -- true ?
-  test.contains(ok, "ok (try 1)")?
+  "ok (try 1)" in ok
 }
 
 proc test_run_retry_exhaustion_exits_unsuccessfully(ctx: TestContext) [fs, process, error] {
   let output = test.temp_path(ctx, name: "run-retry-output")
   let status = run.status "xsh" "showcase/run-retry.xsh" -- false > $output
   test.ok(status.exited_with(1), "exhausted retries must fail the command")?
-  test.contains(output.read_text()?, "failed after 3")?
+  "failed after 3" in output.read_text()?
 }
 
 proc test_run_retry_cancellation_reaps_child_descendants(ctx: TestContext) [fs, process, time, error] {

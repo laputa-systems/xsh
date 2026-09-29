@@ -13,7 +13,7 @@ gamma
 """)?
 
   let d = diff.unified(original, modified, context: 1)?
-  test.eq(d.files, 1)?
-  test.eq(d.hunks, 1)?
-  test.contains(d.text, "BETA")?
+  d.files == 1
+  d.hunks == 1
+  "BETA" in d.text
 }

@@ -7,34 +7,34 @@ use stage as stages
 use targets as target_policy
 
 proc test_supported_target_records_and_default() [error] {
-  test.eq(target_policy.default_triple, "x86_64-unknown-linux-musl")?
-  test.eq(target_policy.host_default_triple(target_policy.Linux, target_policy.X86_64)?, "x86_64-unknown-linux-musl")?
-  test.eq(target_policy.host_default_triple(target_policy.Linux, target_policy.Aarch64)?, "aarch64-unknown-linux-musl")?
-  test.eq(target_policy.host_default_triple(target_policy.Darwin, target_policy.Aarch64)?, "aarch64-apple-darwin")?
+  target_policy.default_triple == "x86_64-unknown-linux-musl"
+  (target_policy.host_default_triple(target_policy.Linux, target_policy.X86_64)?) == "x86_64-unknown-linux-musl"
+  (target_policy.host_default_triple(target_policy.Linux, target_policy.Aarch64)?) == "aarch64-unknown-linux-musl"
+  (target_policy.host_default_triple(target_policy.Darwin, target_policy.Aarch64)?) == "aarch64-apple-darwin"
   match target_policy.host_default_triple(target_policy.Darwin, target_policy.X86_64) {
     Ok(_) => test.fail("unsupported host default resolved")?
-    Err(error) => test.eq(error.message, "TargetError.Unsupported")?
+    Err(error) => error.message == "TargetError.Unsupported"
   }
 
   let x86 = target_policy.resolve("x86_64-unknown-linux-musl")?
   let arm = target_policy.resolve("aarch64-unknown-linux-musl")?
   let darwin = target_policy.resolve("aarch64-apple-darwin")?
-  test.eq(x86.docker_platform, "linux/amd64")?
-  test.eq(x86.elf_machine, "Advanced Micro Devices X86-64")?
-  test.eq(arm.docker_platform, "linux/arm64")?
-  test.eq(arm.elf_machine, "AArch64")?
-  test.eq(darwin.executable_format, "Mach-O")?
-  test.ok("target-cpu=apple-m1" in darwin.cpu_rustflags)?
+  x86.docker_platform == "linux/amd64"
+  x86.elf_machine == "Advanced Micro Devices X86-64"
+  arm.docker_platform == "linux/arm64"
+  arm.elf_machine == "AArch64"
+  darwin.executable_format == "Mach-O"
+  ("target-cpu=apple-m1" in darwin.cpu_rustflags)
 }
 
 proc test_host_classification() [error] {
-  test.eq(target_policy.host_os("Linux")?, "linux")?
-  test.eq(target_policy.host_os("Darwin")?, "darwin")?
-  test.eq(target_policy.host_arch("amd64")?, "x86_64")?
-  test.eq(target_policy.host_arch("arm64")?, "aarch64")?
+  (target_policy.host_os("Linux")?) == "linux"
+  (target_policy.host_os("Darwin")?) == "darwin"
+  (target_policy.host_arch("amd64")?) == "x86_64"
+  (target_policy.host_arch("arm64")?) == "aarch64"
   match target_policy.host_arch("mips64") {
     Ok(_) => test.fail("unsupported host architecture resolved")?
-    Err(error) => test.eq(error.message, "TargetError.Unsupported")?
+    Err(error) => error.message == "TargetError.Unsupported"
   }
 }
 
@@ -54,43 +54,23 @@ proc test_target_flags_native_selection_and_coverage_backend_policy() [error] {
   )?
   let x86_target = target_policy.resolve("x86_64-unknown-linux-musl")?
   let darwin_target = target_policy.resolve("aarch64-apple-darwin")?
-  test.contains(x86_env.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS, "-C debuginfo=1")?
-  test.contains(x86_env.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS, "target-cpu=x86-64-v3")?
-  test.contains(x86_env.CFLAGS_x86_64_unknown_linux_musl, "-march=x86-64-v3")?
-  test.contains(
-    arm_env.CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS,
-    "target-feature=-sve,-sve2",
-  )?
+  "-C debuginfo=1" in x86_env.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS.require(Str)?
+  "target-cpu=x86-64-v3" in x86_env.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS.require(Str)?
+  "-march=x86-64-v3" in x86_env.CFLAGS_x86_64_unknown_linux_musl.require(Str)?
+  "target-feature=-sve,-sve2" in arm_env.CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS.require(Str)?
   test.eq(darwin_env.MACOSX_DEPLOYMENT_TARGET, "27.0")?
-  test.contains(darwin_env.CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS, "linker-flavor=ld64.lld")?
-  test.ok(target_policy.native_execution(x86_target, target_policy.Linux, target_policy.X86_64))?
-  test.ok(! target_policy.native_execution(x86_target, target_policy.Darwin, target_policy.X86_64))?
-  test.ok(
-    ! target_policy.native_execution(darwin_target, target_policy.Linux, target_policy.Aarch64),
-  )?
+  "linker-flavor=ld64.lld" in darwin_env.CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS.require(Str)?
+  target_policy.native_execution(x86_target, target_policy.Linux, target_policy.X86_64)
+  ! target_policy.native_execution(x86_target, target_policy.Darwin, target_policy.X86_64)
+  ! target_policy.native_execution(darwin_target, target_policy.Linux, target_policy.Aarch64)
   let alpine_x86 = fixtures.linux_context(/repo)?
-  test.eq(
-    coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, true, true, true)),
-    "native",
-  )?
-  test.eq(
-    coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, false, true, true)),
-    "docker",
-  )?
-  test.eq(
-    coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, true, false, true)),
-    "docker",
-  )?
-  test.eq(
-    coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, true, true, false)),
-    "docker",
-  )?
-  test.eq(coverage_workflow.docker_target_triple(target_policy.Aarch64, ""), "aarch64-unknown-linux-musl")?
-  test.eq(coverage_workflow.docker_target_triple(target_policy.X86_64, ""), "x86_64-unknown-linux-musl")?
-  test.eq(
-    coverage_workflow.docker_target_triple(target_policy.Aarch64, "x86_64-unknown-linux-musl"),
-    "x86_64-unknown-linux-musl",
-  )?
+  coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, true, true, true)) == "native"
+  coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, false, true, true)) == "docker"
+  coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, true, false, true)) == "docker"
+  coverage_workflow.backend_name(coverage_workflow.automatic_backend_for(alpine_x86, true, true, false)) == "docker"
+  coverage_workflow.docker_target_triple(target_policy.Aarch64, "") == "aarch64-unknown-linux-musl"
+  coverage_workflow.docker_target_triple(target_policy.X86_64, "") == "x86_64-unknown-linux-musl"
+  coverage_workflow.docker_target_triple(target_policy.Aarch64, "x86_64-unknown-linux-musl") == "x86_64-unknown-linux-musl"
 }
 
 proc test_docker_argv_is_direct_and_carries_mount_environment_policy() [error] {
@@ -106,28 +86,28 @@ proc test_docker_argv_is_direct_and_carries_mount_environment_policy() [error] {
     "25",
     [],
   )
-  test.eq(argv[0], "docker")?
-  test.ok("--init" in argv)?
-  test.ok("--privileged" in argv)?
-  test.ok("/repo:/work" in argv)?
-  test.ok("/repo/target:/work/target" in argv)?
-  test.ok("TARGET=aarch64-unknown-linux-musl" in argv)?
-  test.ok("DIST_PROFILE=dev" in argv)?
-  test.ok("XSH_OS_STRESS_REPEAT=25" in argv)?
-  test.ok("dev/main.xsh" in argv)?
-  test.ok("sh" not in argv)?
-  test.ok("-c" not in argv)?
+  argv[0] == "docker"
+  ("--init" in argv)
+  ("--privileged" in argv)
+  ("/repo:/work" in argv)
+  ("/repo/target:/work/target" in argv)
+  ("TARGET=aarch64-unknown-linux-musl" in argv)
+  ("DIST_PROFILE=dev" in argv)
+  ("XSH_OS_STRESS_REPEAT=25" in argv)
+  ("dev/main.xsh" in argv)
+  ("sh" not in argv)
+  ("-c" not in argv)
 }
 
 proc test_release_names_and_core_paths_are_deterministic() [error] {
-  test.eq(target_policy.release_suffix("x86_64-unknown-linux-musl")?, "x86_64-linux-musl")?
-  test.eq(target_policy.release_suffix("aarch64-unknown-linux-musl")?, "aarch64-linux-musl")?
-  test.eq(target_policy.release_suffix("aarch64-apple-darwin")?, "aarch64-apple-darwin")?
-  test.eq(releases.core_install_path(p"bin/hello.xsh").display(), "core/bin/hello")?
-  test.eq(releases.core_install_path(p"top.xsh").display(), "core/top")?
-  test.eq(releases.core_install_path(p"system-report.xsh").display(), "core/system-report")?
-  test.eq(releases.core_install_path(p"bin/report.xsh-helper.xsh").display(), "core/bin/report.xsh-helper")?
-  test.eq(releases.core_install_path(p"lib/auth.xsh").display(), "core/lib/auth.xsh")?
+  (target_policy.release_suffix("x86_64-unknown-linux-musl")?) == "x86_64-linux-musl"
+  (target_policy.release_suffix("aarch64-unknown-linux-musl")?) == "aarch64-linux-musl"
+  (target_policy.release_suffix("aarch64-apple-darwin")?) == "aarch64-apple-darwin"
+  releases.core_install_path(p"bin/hello.xsh").display() == "core/bin/hello"
+  releases.core_install_path(p"top.xsh").display() == "core/top"
+  releases.core_install_path(p"system-report.xsh").display() == "core/system-report"
+  releases.core_install_path(p"bin/report.xsh-helper.xsh").display() == "core/bin/report.xsh-helper"
+  releases.core_install_path(p"lib/auth.xsh").display() == "core/lib/auth.xsh"
 }
 
 proc test_core_archive_stages_command_and_library_paths(ctx: TestContext) [fs, error] {
@@ -147,29 +127,20 @@ proc test_core_archive_stages_command_and_library_paths(ctx: TestContext) [fs, e
   let archive_path = fp"${root}/dist/core-fixture.tar.xz"
   let entries = archive.tar_list(archive_path)?.collect()
   let members = entries |> map .path.display()
-  test.eq(members.len(), 2)?
-  test.ok("core/bin/report.xsh-helper" in members)?
-  test.ok("core/lib/report.xsh-helper.xsh" in members)?
+  members.len() == 2
+  ("core/bin/report.xsh-helper" in members)
+  ("core/lib/report.xsh-helper.xsh" in members)
   test.eq((entries |> where .path.display() == "core/bin/report.xsh-helper")[0].mode.bit_and(0o777), 0o755)?
   test.eq((entries |> where .path.display() == "core/lib/report.xsh-helper.xsh")[0].mode.bit_and(0o777), 0o644)?
   let extracted = fp"${root}/extracted"
   archive.tar_extract(archive_path, extracted)?
-  test.eq(
-    fp"${extracted}/core/bin/report.xsh-helper".read_text()?,
-    """print "command"
-""",
-  )?
-  test.eq(
-    fp"${extracted}/core/lib/report.xsh-helper.xsh".read_text()?,
-    """print "library"
-""",
-  )?
-  test.ok(! fp"${extracted}/core/tests/ignored".exists()?)?
-  test.contains(
-    fp"${root}/dist/core-fixture.sha256".read_text()?,
-    """  dist/core-fixture.tar.xz
-""",
-  )?
+  (fp"${extracted}/core/bin/report.xsh-helper".read_text()?) == """print "command"
+"""
+  (fp"${extracted}/core/lib/report.xsh-helper.xsh".read_text()?) == """print "library"
+"""
+  ! fp"${extracted}/core/tests/ignored".exists()?
+  """  dist/core-fixture.tar.xz
+""" in (fp"${root}/dist/core-fixture.sha256".read_text()?)
 }
 
 proc test_core_archive_rejects_conflicting_artifact_before_writing(ctx: TestContext) [fs, error] {
@@ -183,12 +154,12 @@ proc test_core_archive_rejects_conflicting_artifact_before_writing(ctx: TestCont
   let release_ctx = fixtures.linux_context(root, "dev")?
   match releases.package_core(release_ctx, "fixture") {
     Ok(_) => test.fail("conflicting archive was accepted")?
-    Err(error) => test.contains(error.message, "StageError.Failed")?
+    Err(error) => "StageError.Failed" in error.message
   }
 
-  test.eq(stale.read_text()?, "existing artifact")?
-  test.ok(! fp"${root}/dist/core-fixture.tar.xz".exists()?)?
-  test.ok(! fp"${root}/dist/core-fixture.sha256".exists()?)?
+  (stale.read_text()?) == "existing artifact"
+  ! fp"${root}/dist/core-fixture.tar.xz".exists()?
+  ! fp"${root}/dist/core-fixture.sha256".exists()?
 }
 
 proc test_core_archive_contains_current_system_report(ctx: TestContext) [fs, error] {
@@ -200,12 +171,12 @@ proc test_core_archive_contains_current_system_report(ctx: TestContext) [fs, err
   let archive_path = fp"${artifact_dir}/core-fixture.tar.xz"
   let entries = archive.tar_list(archive_path)?.collect()
   let installed = entries |> where .path.display() == "core/system-report"
-  test.eq(installed.len(), 1)?
+  installed.len() == 1
   test.eq(installed[0].mode.bit_and(0o777), 0o755)?
   let extracted = fp"${artifact_dir}/extracted"
   archive.tar_extract(archive_path, extracted)?
-  test.eq(fp"${extracted}/core/system-report".read_bytes()?, fp"${repository}/core/system-report.xsh".read_bytes()?)?
-  test.ok(fp"${extracted}/core/lib/system_report.xsh".exists()?)?
+  (fp"${extracted}/core/system-report".read_bytes()?) == (fp"${repository}/core/system-report.xsh".read_bytes()?)
+  (fp"${extracted}/core/lib/system_report.xsh".exists()?)
 }
 
 proc test_release_checksum_sidecars_keep_a_relative_artifact_name(ctx: TestContext) [fs, error] {
@@ -214,12 +185,8 @@ proc test_release_checksum_sidecars_keep_a_relative_artifact_name(ctx: TestConte
   artifact.parent().mkdir()?
   artifact.write("release artifact")?
   let checksum = releases.checksum_line(artifact, root)?
-  test.contains(
-    checksum,
-    """  dist/xsh-release-x86_64-linux-musl
-""",
-    checksum,
-  )?
+  test.ok("""  dist/xsh-release-x86_64-linux-musl
+""" in checksum, checksum)?
 }
 
 proc test_release_validation_requires_exactly_the_nine_expected_products(ctx: TestContext) [fs, error] {
@@ -249,24 +216,24 @@ proc test_release_validation_requires_exactly_the_nine_expected_products(ctx: Te
 
   match releases.validate_artifacts(release_ctx, tag) {
     Ok(_) => test.fail("unexpected artifact passed validation")?
-    Err(error) => test.contains(error.message, "StageError.Failed", error.message)?
+    Err(error) => test.ok("StageError.Failed" in error.message, error.message)?
   }
 }
 
 proc test_unsupported_target_remains_a_structured_error() [error] {
   match target_policy.resolve("riscv64-unknown-linux-musl") {
     Ok(_) => test.fail("unsupported target resolved")?
-    Err(error) => test.eq(error.message, "TargetError.Unsupported")?
+    Err(error) => error.message == "TargetError.Unsupported"
   }
 }
 
 proc test_context_paths_and_missing_tools_have_named_failures() [process, error] {
-  test.eq(lifecycle.repo_path(/repo, "target/custom").display(), "/repo/target/custom")?
-  test.eq(lifecycle.repo_path(/repo, "/tmp/custom").display(), "/tmp/custom")?
+  lifecycle.repo_path(/repo, "target/custom").display() == "/repo/target/custom"
+  lifecycle.repo_path(/repo, "/tmp/custom").display() == "/tmp/custom"
 
   match stages.require_tool("xsh-selfhost-test-tool-that-does-not-exist") {
     Ok(_) => test.fail("missing tool unexpectedly resolved")?
-    Err(error) => test.eq(error.message, "StageError.MissingTool")?
+    Err(error) => error.message == "StageError.MissingTool"
   }
 }
 
@@ -282,7 +249,7 @@ proc test_failed_stage_reports_its_stage_and_target() [process, error, io] {
     ),
   ) {
     Ok(_) => test.fail("failing command unexpectedly succeeded")?
-    Err(error) => test.eq(error.message, "StageError.Failed")?
+    Err(error) => error.message == "StageError.Failed"
   }
 }
 
@@ -309,7 +276,7 @@ cd p"/" {
     f"""${wrong_directory.stdout}
 ${wrong_directory.stderr}""",
   )?
-  test.contains(wrong_directory.stdout, "ContextError.WrongDirectory", wrong_directory.stdout)?
+  test.ok("ContextError.WrongDirectory" in wrong_directory.stdout, wrong_directory.stdout)?
 }
 
 proc test_context_target_and_docker_platform_overrides(ctx: TestContext) [fs, env, error] {
@@ -350,8 +317,8 @@ main()?
     target_policy.host_os_tag(uname.sysname)?,
     target_policy.host_arch_tag(uname.machine)?,
   )?
-  test.eq(context_default.stdout.trim(), expected_default)?
-  test.eq(context_override.stdout.trim(), "aarch64-unknown-linux-musl")?
+  context_default.stdout.trim() == expected_default
+  context_override.stdout.trim() == "aarch64-unknown-linux-musl"
 
   let platform = test.run_script(
     ctx,
@@ -381,7 +348,7 @@ main()?
     {XSH_MODULE_PATH: module_path, DOCKER_PLATFORM: "linux/override"},
   )?
   test.ok(platform.success, platform.stderr)?
-  test.eq(platform.stdout.trim(), "linux/override")?
+  platform.stdout.trim() == "linux/override"
 }
 
 proc test_dev_main_target_override_reaches_context(ctx: TestContext) [fs, process, error] {
@@ -390,7 +357,7 @@ proc test_dev_main_target_override_reaches_context(ctx: TestContext) [fs, proces
   let stderr = test.temp_path(ctx, name: "dev-target.stderr")
   let status = run.status ${ctx.xsh_bin} fp"${root}/dev/main.xsh" -- system-report-check --target x86_64-unknown-linux-musl > $output 2> $stderr
   test.ok(status.exited_with(0), stderr.read_text()?)?
-  test.contains(output.read_text()?, "system-report coverage manifest")?
+  "system-report coverage manifest" in (output.read_text()?)
 }
 
 proc test_rustybench_override_stays_a_direct_argv_prefix(ctx: TestContext) [fs, error] {

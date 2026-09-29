@@ -164,6 +164,15 @@ impl Checker {
     ) {
         let stmt = arena.arena.command_stmt(id);
         let span = arena.arena.span(stmt.span);
+        if let ArenaCommand::Proc { name, args } = stmt.command
+            && args.is_empty()
+            && !self.procs.contains_key(&name)
+            && !self.options.interactive_commands.is_some_and(|is_command| is_command(name.as_str().as_str()))
+            && self.lookup(name).is_some_and(|binding| binding.ty == Type::Bool)
+        {
+            self.check_assertion_statement(&Type::Bool, span);
+            return;
+        }
         if self.in_pure {
             self.error(
                 span,

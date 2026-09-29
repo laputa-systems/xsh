@@ -3,9 +3,9 @@ proc test_batch_rename(ctx: TestContext) [fs, process, error] {
   fp"${root}/hello world.txt".write("a")?
   fp"${root}/foo bar.txt".write("b")?
   let dry = run.text "xsh" "showcase/batch-rename.xsh" -- --root $root --normalize --dry-run ?
-  test.contains(dry, "would rename")?
-  test.contains(dry, "hello_world.txt")?
+  "would rename" in dry
+  "hello_world.txt" in dry
   let actual = run.text "xsh" "showcase/batch-rename.xsh" -- --root $root --normalize --dry-run=false ?
-  test.contains(actual, "2 files renamed")?
-  test.ok(fp"${root}/hello_world.txt".exists()?)?
+  "2 files renamed" in actual
+  fp"${root}/hello_world.txt".exists()?
 }

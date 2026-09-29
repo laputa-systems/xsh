@@ -206,6 +206,8 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "source-files",
     "comments",
     "statements",
+    "assertions",
+    "membership",
     "bindings",
     "procs",
     "pure-functions",
@@ -751,6 +753,24 @@ fn core_doc(item: &str) -> ReferenceDoc {
             "Defines statement sequencing and result propagation.",
             "Statement position applies the language's success and error propagation rules rather than silently discarding Result values.",
         ),
+        "assertions" => {
+            return reference_doc_full(
+                "Asserts a checked Bool in statement position.",
+                "A Bool statement evaluates once: true produces Unit; false propagates AssertionError.Failed(message: Str). Unit and Result[Unit] tails also assert. Bool, Any, Result[Bool], inferred retry tails, predicates, conditions, explicit returns, and `let _ = predicate()` remain value consumers. Assertions obey Result error-family compatibility, declared error effects, retry handling, and defer cleanup, and remain enabled without native tests.",
+                &["language", "assertion", "Bool", "AssertionError"],
+                "actual == expected; needle in output",
+                &["actual == expected", "needle in output", "let _ = predicate()"],
+            );
+        }
+        "membership" => {
+            return reference_doc_full(
+                "Tests membership with in and not in.",
+                "Membership evaluates the left operand before the right. It uses literal substrings for Str, contiguous subsequences for Bytes, value equality for List, and Str key/field presence for Map and Record, including present null values. Path retains display-text containment; env.PATH retains exact entry membership. Streams are not consumed. Bind operands in their original order when replacing a receiver-first method call whose evaluations cannot safely be reordered.",
+                &["language", "membership", "in", "not in"],
+                "item in container; item not in container",
+                &["\"key\" in mapping", "\"field\" not in fields"],
+            );
+        }
         "bindings" => (
             "Defines typed bindings and assignment scope.",
             "Bindings are immutable with `let`; declare a reassignable binding with `var` (`var x = 0; x = x + 1`). `let mut` is not valid syntax. Reassignment cannot create an invalid inferred state.",

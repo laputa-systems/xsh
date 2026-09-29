@@ -405,7 +405,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
   for index in range(reference.records.len()) {
     let item = reference.records[index]
     let key = f"${item.record_type}:${item.handle}"
-    if reference_by_key.has(key) {
+    if key in reference_by_key {
       return Err(smbios_check_failure("SMBIOS reference repeats a type and handle"))
     }
 
@@ -415,7 +415,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
   for index in range(section.records.len()) {
     let item = section.records[index]
     let key = f"${item.record_type}:${item.handle}"
-    if candidate_by_key.has(key) {
+    if key in candidate_by_key {
       return Err(smbios_check_failure("candidate SMBIOS report repeats a type and handle"))
     }
 
@@ -426,7 +426,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
   if before == after and reference.complete {
     for item in reference.records {
       let key = f"${item.record_type}:${item.handle}"
-      if ! candidate_by_key.has(key) {
+      if key not in candidate_by_key {
         missing_names = missing_names.push(key)
         continue
       }
@@ -440,7 +440,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
       var actual_fields: Map[Int] = {}
       for field_index in range(actual.fields.len()) {
         let field = actual.fields[field_index]
-        if actual_fields.has(field.name) {
+        if field.name in actual_fields {
           return Err(smbios_check_failure("candidate SMBIOS record repeats a field"))
         }
 
@@ -448,7 +448,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
       }
 
       for field in item.fields {
-        if ! actual_fields.has(field.name) {
+        if field.name not in actual_fields {
           field_mismatches = field_mismatches.push(f"${key}.field.${field.name}")
         } else if actual.fields[actual_fields.get(field.name)?] != field {
           field_mismatches = field_mismatches.push(f"${key}.field.${field.name}")
@@ -474,7 +474,7 @@ export pure compare_smbios(candidate_json: Str, before: Bytes, after: Bytes) -> 
 
     for item in section.records {
       let key = f"${item.record_type}:${item.handle}"
-      if ! reference_by_key.has(key) {
+      if key not in reference_by_key {
         unexpected_names = unexpected_names.push(key)
       }
     }
@@ -960,7 +960,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
   for index in range(reference.records.len()) {
     let item = reference.records[index]
     let key = f"${item.record_type}:${item.handle}"
-    if reference_by_key.has(key) {
+    if key in reference_by_key {
       return Err(smbios_check_failure("raw SMBIOS table repeats a record identity"))
     }
 
@@ -970,7 +970,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
   for index in range(decoded.len()) {
     let item = decoded[index]
     let key = f"${item.record_type}:${item.handle}"
-    if decoded_by_key.has(key) {
+    if key in decoded_by_key {
       return Err(smbios_check_failure("dmidecode output repeats a record identity"))
     }
 
@@ -983,7 +983,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
   var matched_count = 0
   for item in reference.records {
     let key = f"${item.record_type}:${item.handle}"
-    if ! decoded_by_key.has(key) {
+    if key not in decoded_by_key {
       missing_names = missing_names.push(key)
       continue
     }
@@ -1027,7 +1027,7 @@ export pure compare_dmidecode_hex_output(reference: SmbiosReference, output: Str
 
   for item in decoded {
     let key = f"${item.record_type}:${item.handle}"
-    if ! reference_by_key.has(key) {
+    if key not in reference_by_key {
       unexpected_names = unexpected_names.push(key)
     }
   }

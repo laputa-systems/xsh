@@ -12,17 +12,17 @@ proc test_tree_renders_sorted_branches_and_symlinks(ctx: TestContext) [fs, proce
   test.eq(lines[1], "|-- a.txt")?
   test.eq(lines[2], "|-- dir")?
   test.eq(lines[3], "|   `-- file.txt")?
-  test.contains(lines[4], "link-a ->")?
+  "link-a ->" in lines[4].require(Str)?
   test.eq(lines[5], "`-- z.txt")?
-  test.contains(output, "1 directory, 4 files")?
-  test.ok(! (".hidden" in output))?
+  "1 directory, 4 files" in output
+  ! (".hidden" in output)
   let all = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- -a $root ?
-  test.contains(all, ".hidden")?
+  ".hidden" in all
   let dirs = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- -d $root ?
-  test.contains(dirs, "dir")?
-  test.ok(! ("a.txt" in dirs))?
+  "dir" in dirs
+  ! ("a.txt" in dirs)
   let shallow = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- -L 1 $root ?
-  test.ok(! ("file.txt" in shallow))?
+  ! ("file.txt" in shallow)
 }
 
 proc test_tree_supports_multiple_roots_and_rejects_flags(ctx: TestContext) [fs, process, env, error] {
@@ -32,23 +32,17 @@ proc test_tree_supports_multiple_roots_and_rejects_flags(ctx: TestContext) [fs, 
   fp"${right}/b".write("b")?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- $left $right ?
 
-  test.contains(
-    output,
-    f"""${left.display()}
+  f"""${left.display()}
 `-- a
-""",
-  )?
+""" in output
 
-  test.contains(
-    output,
-    f"""
+  f"""
 ${right.display()}
 `-- b
-""",
-  )?
+""" in output
 
   let err = test.temp_path(ctx, name: "tree.err")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- -z $left 2> $err
-  test.ok(! status.exited_with(0))?
-  test.contains(err.read_text()?, "unknown argument")?
+  ! status.exited_with(0)
+  "unknown argument" in (err.read_text()?)
 }

@@ -30,11 +30,6 @@ impl<'a> Parser<'a> {
             (TokenTag::Keyword, Some(Keyword::Run)) => {
                 self.parse_command_statement_arena_only(start, arena)
             }
-            (TokenTag::Keyword, Some(Keyword::True | Keyword::False))
-                if self.block_depth == 0 && self.lookahead_is_keyword_builtin_command() =>
-            {
-                self.parse_command_statement_arena_only(start, arena)
-            }
             (TokenTag::Keyword, Some(Keyword::If)) => self.parse_if_arena_only(start, arena),
             (TokenTag::Keyword, Some(Keyword::While)) => self.parse_while_arena_only(start, arena),
             (TokenTag::Keyword, Some(Keyword::For)) => self.parse_for_arena_only(start, arena),

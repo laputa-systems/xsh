@@ -20,6 +20,15 @@ method named in this document, then open its owner file and nearest test. For
 the complete frontend vocabulary, see `docs/FRONTEND.md`; use the routing
 policy in `AGENTS.md` for task-specific reading and verification.
 
+Boolean statement use is owned by `Checker` and recorded in
+`CheckOutput::assertion_spans`. `CompactBodyProbeOutput` carries those facts
+into `lower_statement_expr`; `BuildExprRow::Assert` and `FullTag::ExprAssert`
+preserve them through indexed verification and both indexed evaluators.
+Comparison operands remain available until assertion completion, so failure
+rendering can explain evaluated values without repeating evaluation or copying
+collection backing on the passing path. Core `AssertionError` uses the nominal
+error machinery independently of `native-tests`.
+
 ## `libxsh` Rust façade
 
 The root `xsh` package also provides the shared Rust library consumed by the

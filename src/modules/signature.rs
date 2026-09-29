@@ -440,6 +440,7 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::EnvPathList => Type::EnvPathList,
         xsh_registry::types::Type::Error => Type::Error,
         xsh_registry::types::Type::ProcessError => Type::ProcessError,
+        xsh_registry::types::Type::ErrorFamily(name) => Type::ErrorFamily(Name::intern(name)),
         xsh_registry::types::Type::Pure => Type::Pure,
         xsh_registry::types::Type::Proc => Type::Proc,
         xsh_registry::types::Type::Command => Type::Command,

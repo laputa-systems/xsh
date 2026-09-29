@@ -5,10 +5,10 @@ proc test_backup_rotate(ctx: TestContext) [fs, process, error] {
   fp"${dir}/backup-2025-01-01.tar.gz".write("new1")?
   fp"${dir}/backup-2025-12-01.tar.gz".write("newest")?
   let output = run.text "xsh" "showcase/backup-rotate.xsh" -- --dir $dir --keep 2 --dry-run=false ?
-  test.contains(output, "kept 2")?
-  test.contains(output, "deleted 2")?
-  test.ok(fp"${dir}/backup-2025-12-01.tar.gz".exists()?)?
-  test.eq(fp"${dir}/backup-2024-01-01.tar.gz".exists()?, false)?
+  "kept 2" in output
+  "deleted 2" in output
+  fp"${dir}/backup-2025-12-01.tar.gz".exists()?
+  fp"${dir}/backup-2024-01-01.tar.gz".exists()? == false
 }
 
 proc test_backup_rotate_only_deletes_direct_backup_files(ctx: TestContext) [fs, process, error] {
@@ -20,10 +20,10 @@ proc test_backup_rotate_only_deletes_direct_backup_files(ctx: TestContext) [fs, 
   fp"${nested}/notes.txt".write("keep me")?
 
   let output = run.text "xsh" "showcase/backup-rotate.xsh" -- --dir $dir --keep 1 --dry-run=false ?
-  test.contains(output, "deleted 1")?
-  test.ok(fp"${dir}/backup-2025-01-01.tar.gz".exists()?)?
-  test.ok(! fp"${dir}/backup-2024-01-01.tar.gz".exists()?)?
-  test.eq(fp"${nested}/notes.txt".read_text()?, "keep me")?
+  "deleted 1" in output
+  fp"${dir}/backup-2025-01-01.tar.gz".exists()?
+  ! fp"${dir}/backup-2024-01-01.tar.gz".exists()?
+  fp"${nested}/notes.txt".read_text()? == "keep me"
 }
 
 proc test_backup_rotate_reports_failed_deletion_without_claiming_it_happened(ctx: TestContext) [fs, process, error] {
@@ -43,6 +43,6 @@ proc test_backup_rotate_reports_failed_deletion_without_claiming_it_happened(ctx
   let output = run.capture --text "xsh" "showcase/backup-rotate.xsh" -- --dir $dir --keep 1 --dry-run=false ?
   test.ok(! output.status.exited_with(0), "deletion must report permission failure")?
   test.ok("delete: backup-2024-01-01.tar.gz" not in output.stdout, "failed deletion must not be reported as done")?
-  test.eq(old.read_text()?, "old")?
-  test.eq(newest.read_text()?, "new")?
+  old.read_text()? == "old"
+  newest.read_text()? == "new"
 }

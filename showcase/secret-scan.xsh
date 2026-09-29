@@ -81,7 +81,7 @@ proc main(...argv: List[Str]) [fs, error] {
   ]
 
   let files = fs.files(root)
-    |> where set.has(scan_ext_set, .path.ext())
+    |> where .path.ext() in scan_ext_set
     |> sort-by .path
 
   if opts.verbose {

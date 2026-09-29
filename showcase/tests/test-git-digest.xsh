@@ -1,6 +1,6 @@
 proc test_git_digest_usage() [process, error] {
   let output = run.text "xsh" "showcase/git-digest.xsh" -- --help ?
-  test.contains(output, "usage:")?
+  "usage:" in output
 }
 
 proc test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting(
@@ -41,6 +41,6 @@ proc test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting
   let status = process.run(command)?
   test.ok(status.exited_with(0), error_file.read_text()?)?
   let output = output_file.read_text()?
-  test.contains(output, "1 file(s) changed")?
-  test.contains(output, "raw-\\377.txt")?
+  "1 file(s) changed" in output
+  "raw-\\377.txt" in output
 }

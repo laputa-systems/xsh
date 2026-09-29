@@ -605,7 +605,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
         let row = thread_row(thread)
         let key = f"${row.owner_pid}"
 
-        if ! matched_threads_by_pid.has(key) {
+        if key not in matched_threads_by_pid {
           matched_owner_pids = matched_owner_pids.push(row.owner_pid)
         }
 

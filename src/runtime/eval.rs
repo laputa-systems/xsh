@@ -1298,6 +1298,10 @@ enum BuildExprRow {
         span: Span,
     },
     Param(usize),
+    Assert {
+        value: BuildExprId,
+        span: Span,
+    },
     Binary {
         op: BinaryOp,
         left: BuildExprId,
@@ -1424,11 +1428,6 @@ enum BuildExprRow {
     StrPredicate {
         receiver: BuildExprId,
         predicate: LoweredStrPredicate,
-        needle: BuildExprId,
-        span: Span,
-    },
-    Contains {
-        receiver: BuildExprId,
         needle: BuildExprId,
         span: Span,
     },

@@ -1190,7 +1190,7 @@ proc test_beta() [error] {
     assert!(stdout.contains("stdout:\n"), "{stdout}");
     assert!(stdout.contains("alpha stdout"), "{stdout}");
     assert!(stdout.contains("stderr:\nalpha stderr"), "{stdout}");
-    assert!(stdout.contains("test-fail: alpha failed"), "{stdout}");
+    assert!(stdout.contains("AssertionError.Failed: alpha failed"), "{stdout}");
     let temp_root_line = stdout
         .lines()
         .find(|line| line.contains("/xsh-test-") && line.ends_with("-test_alpha"))

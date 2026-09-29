@@ -301,7 +301,7 @@ export pure parse_cpu_list(text: Str) -> Result[List[Int]] {
   var seen = set.empty()
   for identifier in identifiers {
     let key = f"${identifier}"
-    if set.has(seen, key) {
+    if key in seen {
       return Err(cpu_list_error("CPU list contains a duplicate identifier"))
     }
 
@@ -2222,7 +2222,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
       }
 
       let key = f"${device.class.byte_len()}:${device.class}${entry}"
-      if set.has(class_keys, key) {
+      if key in class_keys {
         return Err(
           SystemReportError.InvalidJson(message: "device-class entries must have unique class and entry names"),
         )
@@ -2249,7 +2249,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
       }
 
       let key = f"${entry.byte_len()}:${entry}${channel.channel}"
-      if set.has(sensor_keys, key) {
+      if key in sensor_keys {
         return Err(
           SystemReportError.InvalidJson(message: "hwmon channels must have unique chip entries and channel names"),
         )
@@ -2309,7 +2309,7 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
 
       if state.cpu_id != null {
         let key = f"${state.cpu_id ?? -1}:${index}"
-        if set.has(idle_keys, key) {
+        if key in idle_keys {
           return Err(SystemReportError.InvalidJson(message: "CPUIdle states must have unique CPU and state indexes"))
         }
 

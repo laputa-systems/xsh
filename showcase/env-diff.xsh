@@ -52,21 +52,21 @@ proc main(...argv: List[Str]) [fs, error] {
   var changed = 0
 
   for k in keys_a {
-    if ! env_b.has(k) {
+    if k not in env_b {
       print f"- ${k}=${env_a.get(k, "")}"
       only_a += 1
     }
   }
 
   for k in keys_b {
-    if ! env_a.has(k) {
+    if k not in env_a {
       print f"+ ${k}=${env_b.get(k, "")}"
       only_b += 1
     }
   }
 
   for k in keys_a {
-    if env_b.has(k) and env_a.get(k, "") != env_b.get(k, "") {
+    if k in env_b and env_a.get(k, "") != env_b.get(k, "") {
       print f"~ ${k}"
       print f"  - ${env_a.get(k, "")}"
       print f"  + ${env_b.get(k, "")}"
@@ -75,7 +75,7 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   let unchanged = keys_a
-    |> where env_b.has(.) and env_a.get(., "") == env_b.get(., "")
+    |> where { |key| key in env_b and env_a.get(key, "") == env_b.get(key, "") }
     |> count()
 
   print ""

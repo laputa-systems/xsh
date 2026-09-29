@@ -731,7 +731,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::RegexCompile
             | RuntimeOp::SetEmpty
             | RuntimeOp::SetFrom
-            | RuntimeOp::SetHas
             | RuntimeOp::SetAdd
             | RuntimeOp::SetRemove
             | RuntimeOp::ShlexQuote
@@ -837,8 +836,6 @@ fn lowered_native_test_op_supported(op: RuntimeOp) -> bool {
         RuntimeOp::TestOk
             | RuntimeOp::TestEq
             | RuntimeOp::TestNe
-            | RuntimeOp::TestContains
-            | RuntimeOp::TestNotContains
             | RuntimeOp::TestErrorKind
             | RuntimeOp::TestFail
             | RuntimeOp::TestSkip
@@ -4048,7 +4045,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             ArenaStmtKind::Expr(value) => {
                 let mut slots = top_level_slots(known);
-                let value = self.lower_expr(value, &mut slots, None, None)?;
+                let value = self.lower_statement_expr(value, &mut slots, None, None)?;
                 Some(lowered_top_level(
                     &self.scratch,
                     BuildTopKind::Expr(value),
@@ -5774,18 +5771,17 @@ impl CompactLowerConstructProbe<'_, '_> {
                 self,
                 stmt,
                 BuildStmtRow::Return {
-                    value: self.lower_expr(expr, slots, current_function, item_slot)?,
+                    value: self.lower_statement_expr(expr, slots, current_function, item_slot)?,
                 }
             ),
-            ArenaStmtKind::TailBareIdent(name) => push_build_row!(
-                self,
-                stmt,
-                BuildStmtRow::Return {
-                    value: self
-                        .lower_bare_ident(name, slots)
-                        .unwrap_or(push_build_row!(self, expr, BuildExprRow::Unit)),
-                }
-            ),
+            ArenaStmtKind::TailBareIdent(name) => {
+                let value = self.lower_bare_ident(name, slots).unwrap_or(push_build_row!(self, expr, BuildExprRow::Unit));
+                let span = self.program.arena.stmt(tail).span;
+                let value = if self.bodies.assertion_spans.contains(&span) {
+                    push_build_row!(self, expr, BuildExprRow::Assert { value, span })
+                } else { value };
+                push_build_row!(self, stmt, BuildStmtRow::Return { value })
+            },
             ArenaStmtKind::If {
                 branches,
                 else_block,
@@ -5970,6 +5966,22 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 None
             }
+        }
+    }
+
+    fn lower_statement_expr(
+        &mut self,
+        id: ExprId,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        let value = self.lower_expr(id, slots, current_function, item_slot)?;
+        let span = self.program.arena.expr(id).span;
+        if self.bodies.assertion_spans.contains(&span) {
+            Some(push_build_row!(self, expr, BuildExprRow::Assert { value, span }))
+        } else {
+            Some(value)
         }
     }
 
@@ -6735,7 +6747,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 self,
                 stmt,
                 BuildStmtRow::Expr {
-                    value: self.lower_expr(value, slots, current_function, item_slot)?,
+                    value: self.lower_statement_expr(value, slots, current_function, item_slot)?,
                     span: self.program.arena.stmt(id).span,
                 }
             )),
@@ -6750,7 +6762,11 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let value = self.lower_bare_ident(name, slots)?;
-                Some(push_build_row!(self, stmt, BuildStmtRow::Return { value }))
+                let span = self.program.arena.stmt(id).span;
+                if self.bodies.assertion_spans.contains(&span) {
+                    let value = push_build_row!(self, expr, BuildExprRow::Assert { value, span });
+                    Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value, span }))
+                } else { Some(push_build_row!(self, stmt, BuildStmtRow::Return { value })) }
             }
             _ => None,
         };
@@ -6969,6 +6985,12 @@ impl CompactLowerConstructProbe<'_, '_> {
         let ArenaCommand::Proc { name, args } = stmt.command else {
             return None;
         };
+        let span = self.program.arena.span(stmt.span);
+        if self.bodies.assertion_spans.contains(&span) {
+            let value = self.lower_bare_ident(name, slots)?;
+            let value = push_build_row!(self, expr, BuildExprRow::Assert { value, span });
+            return Some(push_build_row!(self, stmt, BuildStmtRow::Expr { value, span }));
+        }
         let name_text = name.as_str();
         let (module, api) = super::standard_module_command_name(name_text.as_str())?;
         let op = api_spec().module_op(module, api)?;
@@ -9448,20 +9470,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                                 item_slot,
                             )?,
                             atomic: name == "write_atomic",
-                            span,
-                        }
-                    ));
-                }
-                if name == "contains" && args_vec.len() == 1 {
-                    let ArenaCallArgKind::Positional(needle) = args_vec[0].kind else {
-                        return None;
-                    };
-                    return Some(push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::Contains {
-                            receiver: self.lower_expr(base, slots, current_function, item_slot,)?,
-                            needle: self.lower_expr(needle, slots, current_function, item_slot,)?,
                             span,
                         }
                     ));
@@ -12324,8 +12332,14 @@ impl CompactLowerConstructProbe<'_, '_> {
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
         match self.program.arena.stmt(stmt).kind {
-            ArenaStmtKind::Expr(expr) => self.lower_expr(expr, slots, current_function, item_slot),
-            ArenaStmtKind::TailBareIdent(name) => self.lower_bare_ident(name, slots),
+            ArenaStmtKind::Expr(expr) => self.lower_statement_expr(expr, slots, current_function, item_slot),
+            ArenaStmtKind::TailBareIdent(name) => {
+                let value = self.lower_bare_ident(name, slots)?;
+                let span = self.program.arena.stmt(stmt).span;
+                Some(if self.bodies.assertion_spans.contains(&span) {
+                    push_build_row!(self, expr, BuildExprRow::Assert { value, span })
+                } else { value })
+            },
             _ => None,
         }
     }
@@ -13149,7 +13163,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             | "byte_len" => arg_count == 0,
             "fields" | "squeeze" => arg_count <= 1,
             "split" => arg_count == 1 || arg_count == 2,
-            "wrap" | "delete" | "starts_with" | "ends_with" | "contains" => arg_count == 1,
+            "wrap" | "delete" | "starts_with" | "ends_with" => arg_count == 1,
             "replace" | "translate" => arg_count == 2,
             "byte_at" | "byte_slice" | "find" => arg_count == 1 || arg_count == 2,
             _ => false,
@@ -13158,7 +13172,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             "trim" | "lines" | "count_lines" | "len" | "lower" | "base64" | "base32" | "md5"
             | "sha1" | "sha256" | "sha512" | "utf8" => arg_count == 0,
             "dump" | "strings" => arg_count <= 1,
-            "chunks" | "compare" | "starts_with" | "ends_with" | "contains" => arg_count == 1,
+            "chunks" | "compare" | "starts_with" | "ends_with" => arg_count == 1,
             "byte_at" | "slice" => arg_count == 1 || arg_count == 2,
             _ => false,
         },
@@ -13187,19 +13201,19 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             _ => false,
         },
         Type::Record(_) | Type::Module(_) | Type::DynamicModule => {
-            matches!(name.as_str().as_str(), "has" | "get") && arg_count == 1
+            name == "get" && arg_count == 1
                 || matches!(name.as_str().as_str(), "keys" | "len") && arg_count == 0
         }
         Type::List(_) => match name.as_str().as_str() {
             "collect" | "len" => arg_count == 0,
-            "contains" | "push" | "extend" => arg_count == 1,
+            "push" | "extend" => arg_count == 1,
             "get" => arg_count == 1 || arg_count == 2,
             "join" => arg_count <= 1,
             _ => false,
         },
         Type::Map(_) => match name.as_str().as_str() {
             "len" | "keys" | "values" => arg_count == 0,
-            "has" | "remove" => arg_count == 1,
+            "remove" => arg_count == 1,
             "get" => arg_count == 1 || arg_count == 2,
             "set" | "push" => arg_count == 2,
             _ => false,
@@ -13241,7 +13255,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             "parse_float" => Some(Type::Result(Box::new(Type::Float), Box::new(Type::Error))),
             "count_lines" | "count_words" | "count_chars" | "count_bytes" | "byte_len"
             | "byte_at" | "find" => Some(Type::Int),
-            "starts_with" | "ends_with" | "contains" => Some(Type::Bool),
+            "starts_with" | "ends_with" => Some(Type::Bool),
             _ => None,
         },
         Type::Bytes => match name.as_str().as_str() {
@@ -13261,7 +13275,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
                 Some(Type::Record(fields))
             }
             "count_lines" | "len" | "byte_at" => Some(Type::Int),
-            "starts_with" | "ends_with" | "contains" => Some(Type::Bool),
+            "starts_with" | "ends_with" => Some(Type::Bool),
             "md5" | "sha1" | "sha256" | "sha512" => Some(Type::Digest),
             _ => None,
         },
@@ -13302,7 +13316,6 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             "get" => Some(Type::Result(item.clone(), Box::new(Type::Error))),
             "push" | "extend" => Some(Type::List(item.clone())),
             "join" => Some(Type::Str),
-            "contains" => Some(Type::Bool),
             _ => None,
         },
         Type::Map(item) => match name.as_str().as_str() {
@@ -13311,13 +13324,11 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             "len" => Some(Type::Int),
             "get" => Some(Type::Result(item.clone(), Box::new(Type::Error))),
             "set" | "remove" => Some(Type::Map(item.clone())),
-            "has" => Some(Type::Bool),
             _ => None,
         },
         Type::Record(fields) => match name.as_str().as_str() {
             "keys" => Some(Type::List(Box::new(Type::Str))),
             "len" => Some(Type::Int),
-            "has" => Some(Type::Bool),
             "get" => Some(Type::Result(Box::new(Type::Any), Box::new(Type::Error))),
             "values" => Some(Type::List(Box::new(
                 fields.values().next().cloned().unwrap_or(Type::Any),
@@ -13327,7 +13338,6 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
         Type::Module(_) | Type::DynamicModule => match name.as_str().as_str() {
             "keys" => Some(Type::List(Box::new(Type::Str))),
             "len" => Some(Type::Int),
-            "has" => Some(Type::Bool),
             "get" => Some(Type::Result(Box::new(Type::Any), Box::new(Type::Error))),
             _ => None,
         },
@@ -13650,8 +13660,6 @@ fn lowered_plain_method_type(name: Name) -> Option<LoweredType> {
         || name == "exited_with"
         || name == "starts_with"
         || name == "ends_with"
-        || name == "contains"
-        || name == "has"
         || name == "matches"
     {
         return Some(LoweredType::Bool);
@@ -13817,8 +13825,22 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(push_build_row!(self, bool, BuildBoolRow::Slot(*slot)))
             }
             BuildExprRow::Binary {
-                op, left, right, ..
+                op, left, right, span
             } => match op {
+                BinaryOp::In | BinaryOp::NotIn => {
+                    let receiver_row = self.scratch.borrow().expressions[right.index()].clone();
+                    let BuildExprRow::Param(slot) = receiver_row else { return None; };
+                    let needle_row = self.scratch.borrow().expressions[left.index()].clone();
+                    let candidate = if let BuildExprRow::Str(needle) = needle_row {
+                        push_build_row!(self, bool, BuildBoolRow::StrContainsSlot { slot, needle, span: *span })
+                    } else {
+                        let needle = self.lowered_literal_value(left)?;
+                        push_build_row!(self, bool, BuildBoolRow::ContainsSlot { slot, needle, span: *span })
+                    };
+                    Some(if *op == BinaryOp::NotIn {
+                        push_build_row!(self, bool, BuildBoolRow::Not(candidate))
+                    } else { candidate })
+                }
                 BinaryOp::And => Some(push_build_row!(
                     self,
                     bool,
@@ -13975,38 +13997,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                     ));
                 }
                 None
-            }
-            BuildExprRow::Contains {
-                receiver,
-                needle,
-                span,
-            } => {
-                let receiver_row = self.scratch.borrow().expressions[receiver.index()].clone();
-                let BuildExprRow::Param(slot) = receiver_row else {
-                    return None;
-                };
-                let needle_row = self.scratch.borrow().expressions[needle.index()].clone();
-                if let BuildExprRow::Str(needle) = needle_row {
-                    return Some(push_build_row!(
-                        self,
-                        bool,
-                        BuildBoolRow::StrContainsSlot {
-                            slot,
-                            needle,
-                            span: *span,
-                        }
-                    ));
-                }
-                let needle = self.lowered_literal_value(needle)?;
-                Some(push_build_row!(
-                    self,
-                    bool,
-                    BuildBoolRow::ContainsSlot {
-                        slot,
-                        needle,
-                        span: *span,
-                    }
-                ))
             }
             _ => None,
         }

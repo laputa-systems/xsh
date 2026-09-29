@@ -1,6 +1,6 @@
 proc test_test_helpers() [error] {
-  test.ne(1, 2)?
-  test.error_kind(test.fail("covered failure"), "test-fail")?
+  1 != 2
+  test.error_kind(test.fail("covered failure"), "AssertionError.Failed")?
 }
 
 proc test_error_fail_constructs_validation_result() [error] {
@@ -21,9 +21,9 @@ io.write_stdout_bytes(b"\\xff\\x00a")?
   )?
 
   test.ok(ok.success, ok.stderr)?
-  test.eq(ok.status, 0)?
-  test.contains(ok.stdout, "argument", ok.stdout)?
-  test.contains(ok.stdout, "env-value", ok.stdout)?
+  ok.status == 0
+  test.ok("argument" in ok.stdout, ok.stdout)?
+  test.ok("env-value" in ok.stdout, ok.stdout)?
   test.ok(ok.stdout_bytes.ends_with(b"\xff\0a"), ok.stdout)?
 
   let failed = test.run_script(
@@ -33,7 +33,7 @@ io.write_stdout_bytes(b"\\xff\\x00a")?
   )?
 
   test.ok(! failed.success, failed.stdout)?
-  test.eq(failed.status, 7)?
+  failed.status == 7
 }
 
 proc test_run_xsht_trace_accepts_trace_flags_and_script_args(ctx: TestContext) [error] {
@@ -49,14 +49,11 @@ run true ?
 
   test.ok(output.success, output.stderr)?
 
-  test.eq(
-    output.stdout,
-    """script-arg
-""",
-  )?
+  output.stdout == """script-arg
+"""
 
-  test.contains(output.stderr, "kind=script.enter")?
-  test.contains(output.stderr, "kind=run.start")?
+  "kind=script.enter" in output.stderr
+  "kind=run.start" in output.stderr
 }
 
 proc test_skip_function_is_covered() {

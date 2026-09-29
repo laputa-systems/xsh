@@ -5,9 +5,9 @@ proc test_readlink(ctx: TestContext) [fs, process, env, error] {
   target.write("ok")?
   fs.symlink(target, link)?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/readlink.xsh" -- $link ?
-  test.contains(output, "target.txt")?
+  "target.txt" in output
   let resolved = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/readlink.xsh" -- -f $link ?
-  test.eq(resolved.trim(), target.resolve()?.display())?
+  resolved.trim() == target.resolve()?.display()
   let resolved_long = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/readlink.xsh" -- --canonicalize $link ?
-  test.eq(resolved_long.trim(), target.resolve()?.display())?
+  resolved_long.trim() == target.resolve()?.display()
 }

@@ -4,20 +4,14 @@ proc test_paste_parallel_serial_and_delimiters(ctx: TestContext) [fs, process, e
   let parallel = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/paste.xsh" -- $left $right ?
   let serial = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/paste.xsh" -- -s -d: $left $right ?
 
-  test.eq(
-    parallel,
-    f"""a	1
+  parallel == f"""a	1
 b	2
 	3
-""",
-  )?
+"""
 
-  test.eq(
-    serial,
-    """a:b
+  serial == """a:b
 1:2:3
-""",
-  )?
+"""
 }
 
 proc test_paste_reads_stdin_and_rejects_flags(ctx: TestContext) [fs, process, env, error] {
@@ -29,14 +23,11 @@ b
 
   let output = run.text sh -c $command ?
 
-  test.eq(
-    output,
-    f"""a	b
-""",
-  )?
+  output == f"""a	b
+"""
 
   let err = test.temp_path(ctx, name: "paste.err")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir}/paste.xsh" -- -z 2> $err
-  test.ok(! status.exited_with(0))?
-  test.contains(err.read_text()?, "unknown argument")?
+  ! status.exited_with(0)
+  "unknown argument" in err.read_text()?
 }

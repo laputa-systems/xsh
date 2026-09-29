@@ -25,6 +25,19 @@ impl Checker {
         args: &[ArenaCallArg],
         span: Span,
     ) -> Type {
+        if (name == "contains" && matches!(base_ty, Type::Str | Type::Bytes | Type::List(_)))
+            || (name == "has" && match &base_ty {
+                Type::Map(_) => true,
+                Type::Record(fields) => !fields.contains_key(&crate::sema::check::Name::intern("has")),
+                Type::Module(exports) => !exports.contains_key(&crate::sema::check::Name::intern("has")),
+                _ => false,
+            })
+        {
+            self.membership_migration_spans.insert(span);
+            self.error(span, "standard membership method was removed; use `in` or `not in`", "check.removed-membership");
+            for arg in args { self.check_call_arg_arena(arena, source, &arg.kind, None); }
+            return Type::Bool;
+        }
         if base_ty == Type::Any {
             for arg in args {
                 self.check_call_arg_arena(arena, source, &arg.kind, None);

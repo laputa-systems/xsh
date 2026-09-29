@@ -1,5 +1,21 @@
 use super::common::*;
 
+// The CLI exit and absence of subsequent output need an independent host judge.
+#[test]
+fn bare_boolean_assertion_is_an_unsuccessful_cli_exit() {
+    let output = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"))
+        .arg("tests/fixtures/runtime/assertion-failure.xsh")
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output()
+        .expect("run failing assertion fixture");
+    assert_eq!(output.status.code(), Some(3));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8 diagnostics");
+    assert!(stderr.contains("AssertionError"), "{stderr}");
+    assert!(stderr.contains("1 == 2"), "{stderr}");
+    assert!(stderr.contains("assertion-failure.xsh:1"), "{stderr}");
+}
+
 // Copying both executables into an isolated directory exercises their embedded
 // linkage and process output; a native script cannot relocate either product.
 #[test]

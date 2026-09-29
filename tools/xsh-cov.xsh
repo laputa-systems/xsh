@@ -152,7 +152,7 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[R
   for api_id in sorted_standard {
     let group_name = api_id.split(".").get(0, "other")
     let current = totals.get(group_name, {covered: 0, total: 0})
-    let covered = if api_hits.has(api_id) { 1 } else { 0 }
+    let covered = if api_id in api_hits { 1 } else { 0 }
     totals[group_name] = {covered: current.covered + covered, total: current.total + 1}
   }
 
@@ -161,7 +161,7 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[R
     for group_name in totals.keys() |> sort
   ]
 
-  let uncovered = sorted_standard |> where ! api_hits.has(.)
+  let uncovered = sorted_standard |> where { |api| api not in api_hits }
   var covered_rows: List[Record] = []
 
   for api_id in api_hits.keys() |> sort {

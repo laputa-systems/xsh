@@ -13,7 +13,7 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
     linux.umount_all(types: ["tmpfs"])?
     linux.swapon_all()?
     linux.swapoff_all()?
-    test.eq(linux.root_device()?, "rootfs")?
+    linux.root_device()? == "rootfs"
     linux.link_up("lo")?
     linux.link_down("eth0")?
     linux.set_ipv4_address("eth0", "192.0.2.10", "255.255.255.0")?
@@ -28,22 +28,22 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
     test.eq(routes[0].dst, "default")?
     test.eq(routes[0].gateway, "192.0.2.1")?
     let network = linux.network_dump()?
-    test.eq(network.state, "complete")?
-    test.eq(network.links[0].name, "eth0")?
-    test.eq(network.addresses[0].address, "192.0.2.10")?
-    test.eq(network.routes[0].table, 254)?
-    test.eq(network.rules[0].priority, 32766)?
-    test.ok(linux.meminfo()?.total > 0)?
+    network.state == "complete"
+    network.links[0].name == "eth0"
+    network.addresses[0].address == "192.0.2.10"
+    network.routes[0].table == 254
+    network.rules[0].priority == 32766
+    (linux.meminfo()?.total > 0)
     test.eq(linux.modules()?.collect()[0].name, "xsh_demo")?
-    test.contains(linux.dmesg()?.collect()[0], "xsh")?
-    test.ok(linux.is_mountpoint(/proc)?)?
+    "xsh" in linux.dmesg()?.collect()[0].require(Str)?
+    linux.is_mountpoint(/proc)?
     test.eq(linux.disk_usage(/)?.collect()[0].device, "rootfs")?
     test.eq(linux.block_devices()?.collect()[0].name, "vda")?
     let sysctl_value = linux.sysctl_get("kernel.pid_max")?
-    test.eq(sysctl_value, "1")?
+    sysctl_value == "1"
     linux.sysctl_set("kernel.pid_max", sysctl_value)?
     let attrs = linux.file_attrs(seed)?
-    test.ok(attrs.immutable and attrs.append_only)?
+    (attrs.immutable and attrs.append_only)
     linux.set_file_attrs(seed, attrs.flags)?
     let version = linux.file_version(seed)?
     linux.set_file_version(seed, version)?
@@ -66,21 +66,21 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
     linux.mkswap(seed)?
     linux.swapon(seed, priority: 1)?
     linux.swapoff(seed)?
-    test.eq(linux.blkid(seed)?.type, "ext4")?
-    test.eq(linux.modinfo("demo")?.params[0].name, "debug")?
+    linux.blkid(seed)?.type == "ext4"
+    linux.modinfo("demo")?.params[0].name == "debug"
     linux.modprobe("demo", params: "debug=1")?
     linux.depmod("dry-run")?
     test.eq(linux.open_files(123)?.collect()[0].type, "file")?
     let table = linux.partition_table(seed)?
-    test.eq(table.partitions[0].name, "root")?
+    table.partitions[0].name == "root"
     linux.write_partition_table(seed, table)?
-    test.eq(linux.fsck(seed, fstype: "ext4")?.status, 0)?
+    linux.fsck(seed, fstype: "ext4")?.status == 0
     let uevents = linux.uevent_stream()?
 
     for event in uevents {
-      test.eq(event.action, "add")?
-      test.eq(event.subsystem, "block")?
-      test.eq(event.env[0].name, "ACTION")?
+      event.action == "add"
+      event.subsystem == "block"
+      event.env[0].name == "ACTION"
       break
     }
 
@@ -91,33 +91,33 @@ proc test_linux_dry_run_covers_module_surface(ctx: TestContext) [fs, process, en
     linux.reboot()?
   } ?
 
-  test.eq(random.read_bytes()?, b"\0\0\0\0")?
+  random.read_bytes()? == b"\0\0\0\0"
   let log_text = log.read_text()?
-  test.contains(log_text, "\"op\":\"mount\"")?
-  test.contains(log_text, "\"op\":\"meminfo\"")?
-  test.contains(log_text, "\"op\":\"routes\"")?
-  test.contains(log_text, "\"op\":\"set_ipv4_address\"")?
-  test.contains(log_text, "\"op\":\"add_default_ipv4_route\"")?
-  test.contains(log_text, "\"op\":\"is_mountpoint\"")?
-  test.contains(log_text, "\"op\":\"disk_usage\"")?
-  test.contains(log_text, "\"op\":\"sysctl_set\"")?
-  test.contains(log_text, "\"op\":\"set_file_attrs\"")?
-  test.contains(log_text, "\"op\":\"mknod\"")?
-  test.contains(log_text, "\"op\":\"loop_attach\"")?
-  test.contains(log_text, "\"op\":\"swapon\"")?
-  test.contains(log_text, "\"op\":\"modprobe\"")?
-  test.contains(log_text, "\"op\":\"write_partition_table\"")?
-  test.contains(log_text, "\"op\":\"uevent_stream\"")?
-  test.contains(log_text, "\"signal\":\"TERM\"")?
-  test.contains(log_text, "\"except_pid1\":\"true\"")?
-  test.contains(log_text, "\"op\":\"link_down\"")?
-  test.contains(log_text, "\"op\":\"flush_ipv4_addresses\"")?
-  test.contains(log_text, "\"op\":\"del_default_ipv4_route\"")?
-  test.contains(log_text, "\"op\":\"dhcp_send_release\"")?
-  test.contains(log_text, "\"op\":\"read_device\"")?
-  test.contains(log_text, "\"op\":\"kill_all\"")?
-  test.contains(log_text, "\"op\":\"poweroff\"")?
-  test.contains(log_text, "\"op\":\"reboot\"")?
+  "\"op\":\"mount\"" in log_text
+  "\"op\":\"meminfo\"" in log_text
+  "\"op\":\"routes\"" in log_text
+  "\"op\":\"set_ipv4_address\"" in log_text
+  "\"op\":\"add_default_ipv4_route\"" in log_text
+  "\"op\":\"is_mountpoint\"" in log_text
+  "\"op\":\"disk_usage\"" in log_text
+  "\"op\":\"sysctl_set\"" in log_text
+  "\"op\":\"set_file_attrs\"" in log_text
+  "\"op\":\"mknod\"" in log_text
+  "\"op\":\"loop_attach\"" in log_text
+  "\"op\":\"swapon\"" in log_text
+  "\"op\":\"modprobe\"" in log_text
+  "\"op\":\"write_partition_table\"" in log_text
+  "\"op\":\"uevent_stream\"" in log_text
+  "\"signal\":\"TERM\"" in log_text
+  "\"except_pid1\":\"true\"" in log_text
+  "\"op\":\"link_down\"" in log_text
+  "\"op\":\"flush_ipv4_addresses\"" in log_text
+  "\"op\":\"del_default_ipv4_route\"" in log_text
+  "\"op\":\"dhcp_send_release\"" in log_text
+  "\"op\":\"read_device\"" in log_text
+  "\"op\":\"kill_all\"" in log_text
+  "\"op\":\"poweroff\"" in log_text
+  "\"op\":\"reboot\"" in log_text
 }
 
 # The message a failed `linux.meminfo` call reports.
@@ -140,7 +140,7 @@ proc test_linux_text_entries_require_a_gate() [process, env, error] {
   env XSH_LINUX_DRY_RUN="" XSH_LINUX_REAL="" {
     test.error_kind(linux.meminfo(), "linux-unimplemented")?
     test.error_kind(linux.modules(), "linux-unimplemented")?
-    test.contains(meminfo_failure(linux.meminfo()), "XSH_LINUX_REAL=1")?
+    "XSH_LINUX_REAL=1" in meminfo_failure(linux.meminfo())
   } ?
 }
 
@@ -152,8 +152,8 @@ proc test_linux_halt_requires_an_explicit_mode(ctx: TestContext) [error] {
     [],
     {XSH_LINUX_DRY_RUN: "", XSH_LINUX_REAL: ""},
   )?
-  test.eq(output.status, 3)?
-  test.contains(output.stderr, "linux-unimplemented")?
+  output.status == 3
+  "linux-unimplemented" in output.stderr
 }
 
 proc test_linux_text_dry_run_values_and_log(ctx: TestContext) [fs, process, env, error] {
@@ -165,13 +165,13 @@ proc test_linux_text_dry_run_values_and_log(ctx: TestContext) [fs, process, env,
   # its operation to the log file.
   env XSH_LINUX_DRY_RUN=1 XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN_LOG=$log {
     let memory = linux.meminfo()?
-    test.eq(memory.total, 1024 * 1024 * 1024)?
-    test.eq(memory.free, 256 * 1024 * 1024)?
-    test.eq(memory.available, 512 * 1024 * 1024)?
-    test.eq(memory.buffers, 64 * 1024 * 1024)?
-    test.eq(memory.cached, 128 * 1024 * 1024)?
-    test.eq(memory.swap_total, 512 * 1024 * 1024)?
-    test.eq(memory.swap_free, 384 * 1024 * 1024)?
+    memory.total == (1024 * 1024 * 1024)
+    memory.free == (256 * 1024 * 1024)
+    memory.available == (512 * 1024 * 1024)
+    memory.buffers == (64 * 1024 * 1024)
+    memory.cached == (128 * 1024 * 1024)
+    memory.swap_total == (512 * 1024 * 1024)
+    memory.swap_free == (384 * 1024 * 1024)
 
     let modules = linux.modules()?.collect()
     test.eq(modules.len(), 1)?
@@ -180,12 +180,9 @@ proc test_linux_text_dry_run_values_and_log(ctx: TestContext) [fs, process, env,
     test.eq(modules[0].used_by, ["xsh_dep"])?
   } ?
 
-  test.eq(
-    log.read_text()?,
-    """{"op":"meminfo"}
+  log.read_text()? == """{"op":"meminfo"}
 {"op":"modules"}
-""",
-  )?
+"""
 }
 
 proc test_linux_dry_run_disk_usage_and_sysctl_records() [process, env, error] {
@@ -199,9 +196,9 @@ proc test_linux_dry_run_disk_usage_and_sysctl_records() [process, env, error] {
     test.eq(root_usage[0].used, 268435456)?
     test.eq(root_usage[0].available, 805306368)?
     test.eq(tmp_usage[0].mount, "/tmp")?
-    test.ok(linux.is_mountpoint(/proc)?)?
-    test.ok(! linux.is_mountpoint(/tmp)?)?
-    test.eq(linux.sysctl_get("kernel.pid_max")?, "65535")?
+    linux.is_mountpoint(/proc)?
+    ! linux.is_mountpoint(/tmp)?
+    linux.sysctl_get("kernel.pid_max")? == "65535"
   } ?
 }
 
@@ -214,21 +211,21 @@ proc test_linux_dry_run_file_attrs_decode_seed_flags(ctx: TestContext) [fs, proc
     let version = linux.file_version(seed)?
     linux.set_file_attrs(seed, attrs.flags)?
     linux.set_file_version(seed, version)?
-    test.eq(attrs.flags, 250111)?
-    test.eq(version, 7)?
-    test.ok(attrs.indexed_directory)?
-    test.ok(attrs.secure_deletion)?
-    test.ok(attrs.undelete)?
-    test.ok(attrs.sync)?
-    test.ok(attrs.dirsync)?
-    test.ok(attrs.immutable)?
-    test.ok(attrs.append_only)?
-    test.ok(attrs.no_dump)?
-    test.ok(attrs.no_atime)?
-    test.ok(attrs.compression_requested)?
-    test.ok(attrs.journaled_data)?
-    test.ok(attrs.no_tailmerging)?
-    test.ok(attrs.top_of_directory_hierarchies)?
+    attrs.flags == 250111
+    version == 7
+    attrs.indexed_directory
+    attrs.secure_deletion
+    attrs.undelete
+    attrs.sync
+    attrs.dirsync
+    attrs.immutable
+    attrs.append_only
+    attrs.no_dump
+    attrs.no_atime
+    attrs.compression_requested
+    attrs.journaled_data
+    attrs.no_tailmerging
+    attrs.top_of_directory_hierarchies
   } ?
 }
 
@@ -238,7 +235,7 @@ proc test_linux_dry_run_rejects_invalid_seed_inputs() [process, env, error] {
       Ok(_) => test.ok(false, "invalid sysctl name was accepted")?
       Err(failure) => {
         test.error_kind(failure, "linux-sysctl")?
-        test.contains(failure.message, "invalid")?
+        "invalid" in failure.message
       }
     }
 
@@ -246,7 +243,7 @@ proc test_linux_dry_run_rejects_invalid_seed_inputs() [process, env, error] {
       Ok(_) => test.ok(false, "invalid sysctl path was accepted")?
       Err(failure) => {
         test.error_kind(failure, "linux-sysctl")?
-        test.contains(failure.message, "invalid")?
+        "invalid" in failure.message
       }
     }
 
@@ -255,7 +252,7 @@ proc test_linux_dry_run_rejects_invalid_seed_inputs() [process, env, error] {
         Ok(_) => test.ok(false, "invalid file attribute flags were accepted")?
         Err(failure) => {
           test.error_kind(failure, "linux-file-attrs")?
-          test.contains(failure.message, "between 0 and 4294967295")?
+          "between 0 and 4294967295" in failure.message
         }
       }
     }
@@ -264,7 +261,7 @@ proc test_linux_dry_run_rejects_invalid_seed_inputs() [process, env, error] {
       Ok(_) => test.ok(false, "invalid file version was accepted")?
       Err(failure) => {
         test.error_kind(failure, "linux-file-version")?
-        test.contains(failure.message, "between 0 and 4294967295")?
+        "between 0 and 4294967295" in failure.message
       }
     }
 
@@ -273,7 +270,7 @@ proc test_linux_dry_run_rejects_invalid_seed_inputs() [process, env, error] {
       Ok(_) => test.ok(false, "invalid node kind was accepted")?
       Err(failure) => {
         test.error_kind(failure, "linux-mknod")?
-        test.contains(failure.message, "block")?
+        "block" in failure.message
       }
     }
   } ?
@@ -299,8 +296,8 @@ proc test_linux_dry_run_log_appends_in_place(ctx: TestContext) [fs, process, env
     let _ = linux.meminfo()?
   } ?
   let once = log.read_bytes()?
-  test.ok(once.starts_with(seeded))?
-  test.ok(once.len() > seeded.len())?
+  once.starts_with(seeded)
+  (once.len() > seeded.len())
 
   # A second call appends exactly one more record: the file grows by the same
   # number of bytes again and nothing before it is truncated.
@@ -308,16 +305,16 @@ proc test_linux_dry_run_log_appends_in_place(ctx: TestContext) [fs, process, env
     let _ = linux.meminfo()?
   } ?
   let twice = log.read_bytes()?
-  test.ok(twice.starts_with(seeded))?
-  test.eq(twice.len() - once.len(), once.len() - seeded.len())?
+  twice.starts_with(seeded)
+  (twice.len() - once.len()) == (once.len() - seeded.len())
 
   # A destination whose parent directories do not exist yet is created.
   let fresh = fp"${root}/missing/deeper/linux.jsonl"
   env XSH_LINUX_DRY_RUN=1 XSH_LINUX_DRY_RUN_LOG=$fresh {
     let _ = linux.meminfo()?
   } ?
-  test.ok(fresh.exists()?)?
-  test.contains(fresh.read_text() ?? "", "\"op\":\"meminfo\"")?
+  fresh.exists()?
+  "\"op\":\"meminfo\"" in (fresh.read_text() ?? "")
 
   # A directory destination raises the native logging error.
   let blocked = fp"${root}/a-directory"
@@ -331,9 +328,9 @@ proc test_linux_dry_run_log_appends_in_place(ctx: TestContext) [fs, process, env
       XSH_LINUX_DRY_RUN_LOG: blocked.display(),
     },
   )?
-  test.ok(! failed.success)?
-  test.contains(failed.stderr, "linux-dry-run-log")?
-  test.eq(blocked.metadata()?.kind, "dir")?
+  ! failed.success
+  "linux-dry-run-log" in failed.stderr
+  blocked.metadata()?.kind == "dir"
 }
 
 proc test_linux_text_log_failure_kind(ctx: TestContext) [fs, process, env, error] {
@@ -355,8 +352,8 @@ proc test_linux_text_log_failure_kind(ctx: TestContext) [fs, process, env, error
       XSH_LINUX_DRY_RUN_LOG: blocked_log.display(),
     },
   )?
-  test.ok(! meminfo_failed.success)?
-  test.contains(meminfo_failed.stderr, "linux-dry-run-log")?
+  ! meminfo_failed.success
+  "linux-dry-run-log" in meminfo_failed.stderr
 
   # The retained native modules arm raises a dry-run log failure. A nested
   # script observes that process boundary without losing the failure kind.
@@ -369,8 +366,8 @@ proc test_linux_text_log_failure_kind(ctx: TestContext) [fs, process, env, error
       XSH_LINUX_DRY_RUN_LOG: blocked_log.display(),
     },
   )?
-  test.ok(! failed.success)?
-  test.contains(failed.stderr, "linux-dry-run-log")?
+  ! failed.success
+  "linux-dry-run-log" in failed.stderr
 }
 
 proc test_linux_meminfo_reads_the_host_text() [process, env, error] {
@@ -387,12 +384,12 @@ proc test_linux_meminfo_reads_the_host_text() [process, env, error] {
   # total it is reported next to.
   env XSH_LINUX_REAL=1 {
     let memory = linux.meminfo()?
-    test.ok(memory.total > 0)?
-    test.eq(memory.total % 1024, 0)?
-    test.ok(memory.free >= 0 and memory.free <= memory.total)?
-    test.ok(memory.available >= 0 and memory.available <= memory.total)?
-    test.ok(memory.buffers >= 0 and memory.cached >= 0)?
-    test.ok(memory.swap_free >= 0 and memory.swap_free <= memory.swap_total)?
+    (memory.total > 0)
+    (memory.total % 1024) == 0
+    (memory.free >= 0 and memory.free <= memory.total)
+    (memory.available >= 0 and memory.available <= memory.total)
+    (memory.buffers >= 0 and memory.cached >= 0)
+    (memory.swap_free >= 0 and memory.swap_free <= memory.swap_total)
   } ?
 }
 
@@ -411,10 +408,10 @@ proc test_linux_modules_streams_the_host_text() [process, env, error] {
   env XSH_LINUX_REAL=1 {
     let records = linux.modules()?
     for entry in records {
-      test.ok(entry.name != "")?
-      test.ok(entry.size >= 0)?
+      (entry.name != "")
+      (entry.size >= 0)
       for dependent in entry.used_by {
-        test.ok(dependent != "")?
+        (dependent != "")
       }
 
       break
@@ -424,10 +421,10 @@ proc test_linux_modules_streams_the_host_text() [process, env, error] {
   # The whole text interprets into records with the same shape.
   env XSH_LINUX_REAL=1 {
     for entry in linux.modules()?.collect() {
-      test.ok(entry.name != "")?
-      test.ok(entry.size >= 0)?
+      (entry.name != "")
+      (entry.size >= 0)
       for dependent in entry.used_by {
-        test.ok(dependent != "")?
+        (dependent != "")
       }
     }
   } ?
@@ -493,9 +490,7 @@ proc main() [io, fs, error] {
     "linux-module-policy",
   )?
   test.ok(nested.success, nested.stderr)?
-  test.eq(
-    nested.stdout,
-    f"""demo_name|Demo module|MIT|2
+  nested.stdout == f"""demo_name|Demo module|MIT|2
 param=debug|bool|Enable debug
 param=mode|charp|Mode
 explicit=demo_name
@@ -503,8 +498,7 @@ missing=module not found
 demo-name.ko: dep.ko
 dep.ko:
 
-""",
-  )?
+"""
 }
 
 proc test_linux_open_files_tracks_a_live_child_descriptor(ctx: TestContext) [fs, process, env, time, error] {
@@ -559,5 +553,5 @@ proc test_linux_open_files_tracks_a_live_child_descriptor(ctx: TestContext) [fs,
   } ?
 
   stop.write("")?
-  test.ok(wait child?.exited_with(0))?
+  wait child?.exited_with(0)
 }

@@ -11,7 +11,7 @@ proc main(root: Path = p".", ...exts: List[Str]) [fs, error] {
   # read+count runs in source order; reduce-by folds one item at a time.
   let totals = fs.files(root)
     |> where { |entry|
-      exts.len() == 0 or set.has(ext_set, entry.path.ext())
+      exts.len() == 0 or entry.path.ext() in ext_set
     }
     |> reduce-by --sum { |entry|
       {key: entry.path.ext(), value: {files: 1, lines: entry.path.read_text()?.count_lines()}}

@@ -5,14 +5,14 @@ proc test_ls(ctx: TestContext) [fs, process, env, error] {
   fp"${root}/dir".mkdir()?
   fp"${root}/.hidden".write("dot")?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- -a -p $root ?
-  test.contains(output, "a.txt")?
-  test.contains(output, "b.txt")?
-  test.contains(output, ".hidden")?
-  test.contains(output, "dir/")?
+  "a.txt" in output
+  "b.txt" in output
+  ".hidden" in output
+  "dir/" in output
   let long = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- -l $root ?
-  test.contains(long, "file")?
+  "file" in long
   let nested = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- fp"${root}/dir" ?
-  test.ok(! (fp"${root}/dir".display() in nested))?
+  ! (fp"${root}/dir".display() in nested)
   let file_operand = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- fp"${root}/a.txt" ?
-  test.contains(file_operand, fp"${root}/a.txt".display())?
+  fp"${root}/a.txt".display() in file_operand
 }

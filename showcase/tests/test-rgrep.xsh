@@ -3,7 +3,7 @@ proc test_rgrep(ctx: TestContext) [fs, process, error] {
   fp"${root}/a.xsh".write("proc hello() {}")?
   fp"${root}/b.xsh".write("proc world() {}")?
   let output = run.text "xsh" "showcase/rgrep.xsh" -- --pattern proc --root $root ?
-  test.contains(output, "a.xsh:1:")?
-  test.contains(output, "b.xsh:1:")?
-  test.contains(output, "2 matches")?
+  "a.xsh:1:" in output
+  "b.xsh:1:" in output
+  "2 matches" in output
 }

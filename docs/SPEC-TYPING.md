@@ -161,6 +161,15 @@ the declared return type is `Result[T]` and the tail expression has type `T`.
 Ignoring a value-producing `Result` is a checker error. A statement-position
 `Result[Unit]` auto-propagates.
 
+A checked `Bool` in statement use has result `Unit` and propagates
+`AssertionError.Failed(message: Str)` through `Checker::check_propagation`.
+Only statement consumers and `Unit` / `Result[Unit]` tails assert; inferred
+value tails are classified after inference. `CheckOutput::assertion_spans`
+records this decision for lowering. `Any` is never inspected dynamically to
+classify a statement. Explicit discards and boolean value consumers remain
+values. Declared error families are not widened, and restricted procs require
+`error` for assertion propagation outside a retry attempt.
+
 `match` constructor patterns narrow `Result` arms. In an `Ok(value)` arm,
 `value` has the success type. In an `Err(error)` arm, `error` has the error
 type.
@@ -231,7 +240,7 @@ Supported refinements:
   types and check the matched tag-union type.
 - `value != null`, `value == null`, and `!` around those tests narrow optional
   bindings as described above.
-- `record_value.has("field")` refines a record binding inside the true
+- `"field" in record_value` refines a record binding inside the true
   branch so `record_value.field` is known to exist with type `Any` unless the
   field already had a more precise schema type.
 - `match value { name is Type => ... }` tests dynamic values and binds `name`

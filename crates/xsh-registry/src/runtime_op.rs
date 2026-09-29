@@ -56,7 +56,6 @@ pub enum RuntimeOp {
     BytesTrim,
     BytesStartsWith,
     BytesEndsWith,
-    BytesContains,
     BytesLower,
     BytesByteAt,
     CpuCount,
@@ -69,7 +68,6 @@ pub enum RuntimeOp {
     ListLen,
     ListPush,
     ListExtend,
-    ListContains,
     ListGet,
     IntFloat,
     IntBitAnd,
@@ -90,14 +88,12 @@ pub enum RuntimeOp {
     FloatAbs,
     MapEmpty,
     MapLen,
-    MapHas,
     MapGet,
     MapSet,
     MapPush,
     MapRemove,
     MapKeys,
     MapValues,
-    RecordHas,
     RecordGet,
     RecordKeys,
     RecordRequire,
@@ -114,7 +110,6 @@ pub enum RuntimeOp {
     RegexReplace,
     SetEmpty,
     SetFrom,
-    SetHas,
     SetAdd,
     SetRemove,
     ModuleLoad,
@@ -360,7 +355,6 @@ pub enum RuntimeOp {
     TextTrim,
     TextStartsWith,
     TextEndsWith,
-    TextContains,
     TextStreamLines,
     TextWords,
     TextSplit,
@@ -393,10 +387,6 @@ pub enum RuntimeOp {
     TestEq,
     #[cfg(feature = "native-tests")]
     TestNe,
-    #[cfg(feature = "native-tests")]
-    TestContains,
-    #[cfg(feature = "native-tests")]
-    TestNotContains,
     #[cfg(feature = "native-tests")]
     TestErrorKind,
     #[cfg(feature = "native-tests")]

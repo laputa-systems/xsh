@@ -465,7 +465,7 @@ proc parsed(value: Int) -> Result[Int] {
 fn linter_autofixes_redundant_tail_return_binding() {
     let source = "\
 proc overlap(left: List[Str], right: List[Str]) -> List[Str] {
-  var values = [item for item in left if right.contains(item)]
+  var values = [item for item in left if item in right]
   return values
 }
 ";
@@ -486,7 +486,7 @@ proc overlap(left: List[Str], right: List[Str]) -> List[Str] {
 
     assert_eq!(
         hint.replacement.as_deref(),
-        Some("[item for item in left if right.contains(item)]\n")
+        Some("[item for item in left if item in right]\n")
     );
 }
 
@@ -1098,7 +1098,7 @@ fn linter_does_not_rewrite_unique_accumulation_loop() {
 let items: List[Int] = []
 var unique: List[Int] = []
 for item in items {
-  if ! unique.contains(item) {
+  if item not in unique {
     unique = unique.push(item)
   }
 }
@@ -1689,80 +1689,163 @@ let source_path: Path = p\"src/main.c\"
     );
 }
 
+fn membership_lints(source: &str) -> Vec<Diagnostic> {
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.iter().all(|diagnostic| diagnostic.code.as_deref() == Some("check.removed-membership")), "{:?}", checked.diagnostics);
+    Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        callable_effects: checked.callable_effects,
+        statement_expression_spans: checked.statement_expression_spans,
+        assertion_effect_spans: checked.assertion_effect_spans,
+        membership_migration_spans: checked.membership_migration_spans,
+        standard_call_spans: checked.standard_call_spans,
+        ..LintOptions::default()
+    }).diagnostics.into_iter().filter(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.prefer-in" | "lint.prefer-bare-assertion"))).collect()
+}
+
+fn membership_fixed(source: &str) -> String {
+    let parsed = parse_lint_source(source);
+    let mut edits: Vec<_> = membership_lints(source).into_iter().flat_map(|diagnostic| diagnostic.fix_hints).filter_map(|hint| Some((hint.span?, hint.replacement?))).filter(|(span, _)| !parsed.cst.get().contains_comment(*span)).collect();
+    edits.sort_by_key(|(span, _)| (span.start(), std::cmp::Reverse(span.end())));
+    let mut end = 0;
+    let edits: Vec<_> = edits.into_iter().filter(|(span, _)| { if span.start() < end { false } else { end = span.end(); true } }).collect();
+    let mut fixed = source.to_string();
+    for (span, replacement) in edits.into_iter().rev() { fixed.replace_range(span.range(), &replacement); }
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_parse_check_standalone("membership migration", &formatted.formatted);
+    assert!(membership_lints(&formatted.formatted).iter().all(|diagnostic| diagnostic.fix_hints.is_empty()), "migration should be idempotent: {}", formatted.formatted);
+    formatted.formatted
+}
+
 #[test]
-fn linter_autofixes_contains_membership_to_in() {
-    let source = "\
-proc main(names: List[Str], name: Str, text: Str, source_path: Path) {
+fn linter_autofixes_removed_membership_using_checked_identity() {
+    let fixed = membership_fixed(r#"type Row = {present: Int}
+proc main(names: List[Str], name: Str, text: Str, source_path: Path, mapping: Map[Int], fields: Row) {
   if names.contains(name) {}
   if ! names.contains(name) {}
-  if [\"a\", \"b\"].contains(name) {}
-  if text.contains(\"needle\") {}
-  if source_path.display().contains(\"/\") {}
+  if text.contains("needle") {}
+  if source_path.display().contains("/") {}
+  if mapping.has("key") {}
+  if fields.has("present") {}
 }
-";
-    let parsed = parse_lint_source(source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let checked = Checker::check_arena(&parsed.arena, source);
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
-
-    let diagnostics = lint_and_assert_fmt_stable(
-        &parsed.arena,
-        source,
-        LintOptions {
-            expr_types: checked.expr_types,
-            ..LintOptions::default()
-        },
-    );
-    let replacements: Vec<_> = diagnostics
-        .iter()
-        .filter(|d| d.code.as_deref() == Some("lint.prefer-in"))
-        .map(|d| {
-            d.fix_hints
-                .first()
-                .and_then(|hint| hint.replacement.as_deref())
-                .expect("prefer-in diagnostic has replacement")
-        })
-        .collect();
-
-    assert_eq!(
-        replacements,
-        [
-            "name in names",
-            "name not in names",
-            "name in [\"a\", \"b\"]",
-            "\"needle\" in text",
-            "\"/\" in source_path.display()",
-        ]
-    );
+"#);
+    for expression in ["name in names", "name not in names", "\"needle\" in text", "\"/\" in source_path.display()", "\"key\" in mapping", "\"present\" in fields"] {
+        assert!(fixed.contains(expression), "missing {expression}: {fixed}");
+    }
 }
 
 #[test]
-fn linter_skips_contains_to_in_when_rewrite_could_reorder_effects() {
-    let source = "\
-proc main(source_path: Path, names: List[Str]) [fs, error] {
-  if fs.read_text(source_path)?.contains(\"needle\") {}
+fn linter_preserves_membership_operand_order_with_statement_bindings() {
+    let source = r#"proc container() -> Result[Str] { "abc" }
+proc item() -> Result[Str] { "b" }
+proc main() {
+  test.contains(container()?, item()?)?
+}
+"#;
+    let fixed = membership_fixed(source);
+    let container = fixed.find("= container()?").expect("receiver binding");
+    let item = fixed.find("= item()?").expect("needle binding");
+    assert!(container < item, "{fixed}");
+    assert!(fixed.contains(" in membership_argument_0_"), "{fixed}");
+}
+
+#[test]
+fn linter_diagnoses_unsafe_membership_inside_conditions_without_hoisting() {
+    let diagnostics = membership_lints(r#"proc main(source_path: Path, names: List[Str]) [fs, error] {
+  if fs.read_text(source_path)?.contains("needle") {}
   if names.contains(fs.read_text(source_path)?) {}
 }
-";
-    let parsed = parse_lint_source(source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    let checked = Checker::check_arena(&parsed.arena, source);
-    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+"#);
+    assert_eq!(diagnostics.len(), 2);
+    assert!(diagnostics[0].fix_hints.is_empty(), "null-safe consumption requires an explicit manual decision");
+    assert!(diagnostics[1].fix_hints.is_empty(), "mutable receiver read must retain its order");
+}
 
-    let diagnostics = lint_and_assert_fmt_stable(
-        &parsed.arena,
-        source,
-        LintOptions {
-            expr_types: checked.expr_types,
-            ..LintOptions::default()
-        },
-    );
-    assert!(
-        !diagnostics
-            .iter()
-            .any(|d| d.code.as_deref() == Some("lint.prefer-in")),
-        "effectful contains calls should not be autofixed"
-    );
+#[test]
+fn linter_migrates_assertion_helpers_only_in_statement_use() {
+    let fixed = membership_fixed(r#"proc main(text: Str) {
+  test.ok(true)?
+  test.eq(1, 2)?
+  test.ne(1, 2)
+  let consumed = test.contains(text, "é")
+  test.contains(text, "é", message: "custom")?
+  let retained = test.eq(1, 2)
+  let _ = consumed
+  let _ = retained
+}
+"#);
+    assert!(fixed.contains("1 == 2"), "{fixed}");
+    assert!(fixed.contains("1 != 2"), "{fixed}");
+    assert!(fixed.contains(r#"test.ok("\u{e9}" in text)"#), "{fixed}");
+    assert!(fixed.contains("message: \"custom\""), "{fixed}");
+    assert!(fixed.contains("let retained = test.eq(1, 2)"), "{fixed}");
+}
+
+#[test]
+fn linter_composes_nested_unicode_membership_and_grouped_receivers() {
+    let fixed = membership_fixed(r#"proc main(text: Str) {
+  test.ok(! text.contains("é"))?
+  test.eq((-3.5).abs(), 3.5)?
+}
+"#);
+    assert!(fixed.contains(r#""\u{e9}" not in text"#), "{fixed}");
+    assert!(fixed.contains("(-3.5).abs() == 3.5"), "{fixed}");
+}
+
+#[test]
+fn linter_preserves_named_argument_order_and_hygiene() {
+    let fixed = membership_fixed(r#"proc left() -> Result[Int] { 1 }
+proc right() -> Result[Int] { 2 }
+proc main() {
+  let membership_argument_0_130 = 1
+  test.eq(right: right()?, left: left()?)?
+  let _ = membership_argument_0_130
+}
+"#);
+    assert!(fixed.find("= left()?").unwrap() < fixed.find("= right()?").unwrap(), "{fixed}");
+}
+
+#[test]
+fn linter_leaves_dynamic_and_comment_bearing_migrations_actionable() {
+    let dynamic = membership_lints("proc main(value: Any) { test.contains(value, 1)? }\n");
+    assert_eq!(dynamic.len(), 1);
+    assert!(dynamic[0].fix_hints.is_empty());
+    let source = "proc main() { test.ok(retry [] { # keep this reason\n true }?)? }\n";
+    let parsed = parse_lint_source(source);
+    let diagnostics = membership_lints(source);
+    assert!(diagnostics.iter().flat_map(|diagnostic| &diagnostic.fix_hints).any(|hint| parsed.cst.get().contains_comment(hint.span.unwrap())));
+}
+
+#[test]
+fn linter_migrates_set_negation_and_stream_item_membership() {
+    let fixed = membership_fixed(r#"proc main(mapping: Map[Int], keys: List[Str]) {
+  ! set.has(set.empty(), "missing")
+  let present = keys |> where mapping.has(.)
+  let absent = keys |> where ! mapping.has(.) and ! mapping.has("other")
+  let _ = present
+  let _ = absent
+}
+"#);
+    assert!(fixed.contains("\"missing\" not in set.empty()"), "{fixed}");
+    assert!(fixed.contains("(.) in mapping"), "{fixed}");
+    assert!(fixed.contains("(.) not in mapping"), "{fixed}");
+}
+
+#[test]
+fn linter_does_not_rewrite_user_fields_named_contains_or_has() {
+    let source = r#"pure contains(value: Str) -> Bool { true }
+proc main() {
+  let custom = {contains: contains, has: contains}
+  let _ = custom.contains
+  let _ = custom.has
+  contains("value")
+}
+"#;
+    let diagnostics = membership_lints(source);
+    assert!(diagnostics.is_empty());
 }
 
 #[test]

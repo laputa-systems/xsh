@@ -950,6 +950,9 @@ impl Checker {
                     Type::Bytes => {
                         self.expect_type(&Type::Bytes, &left_ty, left_span);
                     }
+                    Type::Map(_) | Type::Record(_) => {
+                        self.expect_type(&Type::Str, &left_ty, left_span);
+                    }
                     Type::Path => {
                         if !matches!(left_ty, Type::Str | Type::Path | Type::Any | Type::Unknown) {
                             self.error(
@@ -972,7 +975,7 @@ impl Checker {
                     Type::Any | Type::Unknown => {}
                     _ => self.error(
                         right_span,
-                        "membership requires List, Str, Bytes, Path, or env.PATH",
+                        "membership requires List, Map, Record, Str, Bytes, Path, or env.PATH",
                         "check.membership-type",
                     ),
                 }

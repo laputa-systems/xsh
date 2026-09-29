@@ -503,6 +503,12 @@ impl TracebackRenderer {
         }
         output.push('\n');
 
+        if let Some(span) = traceback.failing_span {
+            output.push_str("at ");
+            render_span_text(span, sources, &mut output);
+            output.push('\n');
+        }
+
         if !traceback.frames.is_empty() {
             output.push_str("call path:\n");
             for (index, frame) in traceback.frames.iter().enumerate() {

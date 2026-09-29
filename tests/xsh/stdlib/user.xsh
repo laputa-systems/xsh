@@ -23,8 +23,8 @@ proc test_user_lookup_and_mutation_contracts(ctx: TestContext) [fs, process, err
 
   let current_user = user.current()?
   let by_uid = user.by_uid(current_user.uid)?
-  test.eq(by_uid.uid, current_user.uid)?
-  test.eq(user.lookup(current_user.name)?.uid, current_user.uid)?
+  by_uid.uid == current_user.uid
+  user.lookup(current_user.name)?.uid == current_user.uid
 
   let script = test.temp_file(
     ctx,
@@ -33,7 +33,7 @@ proc test_user_lookup_and_mutation_contracts(ctx: TestContext) [fs, process, err
   )?
 
   let output = run.text XSH_PASSWD_FILE=$passwd_file XSH_SHADOW_FILE=$shadow_file XSH_GROUP_FILE=$group_file "xsh" $script ?
-  test.contains(output, "demo /home/demo")?
+  "demo /home/demo" in output
   test.error_kind(user.lookup("definitely-missing-xsh-user"), "user-not-found")?
   test.error_kind(user.add("-bad"), "user-name")?
 }

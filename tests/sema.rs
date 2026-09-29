@@ -439,7 +439,7 @@ fn checker_handles_collection_modules() {
 let numbers = [1].push(2)
 let more = numbers.extend([3])
 let flat = numbers.extend(more)
-let contains = flat.contains(3)
+let contains = 3 in flat
 let fallback: Int = flat.get(9, 4)
 let get_or_fallback: Int = flat.get(10, 5)
 let first: Int = flat.get(0, 0)
@@ -460,7 +460,7 @@ let groups1 = groups0.push("pkg", "one")
 let groups2 = groups1.push("pkg", "two")
 let grouped: List[Str] = groups2.get("pkg")?
 let row = {name: "pkg", version: "1"}
-let has_name = row.has("name")
+let has_name = "name" in row
 let field: Str = row.get("name")?
 let fields = row.keys()
 let checked = record.require(row, {name: "Str"}, optional: {version: "Str"})?
@@ -2539,7 +2539,7 @@ let loaded = record.require({}, {build: "Proc(Path -> Result[Unit]"})
 }
 
 #[test]
-fn checker_narrows_optional_record_has_result_and_tag_flows() {
+fn checker_narrows_optional_record_membership_result_and_tag_flows() {
     let output = check_strict(
         r#"
 type Row = {name: Str}
@@ -2556,7 +2556,7 @@ if maybe == null {
 }
 
 let row: Row = {name: "demo"}
-if row.has("version") {
+if "version" in row {
   let version: Any = row.version
 }
 

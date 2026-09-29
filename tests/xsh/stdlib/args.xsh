@@ -50,17 +50,17 @@ proc test_args_parse_tokens_and_commands() [error] {
     },
   )?
 
-  test.eq(parsed.count, 3)?
-  test.eq(parsed.define.join(","), "one,two")?
-  test.eq(parsed.file.name(), "main.xsh")?
-  test.ok(parsed.verbose)?
+  parsed.count == 3
+  parsed.define.join(",") == "one,two"
+  parsed.file.name() == "main.xsh"
+  parsed.verbose
   let tokens = cli.tokens(["-abc", "--output=result.txt", "-I", "include", "-1", "file"], ["I", "output"])?
-  test.eq(tokens[0].kind, "short")?
-  test.eq(tokens[0].name, "a")?
-  test.eq(tokens[3].value, "result.txt")?
-  test.eq(tokens[4].value, "include")?
-  test.eq(tokens[5].kind, "operand")?
-  test.eq(tokens[5].name, "-1")?
+  tokens[0].kind == "short"
+  tokens[0].name == "a"
+  tokens[3].value == "result.txt"
+  tokens[4].value == "include"
+  tokens[5].kind == "operand"
+  tokens[5].name == "-1"
 
   let full = cli.parse_full(
     ["--count", "2", "demo.txt"],
@@ -70,7 +70,7 @@ proc test_args_parse_tokens_and_commands() [error] {
   test.eq(full.values.count, 2)?
   test.eq(full.sources.count, "argv")?
   let usage = cli.usage({count: {kind: "Int", required: true}}, "demo")
-  test.contains(usage, "usage: demo")?
+  "usage: demo" in usage
 
   let command_specs = {
     build: {
@@ -100,12 +100,12 @@ proc test_args_parse_tokens_and_commands() [error] {
     fallback_command: {positionals: ["action", "root"], types: {root: "Path"}, rest: "raw", command_like: true},
   )?
 
-  test.eq(command.command, "deploy")?
-  test.eq(command.root.name(), "demo")?
-  test.eq(command.raw[0], "--dry-run")?
+  command.command == "deploy"
+  command.root.name() == "demo"
+  command.raw[0] == "--dry-run"
   let explicit: CommandArgs = cli.commands(["clean", "target/demo"], command_specs)?
-  test.eq(explicit.command, "clean")?
-  test.eq(explicit.root.name(), "demo")?
+  explicit.command == "clean"
+  explicit.root.name() == "demo"
 }
 
 proc test_cli_parse_compact_forms() [error] {
@@ -131,13 +131,13 @@ proc test_cli_parse_compact_forms() [error] {
     },
   )?
 
-  test.eq(parsed.count, 3)?
-  test.eq(parsed.define.join(","), "one,two")?
-  test.eq(parsed.file.name(), "main.xsh")?
-  test.ok(parsed.verbose)?
+  parsed.count == 3
+  parsed.define.join(",") == "one,two"
+  parsed.file.name() == "main.xsh"
+  parsed.verbose
   let cli_tokens = cli.tokens(["--mode=json", "-v"], ["mode"])?
-  test.eq(cli_tokens[0].name, "mode")?
-  test.eq(cli_tokens[0].value, "json")?
+  cli_tokens[0].name == "mode"
+  cli_tokens[0].value == "json"
 }
 
 proc test_cli_applet_parses_head_attached_value() [error] {
@@ -155,8 +155,8 @@ proc test_cli_applet_parses_head_attached_value() [error] {
     },
   )?
 
-  test.eq(parsed.count, 2)?
-  test.eq(parsed.files[0], "file")?
+  parsed.count == 2
+  parsed.files[0] == "file"
 }
 
 proc test_cli_applet_parses_sort_cluster_and_attached_values() [error] {
@@ -186,11 +186,11 @@ proc test_cli_applet_parses_sort_cluster_and_attached_values() [error] {
     },
   )?
 
-  test.ok(parsed.numeric)?
-  test.ok(parsed.reverse)?
-  test.eq(parsed.key, 2)?
-  test.eq(parsed.delimiter, ",")?
-  test.eq(parsed.files[0], "file")?
+  parsed.numeric
+  parsed.reverse
+  parsed.key == 2
+  parsed.delimiter == ","
+  parsed.files[0] == "file"
 }
 
 proc test_cli_applet_parses_fd_clusters_and_repeated_values() [error] {
@@ -219,11 +219,11 @@ proc test_cli_applet_parses_fd_clusters_and_repeated_values() [error] {
     },
   )?
 
-  test.ok(parsed.hidden)?
-  test.ok(parsed.no_ignore)?
-  test.eq(parsed.extensions[0], "xsh")?
-  test.eq(parsed.excludes[0], "target")?
-  test.eq(parsed.operands.join(","), "pattern,root")?
+  parsed.hidden
+  parsed.no_ignore
+  parsed.extensions[0] == "xsh"
+  parsed.excludes[0] == "target"
+  parsed.operands.join(",") == "pattern,root"
 }
 
 proc test_cli_applet_parses_rg_long_assignment_and_attached_values() [error] {
@@ -248,10 +248,10 @@ proc test_cli_applet_parses_rg_long_assignment_and_attached_values() [error] {
     },
   )?
 
-  test.eq(parsed.color, "always")?
-  test.eq(parsed.pattern, "foo")?
-  test.eq(parsed.globs[0], "*.xsh")?
-  test.eq(parsed.roots[0], "root")?
+  parsed.color == "always"
+  parsed.pattern == "foo"
+  parsed.globs[0] == "*.xsh"
+  parsed.roots[0] == "root"
 }
 
 proc test_cli_applet_parses_cp_compatibility_flags() [error] {
@@ -278,10 +278,10 @@ proc test_cli_applet_parses_cp_compatibility_flags() [error] {
     },
   )?
 
-  test.ok(! parsed.no_clobber)?
-  test.ok(parsed.force)?
+  ! parsed.no_clobber
+  parsed.force
   test.eq(parsed.target.name(), "dest")?
-  test.eq(parsed.operands.join(","), "src1,src2")?
+  parsed.operands.join(",") == "src1,src2"
 
   let reversed: CpAppletOptions = cli.applet(
     ["-f", "-n", "-t", "dest", "src1", "src2"],
@@ -305,8 +305,8 @@ proc test_cli_applet_parses_cp_compatibility_flags() [error] {
       },
     },
   )?
-  test.ok(reversed.no_clobber)?
-  test.ok(! reversed.force)?
+  reversed.no_clobber
+  ! reversed.force
 }
 
 proc test_cli_applet_last_scalar_occurrence_wins() [error] {
@@ -322,7 +322,7 @@ proc test_cli_applet_last_scalar_occurrence_wins() [error] {
     ["-v", "-v"],
     {verbose: {form: "-v", default: false}},
   )?
-  test.ok(parsed.verbose)?
+  parsed.verbose
 }
 
 proc test_cli_parse_advanced_descriptors() [fs, error] {
@@ -409,12 +409,12 @@ proc test_cli_parse_advanced_descriptors() [fs, error] {
 
   let full = cli.parse_full(["--color", "-v", "--left", "a"], schema)?
   let values: AdvancedArgs = full.values
-  test.eq(values.color, "always")?
-  test.eq(values.config.name(), "config.toml")?
-  test.eq(values.workspace.name(), root.name())?
+  values.color == "always"
+  values.config.name() == "config.toml"
+  values.workspace.name() == root.name()
   test.eq(full.values.count, 1)?
-  test.eq(f"${values.timeout}", "1s")?
-  test.ok(values.verbose)?
+  f"${values.timeout}" == "1s"
+  values.verbose
   test.eq(full.sources.color, "argv")?
   test.eq(full.sources.mode, "default")?
   test.eq(full.warnings.len(), 1)?
@@ -428,39 +428,39 @@ proc test_cli_parse_advanced_descriptors() [fs, error] {
   test.eq(env_full.values.profile, "prod")?
   test.eq(env_full.sources.profile, "env")?
   let usage = cli.usage(schema, "demo")
-  test.ok("usage: demo [OPTIONS]" in usage)?
-  test.ok("--mode MODE" in usage)?
-  test.ok("-h, --help" in usage)?
-  test.ok(! ("--secret" in usage))?
+  ("usage: demo [OPTIONS]" in usage)
+  ("--mode MODE" in usage)
+  ("-h, --help" in usage)
+  ! ("--secret" in usage)
 
   match cli.parse(["--help"], schema, "demo sub") {
     Ok(_) => test.fail("implicit help should stop parsing")?
-    Err(error) => test.ok("usage: demo sub [OPTIONS]" in error.message)?
+    Err(error) => ("usage: demo sub [OPTIONS]" in error.message)
   }
 
   match cli.parse(["--mode", "xml", "--left", "a"], schema) {
     Ok(_) => test.fail("choice validation should fail")?
-    Err(error) => test.ok("expects one of" in error.message)?
+    Err(error) => ("expects one of" in error.message)
   }
 
   match cli.parse(["--json", "--table", "--left", "a"], schema) {
     Ok(_) => test.fail("conflict validation should fail")?
-    Err(error) => test.ok("conflicts" in error.message)?
+    Err(error) => ("conflicts" in error.message)
   }
 
   match cli.parse([], schema) {
     Ok(_) => test.fail("required group validation should fail")?
-    Err(error) => test.ok("required group" in error.message)?
+    Err(error) => ("required group" in error.message)
   }
 
   match cli.parse(["--count", "-1", "--left", "a"], schema) {
     Ok(_) => test.fail("UInt validation should fail")?
-    Err(error) => test.ok("expects UInt" in error.message)?
+    Err(error) => ("expects UInt" in error.message)
   }
 
   match cli.parse(["--config", f"${root}/missing.toml", "--left", "a"], schema) {
     Ok(_) => test.fail("file path validation should fail")?
-    Err(error) => test.ok("expects a file path" in error.message)?
+    Err(error) => ("expects a file path" in error.message)
   }
 }
 
@@ -486,26 +486,26 @@ proc test_cli_commands_accept_aliases_forms_and_options() [error] {
     },
   )?
 
-  test.eq(command.command, "build")?
-  test.eq(command.action, "b")?
-  test.eq(command.root.name(), "demo")?
-  test.ok(command.verbose)?
-  test.eq(command.rest[0], "--dry-run")?
+  command.command == "build"
+  command.action == "b"
+  command.root.name() == "demo"
+  command.verbose
+  command.rest[0] == "--dry-run"
 }
 
 proc test_cli_parse_positional_default_is_optional() [error] {
   let absent = cli.parse([], {kind: {form: "KIND", default: "rust"}})?
-  test.eq(absent.kind, "rust")?
+  absent.kind == "rust"
 
   let explicit = cli.parse(["xsh"], {kind: {form: "KIND", default: "rust"}})?
-  test.eq(explicit.kind, "xsh")?
+  explicit.kind == "xsh"
 
   let usage = cli.usage({kind: {form: "KIND", default: "rust"}}, "dev")
-  test.ok("[KIND]" in usage)?
+  ("[KIND]" in usage)
 
   match cli.parse([], {action: {form: "ACTION", required: true}}) {
     Ok(_) => test.fail("required positional should fail when absent")?
-    Err(error) => test.ok("missing required argument ACTION" in error.message)?
+    Err(error) => ("missing required argument ACTION" in error.message)
   }
 
   let relaxed = cli.parse([], {file: {form: "FILE", required: false}})?

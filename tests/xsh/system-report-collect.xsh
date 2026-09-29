@@ -32,14 +32,14 @@ ${padding}""",
   )?
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
   let read = parser.read_source_text(root, p"source", 4096, false)
-  test.eq(read.observation.state, report_model.Truncated)?
-  test.eq(read.observation.value, null)?
+  read.observation.state == report_model.Truncated
+  read.observation.value == null
 }
 
 proc test_system_report_pci_decimal_attribute_rejects_nondecimal_and_inexact_values() [fs, error] {
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
-  test.eq(parser.parse_pci_decimal_value("8")?, 8)?
-  test.eq(parser.parse_pci_decimal_value("9007199254740991")?, 9007199254740991)?
+  parser.parse_pci_decimal_value("8")? == 8
+  parser.parse_pci_decimal_value("9007199254740991")? == 9007199254740991
   for invalid in ["", "-0", "-1", "+8", "0x8", "1_0", "9007199254740992"] {
     test.error_kind(parser.parse_pci_decimal_value(invalid), "SystemReportSourceError.InvalidPciId")?
   }
@@ -47,8 +47,8 @@ proc test_system_report_pci_decimal_attribute_rejects_nondecimal_and_inexact_val
 
 proc test_system_report_idle_state_index_requires_canonical_json_safe_directory_name() [fs, error] {
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
-  test.eq(parser.parse_idle_state_index("state0")?, 0)?
-  test.eq(parser.parse_idle_state_index("state42")?, 42)?
+  parser.parse_idle_state_index("state0")? == 0
+  parser.parse_idle_state_index("state42")? == 42
   for invalid in ["state", "state00", "state-1", "state+1", "state0x10", "state9007199254740992"] {
     test.error_kind(parser.parse_idle_state_index(invalid), "SystemReportSourceError.InvalidIdleStateIndex")?
   }
@@ -56,8 +56,8 @@ proc test_system_report_idle_state_index_requires_canonical_json_safe_directory_
 
 proc test_system_report_cpufreq_members_accept_kernel_space_separated_ids() [fs, error] {
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
-  test.eq(parser.parse_cpufreq_members("0 2 7")?, [0, 2, 7])?
-  test.eq(parser.parse_cpufreq_members("4")?, [4])?
+  parser.parse_cpufreq_members("0 2 7")? == [0, 2, 7]
+  parser.parse_cpufreq_members("4")? == [4]
   test.error_kind(parser.parse_cpufreq_members("0 0"), "SystemReportSourceError.InvalidCpuFreqMembers")?
   test.error_kind(parser.parse_cpufreq_members("0 x"), "SystemReportSourceError.InvalidCpuFreqMembers")?
   test.error_kind(parser.parse_cpufreq_members("0-0"), "SystemReportSourceError.InvalidCpuFreqMembers")?
@@ -65,7 +65,7 @@ proc test_system_report_cpufreq_members_accept_kernel_space_separated_ids() [fs,
 
 proc test_system_report_cache_shared_cpu_list_rejects_ambiguous_membership() [fs, error] {
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
-  test.eq(parser.parse_cache_shared_cpus("0,2-3")?, [0, 2, 3])?
+  parser.parse_cache_shared_cpus("0,2-3")? == [0, 2, 3]
   test.error_kind(parser.parse_cache_shared_cpus("0,,2"), "SystemReportSourceError.InvalidCacheSharing")?
   test.error_kind(parser.parse_cache_shared_cpus(""), "SystemReportSourceError.InvalidCacheSharing")?
 }
@@ -74,14 +74,14 @@ proc test_system_report_unified_cgroup_path_preserves_name_and_rejects_ambiguous
   let parser = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCgroupParser)?
   let observed = parser.parse_unified_cgroup_path("""0::/team:blue
 """)
-  test.eq(observed.state, report_model.Observed)?
-  test.eq(observed.path, "/team:blue")?
-  test.eq(observed.has_v1, false)?
+  observed.state == report_model.Observed
+  observed.path == "/team:blue"
+  observed.has_v1 == false
   let hybrid = parser.parse_unified_cgroup_path("""2:cpu:/legacy
 0::/team:blue
 """)
-  test.eq(hybrid.path, "/team:blue")?
-  test.eq(hybrid.has_v1, true)?
+  hybrid.path == "/team:blue"
+  hybrid.has_v1 == true
   for malformed in [
     "",
     """0::relative
@@ -99,15 +99,15 @@ proc test_system_report_unified_cgroup_path_preserves_name_and_rejects_ambiguous
 """,
   ] {
     let parsed = parser.parse_unified_cgroup_path(malformed)
-    test.eq(parsed.state, report_model.Malformed)?
-    test.eq(parsed.path, null)?
+    parsed.state == report_model.Malformed
+    parsed.path == null
   }
 
   let v1 = parser.parse_unified_cgroup_path("""2:cpu:/legacy
 """)
-  test.eq(v1.state, report_model.Unsupported)?
-  test.eq(v1.path, null)?
-  test.eq(v1.has_v1, true)?
+  v1.state == report_model.Unsupported
+  v1.path == null
+  v1.has_v1 == true
 }
 
 proc test_system_report_cgroup_mount_selection_uses_longest_visible_root() [fs, error] {
@@ -126,10 +126,10 @@ proc test_system_report_cgroup_mount_selection_uses_longest_visible_root() [fs, 
       point: "/sys/fs/cgroup/tenant",
     },
   ]
-  test.eq(parser.select_cgroup_mount("/tenant/job", mounts)?, mounts[2])?
-  test.eq(parser.select_cgroup_mount("/tenantx", mounts)?, mounts[1])?
-  test.eq(parser.select_cgroup_mount("/other/job", mounts)?, mounts[0])?
-  test.eq(parser.select_cgroup_mount("/missing", [mounts[0]])?, null)?
+  parser.select_cgroup_mount("/tenant/job", mounts)? == mounts[2]
+  parser.select_cgroup_mount("/tenantx", mounts)? == mounts[1]
+  parser.select_cgroup_mount("/other/job", mounts)? == mounts[0]
+  parser.select_cgroup_mount("/missing", [mounts[0]])? == null
   test.error_kind(parser.select_cgroup_mount("relative", mounts), "SystemReportSourceError.InvalidCgroupMount")?
   test.error_kind(
     parser.select_cgroup_mount("/tenant/job", [{root: "tenant", point: "/sys/fs/cgroup"}]),

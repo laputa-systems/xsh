@@ -65,22 +65,22 @@ proc test_net_module_with_mocks(ctx: TestContext) [fs, net, error] {
     }),
   )?
 
-  test.eq(net.request({method: "GET", url: "https://example.test/"})?.body, b"ok")?
+  net.request({method: "GET", url: "https://example.test/"})?.body == b"ok"
   let many = net.request_many({
     requests: [{method: "GET", url: "https://example.test/"}],
     pool: "stdlib-test",
   })?
-  test.eq(many[0]?.body, b"ok")?
-  test.eq(net.download({method: "GET", url: "https://example.test/file", dest: p"out"})?.status, 200)?
+  many[0]?.body == b"ok"
+  net.download({method: "GET", url: "https://example.test/file", dest: p"out"})?.status == 200
   let downloaded = net.download_many({
     downloads: [{url: "https://example.test/file", dest: p"out"}],
     pool: "stdlib-test",
   })?
-  test.eq(downloaded[0]?.bytes, 2)?
-  test.eq(net.upload({method: "PUT", url: "https://example.test/upload", source: p"in"})?.bytes, 2)?
+  downloaded[0]?.bytes == 2
+  net.upload({method: "PUT", url: "https://example.test/upload", source: p"in"})?.bytes == 2
   let pool = net.pool(name: "stdlib-test", max_idle_per_host: 1, idle_timeout: 1s)?
-  test.eq(pool.name, "stdlib-test")?
-  test.eq(pool.max_idle_per_host, 1)?
+  pool.name == "stdlib-test"
+  pool.max_idle_per_host == 1
   net.close_pool("stdlib-test")?
   net.close_all_pools()?
   test.eq(test.calls(ctx, "net.request")[0].args.method, "GET")?
@@ -110,7 +110,7 @@ proc test_net_start_mock_job_is_single_consumption(ctx: TestContext) [net, error
   test.mock(ctx, "net.start", {url: "https://example.test/"}, Ok(response))?
 
   let job = net.start({method: "GET", url: "https://example.test/"})?
-  test.eq(job.wait()?.body, b"ok")?
+  job.wait()?.body == b"ok"
   test.error_kind(job.cancel(), "net-job-not-live")?
 }
 
@@ -135,8 +135,8 @@ proc test_net_job_progresses_while_synchronous_request_waits() [net, env, error]
     headers: [{name: "Connection", value: "close"}],
   })?
 
-  test.eq(foreground.body.utf8()?, "sync")?
-  test.eq(job.wait()?.body.utf8()?, "job")?
+  foreground.body.utf8()? == "sync"
+  job.wait()?.body.utf8()? == "job"
 }
 
 proc test_net_start_transfers_returned_job_ownership(ctx: TestContext) [net, error] {
@@ -151,7 +151,7 @@ proc test_net_start_transfers_returned_job_ownership(ctx: TestContext) [net, err
   test.mock(ctx, "net.start", {url: "https://example.test/returned-job"}, Ok(response))?
 
   let job = net_start_scoped_helper()?
-  test.eq(job.wait()?.body, b"ok")?
+  job.wait()?.body == b"ok"
 }
 
 proc test_net_start_aliases_share_one_consumption(ctx: TestContext) [net, error] {
@@ -230,7 +230,7 @@ proc test_net_start_scope_cleanup_releases_admission(ctx: TestContext) [net, err
       })?
       for _ in range(64)
     ]
-    test.eq(jobs.len(), 64)?
+    jobs.len() == 64
   }
 
   let released = net.start({
@@ -284,7 +284,7 @@ proc test_net_start_loop_control_cleans_lexical_job_scopes(ctx: TestContext) [ne
     url: "https://example.test/loop-cleanup",
     max_body_bytes: 1,
   })?
-  test.eq(final_job.wait()?.status, 204)?
+  final_job.wait()?.status == 204
 }
 
 proc test_net_job_trace_is_correlated_and_redacts_request_secrets(ctx: TestContext) [net, env, error] {
@@ -305,21 +305,18 @@ print \${response.status}
 """
     let trace = test.run_xsht_trace(ctx, source, ["--trace", "--raw", "--trace-format", "jsonl"])?
     test.ok(trace.success, trace.stderr)?
-    test.eq(
-      trace.stdout,
-      """200
-""",
-    )?
-    test.contains(trace.stderr, "\"kind\":\"net.job.accepted\"")?
-    test.contains(trace.stderr, "\"kind\":\"net.job.scheduled\"")?
-    test.contains(trace.stderr, "\"kind\":\"net.transport.started\"")?
-    test.contains(trace.stderr, "\"kind\":\"net.transport.completed\"")?
-    test.contains(trace.stderr, "\"kind\":\"net.job.wait\"")?
-    test.contains(trace.stderr, "\"api_id\":\"module.net.start\"")?
-    test.contains(trace.stderr, "\"api_id\":\"method.NetJob.wait\"")?
-    test.contains(trace.stderr, "\"job_id\":1")?
-    test.contains(trace.stderr, "\"queue_duration_us\":")?
-    test.contains(trace.stderr, "\"transport_duration_us\":")?
+    trace.stdout == """200
+"""
+    "\"kind\":\"net.job.accepted\"" in trace.stderr
+    "\"kind\":\"net.job.scheduled\"" in trace.stderr
+    "\"kind\":\"net.transport.started\"" in trace.stderr
+    "\"kind\":\"net.transport.completed\"" in trace.stderr
+    "\"kind\":\"net.job.wait\"" in trace.stderr
+    "\"api_id\":\"module.net.start\"" in trace.stderr
+    "\"api_id\":\"method.NetJob.wait\"" in trace.stderr
+    "\"job_id\":1" in trace.stderr
+    "\"queue_duration_us\":" in trace.stderr
+    "\"transport_duration_us\":" in trace.stderr
     test.ok("trace-secret" not in trace.stderr, trace.stderr)?
   }
 }
@@ -339,7 +336,7 @@ proc test_net_runtime_descriptors_do_not_survive_exec(ctx: TestContext) [fs, net
   let job = net.start({method: "GET", url: url + "/hello"})?
   run ${helper} > output ?
   job.cancel()?
-  test.eq(output.read_text()?, inherited)?
+  output.read_text()? == inherited
 }
 
 proc test_net_transport_http_contracts(ctx: TestContext) [fs, net, env, error] {
@@ -394,32 +391,29 @@ proc test_net_transport_http_contracts(ctx: TestContext) [fs, net, env, error] {
     pool: "fixture",
   })?
 
-  test.eq(pool.max_idle_per_host, 4)?
-  test.eq(pool.idle_timeout_ms, 1000)?
-  test.eq(first.reason, "OK")?
-  test.eq(first.url, f"${url}/hello")?
-  test.eq(first.body.utf8()?, "hello")?
-  test.eq(second.body.utf8()?, "hello")?
-  test.eq(headed.status, 200)?
-  test.eq(headed.bytes, 0)?
-  test.eq(redirected.body.utf8()?, "hello")?
-  test.eq(posted.body.utf8()?, "echo:payload")?
-  test.eq(posted_file.body.utf8()?, "echo:upload-body")?
-  test.eq(posted_bytes.body.utf8()?, "echo:bytes")?
-  test.eq(status.status, 404)?
-  test.eq(downloaded.status, 200)?
-  test.eq(downloaded.bytes, 11)?
-  test.eq(
-    download_dest.read_text()?,
-    """downloaded
-""",
-  )?
-  test.eq(uploaded.status, 201)?
-  test.eq(uploaded.reason, "Created")?
-  test.eq(uploaded.bytes, 20)?
-  test.eq(uploaded.url, f"${url}/upload")?
-  test.eq(first.headers[0].name, "Date")?
-  test.eq(first.headers[1].value, "5")?
+  pool.max_idle_per_host == 4
+  pool.idle_timeout_ms == 1000
+  first.reason == "OK"
+  first.url == f"${url}/hello"
+  first.body.utf8()? == "hello"
+  second.body.utf8()? == "hello"
+  headed.status == 200
+  headed.bytes == 0
+  redirected.body.utf8()? == "hello"
+  posted.body.utf8()? == "echo:payload"
+  posted_file.body.utf8()? == "echo:upload-body"
+  posted_bytes.body.utf8()? == "echo:bytes"
+  status.status == 404
+  downloaded.status == 200
+  downloaded.bytes == 11
+  download_dest.read_text()? == """downloaded
+"""
+  uploaded.status == 201
+  uploaded.reason == "Created"
+  uploaded.bytes == 20
+  uploaded.url == f"${url}/upload"
+  first.headers[0].name == "Date"
+  first.headers[1].value == "5"
   test.error_kind(net.request({method: "GET", url: "ftp://example.invalid/file"}), "net-scheme")?
   test.error_kind(
     net.request({method: "GET", url: f"${url}/hello", ca_certificate: missing_ca}),
@@ -471,20 +465,17 @@ proc test_net_transport_error_contracts(ctx: TestContext) [fs, net, env, error] 
   test.error_kind(status, "net-status")?
   test.error_kind(existing_result, "net-dest")?
   test.error_kind(limited_result, "net-body-limit")?
-  test.eq(existing.read_text()?, "previous")?
-  test.eq(limited.read_text()?, "limited before")?
-  test.eq(in_place_result.bytes, 11)?
-  test.eq(
-    in_place.read_text()?,
-    """downloaded
-""",
-  )?
+  existing.read_text()? == "previous"
+  limited.read_text()? == "limited before"
+  in_place_result.bytes == 11
+  in_place.read_text()? == """downloaded
+"""
 }
 
 proc assert_invalid_net_input(ctx: TestContext, source: Str, kind: Str) [error] {
   let output = test.run_script(ctx, source)?
-  test.eq(output.status, 3)?
-  test.contains(output.stderr, kind)?
+  output.status == 3
+  kind in output.stderr
 }
 
 proc test_net_transport_rejects_invalid_shapes(ctx: TestContext) [fs, net, error] {
@@ -551,7 +542,7 @@ proc test_net_transport_timeout_contracts(ctx: TestContext) [fs, net, env, error
 
   test.error_kind(net.request({method: "GET", url: f"${url}/slow", timeout: 50ms}), "net-timeout")?
   let response = net.request({method: "GET", url: f"${url}/slow", connect_timeout: 50ms})?
-  test.eq(response.body.utf8()?, "slow")?
+  response.body.utf8()? == "slow"
   test.error_kind(
     net.request({method: "GET", url: f"${url}/slow", headers_timeout: 50ms}),
     "net-headers-timeout",
@@ -566,7 +557,7 @@ proc test_net_transport_timeout_contracts(ctx: TestContext) [fs, net, env, error
     net.download({url: f"${url}/slow-body", dest: destination, timeout: 50ms}),
     "net-timeout",
   )?
-  test.ok(! destination.exists()?)?
+  ! destination.exists()?
 
   let tls_stall_url = env.get_or("XSH_NET_TEST_TLS_STALL_URL", "")?
   if tls_stall_url != "" {
@@ -655,16 +646,16 @@ proc test_net_transport_batch_contracts(ctx: TestContext) [fs, net, env, error] 
     pool: "batch-queued-timeout",
   })?
 
-  test.eq(requests[0]?.body.utf8()?, "hello")?
+  requests[0]?.body.utf8()? == "hello"
   test.error_kind(requests[1], "net-scheme")?
   test.error_kind(requests[2], "net-status")?
-  test.eq(requests[3]?.body.utf8()?, "hello")?
-  test.eq(downloads[0]?.bytes, 5)?
-  test.eq(downloads[1]?.bytes, 5)?
-  test.eq(first.read_text()?, "hello")?
-  test.eq(second.read_text()?, "hello")?
-  test.eq(queued_timeout_requests[0]?.body.utf8()?, "slow")?
-  test.eq(queued_timeout_requests[1]?.body.utf8()?, "hello")?
+  requests[3]?.body.utf8()? == "hello"
+  downloads[0]?.bytes == 5
+  downloads[1]?.bytes == 5
+  first.read_text()? == "hello"
+  second.read_text()? == "hello"
+  queued_timeout_requests[0]?.body.utf8()? == "slow"
+  queued_timeout_requests[1]?.body.utf8()? == "hello"
 }
 
 proc test_net_transport_batch_download_error_contract(ctx: TestContext) [fs, net, env, error] {
@@ -702,10 +693,10 @@ proc test_net_transport_batch_download_error_contract(ctx: TestContext) [fs, net
     pool: "batch-errors",
   })?
 
-  test.eq(responses[0]?.bytes, 5)?
+  responses[0]?.bytes == 5
   test.error_kind(responses[1], "net-body-limit")?
-  test.eq(redirected.read_text()?, "hello")?
-  test.eq(limited.read_text()?, "previous")?
+  redirected.read_text()? == "hello"
+  limited.read_text()? == "previous"
 }
 
 proc test_net_transport_tls_contracts() [net, env, error] {
@@ -729,8 +720,8 @@ proc test_net_transport_tls_contracts() [net, env, error] {
   })?
 
   test.error_kind(rejected, "net-tls")?
-  test.eq(unverified.body.utf8()?, "secure")?
-  test.eq(verified.body.utf8()?, "secure")?
+  unverified.body.utf8()? == "secure"
+  verified.body.utf8()? == "secure"
 }
 
 proc test_net_transport_https_http1_contract() [net, env, error] {
@@ -748,7 +739,7 @@ proc test_net_transport_https_http1_contract() [net, env, error] {
     pool: "h1-alpn",
   })?
 
-  test.eq(response.body.utf8()?, "secure")?
+  response.body.utf8()? == "secure"
 }
 
 proc test_net_transport_request_many_https_h2_contract() [net, env, error] {
@@ -777,8 +768,8 @@ proc test_net_transport_request_many_https_h2_contract() [net, env, error] {
   }
   let requests = net.request_many(batch)?
 
-  test.eq(requests[0]?.body.utf8()?, "h2")?
-  test.eq(requests[1]?.body.utf8()?, "h2")?
+  requests[0]?.body.utf8()? == "h2"
+  requests[1]?.body.utf8()? == "h2"
 }
 
 proc test_net_job_cancel_keeps_h2_siblings_and_pool_healthy() [net, env, error] {
@@ -796,7 +787,7 @@ proc test_net_job_cancel_keeps_h2_siblings_and_pool_healthy() [net, env, error] 
     ca_certificate: fp"${ca}",
     pool: pool,
   })?
-  test.eq(warmed[0]?.body.utf8()?, "warm")?
+  warmed[0]?.body.utf8()? == "warm"
 
   let stalled = net.start({
     method: "GET",
@@ -811,7 +802,7 @@ proc test_net_job_cancel_keeps_h2_siblings_and_pool_healthy() [net, env, error] 
     pool: pool,
   })?
   let fast = sibling.wait()?
-  test.eq(fast.body.utf8()?, "fast")?
+  fast.body.utf8()? == "fast"
   stalled.cancel()?
 
   let later = net.request_many({
@@ -820,7 +811,7 @@ proc test_net_job_cancel_keeps_h2_siblings_and_pool_healthy() [net, env, error] 
     ca_certificate: fp"${ca}",
     pool: pool,
   })?
-  test.eq(later[0]?.body.utf8()?, "later")?
+  later[0]?.body.utf8()? == "later"
 }
 
 proc test_net_transport_download_many_https_h2_contract(ctx: TestContext) [fs, net, env, error] {
@@ -841,8 +832,8 @@ proc test_net_transport_download_many_https_h2_contract(ctx: TestContext) [fs, n
   }
   let downloads = net.download_many(batch)?
 
-  test.eq(downloads[0]?.bytes, 2)?
-  test.eq(dest.read_text()?, "h2")?
+  downloads[0]?.bytes == 2
+  dest.read_text()? == "h2"
 }
 
 proc test_net_transport_linux_system_ca_dir() [net, env, error] {
@@ -853,6 +844,6 @@ proc test_net_transport_linux_system_ca_dir() [net, env, error] {
   }
 
   let response = net.request({method: "GET", url: f"${url}/secure"})?
-  test.eq(response.status, 200)?
-  test.eq(response.body.utf8()?, "secure")?
+  response.status == 200
+  response.body.utf8()? == "secure"
 }

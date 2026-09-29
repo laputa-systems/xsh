@@ -67,9 +67,9 @@ match build.build(ctx) {
     },
   )?
   test.ok(result.success, result.stderr)?
-  test.contains(result.stdout, "[build target=x86_64-unknown-linux-musl] cargo build", result.stdout)?
-  test.contains(result.stdout, "StageError.Failed", result.stdout)?
-  test.ok(cargo_marker.exists()?)?
+  test.ok("[build target=x86_64-unknown-linux-musl] cargo build" in result.stdout, result.stdout)?
+  test.ok("StageError.Failed" in result.stdout, result.stdout)?
+  cargo_marker.exists()?
 }
 
 proc test_lint_fix_rebuilds_the_debug_xsh_binary(ctx: TestContext) [fs, error] {
@@ -114,7 +114,7 @@ build.lint_fix(ctx)?
 ${result.stderr}""",
   )?
   test.ok(xsh_marker.exists()?, "lint --fix did not rebuild the debug xsh binary")?
-  test.contains(xsh_marker.read_text()?, "--bin|xsh", xsh_marker.read_text()?)?
+  test.ok("--bin|xsh" in xsh_marker.read_text()?, xsh_marker.read_text()?)?
 }
 
 proc test_docker_container_failure_runs_target_ownership_cleanup(ctx: TestContext) [fs, error] {
@@ -155,10 +155,10 @@ match internal.linux_ci_test(ctx) {
     },
   )?
   test.ok(result.success, result.stderr)?
-  test.contains(result.stdout, "[linux-ci-build-products target=x86_64-unknown-linux-musl] cargo build", result.stdout)?
-  test.contains(result.stdout, "StageError.Failed", result.stdout)?
-  test.ok(cargo_marker.exists()?)?
-  test.ok(cleanup_marker.exists()?)?
+  test.ok("[linux-ci-build-products target=x86_64-unknown-linux-musl] cargo build" in result.stdout, result.stdout)?
+  test.ok("StageError.Failed" in result.stdout, result.stdout)?
+  cargo_marker.exists()?
+  cleanup_marker.exists()?
 }
 
 proc test_docker_image_and_container_failures_are_staged(ctx: TestContext) [fs, error] {
@@ -194,10 +194,10 @@ match docker.run_internal(ctx, "dist", false, []) {
     {PATH: tools.display(), XSH_MODULE_PATH: fp"${repository}/dev".display()},
   )?
   test.ok(result.success, result.stderr)?
-  test.contains(result.stdout, "[docker-image-build target=x86_64-unknown-linux-musl] docker build", result.stdout)?
-  test.contains(result.stdout, "[docker-dist target=x86_64-unknown-linux-musl] docker run", result.stdout)?
-  test.contains(result.stdout, "StageError.Failed", result.stdout)?
-  test.contains(docker_marker.read_text()?, "run")?
+  test.ok("[docker-image-build target=x86_64-unknown-linux-musl] docker build" in result.stdout, result.stdout)?
+  test.ok("[docker-dist target=x86_64-unknown-linux-musl] docker run" in result.stdout, result.stdout)?
+  test.ok("StageError.Failed" in result.stdout, result.stdout)?
+  "run" in docker_marker.read_text()?
 }
 
 proc test_docker_image_build_failure_prevents_the_container_stage(ctx: TestContext) [fs, error] {
@@ -230,9 +230,9 @@ match docker.run_internal(ctx, "dist", false, []) {
     {PATH: tools.display(), XSH_MODULE_PATH: fp"${repository}/dev".display()},
   )?
   test.ok(result.success, result.stderr)?
-  test.contains(result.stdout, "[docker-image-build target=x86_64-unknown-linux-musl] docker build", result.stdout)?
+  test.ok("[docker-image-build target=x86_64-unknown-linux-musl] docker build" in result.stdout, result.stdout)?
   test.ok("[docker-dist" not in result.stdout, result.stdout)?
-  test.contains(docker_marker.read_text()?, "build")?
+  "build" in docker_marker.read_text()?
 }
 
 proc test_trace_keeps_process_status_for_a_failed_child(ctx: TestContext) [error] {
@@ -244,9 +244,9 @@ run.status false
     ["--trace", "--raw"],
   )?
   test.ok(traced.success, traced.stderr)?
-  test.contains(traced.stderr, "kind=run.start")?
-  test.contains(traced.stderr, "kind=run.end")?
-  test.contains(traced.stderr, "status={kind:exit success:false code:1}")?
+  "kind=run.start" in traced.stderr
+  "kind=run.end" in traced.stderr
+  "status={kind:exit success:false code:1}" in traced.stderr
 }
 
 proc test_make_facade_only_delegates_to_the_development_entrypoint() [fs, error] {
@@ -261,7 +261,7 @@ proc test_make_facade_only_delegates_to_the_development_entrypoint() [fs, error]
     "$(DEV) bench --syscalls",
     "$(DEV) dist --docker always",
   ] {
-    test.contains(facade, command, facade)?
+    test.ok(command in facade, facade)?
   }
 
   for forbidden in ["cargo build", "cargo test", "sh -c", "bash -c", "docker run"] {
@@ -290,24 +290,18 @@ proc test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary(ctx: T
     stdout = output
     run make --no-print-directory -n build
   }
-  test.ok(process.run(default)?.exited_with(0))?
-  test.eq(
-    output.read_text()?,
-    """cargo dev build
-""",
-  )?
+  process.run(default)?.exited_with(0)
+  output.read_text()? == """cargo dev build
+"""
 
   let override = process.command {
     cwd = root
     stdout = output
     run make --no-print-directory -n build "XSH_DEV=/missing/xsh"
   }
-  test.ok(process.run(override)?.exited_with(0))?
-  test.eq(
-    output.read_text()?,
-    """/missing/xsh dev/main.xsh -- build
-""",
-  )?
+  process.run(override)?.exited_with(0)
+  output.read_text()? == """/missing/xsh dev/main.xsh -- build
+"""
 }
 
 proc test_codesign_failure_stops_darwin_installation(ctx: TestContext) [fs, error] {
@@ -355,10 +349,10 @@ match install.darwin(ctx) {
     },
   )?
   test.ok(result.success, result.stderr)?
-  test.contains(result.stdout, "[install-darwin-codesign target=aarch64-apple-darwin] codesign", result.stdout)?
-  test.contains(result.stdout, "StageError.Failed", result.stdout)?
-  test.ok(codesign_marker.exists()?)?
-  test.contains(cargo_marker.read_text()?, "build-std", cargo_marker.read_text()?)?
+  test.ok("[install-darwin-codesign target=aarch64-apple-darwin] codesign" in result.stdout, result.stdout)?
+  test.ok("StageError.Failed" in result.stdout, result.stdout)?
+  codesign_marker.exists()?
+  test.ok("build-std" in cargo_marker.read_text()?, cargo_marker.read_text()?)?
 }
 
 proc test_darwin_install_rejects_linux_target_before_building(ctx: TestContext) [fs, error] {
@@ -405,7 +399,7 @@ match install.darwin(ctx) {
     },
   )?
   test.ok(result.success, result.stderr)?
-  test.contains(result.stdout, "StageError.Failed", result.stdout)?
+  test.ok("StageError.Failed" in result.stdout, result.stdout)?
   test.ok(! cargo_marker.exists()?, "darwin install with a Linux target must fail before cargo")?
 }
 
@@ -453,7 +447,7 @@ match install.linux_install(ctx) {
     },
   )?
   test.ok(cross.success, cross.stderr)?
-  test.contains(cross.stdout, "StageError.Failed", cross.stdout)?
+  test.ok("StageError.Failed" in cross.stdout, cross.stdout)?
   test.ok(! cargo_marker.exists()?, "cross-arch Linux install must fail before cargo")?
 
   let non_linux = test.run_script(
@@ -487,5 +481,5 @@ match install.linux_install(ctx) {
     },
   )?
   test.ok(non_linux.success, non_linux.stderr)?
-  test.contains(non_linux.stdout, "StageError.Failed", non_linux.stdout)?
+  test.ok("StageError.Failed" in non_linux.stdout, non_linux.stdout)?
 }

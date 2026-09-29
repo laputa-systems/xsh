@@ -90,6 +90,10 @@ struct RunSegment {
     cpu_max: Option<u32>,
 }
 
+fn assertion_comparison_op(op: BinaryOp) -> bool {
+    matches!(op, BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge | BinaryOp::In | BinaryOp::NotIn)
+}
+
 enum BinaryWork {
     Expr(u32),
     Apply { op: BinaryOp, span: Span },
@@ -1979,6 +1983,35 @@ impl Evaluator {
         }
     }
 
+    fn indexed_assertion_outcome(
+        &mut self,
+        passed: bool,
+        values: Option<(&LoweredValue, &LoweredValue)>,
+        span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        if passed { return Ok(ControlFlow::Continue(LoweredValue::Unit)); }
+        let mut message = "assertion failed".to_string();
+        if let Some(expression) = self.sources.span_text(span) {
+            message.push_str(": ");
+            message.extend(expression.chars().take(512));
+        }
+        if let Some((left, right)) = values {
+            use crate::runtime::eval::lowered_ops::lowered_assertion_value_detail;
+            message.push_str(&format!("\nleft: {}\nright: {}", lowered_assertion_value_detail(left), lowered_assertion_value_detail(right)));
+            if let (Some(left), Some(right)) = (lowered_str_value(left), lowered_str_value(right)) {
+                if left != right && left.len() <= 4096 && right.len() <= 4096 && (left.contains('\n') || right.contains('\n')) {
+                    message.push_str("\ndiff:\n");
+                    message.push_str(&diffy::create_patch(left, right).to_string());
+                }
+            }
+        } else {
+            message.push_str(": evaluated to false");
+        }
+        let error = crate::runtime::eval::modules::assertion_error(message, Some(span));
+        let propagated = self.lowered_question_propagation_value(lowered_result_err_value(error), span)?;
+        Ok(ControlFlow::Break(propagated))
+    }
+
     fn eval_indexed_pipeline_descending(
         &mut self,
         execution: &FullExecution<'_>,
@@ -2376,6 +2409,39 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 lowered_freeze_large_slot_list(&mut slots[slot]);
                 ControlFlow::Continue(slots[slot].clone())
+            }
+            FullTag::ExprAssert => {
+                let value = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let (tag, mut predicate) = indexed_value(execution.instruction_id(value), span)?;
+                if tag == FullTag::ExprBinary {
+                    let op = indexed_decode::<BinaryOp>(&mut predicate, execution, span)?;
+                    let left = indexed_raw(&mut predicate, span)?;
+                    let right = indexed_raw(&mut predicate, span)?;
+                    let _ = indexed_decode::<Span>(&mut predicate, execution, span)?;
+                    indexed_finish(predicate, span)?;
+                    if assertion_comparison_op(op) {
+                        let left = match self.eval_indexed_expr(execution, left, slots, span)? {
+                            ControlFlow::Continue(value) => value,
+                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        };
+                        let right = match self.eval_indexed_expr(execution, right, slots, span)? {
+                            ControlFlow::Continue(value) => value,
+                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        };
+                        let passed = crate::runtime::eval::lowered_ops::lowered_assertion_comparison(op, &left, &right, span)?;
+                        return self.indexed_assertion_outcome(passed, Some((&left, &right)), span);
+                    }
+                }
+                let value = match self.eval_indexed_expr(execution, value, slots, span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let LoweredValue::Bool(passed) = value else {
+                    return Err(RuntimeError::new("indexed-ir", "assertion requires checked Bool").with_span(span));
+                };
+                return self.indexed_assertion_outcome(passed, None, span);
             }
             FullTag::ExprBinary => {
                 let op = indexed_decode::<BinaryOp>(&mut payload, execution, call_span)?;
@@ -4948,23 +5014,6 @@ impl Evaluator {
                 };
                 ControlFlow::Continue(LoweredValue::Bool(lowered_str_predicate_value(
                     &receiver, predicate, &needle, span,
-                )?))
-            }
-            FullTag::ExprContains => {
-                let receiver = indexed_raw(&mut payload, call_span)?;
-                let needle = indexed_raw(&mut payload, call_span)?;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let receiver = match self.eval_indexed_expr(execution, receiver, slots, span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                let needle = match self.eval_indexed_expr(execution, needle, slots, span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                ControlFlow::Continue(LoweredValue::Bool(lowered_contains_value(
-                    &receiver, &needle, span,
                 )?))
             }
             FullTag::ExprRegexCompile => {

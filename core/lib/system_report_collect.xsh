@@ -137,7 +137,7 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int]] {
     }
 
     let key = f"${cpu_id}"
-    if set.has(seen, key) {
+    if key in seen {
       return Err(SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership repeats a CPU identifier"))
     }
 
@@ -1135,7 +1135,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
   for index in range(functions.len()) {
     let address = functions[index].address
     if address != null {
-      if ! function_index_by_address.has(address) {
+      if address not in function_index_by_address {
         function_index_by_address = function_index_by_address.set(address, index)
       }
     }
@@ -1147,7 +1147,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     let parent_address = parent_addresses[function_index]
     var parent_index: Int? = null
     if parent_address != null {
-      if function_index_by_address.has(parent_address) {
+      if parent_address in function_index_by_address {
         parent_index = function_index_by_address.get(parent_address)?
       }
     }

@@ -16,14 +16,14 @@ proc test_file_audit_findings(ctx: TestContext) [fs, process, error] {
   fs.symlink(fp"${root}/world.txt", fp"${root}/absolute")?
   fs.symlink(fp"${outside}/target.txt", fp"${root}/escape")?
   let output = run.text "xsh" "showcase/file-audit.xsh" -- --root $root ?
-  test.contains(output, "broken-symlink broken")?
-  test.contains(output, "absolute-symlink absolute")?
-  test.contains(output, "escaping-symlink escape")?
-  test.contains(output, "world-writable-file world.txt")?
-  test.contains(output, "world-writable-dir open-dir")?
+  "broken-symlink broken" in output
+  "absolute-symlink absolute" in output
+  "escaping-symlink escape" in output
+  "world-writable-file world.txt" in output
+  "world-writable-dir open-dir" in output
 
   if suid.metadata()?.setuid {
-    test.contains(output, "setuid-setgid-file suid.sh")?
+    "setuid-setgid-file suid.sh" in output
   }
 }
 
@@ -49,5 +49,5 @@ proc test_file_audit_distinguishes_non_utf8_sibling_paths(ctx: TestContext) [fs,
   fs.symlink(target, link)?
 
   let output = run.text "xsh" "showcase/file-audit.xsh" -- --root $root_alias ?
-  test.contains(output, "escaping-symlink escape")?
+  "escaping-symlink escape" in output
 }

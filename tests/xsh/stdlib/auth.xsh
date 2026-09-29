@@ -11,7 +11,7 @@ proc test_auth_lib_passwd_and_shadow_parse_render() [fs, error] {
 bad:x:not-int:0:bad:/bad:/bin/sh
 """)?
 
-  test.eq(passwd.len(), 1)?
+  passwd.len() == 1
   test.eq(passwd[0].name, "root")?
   test.eq(passwd[0].uid, 0)?
   test.eq(passwd[0].home.display(), "/root")?
@@ -20,17 +20,14 @@ bad:x:not-int:0:bad:/bad:/bin/sh
 raw-line
 """)
 
-  test.eq(shadow.len(), 2)?
+  shadow.len() == 2
   test.eq(shadow[0].username, "root")?
   test.eq(shadow[0].rest[0], "1")?
   test.ok(shadow[1].raw)?
 
-  test.eq(
-    auth.render_shadow(shadow),
-    """root:!:1:0:99999:7:::
+  auth.render_shadow(shadow) == """root:!:1:0:99999:7:::
 raw-line
-""",
-  )?
+"""
 }
 
 proc test_applet_auth_helpers_and_sessions(ctx: TestContext) [fs, process, env, error] {
@@ -72,10 +69,10 @@ exit 17
   )?
   test.ok(applet.current_euid() >= 0, "current_euid is negative")?
   test.ok(applet.current_exe()?.exists()?, "current_exe path does not exist")?
-  test.eq(applet.login_session(session_user, false, "")?, 17)?
-  test.eq(applet.sulogin_session(session_user)?, 17)?
-  test.eq(applet.su_session(session_user, false, false, shell.display(), "", [])?, 17)?
-  test.eq(applet.su_session(session_user, false, false, "/bin/sh", "exit 19", [])?, 19)?
+  applet.login_session(session_user, false, "")? == 17
+  applet.sulogin_session(session_user)? == 17
+  applet.su_session(session_user, false, false, shell.display(), "", [])? == 17
+  applet.su_session(session_user, false, false, "/bin/sh", "exit 19", [])? == 19
   test.error_kind(applet.hash_password("secret", "bogus"), "applet-hash-password")?
 }
 

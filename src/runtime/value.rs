@@ -223,6 +223,11 @@ impl FsEntryValue {
         }
     }
 
+    /// Presence does not fetch metadata or construct the field's value.
+    pub fn has_field(&self, name: &str) -> bool {
+        matches!(name, "accessed" | "blocks_512" | "gid" | "mode" | "modified" | "size" | "uid" | "path" | "name" | "ext" | "kind" | "executable" | "group_executable" | "other_executable" | "owner_executable" | "setgid" | "setuid" | "sticky" | "world_writable")
+    }
+
     pub fn field_value(&self, name: &str) -> Option<Result<Value, RuntimeError>> {
         let value = match name {
             "accessed" | "blocks_512" | "gid" | "mode" | "modified" | "size" | "uid" => {

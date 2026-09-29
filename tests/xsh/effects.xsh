@@ -17,8 +17,8 @@ proc test_module_call_blocked_by_annotation(ctx: TestContext) [fs, process, erro
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc bad() [fs] {\n  dns.lookup(\"g.com\")\n}\n")?
   let result = run_check(src)?
   test.ok(! result.ok, "expected check failure")?
-  test.contains(result.out, "check.effect-violation")?
-  test.contains(result.out, "net")?
+  "check.effect-violation" in result.out
+  "net" in result.out
 }
 
 proc test_correct_annotation_passes(ctx: TestContext) [fs, process, error] {
@@ -57,8 +57,8 @@ proc test_io_does_not_cover_time(ctx: TestContext) [fs, process, error] {
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc bad() [io] {\n  let _ = time.now()\n}\n")?
   let result = run_check(src)?
   test.ok(! result.ok, "expected check failure")?
-  test.contains(result.out, "check.effect-violation")?
-  test.contains(result.out, "time")?
+  "check.effect-violation" in result.out
+  "time" in result.out
 }
 
 proc test_question_mark_requires_error_effect(ctx: TestContext) [fs, process, error] {
@@ -70,16 +70,16 @@ proc test_question_mark_requires_error_effect(ctx: TestContext) [fs, process, er
 
   let result = run_check(src)?
   test.ok(! result.ok, "expected check failure")?
-  test.contains(result.out, "check.effect-violation")?
-  test.contains(result.out, "error")?
+  "check.effect-violation" in result.out
+  "error" in result.out
 }
 
 proc test_run_form_requires_process_effect(ctx: TestContext) [fs, process, error] {
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc bad() [fs] {\n  run echo hello\n}\n")?
   let result = run_check(src)?
   test.ok(! result.ok, "expected check failure")?
-  test.contains(result.out, "check.effect-violation")?
-  test.contains(result.out, "process")?
+  "check.effect-violation" in result.out
+  "process" in result.out
 }
 
 proc test_unrestricted_proc_unchecked(ctx: TestContext) [fs, process, error] {
@@ -102,7 +102,7 @@ proc test_restricted_cannot_call_unrestricted_proc(ctx: TestContext) [fs, proces
 
   let result = run_check(src)?
   test.ok(! result.ok, "expected check failure")?
-  test.contains(result.out, "check.effect-violation")?
+  "check.effect-violation" in result.out
 }
 
 proc test_proc_to_proc_subset_passes(ctx: TestContext) [fs, process, error] {
@@ -119,22 +119,22 @@ proc test_proc_to_proc_subset_passes(ctx: TestContext) [fs, process, error] {
 proc test_linter_infers_fs_error(ctx: TestContext) [fs, process, error] {
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc main() {\n  let _ = fs.read_text(p\"x\")?\n}\n")?
   let out = run_lint(src)?
-  test.contains(out, "lint.unannotated-effects")?
-  test.contains(out, "[fs, error]")?
+  "lint.unannotated-effects" in out
+  "[fs, error]" in out
 }
 
 proc test_linter_infers_net(ctx: TestContext) [fs, process, error] {
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc main() {\n  let _ = dns.lookup(\"x.test\")\n}\n")?
   let out = run_lint(src)?
-  test.contains(out, "lint.unannotated-effects")?
-  test.contains(out, "[net]")?
+  "lint.unannotated-effects" in out
+  "[net]" in out
 }
 
 proc test_linter_infers_process_from_run(ctx: TestContext) [fs, process, error] {
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc main() {\n  run echo hello\n}\n")?
   let out = run_lint(src)?
-  test.contains(out, "lint.unannotated-effects")?
-  test.contains(out, "process")?
+  "lint.unannotated-effects" in out
+  "process" in out
 }
 
 proc test_annotated_proc_not_flagged_by_linter(ctx: TestContext) [fs, process, error] {

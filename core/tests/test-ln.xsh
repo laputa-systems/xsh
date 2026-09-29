@@ -5,5 +5,5 @@ proc test_ln_symbolic_force(ctx: TestContext) [fs, process, env, error] {
   src.write("new")?
   dst.write("old")?
   run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ln.xsh" -- -sf $src $dst ?
-  test.contains(dst.readlink()?.display(), "src.txt")?
+  "src.txt" in dst.readlink()?.display()
 }

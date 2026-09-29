@@ -5,7 +5,7 @@ use super::expr::expr_or_run_span_arena;
 use super::pattern::collect_covered_constructors_arena;
 use super::{
     AnnotationFact, AnnotationFactKind, BinaryOp, Checker, FxHashSet, Name, Span, Type, UnaryOp,
-    call_arg_expr_id_arena, command_stmt_asserts_success_arena, command_ty_auto_propagates,
+    command_stmt_asserts_success_arena, command_ty_auto_propagates,
     expr_ty_auto_propagates, normalize_hook_signal, signal_rejection_message,
 };
 use super::{Binding, TypeDefBody, tail_type_matches_expected};
@@ -335,6 +335,24 @@ impl Checker {
         self.error(span, message, "check.loop-control");
     }
 
+    /// Statement use is decided from the checked type and its consumer, never
+    /// from a runtime value or whether a local binding is subsequently read.
+    pub(super) fn check_assertion_statement(&mut self, ty: &Type, span: Span) -> bool {
+        if *ty != Type::Bool {
+            return false;
+        }
+        self.assertion_spans.insert(span);
+        if self.retry_attempt_depth == 0 { self.assertion_effect_spans.insert(span); }
+        self.check_propagation(
+            &Type::Result(
+                Box::new(Type::Unit),
+                Box::new(Type::ErrorFamily(Name::intern("AssertionError"))),
+            ),
+            span,
+        );
+        true
+    }
+
     pub(super) fn check_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
         let stmt = arena.arena.stmt(id);
         match stmt.kind {
@@ -440,7 +458,11 @@ impl Checker {
                 self.check_loop_control(stmt.span, false);
             }
             ArenaStmtKind::Expr(expr_id) => {
+                self.statement_expression_spans.insert(arena.arena.expr(expr_id).span);
                 let ty = self.check_expr_arena(arena, source, expr_id, None);
+                if self.check_assertion_statement(&ty, arena.arena.expr(expr_id).span) {
+                    return;
+                }
                 if !expr_ty_auto_propagates(&ty) {
                     let expr_span = arena.arena.expr(expr_id).span;
                     self.reject_ignored_result(&ty, expr_span);
@@ -528,6 +550,7 @@ impl Checker {
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let ty = self.check_tail_bare_ident_arena(arena, source, name, stmt.span);
+                if self.check_assertion_statement(&ty, stmt.span) { return; }
                 if !command_ty_auto_propagates(&ty) {
                     self.reject_ignored_result(&ty, stmt.span);
                 }
@@ -595,8 +618,11 @@ impl Checker {
                 left,
                 right,
             } => self.infer_null_comparison_narrowings_arena(arena, condition, left, right),
-            ArenaExprKind::Call { callee, args } => {
-                self.infer_record_has_narrowing_arena(arena, callee, args)
+            ArenaExprKind::Binary { op: BinaryOp::In | BinaryOp::NotIn, left, right } => {
+                let narrowing = self.infer_record_membership_narrowing_arena(arena, left, right);
+                if matches!(arena.arena.expr(condition).kind, ArenaExprKind::Binary { op: BinaryOp::NotIn, .. }) {
+                    ConditionNarrowings { when_true: narrowing.when_false, when_false: narrowing.when_true }
+                } else { narrowing }
             }
             _ => ConditionNarrowings::default(),
         }
@@ -651,57 +677,21 @@ impl Checker {
         }
     }
 
-    fn infer_record_has_narrowing_arena(
-        &self,
-        arena: &ArenaProgram,
-        callee: ExprId,
-        args: ArenaRange,
+    fn infer_record_membership_narrowing_arena(
+        &self, arena: &ArenaProgram, field_expr: ExprId, record_expr: ExprId,
     ) -> ConditionNarrowings {
-        let ArenaExprKind::Field { base, name } = arena.arena.expr(callee).kind else {
-            return ConditionNarrowings::default();
-        };
-        if name != "has" {
-            return ConditionNarrowings::default();
-        }
-        let call_args = arena.arena.call_args(args);
-
-        let (record_name, field_expr) = if matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "record")
-            && call_args.len() == 2
-        {
-            let record_expr_id = call_arg_expr_id_arena(&call_args[0].kind);
-            let ArenaExprKind::Ident(record_name) = arena.arena.expr(record_expr_id).kind else {
-                return ConditionNarrowings::default();
-            };
-            (record_name, call_arg_expr_id_arena(&call_args[1].kind))
-        } else if call_args.len() == 1 {
-            let ArenaExprKind::Ident(record_name) = arena.arena.expr(base).kind else {
-                return ConditionNarrowings::default();
-            };
-            (record_name, call_arg_expr_id_arena(&call_args[0].kind))
-        } else {
-            return ConditionNarrowings::default();
-        };
-        if record_name == "record" {
+        let ArenaExprKind::Ident(record_name) = arena.arena.expr(record_expr).kind else {
             return ConditionNarrowings::default();
         };
         let ArenaExprKind::Str(field_name_id) = arena.arena.expr(field_expr).kind else {
             return ConditionNarrowings::default();
         };
-        let field_name = arena.arena.string_literal(field_name_id).clone();
-        let Some(binding) = self.lookup(record_name) else {
-            return ConditionNarrowings::default();
-        };
-        let mut fields = match &binding.ty {
-            Type::Record(fields) => fields.clone(),
-            Type::Any | Type::Unknown => return ConditionNarrowings::default(),
-            _ => return ConditionNarrowings::default(),
-        };
-        fields.entry(Name::intern(&field_name)).or_insert(Type::Any);
+        let Some(binding) = self.lookup(record_name) else { return ConditionNarrowings::default(); };
+        let Type::Record(mut fields) = binding.ty.clone() else { return ConditionNarrowings::default(); };
+        let field_name = arena.arena.string_literal(field_name_id);
+        fields.entry(Name::intern(field_name)).or_insert(Type::Any);
         ConditionNarrowings {
-            when_true: vec![Narrowing {
-                name: record_name,
-                ty: Type::Record(fields),
-            }],
+            when_true: vec![Narrowing { name: record_name, ty: Type::Record(fields) }],
             when_false: Vec::new(),
         }
     }
@@ -1554,8 +1544,10 @@ impl Checker {
     fn check_non_tail_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
         let stmt = arena.arena.stmt(id);
         if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
+            self.statement_expression_spans.insert(arena.arena.expr(expr_id).span);
             let ty = self.check_expr_arena(arena, source, expr_id, None);
-            if expr_ty_auto_propagates(&ty) {
+            if self.check_assertion_statement(&ty, arena.arena.expr(expr_id).span)
+                || expr_ty_auto_propagates(&ty) {
                 return;
             }
             let expr_span = arena.arena.expr(expr_id).span;
@@ -1581,11 +1573,24 @@ impl Checker {
         let stmt = arena.arena.stmt(id);
         match stmt.kind {
             ArenaStmtKind::Expr(expr_id) => {
+                if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit()) {
+                    self.statement_expression_spans.insert(arena.arena.expr(expr_id).span);
+                }
                 let ctx = tail_expr_context_arena(arena, expr_id, expected);
-                self.check_expr_arena(arena, source, expr_id, ctx.as_ref())
+                let ty = self.check_expr_arena(arena, source, expr_id, ctx.as_ref());
+                if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit())
+                    && self.check_assertion_statement(&ty, arena.arena.expr(expr_id).span)
+                {
+                    Type::Unit
+                } else {
+                    ty
+                }
             }
             ArenaStmtKind::TailBareIdent(name) => {
-                self.check_tail_bare_ident_arena(arena, source, name, stmt.span)
+                let ty = self.check_tail_bare_ident_arena(arena, source, name, stmt.span);
+                if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit())
+                    && self.check_assertion_statement(&ty, stmt.span)
+                { Type::Unit } else { ty }
             }
             ArenaStmtKind::Command(command_id) => {
                 let command_stmt = arena.arena.command_stmt(command_id);
@@ -1607,7 +1612,10 @@ impl Checker {
                 }
             }
             ArenaStmtKind::Match { value, arms } => {
-                self.check_tail_match_arena(arena, source, value, arms)
+                if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit()) {
+                    self.check_match_arena(arena, source, value, arms);
+                    Type::Unit
+                } else { self.check_tail_match_arena(arena, source, value, arms) }
             }
             _ => {
                 self.check_stmt_arena(arena, source, id);

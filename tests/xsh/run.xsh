@@ -34,8 +34,8 @@ pure run_result_unit_tail_error() -> Result[Unit] {
 proc test_command_proc_args_resolve_bare_value_references() [error] {
   let rows = [{name: "alpha"}]
   let prefix = "item"
-  test.eq(show_run_row(rows[0], prefix), "item alpha")?
-  test.eq(show_run_row(rows[0], "prefix"), "prefix alpha")?
+  show_run_row(rows[0], prefix) == "item alpha"
+  show_run_row(rows[0], "prefix") == "prefix alpha"
 }
 
 proc test_mutable_string_accumulator_uses_string_addition_in_loop(ctx: TestContext) [error] {
@@ -51,12 +51,9 @@ proc test_mutable_string_accumulator_uses_string_addition_in_loop(ctx: TestConte
 """,
   )?
   test.ok(output.success, output.stderr)?
-  test.eq(
-    output.stdout,
-    """abc
-""",
-  )?
-  test.eq(output.stderr, "")?
+  output.stdout == """abc
+"""
+  output.stderr == ""
 }
 
 proc test_reassigning_let_names_mutable_binding(ctx: TestContext) [error] {
@@ -66,9 +63,9 @@ proc test_reassigning_let_names_mutable_binding(ctx: TestContext) [error] {
 x = 2
 """,
   )?
-  test.eq(output.status, 2)?
-  test.contains(output.stderr, "check.assign-let")?
-  test.contains(output.stderr, "declare with `var`")?
+  output.status == 2
+  "check.assign-let" in output.stderr
+  "declare with `var`" in output.stderr
 }
 
 proc test_checker_errors_prevent_execution(ctx: TestContext) [error] {
@@ -79,9 +76,9 @@ let value = "abc"
 print $value.length()
 """,
   )?
-  test.eq(output.status, 2)?
-  test.eq(output.stdout, "")?
-  test.contains(output.stderr, "check.unknown-method")?
+  output.status == 2
+  output.stdout == ""
+  "check.unknown-method" in output.stderr
 }
 
 proc test_runtime_unknown_method_names_receiver_and_candidate(ctx: TestContext) [error] {
@@ -91,22 +88,19 @@ proc test_runtime_unknown_method_names_receiver_and_candidate(ctx: TestContext) 
 print $value.length()
 """,
   )?
-  test.eq(output.status, 3)?
-  test.contains(output.stderr, "unknown method `length` on Str")?
-  test.contains(output.stderr, "count_chars")?
+  output.status == 3
+  "unknown method `length` on Str" in output.stderr
+  "count_chars" in output.stderr
 }
 
 proc test_grouped_multiline_run_invocation_executes() [process, error] {
-  test.eq(
-    run.text (
+  (run.text (
       printf
       "%s %s\n"
       "grouped"
       "run"
-    )?,
-    """grouped run
-""",
-  )?
+    )?) == """grouped run
+"""
 }
 
 proc test_run_status_can_drive_conditions() [process, error] {
@@ -120,13 +114,13 @@ proc test_run_status_can_drive_conditions() [process, error] {
     seen = seen.push("ok")
   }
 
-  test.eq(seen, ["missing", "ok"])?
+  seen == ["missing", "ok"]
 }
 
 proc test_path_absolute_uses_current_runtime_cwd_without_existing_path() [fs, error] {
   let cwd = fs.cwd()?
   let p = path.absolute(p"target/../target/lang-absolute-demo")?
-  test.eq(p, fp"${cwd}/target/lang-absolute-demo")?
+  p == fp"${cwd}/target/lang-absolute-demo"
 }
 
 proc test_boolean_operators_short_circuit() [error] {
@@ -145,7 +139,7 @@ proc test_boolean_operators_short_circuit() [error] {
     seen = seen.push("ok-and")
   }
 
-  test.eq(seen, ["ok-or", "ok-and"])?
+  seen == ["ok-or", "ok-and"]
 }
 
 proc test_result_unit_statements_propagate_by_default() [time, error] {
@@ -158,12 +152,12 @@ proc test_script_stdout_can_emit_invalid_utf8_bytes() [error, io] {
 
 proc test_run_capture_record_captures_status_stdout_and_stderr() [process, error] {
   let text_capture = run.capture --text sh -c "printf out; printf err >&2; exit 7" ?
-  test.ok(text_capture.status.exited_with(7))?
-  test.eq(text_capture.stdout, "out")?
-  test.eq(text_capture.stderr, "err")?
+  text_capture.status.exited_with(7)
+  text_capture.stdout == "out"
+  text_capture.stderr == "err"
   let byte_capture = run.capture --bytes sh -c "head -c 1 /dev/zero >&2; printf ok" ?
-  test.eq(byte_capture.stdout.len(), 2)?
-  test.eq(byte_capture.stderr.len(), 1)?
+  byte_capture.stdout.len() == 2
+  byte_capture.stderr.len() == 1
 }
 
 proc test_run_text_captures_stdout_and_inherits_stderr(ctx: TestContext) [error] {
@@ -175,23 +169,20 @@ print ${out}
 """,
   )?
 
-  test.eq(
-    output.stdout,
-    """out
-""",
-  )?
+  output.stdout == """out
+"""
 
-  test.eq(output.stderr, "err")?
+  output.stderr == "err"
 }
 
 proc test_run_builtin_forms_execute_like_plain_run_forms() [process, error] {
   let status = run.builtin.status false
-  test.ok(status.exited_with(1))?
+  status.exited_with(1)
   let text = run.builtin.text echo hello ?
-  test.eq(text.trim(), "hello")?
+  text.trim() == "hello"
   let capture = run.builtin.capture --text printf "out" ?
-  test.ok(capture.status.ok)?
-  test.eq(capture.stdout, "out")?
+  capture.status.ok
+  capture.stdout == "out"
 }
 
 proc test_dynamic_module_proc_preserves_bareword_run_arguments(ctx: TestContext) [fs, error] {
@@ -229,7 +220,7 @@ build_fn.call()?
     "--format json",
     "apples",
   ] {
-    test.contains(output.stdout, expected)?
+    expected in output.stdout
   }
 }
 
@@ -248,8 +239,8 @@ fs read
 """,
   )?
 
-  test.eq(output.status, 2)?
-  test.contains(output.stderr, "check.unresolved-proc-command")?
+  output.status == 2
+  "check.unresolved-proc-command" in output.stderr
 }
 
 proc test_nul_run_targets_proc_splice_and_match_diagnostics(ctx: TestContext) [error] {
@@ -265,8 +256,8 @@ main(args)?
 """,
   )?
 
-  test.eq(nul_target.status, 3)?
-  test.contains(nul_target.stderr, "nul")?
+  nul_target.status == 3
+  "nul" in nul_target.stderr
 
   let nul_path = test.run_script(
     ctx,
@@ -274,8 +265,8 @@ main(args)?
 """,
   )?
 
-  test.eq(nul_path.status, 3)?
-  test.contains(nul_path.stderr, "nul")?
+  nul_path.status == 3
+  "nul" in nul_path.stderr
 
   let nul_argv = test.run_script(
     ctx,
@@ -283,8 +274,8 @@ main(args)?
 """,
   )?
 
-  test.eq(nul_argv.status, 3)?
-  test.contains(nul_argv.stderr, "nul")?
+  nul_argv.status == 3
+  "nul" in nul_argv.stderr
 
   let spliced = test.run_script(
     ctx,
@@ -300,11 +291,8 @@ pair(@parts)?
 
   test.ok(spliced.success, spliced.stderr)?
 
-  test.eq(
-    spliced.stdout,
-    """left right
-""",
-  )?
+  spliced.stdout == """left right
+"""
 
   let no_arm = test.run_script(
     ctx,
@@ -315,8 +303,8 @@ match value {
 """,
   )?
 
-  test.eq(no_arm.status, 3)?
-  test.contains(no_arm.stderr, "match did not match any arm")?
+  no_arm.status == 3
+  "match did not match any arm" in no_arm.stderr
 }
 
 proc test_legacy_test_and_getopt_spellings_are_not_command_aliases(ctx: TestContext) [error] {
@@ -349,16 +337,16 @@ proc test_function_tail_values_return_declared_values() [error] {
     }
 
   let marker_text = run_choose_tail("ignored")?
-  test.eq(marker_text, "proc-tail")?
-  test.eq(obj.name(), "main.o")?
-  test.eq(values[0], "ok.ok")?
+  marker_text == "proc-tail"
+  obj.name() == "main.o"
+  values[0] == "ok.ok"
   test.error_kind(run_result_unit_tail_error(), "TailError.tail_error")?
 }
 
 proc test_byte_pipeline_executes_without_shell_and_redirects_stdout(ctx: TestContext) [fs, process, error] {
   let out = test.temp_path(ctx)
   run printf "%s\n" "hello" | run tr a-z A-Z > $out ?
-  test.eq(out.read_bytes()?, b"HELLO\n")?
+  (out.read_bytes()?) == b"HELLO\n"
 }
 
 proc test_acceptance_tar_gzip_pipeline_writes_archive(ctx: TestContext) [fs, process, env, error] {
@@ -374,16 +362,16 @@ proc test_acceptance_tar_gzip_pipeline_writes_archive(ctx: TestContext) [fs, pro
     run tar cf - src | run gzip -9 > $tarball ?
   } ?
 
-  test.ok(tarball.metadata()?.size > 0)?
+  (tarball.metadata()?.size > 0)
 }
 
 proc test_plain_run_updates_last_status_and_direct_binding() [process, error] {
   run.status false
   let last = $?
-  test.ok(last.exited_with(1))?
+  last.exited_with(1)
   let bound = run sh -c "exit 7"
-  test.ok(bound.segments[0].code == 7)?
-  test.eq(bound.ok, false)?
+  (bound.segments[0].code == 7)
+  bound.ok == false
 }
 
 proc test_redirection_paths_and_fd_duplication_use_typed_boundaries(ctx: TestContext) [fs, process, error] {
@@ -402,10 +390,10 @@ name"""
   run sh -c "printf err >&2" 2> $errlog ?
   run sh -c "printf more >&2" 2>> $errlog ?
   run true <& 0 ?
-  test.eq(spaced.read_bytes()?, b"ab")?
-  test.eq(lined.read_bytes()?, b"ab")?
-  test.eq(dashed.read_bytes()?, b"ab")?
-  test.eq(errlog.read_bytes()?, b"errmore")?
+  (spaced.read_bytes()?) == b"ab"
+  (lined.read_bytes()?) == b"ab"
+  (dashed.read_bytes()?) == b"ab"
+  (errlog.read_bytes()?) == b"errmore"
 }
 
 proc test_pipeline_status_preserves_exec_failure_and_broken_pipe_segments(ctx: TestContext) [fs, process, env, error] {
@@ -417,24 +405,21 @@ proc test_pipeline_status_preserves_exec_failure_and_broken_pipe_segments(ctx: T
 
   let sink = test.temp_path(ctx)
   let broken = run yes | run head -n 1 > $sink
-  test.ok(broken.segments[0].kind == "signal")?
+  (broken.segments[0].kind == "signal")
 
-  test.eq(
-    sink.read_text()?,
-    """y
-""",
-  )?
+  (sink.read_text()?) == """y
+"""
 }
 
 proc test_signaled_status_exposes_total_signal_helpers() [process, error] {
   let status = run sh -c "kill -TERM $$"
-  test.ok(status.signaled())?
-  test.ok(status.signal_number()? > 0)?
+  status.signaled()
+  (status.signal_number()? > 0)
 }
 
 proc test_large_stdout_capture_drains_and_limit_is_error() [process, error] {
   let out = run.bytes head -c 131072 /dev/zero ?
-  test.eq(out.len(), 131072)?
+  out.len() == 131072
   let too_large = run.bytes head -c 16777217 /dev/zero
   test.error_kind(too_large, "capture-limit")?
 }
@@ -456,9 +441,9 @@ main(@args)
 """,
   )?
 
-  test.eq(int_status.status, 7)?
-  test.eq(int_status.stdout, "")?
-  test.eq(int_status.stderr, "")?
+  int_status.status == 7
+  int_status.stdout == ""
+  int_status.stderr == ""
 
   let abort_with_defers = test.run_script(
     ctx,
@@ -477,14 +462,11 @@ main()?
 
   test.eq(abort_with_defers.status, 9, abort_with_defers.stderr)?
 
-  test.eq(
-    abort_with_defers.stdout,
-    """proc
+  abort_with_defers.stdout == """proc
 top
-""",
-  )?
+"""
 
-  test.eq(abort_with_defers.stderr, "")?
+  abort_with_defers.stderr == ""
 
   let forced = test.run_script(
     ctx,
@@ -501,9 +483,9 @@ main()?
 """,
   )?
 
-  test.eq(forced.status, 11)?
-  test.eq(forced.stdout, "")?
-  test.eq(forced.stderr, "")?
+  forced.status == 11
+  forced.stdout == ""
+  forced.stderr == ""
 
   let quiet_validation_failure = test.run_script(
     ctx,
@@ -514,13 +496,10 @@ print "unreachable"
 """,
   )?
 
-  test.eq(quiet_validation_failure.status, 17)?
-  test.eq(
-    quiet_validation_failure.stdout,
-    """escape
-""",
-  )?
-  test.eq(quiet_validation_failure.stderr, "")?
+  quiet_validation_failure.status == 17
+  quiet_validation_failure.stdout == """escape
+"""
+  quiet_validation_failure.stderr == ""
 }
 
 proc test_whole_script_cli_usage_and_auto_main_errors(ctx: TestContext) [error] {
@@ -546,20 +525,17 @@ print \${opts.paths.len()}
   )?
 
   test.ok(help.success, help.stderr)?
-  test.eq(help.stderr, "")?
-  test.contains(help.stdout, "usage: ")?
-  test.contains(help.stdout, "cli-help")?
-  test.not_contains(help.stdout, "usage: command ")?
-  test.contains(help.stdout, "[...PATH] [OPTIONS]")?
-  test.contains(help.stdout, "-v, --verbose")?
-  test.contains(help.stdout, "-h, --help")?
+  help.stderr == ""
+  "usage: " in help.stdout
+  "cli-help" in help.stdout
+  "usage: command " not in help.stdout
+  "[...PATH] [OPTIONS]" in help.stdout
+  "-v, --verbose" in help.stdout
+  "-h, --help" in help.stdout
 
-  test.not_contains(
-    help.stdout,
-    """
+  """
 0
-""",
-  )?
+""" not in help.stdout
 
   let usage_error = test.run_script(
     ctx,
@@ -570,11 +546,11 @@ print \${opts.path}
 """,
   )?
 
-  test.eq(usage_error.status, 2)?
-  test.eq(usage_error.stdout, "")?
-  test.contains(usage_error.stderr, "missing required argument PATH")?
-  test.contains(usage_error.stderr, "usage:")?
-  test.not_contains(usage_error.stderr, "traceback")?
+  usage_error.status == 2
+  usage_error.stdout == ""
+  "missing required argument PATH" in usage_error.stderr
+  "usage:" in usage_error.stderr
+  "traceback" not in usage_error.stderr
 
   let auto_main = test.run_script(
     ctx,
@@ -587,9 +563,9 @@ proc main(...argv: List[Str]) [error] {
 """,
   )?
 
-  test.eq(auto_main.status, 3)?
-  test.contains(auto_main.stderr, "usage")?
-  test.contains(auto_main.stderr, "bad args")?
+  auto_main.status == 3
+  "usage" in auto_main.stderr
+  "bad args" in auto_main.stderr
 }
 
 proc test_explicit_zero_arg_main_runs_once(ctx: TestContext) [error] {
@@ -602,12 +578,9 @@ main()?
   )?
 
   test.ok(output.success, output.stderr)?
-  test.eq(
-    output.stdout,
-    """5
-""",
-  )?
-  test.eq(output.stderr, "")?
+  output.stdout == """5
+"""
+  output.stderr == ""
 }
 
 proc test_whole_script_run_error_diagnostics(ctx: TestContext) [error] {
@@ -617,10 +590,10 @@ proc test_whole_script_run_error_diagnostics(ctx: TestContext) [error] {
 """,
   )?
 
-  test.eq(details.status, 3)?
-  test.contains(details.stderr, "nonzero-exit")?
-  test.contains(details.stderr, "cwd: ")?
-  test.contains(details.stderr, "argv: false 'two words'")?
+  details.status == 3
+  "nonzero-exit" in details.stderr
+  "cwd: " in details.stderr
+  "argv: false 'two words'" in details.stderr
 
   let missing = test.run_script(
     ctx,
@@ -630,9 +603,9 @@ proc test_whole_script_run_error_diagnostics(ctx: TestContext) [error] {
     {PATH: "/bin:/usr/bin"},
   )?
 
-  test.eq(missing.status, 3)?
-  test.contains(missing.stderr, "not-found")?
-  test.not_contains(missing.stderr, "127")?
+  missing.status == 3
+  "not-found" in missing.stderr
+  "127" not in missing.stderr
 }
 
 proc test_pipeline_failures_and_trace_are_visible(ctx: TestContext) [error] {
@@ -642,9 +615,9 @@ proc test_pipeline_failures_and_trace_are_visible(ctx: TestContext) [error] {
 """,
   )?
 
-  test.eq(plain.status, 3)?
-  test.contains(plain.stderr, "pipeline segment 0")?
-  test.contains(plain.stderr, "false")?
+  plain.status == 3
+  "pipeline segment 0" in plain.stderr
+  "false" in plain.stderr
 
   let late = test.run_script(
     ctx,
@@ -652,8 +625,8 @@ proc test_pipeline_failures_and_trace_are_visible(ctx: TestContext) [error] {
 """,
   )?
 
-  test.eq(late.status, 3)?
-  test.contains(late.stderr, "pipeline segment 1")?
+  late.status == 3
+  "pipeline segment 1" in late.stderr
 
   let traced = test.run_xsht_trace(
     ctx,
@@ -662,11 +635,11 @@ proc test_pipeline_failures_and_trace_are_visible(ctx: TestContext) [error] {
     ["--raw"],
   )?
 
-  test.eq(traced.status, 3)?
-  test.contains(traced.stderr, "kind=pipeline.enter")?
-  test.contains(traced.stderr, "kind=pipeline.segment.end")?
-  test.contains(traced.stderr, "index=0")?
-  test.contains(traced.stderr, "success:false")?
+  traced.status == 3
+  "kind=pipeline.enter" in traced.stderr
+  "kind=pipeline.segment.end" in traced.stderr
+  "index=0" in traced.stderr
+  "success:false" in traced.stderr
 
   let json_trace = test.run_xsht_trace(
     ctx,
@@ -675,10 +648,10 @@ proc test_pipeline_failures_and_trace_are_visible(ctx: TestContext) [error] {
     ["--raw", "--trace-format", "jsonl"],
   )?
 
-  test.eq(json_trace.status, 3)?
-  test.contains(json_trace.stderr, "\"kind\":\"pipeline.segment.end\"")?
-  test.contains(json_trace.stderr, "\"index\":0")?
-  test.contains(json_trace.stderr, "\"success\":false")?
+  json_trace.status == 3
+  "\"kind\":\"pipeline.segment.end\"" in json_trace.stderr
+  "\"index\":0" in json_trace.stderr
+  "\"success\":false" in json_trace.stderr
 }
 
 proc test_run_trace_reports_redirection_method_and_env_details(ctx: TestContext) [error] {
@@ -691,9 +664,9 @@ run cat < (missing) ?
     ["--trace", "--raw"],
   )?
 
-  test.eq(redirection.status, 3)?
-  test.contains(redirection.stderr, "kind=redirection.setup")?
-  test.contains(redirection.stderr, "error={kind:b\"redirection\"")?
+  redirection.status == 3
+  "kind=redirection.setup" in redirection.stderr
+  "error={kind:b\"redirection\"" in redirection.stderr
 
   let method_trace = test.run_xsht_trace(
     ctx,
@@ -704,10 +677,10 @@ print \${demo_path.display()}
   )?
 
   test.ok(method_trace.success, method_trace.stderr)?
-  test.contains(method_trace.stderr, "\"kind\":\"method.call\"")?
-  test.contains(method_trace.stderr, "\"kind\":\"method.result\"")?
-  test.contains(method_trace.stderr, "\"api_id\":\"method.Path.display\"")?
-  test.contains(method_trace.stderr, "\"api_id\":\"core.print\"")?
+  "\"kind\":\"method.call\"" in method_trace.stderr
+  "\"kind\":\"method.result\"" in method_trace.stderr
+  "\"api_id\":\"method.Path.display\"" in method_trace.stderr
+  "\"api_id\":\"core.print\"" in method_trace.stderr
 
   let env_trace = test.run_xsht_trace(
     ctx,
@@ -717,7 +690,7 @@ print \${demo_path.display()}
   )?
 
   test.ok(env_trace.success, env_trace.stderr)?
-  test.contains(env_trace.stderr, "env={b\"XSH_STAGE3_TRACE\":b\"value\"}")?
+  "env={b\"XSH_STAGE3_TRACE\":b\"value\"}" in env_trace.stderr
 
   let cd_error = test.run_xsht_trace(
     ctx,
@@ -731,10 +704,10 @@ cd tests {
     ["--trace", "--raw"],
   )?
 
-  test.eq(cd_error.status, 3)?
-  test.contains(cd_error.stderr, "kind=cwd.enter")?
-  test.contains(cd_error.stderr, "kind=cwd.exit")?
-  test.contains(cd_error.stderr, "index-out-of-range")?
+  cd_error.status == 3
+  "kind=cwd.enter" in cd_error.stderr
+  "kind=cwd.exit" in cd_error.stderr
+  "index-out-of-range" in cd_error.stderr
 }
 
 proc test_trace_output_covers_baseline_event_kinds(ctx: TestContext) [error] {
@@ -784,7 +757,7 @@ main(args)?
     "kind=cwd.enter",
     "kind=cwd.exit",
   ] {
-    test.contains(success.stderr, kind)?
+    kind in success.stderr
   }
 
   let runtime_error = test.run_xsht_trace(
@@ -801,17 +774,14 @@ main(args)?
     ["--trace", "--raw"],
   )?
 
-  test.eq(runtime_error.status, 3)?
-  test.contains(runtime_error.stderr, "kind=runtime.error")?
-  test.contains(runtime_error.stderr, "index-out-of-range")?
+  runtime_error.status == 3
+  "kind=runtime.error" in runtime_error.stderr
+  "index-out-of-range" in runtime_error.stderr
 }
 
 proc test_run_fixture_behaviors(ctx: TestContext) [process, error] {
-  test.eq(
-    run.text printf "%s\n" "hello world"?,
-    """hello world
-""",
-  )?
+  (run.text printf "%s\n" "hello world"?) == """hello world
+"""
 
   let failed = test.run_script(
     ctx,
@@ -819,14 +789,14 @@ proc test_run_fixture_behaviors(ctx: TestContext) [process, error] {
 """,
   )?
 
-  test.eq(failed.status, 3)?
-  test.contains(failed.stderr, "nonzero-exit")?
+  failed.status == 3
+  "nonzero-exit" in failed.stderr
   let status = run.status false
-  test.ok(status.exited_with(1))?
+  status.exited_with(1)
   let text = run.text printf "%s" "hello" ?
-  test.eq(text, "hello")?
+  text == "hello"
   let raw = run.bytes head -c 1 /dev/zero ?
-  test.eq(raw, b"\0")?
+  raw == b"\0"
 }
 
 proc test_signaled_status_exit_code_is_structured_error(ctx: TestContext) [error] {
@@ -837,8 +807,8 @@ let _ = status.exit_code()?
 """,
   )?
 
-  test.eq(output.status, 3)?
-  test.contains(output.stderr, "status-kind")?
+  output.status == 3
+  "status-kind" in output.stderr
 }
 
 proc test_nested_traceback_includes_user_procs_and_pure_functions(ctx: TestContext) [error] {
@@ -868,13 +838,13 @@ main(args)?
 """,
   )?
 
-  test.eq(output.status, 3)?
-  test.contains(output.stderr, "call path:")?
-  test.contains(output.stderr, "proc main")?
-  test.contains(output.stderr, "proc outer")?
-  test.contains(output.stderr, "pure middle")?
-  test.contains(output.stderr, "pure leaf")?
-  test.contains(output.stderr, "nul-path")?
+  output.status == 3
+  "call path:" in output.stderr
+  "proc main" in output.stderr
+  "proc outer" in output.stderr
+  "pure middle" in output.stderr
+  "pure leaf" in output.stderr
+  "nul-path" in output.stderr
 }
 
 proc test_foundation_literals_defers_streams_and_builders(ctx: TestContext) [fs, process, time, error] {
@@ -898,18 +868,15 @@ beta
     timeout = 2s
     run --timeout=1s echo ok
   }
-  test.ok(process.run(command)?.exited_with(0))?
-  test.eq(mode, 493)?
-  test.ok("493" in label)?
-  test.eq(lines[0], "beta")?
-  test.eq(total, 6)?
-  test.eq(unique[2], 3)?
-  test.eq(
-    content,
-    """alpha
+  process.run(command)?.exited_with(0)
+  mode == 493
+  ("493" in label)
+  lines[0] == "beta"
+  total == 6
+  unique[2] == 3
+  content == """alpha
 beta
-""",
-  )?
+"""
 }
 
 proc test_run_timeout_error(ctx: TestContext) [error] {
@@ -918,6 +885,6 @@ proc test_run_timeout_error(ctx: TestContext) [error] {
     """let _ = run --timeout=10ms sh -c "sleep 1" ?
 """,
   )?
-  test.eq(output.status, 3)?
-  test.contains(output.stderr, "timeout")?
+  output.status == 3
+  "timeout" in output.stderr
 }

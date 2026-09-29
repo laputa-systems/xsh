@@ -52,6 +52,10 @@ pub(super) fn lowered_binary_value(
     right: LoweredValue,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
+    if matches!(op, BinaryOp::In | BinaryOp::NotIn) {
+        let found = lowered_membership_value(&left, &right, span)?;
+        return Ok(LoweredValue::Bool(if op == BinaryOp::In { found } else { !found }));
+    }
     if op == BinaryOp::Eq {
         return Ok(LoweredValue::Bool(left == right));
     }
@@ -71,57 +75,6 @@ pub(super) fn lowered_binary_value(
             BinaryOp::Le => Ok(LoweredValue::Bool(left_text <= right_text)),
             BinaryOp::Gt => Ok(LoweredValue::Bool(left_text > right_text)),
             BinaryOp::Ge => Ok(LoweredValue::Bool(left_text >= right_text)),
-            BinaryOp::In => Ok(LoweredValue::Bool(bytes_contains(
-                right_text.as_bytes(),
-                left_text.as_bytes(),
-            ))),
-            BinaryOp::NotIn => Ok(LoweredValue::Bool(!bytes_contains(
-                right_text.as_bytes(),
-                left_text.as_bytes(),
-            ))),
-            _ => Err(
-                RuntimeError::new("type-error", "invalid lowered binary operation").with_span(span),
-            ),
-        };
-    }
-    if let (Some(left_bytes), Some(right_bytes)) =
-        (lowered_bytes_value(&left), lowered_bytes_value(&right))
-    {
-        return match op {
-            BinaryOp::In => Ok(LoweredValue::Bool(bytes_contains(right_bytes, left_bytes))),
-            BinaryOp::NotIn => Ok(LoweredValue::Bool(!bytes_contains(right_bytes, left_bytes))),
-            _ => Err(
-                RuntimeError::new("type-error", "invalid lowered binary operation").with_span(span),
-            ),
-        };
-    }
-    if let Some(left_text) = lowered_str_value(&left)
-        && let LoweredValue::Path(path) = &right
-    {
-        return match op {
-            BinaryOp::In => Ok(LoweredValue::Bool(bytes_contains(
-                path.display().as_bytes(),
-                left_text.as_bytes(),
-            ))),
-            BinaryOp::NotIn => Ok(LoweredValue::Bool(!bytes_contains(
-                path.display().as_bytes(),
-                left_text.as_bytes(),
-            ))),
-            _ => Err(
-                RuntimeError::new("type-error", "invalid lowered binary operation").with_span(span),
-            ),
-        };
-    }
-    if let (LoweredValue::Path(left), LoweredValue::Path(right)) = (&left, &right) {
-        return match op {
-            BinaryOp::In => Ok(LoweredValue::Bool(bytes_contains(
-                right.display().as_bytes(),
-                left.display().as_bytes(),
-            ))),
-            BinaryOp::NotIn => Ok(LoweredValue::Bool(!bytes_contains(
-                right.display().as_bytes(),
-                left.display().as_bytes(),
-            ))),
             _ => Err(
                 RuntimeError::new("type-error", "invalid lowered binary operation").with_span(span),
             ),
@@ -174,21 +127,123 @@ pub(super) fn lowered_binary_value(
         ) => Ok(LoweredValue::Int(checked_int_binary(
             op, left, right, span,
         )?)),
-        (BinaryOp::In, left, LoweredValue::List(items)) => {
-            Ok(LoweredValue::Bool(items.contains(&left)))
-        }
-        (BinaryOp::In, left, LoweredValue::SharedList(items)) => {
-            Ok(LoweredValue::Bool(items.contains(&left)))
-        }
-        (BinaryOp::NotIn, left, LoweredValue::List(items)) => {
-            Ok(LoweredValue::Bool(!items.contains(&left)))
-        }
-        (BinaryOp::NotIn, left, LoweredValue::SharedList(items)) => {
-            Ok(LoweredValue::Bool(!items.contains(&left)))
-        }
         _ => {
             Err(RuntimeError::new("type-error", "invalid lowered binary operation").with_span(span))
         }
+    }
+}
+
+/// Membership borrows backing storage, including string and byte views, and
+/// tests key presence independently of the value stored under that key.
+pub(super) fn lowered_membership_value(
+    needle: &LoweredValue, container: &LoweredValue, span: Span,
+) -> Result<bool, RuntimeError> {
+    if let (Some(needle), Some(container)) = (lowered_str_value(needle), lowered_str_value(container)) {
+        return Ok(bytes_contains(container.as_bytes(), needle.as_bytes()));
+    }
+    if let (Some(needle), Some(container)) = (lowered_bytes_value(needle), lowered_bytes_value(container)) {
+        return Ok(bytes_contains(container, needle));
+    }
+    match container {
+        LoweredValue::List(items) => Ok(items.iter().any(|item| item == needle)),
+        LoweredValue::SharedList(items) => Ok(items.iter().any(|item| item == needle)),
+        LoweredValue::Map(fields) => Ok(fields.contains_key(lowered_str_arg(needle, "in", span)?)),
+        LoweredValue::Record(fields) => Ok(fields.contains_key(lowered_str_arg(needle, "in", span)?)),
+        LoweredValue::RecordVec(fields) => Ok(lowered_record_vec_get(fields, lowered_str_arg(needle, "in", span)?).is_some()),
+        LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_) => Ok(matches!(lowered_str_arg(needle, "in", span)?, "blanks" | "blobs" | "code" | "comments")),
+        LoweredValue::FsEntry(entry) => Ok(entry.has_field(lowered_str_arg(needle, "in", span)?)),
+        LoweredValue::Path(path) => {
+            let needle_path = match needle { LoweredValue::Path(path) => Some(path.display()), _ => None };
+            let needle = match needle_path.as_deref() {
+                Some(text) => text,
+                None => lowered_str_arg(needle, "in", span)?,
+            };
+            Ok(bytes_contains(path.display().as_bytes(), needle.as_bytes()))
+        }
+        _ => Err(RuntimeError::new("type-error", "unsupported membership operands").with_span(span)),
+    }
+}
+
+pub(super) fn lowered_assertion_comparison(
+    op: BinaryOp, left: &LoweredValue, right: &LoweredValue, span: Span,
+) -> Result<bool, RuntimeError> {
+    match op {
+        BinaryOp::Eq => return Ok(left == right),
+        BinaryOp::Ne => return Ok(left != right),
+        BinaryOp::In | BinaryOp::NotIn => {
+            let found = lowered_membership_value(left, right, span)?;
+            return Ok(if op == BinaryOp::In { found } else { !found });
+        }
+        _ => {}
+    }
+    let order = if let (Some(left), Some(right)) = (lowered_str_value(left), lowered_str_value(right)) {
+        Some(left.cmp(right))
+    } else {
+        match (left, right) {
+            (LoweredValue::Int(left), LoweredValue::Int(right)) => Some(left.cmp(right)),
+            (LoweredValue::Float(left), LoweredValue::Float(right)) => left.0.partial_cmp(&right.0),
+            _ => return Err(RuntimeError::new("type-error", "unsupported comparison operands").with_span(span)),
+        }
+    };
+    Ok(match op {
+        BinaryOp::Lt => order == Some(Ordering::Less),
+        BinaryOp::Le => matches!(order, Some(Ordering::Less | Ordering::Equal)),
+        BinaryOp::Gt => order == Some(Ordering::Greater),
+        BinaryOp::Ge => matches!(order, Some(Ordering::Greater | Ordering::Equal)),
+        _ => return Err(RuntimeError::new("indexed-ir", "invalid assertion comparison").with_span(span)),
+    })
+}
+
+/// Failure details are bounded and built only after the predicate failed.
+pub(super) fn lowered_assertion_value_detail(value: &LoweredValue) -> String {
+    fn render(value: &LoweredValue, depth: usize) -> String {
+        if depth == 3 { return value.type_name().to_string(); }
+        if let Some(text) = lowered_str_value(value) {
+            let mut result = format!("{:?}", text.chars().take(256).collect::<String>());
+            if text.chars().nth(256).is_some() { result.push('…'); }
+            return result;
+        }
+        if let Some(bytes) = lowered_bytes_value(value) {
+            return format!("{:?}{}", &bytes[..bytes.len().min(256)], if bytes.len() > 256 { "…" } else { "" });
+        }
+        fn items(values: &[LoweredValue], depth: usize) -> String {
+            let mut result = values.iter().take(8).map(|value| render(value, depth + 1)).collect::<Vec<_>>().join(", ");
+            if values.len() > 8 { result.push_str(", …"); }
+            format!("[{result}]")
+        }
+        match value {
+            LoweredValue::Int(value) => value.to_string(),
+            LoweredValue::Float(value) => value.format(),
+            LoweredValue::Bool(value) => value.to_string(),
+            LoweredValue::Null => "null".to_string(),
+            LoweredValue::Path(path) => format!("p{:?}", path.display().chars().take(256).collect::<String>()),
+            LoweredValue::List(values) => items(values, depth),
+            LoweredValue::SharedList(values) => items(values, depth),
+            LoweredValue::Map(fields) => format!("{{{}}}", fields.iter().take(8).map(|(key, value)| format!("{:?}: {}", key.chars().take(64).collect::<String>(), render(value, depth + 1))).collect::<Vec<_>>().join(", ")),
+            LoweredValue::Record(fields) => format!("{{{}}}", fields.iter().take(8).map(|(key, value)| format!("{}: {}", key.chars().take(64).collect::<String>(), render(value, depth + 1))).collect::<Vec<_>>().join(", ")),
+            LoweredValue::RecordVec(fields) => format!("{{{}}}", fields.iter().take(8).map(|(key, value)| format!("{}: {}", key.as_str().as_str().chars().take(64).collect::<String>(), render(value, depth + 1))).collect::<Vec<_>>().join(", ")),
+            _ => value.type_name().to_string(),
+        }
+    }
+    render(value, 0)
+}
+
+#[cfg(test)]
+mod assertion_detail_tests {
+    use super::{LoweredValue, lowered_assertion_value_detail};
+    use crate::symbol::{Name, SymbolOwner};
+    use std::sync::Arc;
+
+    #[test]
+    fn assertion_record_vec_details_bound_field_names() {
+        SymbolOwner::new().with_current(|| {
+            let field = Name::intern(&"large_field".repeat(1000));
+            let value = LoweredValue::RecordVec(Arc::new(vec![(field, LoweredValue::Null)]));
+            let detail = lowered_assertion_value_detail(&value);
+            assert!(detail.len() < 512, "field names must not dominate failure details");
+            assert!(detail.starts_with("{large_field"));
+            assert!(detail.ends_with(": null}"));
+        });
     }
 }
 
@@ -466,40 +521,14 @@ pub(super) fn lowered_trim_str_predicate_value(
 }
 
 pub(super) fn lowered_contains_value(
-    receiver: &LoweredValue,
-    needle: &LoweredValue,
-    span: Span,
+    receiver: &LoweredValue, needle: &LoweredValue, span: Span,
 ) -> Result<bool, RuntimeError> {
-    match receiver {
-        LoweredValue::Str(_) | LoweredValue::StrView(_) => {
-            let needle = lowered_str_arg(needle, "contains", span)?;
-            let text = lowered_str_value(receiver).expect("checked lowered string");
-            Ok(bytes_contains(text.as_bytes(), needle.as_bytes()))
-        }
-        LoweredValue::Path(path) => {
-            let needle = match needle {
-                LoweredValue::Path(needle) => needle.display(),
-                _ => lowered_str_arg(needle, "contains", span)?.to_string(),
-            };
-            Ok(bytes_contains(path.display().as_bytes(), needle.as_bytes()))
-        }
-        LoweredValue::List(items) => Ok(items.iter().any(|item| item == needle)),
-        LoweredValue::SharedList(items) => Ok(items.iter().any(|item| item == needle)),
-        _ => lowered_method_value(receiver.clone(), "contains", vec![needle.clone()], span)
-            .and_then(|value| match value {
-                LoweredValue::Bool(value) => Ok(value),
-                _ => Err(
-                    RuntimeError::new("type-error", "contains expected Bool result")
-                        .with_span(span),
-                ),
-            }),
-    }
+    lowered_membership_value(needle, receiver, span)
 }
 
-/// Whether a projected sort key has a defined ordering. The supported key,
-/// item, and record-field types stay aligned with the checker contract in
-/// `src/sema/check/stream.rs`; anything else must fail loudly instead of
-/// silently comparing equal and leaving the stream unsorted.
+/// Projected keys must have the ordering promised by their checked scalar,
+/// list, or record-field types. Reject unsupported values instead of silently
+/// comparing them equal and leaving the stream unsorted.
 pub(super) fn lowered_sort_key_orderable(value: &LoweredValue) -> bool {
     match value {
         LoweredValue::Int(_)
@@ -1453,13 +1482,6 @@ pub(super) fn lowered_str_method_value(
             let suffix = lowered_str_arg(&args[0], "ends_with", span)?;
             Ok(LoweredValue::Bool(text_value.ends_with(suffix)))
         }
-        "contains" if args.len() == 1 => {
-            let needle = lowered_str_arg(&args[0], "contains", span)?;
-            Ok(LoweredValue::Bool(bytes_contains(
-                text_value.as_bytes(),
-                needle.as_bytes(),
-            )))
-        }
         _ => Err(
             RuntimeError::new("unsupported-call", "unsupported lowered Str method").with_span(span),
         ),
@@ -1570,10 +1592,6 @@ pub(super) fn lowered_bytes_method_value(
         "ends_with" if args.len() == 1 => {
             let suffix = lowered_bytes_arg(&args[0], "ends_with", span)?;
             Ok(LoweredValue::Bool(bytes.ends_with(suffix)))
-        }
-        "contains" if args.len() == 1 => {
-            let needle = lowered_bytes_arg(&args[0], "contains", span)?;
-            Ok(LoweredValue::Bool(bytes_contains(bytes, needle)))
         }
         "lower" if args.is_empty() => Ok(LoweredValue::Bytes(bytes.to_ascii_lowercase().into())),
         "base64" if args.is_empty() => Ok(LoweredValue::Str(
@@ -1882,10 +1900,6 @@ pub(super) fn lowered_record_method_value(
 ) -> Result<LoweredValue, RuntimeError> {
     match name {
         "len" if args.is_empty() => Ok(LoweredValue::Int(record.len() as i64)),
-        "has" if args.len() == 1 => {
-            let field = lowered_str_arg(&args[0], "has", span)?;
-            Ok(LoweredValue::Bool(record.contains_key(field)))
-        }
         "get" if args.len() == 1 => {
             let field = lowered_str_arg(&args[0], "get", span)?;
             Ok(match record.get(field).cloned() {
@@ -2102,9 +2116,6 @@ pub(super) fn lowered_list_method_value(
     match name {
         "collect" if args.is_empty() => Ok(LoweredValue::List(items)),
         "len" if args.is_empty() => Ok(LoweredValue::Int(items.len() as i64)),
-        "contains" if args.len() == 1 => Ok(LoweredValue::Bool(
-            items.iter().any(|item| item == &args[0]),
-        )),
         "get" if args.len() == 1 || args.len() == 2 => {
             let LoweredValue::Int(index) = &args[0] else {
                 return Err(
@@ -2165,9 +2176,6 @@ pub(super) fn lowered_list_method_ref(
 ) -> Result<Option<LoweredValue>, RuntimeError> {
     match name {
         "len" if args.is_empty() => Ok(Some(LoweredValue::Int(items.len() as i64))),
-        "contains" if args.len() == 1 => Ok(Some(LoweredValue::Bool(
-            items.iter().any(|item| item == &args[0]),
-        ))),
         "get" if args.len() == 1 || args.len() == 2 => {
             let LoweredValue::Int(index) = &args[0] else {
                 return Err(
@@ -2233,7 +2241,7 @@ pub(super) fn lowered_nonnegative_count(
 /// Evaluate a read-only `Map` method against a borrowed receiver, or report that
 /// the method needs an owned map.
 ///
-/// `len`, `has`, and `get` only read, so evaluating them against the receiver
+/// `len` and `get` only read, so evaluating them against the receiver
 /// the caller already holds avoids copying the whole map for one lookup. The
 /// updating methods (`set`, `push`, `remove`) return a new map and take the
 /// receiver by value instead.
@@ -2245,10 +2253,6 @@ fn lowered_map_method_ref(
 ) -> Result<Option<LoweredValue>, RuntimeError> {
     match name {
         "len" if args.is_empty() => Ok(Some(LoweredValue::Int(map.len() as i64))),
-        "has" if args.len() == 1 => {
-            let key = lowered_str_arg(&args[0], "has", span)?;
-            Ok(Some(LoweredValue::Bool(map.contains_key(key))))
-        }
         "get" if args.len() == 1 || args.len() == 2 => {
             let key = lowered_str_arg(&args[0], "get", span)?;
             match map.get(key) {
@@ -2280,10 +2284,6 @@ pub(super) fn lowered_map_method_value(
 ) -> Result<LoweredValue, RuntimeError> {
     match name {
         "len" if args.is_empty() => Ok(LoweredValue::Int(map.len() as i64)),
-        "has" if args.len() == 1 => {
-            let key = lowered_str_arg(&args[0], "has", span)?;
-            Ok(LoweredValue::Bool(map.contains_key(key)))
-        }
         "get" if args.len() == 1 || args.len() == 2 => {
             let key = lowered_str_arg(&args[0], "get", span)?;
             if let Some(value) = map.get(key).cloned() {
@@ -2392,12 +2392,6 @@ fn lowered_record_vec_method_ref(
 ) -> Result<Option<LoweredValue>, RuntimeError> {
     match name {
         "len" if args.is_empty() => Ok(Some(LoweredValue::Int(record.len() as i64))),
-        "has" if args.len() == 1 => {
-            let field = lowered_str_arg(&args[0], "has", span)?;
-            Ok(Some(LoweredValue::Bool(
-                lowered_record_vec_get(record, field).is_some(),
-            )))
-        }
         "get" if args.len() == 1 => {
             let field = lowered_str_arg(&args[0], "get", span)?;
             Ok(Some(match lowered_record_vec_get(record, field).cloned() {
@@ -2422,12 +2416,6 @@ fn lowered_stats_method_ref(
     span: Span,
 ) -> Result<Option<LoweredValue>, RuntimeError> {
     match name {
-        "has" if args.len() == 1 => {
-            let field = lowered_str_arg(&args[0], "has", span)?;
-            Ok(Some(LoweredValue::Bool(
-                lowered_stats_field_value(stats, field).is_some(),
-            )))
-        }
         "get" if args.len() == 1 => {
             let field = lowered_str_arg(&args[0], "get", span)?;
             Ok(Some(match lowered_stats_field_value(stats, field) {
@@ -2454,12 +2442,6 @@ fn lowered_inline_stats_method_ref(
     span: Span,
 ) -> Result<Option<LoweredValue>, RuntimeError> {
     match name {
-        "has" if args.len() == 1 => {
-            let field = lowered_str_arg(&args[0], "has", span)?;
-            Ok(Some(LoweredValue::Bool(
-                lowered_inline_stats_field_value(blanks, code, comments, field).is_some(),
-            )))
-        }
         "get" if args.len() == 1 => {
             let field = lowered_str_arg(&args[0], "get", span)?;
             Ok(Some(

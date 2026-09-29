@@ -2,18 +2,15 @@ proc test_hash_digests_checksums_and_digest_methods(ctx: TestContext) [fs, error
   let data_path = test.temp_path(ctx, name: "hash-data.txt")
   fs.write(data_path, "abc")?
   let digest = hash.sha256(b"abc")
-  test.eq(digest.base64(), "ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0=")?
-  test.eq(hash.sha256(data_path)?.hex(), digest.hex())?
-  test.eq(hash.md5(b"abc").hex(), "900150983cd24fb0d6963f7d28e17f72")?
-  test.eq(hash.sha1(b"abc").hex(), "a9993e364706816aba3e25717850c26c9cd0d89d")?
+  digest.base64() == "ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0="
+  hash.sha256(data_path)?.hex() == digest.hex()
+  hash.md5(b"abc").hex() == "900150983cd24fb0d6963f7d28e17f72"
+  hash.sha1(b"abc").hex() == "a9993e364706816aba3e25717850c26c9cd0d89d"
 
-  test.eq(
-    hash.sha512(b"abc").hex(),
-    "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
-  )?
+  hash.sha512(b"abc").hex() == "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
 
-  test.eq(hash.crc32(b"123456789"), 3421780262)?
-  test.eq(hash.crc32c(b"123456789"), 3808858755)?
+  hash.crc32(b"123456789") == 3421780262
+  hash.crc32c(b"123456789") == 3808858755
   let check = hash.parse_check_line(f"${digest.hex()}  ${data_path.name()}")?
   test.eq(check.hex, digest.hex())?
   test.eq(check.path, data_path.name())?
@@ -44,71 +41,50 @@ proc test_hash_verify_file_policy(ctx: TestContext) [fs, error] {
   let digest = hash.sha256(data_path)?
 
   # The digest verifies, and comparison is ASCII case-insensitive.
-  test.eq(verify_message(hash.verify_file(data_path, sha256: digest.hex())), "")?
-  test.eq(verify_message(hash.verify_file(data_path, sha256: digest.hex().upper())), "")?
+  verify_message(hash.verify_file(data_path, sha256: digest.hex())) == ""
+  verify_message(hash.verify_file(data_path, sha256: digest.hex().upper())) == ""
 
   # A checksum of the wrong byte length reports the required length for the
   # algorithm the caller named.
-  test.eq(
-    verify_message(hash.verify_file(data_path, sha256: "00")),
-    "sha256 checksum must be 64 hex characters",
-  )?
-  test.eq(
-    verify_message(hash.verify_file(data_path, md5: "00")),
-    "md5 checksum must be 32 hex characters",
-  )?
+  verify_message(hash.verify_file(data_path, sha256: "00")) == "sha256 checksum must be 64 hex characters"
+  verify_message(hash.verify_file(data_path, md5: "00")) == "md5 checksum must be 32 hex characters"
 
   # A checksum of the right byte length that is not hexadecimal reports the
   # hexadecimal rejection, not a length one.
-  test.eq(
-    verify_message(
+  verify_message(
       hash.verify_file(data_path, sha256: "zz00000000000000000000000000000000000000000000000000000000000000"),
-    ),
-    "checksum must be hexadecimal",
-  )?
+    ) == "checksum must be hexadecimal"
 
   # A well-formed checksum of something else reports both spellings, with the
   # expected one as the caller wrote it.
   let zeros64 = "0000000000000000000000000000000000000000000000000000000000000000"
-  test.eq(
-    verify_message(hash.verify_file(data_path, sha256: zeros64)),
-    f"sha256 digest mismatch: expected ${zeros64}, got ${digest.hex()}",
-  )?
+  verify_message(hash.verify_file(data_path, sha256: zeros64)) == f"sha256 digest mismatch: expected ${zeros64}, got ${digest.hex()}"
 
   # Each named algorithm selects its own digest, and the failure names it.
-  test.eq(verify_message(hash.verify_file(data_path, md5: hash.md5(data_path)?.hex())), "")?
-  test.eq(verify_message(hash.verify_file(data_path, sha1: hash.sha1(data_path)?.hex())), "")?
-  test.eq(verify_message(hash.verify_file(data_path, sha512: hash.sha512(data_path)?.hex())), "")?
+  verify_message(hash.verify_file(data_path, md5: hash.md5(data_path)?.hex())) == ""
+  verify_message(hash.verify_file(data_path, sha1: hash.sha1(data_path)?.hex())) == ""
+  verify_message(hash.verify_file(data_path, sha512: hash.sha512(data_path)?.hex())) == ""
   let zeros32 = "00000000000000000000000000000000"
-  test.eq(
-    verify_message(hash.verify_file(data_path, md5: zeros32)),
-    f"md5 digest mismatch: expected ${zeros32}, got ${hash.md5(data_path)?.hex()}",
-  )?
+  verify_message(hash.verify_file(data_path, md5: zeros32)) == f"md5 digest mismatch: expected ${zeros32}, got ${hash.md5(data_path)?.hex()}"
 
   # The file is hashed before the checksum is validated, so a path that cannot
   # be read reports its read failure even when the checksum is malformed.
   let missing = test.temp_path(ctx, name: "hash-verify-missing.txt")
-  test.eq(
-    verify_message(hash.verify_file(missing, sha256: "00")),
-    "No such file or directory (os error 2)",
-  )?
+  verify_message(hash.verify_file(missing, sha256: "00")) == "No such file or directory (os error 2)"
   test.error_kind(hash.verify_file(missing, sha256: "00"), "hash-read")?
 
   # The smallest input: an empty file has the algorithm's canonical digest and
   # verifies like any other.
   let empty = test.temp_path(ctx, name: "hash-verify-empty.txt")
   fs.write(empty, "")?
-  test.eq(
-    hash.sha256(empty)?.hex(),
-    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-  )?
-  test.eq(verify_message(hash.verify_file(empty, sha256: hash.sha256(empty)?.hex())), "")?
+  hash.sha256(empty)?.hex() == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  verify_message(hash.verify_file(empty, sha256: hash.sha256(empty)?.hex())) == ""
 
   # One byte, and a file spanning several digest blocks: the same call reads
   # the whole input, and the digest it compares is the one the reader produced.
   let one_byte = test.temp_path(ctx, name: "hash-verify-byte.bin")
   fs.write(one_byte, "x")?
-  test.eq(verify_message(hash.verify_file(one_byte, sha256: hash.sha256(one_byte)?.hex())), "")?
+  verify_message(hash.verify_file(one_byte, sha256: hash.sha256(one_byte)?.hex())) == ""
 
   let large = test.temp_path(ctx, name: "hash-verify-large.bin")
   var filler = ""
@@ -122,16 +98,13 @@ proc test_hash_verify_file_policy(ctx: TestContext) [fs, error] {
 
   fs.write(large, filler)?
   let large_bytes = bytes.from_text(filler)
-  test.eq(hash.md5(large)?.hex(), hash.md5(large_bytes).hex())?
-  test.eq(hash.sha1(large)?.hex(), hash.sha1(large_bytes).hex())?
-  test.eq(hash.sha256(large)?.hex(), hash.sha256(large_bytes).hex())?
-  test.eq(hash.sha512(large)?.hex(), hash.sha512(large_bytes).hex())?
+  hash.md5(large)?.hex() == hash.md5(large_bytes).hex()
+  hash.sha1(large)?.hex() == hash.sha1(large_bytes).hex()
+  hash.sha256(large)?.hex() == hash.sha256(large_bytes).hex()
+  hash.sha512(large)?.hex() == hash.sha512(large_bytes).hex()
   let large_digest = hash.sha256(large)?.hex()
-  test.eq(verify_message(hash.verify_file(large, sha256: large_digest)), "")?
-  test.eq(
-    verify_message(hash.verify_file(large, sha256: large_digest.upper())),
-    "",
-  )?
+  verify_message(hash.verify_file(large, sha256: large_digest)) == ""
+  verify_message(hash.verify_file(large, sha256: large_digest.upper())) == ""
 
   # A batch of small files: the policy is per call, so every file in the batch
   # verifies against its own digest and none of them against the digest of the
@@ -142,7 +115,7 @@ proc test_hash_verify_file_policy(ctx: TestContext) [fs, error] {
     let batch_path = test.temp_path(ctx, name: f"hash-verify-batch-${index}.txt")
     fs.write(batch_path, f"batch ${index}")?
     let batch_digest = hash.sha256(batch_path)?.hex()
-    test.eq(verify_message(hash.verify_file(batch_path, sha256: batch_digest)), "")?
+    verify_message(hash.verify_file(batch_path, sha256: batch_digest)) == ""
     if index > 0 {
       test.error_kind(
         hash.verify_file(batch_path, sha256: previous_digest),
@@ -232,47 +205,38 @@ proc test_parse_check_line_prefers_the_double_space_separator() [error] {
   # spans the star and the line is rejected as not hexadecimal.
   let both = hash.parse_check_line("900150983cd24fb0d6963f7d28e17f72 *readme.bin  suffix")
   test.error_kind(both, "checksum-line")?
-  test.eq(check_line_message(both), "checksum is not hexadecimal")?
+  check_line_message(both) == "checksum is not hexadecimal"
 }
 
 proc test_parse_check_line_rejects_malformed_lines() [error] {
   let separator_message = "expected `<hex>  <path>` or `<hex> *<path>`"
   test.error_kind(hash.parse_check_line(""), "checksum-line")?
-  test.eq(check_line_message(hash.parse_check_line("")), separator_message)?
+  check_line_message(hash.parse_check_line("")) == separator_message
   test.error_kind(
     hash.parse_check_line("900150983cd24fb0d6963f7d28e17f72"),
     "checksum-line",
   )?
-  test.eq(
-    check_line_message(hash.parse_check_line("900150983cd24fb0d6963f7d28e17f72")),
-    separator_message,
-  )?
+  check_line_message(hash.parse_check_line("900150983cd24fb0d6963f7d28e17f72")) == separator_message
 
   let incomplete_message = "checksum line is incomplete"
   test.error_kind(hash.parse_check_line("  readme.txt"), "checksum-line")?
-  test.eq(check_line_message(hash.parse_check_line("  readme.txt")), incomplete_message)?
+  check_line_message(hash.parse_check_line("  readme.txt")) == incomplete_message
   test.error_kind(hash.parse_check_line("900150983cd24fb0d6963f7d28e17f72  "), "checksum-line")?
-  test.eq(
-    check_line_message(hash.parse_check_line("900150983cd24fb0d6963f7d28e17f72  ")),
-    incomplete_message,
-  )?
+  check_line_message(hash.parse_check_line("900150983cd24fb0d6963f7d28e17f72  ")) == incomplete_message
   test.error_kind(hash.parse_check_line("900150983cd24fb0d6963f7d28e17f72 *"), "checksum-line")?
-  test.eq(check_line_message(hash.parse_check_line("900150983cd24fb0d6963f7d28e17f72 *")), incomplete_message)?
+  check_line_message(hash.parse_check_line("900150983cd24fb0d6963f7d28e17f72 *")) == incomplete_message
 
   # An empty field is incomplete even when the other field is not
   # hexadecimal, so emptiness outranks the hexadecimal check.
-  test.eq(check_line_message(hash.parse_check_line("  zz")), incomplete_message)?
-  test.eq(check_line_message(hash.parse_check_line("zz  ")), incomplete_message)?
+  check_line_message(hash.parse_check_line("  zz")) == incomplete_message
+  check_line_message(hash.parse_check_line("zz  ")) == incomplete_message
 
   let hex_message = "checksum is not hexadecimal"
   test.error_kind(hash.parse_check_line("zz  readme.txt"), "checksum-line")?
-  test.eq(check_line_message(hash.parse_check_line("zz  readme.txt")), hex_message)?
+  check_line_message(hash.parse_check_line("zz  readme.txt")) == hex_message
   test.error_kind(
     hash.parse_check_line("900150983cd24fb0d6963f7d28e17e7g  readme.txt"),
     "checksum-line",
   )?
-  test.eq(
-    check_line_message(hash.parse_check_line("900150983cd24fb0d6963f7d28e17e7g  readme.txt")),
-    hex_message,
-  )?
+  check_line_message(hash.parse_check_line("900150983cd24fb0d6963f7d28e17e7g  readme.txt")) == hex_message
 }

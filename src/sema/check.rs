@@ -67,6 +67,12 @@ pub struct CheckOutput {
     pub expr_types: BTreeMap<Span, Type>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
     pub terminating_call_spans: BTreeSet<Span>,
+    /// Checked boolean expressions consumed as assertion statements.
+    pub assertion_spans: BTreeSet<Span>,
+    pub assertion_effect_spans: BTreeSet<Span>,
+    pub statement_expression_spans: BTreeSet<Span>,
+    pub membership_migration_spans: BTreeSet<Span>,
+    pub standard_call_spans: BTreeMap<Span, (String, String)>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -256,6 +262,11 @@ pub struct Checker {
     reveal_types: Vec<Diagnostic>,
     expr_types: BTreeMap<Span, Type>,
     terminating_call_spans: BTreeSet<Span>,
+    assertion_spans: BTreeSet<Span>,
+    assertion_effect_spans: BTreeSet<Span>,
+    statement_expression_spans: BTreeSet<Span>,
+    membership_migration_spans: BTreeSet<Span>,
+    standard_call_spans: BTreeMap<Span, (String, String)>,
     options: CheckOptions,
     current_return: Option<Type>,
     current_yield: Option<Type>,
@@ -310,6 +321,11 @@ impl Checker {
                 expr_types: checker.expr_types,
                 callable_effects,
                 terminating_call_spans: checker.terminating_call_spans,
+                assertion_spans: checker.assertion_spans,
+                assertion_effect_spans: checker.assertion_effect_spans,
+                statement_expression_spans: checker.statement_expression_spans,
+                membership_migration_spans: checker.membership_migration_spans,
+                standard_call_spans: checker.standard_call_spans,
             }
         })
     }
@@ -389,6 +405,11 @@ impl Checker {
                 expr_types: checker.expr_types,
                 callable_effects,
                 terminating_call_spans: checker.terminating_call_spans,
+                assertion_spans: checker.assertion_spans,
+                assertion_effect_spans: checker.assertion_effect_spans,
+                statement_expression_spans: checker.statement_expression_spans,
+                membership_migration_spans: checker.membership_migration_spans,
+                standard_call_spans: checker.standard_call_spans,
             }
         })
     }
@@ -414,6 +435,11 @@ impl Checker {
             reveal_types: Vec::new(),
             expr_types: BTreeMap::new(),
             terminating_call_spans: BTreeSet::new(),
+            assertion_spans: BTreeSet::new(),
+            assertion_effect_spans: BTreeSet::new(),
+            statement_expression_spans: BTreeSet::new(),
+            membership_migration_spans: BTreeSet::new(),
+            standard_call_spans: BTreeMap::new(),
             options,
             current_return: None,
             current_yield: None,

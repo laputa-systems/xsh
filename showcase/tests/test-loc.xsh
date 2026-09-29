@@ -10,6 +10,6 @@ proc test_loc(ctx: TestContext) [fs, process, error] {
 """)?
 
   let output = run.text "xsh" "showcase/loc.xsh" -- $root ?
-  test.contains(output, "rs")?
-  test.contains(output, "2 files")?
+  "rs" in output
+  "2 files" in output
 }

@@ -497,6 +497,15 @@ This is an owner-run gate under the agent workflow rule above.
 cargo test --test integration runtime::coverage::runnable_xsh_corpus_is_formatted_and_lints_without_warnings
 ```
 
+Membership and boolean statement contracts are covered by
+`tests/xsh/assertions.xsh`; the independent CLI failure witness is
+`runtime::run::bare_boolean_assertion_is_an_unsuccessful_cli_exit`. Migration
+coverage belongs in `crates/xsht/tests/lint.rs`. On Linux x86-64, run these
+in the amd64 `Dockerfile.test` image with the
+`x86_64-unknown-linux-musl` flags from `dev/targets.xsh::docker_test_env`.
+`runtime::eval::lowered_ops::assertion_detail_tests` covers bounded rendering
+of the indexed record representation's interned field names.
+
 ## Runtime Test Modules
 
 Language assertions and dry-run module contracts live in the nearest

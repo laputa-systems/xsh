@@ -23,13 +23,10 @@ print f"\${value} \${attempts}"
 
   test.ok(output.success, output.stderr)?
 
-  test.eq(
-    output.stdout,
-    """done 3
-""",
-  )?
+  output.stdout == """done 3
+"""
 
-  test.eq(output.stderr, "")?
+  output.stderr == ""
 }
 
 proc test_retry_exhaustion_returns_final_error(ctx: TestContext) [error] {
@@ -51,9 +48,9 @@ retry [0ms, 0ms] {
 """,
   )?
 
-  test.eq(output.status, 3)?
-  test.contains(output.stderr, "attempt 3")?
-  test.contains(output.stderr, "traceback")?
+  output.status == 3
+  "attempt 3" in output.stderr
+  "traceback" in output.stderr
 }
 
 proc test_retry_attempt_defers_run_before_next_attempt(ctx: TestContext) [error] {
@@ -87,13 +84,10 @@ print f"\${value} \${attempts} \${cleaned}"
 
   test.ok(output.success, output.stderr)?
 
-  test.eq(
-    output.stdout,
-    """ok 2 2
-""",
-  )?
+  output.stdout == """ok 2 2
+"""
 
-  test.eq(output.stderr, "")?
+  output.stderr == ""
 }
 
 proc test_return_inside_retry_returns_from_enclosing_proc(ctx: TestContext) [error] {
@@ -114,13 +108,10 @@ print \${result}
 
   test.ok(output.success, output.stderr)?
 
-  test.eq(
-    output.stdout,
-    """outer
-""",
-  )?
+  output.stdout == """outer
+"""
 
-  test.eq(output.stderr, "")?
+  output.stderr == ""
 }
 
 proc test_retry_attempts_are_traced(ctx: TestContext) [error] {
@@ -149,15 +140,12 @@ print \${value}
 
   test.ok(output.success, output.stderr)?
 
-  test.eq(
-    output.stdout,
-    """ok
-""",
-  )?
+  output.stdout == """ok
+"""
 
-  test.contains(output.stderr, "\"kind\":\"retry.attempt\"")?
-  test.contains(output.stderr, "\"attempt\":1")?
-  test.contains(output.stderr, "\"attempt\":2")?
-  test.contains(output.stderr, "\"next_delay_ms\":0")?
-  test.contains(output.stderr, "\"kind\":\"RetryError.Transient\"")?
+  "\"kind\":\"retry.attempt\"" in output.stderr
+  "\"attempt\":1" in output.stderr
+  "\"attempt\":2" in output.stderr
+  "\"next_delay_ms\":0" in output.stderr
+  "\"kind\":\"RetryError.Transient\"" in output.stderr
 }

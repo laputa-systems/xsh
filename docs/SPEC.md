@@ -827,9 +827,12 @@ Operators:
   mask is a runtime `integer-bitset` error.
 - Path composition is written with formatted path literals, such as
   `fp"${root}/child"`. The `/` operator is numeric division only.
-- `in` and `not in` test membership for `List`, substring containment for
+- `in` and `not in` test membership for `List`, key presence for `Map[T]`,
+  field presence for `Record` (both require a `Str` key), substring containment for
   `Str`, byte containment for `Bytes`, display-text substring containment for
-  `Path`, and exact entry membership for `env.PATH`.
+  `Path`, and exact entry membership for `env.PATH`. A present null-valued
+  key or field is still present. Path display-text containment does not imply
+  filesystem ancestry. Operands evaluate once, left to right.
 - `.` accesses record fields and standard methods.
 - A newline immediately before a `.` postfix operator continues the same
   expression, so long method chains may use one method per line.
@@ -1067,9 +1070,27 @@ the needed context. `lint.redundant-ok-tail` flags final `return Ok(value)` in
 `Result[T]` functions and autofixes to the plain tail value when checked types
 show the value already has type `T`.
 
-Non-tail expression statements inside value-producing function bodies must have
-type `Unit` or `Result[Unit]`; `Result[Unit]` statements propagate failure by
-default. Otherwise bind the value, return it explicitly, or make it the final
+Boolean expression statements assert: a checked `Bool` is evaluated once,
+`true` completes with `Unit`, and `false` propagates
+`AssertionError.Failed(message: Str)`. The same rule applies to script top-level
+statements, ordinary statement blocks, non-tail function statements, and tails
+whose expected result is `Unit` or `Result[Unit]`. Assertions use ordinary
+Result propagation, error-family compatibility, retry attempts, and defer
+unwinding; restricted procs require `error` outside retry attempts. They remain
+enabled in every build profile and require no test context.
+
+Boolean values do not assert: initializers, assignments, arguments, explicit
+`return`, `yield`, conditions, guards, expression branches, predicates, and
+value-producing tails retain their values. `Bool`, `Result[Bool]`, `Any`, and
+`Result[Any]` tails can return `false`; an incompatible tail remains a type
+error. Inferred retry and callback results are inferred before statement use
+is classified. `let _ = predicate()` explicitly discards a boolean. There is
+no semicolon/newline distinction, truthiness, dynamic `Any` assertion, or
+implicit unwrapping of `Result[Bool]`.
+
+Non-tail expression statements inside value-producing function bodies may be
+`Bool` assertions or have type `Unit` or `Result[Unit]`; `Result[Unit]`
+statements propagate failure by default. Otherwise bind the value, return it explicitly, or make it the final
 statement. `if`, `match`, `while`, and `for` statements do not produce function
 tail values in v1. Use explicit `return` in branches where branch control flow
 determines the result.
@@ -2199,9 +2220,9 @@ print ${plugin.name}
 plugin.build(root)?
 ```
 
-Module values are immutable export records. They support `.has(field: Str)`,
+Module values are immutable export records. They support
 `.get(field: Str) -> Result[Any]`, `.keys()`, field access for known exports,
-and string indexing. Use `.get()` or `.has()` before accessing optional exports
+and string indexing. Use `.get()` or field membership in `.keys()` before accessing optional exports
 when absence is expected. Exported types are checker-visible through static
 imports, but they are not runtime module fields.
 
@@ -2221,7 +2242,7 @@ fields with wrong dynamic types return messages that include the field name,
 expected type, actual dynamic type when a value is present, and the optional
 source path.
 
-Record values also expose `.has(field: Str)`, `.get(field: Str) ->
+Record values expose field presence through `field in record`, and `.get(field: Str) ->
 Result[Any]`, and `.keys()`. `.get()` returns a structured missing-field error
 when the field is absent.
 
@@ -2357,7 +2378,6 @@ List values expose collection operations as methods:
 - `.len() -> Int`.
 - `.push(item: T) -> List[T]`.
 - `.extend(more: List[T]) -> List[T]`.
-- `.contains(item: T) -> Bool`.
 - `.get(index: Int) -> Result[T]`.
 - `.get(index: Int, fallback: T) -> T`.
 - `.join(separator: Str = "") -> Str` (only when `T` is `Str`).
@@ -2371,7 +2391,6 @@ List values expose collection operations as methods:
 Map values expose all routine map operations as methods:
 
 - `.len() -> Int`.
-- `.has(key: Str) -> Bool`.
 - `.get(key: Str) -> Result[T]`.
 - `.get(key: Str, default: T) -> T`.
 - `.set(key: Str, value: T) -> Map[T]`.
@@ -2388,7 +2407,6 @@ String-key sets are represented as `Map[Bool]` and constructed through the
 
 - `set.empty() -> Map[Bool]`.
 - `set.from(items: List[Str]) -> Map[Bool]`.
-- `set.has(set: Map[Bool], item: Str) -> Bool`.
 - `set.add(set: Map[Bool], item: Str) -> Map[Bool]`.
 - `set.remove(set: Map[Bool], item: Str) -> Map[Bool]`.
 
@@ -2400,7 +2418,6 @@ adapter `text.lines()` is available in pipelines.
 - `.trim() -> Str`.
 - `.starts_with(prefix: Str) -> Bool`.
 - `.ends_with(suffix: Str) -> Bool`.
-- `.contains(needle: Str) -> Bool`.
 - `.lines() -> Stream[Str]`. Lines are separated by `\n`; a terminal newline
   terminates the final line but does not produce an empty final element. To
   reassemble a newline-terminated value with one `\n` per input line, join the
@@ -2516,8 +2533,8 @@ without first requiring valid UTF-8:
 - `.count_lines() -> Int` counts those lines without allocating them.
 - `.trim() -> Bytes` removes leading and trailing whitespace, matching
   `Str.trim()`'s Unicode `White_Space` semantics on valid UTF-8.
-- `.starts_with(prefix: Bytes) -> Bool`, `.ends_with(suffix: Bytes) -> Bool`,
-  and `.contains(needle: Bytes) -> Bool` are byte searches.
+- `.starts_with(prefix: Bytes) -> Bool` and `.ends_with(suffix: Bytes) -> Bool`
+  are byte searches; substring presence uses `needle in bytes`.
 - `.lower() -> Bytes` lowercases ASCII bytes only, leaving other bytes intact.
 - `.byte_at(index: Int, default: Int = -1) -> Int` returns the byte value at
   `index`, or `default` when out of range.
@@ -3460,10 +3477,17 @@ whose reachable branches all return. The detector continues to analyze the
 unreachable statement so other diagnostics remain visible, but it does not
 rewrite code automatically.
 It removes provably needless local binding annotations and rewrites simple
-`.contains(value)` membership or substring checks to `value in receiver` (or
-`value not in receiver` for negated calls) when the checker proves that
-membership syntax has the same semantics and the rewrite does not move
-effectful expressions.
+removed membership calls to `in` / `not in` under `lint.prefer-in`, and
+statement-use assertion helpers to boolean expressions under
+`lint.prefer-bare-assertion`. Checked standard-call identity and supported
+operand types are required. Direct membership fixes require inert operands or
+a state-independent literal: purity alone does not prove reorder safety.
+Custom messages and consumed Results retain an explicit `test.ok(...)` call.
+Whole statements can use hygienic local bindings to preserve operand and
+bound-argument evaluation order. Other unsafe or dynamic migrations receive a
+diagnostic without a fix. Removed-API
+metadata is available only to checking and migration, never API discovery or
+runtime dispatch. Membership operators are the exception to method preference.
 
 During `xsht check`, `reveal_type(expr)` is a checker-only builtin that accepts
 one positional argument, reports the inferred type as a note, and has type
@@ -3523,8 +3547,10 @@ state, mock registry, call log, and temp root.
 `TestContext` is `{name: Str, file: Path, temp_root: Path}`. `TestCall` is
 `{op: Str, args: Record}`. The standard `test` module provides assertions,
 skip/fail helpers, temp path/file/dir helpers, whole-script subprocess helpers,
-and v1 host-effect mocks for `dns.*` and `net.*` operations. Assertion failures
-return structured test failure errors; skips return structured test skip errors.
+and v1 host-effect mocks for `dns.*` and `net.*` operations. Boolean statements
+and retained result-valued `test.ok`, `test.eq`, and `test.ne` helpers share
+`AssertionError.Failed`; custom-message helpers remain available. Skips retain
+their distinct structured skip identity.
 
 `test.run_script(ctx, source, args: List[Str] = [], env: Record = {}, stdin:
 Bytes = b"", name: Str = "script.xsh")` writes `source` under the test temp

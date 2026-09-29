@@ -20,7 +20,7 @@ pub struct ErrorFamily {
 }
 
 pub fn builtin_error_families() -> Vec<ErrorFamily> {
-    vec![process_error_family()]
+    vec![process_error_family(), assertion_error_family()]
 }
 
 pub fn process_error_family() -> ErrorFamily {
@@ -102,3 +102,11 @@ pub const PROCESS_ERROR_VARIANTS: &[ErrorVariant] = &[
         facets: &[],
     },
 ];
+
+pub fn assertion_error_family() -> ErrorFamily {
+    ErrorFamily {
+        name: "AssertionError",
+        fields: vec![ErrorField { name: "message", ty: Type::Str }],
+        variants: &[ErrorVariant { name: "Failed", facets: &[] }],
+    }
+}

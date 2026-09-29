@@ -307,6 +307,16 @@ recursion, dynamic callable values, native tests, entry functions, and
 cross-module calls. The relevant broader gate is `cargo test -p xsht --test
 integration` from `docs/TEST-MAP.md`.
 
+`lint.prefer-in` migrates removed standard membership methods and helpers;
+`lint.prefer-bare-assertion` migrates statement-use `test.ok`, `test.eq`, and
+`test.ne`. The checker supplies statement consumers and resolved standard-call
+identity even for the narrowly diagnosed removed APIs. Callable compatibility
+aliases are not retained. Fixes use the CST for source spans and comment
+protection, preserve custom messages and consumed Results, compose nested
+membership edits, and are checked again before writing. Ambiguous dynamic
+receivers and guarded operand-order hazards require explicit manual bindings;
+whole statement fixes can introduce hygienic bindings at the original point.
+
 ## Structural Search And Refactor
 
 `xsht grep` and `xsht refactor` use AST-aware patterns so searches survive

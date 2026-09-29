@@ -148,7 +148,7 @@ export pure parse_lsusb_list(output: Str) -> Result[List[LsusbDevice]] {
     }
 
     let key = f"${bus}:${device}"
-    if bus <= 0 or device <= 0 or set.has(seen, key) {
+    if bus <= 0 or device <= 0 or key in seen {
       return Err(lsusb_failure("lsusb list has duplicate or invalid device identity"))
     }
 
@@ -304,7 +304,7 @@ export pure compare_lsusb(
     }
 
     let key = f"${item.bus_number ?? 0}:${item.device_number ?? 0}"
-    if candidate_by_key.has(key) {
+    if key in candidate_by_key {
       mismatches = mismatches.push(f"${key}.duplicate")
     }
 
@@ -315,7 +315,7 @@ export pure compare_lsusb(
   for reference in devices {
     let key = f"${reference.bus}:${reference.device}"
     basic_seen = set.add(basic_seen, key)
-    if ! candidate_by_key.has(key) {
+    if key not in candidate_by_key {
       mismatches = mismatches.push(f"${key}.missing")
       continue
     }
@@ -329,7 +329,7 @@ export pure compare_lsusb(
   }
 
   for key in candidate_by_key.keys() {
-    if ! set.has(basic_seen, key) {
+    if key not in basic_seen {
       mismatches = mismatches.push(f"${key}.unexpected")
     }
   }
@@ -338,7 +338,7 @@ export pure compare_lsusb(
   for row in tree {
     let key = f"${row.bus}:${row.device}"
     tree_seen = set.add(tree_seen, key)
-    if ! candidate_by_key.has(key) {
+    if key not in candidate_by_key {
       mismatches = mismatches.push(f"${key}.tree_missing")
       continue
     }
@@ -369,13 +369,13 @@ export pure compare_lsusb(
   }
 
   for reference in devices {
-    if ! set.has(tree_seen, f"${reference.bus}:${reference.device}") {
+    if f"${reference.bus}:${reference.device}" not in tree_seen {
       mismatches = mismatches.push(f"${reference.bus}:${reference.device}.tree_absent")
     }
   }
 
   let selected_key = f"${descriptor.bus}:${descriptor.device}"
-  if ! candidate_by_key.has(selected_key) {
+  if selected_key not in candidate_by_key {
     mismatches = mismatches.push(f"${selected_key}.descriptor_absent")
   } else {
     let selected = report.usb.devices[candidate_by_key.get(selected_key)?]

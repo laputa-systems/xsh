@@ -34,7 +34,7 @@ proc test_binary_verification_rejects_missing_and_non_elf_products(ctx: TestCont
 
   match verify.binary(verify_ctx, "xsh", false) {
     Ok(_) => test.fail("missing product passed verification")?
-    Err(error) => test.contains(error.message, "StageError.Failed", error.message)?
+    Err(error) => test.ok("StageError.Failed" in error.message, error.message)?
   }
 
   let product = fp"${root}/target/x86_64-unknown-linux-musl/dist/xsh"
@@ -47,20 +47,14 @@ proc test_binary_verification_rejects_missing_and_non_elf_products(ctx: TestCont
 
   match verify.binary(verify_ctx, "xsh", false) {
     Ok(_) => test.fail("non-ELF product passed verification")?
-    Err(error) => test.contains(error.message, "StageError.Failed", error.message)?
+    Err(error) => test.ok("StageError.Failed" in error.message, error.message)?
   }
 }
 
 proc test_distribution_product_paths_are_stable() [error] {
   let target_dir = /repo/target
-  test.eq(
-    distributions.profile_product_path(target_dir, "x86_64-unknown-linux-musl", "release", "xsh").display(),
-    "/repo/target/x86_64-unknown-linux-musl/release/xsh",
-  )?
-  test.eq(
-    distributions.distribution_product_path(target_dir, "aarch64-unknown-linux-musl", "xsht").display(),
-    "/repo/target/aarch64-unknown-linux-musl/dist/xsht",
-  )?
+  distributions.profile_product_path(target_dir, "x86_64-unknown-linux-musl", "release", "xsh").display() == "/repo/target/x86_64-unknown-linux-musl/release/xsh"
+  distributions.distribution_product_path(target_dir, "aarch64-unknown-linux-musl", "xsht").display() == "/repo/target/aarch64-unknown-linux-musl/dist/xsht"
 }
 
 proc test_linux_verification_rejects_wrong_machine_and_dynamic_binaries(ctx: TestContext) [fs, error] {
@@ -108,7 +102,7 @@ main()?
     {PATH: tools.display(), XSH_MODULE_PATH: module_path},
   )?
   test.ok(wrong_machine.success, wrong_machine.stderr)?
-  test.contains(wrong_machine.stdout, "StageError.Failed", wrong_machine.stdout)?
+  test.ok("StageError.Failed" in wrong_machine.stdout, wrong_machine.stdout)?
 
   write_fake_tool(
     fp"${tools}/readelf",
@@ -140,5 +134,5 @@ main()?
     {PATH: tools.display(), XSH_MODULE_PATH: module_path},
   )?
   test.ok(dynamic.success, dynamic.stderr)?
-  test.contains(dynamic.stdout, "StageError.Failed", dynamic.stdout)?
+  test.ok("StageError.Failed" in dynamic.stdout, dynamic.stdout)?
 }

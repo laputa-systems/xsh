@@ -6,7 +6,7 @@ api_key = 'abcdefghijklmnop'
 """)?
 
   let output = run.text "xsh" "showcase/secret-scan.xsh" -- --root $root ?
-  test.contains(output, "[aws-key]")?
-  test.contains(output, "[api-key]")?
-  test.contains(output, "scanned")?
+  "[aws-key]" in output
+  "[api-key]" in output
+  "scanned" in output
 }

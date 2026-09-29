@@ -3,25 +3,25 @@ type Entry = {name: Str, score: Int}
 proc test_list_comprehension_basic_transform() [error] {
   let nums = [1, 2, 3]
   let doubled = [x * 2 for x in nums]
-  test.eq(doubled, [2, 4, 6])?
+  doubled == [2, 4, 6]
 }
 
 proc test_list_comprehension_with_guard_filters_elements() [error] {
   let nums = [1, 2, 3, 4, 5]
   let evens = [x for x in nums if x % 2 == 0]
-  test.eq(evens, [2, 4])?
+  evens == [2, 4]
 }
 
 proc test_list_comprehension_guard_can_produce_empty_list() [error] {
   let nums = [1, 3, 5]
   let evens = [x for x in nums if x % 2 == 0]
-  test.eq(evens |> count(), 0)?
+  evens |> count() == 0
 }
 
 proc test_list_comprehension_with_record_destructuring() [error] {
   let entries: List[Entry] = [{name: "alice", score: 90}, {name: "bob", score: 55}, {name: "carol", score: 80}]
   let passing = [name for {name, score} in entries if score >= 60]
-  test.eq(passing, ["alice", "carol"])?
+  passing == ["alice", "carol"]
 }
 
 error FsError = NotFound(file: Path) : NotFound | PermissionDenied(file: Path, op: Str) : PermissionDenied
@@ -33,7 +33,7 @@ proc missing(file: Path) [error] -> Result[Str, FsError] {
 proc test_nominal_error_payload_and_facet_patterns() [error] {
   match missing(p"missing") {
     Ok(text) => test.fail(f"unexpected ok ${text}")?
-    Err(FsError.NotFound {file: file}) => test.eq(file.display(), "missing")?
+    Err(FsError.NotFound {file: file}) => file.display() == "missing"
     Err(is PermissionDenied) => test.fail("unexpected permission facet")?
     Err(error) => test.fail(error.message)?
   }
@@ -62,9 +62,9 @@ proc test_local_accumulator_field_mutation() [error] {
   var counts: Map[Int] = {}
   counts["code"] = stats.code
   counts["comments"] = stats.comments
-  test.eq(stats.blanks, 1)?
-  test.eq(counts.get("code", 0), 2)?
-  test.eq(counts.get("comments", 0), 1)?
+  stats.blanks == 1
+  counts.get("code", 0) == 2
+  counts.get("comments", 0) == 1
 }
 
 proc test_compact_sugar_forms(ctx: TestContext) [error] {
@@ -89,11 +89,8 @@ print \${label} \${value} \${files |> count()}
 
   test.ok(output.success, output.stderr)?
 
-  test.eq(
-    output.stdout,
-    """three 3 1
-""",
-  )?
+  output.stdout == """three 3 1
+"""
 }
 
 proc test_ergonomic_sugar_pass_forms(ctx: TestContext) [fs, error] {
@@ -115,11 +112,11 @@ proc test_ergonomic_sugar_pass_forms(ctx: TestContext) [fs, error] {
   json.write(fp"${root}/meta.json", {name, version, jobs, ok})?
   let metadata = json.read(fp"${root}/meta.json")?
   fs.remove(fp"${root}/missing", missing_ok: true)?
-  test.eq(printed_path, fp"${root}/nested/dir".display())?
-  test.eq(name, "demo")?
-  test.eq(version, "1")?
-  test.eq(jobs, "1")?
-  test.eq(ok, "set")?
+  printed_path == fp"${root}/nested/dir".display()
+  name == "demo"
+  version == "1"
+  jobs == "1"
+  ok == "set"
   test.eq(metadata.name, "demo")?
   test.eq(metadata.jobs, "1")?
 }

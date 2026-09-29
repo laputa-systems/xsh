@@ -54,7 +54,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let re = regex.compile("\\b(TODO|FIXME|HACK|XXX|NOTE)\\b[:\\s]*(.*)")?
 
   let files = fs.files(root)
-    |> where set.has(scan_ext_set, .path.ext())
+    |> where .path.ext() in scan_ext_set
     |> sort-by .path
 
   if opts.verbose {

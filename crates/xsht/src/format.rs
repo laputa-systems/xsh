@@ -1564,7 +1564,12 @@ impl<'a> Writer<'a> {
                 self.write_expr(*expr, precedence, output);
             }
             ArenaExprKind::Binary { op, left, right } => {
+                // A bare item followed by a name-like operator otherwise parses
+                // as an item field access rather than membership.
+                let grouped_item = matches!(op, BinaryOp::In | BinaryOp::NotIn) && matches!(self.arena.expr(*left).kind, ArenaExprKind::Item);
+                if grouped_item { output.push('('); }
                 self.write_expr(*left, precedence, output);
+                if grouped_item { output.push(')'); }
                 output.push(' ');
                 output.push_str(binary_op_text(*op));
                 output.push(' ');
@@ -2036,7 +2041,14 @@ impl<'a> Writer<'a> {
         }
         if let Some(expr) = self.inline_stream_block_expr(stage) {
             output.push(' ');
-            self.write_expr(expr, 0, output);
+            let predicate = self.render_inline(|writer, inline| writer.write_expr(expr, 0, inline));
+            // A leading parenthesis immediately after the stage name belongs
+            // to its argument list, so preserve the callback's delimiters.
+            if stage.args.is_empty() && predicate.starts_with('(') {
+                self.write_block(stage.block.unwrap(), indent, output);
+            } else {
+                output.push_str(&predicate);
+            }
         } else if let Some(block) = stage.block {
             output.push(' ');
             self.write_block(block, indent, output);

@@ -9,9 +9,9 @@ proc test_system_report_cpupower_saved_output_scores_policy_and_idle_metadata() 
 624194 5756452
 """,
   )?
-  test.eq(frequency.driver, "amd-pstate-epp")?
-  test.eq(frequency.minimum_khz, 624194)?
-  test.eq(frequency.maximum_khz, 5756452)?
+  frequency.driver == "amd-pstate-epp"
+  frequency.minimum_khz == 624194
+  frequency.maximum_khz == 5756452
   let idle = cpupower_reference.parse_cpupower_idle("""CPUidle driver: acpi_idle
 CPUidle governor: menu
 analyzing CPU 0:
@@ -28,14 +28,14 @@ Available idle states: POLL C1
   }
   let candidate = """{"cpu":{"frequency_policies":[{"name":"policy7","related_cpus":[0,2],"driver":"amd-pstate-epp","hardware_min_khz":624194,"hardware_max_khz":5756452}],"global_idle_driver":"acpi_idle","global_idle_governor":"menu","idle_states":[{"cpu_id":0,"state_index":0,"name":"POLL"},{"cpu_id":0,"state_index":1,"name":"C1"}]}}"""
   let exact = cpupower_reference.compare_cpupower(candidate, reference)?
-  test.eq(exact.matched_fields, 6)?
-  test.ok(exact.mismatches.len() == 0 and exact.partial.len() == 0)?
+  exact.matched_fields == 6
+  (exact.mismatches.len() == 0 and exact.partial.len() == 0)
   let wrong = candidate.replace("\"hardware_max_khz\":5756452", "\"hardware_max_khz\":5756451")
   let mismatch = cpupower_reference.compare_cpupower(wrong, reference)?
-  test.ok("hardware_max_khz" in mismatch.mismatches)?
+  ("hardware_max_khz" in mismatch.mismatches)
   let shifted = candidate.replace("\"state_index\":1", "\"state_index\":2")
   let shifted_comparison = cpupower_reference.compare_cpupower(shifted, reference)?
-  test.ok("idle_state_names" in shifted_comparison.mismatches)?
+  ("idle_state_names" in shifted_comparison.mismatches)
 }
 
 proc test_system_report_cpupower_rejects_ambiguous_or_malformed_utility_output() [error] {
@@ -99,7 +99,7 @@ printf '{"source_mode":"live_linux","cpu":{"frequency_policies":[{"name":"policy
     fp"${root_path}/script".display(),
     fp"${root_path}/cpupower".display(),
   )?
-  test.eq(result.comparison.matched_fields, 6)?
-  test.ok(result.comparison.mismatches.len() == 0 and result.comparison.partial.len() == 0)?
-  test.eq(result.version, "cpupower 7.1.5-0")?
+  result.comparison.matched_fields == 6
+  (result.comparison.mismatches.len() == 0 and result.comparison.partial.len() == 0)
+  result.version == "cpupower 7.1.5-0"
 }

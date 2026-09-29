@@ -456,13 +456,6 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
             receiver: MethodReceiver::Record,
             methods: method_map(vec![
                 method(
-                    "has",
-                    vec![param("field", Type::Str)],
-                    MethodReturn::Type(Type::Bool),
-                    true,
-                    RuntimeOp::RecordHas,
-                ),
-                method(
                     "get",
                     vec![param("field", Type::Str)],
                     MethodReturn::Type(result(Type::Any)),
@@ -487,13 +480,6 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     MethodReturn::Type(Type::Int),
                     true,
                     RuntimeOp::MapLen,
-                ),
-                method(
-                    "has",
-                    vec![param("key", Type::Str)],
-                    MethodReturn::Type(Type::Bool),
-                    true,
-                    RuntimeOp::MapHas,
                 ),
                 method(
                     "get",
@@ -555,13 +541,6 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     MethodReturn::Type(Type::Int),
                     true,
                     RuntimeOp::ListLen,
-                ),
-                method(
-                    "contains",
-                    vec![param("item", Type::Any)],
-                    MethodReturn::Type(Type::Bool),
-                    true,
-                    RuntimeOp::ListContains,
                 ),
                 method(
                     "get",
@@ -633,13 +612,6 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     MethodReturn::Type(Type::Bool),
                     true,
                     RuntimeOp::TextEndsWith,
-                ),
-                method(
-                    "contains",
-                    vec![param("needle", Type::Str)],
-                    MethodReturn::Type(Type::Bool),
-                    true,
-                    RuntimeOp::TextContains,
                 ),
                 method(
                     "lines",
@@ -947,13 +919,6 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                     MethodReturn::Type(Type::Bool),
                     true,
                     RuntimeOp::BytesEndsWith,
-                ),
-                method(
-                    "contains",
-                    vec![param("needle", Type::Bytes)],
-                    MethodReturn::Type(Type::Bool),
-                    true,
-                    RuntimeOp::BytesContains,
                 ),
                 method(
                     "lower",

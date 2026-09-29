@@ -18,10 +18,10 @@ proc test_df(ctx: TestContext) [fs, process, env, error] {
   let resolved = root.resolve()?
   let stats = fs.filesystem_stats(resolved)?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/df.xsh" -- -kP $root ?
-  test.contains(output, "Filesystem 1024-blocks Used Available Capacity Mounted on")?
-  test.contains(output, f" ${stats.blocks_1k} ")?
+  "Filesystem 1024-blocks Used Available Capacity Mounted on" in output
+  f" ${stats.blocks_1k} " in output
   let fake_used = root.du()?
-  test.ok(! (f"${resolved} ${fake_used} ${fake_used} 0 100% ${resolved}" in output))?
+  ! (f"${resolved} ${fake_used} ${fake_used} 0 100% ${resolved}" in output)
 }
 
 proc test_df_matches_alpine_kp(ctx: TestContext) [fs, process, env, error] {
@@ -39,5 +39,5 @@ proc test_df_matches_alpine_kp(ctx: TestContext) [fs, process, env, error] {
   fp"${root}/payload.txt".write("abcdef")?
   let alpine = run.text df -kP $root ?
   let ours = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/df.xsh" -- -kP $root ?
-  test.eq(normalize_df_mounts(ours), normalize_df_mounts(alpine))?
+  normalize_df_mounts(ours) == normalize_df_mounts(alpine)
 }

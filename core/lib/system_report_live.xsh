@@ -733,11 +733,11 @@ pure mount_usage_index(mountinfo: Str) -> MountUsageIndex {
     }
 
     let id_key = f"${mount_id}"
-    if by_id.has(id_key) {
+    if id_key in by_id {
       valid_graph = false
     }
 
-    by_id = by_id.set(id_key, if by_id.has(id_key) { -1 } else { rows.len() })
+    by_id = by_id.set(id_key, if id_key in by_id { -1 } else { rows.len() })
     target_counts = target_counts.set(target, target_counts.get(target, 0) + 1)
     rows = rows.push({
       mount_id: mount_id,
@@ -761,7 +761,7 @@ pure mount_usage_safe(index: MountUsageIndex, mount_id: Int) -> Bool {
   var depth = 0
   while depth < index.rows.len() {
     let key = f"${current_id}"
-    if set.has(seen, key) {
+    if key in seen {
       return false
     }
 
@@ -784,7 +784,7 @@ pure mount_usage_safe(index: MountUsageIndex, mount_id: Int) -> Bool {
       return false
     }
 
-    if ! index.by_id.has(f"${entry.parent_id}") {
+    if f"${entry.parent_id}" not in index.by_id {
       return true
     }
 
@@ -924,7 +924,7 @@ pure split_csv(value: Str) -> List[Str] {
 
 pure block_index(indices: Map[Int], major: Int, minor: Int) -> Int? {
   let key = f"${major}:${minor}"
-  if ! indices.has(key) {
+  if key not in indices {
     return null
   }
 
@@ -932,7 +932,7 @@ pure block_index(indices: Map[Int], major: Int, minor: Int) -> Int? {
 }
 
 pure block_name_index(indices: Map[Int], name: Str?) -> Int? {
-  if name == null or ! indices.has(name ?? "") {
+  if name == null or (name ?? "") not in indices {
     return null
   }
 
@@ -1298,7 +1298,7 @@ proc collect_storage(
     var parent_name: Str? = null
     let target_components = target.split("/")
     for component in target_components {
-      if component != name and component != "block" and set.has(listed_names, component) {
+      if component != name and component != "block" and component in listed_names {
         parent_name = component
       }
     }
@@ -1373,13 +1373,13 @@ proc collect_storage(
   var block_indices_by_device: Map[Int] = {}
   for index in range(candidates.len()) {
     let device = candidates[index].device
-    if device.name != null and ! block_indices_by_name.has(device.name ?? "") {
+    if device.name != null and (device.name ?? "") not in block_indices_by_name {
       block_indices_by_name = block_indices_by_name.set(device.name ?? "", index)
     }
 
     if device.major != null and device.minor != null {
       let key = f"${device.major ?? 0}:${device.minor ?? 0}"
-      if ! block_indices_by_device.has(key) {
+      if key not in block_indices_by_device {
         block_indices_by_device = block_indices_by_device.set(key, index)
       }
     }
@@ -1814,10 +1814,7 @@ proc collect_sensors(
       let attribute_name = attribute.name()
       continue when ! attribute_name.starts_with("trip_point_") or ! attribute_name.ends_with("_temp")
       let trip_number = parse_integer(attribute_name.split("_").get(2, "")) ?? -1
-      if trip_number < 0 or trip_number > 9007199254740991 or attribute_name != f"trip_point_${trip_number}_temp" or set.has(
-        seen_trip_indices,
-        f"${trip_number}",
-      ) {
+      if trip_number < 0 or trip_number > 9007199254740991 or attribute_name != f"trip_point_${trip_number}_temp" or f"${trip_number}" in seen_trip_indices {
         issues = issues.push(
           issue(
             "sensors",
@@ -2458,7 +2455,7 @@ proc collect_kernel(root: FsRoot) [fs, error] -> KernelCollection {
         continue
       }
 
-      if set.has(seen_modules, columns[0]) {
+      if columns[0] in seen_modules {
         issues = issues.push(
           issue("kernel", f"modules.line.${line_item.index}", report.Malformed, "duplicate_module_name", null),
         )
@@ -2558,7 +2555,7 @@ proc collect_kernel(root: FsRoot) [fs, error] -> KernelCollection {
 pure usb_device_index_from_target(indices: Map[Int], target: Path) -> Int? {
   for component in target.display().split("/") {
     let candidate = component.split(":").get(0, "")
-    if indices.has(candidate) {
+    if candidate in indices {
       return indices.get(candidate, 0)
     }
   }
@@ -3230,7 +3227,7 @@ pure usb_device_indices(devices: List[report.UsbDevice]) -> Map[Int] {
   var indices: Map[Int] = {}
   for index in range(devices.len()) {
     let name = devices[index].sysfs_name ?? ""
-    if devices[index].sysfs_name != null and ! indices.has(name) {
+    if devices[index].sysfs_name != null and name not in indices {
       indices = indices.set(name, index)
     }
   }
@@ -3246,7 +3243,7 @@ export pure link_usb_parents(devices: List[report.UsbDevice]) -> List[report.Usb
     let parent_name = usb_parent_name(device.sysfs_name ?? "", device.bus_number)
     var parent_index: Int? = null
     if parent_name != null {
-      if device_index_by_name.has(parent_name) {
+      if parent_name in device_index_by_name {
         match device_index_by_name.get(parent_name) {
           Ok(index) => parent_index = index
           Err(_) => {}
@@ -3265,7 +3262,7 @@ pure pci_function_indices(functions: List[report.PciFunction]) -> Map[Int] {
   var indices: Map[Int] = {}
   for index in range(functions.len()) {
     let address = functions[index].address ?? ""
-    if functions[index].address != null and ! indices.has(address) {
+    if functions[index].address != null and address not in indices {
       indices = indices.set(address, index)
     }
   }
@@ -3274,7 +3271,7 @@ pure pci_function_indices(functions: List[report.PciFunction]) -> Map[Int] {
 }
 
 pure pci_function_index(indices: Map[Int], address: Str?) -> Int? {
-  if address == null or ! indices.has(address ?? "") {
+  if address == null or (address ?? "") not in indices {
     return null
   }
 
@@ -4384,7 +4381,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
         f"cpu${cpu_id}.cache.${cache_path.name()}.number_of_sets",
         sets_number,
       )
-      if cache_by_key.has(cache_key) {
+      if cache_key in cache_by_key {
         let previous = caches[cache_by_key.get(cache_key)?]
         if previous.shared_cpus != shared_cpus or previous.level != level or previous.kind != cache_kind or previous.size_bytes != size_number.value or previous.line_size_bytes != line_size_number.value or previous.sets != sets_number.value {
           issues = issues.push(
@@ -4966,7 +4963,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
       continue when pair.len() != 2
       let name = pair[0].trim()
       continue when name == ""
-      if set.has(seen_names, name) and ! set.has(duplicate_names, name) {
+      if name in seen_names and name not in duplicate_names {
         duplicate_names = set.add(duplicate_names, name)
         issues = issues.push(issue("memory", f"meminfo.${name}", report.Malformed, "duplicate_field", null))
       }
@@ -4986,7 +4983,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
       }
 
       let name = pair[0].trim()
-      continue when set.has(duplicate_names, name)
+      continue when name in duplicate_names
       let values = parse_words(pair[1].trim().replace("\t", " "))
       if values.len() == 0 {
         issues = issues.push(issue("memory", f"meminfo.${name}", report.Malformed, "missing_integer", null))
@@ -5115,7 +5112,7 @@ proc collect_memory(root: FsRoot, base: report.SystemReport) [fs, error] -> repo
         }
 
         let name = decode_mount_field(columns[0])
-        if set.has(seen_swaps, name) {
+        if name in seen_swaps {
           issues = issues.push(issue("memory", "swaps", report.Malformed, "duplicate_swap_name", null))
           continue
         }
@@ -5782,7 +5779,7 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
           "nr_bursts",
           "burst_usec",
         ] {
-          if set.has(seen_cpu_stat, fields[0]) and ! set.has(duplicate_cpu_stat, fields[0]) {
+          if fields[0] in seen_cpu_stat and fields[0] not in duplicate_cpu_stat {
             duplicate_cpu_stat = set.add(duplicate_cpu_stat, fields[0])
             issues = issues.push(
               issue("memory", f"cgroup.${hierarchy_level}.cpu.stat.${fields[0]}", report.Malformed, "duplicate_cpu_stat_field", null),
@@ -5812,7 +5809,7 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
           "nr_bursts",
           "burst_usec",
         ]
-        continue when set.has(duplicate_cpu_stat, fields[0])
+        continue when fields[0] in duplicate_cpu_stat
         let number = cgroup_token_number(cpu_stat, fields[1])
         if number.value == null {
           issues = issues.push(
@@ -5949,7 +5946,7 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
       for line in io_stat.observation.value.lines() {
         let fields = parse_words(line)
         if fields.len() >= 1 {
-          if set.has(seen_io_devices, fields[0]) and ! set.has(duplicate_io_devices, fields[0]) {
+          if fields[0] in seen_io_devices and fields[0] not in duplicate_io_devices {
             duplicate_io_devices = set.add(duplicate_io_devices, fields[0])
             issues = issues.push(
               issue("memory", f"cgroup.${hierarchy_level}.io.stat.${fields[0]}", report.Malformed, "duplicate_io_device", null),
@@ -5974,13 +5971,13 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
           continue
         }
 
-        continue when set.has(duplicate_io_devices, fields[0])
+        continue when fields[0] in duplicate_io_devices
         var seen_io_fields = set.empty()
         var duplicate_io_fields = set.empty()
         for item in fields |> drop(1) {
           let pair = item.split("=", maxsplit: 1)
           if pair.len() == 2 and pair[0] in ["rbytes", "wbytes", "rios", "wios", "dbytes", "dios"] {
-            if set.has(seen_io_fields, pair[0]) and ! set.has(duplicate_io_fields, pair[0]) {
+            if pair[0] in seen_io_fields and pair[0] not in duplicate_io_fields {
               duplicate_io_fields = set.add(duplicate_io_fields, pair[0])
               issues = issues.push(
                 issue(
@@ -6000,7 +5997,7 @@ proc collect_cgroups(root: FsRoot) [fs, error] -> CgroupCollection {
         for item in fields |> drop(1) {
           let pair = item.split("=", maxsplit: 1)
           continue when pair.len() != 2 or pair[0] not in ["rbytes", "wbytes", "rios", "wios", "dbytes", "dios"]
-          continue when set.has(duplicate_io_fields, pair[0])
+          continue when pair[0] in duplicate_io_fields
           let number = cgroup_token_number(io_stat, pair[1])
           if number.value == null {
             issues = issues.push(
@@ -6254,7 +6251,7 @@ pure link_index_by_name(links: Map[Int], name: Str?) -> Int? {
   }
 
   let link_name = name ?? ""
-  if links.has(link_name) {
+  if link_name in links {
     return links.get(link_name, 0)
   }
 
@@ -6354,7 +6351,7 @@ export pure assemble_network_dump(value: LinuxNetworkDump) -> NetworkCollection 
   for raw_link in value.links {
     if raw_link.name != null {
       let link_name = raw_link.name ?? ""
-      if ! link_indices_by_name.has(link_name) {
+      if link_name not in link_indices_by_name {
         link_indices_by_name = link_indices_by_name.set(link_name, raw_link.ifindex)
       }
     }

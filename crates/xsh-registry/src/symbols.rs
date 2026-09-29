@@ -114,6 +114,7 @@ fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
         | Type::Status
         | Type::EnvPathList
         | Type::Error
+        | Type::ErrorFamily(_)
         | Type::ProcessError
         | Type::Pure
         | Type::Proc
@@ -274,7 +275,8 @@ mod tests {
             | Type::Status
             | Type::EnvPathList
             | Type::Error
-            | Type::ProcessError
+            | Type::ErrorFamily(_)
+        | Type::ProcessError
             | Type::Pure
             | Type::Proc
             | Type::Command

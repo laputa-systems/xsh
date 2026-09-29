@@ -5,9 +5,9 @@ proc test_fs_root_children_reads_newly_created_directory(ctx: TestContext) [fs, 
   fs.root_mkdir(root, p"nested")?
   fs.root_write(root, p"nested/child", "data")?
   let result = fs.root_children(root, p"nested")?
-  test.eq(result.state, "complete")?
-  test.ok(result.enumeration_succeeded)?
-  test.eq(result.children, [p"nested/child"])?
+  result.state == "complete"
+  result.enumeration_succeeded
+  result.children == [p"nested/child"]
 }
 
 proc test_fs_root_children_rejects_regular_file_as_directory(ctx: TestContext) [fs, error] {
@@ -16,8 +16,8 @@ proc test_fs_root_children_rejects_regular_file_as_directory(ctx: TestContext) [
   defer fs.close_root(root)?
   fs.root_write(root, p"ordinary-file", "data")?
   let result = fs.root_children(root, p"ordinary-file")?
-  test.eq(result.state, "read_failure")?
-  test.ok(! result.enumeration_succeeded)?
-  test.eq(result.children, [])?
-  test.ok(result.errno != null)?
+  result.state == "read_failure"
+  ! result.enumeration_succeeded
+  result.children == []
+  (result.errno != null)
 }

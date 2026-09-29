@@ -9,10 +9,10 @@ proc test_ecount_counts_extensions(ctx: TestContext) [fs, process, error] {
   fp"${root}/README".write("ignored")?
   fp"${root}/.hidden.txt".write("ignored")?
   let output = run.text "xsh" "showcase/ecount.xsh" -- $root ?
-  test.contains(output, "   1 (none)")?
-  test.contains(output, "   1 xsh")?
-  test.contains(output, "   2 txt")?
-  test.eq(output.split("README").len(), 1)?
+  "   1 (none)" in output
+  "   1 xsh" in output
+  "   2 txt" in output
+  output.split("README").len() == 1
 }
 
 proc test_ecount_can_sum_sizes(ctx: TestContext) [fs, process, error] {
@@ -22,7 +22,7 @@ proc test_ecount_can_sum_sizes(ctx: TestContext) [fs, process, error] {
   fp"${root}/c.log".write("yz")?
   fp"${root}/README".write("zz")?
   let output = run.text "xsh" "showcase/ecount.xsh" -- "--size" $root ?
-  test.contains(output, "   1            2 (none)")?
-  test.contains(output, "   2            3 log")?
-  test.contains(output, "   1            4 bin")?
+  "   1            2 (none)" in output
+  "   2            3 log" in output
+  "   1            4 bin" in output
 }

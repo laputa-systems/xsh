@@ -1,5 +1,5 @@
 proc test_pass() [error] {
-  test.eq(1, 1)?
+  1 == 1
 }
 
 proc test_guard_failure_controls_enclosing_loop() [error] {
@@ -12,7 +12,7 @@ proc test_guard_failure_controls_enclosing_loop() [error] {
     numbers = numbers.push(number)
   }
 
-  test.eq(numbers, [1, 2])?
+  numbers == [1, 2]
 
   numbers = []
   for source in ["1", "invalid", "2"] {
@@ -23,7 +23,7 @@ proc test_guard_failure_controls_enclosing_loop() [error] {
     numbers = numbers.push(number)
   }
 
-  test.eq(numbers, [1])?
+  numbers == [1]
 }
 
 proc test_typed_integer_augmented_assignment_keeps_results_and_errors(ctx: TestContext) [error] {
@@ -33,7 +33,7 @@ proc test_typed_integer_augmented_assignment_keeps_results_and_errors(ctx: TestC
   value *= 3
   value /= 6
   value %= 3
-  test.eq(value, 2)?
+  value == 2
 
   let overflow = test.run_script(
     ctx,
@@ -42,7 +42,7 @@ value += 1
 """,
   )?
   test.ok(! overflow.success, overflow.stderr)?
-  test.contains(overflow.stderr, "integer-overflow")?
+  "integer-overflow" in overflow.stderr
 
   let division = test.run_script(
     ctx,
@@ -51,7 +51,7 @@ value /= 0
 """,
   )?
   test.ok(! division.success, division.stderr)?
-  test.contains(division.stderr, "division-by-zero")?
+  "division-by-zero" in division.stderr
 }
 
 pure sibling_branch_value(choice: Str) -> Int {
@@ -68,16 +68,16 @@ pure sibling_branch_value(choice: Str) -> Int {
 }
 
 proc test_sibling_if_branches_keep_their_own_local_bindings() [error] {
-  test.eq(sibling_branch_value("first"), 0)?
-  test.eq(sibling_branch_value("second"), 10)?
-  test.eq(sibling_branch_value("other"), 20)?
+  sibling_branch_value("first") == 0
+  sibling_branch_value("second") == 10
+  sibling_branch_value("other") == 20
   let choice = "second"
   if choice == "first" {
     let value = 0
-    test.eq(value, 0)?
+    value == 0
   } else if choice == "second" {
     let value = 10
-    test.eq(value, 10)?
+    value == 10
   }
 }
 
@@ -93,10 +93,10 @@ proc test_repeated_if_branches_select_statement_and_expression_arms() [error] {
     }
 
     let label = if value % 3 == 0 { "first" } else if value % 3 == 1 { "second" } else { "third" }
-    test.eq(label, ["first", "second", "third"][value % 3])?
+    label == ["first", "second", "third"][value % 3]
   }
 
-  test.eq(total, 222)?
+  total == 222
 }
 
 pure locally_selected_arguments(argv: List[Str]) -> List[Str] {
@@ -104,11 +104,11 @@ pure locally_selected_arguments(argv: List[Str]) -> List[Str] {
 }
 
 proc test_local_args_shadows_predeclared_script_arguments() [error] {
-  test.eq(locally_selected_arguments(["unknown"]), ["unknown"])?
-  test.eq(locally_selected_arguments([]), [])?
+  locally_selected_arguments(["unknown"]) == ["unknown"]
+  locally_selected_arguments([]) == []
   let argv = ["unknown"]
   let selected = if argv.len() > 0 and argv[0] == "--" { [] } else { argv }
-  test.eq(selected, ["unknown"])?
+  selected == ["unknown"]
 }
 
 proc test_skip() {
@@ -118,10 +118,10 @@ proc test_skip() {
 proc test_temp(ctx: TestContext) [fs, error] {
   let one = test.temp_path(ctx)
   let two = test.temp_path(ctx)
-  test.ne(one, two)?
+  one != two
   let file = test.temp_file(ctx, name: "data", contents: b"ok")?
   let data = fs.read_text(file)?
-  test.eq(data, "ok")?
+  data == "ok"
 }
 
 proc test_process_command_builder() [process, error] {
@@ -153,18 +153,15 @@ beta
   let escaped = f"\${not_interp}:${"ok"}:ca"
   let names = fs.children(root) |> map .name
 
-  test.eq(language_sugar_label("ok")?, "ok")?
-  test.eq(language_sugar_returned("return")?, "return")?
-  test.eq(
-    content,
-    """alpha
+  language_sugar_label("ok")? == "ok"
+  language_sugar_returned("return")? == "return"
+  content == """alpha
 beta
-""",
-  )?
-  test.eq(raw, r"\n ${literal}")?
-  test.eq(nested, "demo:x}:1")?
-  test.eq(escaped, "\${not_interp}:ok:ca")?
-  test.eq(names[0], "note.txt")?
+"""
+  raw == r"\n ${literal}"
+  nested == "demo:x}:1"
+  escaped == "\${not_interp}:ok:ca"
+  names[0] == "note.txt"
 }
 
 proc test_dns_mock(ctx: TestContext) [net, error] {
@@ -176,9 +173,9 @@ proc test_dns_mock(ctx: TestContext) [net, error] {
   )?
 
   let records = dns.lookup("example.test")?
-  test.eq(records[0].value, "127.0.0.1")?
+  records[0].value == "127.0.0.1"
   let calls = test.calls(ctx, "dns.lookup")
-  test.eq(calls.len(), 1)?
+  calls.len() == 1
 }
 
 proc test_net_mock(ctx: TestContext) [net, error] {
@@ -197,7 +194,7 @@ proc test_net_mock(ctx: TestContext) [net, error] {
   )?
 
   let response = net.request({method: "GET", url: "https://example.test/"})?
-  test.eq(response.body, b"ok")?
+  response.body == b"ok"
   let calls = test.calls(ctx, "net.request")
   test.eq(calls[0].args.method, "GET")?
 }

@@ -20,7 +20,7 @@ proc fail_through_question() [error] -> Result[Int] {
 }
 
 proc implicit_unit() [error] {
-  test.eq(1, 1)?
+  1 == 1
 }
 
 proc build_bare_through_alias() [error] -> StringListResult {
@@ -57,11 +57,8 @@ print parse_uint("42", 10)
   )?
 
   test.ok(output.success, output.stderr)?
-  test.eq(
-    output.stdout,
-    """42
-""",
-  )?
+  output.stdout == """42
+"""
 
   let invalid = test.run_script(
     ctx,
@@ -83,7 +80,7 @@ print parse_uint("not-a-number", 10)
   )?
 
   test.ok(invalid.status != 0, invalid.stderr)?
-  test.contains(invalid.stderr, "parse-int: invalid integer")?
+  "parse-int: invalid integer" in invalid.stderr
 }
 
 proc test_implicit_result_return_in_par_map() [error] {
@@ -92,7 +89,7 @@ proc test_implicit_result_return_in_par_map() [error] {
       build()
     }
 
-  test.eq(values, [["ok"], ["ok"]])?
+  values == [["ok"], ["ok"]]
 
   let block_values = [1, 2]
     |> par-map --jobs=2 { |_|
@@ -100,21 +97,21 @@ proc test_implicit_result_return_in_par_map() [error] {
       built
     }
 
-  test.eq(block_values, [["ok"], ["ok"]])?
+  block_values == [["ok"], ["ok"]]
 }
 
 proc test_result_return_shapes_agree() [error] {
-  test.eq(build()?, ["ok"])?
+  build()? == ["ok"]
   implicit_unit()?
 
   match fail_explicitly() {
-    Err(error) => test.eq(error.message, "explicit failure")?
-    _ => test.ok(false)?
+    Err(error) => error.message == "explicit failure"
+    _ => false
   }
 
   match fail_through_question() {
     Err(error) => test.eq(error.message, "propagated failure")?
-    _ => test.ok(false)?
+    _ => false
   }
 }
 
@@ -124,11 +121,11 @@ proc test_nested_result_calls_in_par_map() [error] {
       middle(value)
     }
 
-  test.eq(values, [1, 2])?
+  values == [1, 2]
 }
 
 proc test_result_alias_return_shape() [error] {
-  test.eq(build_bare_through_alias()?, ["ok"])?
+  build_bare_through_alias()? == ["ok"]
 }
 
 proc test_explicit_result_return_shapes(ctx: TestContext) [fs, error] {
@@ -159,11 +156,8 @@ print direct[0] alias[0] middle(3)?
   )?
 
   test.ok(output.success, output.stderr)?
-  test.eq(
-    output.stdout,
-    """ok ok 3
-""",
-  )?
+  output.stdout == """ok ok 3
+"""
 }
 
 proc test_implicit_result_return_through_module(ctx: TestContext) [fs, error] {
@@ -195,9 +189,6 @@ print values[0][0] values[1][0]
   )?
 
   test.ok(output.status == 0, output.stderr)?
-  test.eq(
-    output.stdout,
-    """ok ok
-""",
-  )?
+  output.stdout == """ok ok
+"""
 }

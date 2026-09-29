@@ -2,8 +2,8 @@ proc test_watch_run_once(ctx: TestContext) [fs, process, error] {
   let root = test.temp_dir(ctx, name: "watch")?
   fp"${root}/input.txt".write("hello")?
   let output = run.text "xsh" "showcase/watch-run.xsh" -- --root $root --once true ?
-  test.contains(output, "watching ")?
-  test.contains(output, "[run 1]")?
+  "watching " in output
+  "[run 1]" in output
 }
 
 proc test_watch_run_once_reports_child_failure(ctx: TestContext) [fs, process, error] {
@@ -11,7 +11,7 @@ proc test_watch_run_once_reports_child_failure(ctx: TestContext) [fs, process, e
   let output = test.temp_path(ctx, name: "watch-failure-output")
   let status = run.status "xsh" "showcase/watch-run.xsh" -- --root $root --once false > $output
   test.ok(status.exited_with(1), "one-shot watch must report child failure")?
-  test.contains(output.read_text()?, "exit 1")?
+  "exit 1" in output.read_text()?
 }
 
 proc test_watch_run_cancellation_reaps_child_descendants(ctx: TestContext) [fs, process, time, error] {

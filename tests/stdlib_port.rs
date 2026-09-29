@@ -779,7 +779,7 @@ fn user_functions_cannot_impersonate_a_representation_bridge() {
             "}\n\n",
             "proc main() [io] {\n",
             "  let updated = record_with_field({a: 1}, \"b\", 2)\n",
-            "  print \"${updated.has(\"impersonated\")}\"\n",
+            "  print \"${\"impersonated\" in updated}\"\n",
             "  print type_name(1)\n",
             "}\n",
         ),
