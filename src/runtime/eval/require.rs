@@ -7,7 +7,7 @@ pub(super) enum PreparedSchema {
     Validate(Type),
     Record(Vec<(Name, Arc<PreparedSchema>)>),
     List(Arc<PreparedSchema>),
-    Map(Arc<PreparedSchema>),
+    Map(Type, Arc<PreparedSchema>),
     Optional(Arc<PreparedSchema>),
     WireEnum(Arc<WireEnumMapping>),
 }
@@ -18,7 +18,7 @@ impl PreparedSchema {
             Type::Record(fields) if !fields.is_empty() => Self::Record(fields.iter()
                 .map(|(name, ty)| (*name, Self::compile(ty, enums))).collect()),
             Type::List(item) => Self::List(Self::compile(item, enums)),
-            Type::Map(item) => Self::Map(Self::compile(item, enums)),
+            Type::Map(key, item) => Self::Map((**key).clone(), Self::compile(item, enums)),
             Type::Optional(item) => Self::Optional(Self::compile(item, enums)),
             Type::Tag(name) if enums.mappings.contains_key(name) => Self::WireEnum(enums.mappings[name].clone()),
             ty => Self::Validate(ty.clone()),
@@ -29,7 +29,7 @@ impl PreparedSchema {
         match self {
             Self::WireEnum(_) => true,
             Self::Record(fields) => fields.iter().any(|(_, schema)| schema.converts_wire()),
-            Self::List(schema) | Self::Map(schema) | Self::Optional(schema) => schema.converts_wire(),
+            Self::List(schema) | Self::Map(_, schema) | Self::Optional(schema) => schema.converts_wire(),
             Self::Validate(_) => false,
         }
     }
@@ -39,7 +39,8 @@ impl PreparedSchema {
             Self::WireEnum(mapping) => !mapping.variants.is_empty() && mapping.variants.values()
                 .collect::<std::collections::BTreeSet<_>>().len() == mapping.variants.len(),
             Self::Record(fields) => fields.iter().all(|(_, schema)| schema.valid()),
-            Self::List(schema) | Self::Map(schema) | Self::Optional(schema) => schema.valid(),
+            Self::Map(key, schema) => key.is_map_key() && schema.valid(),
+            Self::List(schema) | Self::Optional(schema) => schema.valid(),
             Self::Validate(_) => true,
         }
     }
@@ -50,7 +51,8 @@ impl PreparedSchema {
             (Self::WireEnum(mapping), Type::Tag(name)) => mapping.type_name == *name,
             (Self::Record(schemas), Type::Record(fields)) => schemas.len() == fields.len()
                 && schemas.iter().all(|(name, schema)| fields.get(name).is_some_and(|ty| schema.matches_type(ty))),
-            (Self::List(schema), Type::List(ty)) | (Self::Map(schema), Type::Map(ty))
+            (Self::Map(key, schema), Type::Map(expected_key, ty)) => key == expected_key.as_ref() && schema.matches_type(ty),
+            (Self::List(schema), Type::List(ty))
             | (Self::Optional(schema), Type::Optional(ty)) => schema.matches_type(ty),
             _ => false,
         }
@@ -114,18 +116,21 @@ impl PreparedSchema {
                 }
                 Ok(LoweredValue::List(converted))
             }
-            Self::Map(schema) => {
+            Self::Map(key_type, schema) => {
                 let items = match value {
                     LoweredValue::Map(items) => super::lower::take_shared(items),
-                    LoweredValue::Record(items) if schema.converts_wire() => super::lower::take_shared(items).into_iter()
-                        .map(|(name, value)| (name.to_string(), value)).collect(),
-                    LoweredValue::RecordVec(items) if schema.converts_wire() => super::lower::take_shared(items).into_iter()
-                        .map(|(name, value)| (name.to_string(), value)).collect(),
+                    LoweredValue::Record(items) if *key_type == Type::Str && schema.converts_wire() => super::lower::take_shared(items).into_iter()
+                        .map(|(name, value)| (name.to_string().into(), value)).collect(),
+                    LoweredValue::RecordVec(items) if *key_type == Type::Str && schema.converts_wire() => super::lower::take_shared(items).into_iter()
+                        .map(|(name, value)| (name.to_string().into(), value)).collect(),
                     value => return Err(failure(format!("expected Map, found {}", value.type_name()))),
                 };
                 let mut converted = std::collections::BTreeMap::new();
                 for (key, item) in items {
                     let item_path = format!("{path}[{key:?}]");
+                    if !super::lowered_run::lowered_value_satisfies_require(evaluator, &super::lowered_ops::lowered_map_key_value(&key), key_type) {
+                        return Err(failure(format!("expected {key_type} key at {item_path}")));
+                    }
                     converted.insert(key, schema.decode(evaluator, item, &item_path, span)?);
                 }
                 Ok(LoweredValue::Map(Arc::new(converted)))

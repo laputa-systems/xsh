@@ -4560,7 +4560,7 @@ impl CompactLowerConstructProbe<'_, '_> {
     }
 
     fn require_uint_key(&mut self, value: BuildExprId, span: Span) -> BuildExprId {
-        let check = LoweredTypeCheck { ty: Type::UInt, name: Arc::from("UInt") };
+        let check = LoweredTypeCheck { ty: Type::UInt, name: Arc::from("UInt"), schema: None };
         let checked = push_build_row!(self, expr, BuildExprRow::Require { value, check, span });
         push_build_row!(self, expr, BuildExprRow::Try(checked))
     }
