@@ -1014,6 +1014,19 @@ impl<'a> Writer<'a> {
         }
         let kind = self.arena.pattern(pattern_id).kind.clone();
         match &kind {
+            ArenaPatternKind::Group(child) => {
+                output.push('(');
+                self.write_pattern(*child, output);
+                output.push(')');
+            }
+            ArenaPatternKind::Alias { pattern, name, .. } => {
+                let grouped = matches!(self.arena.pattern(*pattern).kind, ArenaPatternKind::Alternation(_));
+                if grouped { output.push('('); }
+                self.write_pattern(*pattern, output);
+                if grouped { output.push(')'); }
+                output.push_str(" as ");
+                output.push_str(&name.as_str());
+            }
             ArenaPatternKind::Wildcard => output.push('_'),
             ArenaPatternKind::Binding(name) | ArenaPatternKind::TestName { name, .. } => output.push_str(name.as_str().as_str()),
             ArenaPatternKind::Type { binding, ty } => {

@@ -19,13 +19,13 @@ impl Checker {
     pub(super) fn check_nonbinding_pattern_arena(
         &mut self, arena: &ArenaProgram, source: &str, pattern: PatternId, value_ty: &Type,
     ) {
-        self.reject_pattern_test_bindings(arena, pattern);
+        self.reject_pattern_test_bindings(arena, pattern, false);
         self.push_scope();
         self.check_pattern_arena(arena, source, pattern, value_ty);
         self.pop_scope();
     }
 
-    fn reject_pattern_test_bindings(&mut self, arena: &ArenaProgram, pattern: PatternId) {
+    fn reject_pattern_test_bindings(&mut self, arena: &ArenaProgram, pattern: PatternId, grouped: bool) {
         let node = arena.arena.pattern(pattern);
         let span = arena.arena.span(node.span);
         match &node.kind {
@@ -33,50 +33,53 @@ impl Checker {
             ArenaPatternKind::Binding(_) | ArenaPatternKind::Type { binding: Some(_), .. } => {
                 self.error(span, "pattern tests cannot bind names; use `_` or a non-binding pattern", "check.pattern-test-binding");
             }
-            ArenaPatternKind::Alternation(_) => {
-                self.error(span, "use `or` between complete pattern tests", "check.pattern-test-alternation");
+            ArenaPatternKind::Alias { .. } => self.error(span, "pattern tests cannot contain aliases", "check.pattern-test-binding"),
+            ArenaPatternKind::Group(child) => self.reject_pattern_test_bindings(arena, *child, true),
+            ArenaPatternKind::Alternation(children) => {
+                if !grouped { self.error(span, "group alternatives in a pattern test", "check.pattern-test-alternation"); }
+                for child in arena.arena.pattern_ids(*children) { self.reject_pattern_test_bindings(arena, child, false); }
             }
-            ArenaPatternKind::Constructor { arg: Some(arg), .. } => self.reject_pattern_test_bindings(arena, *arg),
+            ArenaPatternKind::Constructor { arg: Some(arg), .. } => self.reject_pattern_test_bindings(arena, *arg, false),
             ArenaPatternKind::Record { fields, .. } | ArenaPatternKind::ErrorVariant { fields, .. } => {
                 for field in arena.arena.pattern_fields(*fields) {
-                    self.reject_pattern_test_bindings(arena, field.pattern);
+                    self.reject_pattern_test_bindings(arena, field.pattern, false);
                 }
             }
             ArenaPatternKind::List { elements, rest } => {
                 for child in arena.arena.pattern_ids(*elements).chain(rest.iter().copied()) {
-                    self.reject_pattern_test_bindings(arena, child);
+                    self.reject_pattern_test_bindings(arena, child, false);
                 }
             }
             ArenaPatternKind::Tuple(patterns) => {
                 for pattern in arena.arena.pattern_ids(*patterns) {
-                    self.reject_pattern_test_bindings(arena, pattern);
+                    self.reject_pattern_test_bindings(arena, pattern, false);
                 }
             }
             _ => {}
         }
     }
 
-    fn check_list_capture_names(&mut self, arena: &ArenaProgram, pattern: PatternId, names: &mut FxHashSet<Name>) {
-        let node = arena.arena.pattern(pattern);
-        match node.kind {
-            ArenaPatternKind::Binding(name) if !self.tag_variants.contains_key(&name) => {
-                if !names.insert(name) { self.error(arena.arena.span(node.span), "duplicate name in list pattern", "check.pattern-binding"); }
+    pub(super) fn pattern_test_narrowed_type(&self, arena: &ArenaProgram, pattern: PatternId) -> Option<Type> {
+        match arena.arena.pattern(pattern).kind {
+            ArenaPatternKind::Group(child) => self.pattern_test_narrowed_type(arena, child),
+            ArenaPatternKind::Alternation(children) => {
+                let mut children = arena.arena.pattern_ids(children);
+                let common = self.pattern_test_narrowed_type(arena, children.next()?)?;
+                children.all(|child| self.pattern_test_narrowed_type(arena, child).is_some_and(|ty| ty == common)).then_some(common)
             }
-            ArenaPatternKind::Type { binding: Some(name), .. } => {
-                if !names.insert(name) { self.error(arena.arena.span(node.span), "duplicate name in list pattern", "check.pattern-binding"); }
-            }
-            ArenaPatternKind::List { elements, rest } => {
-                for child in arena.arena.pattern_ids(elements).chain(rest) { self.check_list_capture_names(arena, child, names); }
-            }
-            ArenaPatternKind::Record { fields, .. } | ArenaPatternKind::ErrorVariant { fields, .. } => {
-                for field in arena.arena.pattern_fields(fields) { self.check_list_capture_names(arena, field.pattern, names); }
-            }
-            ArenaPatternKind::Constructor { arg: Some(arg), .. } => self.check_list_capture_names(arena, arg, names),
-            ArenaPatternKind::Tuple(items) => {
-                for child in arena.arena.pattern_ids(items) { self.check_list_capture_names(arena, child, names); }
-            }
-            _ => {}
+            ArenaPatternKind::TestName { .. } | ArenaPatternKind::Type { binding: None, .. } => self.pattern_test_types.get(&pattern).cloned(),
+            ArenaPatternKind::ErrorVariant { family, variant, .. } => Some(Type::ErrorVariant { family, variant }),
+            ArenaPatternKind::Facet(facet) => Some(Type::ErrorFacet(facet)),
+            _ => None,
         }
+    }
+
+    fn define_pattern_binding(&mut self, name: Name, ty: Type, span: Span) {
+        if self.current_scope().contains_key(&name) {
+            self.error(span, "duplicate name in pattern", "check.pattern-binding");
+            return;
+        }
+        self.define(name, Binding::new(ty, false), span);
     }
 
     pub(super) fn check_pattern_arena(
@@ -89,6 +92,11 @@ impl Checker {
         let pattern = arena.arena.pattern(pattern_id);
         let span = arena.arena.span(pattern.span);
         match &pattern.kind {
+            ArenaPatternKind::Group(child) => self.check_pattern_arena(arena, source, *child, value_ty),
+            ArenaPatternKind::Alias { pattern, name, name_span } => {
+                self.check_pattern_arena(arena, source, *pattern, value_ty);
+                self.define_pattern_binding(*name, value_ty.clone(), arena.arena.span(*name_span));
+            }
             ArenaPatternKind::Wildcard => {}
             ArenaPatternKind::TestName { name, ty } => {
                 if name == "Ok" || name == "Err" {
@@ -173,7 +181,7 @@ impl Checker {
                     }
                     return;
                 }
-                self.define(*name, Binding::new(value_ty.clone(), false), span);
+                self.define_pattern_binding(*name, value_ty.clone(), span);
             }
             ArenaPatternKind::Type { binding, ty } => {
                 if !type_pattern_input_is_dynamic(value_ty) {
@@ -186,7 +194,7 @@ impl Checker {
                 let narrowed_ty = self.type_from_arena(arena, *ty);
                 self.pattern_test_types.insert(pattern_id, narrowed_ty.clone());
                 if let Some(name) = binding {
-                    self.define(*name, Binding::new(narrowed_ty, false), span);
+                    self.define_pattern_binding(*name, narrowed_ty, span);
                 }
             }
             ArenaPatternKind::Literal(expr) => {
@@ -195,7 +203,6 @@ impl Checker {
                 self.expect_type(value_ty, &actual, expr_span);
             }
             ArenaPatternKind::List { elements, rest } => {
-                self.check_list_capture_names(arena, pattern_id, &mut FxHashSet::default());
                 let element_ty = match value_ty {
                     Type::List(element) => element.as_ref().clone(),
                     Type::Any => Type::Any,
@@ -257,9 +264,21 @@ impl Checker {
                 }
             }
             ArenaPatternKind::Alternation(patterns) => {
+                let existing = self.current_scope().clone();
+                let mut common: Option<super::FxHashMap<Name, Binding>> = None;
                 for sub_id in arena.arena.pattern_ids(*patterns) {
+                    self.push_scope();
+                    *self.current_scope_mut() = existing.clone();
                     self.check_pattern_arena(arena, source, sub_id, value_ty);
+                    let captures: super::FxHashMap<_, _> = self.current_scope().iter().filter(|(name, _)| !existing.contains_key(name)).map(|(name, binding)| (*name, binding.clone())).collect();
+                    self.pop_scope();
+                    if let Some(common) = &common {
+                        if common.len() != captures.len() || common.iter().any(|(name, binding)| !captures.get(name).is_some_and(|other| binding.ty == other.ty)) {
+                            self.error(arena.arena.span(arena.arena.pattern(sub_id).span), "pattern alternatives must bind the same names with identical resolved types", "check.pattern-alternative-binding");
+                        }
+                    } else { common = Some(captures); }
                 }
+                for (name, binding) in common.unwrap_or_default() { self.define_pattern_binding(name, binding.ty, span); }
             }
             ArenaPatternKind::Tuple(patterns) => {
                 for sub_id in arena.arena.pattern_ids(*patterns) {
@@ -446,17 +465,16 @@ impl Checker {
         &mut self, arena: &ArenaProgram, value_ty: &Type,
         arms: impl Iterator<Item = (PatternId, Span, bool)>, span: Span,
     ) {
-        if !matches!(value_ty, Type::List(_)) { return; }
         let mut patterns = Vec::new();
         for (pattern, arm_span, guarded) in arms {
             if super::stmt::patterns_are_exhaustive_arena(arena, value_ty, patterns.iter().copied(), &self.type_defs, &self.tag_variants) {
                 self.diagnostics.push(Diagnostic::new(crate::diagnostic::Severity::Warning, "unreachable match arm")
                     .with_code("check.unreachable-match-arm")
-                    .with_label(crate::diagnostic::Label::secondary(arm_span, "earlier unguarded patterns cover every list")));
+                    .with_label(crate::diagnostic::Label::secondary(arm_span, "earlier unguarded patterns cover every subject")));
             }
             if !guarded { patterns.push(pattern); }
         }
-        if !super::stmt::patterns_are_exhaustive_arena(arena, value_ty, patterns.into_iter(), &self.type_defs, &self.tag_variants) {
+        if matches!(value_ty, Type::List(_)) && !super::stmt::patterns_are_exhaustive_arena(arena, value_ty, patterns.into_iter(), &self.type_defs, &self.tag_variants) {
             self.error(span, "list match requires a catchall or complete length partition", "check.non-exhaustive-match");
         }
     }
@@ -477,6 +495,7 @@ impl Checker {
         let TypeDefBody::TagUnion(variants) = body else {
             return;
         };
+        if super::stmt::patterns_are_exhaustive_arena(arena, value_ty, arm_patterns.iter().map(|(pattern, _)| *pattern), &self.type_defs, &self.tag_variants) { return; }
         let has_catch_all = arm_patterns.iter().any(|(pattern_id, _)| {
             match &arena.arena.pattern(*pattern_id).kind {
                 ArenaPatternKind::Wildcard => true,
@@ -521,6 +540,7 @@ pub(super) fn collect_covered_constructors_arena(
     covered: &mut FxHashSet<Name>,
 ) {
     match &arena.arena.pattern(pattern_id).kind {
+        ArenaPatternKind::Group(child) | ArenaPatternKind::Alias { pattern: child, .. } => collect_covered_constructors_arena(arena, *child, covered),
         ArenaPatternKind::Constructor { name, .. } | ArenaPatternKind::Binding(name) => {
             covered.insert(*name);
         }

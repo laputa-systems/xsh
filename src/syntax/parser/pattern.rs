@@ -1,6 +1,19 @@
 use super::{Keyword, Parser, TokenKindMatch, TokenTag};
 
 impl<'a> Parser<'a> {
+    pub(super) fn parse_pattern_test_arena_only(
+        &mut self,
+        arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
+    ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
+        let (pattern, span) = self.parse_pattern_test_rhs_arena_only(arena)?;
+        if matches!(arena.ast_arena().pattern(pattern).kind, crate::syntax::arena::ArenaPatternKind::Alternation(_)) {
+            self.diagnostics.push(crate::diagnostic::Diagnostic::error("group alternatives in a pattern test")
+                .with_code("parse.pattern-test-alternation")
+                .with_label(crate::diagnostic::Label::primary(span, "write `(P | Q)`")));
+        }
+        Some((self.normalize_pattern_test_names(arena, pattern), span))
+    }
+
     pub(super) fn parse_pattern_test_rhs_arena_only(
         &mut self,
         arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
@@ -63,21 +76,63 @@ impl<'a> Parser<'a> {
         &mut self,
         arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
     ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
-        let (first, first_span) = self.parse_type_pattern_arena_only(arena)?;
+        let (first, first_span) = self.parse_alias_pattern_arena_only(arena)?;
         if self.consume(TokenKindMatch::Pipe).is_none() {
             return Some((first, first_span));
         }
         let start = first_span.start();
-        let (second, second_span) = self.parse_type_pattern_arena_only(arena)?;
+        let (second, second_span) = self.parse_alias_pattern_arena_only(arena)?;
         let mut patterns = vec![first, second];
         let mut end = second_span.end();
         while self.consume(TokenKindMatch::Pipe).is_some() {
-            let (pattern, pattern_span) = self.parse_type_pattern_arena_only(arena)?;
+            let (pattern, pattern_span) = self.parse_alias_pattern_arena_only(arena)?;
             patterns.push(pattern);
             end = pattern_span.end();
         }
         let span = self.span(start, end);
         Some((arena.push_pattern_alternation(&patterns, span), span))
+    }
+
+    fn parse_alias_pattern_arena_only(
+        &mut self, arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
+    ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
+        let (mut pattern, mut span) = self.parse_type_pattern_arena_only(arena)?;
+        while self.at_ident("as") {
+            self.bump();
+            let name_span = self.current_span();
+            let name = self.expect_ident("expected a name after pattern alias `as`")?;
+            if name == "_" {
+                self.diagnostics.push(crate::diagnostic::Diagnostic::error("pattern alias requires a non-discard name")
+                    .with_code("parse.pattern-alias-name")
+                    .with_label(crate::diagnostic::Label::primary(name_span, "choose a binding name")));
+                return None;
+            }
+            span = self.span(span.start(), self.previous_end());
+            pattern = arena.push_pattern_alias(pattern, name, name_span, span);
+        }
+        Some((pattern, span))
+    }
+
+    pub(super) fn normalize_pattern_test_names(
+        &mut self, arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>, pattern: crate::syntax::arena::PatternId,
+    ) -> crate::syntax::arena::PatternId {
+        use crate::syntax::arena::ArenaPatternKind;
+        let node = arena.ast_arena().pattern(pattern).clone();
+        let span = arena.ast_arena().span(node.span);
+        match node.kind {
+            ArenaPatternKind::Binding(name) => arena.push_pattern_test_name(name, span),
+            ArenaPatternKind::ErrorVariant { family, variant, fields } if fields.len == 0 => arena.push_pattern_test_name(crate::symbol::Name::intern(format!("{family}.{variant}")), span),
+            ArenaPatternKind::Group(child) => {
+                let child = self.normalize_pattern_test_names(arena, child);
+                arena.push_pattern_group(child, span)
+            }
+            ArenaPatternKind::Alternation(children) => {
+                let children: Vec<_> = arena.ast_arena().pattern_ids(children).collect();
+                let children: Vec<_> = children.into_iter().map(|child| self.normalize_pattern_test_names(arena, child)).collect();
+                arena.push_pattern_alternation(&children, span)
+            }
+            _ => pattern,
+        }
     }
 
     fn parse_type_pattern_arena_only(
@@ -110,6 +165,15 @@ impl<'a> Parser<'a> {
     )> {
         let span = self.current_span();
         match self.current_tag() {
+            TokenTag::LParen => {
+                self.bump();
+                while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                let (pattern, _) = self.parse_pattern_arena_only(arena)?;
+                while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                let end = self.expect(TokenKindMatch::RParen, "expected `)` after grouped pattern")?.end();
+                let span = self.span(span.start(), end);
+                Some((arena.push_pattern_group(pattern, span), span, None))
+            }
             TokenTag::Ident | TokenTag::ProcIdent => {
                 let name = self
                     .current_name()

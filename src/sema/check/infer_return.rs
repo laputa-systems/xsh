@@ -367,6 +367,9 @@ fn pattern_binding_names(program: &ArenaProgram, pattern: PatternId) -> Vec<Name
     let mut work = vec![pattern];
     while let Some(pattern) = work.pop() {
         match program.arena.pattern(pattern).kind {
+            ArenaPatternKind::Alias { pattern, name, .. } => { names.push(name); work.push(pattern); }
+            ArenaPatternKind::Group(pattern) => work.push(pattern),
+            ArenaPatternKind::List { elements, rest } => { work.extend(program.arena.pattern_ids(elements)); work.extend(rest); }
             ArenaPatternKind::Binding(name) | ArenaPatternKind::Type { binding: Some(name), .. } => names.push(name),
             ArenaPatternKind::Record { fields, .. } | ArenaPatternKind::ErrorVariant { fields, .. } => work.extend(program.arena.pattern_fields(fields).iter().map(|field| field.pattern)),
             ArenaPatternKind::Constructor { arg: Some(pattern), .. } => work.push(pattern),

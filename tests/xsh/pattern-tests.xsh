@@ -44,7 +44,7 @@ proc test_pattern_predicates_reject_bindings_and_alternation(ctx: TestContext) [
   for fixture in [
     {source: "let outcome: Result[Int] = Ok(1)\nlet matches = outcome is Ok(payload)\n", diagnostic: "check.pattern-test-binding"},
     {source: "let value = {answer: 42}\nlet matches = value is {answer}\n", diagnostic: "check.pattern-test-binding"},
-    {source: "let value = 1\nlet matches = value is 1 | 2\n", diagnostic: "check.pattern-test-alternation"},
+    {source: "let value = 1\nlet matches = value is 1 | 2\n", diagnostic: "parse.pattern-test-alternation"},
     {source: "let value = 1\nlet matches = value is unknown_name\n", diagnostic: "check.unknown-type"},
     {source: "let value = 1\nlet matches = value is Int\n", diagnostic: "check.pattern-type"},
     {source: "let value = Ok(1)\nlet matches = value is Ok\n", diagnostic: "check.pattern-arity"},

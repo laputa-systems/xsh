@@ -1205,6 +1205,26 @@ impl Evaluator {
                     matched
                 } else { false }
             }
+            FullPatternTag::Alias => {
+                let pattern = indexed_raw(&mut payload, span)?;
+                let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
+                let matched = Self::indexed_pattern_match_pass(execution, pattern, value, slots, span, bind)?;
+                if matched && bind { slots[slot] = value.clone(); }
+                matched
+            }
+            FullPatternTag::Alternation => {
+                let (_, mut children) = execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
+                let count = indexed_raw(&mut children, span)? as usize;
+                let mut selected = None;
+                for _ in 0..count {
+                    let child = indexed_raw(&mut children, span)?;
+                    if selected.is_none() && Self::indexed_pattern_match_pass(execution, child, value, slots, span, false)? { selected = Some(child); }
+                }
+                indexed_finish(children, span)?;
+                if let Some(selected) = selected {
+                    if bind { Self::indexed_pattern_match_pass(execution, selected, value, slots, span, true)? } else { true }
+                } else { false }
+            }
             FullPatternTag::Wildcard => true,
             FullPatternTag::Bind => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, span)?;

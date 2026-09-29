@@ -32,19 +32,10 @@ proc main(...argv: List[Str]) [process, error] {
   let opts: IpOptions = cli.applet(argv, {operands: {form: "...ARG"}})?
   let operands = opts.operands
 
-  if operands.len() == 1 and (operands[0] == "addr" or operands[0] == "address") {
-    print_addr("")?
-  } else if operands.len() == 2 and (operands[0] == "addr" or operands[0] == "address") and operands[1] == "show" {
-    print_addr("")?
-  } else if operands.len() == 4 and (operands[0] == "addr" or operands[0] == "address") and operands[1] == "show" and operands[2] == "dev" {
-    print_addr(operands[3])?
-  } else if operands.len() == 3 and (operands[0] == "addr" or operands[0] == "address") and operands[1] == "dev" {
-    print_addr(operands[2])?
-  } else if operands is ["route"] {
-    print_route()?
-  } else if operands is ["route", "show"] {
-    print_route()?
-  } else {
-    return Err(AppletError.Usage("ip: expected addr or route"))
+  match operands {
+    ["addr"] | ["address"] | ["addr", "show"] | ["address", "show"] => print_addr("")?
+    ["addr", "show", "dev", name] | ["address", "show", "dev", name] | ["addr", "dev", name] | ["address", "dev", name] => print_addr(name)?
+    ["route"] | ["route", "show"] => print_route()?
+    _ => return Err(AppletError.Usage("ip: expected addr or route"))
   }
 }

@@ -179,12 +179,22 @@ fn match_expr_structural(
                 && match_expr(p, *pl, t, *tl, source, bindings)
                 && match_expr(p, *pr, t, *tr, source, bindings)
         }
-        (ArenaExprKind::PatternTest { value: pv, arms: pa }, ArenaExprKind::PatternTest { value: tv, arms: ta }) => {
+        (ArenaExprKind::PatternTest { value: pv, arms: pa }, ArenaExprKind::PatternTest { value: tv, arms: ta })
+        | (ArenaExprKind::PatternCondition { value: pv, arms: pa }, ArenaExprKind::PatternCondition { value: tv, arms: ta })
+        | (ArenaExprKind::Match { value: pv, arms: pa }, ArenaExprKind::Match { value: tv, arms: ta }) => {
             let pa = p.match_expr_arms(*pa);
             let ta = t.match_expr_arms(*ta);
             let mut candidate = bindings.clone();
             if pa.len() != ta.len() || !match_expr(p, *pv, t, *tv, source, &mut candidate) { return false; }
-            if !pa.iter().zip(ta).all(|(pa, ta)| match_pattern(p, pa.pattern, t, ta.pattern, source, &mut candidate)) { return false; }
+            if !pa.iter().zip(ta).all(|(pa, ta)| {
+                match_pattern(p, pa.pattern, t, ta.pattern, source, &mut candidate)
+                    && match (pa.guard, ta.guard) {
+                        (Some(pg), Some(tg)) => match_expr(p, pg, t, tg, source, &mut candidate),
+                        (None, None) => true,
+                        _ => false,
+                    }
+                    && match_expr(p, pa.value, t, ta.value, source, &mut candidate)
+            }) { return false; }
             *bindings = candidate;
             true
         }
@@ -256,6 +266,9 @@ fn match_expr_structural(
 fn match_pattern(p: &AstArena, pi: PatternId, t: &AstArena, ti: PatternId, source: &str, bindings: &mut FxHashMap<String, Span>) -> bool {
     use xsh::frontend::check::Type;
     match (&p.pattern(pi).kind, &t.pattern(ti).kind) {
+        (ArenaPatternKind::Group(a), _) => match_pattern(p, *a, t, ti, source, bindings),
+        (_, ArenaPatternKind::Group(b)) => match_pattern(p, pi, t, *b, source, bindings),
+        (ArenaPatternKind::Alias { pattern: a, name: an, .. }, ArenaPatternKind::Alias { pattern: b, name: bn, .. }) => an == bn && match_pattern(p, *a, t, *b, source, bindings),
         (ArenaPatternKind::Wildcard, ArenaPatternKind::Wildcard) => true,
         (ArenaPatternKind::Binding(a), ArenaPatternKind::Binding(b)) | (ArenaPatternKind::Facet(a), ArenaPatternKind::Facet(b)) => a == b,
         (ArenaPatternKind::TestName { name: a, ty: at }, ArenaPatternKind::TestName { name: b, ty: bt }) => a == b && Type::from_arena(p, *at) == Type::from_arena(t, *bt),
@@ -415,6 +428,27 @@ fn build_replacement_text(
             }
             edits.sort_unstable_by_key(|(start, _, _)| std::cmp::Reverse(*start));
             for (start, end, replacement) in edits { text.replace_range(start..end, &replacement); }
+            Some(text)
+        }
+        ArenaExprKind::PatternTest { value, arms } => {
+            let subject = build_replacement_text(arena, *value, m, target_source, pattern_source)?;
+            let selected = arena.match_expr_arms(*arms).first()?;
+            let pattern_span = arena.span(arena.pattern(selected.pattern).span);
+            let pattern = pattern_source.get(pattern_span.range())?;
+            Some(format!("({subject}) is {pattern}"))
+        }
+        ArenaExprKind::Match { value, arms } => {
+            let mut text = pattern_source.get(expr.span.range())?.to_string();
+            let mut edits = vec![(*value, build_replacement_text(arena, *value, m, target_source, pattern_source)?)];
+            for arm in arena.match_expr_arms(*arms) {
+                edits.push((arm.value, build_replacement_text(arena, arm.value, m, target_source, pattern_source)?));
+                if let Some(guard) = arm.guard { edits.push((guard, build_replacement_text(arena, guard, m, target_source, pattern_source)?)); }
+            }
+            edits.sort_by_key(|(id, _)| std::cmp::Reverse(arena.expr(*id).span.start()));
+            for (id, replacement) in edits {
+                let span = arena.expr(id).span;
+                text.replace_range(span.start() - expr.span.start()..span.end() - expr.span.start(), &replacement);
+            }
             Some(text)
         }
         ArenaExprKind::Ident(name) => Some(name.to_string()),

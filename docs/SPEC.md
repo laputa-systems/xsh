@@ -546,8 +546,10 @@ for_stmt     = "for" binding_target "in" expr block ;
 match_stmt   = "match" expr "{" match_arm* "}" ;
 match_arm    = pattern guard? "=>" (statement | block) ","? ;
 guard        = "if" expr ;
-pattern      = "_" | IDENT | type_pattern | literal | constructor_pattern
-             | record_pattern | list_pattern | pattern "|" pattern ;
+pattern      = alias_pattern ("|" alias_pattern)* ;
+alias_pattern = primary_pattern ("as" IDENT)* ;
+primary_pattern = "_" | IDENT | type_pattern | literal | constructor_pattern
+                | record_pattern | list_pattern | "(" pattern ")" ;
 type_pattern = ("_" | IDENT) "is" type ;
 constructor_pattern = IDENT "(" pattern? ")" ;
 record_pattern = "{" record_pattern_field ("," record_pattern_field)* ","? "}" ;
@@ -1540,6 +1542,30 @@ declared in one branch is unavailable in sibling branches; the same spelling
 in two branches denotes separate bindings, including when the `if` is the
 last statement of a proc or pure function.
 
+`PATTERN as name` captures the complete value matched at that node while
+preserving inner captures. Names must be ordinary, non-discard bindings;
+repeated names anywhere in one pattern are rejected. Alias binding is tighter
+than `|`: `P | Q as name` aliases Q; `(P | Q) as name` aliases the whole
+alternative. Groups control pattern precedence and do not create tuple values.
+
+Alternatives are checked in isolated scopes and must bind exactly the same
+names with identical resolved types. Type aliases may have different spelling
+while resolving to the same type. Incompatible payloads are rejected rather
+than widened to Any. An outer alias retains the common complete subject type,
+including its nominal identity, rather than one alternative's payload shape.
+
+The subject is evaluated once. Alternatives are tried in textual order, and
+only the first complete match publishes captures. Failed alternatives leave
+capture slots untouched and create no list rest copies. An arm guard runs
+after that first match; guard failure advances to the next arm. Captured values
+retain ordinary value ownership. These rules also apply to `if let` and
+`while let`. Exhaustiveness and reachability inspect grouped and aliased
+patterns conservatively and exclude guarded arms from total coverage.
+
+`lint.identical-match-arms` combines adjacent, unguarded bodies only after
+reparsing the CST and AST and checking the combined capture contract. Comments,
+incompatible bindings or types, and uncertain source ownership prevent a fix.
+
 Type patterns test a dynamic matched value and narrow the binding inside the
 arm:
 
@@ -1560,8 +1586,11 @@ other dynamic shapes.
 nominal constructor, error variant, facet, literal, and record pattern matcher.
 Its RHS cannot bind names: write `outcome is Ok(_)`, not `Ok(payload)`; record
 shorthand that would bind is rejected. Nested constructor and record payloads
-may contain literals or other non-binding patterns. Use `or` between complete
-tests instead of pattern alternation. Negation is `!(value is Pattern)`.
+may contain literals or other non-binding patterns. Capture-free alternatives
+require explicit pattern grouping, as in `value is (P | Q)`; aliases remain
+forbidden. `or` may also join complete tests. Negation is `!(value is Pattern)`.
+Selected-branch narrowing uses a type shared by every alternative and preserves
+nominal error identity; incompatible alternatives do not invent a union type.
 In control conditions, qualified error payload patterns use explicit fields such
 as `error is Family.Variant {message: "missing"}` before the branch body.
 

@@ -1344,6 +1344,15 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.push_expr_kind(ArenaExprKind::PatternCondition { value, arms }, span)
     }
 
+    pub fn push_pattern_group(&mut self, pattern: PatternId, span: Span) -> PatternId {
+        self.push_pattern_kind(ArenaPatternKind::Group(pattern), span)
+    }
+
+    pub fn push_pattern_alias(&mut self, pattern: PatternId, name: Name, name_span: Span, span: Span) -> PatternId {
+        let name_span = self.lowerer.span(name_span);
+        self.push_pattern_kind(ArenaPatternKind::Alias { pattern, name, name_span }, span)
+    }
+
     pub fn push_pattern_wildcard(&mut self, span: Span) -> PatternId {
         self.push_pattern_kind(ArenaPatternKind::Wildcard, span)
     }
@@ -5005,6 +5014,8 @@ pub struct ArenaPattern {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaPatternKind {
+    Group(PatternId),
+    Alias { pattern: PatternId, name: Name, name_span: SpanId },
     Wildcard,
     TestName { name: Name, ty: TypeExprId },
     Binding(Name),

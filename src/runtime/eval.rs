@@ -1750,6 +1750,8 @@ enum LoweredFmtPart {
 
 #[derive(Clone, Debug)]
 enum BuildPatternRow {
+    Alias { pattern: BuildPatternId, slot: usize },
+    Alternation { patterns: Vec<BuildPatternId> },
     List { elements: Vec<BuildPatternId>, rest: Option<BuildPatternId> },
     TagType { variants: Vec<Name> },
     RecordTest { fields: Box<Vec<(Name, BuildPatternId)>> },

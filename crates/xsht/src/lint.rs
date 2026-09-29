@@ -821,6 +821,7 @@ impl<'a> Linter<'a> {
                 self.lint_stmt(inner, false);
             }
             ArenaStmtKind::Match { value, arms } => {
+                self.lint_adjacent_pattern_arms(self.arena.match_arms(arms).iter().map(|arm| (arm.pattern, arm.guard, self.arena.span(self.arena.block(arm.block).span), self.arena.span(arm.span))).collect());
                 let old_regex_context = self.regex_recovery_context;
                 self.regex_recovery_context = true;
                 self.lint_pattern_conditional_stmt(value, arms, stmt.span);
@@ -2579,6 +2580,41 @@ impl<'a> Linter<'a> {
             .with_fix_hint(FixHint::replacement(expression.span, "use an error fallback block", replacement)));
     }
 
+    fn lint_adjacent_pattern_arms(&mut self, arms: Vec<(PatternId, Option<ExprId>, Span, Span)>) {
+        let mut start = 0;
+        while start + 1 < arms.len() {
+            let Some(body) = self.source.get(arms[start].2.range()) else { return };
+            if arms[start].1.is_some() { start += 1; continue; }
+            let mut end = start + 1;
+            while end < arms.len() && arms[end].1.is_none()
+                && self.source.get(arms[end].2.range()).is_some_and(|other| other.trim() == body.trim())
+            { end += 1; }
+            if end == start + 1 { start = end; continue; }
+            let span = Span::new(arms[start].3.source_id, arms[start].3.start(), arms[end - 1].3.end());
+            let Some(original) = self.source.get(span.range()) else { return };
+            if original.contains('#') { start = end; continue; }
+            let patterns: Option<Vec<_>> = arms[start..end].iter().map(|(pattern, _, _, _)| self.source.get(self.arena.span(self.arena.pattern(*pattern).span).range())).collect();
+            let Some(patterns) = patterns else { return };
+            let replacement = format!("{} => {}", patterns.join(" | "), body);
+            let mut candidate = self.source.to_string();
+            candidate.replace_range(span.range(), &replacement);
+            let (_, cst_errors) = xsh::frontend::syntax::cst::SyntaxTree::parse(span.source_id, &candidate);
+            let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(span.source_id, &candidate);
+            if cst_errors.is_empty() && parsed.diagnostics.is_empty() {
+                let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate);
+                // Rechecking the combined pattern proves equal resolved capture types,
+                // including nominal constructor payloads and aliases of those types.
+                if checked.diagnostics.is_empty() {
+                    self.diagnostics.push(Diagnostic::new(Severity::Warning, "adjacent match arms can share an alternative pattern")
+                        .with_code("lint.identical-match-arms")
+                        .with_label(Label::secondary(span, "unguarded arms share a checked body and capture contract"))
+                        .with_fix_hint(FixHint::replacement(span, "combine the compatible alternatives", replacement)));
+                }
+            }
+            start = end;
+        }
+    }
+
     fn lint_boolean_match(&mut self, expr: ExprId) {
         let expression = self.arena.expr(expr);
         let ArenaExprKind::Match { value, arms } = expression.kind else { return; };
@@ -2606,6 +2642,7 @@ impl<'a> Linter<'a> {
             let subject = self.arena.expr(value).span;
             let pattern = self.arena.span(self.arena.pattern(selected.pattern).span);
             if let (Some(subject), Some(pattern)) = (self.source.get(subject.range()), self.source.get(pattern.range())) {
+                let pattern = if matches!(self.arena.pattern(selected.pattern).kind, ArenaPatternKind::Alternation(_)) { format!("({pattern})") } else { pattern.to_string() };
                 let replacement = if yes { format!("(({subject}) is {pattern})") } else { format!("!(({subject}) is {pattern})") };
                 diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use a non-binding pattern test", replacement));
             }
@@ -2622,7 +2659,9 @@ impl<'a> Linter<'a> {
             ArenaPatternKind::Record { fields, .. } | ArenaPatternKind::ErrorVariant { fields, .. } => self.arena.pattern_fields(fields).iter().all(|field| self.pattern_test_fix_is_nonbinding(field.pattern)),
             ArenaPatternKind::Tuple(patterns) => self.arena.pattern_ids(patterns).all(|pattern| self.pattern_test_fix_is_nonbinding(pattern)),
             ArenaPatternKind::List { elements, rest } => self.arena.pattern_ids(elements).chain(rest).all(|pattern| self.pattern_test_fix_is_nonbinding(pattern)),
-            ArenaPatternKind::Alternation(_) => false,
+            ArenaPatternKind::Alias { .. } => false,
+            ArenaPatternKind::Group(child) => self.pattern_test_fix_is_nonbinding(child),
+            ArenaPatternKind::Alternation(items) => self.arena.pattern_ids(items).all(|child| self.pattern_test_fix_is_nonbinding(child)),
         }
     }
 
@@ -2630,6 +2669,11 @@ impl<'a> Linter<'a> {
         let arena_pattern = self.arena.pattern(pattern).clone();
         let span = self.arena.span(arena_pattern.span);
         match arena_pattern.kind {
+            ArenaPatternKind::Group(child) => self.lint_pattern(child),
+            ArenaPatternKind::Alias { pattern, name, name_span } => {
+                self.lint_pattern(pattern);
+                self.define(&name.as_str(), self.arena.span(name_span), true);
+            }
             ArenaPatternKind::Binding(name) => {
                 if !self.tag_variants.contains(name.as_str().as_str()) {
                     self.define(name.as_str().as_str(), span, true);
@@ -2654,10 +2698,18 @@ impl<'a> Linter<'a> {
             ArenaPatternKind::List { elements, rest } => {
                 for child in self.arena.pattern_ids(elements).chain(rest).collect::<Vec<_>>() { self.lint_pattern(child); }
             }
-            ArenaPatternKind::Alternation(patterns) | ArenaPatternKind::Tuple(patterns) => {
-                for pat in self.arena.pattern_ids(patterns).collect::<Vec<_>>() {
-                    self.lint_pattern(pat);
+            ArenaPatternKind::Alternation(patterns) => {
+                let children: Vec<_> = self.arena.pattern_ids(patterns).collect();
+                let saved = self.scopes.last().cloned().unwrap_or_default();
+                for &child in children.iter().skip(1) {
+                    if let Some(scope) = self.scopes.last_mut() { *scope = saved.clone(); }
+                    self.lint_pattern(child);
                 }
+                if let Some(scope) = self.scopes.last_mut() { *scope = saved; }
+                if let Some(&child) = children.first() { self.lint_pattern(child); }
+            }
+            ArenaPatternKind::Tuple(patterns) => {
+                for pat in self.arena.pattern_ids(patterns).collect::<Vec<_>>() { self.lint_pattern(pat); }
             }
             ArenaPatternKind::TestName { ty, .. } => self.collect_type_expr_refs(ty),
             ArenaPatternKind::Wildcard
@@ -6194,6 +6246,9 @@ impl LintExprVisitor<'_, '_> {
             self.linter.lint_comparison_chain(expr);
 
             self.linter.lint_optional_postfix(expr);
+            if let ArenaExprKind::Match { arms, .. } = self.linter.arena.expr(expr).kind {
+                self.linter.lint_adjacent_pattern_arms(self.linter.arena.match_expr_arms(arms).iter().map(|arm| (arm.pattern, arm.guard, self.linter.arena.expr(arm.value).span, self.linter.arena.span(arm.span))).collect());
+            }
             self.linter.lint_boolean_match(expr);
             self.linter.lint_pattern_conditional_expr(expr);
             self.linter.lint_error_fallback_block(expr);
@@ -8469,6 +8524,8 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
 
     fn define_pattern(&mut self, pattern: PatternId) {
         match self.arena().pattern(pattern).kind.clone() {
+            ArenaPatternKind::Group(child) => self.define_pattern(child),
+            ArenaPatternKind::Alias { pattern, name, .. } => { self.define_pattern(pattern); self.define(name); }
             ArenaPatternKind::Binding(name) => self.define(name),
             ArenaPatternKind::Type {
                 binding: Some(name),

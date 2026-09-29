@@ -11,9 +11,9 @@ use crate::symbol::Symbol;
 use crate::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBlock, ArenaBuilderEntryKind, ArenaCommand,
     ArenaCommandArgKind, ArenaErrorDef, ArenaExprKind, ArenaExprOrRun,
-    ArenaModuleContractEntryKind, ArenaPipeStageKind, ArenaProgram, ArenaRecordFieldKind,
+    ArenaModuleContractEntryKind, ArenaPatternKind, ArenaPipeStageKind, ArenaProgram, ArenaRecordFieldKind,
     ArenaStmtKind, ArenaTypeDef, ArenaTypeDefBody, ArenaTypeExprTag, AstArena, BlockId, ErrorDefId,
-    ExprId, FunctionDefId, StmtId, TypeDefId, TypeExprId,
+    ExprId, FunctionDefId, PatternId, StmtId, TypeDefId, TypeExprId,
 };
 use crate::syntax::node::{Effect, EnvGetKind};
 
@@ -776,7 +776,10 @@ impl CompactBodyProbe<'_> {
                 self.output.supported_statements += 1;
                 for branch in self.program.arena.if_branches(branches) {
                     self.check_compact_expr(branch.condition);
-                    self.check_compact_block(branch.block);
+                    self.push_scope();
+                    self.bind_compact_pattern_condition(branch.condition);
+                    self.check_compact_block_in_current_scope(branch.block);
+                    self.pop_scope();
                 }
                 if let Some(block) = else_block {
                     self.check_compact_block(block);
@@ -785,7 +788,10 @@ impl CompactBodyProbe<'_> {
             ArenaStmtKind::While { condition, block } => {
                 self.output.supported_statements += 1;
                 self.check_compact_expr(condition);
-                self.check_compact_block(block);
+                self.push_scope();
+                self.bind_compact_pattern_condition(condition);
+                self.check_compact_block_in_current_scope(block);
+                self.pop_scope();
             }
             ArenaStmtKind::For {
                 target,
@@ -811,12 +817,13 @@ impl CompactBodyProbe<'_> {
             }
             ArenaStmtKind::Match { value, arms } => {
                 self.output.supported_statements += 1;
-                self.check_compact_expr(value);
+                let subject = self.check_compact_expr(value);
                 for arm in self.program.arena.match_arms(arms) {
-                    if let Some(guard) = arm.guard {
-                        self.check_compact_expr(guard);
-                    }
-                    self.check_compact_block(arm.block);
+                    self.push_scope();
+                    self.bind_compact_pattern(arm.pattern, &subject);
+                    if let Some(guard) = arm.guard { self.check_compact_expr(guard); }
+                    self.check_compact_block_in_current_scope(arm.block);
+                    self.pop_scope();
                 }
             }
             ArenaStmtKind::Command(command) => {
@@ -1155,7 +1162,10 @@ impl CompactBodyProbe<'_> {
                 let mut ty = None;
                 for branch in self.program.arena.if_expr_branches(branches) {
                     self.check_compact_expr(branch.condition);
+                    self.push_scope();
+                    self.bind_compact_pattern_condition(branch.condition);
                     ty = Some(merge_types(ty, self.check_compact_expr(branch.value)));
+                    self.pop_scope();
                 }
                 merge_types(ty, self.check_compact_expr(else_value))
             }
@@ -1215,13 +1225,14 @@ impl CompactBodyProbe<'_> {
                 Type::Map(Box::new(item))
             }
             ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } | ArenaExprKind::PatternCondition { value, arms } => {
-                self.check_compact_expr(value);
+                let subject = self.check_compact_expr(value);
                 let mut ty = None;
                 for arm in self.program.arena.match_expr_arms(arms) {
-                    if let Some(guard) = arm.guard {
-                        self.check_compact_expr(guard);
-                    }
+                    self.push_scope();
+                    if !matches!(self.program.arena.expr(id).kind, ArenaExprKind::PatternTest { .. }) { self.bind_compact_pattern(arm.pattern, &subject); }
+                    if let Some(guard) = arm.guard { self.check_compact_expr(guard); }
                     ty = Some(merge_types(ty, self.check_compact_expr(arm.value)));
+                    self.pop_scope();
                 }
                 ty.unwrap_or(Type::Unknown)
             }
@@ -1784,6 +1795,68 @@ impl CompactBodyProbe<'_> {
                     self.check_compact_stmt(stmt);
                 }
             }
+        }
+    }
+
+    fn bind_compact_pattern(&mut self, pattern: PatternId, subject: &Type) {
+        match self.program.arena.pattern(pattern).kind {
+            ArenaPatternKind::Group(child) => self.bind_compact_pattern(child, subject),
+            ArenaPatternKind::Alias { pattern, name, .. } => {
+                self.bind_compact_pattern(pattern, subject);
+                self.current_scope_mut().insert(name, CompactBinding::new(subject.clone(), false));
+            }
+            ArenaPatternKind::Alternation(children) => {
+                if let Some(child) = self.program.arena.pattern_ids(children).next() { self.bind_compact_pattern(child, subject); }
+            }
+            ArenaPatternKind::Binding(name) if !self.declarations.tag_variants_by_name.contains_key(&name) => {
+                self.current_scope_mut().insert(name, CompactBinding::new(subject.clone(), false));
+            }
+            ArenaPatternKind::Type { binding: Some(name), ty } => {
+                let ty = self.type_from_arena(ty);
+                self.current_scope_mut().insert(name, CompactBinding::new(ty, false));
+            }
+            ArenaPatternKind::List { elements, rest } => {
+                let element = match subject { Type::List(element) => element.as_ref().clone(), Type::Any => Type::Any, _ => Type::Unknown };
+                let children: Vec<_> = self.program.arena.pattern_ids(elements).collect();
+                for child in children { self.bind_compact_pattern(child, &element); }
+                if let Some(rest) = rest { self.bind_compact_pattern(rest, &Type::List(Box::new(element))); }
+            }
+            ArenaPatternKind::Record { fields, .. } => {
+                for field in self.program.arena.pattern_fields(fields).to_vec() {
+                    let ty = match subject { Type::Record(fields) => fields.get(&field.name).cloned().unwrap_or(Type::Unknown), Type::Any => Type::Any, _ => Type::Unknown };
+                    self.bind_compact_pattern(field.pattern, &ty);
+                }
+            }
+            ArenaPatternKind::Constructor { name, arg: Some(arg) } => {
+                if let Type::Result(ok, err) = subject && (name == "Ok" || name == "Err") {
+                    self.bind_compact_pattern(arg, if name == "Ok" { ok } else { err });
+                } else if let Some(info) = self.declarations.tag_variants_by_name.get(&name).cloned() {
+                    let children = match self.program.arena.pattern(arg).kind {
+                        ArenaPatternKind::Tuple(children) => self.program.arena.pattern_ids(children).collect::<Vec<_>>(),
+                        _ => vec![arg],
+                    };
+                    for (child, ty) in children.into_iter().zip(info.field_types) { self.bind_compact_pattern(child, &ty); }
+                } else { self.bind_compact_pattern(arg, &Type::Unknown); }
+            }
+            ArenaPatternKind::ErrorVariant { family, variant, fields } => {
+                let payload = self.declarations.error_families_by_name.get(&family)
+                    .and_then(|info| info.variants.get(&variant)).map(|info| info.fields.clone()).unwrap_or_default();
+                for field in self.program.arena.pattern_fields(fields).to_vec() {
+                    self.bind_compact_pattern(field.pattern, payload.get(&field.name).unwrap_or(&Type::Unknown));
+                }
+            }
+            ArenaPatternKind::Tuple(children) => {
+                let children: Vec<_> = self.program.arena.pattern_ids(children).collect();
+                for child in children { self.bind_compact_pattern(child, &Type::Unknown); }
+            }
+            _ => {}
+        }
+    }
+
+    fn bind_compact_pattern_condition(&mut self, condition: ExprId) {
+        if let ArenaExprKind::PatternCondition { value, arms } = self.program.arena.expr(condition).kind {
+            let ty = self.output.expr_types.get(&value).cloned().unwrap_or(Type::Unknown);
+            self.bind_compact_pattern(self.program.arena.match_expr_arms(arms)[0].pattern, &ty);
         }
     }
 

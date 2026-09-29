@@ -958,6 +958,7 @@ impl Checker {
             &value_ty,
             arm_list
                 .iter()
+                .filter(|arm| arm.guard.is_none())
                 .map(|a| (a.pattern, arena.arena.span(a.span)))
                 .collect(),
             span,

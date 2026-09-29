@@ -31,6 +31,18 @@ Focused tooling acceptance uses `cargo test -p xsht --test integration list_patt
 the core argument parsing migration uses
 `target/debug/xsht test --jobs 2 core/tests/test-ip.xsh`.
 
+## Pattern aliases and alternatives
+
+`target/debug/xsht test --jobs 2 tests/xsh/pattern-aliases.xsh` covers nested
+aliases, resolved capture types, alternative order, subject/guard evaluation,
+conditional binding contexts, atomic capture publication, and syntax/type
+rejections. Indexed slot boundaries use
+`cargo test -p xsh --lib pattern_aliases -- --test-threads=1` and
+`cargo test -p xsh --lib verifier_rejects_incompatible_alternative_and_alias_capture_slots -- --test-threads=1`.
+Focused tooling acceptance uses
+`cargo test -p xsht --test integration pattern_`; run the existing list and
+pattern conditional native modules after changes to the shared matcher.
+
 ## Routine CI
 
 `.github/workflows/lint.yml` and `.github/workflows/test.yml` run on pull requests

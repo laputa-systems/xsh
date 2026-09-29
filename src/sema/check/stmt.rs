@@ -155,10 +155,13 @@ pub(super) fn patterns_are_exhaustive_arena(
     use crate::syntax::arena::ArenaPatternKind;
     fn irrefutable(arena: &ArenaProgram, pattern: crate::syntax::arena::PatternId, variants: &FxHashMap<Name, TagVariantInfo>) -> bool {
         match arena.arena.pattern(pattern).kind {
+            ArenaPatternKind::Group(child) | ArenaPatternKind::Alias { pattern: child, .. } => irrefutable(arena, child, variants),
+            ArenaPatternKind::Alternation(items) => arena.arena.pattern_ids(items).any(|child| irrefutable(arena, child, variants)),
             ArenaPatternKind::Wildcard => true,
             ArenaPatternKind::Binding(name) => !variants.contains_key(&name),
             ArenaPatternKind::Tuple(items) => arena.arena.pattern_ids(items).all(|item| irrefutable(arena, item, variants)),
-            ArenaPatternKind::Record { fields, .. } => arena.arena.pattern_fields(fields).iter().all(|field| irrefutable(arena, field.pattern, variants)),
+            // A record shape can reject dynamic payloads even when all fields bind.
+            ArenaPatternKind::Record { .. } => false,
             _ => false,
         }
     }
@@ -173,6 +176,15 @@ pub(super) fn patterns_are_exhaustive_arena(
             _ => {}
         }
         false
+    }
+    let mut pending: Vec<_> = patterns.collect();
+    let mut patterns = Vec::new();
+    while let Some(pattern) = pending.pop() {
+        match arena.arena.pattern(pattern).kind {
+            ArenaPatternKind::Group(child) | ArenaPatternKind::Alias { pattern: child, .. } => pending.push(child),
+            ArenaPatternKind::Alternation(items) => pending.extend(arena.arena.pattern_ids(items)),
+            _ => patterns.push(pattern),
+        }
     }
     let mut constructors = FxHashSet::default();
     let mut booleans = [false; 2];
@@ -648,13 +660,7 @@ impl Checker {
                 let Some(binding) = self.lookup(name) else { return ConditionNarrowings::default(); };
                 if binding.mutable { return ConditionNarrowings::default(); }
                 let pattern = arena.arena.match_expr_arms(arms)[0].pattern;
-                let ty = match &arena.arena.pattern(pattern).kind {
-                    crate::syntax::arena::ArenaPatternKind::TestName { .. }
-                    | crate::syntax::arena::ArenaPatternKind::Type { binding: None, .. } => self.pattern_test_types.get(&pattern).cloned(),
-                    crate::syntax::arena::ArenaPatternKind::ErrorVariant { family, variant, .. } => Some(Type::ErrorVariant { family: *family, variant: *variant }),
-                    crate::syntax::arena::ArenaPatternKind::Facet(facet) => Some(Type::ErrorFacet(*facet)),
-                    _ => None,
-                };
+                let ty = self.pattern_test_narrowed_type(arena, pattern);
                 // A facet filters a nominal error without changing its family or
                 // variant. Keep that precision when no intersection type is available.
                 let ty = ty.map(|ty| {
@@ -890,6 +896,7 @@ impl Checker {
             &value_ty,
             arm_list
                 .iter()
+                .filter(|arm| arm.guard.is_none())
                 .map(|arm| (arm.pattern, arena.arena.span(arm.span)))
                 .collect(),
             value_span,
@@ -2072,6 +2079,7 @@ impl Checker {
             &value_ty,
             arm_list
                 .iter()
+                .filter(|arm| arm.guard.is_none())
                 .map(|arm| (arm.pattern, arena.arena.span(arm.span)))
                 .collect(),
             value_span,

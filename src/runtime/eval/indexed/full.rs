@@ -249,6 +249,8 @@ pub(in crate::runtime::eval) enum FullTag {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(in crate::runtime::eval) enum FullPatternTag {
+    Alias,
+    Alternation,
     List,
     TagType,
     RecordTest,
@@ -3338,6 +3340,60 @@ impl<'a> FullDecoder<'a> {
         }
     }
 
+    fn pattern_list_cursor(&self, input: &mut FullCursor<'_>) -> Result<FullCursor<'a>, IrVerifyError> {
+        let block = IrBlockId::from_raw(input.raw()?).ok_or_else(|| IrVerifyError::new("pattern child list id is invalid"))?;
+        let block = self.store.blocks.get(block.index()).ok_or_else(|| IrVerifyError::new("pattern child list id is out of bounds"))?;
+        // Inspection follows structural verification and must not claim block
+        // ownership a second time while reading the same capture contract.
+        Ok(FullCursor::new(self.store.payload(block.instructions)?))
+    }
+
+    fn pattern_capture_slots(&self, pattern: usize) -> Result<BTreeSet<usize>, IrVerifyError> {
+        let mut slots = BTreeSet::new();
+        let mut pending = vec![pattern];
+        while let Some(pattern) = pending.pop() {
+            let tag = *self.store.patterns.get(pattern).ok_or_else(|| IrVerifyError::new("pattern id is out of bounds"))?;
+            let mut payload = FullCursor::new(self.store.payload(self.store.pattern_data[pattern].range())?);
+            let mut captures = Vec::new();
+            match tag {
+                FullPatternTag::Bind => captures.push(usize::decode(self, &mut payload)?),
+                FullPatternTag::Alias => { pending.push(payload.raw()? as usize); captures.push(usize::decode(self, &mut payload)?); }
+                FullPatternTag::Type => { Type::decode(self, &mut payload)?; captures.extend(Option::<usize>::decode(self, &mut payload)?); }
+                FullPatternTag::ResultOk | FullPatternTag::ResultErr => captures.extend(Option::<usize>::decode(self, &mut payload)?),
+                FullPatternTag::ResultTest => { bool::decode(self, &mut payload)?; pending.push(payload.raw()? as usize); }
+                FullPatternTag::Tag => {
+                    Name::decode(self, &mut payload)?;
+                    captures.extend(BuildPatternIdSlots::decode(self, &mut payload)?.into_iter().flatten());
+                }
+                FullPatternTag::ErrorVariant => {
+                    Name::decode(self, &mut payload)?; Name::decode(self, &mut payload)?;
+                    captures.extend(Box::<LoweredErrorPatternFields>::decode(self, &mut payload)?.iter().filter_map(|(_, slot)| *slot));
+                }
+                FullPatternTag::List | FullPatternTag::TagTest | FullPatternTag::Alternation => {
+                    if tag == FullPatternTag::TagTest { Name::decode(self, &mut payload)?; }
+                    let mut children = self.pattern_list_cursor(&mut payload)?;
+                    let count = children.raw()? as usize;
+                    for index in 0..count {
+                        let child = children.raw()? as usize;
+                        if tag != FullPatternTag::Alternation || index == 0 { pending.push(child); }
+                    }
+                    if tag == FullPatternTag::List && bool::decode(self, &mut payload)? { pending.push(payload.raw()? as usize); }
+                }
+                FullPatternTag::RecordTest | FullPatternTag::ErrorTest => {
+                    if tag == FullPatternTag::ErrorTest { Name::decode(self, &mut payload)?; Name::decode(self, &mut payload)?; }
+                    let mut children = self.pattern_list_cursor(&mut payload)?;
+                    let count = children.raw()? as usize;
+                    for _ in 0..count { Name::decode(self, &mut children)?; pending.push(children.raw()? as usize); }
+                }
+                _ => {}
+            }
+            for slot in captures {
+                if !slots.insert(slot) { return Err(IrVerifyError::new("pattern writes the same capture slot twice")); }
+            }
+        }
+        Ok(slots)
+    }
+
     #[inline(always)]
     fn block(
         &self,
@@ -6167,6 +6223,15 @@ impl FullCodec for BuildPatternRow {
                 rest.encode(builder, &mut payload)?;
                 FullPatternTag::List
             }
+            Self::Alias { pattern, slot } => {
+                pattern.encode(builder, &mut payload)?;
+                slot.encode(builder, &mut payload)?;
+                FullPatternTag::Alias
+            }
+            Self::Alternation { patterns } => {
+                patterns.encode(builder, &mut payload)?;
+                FullPatternTag::Alternation
+            }
             Self::Wildcard => FullPatternTag::Wildcard,
             Self::Bind { slot } => {
                 slot.encode(builder, &mut payload)?;
@@ -6246,6 +6311,8 @@ impl FullCodec for BuildPatternRow {
                 elements: Vec::decode(decoder, &mut payload)?,
                 rest: Option::decode(decoder, &mut payload)?,
             },
+            FullPatternTag::Alias => Self::Alias { pattern: BuildPatternId::decode(decoder, &mut payload)?, slot: usize::decode(decoder, &mut payload)? },
+            FullPatternTag::Alternation => Self::Alternation { patterns: Vec::decode(decoder, &mut payload)? },
             FullPatternTag::Wildcard => Self::Wildcard,
             FullPatternTag::Bind => Self::Bind {
                 slot: usize::decode(decoder, &mut payload)?,
@@ -6325,6 +6392,28 @@ impl FullCodec for BuildPatternRow {
                     }
                 }
                 Option::<BuildPatternId>::verify(decoder, &mut payload)?;
+            }
+            FullPatternTag::Alias => {
+                BuildPatternId::verify(decoder, &mut payload)?;
+                usize::verify(decoder, &mut payload)?;
+                decoder.pattern_capture_slots(index)?;
+            }
+            FullPatternTag::Alternation => {
+                let mut alternatives = payload;
+                Vec::<BuildPatternId>::verify(decoder, &mut payload)?;
+                let mut children = decoder.pattern_list_cursor(&mut alternatives)?;
+                let count = children.raw()? as usize;
+                if count < 2 { return Err(IrVerifyError::new("alternative pattern requires at least two choices")); }
+                let mut common = None;
+                for _ in 0..count {
+                    let child = children.raw()? as usize;
+                    let captures = decoder.pattern_capture_slots(child)?;
+                    if common.as_ref().is_some_and(|common| common != &captures) {
+                        return Err(IrVerifyError::new("pattern alternatives must publish identical capture slots"));
+                    }
+                    common = Some(captures);
+                }
+                children.finish()?;
             }
             FullPatternTag::Wildcard => {}
             FullPatternTag::Bind => usize::verify(decoder, &mut payload)?,
@@ -8397,6 +8486,65 @@ proc main() [error] {
             "function {function}: {}",
             error.message
         );
+    }
+
+    #[test]
+    fn pattern_aliases_and_alternatives_publish_only_complete_capture_sets() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-aliases.xsh");
+        let program = fixture("pattern-aliases.xsh", source);
+        program.symbol_owner().with_current(|| {
+            let view = program.function_view(LoweredFunctionKey::Name(Name::intern("select")), LoweredFunctionKind::Pure).unwrap().unwrap();
+            let execution = view.execution().unwrap();
+            let mut slots = vec![LoweredValue::Unit; view.header().unwrap().slot_count];
+            let pattern = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::Alias).unwrap() as u32;
+            let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+            let failed = LoweredValue::List(vec![LoweredValue::List(vec![LoweredValue::Int(1)]), LoweredValue::List(vec![LoweredValue::Int(2)])]);
+            assert!(!Evaluator::indexed_pattern_matches(&execution, pattern, &failed, &mut slots, span).unwrap());
+            assert!(slots.iter().all(|slot| matches!(slot, LoweredValue::Unit)));
+            let matched = LoweredValue::List(vec![LoweredValue::List(vec![LoweredValue::Int(99)]), LoweredValue::List(vec![LoweredValue::Int(7), LoweredValue::Int(8)])]);
+            assert!(Evaluator::indexed_pattern_matches(&execution, pattern, &matched, &mut slots, span).unwrap());
+            assert!(slots.iter().any(|slot| *slot == LoweredValue::Int(7)));
+            assert!(slots.iter().any(|slot| *slot == LoweredValue::List(vec![LoweredValue::Int(8)])));
+            assert!(slots.iter().any(|slot| *slot == matched));
+        });
+    }
+
+    #[test]
+    fn pattern_aliases_compact_facts_preserve_captured_subject_and_element_types() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-aliases.xsh");
+        let parsed = Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty());
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        parsed.arena.symbol_owner().with_current(|| {
+            for (id, ty) in &bodies.expr_types {
+                match parsed.arena.arena.expr(*id).kind {
+                    crate::syntax::arena::ArenaExprKind::Ident(name) if name == "value" || name == "left" || name == "right" => assert_eq!(*ty, Type::Int),
+                    crate::syntax::arena::ArenaExprKind::Ident(name) if name == "tail" => assert_eq!(*ty, Type::List(Box::new(Type::Int))),
+                    crate::syntax::arena::ArenaExprKind::Ident(name) if name == "original" => assert_eq!(*ty, Type::List(Box::new(Type::List(Box::new(Type::Int))))),
+                    _ => {}
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn verifier_rejects_incompatible_alternative_and_alias_capture_slots() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-aliases.xsh");
+        let program = fixture("pattern-aliases.xsh", source);
+        let alias = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::Alias).unwrap();
+        let alias_payload = program.store.pattern_data[alias].range().bounds(program.store.extra.len()).unwrap();
+        let mut bad_alias = program.clone();
+        bad_alias.store.extra[alias_payload.start + 1] = u32::MAX;
+        assert!(FullVerifier::verify(&bad_alias).is_err());
+        let mut alias_cycle = program.clone();
+        alias_cycle.store.extra[alias_payload.start] = alias as u32;
+        assert!(FullVerifier::verify(&alias_cycle).unwrap_err().message.contains("nested pattern"));
+        let bind = program.store.patterns.iter().rposition(|tag| *tag == FullPatternTag::Bind).unwrap();
+        let range = program.store.pattern_data[bind].range().bounds(program.store.extra.len()).unwrap();
+        let mut duplicate = program.clone();
+        duplicate.store.extra[range.start] = 0;
+        assert!(FullVerifier::verify(&duplicate).is_err());
     }
 
     #[test]

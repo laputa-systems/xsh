@@ -618,15 +618,7 @@ impl<'a> Parser<'a> {
                     if let Some(pending) = pending_pipeline.take() { left.id = pending.seal(arena, left.span); }
                     self.bump();
                     self.skip_newlines();
-                    let (mut pattern, pattern_span) = self.parse_pattern_test_rhs_arena_only(arena)?;
-                    if let crate::syntax::arena::ArenaPatternKind::Binding(name) = arena.ast_arena().pattern(pattern).kind {
-                        pattern = arena.push_pattern_test_name(name, pattern_span);
-                    }
-                    if let crate::syntax::arena::ArenaPatternKind::ErrorVariant { family, variant, fields } = arena.ast_arena().pattern(pattern).kind
-                        && fields.len == 0
-                    {
-                        pattern = arena.push_pattern_test_name(crate::symbol::Name::intern(format!("{family}.{variant}")), pattern_span);
-                    }
+                    let (pattern, pattern_span) = self.parse_pattern_test_arena_only(arena)?;
                     let span = self.span(left.span.start(), pattern_span.end());
                     let inner_span = arena.expr_span(left.id);
                     let grouped = left.span.start() < inner_span.start() && left.span.end() > inner_span.end();

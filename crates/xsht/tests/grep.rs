@@ -384,3 +384,46 @@ fn refactor_try_capture_preserves_boundary_and_second_pass_is_empty() {
     assert_eq!(second.status, 1, "{}", output_text(&second.stderr));
     assert_eq!(fs::read_to_string(&file).unwrap(), fixed);
 }
+
+#[test]
+fn pattern_alternatives_grep_preserves_order_and_nested_shapes() {
+    let root = TempDir::new().unwrap();
+    let file = root.path().join("pattern-alternatives.xsh");
+    fs::write(&file, "let selected = 1 is (1 | 2)\nlet reversed = 1 is (2 | 1)\nlet nested = [1] is ([1] | [2])\n").unwrap();
+    let output = grep_scripts("SUBJECT is (1 | 2)", &paths(&file));
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    let stdout = output_text(&output.stdout);
+    assert!(stdout.contains("1 is (1 | 2)"));
+    assert!(!stdout.contains("2 | 1"));
+    assert!(!stdout.contains("[1] | [2]"));
+}
+
+#[test]
+fn pattern_aliases_grep_matches_whole_subject_aliases_without_losing_precedence() {
+    let root = TempDir::new().unwrap();
+    let file = root.path().join("pattern-aliases.xsh");
+    fs::write(&file, "let whole = match 1 { (1 | 2) as original => original _ => 0 }\nlet separate = match 1 { 1 as original | 2 as original => original _ => 0 }\n").unwrap();
+    let output = grep_scripts("match SUBJECT { (1 | 2) as original => BODY _ => 0 }", &paths(&file));
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    let stdout = output_text(&output.stdout);
+    assert!(stdout.contains("(1 | 2) as original"));
+    assert!(!stdout.contains("1 as original | 2 as original"));
+}
+
+#[test]
+fn pattern_alternatives_refactor_uses_original_subject_span_and_converges() {
+    let root = TempDir::new().unwrap();
+    let file = root.path().join("pattern-alternatives.xsh");
+    fs::write(&file, "let value = 1 # café\nlet selected = value is (1 | 2)\nlet other = value is (2 | 3)\n").unwrap();
+    let output = refactor_scripts("SUBJECT is (1 | 2)", "SUBJECT is (1 | 2 | 3)", &paths(&file), false);
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert!(fixed.contains("(value) is (1 | 2 | 3)"));
+    assert!(fixed.contains("value is (2 | 3)"));
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
+    assert!(parsed.diagnostics.is_empty());
+    assert!(xsh::frontend::check::Checker::check_arena(&parsed.arena, &fixed).diagnostics.is_empty());
+    let again = refactor_scripts("SUBJECT is (1 | 2)", "SUBJECT is (1 | 2 | 3)", &paths(&file), false);
+    assert_eq!(again.status, 1);
+    assert_eq!(fs::read_to_string(&file).unwrap(), fixed);
+}

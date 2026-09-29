@@ -39,6 +39,7 @@ use super::{
 /// runtime slot-array size, so retired names do not need synthetic keys.
 #[derive(Clone, Default)]
 pub(super) struct SlotScope {
+    pattern_slots: Option<FxHashMap<Name, usize>>,
     indices: FxHashMap<Name, usize>,
     // A guarded postfix binds its receiver once before lowering the selected arm.
     postfix_receivers: FxHashMap<ExprId, BuildExprId>,
@@ -1380,6 +1381,7 @@ impl SlotScope {
         let high_water = indices.len();
         Self {
             indices,
+            pattern_slots: None,
             postfix_receivers: FxHashMap::default(),
             guarded_postfixes: FxHashSet::default(),
             types: FxHashMap::default(),
@@ -1410,7 +1412,12 @@ impl SlotScope {
     fn can_bind_pattern(&self, name: Name) -> bool {
         // Retired sibling-arm captures may be reused. A condition's new
         // lexical scope may also shadow an outer name, but not its own capture.
-        !self.is_bound_non_capture(name) || !self.is_declared_here(name)
+        self.pattern_slots.as_ref().is_some_and(|slots| slots.contains_key(&name))
+            || !self.is_bound_non_capture(name) || !self.is_declared_here(name)
+    }
+
+    fn declare_pattern_binding(&mut self, name: Name) -> usize {
+        self.pattern_slots.as_ref().and_then(|slots| slots.get(&name)).copied().unwrap_or_else(|| self.declare(name))
     }
 
     /// Whether the innermost scope already declared `name`.
@@ -12584,6 +12591,21 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
     }
 
+    fn pattern_capture_names(&self, pattern: PatternId, names: &mut FxHashSet<Name>) {
+        match self.program.arena.pattern(pattern).kind {
+            ArenaPatternKind::Alias { pattern, name, .. } => { names.insert(name); self.pattern_capture_names(pattern, names); }
+            ArenaPatternKind::Group(pattern) => self.pattern_capture_names(pattern, names),
+            ArenaPatternKind::Binding(name) if self.compact_tag_variant_arity(name) != Some(0) => { names.insert(name); }
+            ArenaPatternKind::Type { binding: Some(name), .. } => { names.insert(name); }
+            ArenaPatternKind::List { elements, rest } => for child in self.program.arena.pattern_ids(elements).chain(rest) { self.pattern_capture_names(child, names); },
+            ArenaPatternKind::Record { fields, .. } | ArenaPatternKind::ErrorVariant { fields, .. } => for field in self.program.arena.pattern_fields(fields) { self.pattern_capture_names(field.pattern, names); },
+            ArenaPatternKind::Constructor { arg: Some(arg), .. } => self.pattern_capture_names(arg, names),
+            ArenaPatternKind::Tuple(items) => for child in self.program.arena.pattern_ids(items) { self.pattern_capture_names(child, names); },
+            ArenaPatternKind::Alternation(items) => if let Some(child) = self.program.arena.pattern_ids(items).next() { self.pattern_capture_names(child, names); },
+            _ => {}
+        }
+    }
+
     fn lower_pattern(
         &mut self,
         id: PatternId,
@@ -12593,6 +12615,36 @@ impl CompactLowerConstructProbe<'_, '_> {
     ) -> Option<(BuildPatternId, Vec<(Name, usize)>)> {
         self.output.patterns += 1;
         let lowered = match &self.program.arena.pattern(id).kind {
+            ArenaPatternKind::Group(pattern) => self.lower_pattern(*pattern, slots, ok_binding_ty, err_binding_ty),
+            ArenaPatternKind::Alias { pattern, name, .. } => {
+                let pattern = *pattern;
+                let name = *name;
+                let (pattern, mut cleanup) = self.lower_pattern(pattern, slots, ok_binding_ty, err_binding_ty)?;
+                let slot = slots.declare_pattern_binding(name);
+                cleanup.push((name, slot));
+                Some((push_build_row!(self, pattern, BuildPatternRow::Alias { pattern, slot }), cleanup))
+            }
+            ArenaPatternKind::Alternation(children) => {
+                let children: Vec<_> = self.program.arena.pattern_ids(*children).collect();
+                let mut names = FxHashSet::default();
+                self.pattern_capture_names(id, &mut names);
+                let mut names: Vec<_> = names.into_iter().collect();
+                names.sort();
+                let saved = slots.pattern_slots.clone();
+                let mut shared = saved.clone().unwrap_or_default();
+                let mut cleanup = Vec::new();
+                for name in names {
+                    if !shared.contains_key(&name) {
+                        let slot = slots.declare(name);
+                        shared.insert(name, slot);
+                        cleanup.push((name, slot));
+                    }
+                }
+                slots.pattern_slots = Some(shared);
+                let patterns: Option<Vec<_>> = children.into_iter().map(|child| self.lower_pattern(child, slots, ok_binding_ty, err_binding_ty).map(|(pattern, _)| pattern)).collect();
+                slots.pattern_slots = saved;
+                Some((push_build_row!(self, pattern, BuildPatternRow::Alternation { patterns: patterns? }), cleanup))
+            }
             ArenaPatternKind::TestName { name, ty } => {
                 if name == "Ok" || name == "Err" {
                     let row = if name == "Ok" { BuildPatternRow::ResultOk { slot: None, unit_only: true } } else { BuildPatternRow::ResultErr { slot: None, unit_only: true } };
@@ -12677,7 +12729,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ))
             }
             ArenaPatternKind::Binding(name) if slots.can_bind_pattern(*name) => {
-                let slot = slots.declare(*name);
+                let slot = slots.declare_pattern_binding(*name);
                 Some((
                     push_build_row!(self, pattern, BuildPatternRow::Bind { slot }),
                     vec![(*name, slot)],
@@ -12688,7 +12740,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ty,
             } if slots.can_bind_pattern(*name) => {
                 let lowered_ty = compact_runtime_type_in_namespace(&self.program.arena, *ty, self.declarations, self.current_namespace);
-                let slot = slots.declare(*name);
+                let slot = slots.declare_pattern_binding(*name);
                 Some((
                     push_build_row!(
                         self,
@@ -12885,7 +12937,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         match self.program.arena.pattern(id).kind {
             ArenaPatternKind::Wildcard => Some(None),
             ArenaPatternKind::Binding(name) if slots.can_bind_pattern(name) => {
-                let slot = slots.declare(name);
+                let slot = slots.declare_pattern_binding(name);
                 cleanup.push((name, slot));
                 Some(Some(slot))
             }
@@ -12950,7 +13002,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         match self.program.arena.pattern(pattern).kind {
             ArenaPatternKind::Wildcard => Some((None, false)),
             ArenaPatternKind::Binding(name) if slots.can_bind_pattern(name) => {
-                let slot = slots.declare_with_type(name, binding_type.cloned());
+                let slot = slots.declare_pattern_binding(name);
+                if let Some(ty) = binding_type { slots.types.insert(name, ty.clone()); }
                 cleanup.push((name, slot));
                 Some((Some(slot), false))
             }
@@ -13003,7 +13056,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 if !slots.can_bind_pattern(name) {
                     return None;
                 }
-                let slot = slots.declare(name);
+                let slot = slots.declare_pattern_binding(name);
                 cleanup.push((name, slot));
                 Some(Some(slot))
             }
