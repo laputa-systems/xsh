@@ -127,8 +127,8 @@ impl PreparedSchema {
                 };
                 let mut converted = std::collections::BTreeMap::new();
                 for (key, item) in items {
-                    let item_path = format!("{path}[{key:?}]");
-                    if !super::lowered_run::lowered_value_satisfies_require(evaluator, &super::lowered_ops::lowered_map_key_value(&key), key_type) {
+                    let item_path = match key.as_str() { Some(text) => format!("{path}[{text:?}]"), None => format!("{path}[{key:?}]") };
+                    if !super::map_key_matches_type(&key, key_type) {
                         return Err(failure(format!("expected {key_type} key at {item_path}")));
                     }
                     converted.insert(key, schema.decode(evaluator, item, &item_path, span)?);

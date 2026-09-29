@@ -85,8 +85,11 @@ impl TypeConstraints {
                 (Type::Optional(_), Type::Null) => {}
                 (Type::Optional(left), Type::Optional(right))
                 | (Type::List(left), Type::List(right))
-                | (Type::Map(left), Type::Map(right))
                 | (Type::Stream(left), Type::Stream(right)) => pending.push(((**left).clone(), (**right).clone())),
+                (Type::Map(left_key, left_value), Type::Map(right_key, right_value)) => {
+                    pending.push(((**left_value).clone(), (**right_value).clone()));
+                    pending.push(((**left_key).clone(), (**right_key).clone()));
+                }
                 (Type::Optional(left), right) => pending.push(((**left).clone(), right.clone())),
                 (Type::Result(left_ok, left_error), Type::Result(right_ok, right_error)) => {
                     pending.push(((**left_error).clone(), (**right_error).clone()));
@@ -138,7 +141,7 @@ impl TypeConstraints {
                 }
             }
             Type::List(inner) => Type::List(Box::new(self.resolve_depth(inner, depth + 1)?)),
-            Type::Map(inner) => Type::Map(Box::new(self.resolve_depth(inner, depth + 1)?)),
+            Type::Map(key, value) => Type::Map(Box::new(self.resolve_depth(key, depth + 1)?), Box::new(self.resolve_depth(value, depth + 1)?)),
             Type::Stream(inner) => Type::Stream(Box::new(self.resolve_depth(inner, depth + 1)?)),
             Type::Optional(inner) => Type::Optional(Box::new(self.resolve_depth(inner, depth + 1)?)),
             Type::Result(ok, error) => Type::Result(Box::new(self.resolve_depth(ok, depth + 1)?), Box::new(self.resolve_depth(error, depth + 1)?)),
@@ -184,7 +187,8 @@ impl TypeConstraints {
                     if !self.variables.contains_key(id) { return Err(ConstraintResolutionError::ForeignVariable); }
                     variables.insert(*id);
                 }
-                Type::List(inner) | Type::Map(inner) | Type::Optional(inner) | Type::Stream(inner) => pending.push((inner, depth + 1)),
+                Type::List(inner) | Type::Optional(inner) | Type::Stream(inner) => pending.push((inner, depth + 1)),
+            Type::Map(key, value) => { pending.push((key, depth + 1)); pending.push((value, depth + 1)); }
                 Type::Result(ok, error) => { pending.push((ok, depth + 1)); pending.push((error, depth + 1)); }
                 Type::Record(fields) => pending.extend(fields.values().map(|ty| (ty, depth + 1))),
                 Type::Module(exports) => for export in exports.values() {
@@ -236,7 +240,8 @@ fn has_anchor(ty: &Type) -> bool {
         if depth > MAX_TYPE_DEPTH { return false; }
         match ty {
             Type::Any | Type::Unknown | Type::Invalid | Type::Null => return false,
-            Type::List(inner) | Type::Map(inner) | Type::Optional(inner) | Type::Stream(inner) => pending.push((inner, depth + 1)),
+            Type::List(inner) | Type::Optional(inner) | Type::Stream(inner) => pending.push((inner, depth + 1)),
+            Type::Map(key, value) => { pending.push((key, depth + 1)); pending.push((value, depth + 1)); }
             Type::Result(ok, error) => { pending.push((ok, depth + 1)); pending.push((error, depth + 1)); }
             Type::Record(fields) => {
                 if fields.is_empty() { return false; }
