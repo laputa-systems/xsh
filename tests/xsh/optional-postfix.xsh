@@ -149,3 +149,13 @@ proc test_optional_runtime_record_fields_preserve_result_layers() [error] {
   let handle: ProcessHandle? = null
   test.eq((handle?.command?.parse_int() ?? Ok(0))?, 0)?
 }
+
+proc test_optional_method_retains_validated_local_receiver_type() [error] {
+  let rows = json.decode("""[{"sched":"  noop  "},{"sched":null}]""")?
+  var labels: List[Str] = []
+  for row in rows.require(List[Record])? {
+    let scheduler = json.get(row, ["sched"])?.require(Str?)?
+    labels += [scheduler?.trim() ?? "absent"]
+  }
+  test.eq(labels, ["noop", "absent"])?
+}

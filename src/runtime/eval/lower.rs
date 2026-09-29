@@ -4664,24 +4664,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                 infer_checked_method_return_type(&base_ty, name)
             }
             ArenaExprKind::Require { schema, .. } => {
-                let contract_ty = match self.program.arena.type_expr_tags.get(schema.index()) {
-                    Some(ArenaTypeExprTag::Named) => {
-                        let name = Name::from_symbol(Symbol::from_raw(
-                            self.program.arena.type_expr_data[schema.index()].lhs,
-                        ));
-                        match self.declarations.types.get(&name) {
-                            Some(CompactTypeDefInfo::Module(exports)) => {
-                                Type::Module(exports.clone())
-                            }
-                            _ => lowered_arena_type(&self.program.arena, schema, self.declarations)
-                                .and_then(type_for_lowered_type)
-                                .unwrap_or(Type::Any),
-                        }
-                    }
-                    _ => lowered_arena_type(&self.program.arena, schema, self.declarations)
-                        .and_then(type_for_lowered_type)
-                        .unwrap_or(Type::Any),
-                };
+                // Validation retains the full schema type. Runtime storage
+                // categories cannot represent Optional or nested Result layers.
+                let contract_ty = compact_runtime_type(&self.program.arena, schema, self.declarations);
                 Some(Type::Result(Box::new(contract_ty), Box::new(Type::Error)))
             }
             ArenaExprKind::List(items) => {
