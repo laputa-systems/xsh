@@ -3607,3 +3607,10 @@ fn duration_arithmetic_compact_and_full_checked_types_agree() {
         }
     }
 }
+
+#[test]
+fn checker_try_capture_merges_variants_within_their_nominal_family() {
+    let source = "error LocalError = First(message: Str) | Second(message: Str)\nlet value = try {\n  if true {\n    let _ = Err(LocalError.First(message: \"first\"))?\n  } else {\n    let _ = Err(LocalError.Second(message: \"second\"))?\n  }\n  7\n}\nlet narrow: Result[Int, LocalError] = value\n";
+    let output = check(source);
+    assert!(output.is_empty(), "{output:?}");
+}

@@ -3841,3 +3841,18 @@ fn block_string_concatenation_fix_retains_dynamic_interpolation_comments_crlf_an
         assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")), "{source}");
     }
 }
+
+#[test]
+fn try_capture_migration_does_not_erase_retry_metadata_or_lexical_returns() {
+    let source = "proc outer() -> Result[Int] {\n  let value = retry [] {\n    return Ok(7)\n  }?\n  value\n}\nlet nested = retry [] { Ok(7) }\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    for diagnostic in diagnostics {
+        for fix in diagnostic.fix_hints {
+            assert!(!fix.replacement.as_deref().is_some_and(|replacement| replacement.contains("try ")), "unsafe local capture migration: {fix:?}");
+        }
+    }
+}

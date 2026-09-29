@@ -233,3 +233,16 @@ print "yielded"
   test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "yielded\n")?
 }
+
+proc test_try_process_cleanup_preserves_process_error_data(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, """
+proc cleanup() [process, error] -> Result[Unit, ProcessError] { run false }
+let value: Result[Int, ProcessError] = try {
+  defer cleanup()?
+  7
+}
+print (value is Err(_))
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "true\n")?
+}
