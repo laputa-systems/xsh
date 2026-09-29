@@ -339,7 +339,7 @@ fn reference_doc_full(
 }
 
 fn run_doc(row: &RunFormReference) -> ReferenceDoc {
-    match (row.form, row.context) {
+    let mut doc = match (row.form, row.context) {
         ("run", Some("statement position")) => reference_doc(
             "Runs a command as a statement and requires successful completion.",
             "The statement form returns Unit; a nonzero child exit or setup failure propagates as ProcessError.",
@@ -386,7 +386,10 @@ fn run_doc(row: &RunFormReference) -> ReferenceDoc {
             &["run", "process", "streaming", "bytes"],
         ),
         _ => panic!("missing run-form documentation for {}", row.form),
-    }
+    };
+    doc.contract.push_str(" All forms accept --accept=EXPR before the executable. The value is a nonempty List[Int] of unique ordinary exit codes in 0..255, evaluated once before spawn. Rejected single-command completion returns ProcessError.UnexpectedExit through the form's existing failure boundary; pipeline rejection retains ProcessError.PipelineFailure. The actual Status and .ok are unchanged. Signals, setup, timeout, cancellation, output limits, and decoding failures are never accepted. Explicit validation requires error. Malformed dynamic configuration remains an earlier pre-spawn RuntimeError. Policy-bearing streams can fail at EOF after yielding rows; each pipeline segment owns its own set.");
+    doc.tags.push("exit-policy".to_string());
+    doc
 }
 
 fn effect_doc(name: &str) -> ReferenceDoc {

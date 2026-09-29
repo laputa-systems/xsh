@@ -1002,6 +1002,7 @@ enum LoweredProcessCommandBuilderEntry {
         env: Vec<LoweredRunEnv>,
         timeout: Option<BuildExprId>,
         cpu_max: Option<BuildExprId>,
+        accept: Option<BuildExprId>,
         span: Span,
     },
 }
@@ -1022,6 +1023,7 @@ struct LoweredProcessCommandArgv {
     new_session: Option<BuildExprId>,
     ignore_hup: Option<BuildExprId>,
     cpu_max: Option<BuildExprId>,
+    accept: Option<BuildExprId>,
     span: Span,
 }
 
@@ -1034,6 +1036,7 @@ struct LoweredRunCapture {
     redirections: Vec<LoweredRunRedirection>,
     timeout: Option<BuildExprId>,
     cpu_max: Option<BuildExprId>,
+    accept: Option<BuildExprId>,
     // For Plain/Status run *values* with `?`, propagation is handled inside
     // eval_lowered_run_capture (Break on RunError, pass Status through),
     // because a Plain run yields a bare Status on success — not a Result the
@@ -1052,6 +1055,7 @@ struct LoweredSpawnRun {
     redirections: Vec<LoweredRunRedirection>,
     timeout: Option<BuildExprId>,
     cpu_max: Option<BuildExprId>,
+    accept: Option<BuildExprId>,
     span: Span,
 }
 
@@ -1750,6 +1754,7 @@ struct LoweredRunPipelineSegment {
     redirections: Vec<LoweredRunRedirection>,
     timeout: Option<BuildExprId>,
     cpu_max: Option<BuildExprId>,
+    accept: Option<BuildExprId>,
 }
 
 #[derive(Clone, Debug)]
@@ -2907,6 +2912,8 @@ pub struct Evaluator {
     /// no longer reach. The sweep at `sweep_script_producers` stops those, which
     /// is what runs their `defer` and closes their scopes exactly once.
     script_producers: Vec<crate::runtime::value::ScriptStreamState>,
+    // Suspended process cursors keep signal checkpoints active between pulls.
+    live_process_streams: usize,
     #[cfg(feature = "native-tests")]
     pub(super) test_mocks: FxHashMap<String, Vec<TestMock>>,
     #[cfg(feature = "native-tests")]
@@ -3133,6 +3140,7 @@ impl Evaluator {
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
             script_producers: Vec::new(),
+            live_process_streams: 0,
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
             #[cfg(feature = "native-tests")]
@@ -3304,6 +3312,7 @@ impl Evaluator {
                 crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
                 ),
             script_producers: Vec::new(),
+            live_process_streams: 0,
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
             #[cfg(feature = "native-tests")]
@@ -3327,6 +3336,7 @@ impl Evaluator {
         }
         if self.signal_hooks.is_empty()
             && self.process_handles.is_empty()
+            && self.live_process_streams == 0
             && self.net_jobs.is_empty()
             && self.network_wait_depth == 0
             && !self.signal_state.hook_running
@@ -3363,11 +3373,15 @@ impl Evaluator {
         }
         let Some(hook) = self.signal_hooks.get(&primary.name).cloned() else {
             if !self.process_handles.is_empty()
+                || self.live_process_streams > 0
                 || !self.net_jobs.is_empty()
                 || self.network_wait_depth != 0
             {
                 if !self.process_handles.is_empty() {
                     self.cancel_process_handles_for_signal(primary_number, span)?;
+                }
+                if self.live_process_streams > 0 {
+                    self.kill_active_process_groups();
                 }
                 self.cancel_net_jobs_for_signal(span)?;
                 self.signal_state.shutdown_complete = true;
@@ -3408,6 +3422,9 @@ impl Evaluator {
         self.forward_primary_to_active(&primary, span);
         if !self.process_handles.is_empty() {
             self.cancel_process_handles_for_signal(primary_number, span)?;
+        }
+        if self.live_process_streams > 0 {
+            self.kill_active_process_groups();
         }
         self.cancel_net_jobs_for_signal(span)?;
 
@@ -5902,12 +5919,13 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
             let symbols = crate::symbol::SymbolOwner::current().unwrap_or_default();
             let variant_name = symbols.intern(&variant);
             let facets = error.facets();
+            let payload = error.payload();
             RuntimeError {
                 family: "ProcessError".to_string(),
                 variant,
                 kind: error.kind,
                 message: error.message,
-                payload: RecordMap::new(),
+                payload,
                 facets,
                 span: error.span.or(Some(span)),
                 contexts: error.contexts,

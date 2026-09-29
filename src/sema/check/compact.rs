@@ -1820,6 +1820,9 @@ impl CompactBodyProbe<'_> {
             if let Some(cpu_max) = segment.cpu_max {
                 self.check_compact_expr(cpu_max);
             }
+            if let Some(accept) = segment.accept {
+                self.check_compact_expr(accept);
+            }
             for assignment in self.program.arena.env_assignments(segment.env) {
                 match assignment.value {
                     crate::syntax::arena::ArenaEnvAssignmentValue::Expr(expr) => {

@@ -2258,7 +2258,8 @@ capture_mode = "--text" | "--bytes" ;
 run_target   = word | typed_arg ;
 ```
 
-All run forms accept `--timeout=<Duration>` and `--cpumax=<Int>` immediately
+All run forms accept `--timeout=<Duration>`, `--cpumax=<Int>`, and
+`--accept=<List[Int]>` immediately
 after the run form and before environment overlays:
 
 ```xsh
@@ -2319,8 +2320,37 @@ Process results:
   `Result[{status: Status, stdout: Str, stderr: Str}, ProcessError]`.
 - `run.capture --bytes` returns
   `Result[{status: Status, stdout: Bytes, stderr: Bytes}, ProcessError]`.
-- `run.stream --text` returns `Stream[Str]` after explicit UTF-8 decoding.
-- `run.stream --bytes` returns `Stream[Bytes]`.
+- `run.stream --text` returns `Result[Stream[Str], ProcessError]` after explicit UTF-8 decoding.
+- `run.stream --bytes` returns `Result[Stream[Bytes], ProcessError]`.
+
+Explicit completion policy:
+
+`--accept=EXPR` evaluates once with the run options before spawning. The value
+must be a nonempty List[Int] containing unique codes in `0..255`; invalid literal
+policies are diagnosed during checking, and dynamic policies are validated before
+any child starts. Malformed dynamic configuration raises `RuntimeError` with
+kind `accept-policy` at this earlier option-conversion boundary, including when
+the selected run mode normally returns a Result. The option contributes the
+`error` effect. An ordinary exit is
+accepted exactly when its actual code belongs to the set. `Status.ok`, the exit
+code, capture records, and `$?` retain the actual child result. Signals are never
+accepted as shell-style `128 + signal` exit codes. Setup, timeout, cancellation,
+capture-limit, I/O, and decoding failures remain errors.
+
+Configured Result forms return `Err(ProcessError.UnexpectedExit)` for a rejected
+ordinary exit, including rejected exit zero. Direct Status forms propagate the
+explicit validation failure. A pipeline applies each set to its own segment;
+other segments must complete successfully, and the first rejected segment retains
+the pipeline's actual status and source metadata. With no option, the mode-specific
+contracts above remain unchanged.
+
+Policy-bearing process streams yield stdout incrementally; their completion check
+can fail after rows have been consumed. Consumers that stop early cancel and reap
+the owned child. Text decoding and the existing output limit remain enforced.
+`Command` stores the same policy through the `accept` builder field, a run entry's
+`--accept` option, or the optional `accept` argument to `process.command_argv`.
+Ordinary owned waits apply it; list waits still drain every requested handle after
+a rejection. Explicit cancel and scope cancellation retain cancellation semantics.
 
 Capture behavior:
 
@@ -2358,14 +2388,14 @@ let status = wait handle?
   `Result[Unit, ProcessError]`.
 
 `spawn run` accepts the normal single-command argv, interpolation, typed
-arguments, argv splices, environment overlays, `--timeout`, `--cpumax`, cwd,
+arguments, argv splices, environment overlays, `--timeout`, `--cpumax`, `--accept`, cwd,
 and redirection behavior used by `run`, and inherits stdio by default. V1
 rejects byte pipelines, `run.text`, `run.bytes`, `run.capture`, `run.stream`,
 and any form that cannot map to exactly one child process. There is still no
 shell-string process execution form.
 
 `spawn command_expr` uses the command plan's target, argv, cwd, env overlay,
-timeout, `cpu_max`, `detach`, `new_session`, and `ignore_hup` fields. This is
+timeout, `cpu_max`, `accept`, `detach`, `new_session`, and `ignore_hup` fields. This is
 distinct from `process.spawn(command)`, which remains a lower-level detached
 helper returning a record and waiting in the background.
 

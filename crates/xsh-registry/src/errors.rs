@@ -54,6 +54,10 @@ pub const PROCESS_ERROR_VARIANTS: &[ErrorVariant] = &[
         facets: &["NonzeroExit"],
     },
     ErrorVariant {
+        name: "UnexpectedExit",
+        facets: &["ProcessFailure"],
+    },
+    ErrorVariant {
         name: "Signal",
         facets: &["Signal"],
     },

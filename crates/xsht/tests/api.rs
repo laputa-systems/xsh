@@ -992,3 +992,17 @@ fn api_scalar_iteration_keeps_direct_source_and_snapshot_contract() {
     assert!(stdout.contains("for octet in b\"\\x00\\xff\""), "{stdout}");
     assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn api_process_accept_policy_documents_actual_status_and_completion_boundary() {
+    let output = xsht(&["api", "language:run.status"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("--accept=EXPR"), "{stdout}");
+    assert!(stdout.contains("ProcessError.UnexpectedExit"), "{stdout}");
+    assert!(stdout.contains("actual Status and .ok are unchanged"), "{stdout}");
+    let output = xsht(&["api", "api:process.command_argv"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("accept: List[Int] = default"), "{stdout}");
+}

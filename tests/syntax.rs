@@ -3948,3 +3948,17 @@ fn signature_cli_retains_a_distinct_entry_declaration_and_contextual_cli_calls()
     let ordinary = Parser::parse_source_arena_only(SourceId::new(0), "let parsed = cli.parse(args, {})?\n");
     assert!(ordinary.diagnostics.is_empty(), "{:?}", ordinary.diagnostics);
 }
+
+#[test]
+fn parser_and_formatter_preserve_accept_policy_expressions() {
+    let source = "pure policy() -> List[Int] { [0,1] }\nlet codes = [0,1]\nrun.status --accept=(codes) sh --accept=[9]\nrun.status --accept=policy() --timeout=1s sh\nlet child = spawn run --timeout=1s --accept=[0,1] sh ?\nlet command = process.command {\naccept=[0,1]\nrun sh\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.cst.get().exact_text(), source);
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("--accept=codes sh --accept=[9]"));
+    assert_parse_and_check(SourceId::new(0), &formatted.formatted);
+    let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(again.formatted, formatted.formatted);
+}

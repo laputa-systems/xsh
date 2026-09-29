@@ -98,6 +98,7 @@ impl Evaluator {
                 .as_ref()
                 .map(|duration| Duration::from_millis(duration.millis)),
             cpu_max: plan.cpu_max,
+            accepted_exit_codes: plan.accepted_exit_codes,
         })
     }
 }

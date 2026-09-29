@@ -249,6 +249,13 @@ effect_list      = "[" (effect ("," effect)*)? "]"
 identifiers written with or without one leading `SIG` prefix. Numeric hook
 declarations are rejected.
 
+Explicit `run --accept=EXPR` completion checks ordinary exit codes without
+normalizing Status or accepting signal termination. The validated code set stays
+with `Command` and the owned child; ordinary waits check it after reaping. Early
+stream termination and explicit handle cancellation stop the process group and
+retain cancellation identity. Each pipeline segment owns its policy, and a set on
+one segment cannot accept a failing sibling.
+
 Process fan-out uses `spawn`, `wait`, and `ProcessHandle.cancel`:
 
 ```xsh

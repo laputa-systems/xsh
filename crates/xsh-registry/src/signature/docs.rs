@@ -331,7 +331,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("process", "command") => Some((
             "Builds a typed command plan without starting it.",
-            "The plan captures argv, cwd, environment, and redirection before execution or spawn. Stdin accepts a file Path or immutable Bytes content; empty Bytes closes input, and text must be explicitly encoded.",
+            "The plan captures argv, cwd, environment, and redirection before execution or spawn. Stdin accepts a file Path or immutable Bytes content; empty Bytes closes input, and text must be explicitly encoded. Optional accept stores the same bounded exit-code policy as a run entry's --accept option; supply one spelling per plan.",
             &["process", "argv", "plan"],
         )),
         ("process", "spawn") => Some((
@@ -1024,12 +1024,12 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("process", "command_argv") => Some((
             "Builds a command plan from an executable and argv list.",
-            "Arguments remain separate values; no shell expansion, word splitting, or implicit command execution occurs. Stdin accepts Path or Bytes; byte content is delivered exactly while captured output drains, without a temporary file.",
+            "Arguments remain separate values; no shell expansion, word splitting, or implicit command execution occurs. Stdin accepts Path or Bytes; byte content is delivered exactly while captured output drains, without a temporary file. Optional accept declares unique ordinary exit codes in 0..255 and is retained by execution and owned waits.",
             &["process", "argv", "plan"],
         )),
         ("process", "run") => Some((
             "Runs a typed command and returns its process status.",
-            "A nonzero child status is status data at this boundary; setup and execution failures remain errors.",
+            "A nonzero child status is status data unless the plan has an explicit accept policy; policy rejection returns ProcessError.UnexpectedExit with the actual status. Setup and execution failures remain errors.",
             &["process", "status-data", "execution"],
         )),
         ("process", "wait_any") => Some((

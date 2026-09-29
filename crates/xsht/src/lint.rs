@@ -5786,6 +5786,9 @@ fn lazy_visit_run(
         if let Some(cpu_max) = segment.cpu_max {
             lazy_visit_expr(arena, cpu_max, out);
         }
+        if let Some(accept) = segment.accept {
+            lazy_visit_expr(arena, accept, out);
+        }
         for assignment in arena.env_assignments(segment.env).to_vec() {
             match assignment.value {
                 ArenaEnvAssignmentValue::CommandArg(arg) => {
@@ -7401,6 +7404,7 @@ impl LintExprVisitor<'_, '_> {
         for segment in arena.run_segments(run_form.segments).to_vec() {
             let seg_span = arena.span(segment.span);
             if segment.kind == RunKind::Plain
+                && segment.accept.is_none()
                 && run_form.propagate
                 && let Some(target) =
                     literal_command_word(arena, self.linter.source, &segment.target)
@@ -7431,6 +7435,9 @@ impl LintExprVisitor<'_, '_> {
             }
             if let Some(cpu_max) = segment.cpu_max {
                 self.visit_expr(cpu_max);
+            }
+            if let Some(accept) = segment.accept {
+                self.visit_expr(accept);
             }
             for assignment in arena.env_assignments(segment.env).to_vec() {
                 self.visit_env_assignment(&assignment);
@@ -8715,6 +8722,9 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             if let Some(cpu_max) = segment.cpu_max {
                 self.scan_expr(cpu_max);
             }
+            if let Some(accept) = segment.accept {
+                self.scan_expr(accept);
+            }
             self.scan_env_assignments(segment.env);
             self.scan_command_arg(&segment.target);
             for arg in self.arena().command_args(segment.args).to_vec() {
@@ -9537,6 +9547,9 @@ fn run_flow(
         }
         if let Some(cpu_max) = segment.cpu_max {
             flow = flow.then(expr_flow(arena, cpu_max, terminating_call_spans));
+        }
+        if let Some(accept) = segment.accept {
+            flow = flow.then(expr_flow(arena, accept, terminating_call_spans));
         }
         for assignment in arena.env_assignments(segment.env) {
             let assignment_flow = match &assignment.value {

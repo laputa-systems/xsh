@@ -90,6 +90,7 @@ struct RunSegment {
     redirections: Vec<RunRedirection>,
     timeout: Option<u32>,
     cpu_max: Option<u32>,
+    accept: Option<u32>,
 }
 
 // Diagnostics retain only bounded scalar text; reporting never traverses or
@@ -168,6 +169,7 @@ enum ProcessCommandEntry {
         env: Vec<RunEnv>,
         timeout: Option<u32>,
         cpu_max: Option<u32>,
+        accept: Option<u32>,
         span: Span,
     },
 }
@@ -890,6 +892,7 @@ impl Evaluator {
                 redirections: Self::decode_indexed_run_redirections(&mut values, execution, span)?,
                 timeout: indexed_optional_raw(&mut values, span)?,
                 cpu_max: indexed_optional_raw(&mut values, span)?,
+                accept: indexed_optional_raw(&mut values, span)?,
             });
         }
         indexed_finish(values, span)?;
@@ -919,6 +922,7 @@ impl Evaluator {
                     env: Self::decode_indexed_run_env(&mut values, execution, span)?,
                     timeout: indexed_optional_raw(&mut values, span)?,
                     cpu_max: indexed_optional_raw(&mut values, span)?,
+                    accept: indexed_optional_raw(&mut values, span)?,
                     span: indexed_decode::<Span>(&mut values, execution, span)?,
                 },
                 _ => {
@@ -1074,6 +1078,7 @@ impl Evaluator {
         redirections: &[RunRedirection],
         timeout: Option<u32>,
         cpu_max: Option<u32>,
+        accept: Option<u32>,
         slots: &mut [LoweredValue],
         span: Span,
     ) -> Result<ControlFlow<LoweredValue, ProcessInvocation>, RuntimeError> {
@@ -1127,6 +1132,10 @@ impl Evaluator {
             ControlFlow::Continue(None) => None,
             ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
         };
+        let accepted_exit_codes = match self.eval_indexed_optional_expr(execution, accept, slots, span)? {
+            ControlFlow::Continue(value) => value.map(|value| super::lowered_accepted_exit_codes(value, span)).transpose()?,
+            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+        };
         let mut full_env = self.env.snapshot_clone();
         full_env.extend(env_overlay.clone());
         Ok(ControlFlow::Continue(ProcessInvocation {
@@ -1138,6 +1147,7 @@ impl Evaluator {
             redirections,
             timeout,
             cpu_max,
+            accepted_exit_codes,
         }))
     }
 
@@ -6299,7 +6309,7 @@ impl Evaluator {
             FullTag::ExprProcessCommandArgv => {
                 let target = indexed_raw(&mut payload, call_span)?;
                 let argv = indexed_raw(&mut payload, call_span)?;
-                let mut optional = [None; 12];
+                let mut optional = [None; 13];
                 for value in &mut optional {
                     *value = indexed_optional_raw(&mut payload, call_span)?;
                 }
@@ -6335,7 +6345,8 @@ impl Evaluator {
                     new_session,
                     ignore_hup,
                     cpu_max,
-                ]: [Option<LoweredValue>; 12] = evaluated
+                    accept,
+                ]: [Option<LoweredValue>; 13] = evaluated
                     .try_into()
                     .expect("indexed command optional field count");
                 ControlFlow::Continue(lowered_command_plan_value(
@@ -6353,6 +6364,7 @@ impl Evaluator {
                     new_session,
                     ignore_hup,
                     cpu_max,
+                    accept,
                     span,
                 )?)
             }
@@ -6380,6 +6392,7 @@ impl Evaluator {
                 let mut stderr_append = false;
                 let mut timeout = None;
                 let mut cpu_max = None;
+                let mut accepted_exit_codes = None;
                 let mut detach = None;
                 let mut new_session = None;
                 let mut ignore_hup = None;
@@ -6420,6 +6433,9 @@ impl Evaluator {
                                         "process.command",
                                         span,
                                     )?)
+                                }
+                                "accept" => {
+                                    accepted_exit_codes = Some(super::lowered_accepted_exit_codes(value, span)?);
                                 }
                                 "cpu_max" => {
                                     let value =
@@ -6463,6 +6479,7 @@ impl Evaluator {
                             env: run_env,
                             timeout: run_timeout,
                             cpu_max: run_cpu_max,
+                            accept: run_accept,
                             span,
                         } => {
                             if plan.is_some() {
@@ -6548,6 +6565,10 @@ impl Evaluator {
                                 )
                                 .with_span(span));
                             }
+                            let run_accept = match self.eval_indexed_optional_expr(execution, run_accept, slots, span)? {
+                                ControlFlow::Continue(value) => value.map(|value| super::lowered_accepted_exit_codes(value, span)).transpose()?,
+                                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                            };
                             plan = Some(CommandPlan {
                                 target: target_value,
                                 argv,
@@ -6556,6 +6577,7 @@ impl Evaluator {
                                 redirections: Vec::new(),
                                 timeout: run_timeout,
                                 cpu_max: run_cpu_max,
+                                accepted_exit_codes: run_accept,
                                 detach: false,
                                 new_session: false,
                                 ignore_hup: false,
@@ -6585,6 +6607,12 @@ impl Evaluator {
                 }
                 if cpu_max.is_some() {
                     plan.cpu_max = cpu_max;
+                }
+                if accepted_exit_codes.is_some() {
+                    if plan.accepted_exit_codes.is_some() {
+                        return Err(RuntimeError::new("accept-policy", "accept cannot be supplied both as a field and a run option").with_span(span));
+                    }
+                    plan.accepted_exit_codes = accepted_exit_codes;
                 }
                 if let Some(value) = detach {
                     plan.detach = value;
@@ -6619,6 +6647,7 @@ impl Evaluator {
                         &segment.redirections,
                         segment.timeout,
                         segment.cpu_max,
+                        segment.accept,
                         slots,
                         span,
                     )? {
@@ -6629,7 +6658,7 @@ impl Evaluator {
                     }
                 }
                 self.trace_lowered_pipeline_enter(span);
-                let end = match run_pipeline_inherit_with_policy(&invocations, self) {
+                let mut end = match run_pipeline_inherit_with_policy(&invocations, self) {
                     Ok(end) => end,
                     Err(error) => {
                         self.trace_lowered_pipeline_end(
@@ -6646,6 +6675,8 @@ impl Evaluator {
                 if let Some(status) = &end.status {
                     self.last_status = Some(status.clone());
                 }
+                let validation_error = end.status.as_ref().and_then(|status| crate::runtime::run::run_completion_error(status, &invocations, propagate));
+                end.error = validation_error.clone();
                 self.trace_lowered_pipeline_end(span, &end);
                 if self.signal_state.shutdown_complete
                     && self.signal_state.shutdown_status.is_some()
@@ -6662,11 +6693,13 @@ impl Evaluator {
                     .status
                     .clone()
                     .unwrap_or_else(|| ProcessStatus::exited(1));
-                if !status.success && propagate {
-                    ControlFlow::Continue(lowered_process_run_error(
-                        RunError::from_status(status).with_span(span),
-                    ))
-                } else if propagate {
+                if let Some(error) = validation_error {
+                    let value = lowered_process_run_error(error.with_span(span));
+                    if invocations.iter().any(|invocation| invocation.accepted_exit_codes.is_some()) {
+                        let value = self.lowered_question_propagation_value(value, span)?;
+                        return Ok(self.preserve_lexical_expression_flow(StmtFlow::Propagate(value)));
+                    }
+                    ControlFlow::Continue(value)                } else if propagate {
                     ControlFlow::Continue(LoweredValue::ResultOk(Box::new(LoweredValue::Status(
                         Box::new(status),
                     ))))
@@ -6688,6 +6721,7 @@ impl Evaluator {
                     Self::decode_indexed_run_redirections(&mut payload, execution, call_span)?;
                 let timeout = indexed_optional_raw(&mut payload, call_span)?;
                 let cpu_max = indexed_optional_raw(&mut payload, call_span)?;
+                let accept = indexed_optional_raw(&mut payload, call_span)?;
                 let (propagate, assert_success) = if spawn {
                     (false, false)
                 } else {
@@ -6706,6 +6740,7 @@ impl Evaluator {
                     &redirections,
                     timeout,
                     cpu_max,
+                    accept,
                     slots,
                     span,
                 )? {
@@ -6718,6 +6753,14 @@ impl Evaluator {
                         SpawnOptions::default(),
                         span,
                     );
+                }
+                if invocation.accepted_exit_codes.is_some() && matches!(kind, RunKind::StreamText | RunKind::StreamBytes) {
+                    let value = self.start_policy_process_stream(&invocation, kind == RunKind::StreamText, span)?;
+                    if propagate && matches!(value, LoweredValue::ResultErr(_)) {
+                        let value = self.lowered_question_propagation_value(value, span)?;
+                        return Ok(self.preserve_lexical_expression_flow(StmtFlow::Propagate(value)));
+                    }
+                    return Ok(ControlFlow::Continue(value));
                 }
                 self.trace_process_run_start(span, &invocation);
                 let execution_result = execute_run_with_policy(
@@ -6757,7 +6800,7 @@ impl Evaluator {
                 {
                     value = *inner;
                 }
-                if propagate && matches!(value, LoweredValue::ResultErr(_)) {
+                if (propagate || (matches!(kind, RunKind::Status | RunKind::Plain) && invocation.accepted_exit_codes.is_some())) && matches!(value, LoweredValue::ResultErr(_)) {
                     let value = self.lowered_question_propagation_value(value, span)?;
                     return Ok(self.preserve_lexical_expression_flow(StmtFlow::Propagate(value)));
                 }

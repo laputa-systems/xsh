@@ -4332,3 +4332,22 @@ fn scalar_iteration_fixes_refuse_used_adapters_offsets_mutation_and_partial_rang
         assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-scalar-iteration")), "{source}");
     }
 }
+
+#[test]
+fn explicit_accept_policy_keeps_propagation_and_custom_status_handlers() {
+    let source = "proc main() [process, error] {\n  run --accept=[0,1] grep pattern file ?\n  let status = run.status --accept=[0,1] grep pattern file\n  if status.exited_with(1) { print \"no rows\" }\n}\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        ..LintOptions::default()
+    }).diagnostics;
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.run-status")));
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.formatted.contains("--accept=[0, 1] grep pattern file ?"));
+    assert!(formatted.formatted.contains("if status.exited_with(1)"));
+    assert_parse_check_standalone("accept policy", &formatted.formatted);
+    let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(again.formatted, formatted.formatted);
+}

@@ -15,6 +15,7 @@ fn main() {
     };
 
     let result = match mode.as_str() {
+        "completion-output" => completion_output(args),
         "bytes-echo" => bytes_echo(args),
         "bytes-prefix" => bytes_prefix(args),
         "bytes-sink-marker" => bytes_sink_marker(args),
@@ -33,6 +34,22 @@ fn main() {
     if let Err(message) = result {
         fatal(&message);
     }
+}
+
+fn completion_output(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
+    use std::io::Write;
+    let code = args.next().and_then(|arg| arg.into_string().ok()).ok_or("exit code is required")?.parse::<i32>().map_err(|error| error.to_string())?;
+    let count = args.next().and_then(|arg| arg.into_string().ok()).ok_or("byte count is required")?.parse::<usize>().map_err(|error| error.to_string())?;
+    let buffer = [b'x'; 8192];
+    let mut stdout = std::io::stdout().lock();
+    let mut remaining = count;
+    while remaining > 0 {
+        let count = remaining.min(buffer.len());
+        stdout.write_all(&buffer[..count]).map_err(|error| error.to_string())?;
+        remaining -= count;
+    }
+    stdout.flush().map_err(|error| error.to_string())?;
+    std::process::exit(code);
 }
 
 fn bytes_echo(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {

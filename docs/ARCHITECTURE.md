@@ -64,6 +64,21 @@ removes delegation links and runs child cleanup before parent cleanup. The
 same evaluator and indexed frame engine execute every producer; delegation
 depth does not become native call depth.
 
+## Process completion policies
+
+`runtime/process.rs::AcceptedExitCodes` validates a bounded ordinary exit-code
+set once and stores it in `ProcessInvocation`, `CommandPlan`, and `ManagedChild`.
+`completion_error` selects the first rejected segment while retaining the actual
+`ProcessStatus`; `runtime/run.rs::run_completion_error` adds invocation context.
+No policy preserves each existing run mode's status contract.
+
+Policy-bearing process streams use `ProcessStream` as the child/stdout owner and
+`indexed_run/producer.rs::ProcessProducer` as the evaluator stream cursor. Each
+pull feeds Bytes stdin while draining stdout and checking timeout/cancellation;
+EOF applies the completion policy. The existing producer sweep cancels unreachable
+cursors, and the child owner kills and reaps on drop. Suspended trace frames retain
+the run's identity without leaving it on the active evaluator event stack.
+
 ## `libxsh` Rust façade
 
 The root `xsh` package also provides the shared Rust library consumed by the

@@ -633,3 +633,18 @@ fn typed_cause_grep_and_refactor_keep_named_operand() {
     assert!(updated.contains("cause: Inner.Failed(message: \"inner\")"));
     let _ = fs::remove_file(file);
 }
+
+#[test]
+fn grep_and_refactor_reach_accept_policy_expressions() {
+    let root = TempDir::new().expect("temporary policy scripts");
+    let file = root.path().join("accept.xsh");
+    fs::write(&file, "pure choose_codes(codes: List[Int]) -> List[Int] { codes }\nrun.status --accept=choose_codes([0,1]) sh\n").unwrap();
+    let found = grep_scripts("choose_codes(EXPR)", &paths(&file));
+    assert_eq!(found.status, 0, "{}", output_text(&found.stderr));
+    let replaced = refactor_scripts("choose_codes(EXPR)", "EXPR", &paths(&file), false);
+    assert_eq!(replaced.status, 0, "{}", output_text(&replaced.stderr));
+    let updated = fs::read_to_string(&file).unwrap();
+    assert!(updated.contains("--accept=[0,1] sh"), "{updated}");
+    let again = grep_scripts("choose_codes(EXPR)", &paths(&file));
+    assert_eq!(again.status, 1);
+}

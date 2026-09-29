@@ -2207,6 +2207,7 @@ fn external_invocation(
             .collect(),
         timeout: None,
         cpu_max: None,
+            accepted_exit_codes: None,
     })
 }
 

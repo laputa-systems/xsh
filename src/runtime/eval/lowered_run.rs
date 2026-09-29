@@ -2174,6 +2174,19 @@ fn lowered_command_redirections(
     Ok(redirections)
 }
 
+fn lowered_accepted_exit_codes(value: LoweredValue, span: Span) -> Result<crate::runtime::process::AcceptedExitCodes, RuntimeError> {
+    let items = match &value {
+        LoweredValue::List(items) => items.as_slice(),
+        LoweredValue::SharedList(items) => items.as_slice(),
+        _ => return Err(RuntimeError::new("accept-policy", "accept must be a nonempty List[Int]").with_span(span)),
+    };
+    let codes = items.iter().map(|item| match item {
+        LoweredValue::Int(code) => Ok(*code),
+        _ => Err(RuntimeError::new("accept-policy", "accept items must be Int").with_span(span)),
+    }).collect::<Result<Vec<_>, _>>()?;
+    crate::runtime::process::AcceptedExitCodes::new(&codes).map_err(|error| RuntimeError::new(error.kind, error.message).with_span(span))
+}
+
 fn lowered_command_plan_value(
     target: LoweredValue,
     argv: LoweredValue,
@@ -2189,6 +2202,7 @@ fn lowered_command_plan_value(
     new_session: Option<LoweredValue>,
     ignore_hup: Option<LoweredValue>,
     cpu_max: Option<LoweredValue>,
+    accept: Option<LoweredValue>,
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     let target = lowered_command_target_bytes(target, span)?;
@@ -2257,6 +2271,7 @@ fn lowered_command_plan_value(
         redirections,
         timeout,
         cpu_max,
+        accepted_exit_codes: accept.map(|value| lowered_accepted_exit_codes(value, span)).transpose()?,
         detach,
         new_session,
         ignore_hup,
@@ -6794,6 +6809,7 @@ impl Evaluator {
                         redirections: Vec::new(),
                         timeout: None,
                         cpu_max: None,
+                        accepted_exit_codes: None,
                     };
                     match resolve_executable(&invocation)
                         .map_err(|error| run_error_to_runtime(error, span))
@@ -6947,12 +6963,16 @@ impl Evaluator {
                                 ChildWaitOutcome::Exited(status)
                                 | ChildWaitOutcome::Signaled(status),
                             ) => {
+                                let validation_error = live.child.completion_error(&status);
                                 let pid = live.child.pid;
                                 let group = live.child.process_group();
                                 let _ = live;
                                 self.process_handles.remove(&handle.id);
                                 <Self as CancellationPolicy>::process_group_finished(self, group);
                                 self.last_status = Some(status.clone());
+                                if let Some(error) = validation_error {
+                                    return Ok(ControlFlow::Continue(lowered_process_run_error(error.with_span(span))));
+                                }
                                 return Ok(ControlFlow::Continue(lowered_result_ok(
                                     lowered_process_wait_any_record(index, pid, status),
                                 )));
@@ -7009,6 +7029,7 @@ impl Evaluator {
                                     handle.id,
                                     live.child.pid,
                                     live.child.process_group(),
+                                    live.child.completion_error(&status),
                                     status,
                                 ));
                             }
@@ -7058,6 +7079,7 @@ impl Evaluator {
                                             handle.id,
                                             live.child.pid,
                                             live.child.process_group(),
+                                            live.child.completion_error(&status),
                                             status,
                                         ));
                                         drained = true;
@@ -7084,13 +7106,18 @@ impl Evaluator {
                         }
 
                         let mut values = Vec::with_capacity(completed.len());
-                        for (index, id, pid, group, status) in completed {
+                        let mut first_error = None;
+                        for (index, id, pid, group, error, status) in completed {
                             self.process_handles.remove(&id);
                             <Self as CancellationPolicy>::process_group_finished(self, group);
                             self.last_status = Some(status.clone());
+                            if let Some(error) = error { first_error.get_or_insert(error); }
                             values.push(lowered_process_wait_any_record(index, pid, status));
                         }
 
+                        if let Some(error) = first_error {
+                            return Ok(ControlFlow::Continue(lowered_process_run_error(error.with_span(span))));
+                        }
                         return Ok(ControlFlow::Continue(lowered_result_ok(
                             LoweredValue::List(values),
                         )));

@@ -6088,7 +6088,8 @@ impl FullCodec for LoweredRunPipelineSegment {
         self.env.encode(builder, output)?;
         self.redirections.encode(builder, output)?;
         self.timeout.encode(builder, output)?;
-        self.cpu_max.encode(builder, output)
+        self.cpu_max.encode(builder, output)?;
+        self.accept.encode(builder, output)
     }
 
     fn decode(
@@ -6103,6 +6104,7 @@ impl FullCodec for LoweredRunPipelineSegment {
             redirections: Vec::decode(decoder, input)?,
             timeout: Option::decode(decoder, input)?,
             cpu_max: Option::decode(decoder, input)?,
+            accept: Option::decode(decoder, input)?,
         })
     }
 }
@@ -6202,6 +6204,7 @@ impl FullCodec for LoweredProcessCommandArgv {
         self.new_session.encode(builder, output)?;
         self.ignore_hup.encode(builder, output)?;
         self.cpu_max.encode(builder, output)?;
+        self.accept.encode(builder, output)?;
         self.span.encode(builder, output)
     }
 
@@ -6224,6 +6227,7 @@ impl FullCodec for LoweredProcessCommandArgv {
             new_session: Option::decode(decoder, input)?,
             ignore_hup: Option::decode(decoder, input)?,
             cpu_max: Option::decode(decoder, input)?,
+            accept: Option::decode(decoder, input)?,
             span: Span::decode(decoder, input)?,
         })
     }
@@ -6238,6 +6242,7 @@ impl FullCodec for LoweredRunCapture {
         self.redirections.encode(builder, output)?;
         self.timeout.encode(builder, output)?;
         self.cpu_max.encode(builder, output)?;
+        self.accept.encode(builder, output)?;
         self.propagate.encode(builder, output)?;
         self.assert_success.encode(builder, output)?;
         self.span.encode(builder, output)
@@ -6255,6 +6260,7 @@ impl FullCodec for LoweredRunCapture {
             redirections: Vec::decode(decoder, input)?,
             timeout: Option::decode(decoder, input)?,
             cpu_max: Option::decode(decoder, input)?,
+            accept: Option::decode(decoder, input)?,
             propagate: bool::decode(decoder, input)?,
             assert_success: bool::decode(decoder, input)?,
             span: Span::decode(decoder, input)?,
@@ -6270,6 +6276,7 @@ impl FullCodec for LoweredSpawnRun {
         self.redirections.encode(builder, output)?;
         self.timeout.encode(builder, output)?;
         self.cpu_max.encode(builder, output)?;
+        self.accept.encode(builder, output)?;
         self.span.encode(builder, output)
     }
 
@@ -6284,6 +6291,7 @@ impl FullCodec for LoweredSpawnRun {
             redirections: Vec::decode(decoder, input)?,
             timeout: Option::decode(decoder, input)?,
             cpu_max: Option::decode(decoder, input)?,
+            accept: Option::decode(decoder, input)?,
             span: Span::decode(decoder, input)?,
         })
     }
@@ -6304,6 +6312,7 @@ impl FullCodec for LoweredProcessCommandBuilderEntry {
                 env,
                 timeout,
                 cpu_max,
+                accept,
                 span,
             } => {
                 output.push(1);
@@ -6312,6 +6321,7 @@ impl FullCodec for LoweredProcessCommandBuilderEntry {
                 env.encode(builder, output)?;
                 timeout.encode(builder, output)?;
                 cpu_max.encode(builder, output)?;
+                accept.encode(builder, output)?;
                 span.encode(builder, output)
             }
         }
@@ -6333,6 +6343,7 @@ impl FullCodec for LoweredProcessCommandBuilderEntry {
                 env: Vec::decode(decoder, input)?,
                 timeout: Option::decode(decoder, input)?,
                 cpu_max: Option::decode(decoder, input)?,
+                accept: Option::decode(decoder, input)?,
                 span: Span::decode(decoder, input)?,
             }),
             _ => Err(IrVerifyError::new(
@@ -9649,6 +9660,33 @@ proc configured() [] -> Int {
                 assert_eq!(source[error.span.unwrap().range()].trim(), "fail()?");
                 assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), None);
             });
+        });
+    }
+
+    #[test]
+    fn accept_policy_operands_are_verified_on_capture_spawn_and_command_rows() {
+        run_with_large_stack(|| {
+            let program = fixture("accept-policy-rows.xsh", r#"
+proc checked() [process, error] {
+  let text = run.text --accept=[0,1] sh -c "exit 1" ?
+  let child = spawn run --accept=[0,1] sh -c "exit 1" ?
+  let command = process.command_argv("sh", ["sh", "-c", "exit 1"], accept: [0,1])
+  print $text $child.pid
+  process.run(command)?
+}
+"#);
+            FullVerifier::verify(&program).unwrap();
+            for (tag, value_offset) in [(FullTag::ExprRunCapture, 4), (FullTag::ExprSpawnRun, 2), (FullTag::ExprProcessCommandArgv, 2)] {
+                let instruction = program.store.tags.iter().position(|actual| *actual == tag).expect("process row");
+                let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+                assert_eq!(program.store.extra[payload.end - value_offset - 1], 1, "policy is present");
+                let mut invalid_value = program.clone();
+                invalid_value.store.extra[payload.end - value_offset] = u32::MAX;
+                assert!(FullVerifier::verify(&invalid_value).is_err());
+                let mut invalid_presence = program.clone();
+                invalid_presence.store.extra[payload.end - value_offset - 1] = 2;
+                assert!(FullVerifier::verify(&invalid_presence).is_err());
+            }
         });
     }
 

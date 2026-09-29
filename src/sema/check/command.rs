@@ -653,6 +653,15 @@ impl Checker {
                 "check.cpumax",
             );
         }
+        if let Some(accept) = segment.accept {
+            let expected = Type::List(Box::new(Type::Int));
+            let actual = self.check_expr_arena(arena, source, accept, Some(&expected));
+            let span = arena.arena.expr(accept).span;
+            self.expect_type(&expected, &actual, span);
+            self.require_effect(Effect::Error, span, "explicit process completion validation");
+            self.record_statement_error(&Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)), span);
+            self.check_static_accepted_exit_codes(arena, accept);
+        }
         if matches!(
             segment.target.kind,
             ArenaCommandArgKind::SpliceName(_) | ArenaCommandArgKind::SpliceExpr(_)
@@ -680,6 +689,21 @@ impl Checker {
         }
         if bytes_input && stdin_sources > 1 {
             self.error(arena.arena.span(segment.span), "Bytes input cannot compete with another stdin source", "check.stdin-source");
+        }
+    }
+
+    /// Validates bounded literal policies. Dynamic values use the earlier
+    /// run-option conversion boundary before a child starts.
+    pub(super) fn check_static_accepted_exit_codes(&mut self, arena: &ArenaProgram, expr: ExprId) {
+        let Some(crate::sema::constants::LiteralConstant::List(items)) = crate::sema::constants::LiteralConstant::analyze(
+            &arena.arena, expr, &rustc_hash::FxHashMap::default(),
+        ) else { return; };
+        let codes = items.iter().map(|item| match item {
+            crate::sema::constants::LiteralConstant::Int(value) => Some(*value),
+            _ => None,
+        }).collect::<Option<Vec<_>>>();
+        if let Some(codes) = codes && let Err(error) = crate::runtime::process::AcceptedExitCodes::new(&codes) {
+            self.error(arena.arena.expr(expr).span, &error.message, "check.accept-policy");
         }
     }
 

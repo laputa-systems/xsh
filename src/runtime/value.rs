@@ -4,7 +4,7 @@ pub use crate::map_key::{MapKey, MapKeyRef};
 mod error_cause;
 pub use error_cause::ErrorCause;
 
-use crate::runtime::process::ProcessStatus;
+use crate::runtime::process::{AcceptedExitCodes, ProcessStatus};
 use crate::source::Span;
 use crate::symbol::{Name, NameText, QualifiedName, SymbolOwner};
 use rustc_hash::FxHashMap;
@@ -1042,6 +1042,7 @@ pub struct CommandPlan {
     pub redirections: Vec<CommandRedirection>,
     pub timeout: Option<DurationValue>,
     pub cpu_max: Option<i64>,
+    pub accepted_exit_codes: Option<AcceptedExitCodes>,
     pub detach: bool,
     pub new_session: bool,
     pub ignore_hup: bool,
@@ -1605,6 +1606,7 @@ impl RunError {
             "not-found" => "NotFound",
             "permission-denied" => "PermissionDenied",
             "nonzero-exit" => "NonzeroExit",
+            "unexpected-exit" => "UnexpectedExit",
             "signal" => "Signal",
             "timeout" => "Timeout",
             "canceled" => "Canceled",
@@ -1631,7 +1633,7 @@ impl RunError {
             "CaptureLimit" => vec!["CaptureLimit".to_string()],
             "InvalidUtf8" | "InvalidTarget" => vec!["InvalidData".to_string()],
             "Io" | "Redirection" => vec!["HostIo".to_string()],
-            "PipelineFailure" | "ExecFailure" | "Spawn" => vec!["ProcessFailure".to_string()],
+            "PipelineFailure" | "ExecFailure" | "Spawn" | "UnexpectedExit" => vec!["ProcessFailure".to_string()],
             _ => Vec::new(),
         }
     }

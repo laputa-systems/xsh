@@ -433,3 +433,113 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
     }
 }
+
+/// Process output uses the evaluator's stream cursor so completion checks can
+/// fail after yielded rows and cancellation retains the child owner.
+pub(super) struct ProcessProducer {
+    process: crate::runtime::process::ProcessStream,
+    text: bool,
+    pending: Vec<u8>,
+    completion_error: Option<super::RunError>,
+    finished: bool,
+    trace: Option<crate::runtime::eval::TraceFrame>,
+    span: Span,
+}
+
+impl ProcessProducer {
+    fn decoded_line(&mut self, bytes: Vec<u8>, evaluator: &mut Evaluator, span: Span) -> Result<ScriptStreamStep, RuntimeError> {
+        match String::from_utf8(bytes) {
+            Ok(line) => Ok(ScriptStreamStep::Yielded(super::Value::Str(line.into()))),
+            Err(_) => {
+                let error = super::RunError::new("invalid-utf8", "streamed stdout was not valid UTF-8").with_span(self.span);
+                self.process.cancel();
+                self.finish(evaluator, Some(error.clone()));
+                Err(super::runtime_error_from_value(super::Value::RunError(Box::new(error)), span))
+            }
+        }
+    }
+
+    fn finish(&mut self, evaluator: &mut Evaluator, error: Option<super::RunError>) {
+        if !self.finished {
+            evaluator.live_process_streams -= 1;
+        }
+        self.finished = true;
+        evaluator.untrack_process_group(self.process.process_group());
+        let end = self.process.end(error);
+        if let Some(status) = &end.status { evaluator.last_status = Some(status.clone()); }
+        if let Some(trace) = self.trace.take() {
+            evaluator.event_stack.push(trace);
+            evaluator.trace_process_run_end(self.span, &end);
+        }
+    }
+}
+
+impl crate::runtime::value::ScriptStream for ProcessProducer {
+    fn finished(&self) -> bool { self.finished }
+    fn delegated_finished(&mut self) {}
+    fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>) { (None, Vec::new()) }
+    fn cancel(&mut self, evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
+        self.process.cancel();
+        self.finish(evaluator, Some(super::RunError::new("canceled", "process stream canceled")));
+        Ok(())
+    }
+    fn poll(&mut self, evaluator: &mut Evaluator, span: Span) -> Result<ScriptStreamStep, RuntimeError> {
+        if self.finished { return Ok(ScriptStreamStep::Finished); }
+        if let Some(error) = self.completion_error.take() {
+            self.process.cancel(); self.finish(evaluator, Some(error.clone()));
+            return Err(super::runtime_error_from_value(super::Value::RunError(Box::new(error)), span));
+        }
+        loop {
+            if self.text && let Some(index) = self.pending.iter().position(|byte| *byte == b'\n') {
+                let mut line = self.pending.drain(..=index).collect::<Vec<_>>(); line.pop();
+                if line.last() == Some(&b'\r') { line.pop(); }
+                return self.decoded_line(line, evaluator, span);
+            }
+            match self.process.next(evaluator) {
+                Ok(Some(bytes)) => {
+                    if self.text { self.pending.extend(bytes); }
+                    else { return Ok(ScriptStreamStep::Yielded(super::Value::Bytes(bytes))); }
+                }
+                Ok(None) => {
+                    let final_row = if self.text && !self.pending.is_empty() {
+                        let bytes = std::mem::take(&mut self.pending);
+                        Some(self.decoded_line(bytes, evaluator, span)?)
+                    } else { None };
+                    self.finish(evaluator, None);
+                    return Ok(final_row.unwrap_or(ScriptStreamStep::Finished));
+                }
+                Err(error) => {
+                    let error = error.with_span(self.span);
+                    if self.text && !self.pending.is_empty() && error.status.is_some() {
+                        let bytes = std::mem::take(&mut self.pending);
+                        let row = self.decoded_line(bytes, evaluator, span)?;
+                        self.completion_error = Some(error);
+                        return Ok(row);
+                    }
+                    self.process.cancel(); self.finish(evaluator, Some(error.clone()));
+                    return Err(super::runtime_error_from_value(super::Value::RunError(Box::new(error)), span));
+                }
+            }
+        }
+    }
+}
+
+impl Evaluator {
+    pub(super) fn start_policy_process_stream(&mut self, invocation: &super::ProcessInvocation, text: bool, span: Span) -> Result<LoweredValue, RuntimeError> {
+        self.trace_process_run_start(span, invocation);
+        let trace = if self.trace_enabled { self.event_stack.pop() } else { None };
+        let process = match crate::runtime::process::ProcessStream::start(invocation) {
+            Ok(process) => process,
+            Err(error) => {
+                if let Some(trace) = trace { self.event_stack.push(trace); }
+                self.trace_process_run_end(span, &super::ProcessEnd { pid: None, status: error.status.as_deref().cloned(), error: Some(error.clone()) });
+                return Ok(super::lowered_process_run_error(error.with_span(span)));
+            }
+        };
+        self.track_process_group(process.process_group());
+        self.live_process_streams += 1;
+        let state = ScriptStreamState::new(ProcessProducer { process, text, pending: Vec::new(), completion_error: None, finished: false, trace, span });
+        self.script_producers.push(state.clone());
+        Ok(LoweredValue::ResultOk(Box::new(LoweredValue::Stream(Box::new(StreamValue::from_script(state))))))
+    }
+}

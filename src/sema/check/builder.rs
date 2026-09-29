@@ -91,6 +91,7 @@ impl Checker {
                         let value_span = arena.arena.expr(*value).span;
                         self.expect_type(&expected, &actual, value_span);
                     }
+                    if kind == BuilderKind::ProcessCommand && *name == "accept" { self.check_static_accepted_exit_codes(arena, *value); }
                     if kind == BuilderKind::ProcessCommand && *name == "cpu_max" {
                         self.check_static_positive_builder_int_arena(
                             arena,
@@ -231,6 +232,7 @@ pub(super) fn builder_field_type(kind: BuilderKind, name: &str) -> Option<Type> 
         (BuilderKind::ProcessCommand, "cwd") => Some(Type::Path),
         (BuilderKind::ProcessCommand, "timeout") => Some(Type::Duration),
         (BuilderKind::ProcessCommand, "cpu_max") => Some(Type::Int),
+        (BuilderKind::ProcessCommand, "accept") => Some(Type::List(Box::new(Type::Int))),
         (BuilderKind::ProcessCommand, "env") => Some(Type::Record(BTreeMap::new())),
         (BuilderKind::ProcessCommand, "stdin") => Some(Type::Path),
         (BuilderKind::ProcessCommand, "stdout") => Some(Type::Path),

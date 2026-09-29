@@ -1111,11 +1111,12 @@ impl Checker {
             "new_session",
             "ignore_hup",
             "cpu_max",
+            "accept",
         ];
         if !(2..=names.len()).contains(&args.len()) {
             self.error(span, "incorrect standard API arity", "check.arity");
         }
-        let mut slots: [Option<&ArenaCallArgKind>; 14] = [None; 14];
+        let mut slots: [Option<&ArenaCallArgKind>; 15] = [None; 15];
         let mut next_positional = 0;
         for arg in args {
             match &arg.kind {
@@ -1194,6 +1195,7 @@ impl Checker {
             Type::Bool,
             Type::Bool,
             Type::Int,
+            Type::List(Box::new(Type::Int)),
         ];
         for (offset, expected) in expected.iter().enumerate() {
             if offset + 2 == 4 {
@@ -1207,6 +1209,7 @@ impl Checker {
             let expr_id = call_arg_expr_id_arena(arg);
             self.check_static_positive_call_int_arena(arena, expr_id, "cpu_max must be positive");
         }
+        if let Some(arg) = slots[14] { self.check_static_accepted_exit_codes(arena, call_arg_expr_id_arena(arg)); }
         Type::Command
     }
 

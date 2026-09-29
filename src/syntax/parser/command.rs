@@ -232,7 +232,7 @@ impl<'a> Parser<'a> {
                 kind = self.parse_run_kind_after_dot(&name.as_str())?;
             }
         }
-        let (timeout_id, cpu_max_id) = self.parse_run_options_arena_only(arena);
+        let (timeout_id, cpu_max_id, accept_id) = self.parse_run_options_arena_only(arena);
         let env_range = self.parse_env_assignments_arena_only(arena);
         let grouped = self.at(TokenKindMatch::LParen)
             && self
@@ -269,6 +269,7 @@ impl<'a> Parser<'a> {
             builtin,
             timeout_id,
             cpu_max_id,
+            accept_id,
             env_range,
             grouped,
             target,
@@ -338,9 +339,10 @@ impl<'a> Parser<'a> {
     fn parse_run_options_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
-    ) -> (Option<ExprId>, Option<ExprId>) {
+    ) -> (Option<ExprId>, Option<ExprId>, Option<ExprId>) {
         let mut timeout_id = None;
         let mut cpu_max_id = None;
+        let mut accept_id = None;
         loop {
             let save = self.index;
             if !(self.at(TokenKindMatch::Minus) && self.peek_tag(1) == Some(TokenTag::Minus)) {
@@ -374,13 +376,18 @@ impl<'a> Parser<'a> {
                         cpu_max_id = Some(id);
                     }
                 }
+                "accept" => {
+                    self.expect(TokenKindMatch::Equals, "expected `=` after `--accept`");
+                    if accept_id.is_some() { self.diagnostic_previous("duplicate `--accept` option", "parse.run-option"); }
+                    if let Some(id) = self.parse_run_option_expr_arena_only(arena) { accept_id = Some(id); }
+                }
                 _ => {
                     self.index = save;
                     break;
                 }
             }
         }
-        (timeout_id, cpu_max_id)
+        (timeout_id, cpu_max_id, accept_id)
     }
 
     fn parse_run_option_expr_arena_only(
@@ -406,7 +413,13 @@ impl<'a> Parser<'a> {
                 self.bump();
                 Some(arena.push_ident_expr(value, span))
             }
-            _ => self.parse_expr_id_arena_only(arena),
+            _ => {
+                let previous = self.command_arg_expr;
+                self.command_arg_expr = true;
+                let expression = self.parse_expr_id_arena_only(arena);
+                self.command_arg_expr = previous;
+                expression
+            }
         }
     }
 

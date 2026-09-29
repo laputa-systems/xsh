@@ -12,7 +12,7 @@
 //! explicit release/reaper operations.
 
 pub use crate::runtime::process::{
-    CAPTURE_LIMIT, Cancellation, CancellationDecision, CancellationPolicy, ChildWaitOutcome,
+    AcceptedExitCodes, CAPTURE_LIMIT, Cancellation, CancellationDecision, CancellationPolicy, ChildWaitOutcome,
     FileRedirectionMode, ForegroundTerminal, InteractiveProcessGroupGuard, ManagedChild,
     ManagedStdio, ProcessEnd, ProcessGroup, ProcessGroupConfig, ProcessInvocation, ProcessOutput,
     ProcessRedirection, ProcessSegmentStatus, ProcessSegmentStatusKind, ProcessStatus,

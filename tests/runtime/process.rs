@@ -1154,3 +1154,114 @@ fn bytes_stdin_empty_payload_closes_input_without_consuming_inherited_stdin() {
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(output.stdout, b"0\ninherited");
 }
+
+#[test]
+fn accepted_process_stream_keeps_exact_bytes_and_late_policy_failure() {
+    let output = run_temp_script("accept-stream-bytes", r#"
+let rows = run.stream --bytes --accept=[0] sh -c "printf '\\000\\377'; exit 1" ?
+for row in rows { run cat < (row) }
+"#);
+    assert!(!output.status.success());
+    assert_eq!(output.stdout, [0, 255], "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unexpected-exit"));
+}
+
+#[test]
+fn accepted_process_capture_limit_remains_an_error() {
+    let output = run_temp_script("accept-capture-limit", &format!(r#"
+let helper = Path({})
+let result = run.bytes --accept=[0] ${{helper}} completion-output 0 16777217
+match result {{
+  Err(ProcessError.CaptureLimit {{message: message}}) => print "limited"
+  Err(error) => test.fail(error.message)?
+  Ok(_) => test.fail("capture limit was accepted")?
+}}
+"#, xsh_string_literal(os_probe())));
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"limited\n");
+}
+
+#[test]
+fn accept_policy_expression_runs_once_before_child_spawn() {
+    let output = run_temp_script("accept-eval-once", r#"
+proc accepted_codes() [process, error] -> List[Int] {
+  run printf "option\n"
+  return [0, 1]
+}
+run --accept=(accepted_codes()) sh -c "printf child; exit 1"
+"#);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"option\nchild");
+}
+
+#[test]
+fn accepted_process_stream_early_consumer_stops_and_reaps_child() {
+    let marker = temp_path("accept-stream-cancel-marker");
+    let _ = std::fs::remove_file(&marker);
+    let output = run_temp_script("accept-stream-cancel", &format!(r#"
+let marker = Path({})
+let rows = run.stream --text --accept=[0] sh -c "printf 'ready\n'; sleep 2; touch ${{marker.display()}}" ?
+for row in rows {{
+  print $row
+  break
+}}
+time.sleep(100ms)?
+print ${{marker.exists()?}}
+"#, xsh_string_literal(marker.to_str().unwrap())));
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"ready\nfalse\n");
+    std::thread::sleep(std::time::Duration::from_millis(2100));
+    assert!(!marker.exists(), "early consumer left its child alive");
+}
+
+#[test]
+fn accepted_process_stream_feeds_bytes_while_draining_large_output() {
+    let output = run_temp_script("accept-stream-bytes-feed", &format!(r#"
+let payload = bytes.concat([b"a\0\xff\n", bytes.zero(2097152)?])
+let rows = run.stream --bytes --timeout=3s --accept=[0] ({}) bytes-echo < (payload) ?
+for row in rows {{ io.write_stdout_bytes(row)? }}
+"#, xsh_string_literal(os_probe())));
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let mut expected = b"a\0\xff\n".to_vec();
+    expected.resize(2097156, 0);
+    assert_eq!(output.stdout, expected);
+}
+
+#[test]
+fn accepted_process_stream_signal_cancellation_reaps_between_pulls() {
+    let root = temp_path("accept-stream-signal-owner");
+    std::fs::create_dir_all(&root).unwrap();
+    let ready = root.join("ready");
+    let leaked = root.join("leaked");
+    let shell = "trap '' TERM; (sleep 2; printf leaked > \"$2\") & printf ready > \"$1\"; wait";
+    let source = format!(r#"
+let rows = run.stream --text --accept=[0,143] sh -c {} sh {} {} ?
+while true {{ time.sleep(50ms)? }}
+"#, xsh_string_literal(shell), xsh_string_literal(ready.to_str().unwrap()), xsh_string_literal(leaked.to_str().unwrap()));
+    let output = run_cancelable_temp_script("accept-stream-signal", &source, [], &ready, libc::SIGTERM);
+    assert_eq!(output.status.code(), Some(3));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("canceled"), "{stderr}");
+    assert!(!stderr.contains("unexpected-exit"), "{stderr}");
+    std::thread::sleep(Duration::from_millis(2300));
+    assert!(!leaked.exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn accepted_process_stream_early_consumer_stops_descendants_after_child_exit() {
+    let marker = temp_path("accept-stream-exited-child-marker");
+    let _ = std::fs::remove_file(&marker);
+    let shell = "(sleep 0.2; printf 'ready\\n'; sleep 2; touch \"$1\") & exit 0";
+    let output = run_temp_script("accept-stream-exited-child", &format!(r#"
+let rows = run.stream --text --accept=[0] sh -c {} sh {} ?
+for row in rows {{
+  print $row
+  break
+}}
+"#, xsh_string_literal(shell), xsh_string_literal(marker.to_str().unwrap())));
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"ready\n");
+    std::thread::sleep(Duration::from_millis(2300));
+    assert!(!marker.exists(), "stream cancellation left its exited child's descendant alive");
+}

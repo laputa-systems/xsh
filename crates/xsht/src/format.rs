@@ -1446,6 +1446,11 @@ impl<'a> Writer<'a> {
             self.write_expr(cpu_max, 0, output);
             output.push(' ');
         }
+        if let Some(accept) = segment.accept {
+            output.push_str("--accept=");
+            self.write_expr(accept, 0, output);
+            output.push(' ');
+        }
         let env = self.arena.env_assignments(segment.env).to_vec();
         for assignment in &env {
             self.write_env_assignment(assignment, output);

@@ -154,6 +154,7 @@ struct LoweredProcessCommandArgvArgs {
     new_session: Option<ExprId>,
     ignore_hup: Option<ExprId>,
     cpu_max: Option<ExprId>,
+    accept: Option<ExprId>,
 }
 
 fn positional_call_args(args: &[ArenaCallArg]) -> Option<Vec<ExprId>> {
@@ -290,11 +291,12 @@ fn lower_process_command_argv_args(args: &[ArenaCallArg]) -> Option<LoweredProce
         "new_session",
         "ignore_hup",
         "cpu_max",
+        "accept",
     ];
     if !(2..=names.len()).contains(&args.len()) {
         return None;
     }
-    let mut slots: [Option<ExprId>; 14] = [None; 14];
+    let mut slots: [Option<ExprId>; 15] = [None; 15];
     let mut next_positional = 0usize;
     for arg in args {
         match arg.kind {
@@ -331,6 +333,7 @@ fn lower_process_command_argv_args(args: &[ArenaCallArg]) -> Option<LoweredProce
         new_session: slots[11],
         ignore_hup: slots[12],
         cpu_max: slots[13],
+        accept: slots[14],
     })
 }
 
@@ -7414,6 +7417,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                     None => None,
                 };
+                let accept = match segment.accept {
+                    Some(expr) => {
+                        Some(self.lower_expr(expr, slots, current_function, item_slot)?)
+                    }
+                    None => None,
+                };
                 let run = LoweredSpawnRun {
                     target,
                     args: lowered_args,
@@ -7421,6 +7430,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     redirections,
                     timeout,
                     cpu_max,
+                    accept,
                     span,
                 };
                 Some(push_build_row!(
@@ -7548,6 +7558,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(expr) => Some(self.lower_expr(expr, slots, current_function, item_slot)?),
                 None => None,
             };
+            let accept = match segment.accept {
+                Some(expr) => Some(self.lower_expr(expr, slots, current_function, item_slot)?),
+                None => None,
+            };
             // Capture/stream kinds return a Result and are unwrapped by an
             // external `Try`. Plain/Status return a bare Status on success, so
             // `?` propagation is handled inside eval_lowered_run_capture via the
@@ -7562,6 +7576,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 redirections,
                 timeout,
                 cpu_max,
+                accept,
                 propagate: propagate_internally,
                 assert_success,
                 span: self.program.arena.span(run.span),
@@ -7620,6 +7635,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                     None => None,
                 };
+                let accept = match segment.accept {
+                    Some(expr) => {
+                        Some(self.lower_expr(expr, slots, current_function, item_slot)?)
+                    }
+                    None => None,
+                };
                 lowered_segments.push(LoweredRunPipelineSegment {
                     kind: segment.kind,
                     target,
@@ -7628,6 +7649,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     redirections,
                     timeout,
                     cpu_max,
+                    accept,
                 });
             }
             let pipeline = push_build_row!(
@@ -8978,6 +9000,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                             }
                             None => None,
                         },
+                        accept: match segment.accept {
+                            Some(value) => {
+                                Some(self.lower_expr(value, slots, current_function, item_slot)?)
+                            }
+                            None => None,
+                        },
                         span: self.program.arena.span(command_stmt.span),
                     });
                     run_seen = true;
@@ -10052,6 +10080,15 @@ impl CompactLowerConstructProbe<'_, '_> {
                                 None => None,
                             },
                             cpu_max: match options.cpu_max {
+                                Some(expr) => Some(self.lower_expr(
+                                    expr,
+                                    slots,
+                                    current_function,
+                                    item_slot,
+                                )?),
+                                None => None,
+                            },
+                            accept: match options.accept {
                                 Some(expr) => Some(self.lower_expr(
                                     expr,
                                     slots,
