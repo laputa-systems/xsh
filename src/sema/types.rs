@@ -404,6 +404,7 @@ impl Type {
             (Self::ErrorVariant { family, .. }, Self::ErrorFamily(expected)) => family == expected,
             (Self::ErrorVariant { .. }, Self::Error) => true,
             (Self::ErrorFamily(_), Self::Error) => true,
+            (Self::ErrorFacet(_), Self::Error) => true,
             (Self::ProcessError, Self::Error) => true,
             (
                 Self::ErrorVariant { family, variant },

@@ -763,6 +763,9 @@ Constructors are qualified by family, for example
 payload fields are available after exact variant matching, and facets are
 matched with `is Facet`. Family and variant labels may be rendered in
 diagnostics, but source programs must not branch on string error kinds.
+Facet tests preserve a known error family or variant on an immutable subject.
+A dynamic subject narrowed to a facet retains the common `Error` interface,
+including `.message`, but gains no variant payload fields.
 
 `ProcessError` is the structured process-execution error family returned by
 process forms. It includes variants for not found, permission denied, nonzero

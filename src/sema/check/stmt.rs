@@ -637,6 +637,20 @@ impl Checker {
                     crate::syntax::arena::ArenaPatternKind::Facet(facet) => Some(Type::ErrorFacet(*facet)),
                     _ => None,
                 };
+                // A facet filters a nominal error without changing its family or
+                // variant. Keep that precision when no intersection type is available.
+                let ty = ty.map(|ty| {
+                    if matches!(ty, Type::ErrorFacet(_))
+                        && matches!(
+                            binding.ty,
+                            Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError
+                        )
+                    {
+                        binding.ty.clone()
+                    } else {
+                        ty
+                    }
+                });
                 ConditionNarrowings {
                     when_true: ty.into_iter().map(|ty| Narrowing { name, ty }).collect(),
                     when_false: Vec::new(),

@@ -1127,7 +1127,7 @@ impl Checker {
                 "pattern" => Type::Str,
                 _ => Type::Unknown,
             },
-            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => {
+            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_) => {
                 match name.as_str().as_str() {
                     "message" => Type::Str,
                     "kind" => {
@@ -1197,7 +1197,7 @@ impl Checker {
                     Type::Any
                 }
             },
-            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => {
+            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_) => {
                 match name.as_str().as_str() {
                     "message" => Type::Str,
                     "kind" => {

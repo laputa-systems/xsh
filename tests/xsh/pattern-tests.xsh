@@ -238,3 +238,35 @@ print (describe(missing)) (describe_expression(missing))
   test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "missing missing\n")?
 }
+
+proc test_pattern_predicate_facet_narrowing_retains_nominal_fallback_errors(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, r"""
+error BuildError = Missing(message: Str) : NotFound
+pure nominal_message(failure: BuildError) -> Str { failure.message }
+let outcome: Result[Str, BuildError] = Err(BuildError.Missing(message: "absent"))
+let recovered = outcome ?? { |failure|
+  if failure is NotFound { nominal_message(failure) + failure.message } else { "other" }
+}
+print $recovered
+let failure: BuildError = BuildError.Missing(message: "conditional")
+if let is NotFound = failure { print ${nominal_message(failure)} }
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "absentabsent\nconditional\n")?
+}
+
+proc test_pattern_predicate_dynamic_facets_retain_the_error_api(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, r"""
+error BuildError = Missing(message: Str) : NotFound
+pure dynamic_failure() -> Any { BuildError.Missing(message: "absent") }
+pure error_message(failure: Error) -> Str { failure.message }
+let failure = dynamic_failure()
+if failure is NotFound {
+  let optional: NotFound? = failure
+  print ${failure.message} ${optional?.message ?? "missing"} ${error_message(failure)}
+}
+if let is NotFound = dynamic_failure() { print matched }
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "absent absent absent\nmatched\n")?
+}
