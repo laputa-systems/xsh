@@ -82,7 +82,7 @@ impl LiteralConstant {
                             (Arc::from(name.as_str().as_str()), Self::analyze(arena, value, bindings)?),
                         ArenaRecordFieldKind::Shorthand { name, .. } =>
                             (Arc::from(name.as_str().as_str()), bindings.get(&name)?.clone()),
-                        ArenaRecordFieldKind::Spread { value, .. } => {
+                        ArenaRecordFieldKind::Spread { expr: value, .. } => {
                             match Self::analyze(arena, value, bindings)? {
                                 Self::Map(entries) => values.extend(entries.iter().map(|(key, value)| (key.clone(), value.clone()))),
                                 Self::EmptyMap => {},

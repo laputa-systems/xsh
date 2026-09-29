@@ -1298,7 +1298,7 @@ impl CompactBodyProbe<'_> {
                 let (value, parameter) = match arg.kind {
                     crate::syntax::arena::ArenaCallArgKind::Positional(value) => { let p = params.get(positional); positional += 1; (value, p) }
                     crate::syntax::arena::ArenaCallArgKind::Named { name, value, .. } => (value, params.iter().find(|param| param.name == name)),
-                    crate::syntax::arena::ArenaCallArgKind::Splice { .. } => continue,
+                    crate::syntax::arena::ArenaCallArgKind::Splice { .. } | crate::syntax::arena::ArenaCallArgKind::NamedSpread { .. } => continue,
                 };
                 if let Some(parameter) = parameter { self.apply_compact_expected(value, &parameter.ty); }
             }
