@@ -116,7 +116,12 @@ OS-facing operations remain explicit indexed host-operation boundaries. The
 normal script runner and native-test harness execute the same verified indexed
 representation. There is no arena execution mode or compatibility interpreter.
 Runtime changes should preserve source-visible order, explicit boundaries, and
-traceable failure paths before pursuing cleverness.
+traceable failure paths before pursuing cleverness. List compound assignment
+uses the ordinary indexed assignment route. A singleton list right side is
+executed directly as one item, then appended through the existing ownership
+aware list primitive. General extension evaluates its right side before taking
+the target container; alias backing is copied only when shared. Failed right
+side evaluation leaves the target intact.
 `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs` handles live
 serial stage prefixes, pulling one source row through all supported stages
 before the next. It stops at bounded terminals, collects at a value boundary,

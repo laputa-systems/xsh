@@ -277,6 +277,10 @@ impl Checker {
         op_span: Span,
         rhs_span: Span,
     ) -> Type {
+        if op == AssignOp::Add && matches!(left, Type::List(_)) {
+            self.expect_type(left, right, rhs_span);
+            return left.clone();
+        }
         if op == AssignOp::Div
             && matches!(left, Type::Path | Type::Unknown)
             && matches!(right, Type::Str | Type::Path | Type::Unknown)
@@ -1335,7 +1339,7 @@ impl Checker {
             self.expect_type(&target_ty, &actual, value_span);
             return;
         }
-        let rhs = self.check_expr_or_run_arena(arena, source, value, None);
+        let rhs = self.check_expr_or_run_arena(arena, source, value, Some(&target_ty));
         let value_span = expr_or_run_span_arena(arena, value);
         let result = self.check_compound_assignment_op(op, &target_ty, &rhs, span, value_span);
         self.expect_type(&target_ty, &result, span);

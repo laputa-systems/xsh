@@ -2365,3 +2365,55 @@ fn linter_named_argument_pun_requires_checked_identifier_resolution() {
         )
     );
 }
+
+#[test]
+fn linter_list_compound_assignment_is_checked_and_converges() {
+    let source = "# café\nvar names: List[Str] = []\nlet item = \"value\"\nnames = names.push(item) # Keep this reason.\nlet more = [\"second\"]\nnames = names.extend(more)\nprint names.len()\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = lint_and_assert_fmt_stable(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        ..LintOptions::default()
+    });
+    let updates: Vec<_> = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-compound-assignment")).collect();
+    assert_eq!(updates.len(), 2);
+    let mut fixed = source.to_string();
+    for diagnostic in updates.iter().rev() {
+        let hint = &diagnostic.fix_hints[0];
+        fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+    }
+    assert!(fixed.contains("names += [item] # Keep this reason."));
+    assert!(fixed.contains("names += more"));
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let second = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-compound-assignment")));
+}
+
+#[test]
+fn linter_list_compound_assignment_refuses_unchecked_effectful_and_nested_updates() {
+    let source = "pure item() -> Int {\n  return 2\n}\nvar values = [1]\nvalues = values.push(item())\nvar container = {values: [1]}\ncontainer.values = container.values.push(2)\nlet pushed = values.push(3)\nprint ${pushed.len()} ${container.values.len()}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    for options in [LintOptions::default(), LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }] {
+        let output = Linter::lint(&parsed.arena, source, options);
+        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-compound-assignment")));
+    }
+}
+
+#[test]
+fn linter_list_compound_assignment_retains_multiline_comments() {
+    let source = "var values = [1]\nvalues = values.push(\n  2,\n)\nprint ${values.len()}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-compound-assignment")).expect("checked list update warning");
+    assert!(diagnostic.fix_hints.is_empty());
+}

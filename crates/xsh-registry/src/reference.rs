@@ -210,6 +210,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "procs",
     "pure-functions",
     "records",
+    "list-concatenation",
     "results",
     "postfix-question",
     "fallback",
@@ -762,6 +763,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "pure-functions" => (
             "Defines effect-free function declarations.",
             "Pure functions cannot cross host-effect boundaries and retain a distinct trace/evaluation contract.",
+        ),
+        "list-concatenation" => (
+            "Concatenates lists while preserving value semantics.",
+            "`left + right` concatenates compatible List values in encounter order. `items += more` updates a mutable target; append one item with `items += [item]`. Empty lists use the expected element type, selectors and operands evaluate once, and earlier aliases retain their contents. The push and extend methods remain available for expression chains.",
         ),
         "records" => (
             "Defines structural and named record values.",

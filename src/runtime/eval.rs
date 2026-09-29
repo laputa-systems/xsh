@@ -6017,6 +6017,11 @@ fn compound_assignment_value(
     span: Span,
 ) -> Result<Value, RuntimeError> {
     match (op, left, right) {
+        (AssignOp::Add, Value::List(left), Value::List(right)) => {
+            let mut items = left;
+            items.extend(right);
+            Ok(Value::List(items))
+        }
         (AssignOp::Add, Value::Int(left), Value::Int(right)) => {
             left.checked_add(right).map(Value::Int).ok_or_else(|| {
                 RuntimeError::new("integer-overflow", "integer overflow").with_span(span)

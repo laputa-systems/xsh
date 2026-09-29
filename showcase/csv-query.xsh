@@ -63,7 +63,7 @@ proc main(...argv: List[Str]) [fs, error] {
       row[col.value] = val
     }
 
-    rows = rows.push(row)
+    rows += [row]
   }
 
   print f"${rows.len()} row(s) loaded"

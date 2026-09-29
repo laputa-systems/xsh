@@ -7032,6 +7032,7 @@ impl Evaluator {
                 let value = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
+                let (value, singleton) = indexed_assignment_operand(execution, value, op, call_span)?;
                 // A plain overwrite offers the slot to the value expression, so
                 // an accumulating call like `m = m.set(k, v)` can update the map
                 // in place instead of copying it into a second map.
@@ -7045,7 +7046,7 @@ impl Evaluator {
                 };
                 slots[slot] = match op {
                     AssignOp::Set => value,
-                    _ => lowered_assign_value(op, slots[slot].clone(), value, span)?,
+                    _ => apply_indexed_assignment(&mut slots[slot], op, value, singleton, span)?,
                 };
                 Ok(StmtFlow::None)
             }
@@ -7057,6 +7058,7 @@ impl Evaluator {
                 let value = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
+                let (value, singleton) = indexed_assignment_operand(execution, value, op, call_span)?;
                 let value = if typed {
                     match self.eval_indexed_typed_int(execution, value, slots, call_span)? {
                         ControlFlow::Continue(value) => LoweredValue::Int(value),
@@ -7088,22 +7090,18 @@ impl Evaluator {
                     });
                 }
                 let current = match &mut slots[slot] {
-                    LoweredValue::Record(record) => record.get(field.as_ref()).cloned(),
+                    LoweredValue::Record(record) => {
+                        let record = Arc::make_mut(record);
+                        record.get_mut(field.as_ref())
+                    }
                     LoweredValue::RecordVec(record) => {
-                        lowered_record_vec_get(record, field.as_ref()).cloned()
+                        super::super::lowered_record_vec_get_mut(Arc::make_mut(record).as_mut_slice(), field.as_ref())
                     }
                     _ => {
-                        return Err(RuntimeError::new(
-                            "type-error",
-                            "lowered expression expected Record",
-                        )
-                        .with_span(span));
+                        return Err(RuntimeError::new("type-error", "lowered expression expected Record").with_span(span));
                     }
-                }
-                .ok_or_else(|| {
-                    RuntimeError::new("missing-field", field.to_string()).with_span(span)
-                })?;
-                let value = lowered_assign_value(op, current, value, span)?;
+                }.ok_or_else(|| RuntimeError::new("missing-field", field.to_string()).with_span(span))?;
+                let value = apply_indexed_assignment(current, op, value, singleton, span)?;
                 match &mut slots[slot] {
                     LoweredValue::Record(record) => {
                         Arc::make_mut(record).insert(field.clone(), value);
@@ -7134,6 +7132,7 @@ impl Evaluator {
                         return Ok(StmtFlow::Return(value));
                     }
                 };
+                let (value, singleton) = indexed_assignment_operand(execution, value, op, call_span)?;
                 let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
@@ -7150,10 +7149,11 @@ impl Evaluator {
                     map.insert(key, value);
                     return Ok(StmtFlow::None);
                 }
-                let current = map.get(key.as_str()).cloned().ok_or_else(|| {
+                let current = map.get_mut(key.as_str()).ok_or_else(|| {
                     RuntimeError::new("missing-field", key.clone()).with_span(span)
                 })?;
-                map.insert(key, lowered_assign_value(op, current, value, span)?);
+                let value = apply_indexed_assignment(current, op, value, singleton, span)?;
+                map.insert(key, value);
                 Ok(StmtFlow::None)
             }
             FullTag::StmtAssignInt => {
@@ -8495,6 +8495,53 @@ impl Evaluator {
             .with_span(call_span)),
         }
     }
+}
+
+// A singleton RHS carries its item directly through assignment execution,
+// avoiding a temporary list while retaining ordinary RHS-before-update order.
+fn indexed_assignment_operand(
+    execution: &FullExecution<'_>,
+    value: u32,
+    op: AssignOp,
+    span: Span,
+) -> Result<(u32, bool), RuntimeError> {
+    if op == AssignOp::Add {
+        let (tag, mut payload) = indexed_value(execution.instruction_id(value), span)?;
+        if tag == FullTag::ExprList {
+            let (_, mut items) = execution.block(&mut payload, BLOCK_LIST)
+                .map_err(|error| indexed_error(error, span))?;
+            if indexed_raw(&mut items, span)? == 1 {
+                let item = indexed_raw(&mut items, span)?;
+                indexed_finish(items, span)?;
+                indexed_finish(payload, span)?;
+                return Ok((item, true));
+            }
+        }
+    }
+    Ok((value, false))
+}
+
+// Taking a container is safe only after both operands prove a list update.
+// Other operations may fail, and defers must still see the original target.
+fn apply_indexed_assignment(
+    current: &mut LoweredValue,
+    op: AssignOp,
+    value: LoweredValue,
+    singleton: bool,
+    span: Span,
+) -> Result<LoweredValue, RuntimeError> {
+    if op == AssignOp::Add && matches!(current, LoweredValue::List(_) | LoweredValue::SharedList(_)) {
+        if singleton {
+            let owned = std::mem::replace(current, LoweredValue::Unit);
+            return super::lowered_method_value(owned, "push", vec![value], span);
+        }
+        if matches!(value, LoweredValue::List(_) | LoweredValue::SharedList(_)) {
+            let owned = std::mem::replace(current, LoweredValue::Unit);
+            return lowered_assign_value(op, owned, value, span);
+        }
+    }
+    let value = if singleton { LoweredValue::List(vec![value]) } else { value };
+    lowered_assign_value(op, current.clone(), value, span)
 }
 
 /// Whether two values are the same container through shared backing.

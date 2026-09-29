@@ -41,6 +41,9 @@ pub(crate) fn source(id: &str) -> Option<String> {
             include_str!("../../../docs/snippets/api/stream-collect.xsh")
         }
         "method.Str.trim" => include_str!("../../../docs/snippets/api/str-trim.xsh"),
+        "language.core.list-concatenation" | "method.List.push" | "method.List.extend" => {
+            include_str!("../../../docs/snippets/api/list-concatenation.xsh")
+        }
         "method.List.join" => include_str!("../../../docs/snippets/api/list-join.xsh"),
         "method.Result.context" => {
             include_str!("../../../docs/snippets/api/result-context.xsh")

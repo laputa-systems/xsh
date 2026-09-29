@@ -12,6 +12,121 @@ proc test_list_push_and_extend_preserve_older_values() [error] {
   test.eq(extended, [1, 2, 3, 4, 5])?
 }
 
+proc test_list_concatenation_and_compound_assignment_preserve_aliases() [error] {
+  var items: List[Int] = []
+  items += []
+  items += [1]
+  let alias = items
+  items += [2, 3]
+  test.eq(alias, [1])?
+  test.eq(items, [1, 2, 3])?
+  items += items
+  test.eq(items, [1, 2, 3, 1, 2, 3])?
+  test.eq(alias, [1])?
+  let joined = alias + [4, 5]
+  test.eq(joined, alias.extend([4, 5]))?
+  test.eq([] + [6], [6])?
+  test.eq([6] + [], [6])?
+  let empty: List[Str] = [] + []
+  test.eq(empty, [])?
+  var container = {items: [1]}
+  let record_alias = container
+  container.items += [2]
+  test.eq(container.items, [1, 2])?
+  test.eq(record_alias.items, [1])?
+  container.items += container.items
+  test.eq(container.items, [1, 2, 1, 2])?
+  test.eq(record_alias.items, [1])?
+  var table: Map[List[Int]] = map.empty().set("entry", [1])
+  let table_alias = table
+  table["entry"] += [2]
+  test.eq(table.get("entry")?, [1, 2])?
+  test.eq(table_alias.get("entry")?, [1])?
+  table["entry"] += table.get("entry")?
+  test.eq(table.get("entry")?, [1, 2, 1, 2])?
+  test.eq(table_alias.get("entry")?, [1])?
+}
+
+proc test_list_compound_assignment_checks_targets_and_elements(ctx: TestContext) [error] {
+  for source in [
+    "var items = [1]\nitems += 2\n",
+    "var items = [1]\nitems += [\"wrong\"]\n",
+    "let items = [1]\nitems += [2]\n",
+    "var items = [1]\nitems -= [2]\n",
+    "let items = [1] + [\"wrong\"]\n",
+  ] {
+    let result = test.run_script(ctx, source)?
+    test.ok(! result.success, result.stderr)?
+    test.contains(result.stderr, "check.")?
+  }
+}
+
+proc test_list_compound_assignment_evaluates_selectors_before_rhs_once(ctx: TestContext) [error] {
+  let result = test.run_script(
+    ctx,
+    r"""proc key() [io] -> Str {
+  print "selector"
+  return "entry"
+}
+proc more() [io] -> List[Int] {
+  print "rhs"
+  return [2]
+}
+proc item() [io] -> Int {
+  print "item"
+  return 3
+}
+var table: Map[List[Int]] = map.empty().set("entry", [1])
+table[key()] += more()
+table[key()] += [item()]
+let values = table.get("entry")?
+print ${values[0]} ${values[1]} ${values[2]}
+""",
+  )?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "selector\nrhs\nselector\nitem\n1 2 3\n")?
+}
+
+proc test_list_concatenation_evaluates_operands_once_in_source_order(ctx: TestContext) [error] {
+  let result = test.run_script(
+    ctx,
+    r"""proc left() [io] -> List[Int] {
+  print "left"
+  return [1]
+}
+proc right() [io] -> List[Int] {
+  print "right"
+  return [2]
+}
+let values = left() + right()
+print values.len()
+""",
+  )?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "left\nright\n2\n")?
+}
+
+proc test_list_compound_assignment_retains_target_on_dynamic_rhs_failure(ctx: TestContext) [error] {
+  let result = test.run_script(
+    ctx,
+    r"""pure wrong() -> Any {
+  return 2
+}
+proc report(values: List[Int]) [io] {
+  print values.len()
+}
+proc main() [io] {
+  var values = [1]
+  defer report(values)
+  values += wrong()
+}
+""",
+  )?
+  test.ok(! result.success, result.stderr)?
+  test.contains(result.stderr, "type-error")?
+  test.eq(result.stdout, "1\n")?
+}
+
 proc test_collection_number_text_status_and_result_methods() [process, error] {
   let base = ["alpha"]
   let pushed = base.push("beta")

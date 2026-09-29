@@ -1114,6 +1114,7 @@ impl CompactBodyProbe<'_> {
             | BinaryOp::In
             | BinaryOp::NotIn => Type::Bool,
             BinaryOp::Add if matches!((&left, &right), (Type::Str, Type::Str)) => Type::Str,
+            BinaryOp::Add if matches!((&left, &right), (Type::List(_), Type::List(_))) => left,
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
                 numeric_result_type(left, right)
             }

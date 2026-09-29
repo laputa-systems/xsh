@@ -112,7 +112,7 @@ let also_bad = 1.0 < 2
 }
 
 #[test]
-fn checker_explains_unknown_methods_and_list_concatenation() {
+fn checker_explains_unknown_methods_and_accepts_list_concatenation() {
     let source = r#"
 let text = "abc"
 let bad_length = text.length()
@@ -136,15 +136,9 @@ let joined = left + right
             .any(|note| note.contains("count_chars") && note.contains("byte_len"))
     );
 
-    let list = diagnostics
-        .iter()
-        .find(|diagnostic| diagnostic.code.as_deref() == Some("check.operator-type"))
-        .expect("expected list operator diagnostic");
-    assert!(
-        list.notes
-            .iter()
-            .any(|note| note.contains(".extend(other)"))
-    );
+    assert!(!diagnostics.iter().any(|diagnostic| {
+        diagnostic.code.as_deref() == Some("check.operator-type")
+    }));
 }
 
 #[test]
@@ -3239,4 +3233,14 @@ fn checker_records_value_and_statement_bool_positions() {
         let span = parsed.arena.arena.stmt(id).span;
         assert_eq!(checked.statement_positions.get(&span), Some(&position));
     }
+}
+
+#[test]
+fn checker_list_compound_assignment_points_at_scalar_rhs() {
+    let source = "var items = [1]\nitems += 2\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let diagnostics = Checker::check_arena(&parsed.arena, source).diagnostics;
+    let mismatch = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")).expect("scalar append rejection");
+    assert!(mismatch.labels.iter().any(|label| &source[label.span.range()] == "2"));
 }

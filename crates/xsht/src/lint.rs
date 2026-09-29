@@ -23,6 +23,16 @@ use xsh::frontend::syntax::node::{
     parse_command_word_reference,
 };
 
+fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> bool {
+    match arena.expr(expr).kind {
+        ArenaExprKind::Ident(_) | ArenaExprKind::Int(_) | ArenaExprKind::Str(_)
+        | ArenaExprKind::Bool(_) | ArenaExprKind::Null | ArenaExprKind::PathStr(_)
+        | ArenaExprKind::Float(_) | ArenaExprKind::Bytes(_) => true,
+        ArenaExprKind::List(items) => arena.expr_ids(items).all(|item| list_update_argument_stable(arena, item)),
+        _ => false,
+    }
+}
+
 fn insertion_sort_by<T>(items: &mut [T], mut compare: impl FnMut(&T, &T) -> std::cmp::Ordering) {
     for index in 1..items.len() {
         let mut current = index;
@@ -67,6 +77,7 @@ impl Default for LintOptions {
 
 #[derive(Clone, Debug)]
 struct Binding {
+    mutable: bool,
     span: Span,
     used: bool,
     report_unused: bool,
@@ -611,8 +622,16 @@ impl<'a> Linter<'a> {
                 }
                 self.lint_expr_or_run(&initializer);
                 self.define_binding_target(target, stmt.span, true);
+                if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind
+                    && let Some(binding) = self.scopes.last_mut().and_then(|scope| scope.get_mut(name.as_str().as_str()))
+                {
+                    binding.mutable = true;
+                }
             }
-            ArenaStmtKind::Assign { target, value, .. } => {
+            ArenaStmtKind::Assign { target, op, value } => {
+                if op == AssignOp::Set {
+                    self.lint_list_compound_assignment(target, value, stmt.span);
+                }
                 self.lint_assign_target(target);
                 self.lint_expr_or_run(&value);
             }
@@ -2661,6 +2680,40 @@ impl<'a> Linter<'a> {
         }
     }
 
+    fn lint_list_compound_assignment(&mut self, target: AssignTargetId, value: ArenaExprOrRun, span: Span) {
+        let ArenaAssignTargetKind::Name(target_name) = self.arena.assign_target(target).kind else { return; };
+        let Some(binding) = self.scopes.iter().rev().find_map(|scope| scope.get(target_name.as_str().as_str())) else { return; };
+        if !binding.mutable { return; }
+        let ArenaExprOrRun::Expr(value) = value else { return; };
+        let ArenaExprKind::Call { callee, args } = self.arena.expr(value).kind else { return; };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(name) if name == target_name)
+            || !matches!(self.expr_types.get(&self.arena.expr(base).span), Some(Type::List(_)))
+            || (name != "push" && name != "extend") || args.len() != 1
+        { return; }
+        let ArenaCallArgKind::Positional(argument) = self.arena.call_args(args)[0].kind else { return; };
+        // A stable argument cannot replace the target between its receiver read
+        // and the compound assignment's read of the current value.
+        if !list_update_argument_stable(self.arena, argument) { return; }
+        let argument_span = self.arena.expr(argument).span;
+        let Some(argument_source) = self.source.get(argument_span.range()) else { return; };
+        let replacement = if name == "push" {
+            format!("{target_name} += [{argument_source}]")
+        } else {
+            format!("{target_name} += {argument_source}")
+        };
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "prefer list compound assignment for a local update")
+            .with_code("lint.prefer-list-compound-assignment")
+            .with_label(Label::secondary(span, "append a list with `+=`"));
+        let edit_span = Span::new(span.source_id, span.start(), self.arena.expr(value).span.end());
+        if self.source.get(edit_span.range()).is_some_and(|source| !source.contains('#') && !source.contains('\n')) {
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(edit_span, "rewrite as list compound assignment", replacement));
+        } else {
+            diagnostic = diagnostic.with_note("comments or multiline arguments require a manual rewrite");
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
     fn lint_assign_target(&mut self, target: AssignTargetId) {
         match self.arena.assign_target(target).kind.clone() {
             ArenaAssignTargetKind::Name(name) => self.mark_used(name.as_str().as_str()),
@@ -3333,6 +3386,7 @@ impl<'a> Linter<'a> {
             scope.insert(
                 name.to_string(),
                 Binding {
+                    mutable: false,
                     span,
                     used: false,
                     report_unused: report_unused && name != "_",

@@ -58,6 +58,9 @@ pub(super) fn lowered_binary_value(
     if op == BinaryOp::Ne {
         return Ok(LoweredValue::Bool(left != right));
     }
+    if op == BinaryOp::Add && matches!(left, LoweredValue::List(_) | LoweredValue::SharedList(_)) {
+        return lowered_method_value(left, "extend", vec![right], span);
+    }
     if let (Some(left_text), Some(right_text)) =
         (lowered_str_value(&left), lowered_str_value(&right))
     {

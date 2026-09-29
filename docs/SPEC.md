@@ -87,7 +87,10 @@ first because that is how the operation is read: "the list's length", "set
 this key on the map". Module functions exist only where there is no natural
 receiver — factories like `map.empty()` and constructors like
 `regex.compile()`. The `lint.prefer-method` rule enforces this and autofixes
-violations.
+violations. List concatenation uses `left + right`, and mutable local list
+updates use `items += [item]` or `items += more`. The
+`lint.prefer-list-compound-assignment` rule recognizes safe local updates;
+`push` and `extend` remain useful methods in expression chains.
 
 **Pipelines, not text plumbing.** `|>` is a typed operator. Each stage knows
 what flows through it. The pipeline result is a `List[T]`, collected
@@ -490,6 +493,13 @@ string-keyed entry below a mutable local map. Field and indexed assignment
 update the local value stored in the root binding; they do not introduce shared
 record or map identity. Compound assignment requires a mutable target and
 follows the corresponding binary operator type rules for the target value.
+`List[T] + List[T]` concatenates values in encounter order; `+=` appends a
+list to a mutable target. A scalar append is written `items += [item]`.
+Both operands use ordinary element compatibility, including expected types
+for empty lists; concatenation does not implicitly widen heterogeneous lists.
+Compound assignment evaluates the target selectors once, then its right side,
+then reads and updates the selected target value. Earlier aliases retain their
+contents, including when a list is concatenated with itself.
 `List.push`/`List.extend` and `Map.set`/`Map.remove`/`Map.push` return updated
 values; earlier bindings and aliases keep their previous contents.
 Record destructuring targets bind named fields from a record value; `..` marks
@@ -829,7 +839,7 @@ Operators:
   is `Ok`, otherwise it evaluates and returns the fallback expression.
 - `==` and `!=` compare values of the same runtime type.
 - `<`, `<=`, `>`, and `>=` operate on `Int` and `Str`.
-- `+` operates on `Int` and `Str`; `-`, `*`, `/`, and `%` operate on `Int`.
+- `+` operates on `Int`, `Str`, and compatible `List` values; `-`, `*`, `/`, and `%` operate on `Int`.
   Integer `/` truncates toward zero. Integer arithmetic overflow produces an
   `integer-overflow` runtime error, and division or remainder by zero produces a
   `division-by-zero` runtime error rather than a host panic. `//` and `div`

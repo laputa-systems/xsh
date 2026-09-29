@@ -1,8 +1,8 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    BTreeMap, BinaryOp, Checker, Diagnostic, Effect, Label, Name, RunKind, Span, Type, UnaryOp,
-    api_spec, block_has_exit_point_arena, collection_item_ty, merge_collection_item_ty,
+    BTreeMap, BinaryOp, Checker, Effect, Name, RunKind, Span, Type, UnaryOp,
+    api_spec, block_has_exit_point_arena, collection_item_ty,
 };
 use crate::syntax::arena::{
     ArenaExprKind, ArenaExprOrRun, ArenaFmtPart, ArenaProgram, ArenaRange, ArenaRecordFieldKind,
@@ -190,7 +190,7 @@ impl Checker {
                 self.check_unary_arena(arena, source, *op, *inner)
             }
             ArenaExprKind::Binary { op, left, right } => {
-                self.check_binary_arena(arena, source, *op, *left, *right)
+                self.check_binary_arena(arena, source, *op, *left, *right, expected)
             }
             ArenaExprKind::Field { base, name } => {
                 self.check_field_arena(arena, source, *base, *name, expr.span)
@@ -881,6 +881,7 @@ impl Checker {
         op: BinaryOp,
         left: ExprId,
         right: ExprId,
+        expected: Option<&Type>,
     ) -> Type {
         let left_span = arena.arena.expr(left).span;
         let right_span = arena.arena.expr(right).span;
@@ -994,8 +995,13 @@ impl Checker {
                 Type::Bool
             }
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
-                let left_ty = self.check_expr_arena(arena, source, left, None);
-                let right_ty = self.check_expr_arena(arena, source, right, Some(&left_ty));
+                let left_ty = self.check_expr_arena(arena, source, left, expected);
+                let right_expected = if matches!(&left_ty, Type::List(item) if **item == Type::Unknown) {
+                    expected
+                } else {
+                    Some(&left_ty)
+                };
+                let right_ty = self.check_expr_arena(arena, source, right, right_expected);
                 match left_ty {
                     Type::Float if !matches!(op, BinaryOp::Rem) => {
                         self.expect_type(&Type::Float, &right_ty, right_span);
@@ -1005,22 +1011,13 @@ impl Checker {
                         self.expect_type(&Type::Str, &right_ty, right_span);
                         Type::Str
                     }
-                    Type::List(_)
-                        if matches!((&left_ty, &right_ty), (Type::List(_), Type::List(_))) =>
-                    {
-                        self.diagnostics.push(
-                            Diagnostic::error("list concatenation does not use `+`")
-                                .with_code("check.operator-type")
-                                .with_label(Label::primary(
-                                    left_span,
-                                    "`+` is defined for numbers and strings, not lists",
-                                ))
-                                .with_note("use `.extend(other)` to concatenate lists"),
-                        );
-                        Type::List(Box::new(merge_collection_item_ty(
-                            collection_item_ty(&left_ty),
-                            collection_item_ty(&right_ty),
-                        )))
+                    Type::List(ref item) if matches!(op, BinaryOp::Add) => {
+                        self.expect_type(&left_ty, &right_ty, right_span);
+                        Type::List(Box::new(if **item == Type::Unknown {
+                            collection_item_ty(&right_ty)
+                        } else {
+                            item.as_ref().clone()
+                        }))
                     }
                     _ => {
                         self.expect_type(&Type::Int, &left_ty, left_span);

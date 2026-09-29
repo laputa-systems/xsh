@@ -305,7 +305,7 @@ export pure argv_words(text: Str) -> Result[List[Str]] {
     pending = pending + word
     words = words + 1
     if pending.byte_len() >= chunk_limit {
-      chunks = chunks.push(pending)
+      chunks += [pending]
       pending = ""
     }
   }
@@ -313,7 +313,7 @@ export pure argv_words(text: Str) -> Result[List[Str]] {
     let no_words: List[Str] = []
     return Ok(no_words)
   }
-  chunks = chunks.push(pending)
+  chunks += [pending]
   var joined = ""
   var chunk_index = 0
   while chunk_index < chunks.len() {

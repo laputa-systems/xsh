@@ -1550,12 +1550,12 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("List", "push") => Some((
             "Returns a list with one value appended.",
-            "The operation produces an updated list value rather than relying on hidden mutable collection state.",
+            "The operation produces an updated list value rather than relying on hidden mutable collection state. Use `items += [item]` for a local update; `push` remains useful in expression chains.",
             &["list", "mutation"],
         )),
         ("List", "extend") => Some((
             "Returns a list with another list appended.",
-            "Elements are copied in input order and the source list remains independently owned.",
+            "Elements are copied in input order and the source list remains independently owned. Use `items += more` for a local update or `items + more` for concatenation; `extend` remains useful in expression chains.",
             &["list", "mutation", "collection"],
         )),
         ("List", "join") => Some((

@@ -35,7 +35,7 @@ proc paste_parallel(paths: List[Str], delim: Str) [fs, error, io] {
 
   for item in paths {
     let lines = read_input(item)?
-    columns = columns.push(lines)
+    columns += [lines]
 
     if lines.len() > count {
       count = lines.len()
@@ -72,7 +72,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   var paths = opts.paths
 
   if paths.len() == 0 {
-    paths = paths.push("-")
+    paths += ["-"]
   }
 
   if serial {

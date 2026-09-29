@@ -507,7 +507,7 @@ stack boundaries.
 
 | Area | File |
 |---|---|
-| collection aliasing and allocation traffic | `tests/xsh/stdlib/methods.xsh`, `tests/xsh/stdlib/map.xsh`, `tests/runtime/collections.rs` |
+| list concatenation, compound updates, collection aliasing and allocation traffic | `tests/xsh/stdlib/methods.xsh`, `tests/xsh/stdlib/map.xsh`, `tests/runtime/collections.rs` |
 | coverage, lint, grep-adjacent tooling | `tests/runtime/coverage.rs` |
 | frontend indexed fixtures | `tests/xsh/frontend-indexed.xsh`, `tests/runtime/frontend_indexed.rs` |
 | `fs.walk`/`fs.files` options and walk value consumption | `tests/xsh/stdlib/fs.xsh` |

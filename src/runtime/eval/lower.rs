@@ -5459,7 +5459,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 (left == right
                     && matches!(
                         left,
-                        LoweredType::Int | LoweredType::Float | LoweredType::Str
+                        LoweredType::Int | LoweredType::Float | LoweredType::Str | LoweredType::List
                     ))
                 .then_some(left)
             }

@@ -9,7 +9,7 @@ use super::{
     TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, indexed_decode, indexed_error,
     indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
-    lowered_assign_value, lowered_binary_value, lowered_bytes_parts,
+    apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
     lowered_freeze_large_slot_list, lowered_match_no_arm,
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
     lowered_result_err_value, lowered_result_ok, lowered_return_value, lowered_splice_arg_items,
@@ -61,6 +61,7 @@ enum FrameContinuation {
     Assign {
         slot: usize,
         op: AssignOp,
+        singleton: bool,
         span: Span,
     },
     Return,
@@ -1069,6 +1070,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let value = indexed_raw(&mut payload, span)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
+                let (value, singleton) = indexed_assignment_operand(&self.calls[index].execution, value, op, value_span)?;
                 self.push_expr(
                     index,
                     value,
@@ -1076,6 +1078,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     FrameContinuation::Assign {
                         slot,
                         op,
+                        singleton,
                         span: value_span,
                     },
                 );
@@ -1799,10 +1802,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Return(value));
                 }
             },
-            FrameContinuation::Assign { slot, op, span } => match value {
+            FrameContinuation::Assign { slot, op, singleton, span } => match value {
                 FrameValue::Value(value) => {
-                    let current = self.calls[index].slots[slot].clone();
-                    let value = lowered_assign_value(op, current, value, span)?;
+                    let value = apply_indexed_assignment(&mut self.calls[index].slots[slot], op, value, singleton, span)?;
                     let owner_scope = self.calls[index].slot_scopes[slot];
                     let source_scope = self.evaluator.current_scope_id();
                     self.evaluator
