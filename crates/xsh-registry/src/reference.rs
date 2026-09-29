@@ -239,6 +239,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "run",
     "captures",
     "streams",
+    "value-pipelines",
     "comprehensions",
     "native-tests",
     "command-interpolation",
@@ -814,6 +815,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "constants" => (
             "Defines prepared immutable data with a bounded lexical dependency graph.",
             "const values are checked and prepared without executing user code. Constants may use scalar, path, regex and homogeneous container data, checked primitive operations, other constants, and static record or tag constructors. Runtime bindings, parameters, ambient names, arbitrary calls and methods, blocks, comprehensions and propagation are rejected. Cycles, invalid arithmetic and preparation limits are diagnosed before execution. Empty collections require concrete type context; Any and resources are excluded. Indexed reads share immutable backing under ordinary value semantics, so mutating a derived var preserves the constant. let retains runtime initialization.",
+        ),
+        "value-pipelines" => (
+            "Places an ordinary pipeline input in a checked call.",
+            "A bare method call uses the input as its receiver; a qualified function call inserts it as the first argument. Exactly one whole positional or named argument may be _ to select the input position instead. Nested, embedded, spread and multiple holes are rejected. Input evaluates once before the callee or receiver and other arguments, which retain ordinary source order. Optional calls skip their other arguments when absent, after input evaluation. Explicit ? retains its Result propagation boundary. Structured stream stages retain their existing dispatch and do not accept holes as per-item mapping.",
         ),
         "procs" => (
             "Defines procedure declarations and calls.",

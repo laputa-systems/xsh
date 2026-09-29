@@ -937,3 +937,14 @@ fn api_constants_retains_preparation_contract_and_executable_example() {
     assert!(stdout.contains("const format_version = 1"), "{stdout}");
     assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn api_value_pipeline_retains_argument_placement_and_evaluation_contract() {
+    let output = xsht(&["api", "language:core.value-pipelines"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("status: exact"), "{stdout}");
+    assert!(stdout.contains("Input evaluates once before"), "{stdout}");
+    assert!(stdout.contains("pipeline_join(\"[\", _, \"]\")"), "{stdout}");
+    assert!(output.stderr.is_empty());
+}
