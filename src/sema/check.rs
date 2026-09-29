@@ -256,6 +256,7 @@ pub(super) struct UserModuleSig {
 }
 
 pub struct Checker {
+    argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
     record_constructors: RecordConstructors,
     current_namespace: Option<Name>,
     scopes: Vec<FxHashMap<Name, Binding>>,
@@ -446,6 +447,7 @@ impl Checker {
             qualified_pures: FxHashMap::default(),
             qualified_streams: FxHashMap::default(),
             type_defs: FxHashMap::default(),
+            argument_projection_types: FxHashMap::default(),
             record_constructors: RecordConstructors::default(),
             current_namespace: None,
             type_namespaces: FxHashMap::default(),

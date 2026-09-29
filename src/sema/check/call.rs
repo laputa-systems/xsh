@@ -187,6 +187,9 @@ impl Checker {
     ) -> Type {
         let callee_kind = arena.arena.expr(callee).kind;
         let args = arena.arena.call_args(args_range);
+        if args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })) {
+            return self.check_spread_call_arena(arena, source, callee, args_range, span);
+        }
 
         if let Some(definition) = self.record_constructors.resolve_call(
             &arena.arena, callee, self.current_namespace,
@@ -518,7 +521,7 @@ impl Checker {
     ) {
         let has_splice = args
             .iter()
-            .any(|arg| matches!(arg.kind, ArenaCallArgKind::Splice { .. }));
+            .any(|arg| matches!(arg.kind, ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }));
         let required = params
             .iter()
             .filter(|param| !param.defaulted && !param.rest)
@@ -566,6 +569,62 @@ impl Checker {
             self.expect_type(&param.ty, &actual, call_arg_span_arena(arena, &arg.kind));
             index += 1;
         }
+    }
+
+    fn check_spread_call_arena(
+        &mut self, arena: &ArenaProgram, source: &str, callee: ExprId,
+        args_range: ArenaRange, span: Span,
+    ) -> Type {
+        use crate::sema::arguments::{ArgumentValueSource, expand_named_arguments};
+        use crate::syntax::arena::ArenaCallArgInput;
+        let args = arena.arena.call_args(args_range);
+        let mut checked = super::FxHashMap::default();
+        for arg in args {
+            if let ArenaCallArgKind::NamedSpread { value, .. } = arg.kind {
+                checked.insert(value, self.check_expr_arena(arena, source, value, None));
+            }
+        }
+        let expanded = match expand_named_arguments(arena, args, |id| checked.get(&id).cloned()) {
+            Ok(expanded) => expanded,
+            Err(error) => { self.error(error.span, &error.message, "check.named-spread"); return Type::Invalid; }
+        };
+        let statically_named = match arena.arena.expr(callee).kind {
+            ArenaExprKind::Ident(name) => self.procs.contains_key(&name) || self.pures.contains_key(&name)
+                || self.streams.contains_key(&name) || self.tag_variants.contains_key(&name)
+                || self.record_constructors.resolve_call(&arena.arena, callee, self.current_namespace).is_some(),
+            ArenaExprKind::Field { base, .. } => !matches!(self.check_expr_arena(arena, source, base, None), Type::Any | Type::Unknown | Type::DynamicModule),
+            _ => false,
+        };
+        if !statically_named {
+            self.error(span, "named argument spreading requires a statically checked callable signature", "check.named-spread");
+            return Type::Invalid;
+        }
+        let mut temporary = arena.clone();
+        let mut inputs = Vec::new();
+        let mut projections = Vec::new();
+        let mut supplied = super::FxHashSet::default();
+        for arg in expanded {
+            if let Some(name) = arg.name && !supplied.insert(name) {
+                self.error(arg.span, &format!("parameter `{name}` supplied more than once"), "check.named-arg");
+            }
+            let value = match arg.value {
+                ArgumentValueSource::Expression(value) | ArgumentValueSource::PositionalSplice(value) => value,
+                ArgumentValueSource::RecordField { record, field } => {
+                    let id = temporary.arena.append_argument_projection(record, field, arg.span);
+                    self.argument_projection_types.insert(id, arg.ty);
+                    projections.push(id); id
+                }
+            };
+            inputs.push(if let Some(name) = arg.name {
+                ArenaCallArgInput::Named { name, value, span: arg.span }
+            } else if matches!(arg.value, ArgumentValueSource::PositionalSplice(_)) {
+                ArenaCallArgInput::Splice { value, span: arg.span }
+            } else { ArenaCallArgInput::Positional(value) });
+        }
+        let args = temporary.arena.append_call_arguments(&inputs);
+        let result = self.check_call_arena(&temporary, source, callee, args, span);
+        for id in projections { self.argument_projection_types.remove(&id); }
+        result
     }
 
     fn check_record_constructor_arena(
@@ -784,7 +843,7 @@ impl Checker {
                     let expected = info.fields.get(&name).cloned().unwrap_or(Type::Unknown);
                     (name, expected)
                 }
-                ArenaCallArgKind::Splice { .. } => {
+                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
                     self.error(
                         call_arg_span_arena(arena, &arg.kind),
                         "error constructors do not accept argument splices",
@@ -1018,7 +1077,7 @@ impl Checker {
                     matches!(name.as_str().as_str(), "required" | "optional")
                 }
                 ArenaCallArgKind::Positional(_) => index == 1 || index == 2,
-                ArenaCallArgKind::Splice { .. } => false,
+                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => false,
             };
             if !is_contract_position {
                 continue;
@@ -1127,7 +1186,7 @@ impl Checker {
                         next_positional += 1;
                     }
                 }
-                ArenaCallArgKind::Splice { .. } => {
+                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
                     self.error(
                         call_arg_span_arena(arena, &arg.kind),
                         "invalid argument splice",

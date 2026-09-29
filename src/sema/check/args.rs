@@ -170,9 +170,34 @@ impl Checker {
         params: &[FunctionParamSig],
         span: Span,
     ) {
+        if args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::Named { .. })) {
+            use crate::sema::arguments::{bind_static_arguments, expand_named_arguments};
+            let callable = params.iter().map(|param| crate::sema::types::CallableParamType {
+                name: param.name, ty: param.ty.clone(), defaulted: param.defaulted, rest: param.rest,
+            }).collect::<Vec<_>>();
+            let expanded = expand_named_arguments(arena, args, |_| None).expect("named spreads expanded before function binding");
+            match bind_static_arguments(&callable, &expanded) {
+                Err(error) => {
+                    self.error(error.span, &error.message, "check.named-arg");
+                    for arg in args { self.check_call_arg_arena(arena, source, &arg.kind, None); }
+                }
+                Ok(binding) => for (arg, slot) in args.iter().zip(binding.argument_slots) {
+                    let param = &params[slot];
+                    let expected = if param.rest { match &param.ty { Type::List(item) => item.as_ref(), other => other } } else { &param.ty };
+                    if matches!(arg.kind, ArenaCallArgKind::Splice { .. }) {
+                        let actual = self.check_call_arg_arena(arena, source, &arg.kind, None);
+                        self.expect_type(&Type::List(Box::new(expected.clone())), &actual, call_arg_span_arena(arena, &arg.kind));
+                    } else {
+                        let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(expected));
+                        self.expect_type(expected, &actual, call_arg_span_arena(arena, &arg.kind));
+                    }
+                },
+            }
+            return;
+        }
         let has_splice = args
             .iter()
-            .any(|arg| matches!(arg.kind, ArenaCallArgKind::Splice { .. }));
+            .any(|arg| matches!(arg.kind, ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }));
         let required = params
             .iter()
             .filter(|param| !param.defaulted && !param.rest)
@@ -201,7 +226,7 @@ impl Checker {
                 };
                 for arg in &args[index..] {
                     match &arg.kind {
-                        ArenaCallArgKind::Splice { value, span } => {
+                        ArenaCallArgKind::Splice { value, span } | ArenaCallArgKind::NamedSpread { value, span } => {
                             let splice_span = arena.arena.span(*span);
                             let actual = self.check_expr_arena(arena, source, *value, None);
                             match actual {
@@ -235,7 +260,7 @@ impl Checker {
             let Some(arg) = args.get(index) else {
                 continue;
             };
-            if let ArenaCallArgKind::Splice { value, span } = &arg.kind {
+            if let ArenaCallArgKind::Splice { value, span } | ArenaCallArgKind::NamedSpread { value, span } = &arg.kind {
                 let splice_span = arena.arena.span(*span);
                 let actual = self.check_expr_arena(arena, source, *value, None);
                 if !matches!(actual, Type::List(_) | Type::Any | Type::Unknown) {
@@ -323,7 +348,7 @@ impl Checker {
             ArenaCallArgKind::Positional(value) => {
                 self.check_expr_arena(arena, source, *value, expected)
             }
-            ArenaCallArgKind::Splice { value, span } => {
+            ArenaCallArgKind::Splice { value, span } | ArenaCallArgKind::NamedSpread { value, span } => {
                 let span = arena.arena.span(*span);
                 self.error(span, "`@` splice is not valid here", "check.call-splice");
                 self.check_expr_arena(arena, source, *value, None)
@@ -436,7 +461,7 @@ impl Checker {
 pub(super) fn call_arg_span_arena(arena: &ArenaProgram, kind: &ArenaCallArgKind) -> Span {
     match kind {
         ArenaCallArgKind::Positional(value) => arena.arena.expr(*value).span,
-        ArenaCallArgKind::Splice { span, .. } | ArenaCallArgKind::Named { span, .. } => {
+        ArenaCallArgKind::Splice { span, .. } | ArenaCallArgKind::NamedSpread { span, .. } | ArenaCallArgKind::Named { span, .. } => {
             arena.arena.span(*span)
         }
     }
@@ -446,7 +471,7 @@ pub(super) fn call_arg_span_arena(arena: &ArenaProgram, kind: &ArenaCallArgKind)
 pub(super) fn call_arg_expr_id_arena(kind: &ArenaCallArgKind) -> ExprId {
     match kind {
         ArenaCallArgKind::Positional(value)
-        | ArenaCallArgKind::Splice { value, .. }
+        | ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. }
         | ArenaCallArgKind::Named { value, .. } => *value,
     }
 }
@@ -519,7 +544,7 @@ pub(super) fn module_sig_accepts_arg_name_at_arena(
 ) -> bool {
     match arg {
         ArenaCallArgKind::Positional(_) => sig.params.get(index).is_some(),
-        ArenaCallArgKind::Splice { .. } => false,
+        ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => false,
         ArenaCallArgKind::Named { name, .. } => sig.params.iter().any(|param| param.name == *name),
     }
 }
@@ -533,7 +558,7 @@ pub(super) fn bind_module_args_arena(
     let mut next_positional = 0usize;
     for (arg_index, arg) in args.iter().enumerate() {
         match &arg.kind {
-            ArenaCallArgKind::Splice { .. } => return None,
+            ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
             ArenaCallArgKind::Positional(_) => {
                 while next_positional < bindings.len() && bindings[next_positional].is_some() {
                     next_positional += 1;

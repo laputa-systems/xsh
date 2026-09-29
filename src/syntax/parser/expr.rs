@@ -1296,8 +1296,17 @@ impl<'a> Parser<'a> {
         arena.begin_call_args();
         self.skip_call_argument_trivia();
         while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
-            if self.consume(TokenKindMatch::At).is_some() {
-                let start = self.previous_end().saturating_sub(3);
+            if self.at(TokenKindMatch::Dot) && self.peek_tag(1) == Some(TokenTag::Dot)
+                && self.peek_tag(2) == Some(TokenTag::Dot) {
+                let start = self.current_start();
+                self.bump(); self.bump(); self.bump();
+                self.skip_call_argument_trivia();
+                let Some(value) = self.parse_precedence_arena_only(0, arena) else { break; };
+                arena.push_call_arg_input(ArenaCallArgInput::NamedSpread {
+                    value: value.id, span: self.span(start, value.span.end()),
+                });
+            } else if self.consume(TokenKindMatch::At).is_some() {
+                let start = self.previous_end().saturating_sub(1);
                 let Some(value) = self.parse_precedence_arena_only(0, arena) else {
                     break;
                 };

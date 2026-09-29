@@ -275,7 +275,7 @@ fn call_arg_expr(arg: &xsh::frontend::syntax::arena::ArenaCallArg) -> ExprId {
     match &arg.kind {
         ArenaCallArgKind::Positional(expr) => *expr,
         ArenaCallArgKind::Named { value, .. } => *value,
-        ArenaCallArgKind::Splice { value, .. } => *value,
+        ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } => *value,
     }
 }
 

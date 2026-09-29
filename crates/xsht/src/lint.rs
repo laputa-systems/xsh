@@ -643,7 +643,7 @@ impl<'a> Linter<'a> {
                         && args.len() == 1
                         && matches!(
                             &self.arena.call_args(args)[0].kind,
-                            ArenaCallArgKind::Splice { value, .. } if matches!(self.arena.expr(*value).kind, ArenaExprKind::Ident(n) if n == "args")
+                            ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } if matches!(self.arena.expr(*value).kind, ArenaExprKind::Ident(n) if n == "args")
                         )
                 }
                 _ => false,
@@ -4204,7 +4204,7 @@ impl<'a> Linter<'a> {
                 let span = match a.kind {
                     ArenaCallArgKind::Positional(e) => self.arena.expr(e).span,
                     ArenaCallArgKind::Named { span, .. }
-                    | ArenaCallArgKind::Splice { span, .. } => self.arena.span(span),
+                    | ArenaCallArgKind::Splice { span, .. } | ArenaCallArgKind::NamedSpread { span, .. } => self.arena.span(span),
                 };
                 self.source.get(span.start()..span.end())
             })
@@ -4834,7 +4834,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
                 match arg.kind {
                     ArenaCallArgKind::Positional(e)
                     | ArenaCallArgKind::Named { value: e, .. }
-                    | ArenaCallArgKind::Splice { value: e, .. } => out.push(e),
+                    | ArenaCallArgKind::Splice { value: e, .. } | ArenaCallArgKind::NamedSpread { value: e, .. } => out.push(e),
                 }
             }
         }
@@ -4860,7 +4860,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
                             match arg.kind {
                                 ArenaCallArgKind::Positional(e)
                                 | ArenaCallArgKind::Named { value: e, .. }
-                                | ArenaCallArgKind::Splice { value: e, .. } => out.push(e),
+                                | ArenaCallArgKind::Splice { value: e, .. } | ArenaCallArgKind::NamedSpread { value: e, .. } => out.push(e),
                             }
                         }
                     }
@@ -4877,7 +4877,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
                     match arg.kind {
                         ArenaCallArgKind::Positional(e)
                         | ArenaCallArgKind::Named { value: e, .. }
-                        | ArenaCallArgKind::Splice { value: e, .. } => out.push(e),
+                        | ArenaCallArgKind::Splice { value: e, .. } | ArenaCallArgKind::NamedSpread { value: e, .. } => out.push(e),
                     }
                 }
             }
@@ -5252,7 +5252,7 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
                 || arena.call_args(args).iter().any(|arg| match arg.kind {
                     ArenaCallArgKind::Positional(expr)
                     | ArenaCallArgKind::Named { value: expr, .. }
-                    | ArenaCallArgKind::Splice { value: expr, .. } => refs(expr),
+                    | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. } => refs(expr),
                 })
         }
         ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => refs(base),
@@ -5363,7 +5363,7 @@ fn stream_stage_references_name(arena: &AstArena, stage: &ArenaStreamStage, name
         .any(|arg| match arg.kind {
             ArenaCallArgKind::Positional(expr)
             | ArenaCallArgKind::Named { value: expr, .. }
-            | ArenaCallArgKind::Splice { value: expr, .. } => {
+            | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. } => {
                 expr_references_name(arena, expr, name)
             }
         })
@@ -5403,7 +5403,7 @@ fn command_arg_references_name(arena: &AstArena, arg: &ArenaCommandArg, name: Na
 fn call_arg_span(arena: &AstArena, arg: &ArenaCallArg) -> Option<Span> {
     match arg.kind {
         ArenaCallArgKind::Positional(expr) => Some(arena.expr(expr).span),
-        ArenaCallArgKind::Named { span, .. } | ArenaCallArgKind::Splice { span, .. } => {
+        ArenaCallArgKind::Named { span, .. } | ArenaCallArgKind::Splice { span, .. } | ArenaCallArgKind::NamedSpread { span, .. } => {
             Some(arena.span(span))
         }
     }
@@ -5692,7 +5692,7 @@ fn call_arg_contains_read_text_lines_call(arena: &AstArena, arg: &ArenaCallArg) 
     match arg.kind {
         ArenaCallArgKind::Positional(expr)
         | ArenaCallArgKind::Named { value: expr, .. }
-        | ArenaCallArgKind::Splice { value: expr, .. } => {
+        | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. } => {
             expr_contains_read_text_lines_call(arena, expr)
         }
     }
@@ -6035,7 +6035,7 @@ impl LintExprVisitor<'_, '_> {
             ArenaCallArgKind::Positional(expr) | ArenaCallArgKind::Named { value: expr, .. } => {
                 self.visit_expr(expr);
             }
-            ArenaCallArgKind::Splice { value, .. } => self.visit_expr(value),
+            ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } => self.visit_expr(value),
         }
     }
 
@@ -6751,7 +6751,7 @@ fn call_arg_may_have_effects(arena: &AstArena, arg: &ArenaCallArg) -> bool {
     match arg.kind {
         ArenaCallArgKind::Positional(expr)
         | ArenaCallArgKind::Named { value: expr, .. }
-        | ArenaCallArgKind::Splice { value: expr, .. } => expr_may_have_effects(arena, expr),
+        | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. } => expr_may_have_effects(arena, expr),
     }
 }
 
@@ -6954,7 +6954,7 @@ fn collect_call_arg_effects(
     for arg in arena.call_args(args).to_vec() {
         let e = match arg.kind {
             ArenaCallArgKind::Positional(e)
-            | ArenaCallArgKind::Splice { value: e, .. }
+            | ArenaCallArgKind::Splice { value: e, .. } | ArenaCallArgKind::NamedSpread { value: e, .. }
             | ArenaCallArgKind::Named { value: e, .. } => e,
         };
         collect_expr_effects(arena, e, effects, proc_effects);
@@ -7936,7 +7936,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
         match arg.kind {
             ArenaCallArgKind::Positional(expr)
             | ArenaCallArgKind::Named { value: expr, .. }
-            | ArenaCallArgKind::Splice { value: expr, .. } => self.scan_expr(expr),
+            | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. } => self.scan_expr(expr),
         }
     }
 
@@ -8685,7 +8685,7 @@ fn call_arg_flow(
     match arg.kind {
         ArenaCallArgKind::Positional(expr)
         | ArenaCallArgKind::Named { value: expr, .. }
-        | ArenaCallArgKind::Splice { value: expr, .. } => {
+        | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. } => {
             expr_flow(arena, expr, terminating_call_spans)
         }
     }

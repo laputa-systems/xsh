@@ -6876,7 +6876,7 @@ fn compact_is_main_spliced_args_expr(program: &ArenaProgram, id: ExprId) -> bool
 
 fn compact_is_args_call_arg(program: &ArenaProgram, arg: &ArenaCallArg) -> bool {
     let value = match arg.kind {
-        ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Splice { value, .. } => value,
+        ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } => value,
         ArenaCallArgKind::Named { .. } => return false,
     };
     matches!(program.arena.expr(value).kind, ArenaExprKind::Ident(name) if name == Name::intern("args"))

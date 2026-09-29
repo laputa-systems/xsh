@@ -1186,7 +1186,7 @@ impl CompactBodyProbe<'_> {
         for arg in self.program.arena.call_args(args) {
             match &arg.kind {
                 crate::syntax::arena::ArenaCallArgKind::Positional(value)
-                | crate::syntax::arena::ArenaCallArgKind::Splice { value, .. }
+                | crate::syntax::arena::ArenaCallArgKind::Splice { value, .. } | crate::syntax::arena::ArenaCallArgKind::NamedSpread { value, .. }
                 | crate::syntax::arena::ArenaCallArgKind::Named { value, .. } => {
                     self.check_compact_expr(*value);
                 }
@@ -1249,51 +1249,14 @@ impl CompactBodyProbe<'_> {
         let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind else {
             return None;
         };
-        let args = self.program.arena.call_args(args);
+        let expanded = crate::sema::arguments::expand_named_arguments(self.program,
+            self.program.arena.call_args(args), |id| self.output.expr_types.get(&id).cloned()).ok()?;
         for sig in api_spec().module_overloads(&module.as_str(), &name.as_str())? {
-            let mut bindings = vec![false; sig.params.len()];
-            let mut next_positional = 0usize;
-            let mut matched = true;
-            for arg in args {
-                match arg.kind {
-                    crate::syntax::arena::ArenaCallArgKind::Splice { .. } => {
-                        matched = false;
-                        break;
-                    }
-                    crate::syntax::arena::ArenaCallArgKind::Positional(_) => {
-                        while next_positional < bindings.len() && bindings[next_positional] {
-                            next_positional += 1;
-                        }
-                        let Some(binding) = bindings.get_mut(next_positional) else {
-                            matched = false;
-                            break;
-                        };
-                        *binding = true;
-                    }
-                    crate::syntax::arena::ArenaCallArgKind::Named { name, .. } => {
-                        let Some(param_index) = sig
-                            .params
-                            .iter()
-                            .position(|param| param.name == name.as_str())
-                        else {
-                            matched = false;
-                            break;
-                        };
-                        if bindings[param_index] {
-                            matched = false;
-                            break;
-                        }
-                        bindings[param_index] = true;
-                    }
-                }
-            }
-            if matched
-                && sig
-                    .params
-                    .iter()
-                    .zip(&bindings)
-                    .all(|(param, binding)| param.defaulted || *binding)
-            {
+            let params = sig.params.iter().map(|param| CallableParamType {
+                name: Name::intern(param.name), ty: param.ty.clone(), defaulted: param.defaulted, rest: false,
+            }).collect::<Vec<_>>();
+            if let Ok(binding) = crate::sema::arguments::bind_static_arguments(&params, &expanded)
+                && expanded.iter().zip(binding.argument_slots).all(|(arg, slot)| arg.ty.matches_expected(&params[slot].ty)) {
                 return Some(sig.return_ty.clone());
             }
         }
@@ -1438,7 +1401,7 @@ impl CompactBodyProbe<'_> {
         for arg in self.program.arena.call_args(stream.args) {
             match &arg.kind {
                 crate::syntax::arena::ArenaCallArgKind::Positional(expr)
-                | crate::syntax::arena::ArenaCallArgKind::Splice { value: expr, .. }
+                | crate::syntax::arena::ArenaCallArgKind::Splice { value: expr, .. } | crate::syntax::arena::ArenaCallArgKind::NamedSpread { value: expr, .. }
                 | crate::syntax::arena::ArenaCallArgKind::Named { value: expr, .. } => {
                     self.check_compact_expr(*expr);
                 }

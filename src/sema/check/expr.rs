@@ -130,6 +130,7 @@ impl Checker {
         id: ExprId,
         expected: Option<&Type>,
     ) -> Type {
+        if let Some(ty) = self.argument_projection_types.get(&id) { return ty.clone(); }
         let expr = arena.arena.expr(id);
         let ty = match &expr.kind {
             ArenaExprKind::Null => Type::Null,

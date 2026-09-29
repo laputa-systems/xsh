@@ -6,6 +6,7 @@
 //! remain coupled to the compiler pipeline.
 
 pub mod check {
+    pub use crate::sema::arguments::{ArgumentExpansionError, ArgumentValueSource, ExpandedArgument, StaticArgumentBinding, expand_named_arguments, bind_static_arguments};
     pub use crate::sema::check::{
         AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, Checker,
         CompactBodyProbeOutput, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo, StatementPosition,

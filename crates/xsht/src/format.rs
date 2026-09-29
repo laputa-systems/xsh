@@ -2542,7 +2542,8 @@ impl<'a> Writer<'a> {
                 xsh::frontend::syntax::arena::ArenaCallArgKind::Positional(expr) => {
                     self.arena.expr(*expr).span
                 }
-                xsh::frontend::syntax::arena::ArenaCallArgKind::Splice { span, .. }
+                xsh::frontend::syntax::arena::ArenaCallArgKind::NamedSpread { span, .. }
+                | xsh::frontend::syntax::arena::ArenaCallArgKind::Splice { span, .. }
                 | xsh::frontend::syntax::arena::ArenaCallArgKind::Named { span, .. } => {
                     self.arena.span(*span)
                 }
@@ -2663,6 +2664,10 @@ impl<'a> Writer<'a> {
         use xsh::frontend::syntax::arena::ArenaCallArgKind;
         match arg {
             ArenaCallArgKind::Positional(expr) => self.write_expr_safe(*expr, output),
+            ArenaCallArgKind::NamedSpread { value, .. } => {
+                output.push_str("...");
+                self.write_expr_safe(*value, output);
+            }
             ArenaCallArgKind::Splice { value, .. } => {
                 output.push('@');
                 if matches!(self.arena.expr(*value).kind, ArenaExprKind::Ident(_)) {
@@ -2693,6 +2698,10 @@ impl<'a> Writer<'a> {
         match arg {
             ArenaCallArgKind::Positional(expr) => {
                 self.write_expr_safe_multiline_preferred(*expr, output)
+            }
+            ArenaCallArgKind::NamedSpread { value, .. } => {
+                output.push_str("...");
+                self.write_expr_safe_multiline_preferred(*value, output);
             }
             ArenaCallArgKind::Splice { value, .. } => {
                 output.push('@');
@@ -3042,7 +3051,7 @@ impl<'a> Writer<'a> {
             ArenaCallArgKind::Positional(expr) | ArenaCallArgKind::Named { value: expr, .. } => {
                 self.expr_is_multiline_literal(*expr)
             }
-            ArenaCallArgKind::Splice { value, .. } => self.expr_is_multiline_literal(*value),
+            ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } => self.expr_is_multiline_literal(*value),
         }
     }
 
@@ -3055,7 +3064,7 @@ impl<'a> Writer<'a> {
             ArenaCallArgKind::Positional(expr) | ArenaCallArgKind::Named { value: expr, .. } => {
                 matches!(self.arena.expr(*expr).kind, ArenaExprKind::Record(_))
             }
-            ArenaCallArgKind::Splice { value, .. } => {
+            ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } => {
                 matches!(self.arena.expr(*value).kind, ArenaExprKind::Record(_))
             }
         }

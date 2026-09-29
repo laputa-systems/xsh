@@ -3294,6 +3294,22 @@ pub struct AstArena {
 }
 
 impl AstArena {
+    /// Append compiler-generated projections while keeping existing expression IDs stable.
+    pub fn append_argument_projection(&mut self, base: ExprId, name: Name, span: Span) -> ExprId {
+        let mut lowerer = ArenaLowerer { arena: std::mem::take(self), source: None };
+        let id = lowerer.push_expr_kind(ArenaExprKind::Field { base, name }, span);
+        *self = lowerer.arena;
+        id
+    }
+
+    /// Append a statically expanded argument range without changing source arguments.
+    pub fn append_call_arguments(&mut self, args: &[ArenaCallArgInput]) -> ArenaRange {
+        let mut lowerer = ArenaLowerer { arena: std::mem::take(self), source: None };
+        let range = lowerer.commit_call_arg_input_range(args);
+        *self = lowerer.arena;
+        range
+    }
+
     fn with_source_len(source_len: usize) -> Self {
         Self {
             spans: ArenaByteSpans::for_source_len(source_len),
@@ -5398,6 +5414,7 @@ pub struct ArenaCallArg {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaCallArgInput {
     Positional(ExprId),
+    NamedSpread { value: ExprId, span: Span },
     Splice {
         value: ExprId,
         span: Span,
@@ -5412,6 +5429,7 @@ pub enum ArenaCallArgInput {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaCallArgKind {
     Positional(ExprId),
+    NamedSpread { value: ExprId, span: SpanId },
     Splice {
         value: ExprId,
         span: SpanId,
@@ -6410,6 +6428,7 @@ impl ArenaLowerer<'_> {
         ArenaCallArg {
             kind: match arg {
                 ArenaCallArgInput::Positional(expr) => ArenaCallArgKind::Positional(*expr),
+                ArenaCallArgInput::NamedSpread { value, span } => ArenaCallArgKind::NamedSpread { value: *value, span: self.span(*span) },
                 ArenaCallArgInput::Splice { value, span } => ArenaCallArgKind::Splice {
                     value: *value,
                     span: self.span(*span),

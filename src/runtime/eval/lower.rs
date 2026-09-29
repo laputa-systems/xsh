@@ -62,6 +62,12 @@ pub(super) struct SlotSnapshot {
     high_water: usize,
 }
 
+/// Source-ordered bindings and one lowered value for each static expansion entry.
+pub(super) struct LoweredArgumentValues {
+    pub(super) values: Vec<BuildExprId>,
+    pub(super) bindings: Vec<(BuildExprId, usize)>,
+}
+
 struct LoweredFsFilesArgs {
     root: ExprId,
     gitignore: Option<ExprId>,
@@ -216,7 +222,7 @@ fn named_method_call_args(
     let mut next_positional = 0usize;
     for arg in args {
         match arg.kind {
-            ArenaCallArgKind::Splice { .. } => return None,
+            ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
             ArenaCallArgKind::Positional(value) => {
                 while next_positional < bindings.len() && bindings[next_positional].is_some() {
                     next_positional += 1;
@@ -249,13 +255,13 @@ fn lower_abort_args(args: &[ArenaCallArg]) -> Option<LoweredAbortArgs> {
     let status = match &first.kind {
         ArenaCallArgKind::Positional(value) => *value,
         ArenaCallArgKind::Named { name, value, .. } if *name == "status" => *value,
-        ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } => return None,
+        ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
     };
     let force = match args.get(1).map(|arg| &arg.kind) {
         None => None,
         Some(ArenaCallArgKind::Positional(value)) => Some(*value),
         Some(ArenaCallArgKind::Named { name, value, .. }) if *name == "force" => Some(*value),
-        Some(ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. }) => return None,
+        Some(ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }) => return None,
     };
     if args.len() > 2 {
         return None;
@@ -302,7 +308,7 @@ fn lower_process_command_argv_args(args: &[ArenaCallArg]) -> Option<LoweredProce
                 *slot = Some(value);
                 next_positional += 1;
             }
-            ArenaCallArgKind::Splice { .. } => return None,
+            ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
         }
     }
     Some(LoweredProcessCommandArgvArgs {
@@ -391,7 +397,7 @@ fn lower_hash_verify_file_args(args: &[ArenaCallArg]) -> Option<LoweredHashVerif
     let path = match path.kind {
         ArenaCallArgKind::Positional(expr) => expr,
         ArenaCallArgKind::Named { name, value, .. } if name == "path" => value,
-        ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } => return None,
+        ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
     };
     let ArenaCallArgKind::Named { name, value, .. } = checksum.kind else {
         return None;
@@ -432,7 +438,7 @@ fn compact_module_bindings(args: &[ArenaCallArg], sig: &ModuleFnSig) -> Option<V
     let mut next_positional = 0usize;
     for (arg_index, arg) in args.iter().enumerate() {
         match arg.kind {
-            ArenaCallArgKind::Splice { .. } => return None,
+            ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
             ArenaCallArgKind::Positional(_) => {
                 while next_positional < bindings.len() && bindings[next_positional].is_some() {
                     next_positional += 1;
@@ -468,7 +474,7 @@ fn compact_call_arg_expr(arg: &ArenaCallArg) -> Option<ExprId> {
         ArenaCallArgKind::Positional(expr) | ArenaCallArgKind::Named { value: expr, .. } => {
             Some(expr)
         }
-        ArenaCallArgKind::Splice { .. } => None,
+        ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => None,
     }
 }
 
@@ -486,7 +492,7 @@ fn compact_named_function_call_arg_exprs(
     let mut next_positional = 0usize;
     for arg in args {
         match arg.kind {
-            ArenaCallArgKind::Splice { .. } => return None,
+            ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
             ArenaCallArgKind::Positional(value) => {
                 while next_positional < bindings.len() && bindings[next_positional].is_some() {
                     next_positional += 1;
@@ -893,7 +899,7 @@ fn lower_archive_tar_create_args(args: &[ArenaCallArg]) -> Option<LoweredArchive
                     return None;
                 }
             }
-            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } => return None,
+            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
         }
     }
     if positional.len() < 3 {
@@ -926,7 +932,7 @@ fn lower_fs_write_args(args: &[ArenaCallArg]) -> Option<LoweredFsWriteArgs> {
                     return None;
                 }
             }
-            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } => return None,
+            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
         }
     }
     Some(LoweredFsWriteArgs {
@@ -969,7 +975,7 @@ fn lower_fs_mkdir_args(args: &[ArenaCallArg]) -> Option<LoweredFsMkdirArgs> {
                     return None;
                 }
             }
-            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } => return None,
+            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
         }
     }
     Some(LoweredFsMkdirArgs {
@@ -1012,7 +1018,7 @@ fn lower_fs_remove_args(args: &[ArenaCallArg]) -> Option<LoweredFsRemoveArgs> {
                     return None;
                 }
             }
-            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } => return None,
+            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
         }
     }
     Some(LoweredFsRemoveArgs {
@@ -1032,7 +1038,7 @@ fn lower_path_mkdir_args(args: &[ArenaCallArg]) -> Option<LoweredPathMkdirArgs> 
             }
             ArenaCallArgKind::Positional(_)
             | ArenaCallArgKind::Named { .. }
-            | ArenaCallArgKind::Splice { .. } => {
+            | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
                 return None;
             }
         }
@@ -1051,7 +1057,7 @@ fn lower_path_remove_args(args: &[ArenaCallArg]) -> Option<LoweredPathRemoveArgs
             }
             ArenaCallArgKind::Positional(_)
             | ArenaCallArgKind::Named { .. }
-            | ArenaCallArgKind::Splice { .. } => {
+            | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => {
                 return None;
             }
         }
@@ -1303,7 +1309,7 @@ fn lower_fs_files_args(args: &[ArenaCallArg], has_exts: bool) -> Option<LoweredF
             ArenaCallArgKind::Named { name, value, .. } if name == "exts" => {
                 exts = Some(value);
             }
-            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } => return None,
+            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
         }
     }
     Some(LoweredFsFilesArgs {
@@ -1353,7 +1359,7 @@ fn lower_fs_list_args(args: &[ArenaCallArg]) -> Option<LoweredFsListArgs> {
                 }
                 ordered = Some(value);
             }
-            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } => return None,
+            ArenaCallArgKind::Named { .. } | ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
         }
     }
     Some(LoweredFsListArgs {
@@ -2175,7 +2181,7 @@ fn compact_collect_expr_call_edges(
             for arg in program.arena.call_args(args) {
                 match arg.kind {
                     ArenaCallArgKind::Positional(expr)
-                    | ArenaCallArgKind::Splice { value: expr, .. }
+                    | ArenaCallArgKind::Splice { value: expr, .. } | ArenaCallArgKind::NamedSpread { value: expr, .. }
                     | ArenaCallArgKind::Named { value: expr, .. } => {
                         compact_collect_expr_call_edges(program, expr, namespace, index_of, edges);
                     }
@@ -8709,7 +8715,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         item_slot,
                     )?));
                 }
-                ArenaCallArgKind::Splice { value, .. } => {
+                ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } => {
                     lowered.push(LoweredCallArg::Splice(self.lower_expr(
                         value,
                         slots,
@@ -8966,6 +8972,124 @@ impl CompactLowerConstructProbe<'_, '_> {
             .then_some(namespace)
     }
 
+    /// Save each source entry once and project a spread's visible fields before
+    /// beginning the next entry. Slots preserve this order when a callable's
+    /// parameter order differs from its written argument order.
+    pub(super) fn lower_expanded_argument_values(
+        &mut self, expanded: &[crate::sema::arguments::ExpandedArgument],
+        slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>,
+    ) -> Option<LoweredArgumentValues> {
+        use crate::sema::arguments::ArgumentValueSource;
+        let mut bindings = Vec::new();
+        let mut values = Vec::new();
+        let mut record_entry = None;
+        for arg in expanded {
+            let value = match arg.value {
+                ArgumentValueSource::Expression(expr) | ArgumentValueSource::PositionalSplice(expr) => {
+                    record_entry = None;
+                    self.lower_expr(expr, slots, current_function, item_slot)?
+                }
+                ArgumentValueSource::RecordField { record, field } => {
+                    let base = match record_entry {
+                        Some((entry, value)) if entry == arg.entry_index => value,
+                        _ => {
+                            let value = self.lower_expr(record, slots, current_function, item_slot)?;
+                            let slot = slots.reserve("named spread record");
+                            bindings.push((value, slot));
+                            let value = push_build_row!(self, expr, BuildExprRow::Param(slot));
+                            record_entry = Some((arg.entry_index, value)); value
+                        }
+                    };
+                    push_build_row!(self, expr, BuildExprRow::Field { base, name: field.as_str(), span: arg.span })
+                }
+            };
+            let slot = slots.reserve("call argument");
+            bindings.push((value, slot));
+            values.push(push_build_row!(self, expr, BuildExprRow::Param(slot)));
+        }
+        Some(LoweredArgumentValues { values, bindings })
+    }
+
+    /// Sequence slot initialization around an ordinary value expression.
+    pub(super) fn wrap_argument_bindings(
+        &mut self, mut value: BuildExprId, bindings: Vec<(BuildExprId, usize)>, span: Span,
+    ) -> BuildExprId {
+        for (subject, slot) in bindings.into_iter().rev() {
+            let pattern = push_build_row!(self, pattern, BuildPatternRow::Bind { slot });
+            value = push_build_row!(self, expr, BuildExprRow::MatchExpr {
+                value: subject, arms: vec![(pattern, None, value)], span,
+            });
+        }
+        value
+    }
+
+    fn lower_named_spread_call(
+        &mut self, id: ExprId, callee: ExprId, args: crate::syntax::arena::ArenaRange,
+        slots: &mut SlotScope, current_function: Option<Name>, item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        use crate::sema::arguments::{expand_named_arguments, ArgumentValueSource};
+        use crate::syntax::arena::ArenaCallArgInput;
+        let expanded = expand_named_arguments(self.program, self.program.arena.call_args(args), |expr| {
+            self.bodies.expr_types.get(&expr).cloned().or_else(|| self.infer_checked_expr_type_with_slots(expr, slots))
+        }).ok()?;
+        let mut bindings = Vec::new();
+        let mut overrides = Vec::new();
+        // Namespaces and static function names have no runtime receiver. A
+        // method's value receiver is evaluated before its argument entries.
+        if let ArenaExprKind::Field { base, .. } = self.program.arena.expr(callee).kind {
+            let namespace = matches!(self.infer_checked_expr_type_with_slots(base, slots), Some(Type::Module(_)));
+            if !namespace {
+                if let Some(receiver) = self.lower_expr(base, slots, current_function, item_slot) {
+                    let slot = slots.reserve("call receiver");
+                    bindings.push((receiver, slot));
+                    let bound = push_build_row!(self, expr, BuildExprRow::Param(slot));
+                    overrides.push((base, slots.postfix_receivers.insert(base, bound)));
+                }
+            }
+        }
+        let lowered = self.lower_expanded_argument_values(&expanded, slots, current_function, item_slot);
+        let result = (|| {
+            let lowered = lowered?;
+            bindings.extend(lowered.bindings);
+            // Synthetic projections exist only during static lowering. Existing
+            // expression IDs and source argument ranges remain unchanged.
+            let mut temporary = self.program.clone();
+            let mut bodies = self.bodies.clone();
+            let mut inputs = Vec::new();
+            for (arg, bound) in expanded.iter().zip(lowered.values) {
+                let expr = match arg.value {
+                    ArgumentValueSource::Expression(expr) | ArgumentValueSource::PositionalSplice(expr) => expr,
+                    ArgumentValueSource::RecordField { record, field } => {
+                        let expr = temporary.arena.append_argument_projection(record, field, arg.span);
+                        bodies.expr_types.insert(expr, arg.ty.clone()); expr
+                    }
+                };
+                overrides.push((expr, slots.postfix_receivers.insert(expr, bound)));
+                inputs.push(if let Some(name) = arg.name { ArenaCallArgInput::Named { name, value: expr, span: arg.span } }
+                    else if matches!(arg.value, ArgumentValueSource::PositionalSplice(_)) { ArenaCallArgInput::Splice { value: expr, span: arg.span } }
+                    else { ArenaCallArgInput::Positional(expr) });
+            }
+            let args = temporary.arena.append_call_arguments(&inputs);
+            let mut child = CompactLowerConstructProbe {
+                program: &temporary, bodies: &bodies, declarations: self.declarations,
+                source: self.source, sources: self.sources, current_namespace: self.current_namespace,
+                functions: self.functions, top_level_known: self.top_level_known.clone(),
+                output: std::mem::take(&mut self.output), last_blocker_detail: self.last_blocker_detail.take(),
+                strict_dynamic_methods: self.strict_dynamic_methods, stdlib_linkage: self.stdlib_linkage,
+                function_defs: Rc::clone(&self.function_defs), scratch: Rc::clone(&self.scratch),
+            };
+            let value = child.lower_call(id, callee, args, slots, current_function, item_slot);
+            self.output = child.output;
+            self.last_blocker_detail = child.last_blocker_detail;
+            value.map(|value| self.wrap_argument_bindings(value, bindings, self.program.arena.expr(id).span))
+        })();
+        for (expr, previous) in overrides.into_iter().rev() {
+            if let Some(previous) = previous { slots.postfix_receivers.insert(expr, previous); }
+            else { slots.postfix_receivers.remove(&expr); }
+        }
+        result
+    }
+
     fn lower_function_call_args(
         &mut self,
         args: &[ArenaCallArg],
@@ -9017,6 +9141,9 @@ impl CompactLowerConstructProbe<'_, '_> {
     ) -> Option<BuildExprId> {
         let span = self.program.arena.expr(id).span;
         let args_vec = self.program.arena.call_args(args).to_vec();
+        if args_vec.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })) {
+            return self.lower_named_spread_call(id, callee, args, slots, current_function, item_slot);
+        }
         if let Some(definition) = self.declarations.record_constructors.resolve_call(
             &self.program.arena, callee, self.current_namespace,
         ) {
@@ -10492,7 +10619,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let (name, value) = match arg.kind {
                     ArenaCallArgKind::Named { name, value, .. } => (Some(name), value),
                     ArenaCallArgKind::Positional(value) => (None, value),
-                    ArenaCallArgKind::Splice { .. } => return None,
+                    ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
                 };
                 let ArenaExprKind::Str(text) = self.program.arena.expr(value).kind else {
                     return None;
@@ -10552,7 +10679,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                     (field, value)
                 }
-                ArenaCallArgKind::Splice { .. } => return None,
+                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => return None,
             };
             fields.push((
                 Arc::<str>::from(field.as_str().as_str()),
