@@ -19,6 +19,14 @@ diagnostic prose.
 
 ## Checking Modes
 
+Boolean guards use ordinary Bool/Status condition checks. The full checker
+publishes `CheckOutput::definitely_exiting_block_spans` only after checking
+failure paths, lexical exit applicability, match coverage, and terminating calls.
+The safe leading-if rewrite consumes those facts. Guard branches share existing
+null, type, pattern, and field-presence refinements; assignment restores a mutable
+binding's unrefined type, and local procedure calls invalidate mutable facts.
+No Result error input or success payload is introduced by a Boolean guard.
+
 Default checking is compatibility-oriented. It reports definite syntax, name,
 effect, arity, and type errors, but permits public dynamic values at concrete
 boundaries where existing scripts may already rely on runtime check.

@@ -67,6 +67,7 @@ pub struct LintOptions {
     pub statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
     pub terminating_call_spans: BTreeSet<Span>,
+    pub definitely_exiting_block_spans: BTreeSet<Span>,
     pub dead_code: bool,
 }
 
@@ -82,6 +83,7 @@ impl Default for LintOptions {
             statement_positions: BTreeMap::default(),
             callable_effects: FxHashMap::default(),
             terminating_call_spans: BTreeSet::default(),
+            definitely_exiting_block_spans: BTreeSet::default(),
             dead_code: true,
         }
     }
@@ -116,6 +118,7 @@ pub struct Linter<'a> {
     function_return_types: Vec<Type>,
     function_effects: FxHashMap<String, Option<Vec<Effect>>>,
     terminating_call_spans: BTreeSet<Span>,
+    definitely_exiting_block_spans: BTreeSet<Span>,
     dead_code: bool,
     tag_variants: FxHashSet<String>,
     type_declarations: FxHashMap<String, Span>,
@@ -214,6 +217,7 @@ impl<'a> Linter<'a> {
             function_return_types: Vec::new(),
             function_effects: options.callable_effects,
             terminating_call_spans: options.terminating_call_spans,
+            definitely_exiting_block_spans: options.definitely_exiting_block_spans,
             dead_code: options.dead_code,
             tag_variants: FxHashSet::default(),
             type_declarations: FxHashMap::default(),
@@ -401,7 +405,7 @@ impl<'a> Linter<'a> {
                 self.collect_assigned_names_block(body);
                 self.collect_assigned_names_block(else_block);
             }
-            ArenaStmtKind::Guard { else_block, .. } => {
+            ArenaStmtKind::Guard { else_block, .. } | ArenaStmtKind::BooleanGuard { else_block, .. } => {
                 self.collect_assigned_names_block(else_block);
             }
             ArenaStmtKind::Match { arms, .. } => {
@@ -802,6 +806,10 @@ impl<'a> Linter<'a> {
             } => {
                 self.lint_expr_or_run(&initializer);
                 self.define_binding_target(target, stmt.span, true);
+                self.lint_block(else_block);
+            }
+            ArenaStmtKind::BooleanGuard { condition, else_block } => {
+                self.lint_expr(condition);
                 self.lint_block(else_block);
             }
             ArenaStmtKind::GuardedStmt {
@@ -2765,6 +2773,7 @@ impl<'a> Linter<'a> {
         self.lint_record_destructuring(stmts);
         self.lint_fresh_map_initializations(stmts);
         self.lint_list_element_reconstruction(stmts);
+        if let Some(&first) = stmts.first() { self.lint_negative_if_as_boolean_guard(first); }
         let mut flow = FlowSummary::fallthrough();
         let mut reported_dead_region = false;
         for &stmt in stmts {
@@ -4334,7 +4343,46 @@ impl<'a> Linter<'a> {
             .with_fix_hint(FixHint::replacement(span, "use a lexical block", body.to_owned())));
     }
 
+    fn lint_negative_if_as_boolean_guard(&mut self, statement: StmtId) {
+        let stmt = self.arena.stmt(statement);
+        let ArenaStmtKind::If { branches, else_block: None } = stmt.kind else { return; };
+        let [branch] = self.arena.if_branches(branches) else { return; };
+        let block_span = self.arena.span(self.arena.block(branch.block).span);
+        if !self.definitely_exiting_block_spans.contains(&block_span) { return; }
+        let condition = self.arena.expr(branch.condition);
+        if self.source[stmt.span.start()..block_span.start()].contains('#') { return; }
+        let source_expr = |expr: ExprId| { let span = self.arena.expr(expr).span; self.source[span.start()..span.end()].trim() };
+        let inverse = match condition.kind {
+            ArenaExprKind::Unary { op: UnaryOp::Not, expr } => source_expr(expr).to_string(),
+            ArenaExprKind::Binary { op, left, right } if matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Ne) || (op == BinaryOp::Eq && matches!(self.arena.expr(right).kind, ArenaExprKind::Null)) => {
+                let integer_order = matches!(self.expr_types.get(&self.arena.expr(left).span), Some(Type::Int)) && matches!(self.expr_types.get(&self.arena.expr(right).span), Some(Type::Int));
+                let operator = match op {
+                    BinaryOp::Lt if integer_order => Some(">="),
+                    BinaryOp::Le if integer_order => Some(">"),
+                    BinaryOp::Ne => Some("=="),
+                    BinaryOp::Eq => Some("!="),
+                    _ => None,
+                };
+                if let Some(operator) = operator {
+                    let between = self.arena.expr(left).span.end()..self.arena.expr(right).span.start();
+                    let original = match op { BinaryOp::Lt => "<", BinaryOp::Le => "<=", BinaryOp::Ne => "!=", BinaryOp::Eq => "==", _ => unreachable!() };
+                    let Some(offset) = self.source[between.clone()].find(original) else { return; };
+                    let token_start = between.start + offset;
+                    format!("{}{}{}", &self.source[condition.span.start()..token_start], operator, &self.source[token_start + original.len()..condition.span.end()])
+                }
+                else { format!("! ({})", source_expr(branch.condition)) }
+            }
+            _ => return,
+        };
+        let replacement = format!("guard {inverse} else {}", &self.source[block_span.start()..block_span.end()]);
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "leading failure branch can use a Boolean guard")
+            .with_code("lint.boolean-guard")
+            .with_label(Label::secondary(stmt.span, "continue only when the condition succeeds"))
+            .with_fix_hint(FixHint::replacement(stmt.span, "use explicit guard failure branch", replacement)));
+    }
+
     fn lint_if_as_guard(&mut self, branches: ArenaRange, else_block: Option<BlockId>, span: Span) {
+        if self.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.boolean-guard") && diagnostic.fix_hints.iter().any(|fix| fix.span == Some(span))) { return; }
         // Only single-branch if with no else
         if branches.len() != 1 || else_block.is_some() {
             return;
@@ -4815,6 +4863,10 @@ fn lazy_visit_stmt(
             lazy_visit_expr_or_run(arena, &initializer, out);
             lazy_visit_block(arena, else_block, out);
         }
+        ArenaStmtKind::BooleanGuard { condition, else_block } => {
+            lazy_visit_expr(arena, condition, out);
+            lazy_visit_block(arena, else_block, out);
+        }
         ArenaStmtKind::GuardedStmt { stmt, condition, .. } => {
             lazy_visit_expr(arena, condition, out);
             lazy_visit_stmt(arena, stmt, out);
@@ -5276,7 +5328,7 @@ fn stmt_pushes_to(arena: &AstArena, stmt: StmtId, name: xsh::frontend::symbols::
         ArenaStmtKind::While { block, .. }
         | ArenaStmtKind::For { block, .. }
         | ArenaStmtKind::Loop { block } => block_pushes_to(arena, block, name),
-        ArenaStmtKind::Guard { else_block, .. } => block_pushes_to(arena, else_block, name),
+        ArenaStmtKind::Guard { else_block, .. } | ArenaStmtKind::BooleanGuard { else_block, .. } => block_pushes_to(arena, else_block, name),
         ArenaStmtKind::GuardedStmt { stmt, .. } | ArenaStmtKind::Export(stmt) => {
             stmt_pushes_to(arena, stmt, name)
         }
@@ -5319,7 +5371,7 @@ fn stmt_assigns_non_push_to(
         ArenaStmtKind::While { block, .. }
         | ArenaStmtKind::For { block, .. }
         | ArenaStmtKind::Loop { block } => block_assigns_non_push_to(arena, block, name),
-        ArenaStmtKind::Guard { else_block, .. } => {
+        ArenaStmtKind::Guard { else_block, .. } | ArenaStmtKind::BooleanGuard { else_block, .. } => {
             block_assigns_non_push_to(arena, else_block, name)
         }
         ArenaStmtKind::GuardedStmt { stmt, .. } | ArenaStmtKind::Export(stmt) => {
@@ -5993,6 +6045,7 @@ fn stmt_contains_read_text_lines_call(arena: &AstArena, stmt: StmtId) -> bool {
             matches!(initializer, ArenaExprOrRun::Expr(expr) if expr_contains_read_text_lines_call(arena, expr))
                 || block_contains_read_text_lines_call(arena, else_block)
         }
+        ArenaStmtKind::BooleanGuard { condition, else_block } => expr_contains_read_text_lines_call(arena, condition) || block_contains_read_text_lines_call(arena, else_block),
         ArenaStmtKind::GuardedStmt {
             stmt, condition, ..
         } => {
@@ -7109,6 +7162,10 @@ fn collect_stmt_effects(
             collect_expr_or_run_effects(arena, &initializer, effects, proc_effects);
             collect_block_effects(arena, else_block, effects, proc_effects);
         }
+        ArenaStmtKind::BooleanGuard { condition, else_block } => {
+            collect_expr_effects(arena, condition, effects, proc_effects);
+            collect_block_effects(arena, else_block, effects, proc_effects);
+        }
         ArenaStmtKind::GuardedStmt {
             stmt: inner,
             condition,
@@ -7486,6 +7543,10 @@ fn collect_retry_stmt_effects(
                     effects.insert(Effect::Process);
                 }
             }
+            collect_retry_block_effects(arena, else_block, effects, proc_effects);
+        }
+        ArenaStmtKind::BooleanGuard { condition, else_block } => {
+            collect_retry_expr_effects(arena, condition, effects, proc_effects);
             collect_retry_block_effects(arena, else_block, effects, proc_effects);
         }
         ArenaStmtKind::GuardedStmt {
@@ -7980,6 +8041,10 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                 self.scan_block(else_block);
                 self.pop_scope();
                 self.define_binding_target(target);
+            }
+            ArenaStmtKind::BooleanGuard { condition, else_block } => {
+                self.scan_expr(condition);
+                self.scan_block(else_block);
             }
             ArenaStmtKind::GuardedStmt {
                 stmt, condition, ..
@@ -8623,6 +8688,14 @@ fn stmt_flow(
             let else_flow = block_flow(arena, else_block, terminating_call_spans);
             // A successful guard always continues after the statement.
             initializer.then(FlowSummary::fallthrough().union(else_flow))
+        }
+        ArenaStmtKind::BooleanGuard { condition, else_block } => {
+            let condition_flow = expr_flow(arena, condition, terminating_call_spans);
+            match arena.expr(condition).kind {
+                ArenaExprKind::Bool(true) => condition_flow,
+                ArenaExprKind::Bool(false) => condition_flow.then(block_flow(arena, else_block, terminating_call_spans)),
+                _ => condition_flow.then(FlowSummary::fallthrough().union(block_flow(arena, else_block, terminating_call_spans))),
+            }
         }
         ArenaStmtKind::GuardedStmt { stmt, .. } => {
             // When the guard is false, the inner statement is skipped.

@@ -220,6 +220,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "results",
     "pattern-tests",
     "pattern-conditionals",
+    "boolean-guards",
     "postfix-question",
     "optional-postfix",
     "fallback",
@@ -766,6 +767,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "guarded-control" => (
             "Defines condition-first guarded return, break, continue, and yield.",
             "`return value when condition`, `break value unless condition`, and `yield value when condition` evaluate the Bool/Status condition first and evaluate the payload only in the selected branch. Branch-local narrowing, existing lexical targets, effects, return wrapping, and deferred cleanup are preserved. Group command payloads, for example `return (run.status /usr/bin/true) when ready`; ungrouped run argv retain literal when/unless words. Valueless return/break/continue remain available, and guarded return can fall through.",
+        ),
+        "boolean-guards" => (
+            "Continues only when an explicit Boolean or Status condition succeeds.",
+            "guard condition else { ... } uses ordinary Bool/Status conditions, evaluates once, and requires every reachable failure path to leave the enclosing continuation. Return, applicable break/continue, and checked terminating operations qualify; an arbitrary fallible call does not. The failure block has no input parameter or new Result boundary. Success and failure retain checked refinements, mutation invalidation, lexical targets, effects, error identity, and defer cleanup. lint.boolean-guard preserves the complete exiting failure body; Float ordering retains negation for NaN safety. guard let remains the separate Result-binding form.",
         ),
         "defer" => (
             "Registers lexical cleanup actions without executing them.",

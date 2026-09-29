@@ -977,6 +977,13 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         self.bump(); // consume `guard`
+        if !self.at_keyword(Keyword::Let) {
+            let condition = self.parse_condition_arena_only(arena)?.id;
+            self.expect_keyword(Keyword::Else, "expected `else` after guard condition");
+            let else_block = self.parse_block_arena_only(arena)?;
+            arena.push_boolean_guard(condition, else_block, self.span(start, self.previous_end()));
+            return Some(());
+        }
         self.expect_keyword(Keyword::Let, "expected `let` after `guard`");
         let target = self.parse_binding_target_arena_only("expected binding name", arena)?;
         let ty = if self.consume(TokenKindMatch::Colon).is_some() {

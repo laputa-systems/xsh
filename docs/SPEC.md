@@ -1411,6 +1411,7 @@ with_stmt    = "with" with_binding ("," with_binding)* ","? block
 with_binding = IDENT "=" expr ;
 guard_stmt   = "guard" "let" binding_target (":" type_expr)? "=" expr_or_run
                "else" ("|" IDENT "|")? block ;
+boolean_guard_stmt = "guard" expr "else" block ;
 loop_stmt    = "loop" block ;
 break_stmt   = "break" expr? (("when" | "unless") expr)? terminator ;
 continue_stmt = "continue" terminator
@@ -1422,6 +1423,31 @@ match_stmt   = "match" expr "{" match_arm* "}" ;
 
 Conditions evaluate to `Bool` or `Status`. A `Status` condition is true when
 `status.ok` is true. `while` repeats until its condition is false.
+
+`guard condition else { ... }` evaluates its Bool or Status condition once.
+Success continues after the guard; failure runs the ordinary lexical block.
+Every reachable path in that block must leave the enclosing continuation by
+return, applicable break/continue, or a checked terminating operation such as
+`abort`. An arbitrary fallible call, including one followed by `?`, can succeed
+and is not termination evidence. A break inside a nested loop does not leave
+the guard. The failure block supplies no value or error parameter and establishes
+no Result or catch boundary; explicit errors, effects, defer order, and lexical
+return/loop/retry targets retain their ordinary meaning.
+
+Checked condition refinements apply to following statements on success and to
+the failure block on failure. Assignments restore the declared type of mutable
+refined bindings; procedure calls invalidate mutable refinements because lexical
+captures may change. Conditions with calls or nested value computation conservatively
+establish refinements only for immutable bindings. Shape predicates retain their checked field/type
+facts and never authorize an unchecked schema conversion. Boolean subexpressions
+remain values rather than statement assertions. Imported modules retain their
+executable-statement restrictions.
+
+`lint.boolean-guard` replaces a leading negative if only with checked evidence
+that its body always exits. It retains the authored failure body and error.
+Ordering inversions require Int operands; Float comparisons retain logical
+negation so NaN behavior is unchanged. Binding a Result continues to use the
+separate `guard let` form.
 
 `if let Pattern = subject` and `while let Pattern = subject` use ordinary
 literal patterns. They do not unwrap Result or Optional values: `Ok(value)`

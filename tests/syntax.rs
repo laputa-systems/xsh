@@ -15,6 +15,23 @@ use xsh::frontend::syntax::parser::{ArenaParseOutput, Parser};
 use xsh::frontend::syntax::token::TokenTag;
 use xsht::format::Formatter;
 
+#[test]
+fn boolean_guards_keep_separate_arena_kind_and_cst_round_trip() {
+    let source = "proc checked(name: Str?) [] -> Str {\n  guard name != null else {\n    # Preserve the authored failure.\n    return \"missing\"\n  }\n\n  name.trim()\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.cst.get().exact_text(), source);
+    let arena = &parsed.arena.arena;
+    let function = arena.stmt_ids(parsed.arena.statements).next().unwrap();
+    let ArenaStmtKind::ProcDef(def) = arena.stmt(function).kind else { panic!("expected proc") };
+    let guard = arena.stmt_ids(arena.block(arena.function_def(def).body).statements).next().unwrap();
+    assert!(matches!(arena.stmt(guard).kind, ArenaStmtKind::BooleanGuard { .. }));
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, source);
+    assert_parse_and_check(SourceId::new(0), &formatted.formatted);
+}
+
 fn assert_parse_and_check(source_id: SourceId, source: &str) {
     let parsed = Parser::parse_source_arena_only(source_id, source);
     assert!(

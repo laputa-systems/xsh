@@ -564,15 +564,55 @@ struct CompactBodyProbe<'a> {
 struct CompactBinding {
     ty: Type,
     mutable: bool,
+    unrefined_ty: Option<Type>,
 }
 
 impl CompactBinding {
     fn new(ty: Type, mutable: bool) -> Self {
-        Self { ty, mutable }
+        Self { ty, mutable, unrefined_ty: None }
     }
 }
 
 impl CompactBodyProbe<'_> {
+    fn compact_guard_narrowings(&self, expr: ExprId, success: bool) -> Vec<(Name, Type)> {
+        match self.program.arena.expr(expr).kind {
+            ArenaExprKind::PatternTest { value, arms } if success => {
+                let ArenaExprKind::Ident(name) = self.program.arena.expr(value).kind else { return vec![]; };
+                if !self.lookup_binding(name).is_some_and(|binding| !binding.mutable) { return vec![]; }
+                let pattern = self.program.arena.match_expr_arms(arms)[0].pattern;
+                match self.program.arena.pattern(pattern).kind {
+                    crate::syntax::arena::ArenaPatternKind::TestName { ty, .. }
+                    | crate::syntax::arena::ArenaPatternKind::Type { binding: None, ty } => vec![(name, self.type_from_arena(ty))],
+                    _ => vec![],
+                }
+            }
+            ArenaExprKind::Unary { op: UnaryOp::Not, expr } => self.compact_guard_narrowings(expr, !success),
+            ArenaExprKind::Binary { op: BinaryOp::Eq | BinaryOp::Ne, left, right } => {
+                let is_ne = matches!(self.program.arena.expr(expr).kind, ArenaExprKind::Binary { op: BinaryOp::Ne, .. });
+                if success != is_ne { return vec![]; }
+                let name = match (self.program.arena.expr(left).kind, self.program.arena.expr(right).kind) {
+                    (ArenaExprKind::Ident(name), ArenaExprKind::Null) | (ArenaExprKind::Null, ArenaExprKind::Ident(name)) => name,
+                    _ => return vec![],
+                };
+                match self.lookup_binding(name).map(|binding| &binding.ty) {
+                    Some(Type::Optional(inner)) => vec![(name, inner.as_ref().clone())],
+                    _ => vec![],
+                }
+            }
+            _ => vec![],
+        }
+    }
+
+    fn apply_compact_guard_narrowings(&mut self, narrowings: Vec<(Name, Type)>) {
+        for (name, ty) in narrowings {
+            if let Some(mut binding) = self.lookup_binding(name).cloned() {
+                if binding.unrefined_ty.is_none() { binding.unrefined_ty = Some(binding.ty.clone()); }
+                binding.ty = ty;
+                self.current_scope_mut().insert(name, binding);
+            }
+        }
+    }
+
     fn type_from_arena(&self, id: TypeExprId) -> Type {
         let resolved = self.declarations.record_constructors.resolve_type(&self.program.arena, id, self.current_namespace);
         if !matches!(resolved, Type::Unknown | Type::Invalid) { return resolved; }
@@ -619,6 +659,17 @@ impl CompactBodyProbe<'_> {
         let stmt = self.program.arena.stmt(id);
         self.output.statement_positions.insert(id, super::StatementPosition::Statement);
         match stmt.kind {
+            ArenaStmtKind::BooleanGuard { condition, else_block } => {
+                self.output.supported_statements += 1;
+                self.check_compact_expr(condition);
+                let success = self.compact_guard_narrowings(condition, true);
+                let failure = self.compact_guard_narrowings(condition, false);
+                self.push_scope();
+                self.apply_compact_guard_narrowings(failure);
+                self.check_compact_block(else_block);
+                self.pop_scope();
+                self.apply_compact_guard_narrowings(success);
+            }
             ArenaStmtKind::Use(_)
             | ArenaStmtKind::TypeDef(_)
             | ArenaStmtKind::ErrorDef(_)
@@ -658,6 +709,14 @@ impl CompactBodyProbe<'_> {
                 match value {
                     ArenaExprOrRun::Expr(expr) => { self.check_compact_expr_expected(expr, expected.as_ref()); }
                     ArenaExprOrRun::Run(run) => { self.check_compact_expr_or_run(ArenaExprOrRun::Run(run)); }
+                }
+                if let Some(name) = self.assign_target_root_name(target) {
+                    for scope in self.scopes.iter_mut().rev() {
+                        if let Some(binding) = scope.get_mut(&name) {
+                            if binding.mutable && let Some(original) = binding.unrefined_ty.take() { binding.ty = original; }
+                            else { break; }
+                        }
+                    }
                 }
             }
             ArenaStmtKind::ProcDef(def)
@@ -1359,11 +1418,19 @@ impl CompactBodyProbe<'_> {
         }
         if let ArenaExprKind::Ident(name) = callee_expr.kind {
             if let Some(sig) = self.declarations.pures.get(&name).or_else(|| self.declarations.procs.get(&name)) {
-                return match &sig.return_ty {
+                let result = match &sig.return_ty {
                     Type::Unknown => self.type_from_arena(sig.return_type_expr),
                     Type::Result(_, error) if **error == Type::Unknown => self.type_from_arena(sig.return_type_expr),
                     _ => sig.return_ty.clone(),
                 };
+                if self.declarations.procs.contains_key(&name) {
+                    for scope in &mut self.scopes {
+                        for binding in scope.values_mut() {
+                            if binding.mutable && let Some(original) = binding.unrefined_ty.take() { binding.ty = original; }
+                        }
+                    }
+                }
+                return result;
             }
             if let Some(variant) = self.declarations.tag_variants_by_name.get(&name) {
                 return Type::Tag(variant.type_name);

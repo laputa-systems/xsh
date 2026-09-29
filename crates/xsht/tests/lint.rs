@@ -14,6 +14,74 @@ use xsh::frontend::syntax::parser::{ArenaParseOutput, Parser};
 use xsht::format::Formatter;
 use xsht::lint::{LintOptions, Linter};
 
+#[test]
+fn boolean_guard_fix_keeps_failure_body_comments_and_converges() {
+    let source = "proc validate(jobs: Int) [error] {\n  if jobs <= 0 {\n    # Preserve domain error identity.\n    return error.fail(\"jobs must be positive\")\n  }\n\n  let _ = jobs\n}\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        definitely_exiting_block_spans: checked.definitely_exiting_block_spans,
+        ..LintOptions::default()
+    }).diagnostics;
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.boolean-guard")).expect("checked guard rewrite");
+    let fix = &diagnostic.fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+    assert!(fixed.contains("guard jobs > 0 else {"));
+    assert!(fixed.contains("# Preserve domain error identity."));
+    assert_parse_check_standalone("boolean guard", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert_eq!(formatted.formatted, fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let second = Linter::lint(&parsed.arena, &fixed, LintOptions {
+        expr_types: checked.expr_types,
+        definitely_exiting_block_spans: checked.definitely_exiting_block_spans,
+        ..LintOptions::default()
+    }).diagnostics;
+    assert!(!second.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.boolean-guard")));
+}
+
+#[test]
+fn boolean_guard_float_fix_retains_nan_negation() {
+    let source = "pure positive(value: Float) -> Bool {\n  if value <= 0.0 { return false }\n  true\n}\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        definitely_exiting_block_spans: checked.definitely_exiting_block_spans,
+        ..LintOptions::default()
+    }).diagnostics;
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.boolean-guard")).unwrap();
+    let replacement = diagnostic.fix_hints[0].replacement.as_ref().unwrap();
+    assert!(replacement.starts_with("guard ! (value <= 0.0) else"), "{replacement}");
+    let mut fixed = source.to_string();
+    fixed.replace_range(diagnostic.fix_hints[0].span.unwrap().range(), replacement);
+    assert_parse_check_standalone("float boolean guard", &fixed);
+}
+
+#[test]
+fn boolean_guard_fix_refuses_fallthrough_unchecked_and_binding_forms() {
+    for source in [
+        "proc validate(ok: Bool) [] { if ! ok { print \"fallthrough\" } }\n",
+        "proc validate(ok: Bool) [] { if ! ok { return } else { return } }\n",
+        "proc validate(ok: Bool) [] { let _ = ok; if ! ok { return } }\n",
+        "proc validate(outcome: Result[Int]) [] { if let Err(failure) = outcome { return } }\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let options = LintOptions { expr_types: checked.expr_types, definitely_exiting_block_spans: checked.definitely_exiting_block_spans, ..LintOptions::default() };
+        for options in [options, LintOptions::default()] {
+            let diagnostics = Linter::lint(&parsed.arena, source, options).diagnostics;
+            assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.boolean-guard")), "{source}");
+        }
+    }
+}
+
 fn assert_fmt_stable(source_id: SourceId, label: &str, source: &str) {
     let formatted = Formatter::new().format_source(source_id, source);
     assert!(

@@ -2590,6 +2590,12 @@ impl<'a> ArenaProgramBuilder<'a> {
         id
     }
 
+    pub fn push_boolean_guard(&mut self, condition: ExprId, else_block: BlockId, span: Span) -> StmtId {
+        let id = self.lowerer.push_stmt_kind(ArenaStmtKind::BooleanGuard { condition, else_block }, span);
+        self.push_current_statement(id);
+        id
+    }
+
     pub fn push_signal_hook(
         &mut self,
         signal: Name,
@@ -3804,6 +3810,10 @@ impl AstArena {
                     else_block: BlockId::new(raw[4] as usize),
                 }
             }
+            ArenaStmtTag::BooleanGuard => ArenaStmtKind::BooleanGuard {
+                condition: ExprId::new(data.lhs as usize),
+                else_block: BlockId::new(data.rhs as usize),
+            },
             ArenaStmtTag::GuardedStmt | ArenaStmtTag::GuardedStmtNegated => {
                 ArenaStmtKind::GuardedStmt {
                     stmt: StmtId::new(data.lhs as usize),
@@ -4702,6 +4712,7 @@ pub enum ArenaStmtTag {
     With,
     Loop,
     Guard,
+    BooleanGuard,
     GuardedStmt,
     GuardedStmtNegated,
     BreakNone,
@@ -4796,6 +4807,10 @@ pub enum ArenaStmtKind {
         stmt: StmtId,
         negate: bool,
         condition: ExprId,
+    },
+    BooleanGuard {
+        condition: ExprId,
+        else_block: BlockId,
     },
     Break {
         value: Option<ExprId>,
@@ -6125,6 +6140,10 @@ impl ArenaLowerer<'_> {
                 ]);
                 (ArenaStmtTag::Guard, data)
             }
+            ArenaStmtKind::BooleanGuard { condition, else_block } => (
+                ArenaStmtTag::BooleanGuard,
+                ArenaStmtData::new(raw_expr_id(condition), raw_block_id(else_block)),
+            ),
             ArenaStmtKind::GuardedStmt {
                 stmt,
                 negate,

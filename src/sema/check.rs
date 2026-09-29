@@ -80,6 +80,8 @@ pub struct CheckOutput {
     pub statement_positions: BTreeMap<Span, StatementPosition>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
     pub terminating_call_spans: BTreeSet<Span>,
+    /// Ordinary blocks whose checked paths cannot reach their enclosing continuation.
+    pub definitely_exiting_block_spans: BTreeSet<Span>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -280,6 +282,7 @@ pub struct Checker {
     statement_positions: BTreeMap<Span, StatementPosition>,
     pattern_test_types: FxHashMap<crate::syntax::arena::PatternId, Type>,
     terminating_call_spans: BTreeSet<Span>,
+    definitely_exiting_block_spans: BTreeSet<Span>,
     options: CheckOptions,
     function_return_types: BTreeMap<Span, Type>,
     inferred_returns: Option<Vec<(Type, Span)>>,
@@ -351,6 +354,7 @@ impl Checker {
                 statement_positions: checker.statement_positions,
                 callable_effects,
                 terminating_call_spans: checker.terminating_call_spans,
+                definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
             }
         })
     }
@@ -433,6 +437,7 @@ impl Checker {
                 statement_positions: checker.statement_positions,
                 callable_effects,
                 terminating_call_spans: checker.terminating_call_spans,
+                definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
             }
         })
     }
@@ -463,6 +468,7 @@ impl Checker {
             statement_positions: BTreeMap::new(),
             pattern_test_types: FxHashMap::default(),
             terminating_call_spans: BTreeSet::new(),
+            definitely_exiting_block_spans: BTreeSet::new(),
             options,
             function_return_types: BTreeMap::new(),
             inferred_returns: None,

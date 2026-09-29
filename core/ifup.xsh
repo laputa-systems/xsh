@@ -318,7 +318,7 @@ proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str) [proce
 }
 
 proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, process, error] {
-  if ! dir.exists()? {
+  guard dir.exists()? else {
     return
   }
 

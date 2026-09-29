@@ -6,6 +6,14 @@ them to the owner and report that limit. Unfiltered `cargo test` includes
 `runtime::coverage` cases and two `runtime::examples` cases that launch
 `xsht fmt` or `xsht lint`, so agents use the filtered runtime gate below.
 
+## Boolean guards
+
+`target/debug/xsht test --jobs 1 tests/xsh/boolean-guards.xsh` covers once-only
+conditions, Status, success/failure refinements, rejected fallthrough and
+parameters, mutation invalidation, lexical loop targets, and cleanup before
+return. Run the syntax and checker gates, indexed runtime verifier tests, and
+`cargo test -p xsht --test integration lint::` for the checked negative-if rewrite.
+
 ## List patterns
 
 Bare lexical block consumption, scope cleanup, and lexical transfers are covered

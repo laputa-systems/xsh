@@ -5,6 +5,28 @@ use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;
 
 #[test]
+fn boolean_guard_checked_facts_preserve_refinement_and_statement_position() {
+    let source = "pure choose(name: Str?) -> Str {\n  guard name != null else { return \"missing\" }\n  name.trim()\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(checked.definitely_exiting_block_spans.len(), 1);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    for (id, position) in compact.statement_positions {
+        assert_eq!(checked.statement_positions.get(&parsed.arena.arena.stmt(id).span), Some(&position));
+    }
+    for (id, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(id).span;
+        if &source[span.range()] == "name" && span.start() > source.find("return").unwrap() {
+            assert_eq!(ty, xsh::frontend::check::Type::Str);
+            assert_eq!(checked.expr_types.get(&span), Some(&ty));
+        }
+    }
+}
+
+#[test]
 fn checker_accepts_error_propagation_in_value_returning_proc() {
     let output = check(
         r#"

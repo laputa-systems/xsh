@@ -246,7 +246,10 @@ impl Checker {
                 Type::Result(Box::new(schema_ty), Box::new(Type::Error))
             }
             ArenaExprKind::Call { callee, args } => {
-                self.check_call_arena(arena, source, *callee, *args, expr.span)
+                let may_mutate = matches!(arena.arena.expr(*callee).kind, ArenaExprKind::Ident(name) if self.lookup(name).is_some_and(|binding| binding.ty == Type::Proc));
+                let result = self.check_call_arena(arena, source, *callee, *args, expr.span);
+                if may_mutate { self.invalidate_mutable_narrowings(); }
+                result
             }
             ArenaExprKind::PatternCondition { value, arms } => {
                 let value_ty = self.check_expr_arena(arena, source, *value, None);

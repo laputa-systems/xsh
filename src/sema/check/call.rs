@@ -222,6 +222,8 @@ impl Checker {
                     self.check_callee_effects(&caller_effs, &sig.effects, &name.as_str(), span);
                 }
                 self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                // A procedure may change mutable lexical captures before the next statement.
+                self.invalidate_mutable_narrowings();
                 return sig.return_ty;
             }
             if let Some(sig) = self.pures.get(&name).cloned() {

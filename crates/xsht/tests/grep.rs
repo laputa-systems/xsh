@@ -20,6 +20,17 @@ fn output_text(bytes: &[u8]) -> String {
 }
 
 #[test]
+fn grep_reaches_boolean_guard_condition_and_failure_body() {
+    let file = temp_xsh("boolean_guard", "proc work(value: Str) [] { guard value.contains(\"ready\") else { abort(7) } }\n");
+    for pattern in ["RECEIVER.contains(EXPR)", "abort(EXPR)"] {
+        let output = grep_scripts(pattern, &paths(&file));
+        assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+        assert!(output_text(&output.stdout).contains("1 match"));
+    }
+    let _ = fs::remove_file(file);
+}
+
+#[test]
 fn grep_without_paths_uses_configured_includes() {
     let root = TempDir::new().expect("create temp root");
     let scripts = root.path().join(".github/scripts");

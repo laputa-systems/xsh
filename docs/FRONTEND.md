@@ -356,6 +356,14 @@ compact checking retains that binding and records the same value-tail positions.
 Lowering creates a lazy indexed `MatchExpr` with an Ok payload arm and an Err
 binding arm whose value is the ordinary lexical `ValueBlock`.
 
+`ArenaStmtKind::BooleanGuard` stores a condition and failure `BlockId`, separately
+from Result-binding `Guard`. `Checker::check_block_arena` rejects a failure
+header because the statement supplies no input. Checked guaranteed exits are
+published in `CheckOutput::definitely_exiting_block_spans` for tooling. Compact
+body checking retains condition and body types in statement context; lowering
+emits the existing verified `If`/`IfBool` instructions with an empty success
+body and the authored failure block. The runtime adds no propagation boundary.
+
 Guarded index and slice expressions retain a `guarded` flag in
 `ArenaExprKind::Index` and `ArenaExprKind::Slice`, with distinct arena tags.
 Formatting preserves adjacent `?[` syntax, and structural matching compares

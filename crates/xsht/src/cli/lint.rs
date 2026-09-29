@@ -672,6 +672,7 @@ fn lint_workspace_root(
         options.statement_positions = checked.statement_positions.clone();
         options.callable_effects = checked.callable_effects.clone();
         options.terminating_call_spans = checked.terminating_call_spans.clone();
+        options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
         let linted = if key == root {
             Linter::lint(bundle, &module.text, options)
         } else {
@@ -1063,6 +1064,7 @@ fn lint_config_for_file(
         statement_positions: Default::default(),
         callable_effects: Default::default(),
         terminating_call_spans: Default::default(),
+        definitely_exiting_block_spans: Default::default(),
         dead_code: !is_path_excluded(
             &tool_config.config_dir,
             Path::new(file),
@@ -1126,6 +1128,7 @@ fn lint_one_file_with_fixes(
     lint_options.statement_positions = checked.statement_positions.clone();
     lint_options.callable_effects = checked.callable_effects.clone();
     lint_options.terminating_call_spans = checked.terminating_call_spans.clone();
+    lint_options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
     let linted = Linter::lint(&checked_program.parsed.arena, &text, lint_options);
 
     let mut ast_fixes = collect_fix_spans(&linted.diagnostics);
@@ -1332,6 +1335,7 @@ fn apply_cst_fixes(
         options.statement_positions = checked.statement_positions.clone();
         options.callable_effects = checked.callable_effects.clone();
         options.terminating_call_spans = checked.terminating_call_spans.clone();
+        options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
         let linted = if is_module {
             Linter::lint_module(&program.parsed.arena, &candidate, options)
         } else {

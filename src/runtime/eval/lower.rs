@@ -2147,6 +2147,10 @@ fn compact_collect_stmt_call_edges(
             compact_collect_stmt_call_edges(program, stmt, namespace, index_of, edges);
             compact_collect_expr_call_edges(program, condition, namespace, index_of, edges);
         }
+        ArenaStmtKind::BooleanGuard { condition, else_block } => {
+            compact_collect_expr_call_edges(program, condition, namespace, index_of, edges);
+            compact_collect_block_call_edges(program, else_block, namespace, index_of, edges);
+        }
         ArenaStmtKind::Break { value: Some(value) } | ArenaStmtKind::Expr(value) | ArenaStmtKind::YieldDelegate(value) => {
             compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
         }
@@ -2589,6 +2593,7 @@ fn compact_stmt_kind_index(kind: ArenaStmtKind) -> usize {
         ArenaStmtKind::Command(_) => 24,
         ArenaStmtKind::TailBareIdent(_) => 25,
         ArenaStmtKind::Expr(_) => 26,
+        ArenaStmtKind::BooleanGuard { .. } => 27,
     }
 }
 
@@ -2622,6 +2627,7 @@ fn compact_stmt_kind_label(kind: ArenaStmtKind) -> &'static str {
         ArenaStmtKind::Command(_) => "command",
         ArenaStmtKind::TailBareIdent(_) => "tail_bare_ident",
         ArenaStmtKind::Expr(_) => "expr",
+        ArenaStmtKind::BooleanGuard { .. } => "boolean_guard",
     }
 }
 
@@ -3150,7 +3156,7 @@ fn compact_body_tail_command_blocker(
 }
 
 const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 8];
-const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 27];
+const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 28];
 const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 42];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
@@ -3806,7 +3812,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 CompactTopLevelBlocker::AssignExpression
             }
             ArenaStmtKind::Assign { .. } => CompactTopLevelBlocker::AssignExpression,
-            ArenaStmtKind::If { .. }
+            ArenaStmtKind::BooleanGuard { .. }
+            | ArenaStmtKind::If { .. }
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
             | ArenaStmtKind::Match { .. } => CompactTopLevelBlocker::Control,
@@ -4087,7 +4094,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                     slots,
                 ))
             }
-            ArenaStmtKind::If { .. }
+            ArenaStmtKind::BooleanGuard { .. }
+            | ArenaStmtKind::If { .. }
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
             | ArenaStmtKind::Match { .. }
@@ -6076,6 +6084,15 @@ impl CompactLowerConstructProbe<'_, '_> {
     ) -> Option<BuildStmtId> {
         self.output.statements += 1;
         let lowered = match self.program.arena.stmt(id).kind {
+            ArenaStmtKind::BooleanGuard { condition, else_block } => {
+                let condition = self.lower_expr(condition, slots, current_function, item_slot)?;
+                let else_body = Some(self.lower_block(else_block, slots, current_function, item_slot)?);
+                if let Some(condition) = self.lower_bool_expr_candidate(&condition) {
+                    Some(push_build_row!(self, stmt, BuildStmtRow::IfBool { branches: vec![(condition, vec![])], else_body }))
+                } else {
+                    Some(push_build_row!(self, stmt, BuildStmtRow::If { branches: vec![(condition, vec![])], else_body }))
+                }
+            }
             ArenaStmtKind::Let {
                 target,
                 ty,

@@ -544,6 +544,12 @@ impl<'a> Writer<'a> {
                 }
                 self.write_block(*else_block, indent, output);
             }
+            ArenaStmtKind::BooleanGuard { condition, else_block } => {
+                output.push_str("guard ");
+                self.write_expr(*condition, 0, output);
+                output.push_str(" else ");
+                self.write_block(*else_block, indent, output);
+            }
             ArenaStmtKind::GuardedStmt {
                 stmt: inner,
                 negate,
@@ -911,6 +917,7 @@ impl<'a> Writer<'a> {
                 if !matches!(
                     stmt_kind,
                     ArenaStmtKind::If { .. }
+                        | ArenaStmtKind::BooleanGuard { .. }
                         | ArenaStmtKind::While { .. }
                         | ArenaStmtKind::For { .. }
                         | ArenaStmtKind::Match { .. }
@@ -3199,6 +3206,7 @@ fn is_top_level_section(kind: &ArenaStmtKind) -> bool {
     matches!(
         kind,
         ArenaStmtKind::If { .. }
+            | ArenaStmtKind::BooleanGuard { .. }
             | ArenaStmtKind::While { .. }
             | ArenaStmtKind::For { .. }
             | ArenaStmtKind::Match { .. }

@@ -8,6 +8,17 @@ fn workspace_root() -> std::path::PathBuf {
         .expect("workspace root")
 }
 
+#[test]
+fn api_boolean_guards_explains_exits_refinements_and_no_error_input() {
+    let output = xsht(&["api", "language:core.boolean-guards"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for fragment in ["Bool", "Status", "evaluates once", "every reachable failure path", "no input parameter or new Result boundary", "mutation invalidation", "Float", "NaN", "guard let"] {
+        assert!(stdout.contains(fragment), "{stdout}");
+    }
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
 fn xsht(args: &[&str]) -> std::process::Output {
     Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(args)

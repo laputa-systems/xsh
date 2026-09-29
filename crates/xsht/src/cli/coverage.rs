@@ -670,7 +670,7 @@ fn collect_statement(
             collect_block(program, sources, else_block, by_source);
         }
         ArenaStmtKind::Loop { block } => collect_block(program, sources, block, by_source),
-        ArenaStmtKind::Guard { else_block, .. } => {
+        ArenaStmtKind::Guard { else_block, .. } | ArenaStmtKind::BooleanGuard { else_block, .. } => {
             add_span(sources, statement.span, by_source);
             collect_block(program, sources, else_block, by_source);
         }
