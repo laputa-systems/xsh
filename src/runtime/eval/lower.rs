@@ -3032,8 +3032,33 @@ fn lower_const_param_default(
     arena: &AstArena,
     expr: ExprId,
     kind: LoweredType,
+    expected: Option<&Type>,
 ) -> Option<LoweredValue> {
+    if let ArenaExprKind::Record(fields) = arena.expr(expr).kind
+        && (matches!(expected, Some(Type::Map(_))) || arena.record_fields(fields).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })))
+    {
+        let element = match expected { Some(Type::Map(item)) => Some(item.as_ref()), _ => None };
+        let mut values = BTreeMap::new();
+        for field in arena.record_fields(fields) {
+            match field.kind {
+                ArenaRecordFieldKind::Computed { key, value, .. } => {
+                    let key = lower_const_param_default(arena, key, LoweredType::Str, Some(&Type::Str))?;
+                    let key = super::lowered_ops::lowered_str_value(&key)?.to_string();
+                    values.insert(key, lower_const_param_default(arena, value, LoweredType::Any, element)?);
+                }
+                ArenaRecordFieldKind::Named { name, value, .. } => { values.insert(name.as_str().to_string(), lower_const_param_default(arena, value, LoweredType::Any, element)?); }
+                ArenaRecordFieldKind::Spread { expr, .. } => {
+                    let LoweredValue::Map(spread) = lower_const_param_default(arena, expr, LoweredType::Map, expected)? else { return None; };
+                    values.extend(spread.iter().map(|(key, value)| (key.clone(), value.clone())));
+                }
+                ArenaRecordFieldKind::Shorthand { .. } => return None,
+            }
+        }
+        let value = LoweredValue::Map(Arc::new(values));
+        return lowered_value_matches(kind, &value).then_some(value);
+    }
     if let Some(constant) = crate::sema::constants::LiteralConstant::analyze(arena, expr, &FxHashMap::default()) {
+        let constant = if let Some(expected) = expected { constant.in_type(expected) } else { constant };
         let value = lower_literal_constant(&constant)?;
         return lowered_value_matches(kind, &value).then_some(value);
     }
@@ -3070,7 +3095,7 @@ fn lower_const_param_default(
         ArenaExprKind::List(items) => {
             let mut values = Vec::new();
             for item in arena.list_elements(items) {
-                let value = lower_const_param_default(arena, item.value, LoweredType::Any)?;
+                let value = lower_const_param_default(arena, item.value, LoweredType::Any, None)?;
                 if item.splice_span.is_some() {
                     match value {
                         LoweredValue::List(items) => values.extend(items),
@@ -3089,11 +3114,11 @@ fn lower_const_param_default(
                     ArenaRecordFieldKind::Named { name, value, .. } => {
                         values.insert(
                             Arc::<str>::from(name.as_str().as_str()),
-                            lower_const_param_default(arena, value, LoweredType::Any)?,
+                            lower_const_param_default(arena, value, LoweredType::Any, None)?,
                         );
                     }
                     ArenaRecordFieldKind::Spread { expr, .. } => {
-                        let spread = lower_const_param_default(arena, expr, LoweredType::Any)?;
+                        let spread = lower_const_param_default(arena, expr, LoweredType::Any, None)?;
                         match spread {
                             LoweredValue::Record(spread) => values.extend(
                                 spread
@@ -3560,8 +3585,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return Err(CompactFunctionBlocker::ParamType);
                 }
             };
+            let expected_default = compact_runtime_type_in_namespace(&self.program.arena, param.ty, self.declarations, self.current_namespace);
             let default = match param.default {
-                Some(expr) => match lower_const_param_default(&self.program.arena, expr, kind) {
+                Some(expr) => match lower_const_param_default(&self.program.arena, expr, kind, Some(&expected_default)) {
                     Some(default) => Some(default),
                     None => {
                         self.last_blocker_detail = Some((

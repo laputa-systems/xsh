@@ -47,8 +47,7 @@ proc test_map_index_updates_group_push_and_comprehension() [error] {
 }
 
 proc test_map_iteration_item_shape_order_and_snapshot() [error] {
-  let empty_counts: Map[Int] = {}
-  var counts = empty_counts.set("beta", 2).set("alpha", 1)
+  var counts: Map[Int] = {beta: 2, alpha: 1}
   var seen: List[Str] = []
   for entry in counts {
     seen += [f"${entry.key}=${entry.value}"]
@@ -67,10 +66,10 @@ proc test_map_iteration_item_shape_order_and_snapshot() [error] {
 type MapIterationPayload = {label: Str, amount: Int}
 
 proc test_map_iteration_nested_targets_and_qualifiers() [error] {
-  let empty_values: Map[MapIterationPayload] = {}
-  let values = empty_values
-    .set("second", {label: "two", amount: 2})
-    .set("first", {label: "one", amount: 1})
+  let values: Map[MapIterationPayload] = {
+    second: {label: "two", amount: 2},
+    first: {label: "one", amount: 1},
+  }
   var selected: List[Str] = []
   for {key, value: {label: name, amount, ..}, ..} in values {
     selected += [f"${key}:${name}:${amount}"]
@@ -104,8 +103,7 @@ pure map_iteration_success_value() -> Result[Int, MapIterationError] {
 }
 
 pure map_iteration_success_source() -> Result[Map[Int], MapIterationError] {
-  let empty_values: Map[Int] = {}
-  return empty_values.set("first", 4)
+  return {first: 4}
 }
 
 proc test_map_iteration_result_sources_preserve_nominal_errors() [error] {
@@ -130,8 +128,7 @@ proc test_map_iteration_result_sources_preserve_nominal_errors() [error] {
 }
 
 proc test_map_iteration_break_continue_restore_outer_bindings() [error] {
-  let empty_values: Map[Int] = {}
-  let values = empty_values.set("alpha", 1).set("beta", 2).set("gamma", 3)
+  let values: Map[Int] = {alpha: 1, beta: 2, gamma: 3}
   let key = "outer"
   var sum = 0
   for {key, value} in values {
@@ -150,8 +147,7 @@ proc test_map_iteration_evaluates_source_once_and_unwinds_failure(ctx: TestConte
 error SourceError = Missing(code: Int)
 proc load() [io] -> Map[Int] {
   print "source"
-  let empty: Map[Int] = {}
-  return empty.set("beta", 2).set("alpha", 1)
+  return {beta: 2, alpha: 1}
 }
 proc close() [io] { print "closed" }
 pure failed() -> Result[Map[Int], SourceError] {
@@ -264,7 +260,35 @@ proc test_map_literals_expected_context_reaches_returns_arguments_and_nested_val
   test.eq(nested[1].get("answer")?, 46)?
   let envelope: MapLiteralEnvelope = {values: {answer: 47}}
   test.eq(envelope.values.get("answer")?, 47)?
+  let constructed = MapLiteralEnvelope(values: {answer: 50})
+  test.eq(constructed.values.get("answer")?, 50)?
+  let empty_nested: Map[Map[Int]] = {}
+  let set_nested = empty_nested.set("nested", {answer: 51})
+  test.eq(set_nested.get("nested")?.get("answer")?, 51)?
   var replaced: Map[Int] = {answer: 48}
   replaced = {answer: 49}
   test.eq(replaced.get("answer")?, 49)?
+}
+
+pure map_literal_default(input: Map[List[Int]] = {empty: [], ["numbers"]: [1, 2]}) -> Map[List[Int]] { return input }
+pure map_literal_spread_default(input: Map[Int] = {["first"]: 1, ...{second: 2}}) -> Map[Int] { return input }
+
+proc test_map_literal_defaults_keep_context_and_independent_values() [error] {
+  let first = map_literal_default()
+  var second = map_literal_default()
+  second["numbers"] = [9]
+  test.eq(first.get("numbers")?, [1, 2])?
+  test.eq(second.get("numbers")?, [9])?
+  test.eq(map_literal_spread_default().get("second")?, 2)?
+}
+
+type MapLiteralDefaults = {counts: Map[Int] = {fixed: 1, ["other"]: 2}}
+
+proc test_map_literal_record_defaults_retain_map_identity_and_aliases() [error] {
+  let earlier = MapLiteralDefaults()
+  var changed = MapLiteralDefaults()
+  changed.counts = changed.counts.set("fixed", 9)
+  test.eq(earlier.counts.get("fixed")?, 1)?
+  test.eq(changed.counts.get("fixed")?, 9)?
+  test.eq(changed.counts.keys(), ["fixed", "other"])?
 }

@@ -816,3 +816,13 @@ fn api_field_labels_distinguishes_wire_names_from_lexical_bindings() {
         assert!(stdout.contains(text), "missing {text}: {stdout}");
     }
 }
+
+#[test]
+fn api_map_literals_exposes_classification_order_and_boundaries() {
+    let output = xsht(&["api", "language:core.map-literals"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for text in ["Computed keys require Str", "spread-only Maps require context", "canonical key order", "[name]", "before its value"] {
+        assert!(stdout.contains(text), "missing {text}: {stdout}");
+    }
+}

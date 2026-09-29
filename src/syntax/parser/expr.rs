@@ -1195,6 +1195,13 @@ impl<'a> Parser<'a> {
                     key: key.id, value: value.id, span: self.span(field_start, value.span.end()),
                 });
                 self.skip_comp_layout();
+                if self.at_keyword(Keyword::For) {
+                    self.diagnostics.push(Diagnostic::error("computed entries are only valid in ordinary Map literals")
+                        .with_code("parse.computed-map-comprehension")
+                        .with_label(Label::primary(self.current_span(), "use an unbracketed key in a Map comprehension")));
+                    arena.discard_record_fields();
+                    return None;
+                }
                 if self.consume(TokenKindMatch::Comma).is_none() { break; }
                 self.skip_comp_layout();
                 continue;

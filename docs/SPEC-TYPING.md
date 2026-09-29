@@ -114,6 +114,13 @@ their concrete element type from the expected context. If an element is truly
 dynamic, the inferred container becomes `List[Any]` or `Map[Any]`; strict mode
 warns when that dynamic container is used as a concrete container.
 
+Computed brace keys require exactly `Str`; `Any`, Optional, Result, Path,
+Bytes, and numeric values do not supply an implicit key conversion. A computed
+entry or expected `Map[T]` context classifies the literal as a Map. Each value
+and Map-spread element uses the same justified homogeneous inference as List
+items. Expected types reach nested literal values and named record conversions;
+a dynamic bound record is not accepted as a Map spread.
+
 For a list literal, ordinary elements contribute their value type while
 `@expression` contributes the element type of its checked `List[T]`. The
 expected `List[T]` context reaches both ordinary elements and splice operands,

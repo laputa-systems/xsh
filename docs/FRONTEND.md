@@ -132,6 +132,12 @@ sequence is a range into a shared table, not a nested allocation. A finalized
 `FullProgram` is self-contained for execution: it does not retain CST, arena,
 checker-output, or construction-body references.
 
+Computed brace keys retain `ArenaRecordFieldKind::Computed { key, value, span }`
+with ordered child expressions. The checked expected type decides constant-key
+Map classification, without source text guesses or runtime Record conversion.
+`ExprMapLiteral` verifies its optional key child, value child, and source location;
+a missing key child denotes a Map spread. Keyed entries evaluate key then value.
+
 List literal children use `ArenaListElementRange`, whose entries retain the
 value expression and optional original splice span. `AstArena::list_elements`
 exposes that distinction; `list_element_exprs` is the ordered traversal API.

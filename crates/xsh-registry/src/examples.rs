@@ -102,6 +102,7 @@ pub(crate) fn source(id: &str) -> Option<String> {
             include_str!("../../../docs/snippets/api/core-optional-postfix.xsh")
         }
         "language.core.field-labels" => include_str!("../../../docs/snippets/api/field-labels.xsh"),
+        "language.core.map-literals" => include_str!("../../../docs/snippets/api/map-literals.xsh"),
         "language.core.records" => include_str!("../../../docs/snippets/api/core-records.xsh"),
         "language.core.statements" => {
             include_str!("../../../docs/snippets/api/core-statements.xsh")

@@ -1456,21 +1456,23 @@ impl CompactBodyProbe<'_> {
             } else { None },
             _ => None,
         };
-        if let Some(params) = params {
-            let mut positional = 0;
-            for arg in self.program.arena.call_args(args).to_vec() {
-                let (value, parameter) = match arg.kind {
-                    crate::syntax::arena::ArenaCallArgKind::Positional(value) => { let p = params.get(positional); positional += 1; (value, p) }
-                    crate::syntax::arena::ArenaCallArgKind::Named { name, value, .. } => (value, params.iter().find(|param| param.name == name)),
-                    crate::syntax::arena::ArenaCallArgKind::Splice { .. } | crate::syntax::arena::ArenaCallArgKind::NamedSpread { .. } => continue,
-                };
-                if let Some(parameter) = parameter { self.apply_compact_expected(value, &parameter.ty); }
-            }
+        if let Some(params) = params { self.apply_compact_call_expected(args, &params); }
+        if let ArenaExprKind::Field { base, name } = callee_expr.kind {
+            let base_ty = self.output.expr_types.get(&base).cloned();
+            let item = match base_ty { Some(Type::Map(item)) if name == "set" => Some((1, *item)), Some(Type::List(item)) if name == "push" => Some((0, *item)), _ => None };
+            if let Some((index, item)) = item && let Some(arg) = self.program.arena.call_args(args).get(index)
+                && let crate::syntax::arena::ArenaCallArgKind::Positional(value) = arg.kind { self.apply_compact_expected(value, &item); }
         }
         if let Some(definition) = self.declarations.record_constructors.resolve_call(
             &self.program.arena, callee, self.current_namespace,
         ) {
-            return self.declarations.record_constructors.schema_type(&self.program.arena, definition);
+            let schema = self.declarations.record_constructors.schema_type(&self.program.arena, definition);
+            if let Type::Record(fields) = &schema {
+                for arg in self.program.arena.call_args(args).to_vec() {
+                    if let crate::syntax::arena::ArenaCallArgKind::Named { name, value, .. } = arg.kind && let Some(expected) = fields.get(&name) { self.apply_compact_expected(value, expected); }
+                }
+            }
+            return schema;
         }
         if let ArenaExprKind::Ident(name) = callee_expr.kind {
             if name == "env" { return Type::Result(Box::new(Type::Str), Box::new(Type::Error)); }
@@ -1519,8 +1521,27 @@ impl CompactBodyProbe<'_> {
         }
     }
 
+    fn apply_compact_call_expected(&mut self, args: crate::syntax::arena::ArenaRange, params: &[CallableParamType]) {
+        let mut occupied = vec![false; params.len()];
+        let mut positional = 0;
+        for arg in self.program.arena.call_args(args).to_vec() {
+            let (value, parameter) = match arg.kind {
+                crate::syntax::arena::ArenaCallArgKind::Positional(value) => {
+                    while occupied.get(positional) == Some(&true) { positional += 1; }
+                    let selected = positional; positional += 1; (value, Some(selected))
+                }
+                crate::syntax::arena::ArenaCallArgKind::Named { name, value, .. } => (value, params.iter().position(|param| param.name == name)),
+                crate::syntax::arena::ArenaCallArgKind::Splice { .. } | crate::syntax::arena::ArenaCallArgKind::NamedSpread { .. } => continue,
+            };
+            if let Some(index) = parameter && let Some(parameter) = params.get(index) {
+                occupied[index] = true;
+                self.apply_compact_expected(value, &parameter.ty);
+            }
+        }
+    }
+
     fn compact_module_call_type(
-        &self,
+        &mut self,
         callee: ArenaExprKind,
         args: crate::syntax::arena::ArenaRange,
     ) -> Option<Type> {
@@ -1532,14 +1553,56 @@ impl CompactBodyProbe<'_> {
         let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind else {
             return None;
         };
-        let expanded = crate::sema::arguments::expand_named_arguments(self.program,
-            self.program.arena.call_args(args), |id| self.output.expr_types.get(&id).cloned()).ok()?;
+        let range = args;
+        let args = self.program.arena.call_args(args).to_vec();
         for sig in api_spec().module_overloads(&module.as_str(), &name.as_str())? {
-            let params = sig.params.iter().map(|param| CallableParamType {
-                name: Name::intern(param.name), ty: param.ty.clone(), defaulted: param.defaulted, rest: false,
-            }).collect::<Vec<_>>();
-            if let Ok(binding) = crate::sema::arguments::bind_static_arguments(&params, &expanded)
-                && expanded.iter().zip(binding.argument_slots).all(|(arg, slot)| arg.ty.matches_expected(&params[slot].ty)) {
+            let mut bindings = vec![false; sig.params.len()];
+            let mut next_positional = 0usize;
+            let mut matched = true;
+            for arg in &args {
+                match arg.kind {
+                    crate::syntax::arena::ArenaCallArgKind::Splice { .. } | crate::syntax::arena::ArenaCallArgKind::NamedSpread { .. } => {
+                        matched = false;
+                        break;
+                    }
+                    crate::syntax::arena::ArenaCallArgKind::Positional(_) => {
+                        while next_positional < bindings.len() && bindings[next_positional] {
+                            next_positional += 1;
+                        }
+                        let Some(binding) = bindings.get_mut(next_positional) else {
+                            matched = false;
+                            break;
+                        };
+                        *binding = true;
+                    }
+                    crate::syntax::arena::ArenaCallArgKind::Named { name, .. } => {
+                        let Some(param_index) = sig
+                            .params
+                            .iter()
+                            .position(|param| param.name == name.as_str())
+                        else {
+                            matched = false;
+                            break;
+                        };
+                        if bindings[param_index] {
+                            matched = false;
+                            break;
+                        }
+                        bindings[param_index] = true;
+                    }
+                }
+            }
+            if matched
+                && sig
+                    .params
+                    .iter()
+                    .zip(&bindings)
+                    .all(|(param, binding)| param.defaulted || *binding)
+            {
+                let params = sig.params.iter().map(|param| CallableParamType {
+                    name: Name::intern(param.name), ty: param.ty.clone(), defaulted: param.defaulted, rest: false,
+                }).collect::<Vec<_>>();
+                self.apply_compact_call_expected(range, &params);
                 return Some(sig.return_ty.clone());
             }
         }

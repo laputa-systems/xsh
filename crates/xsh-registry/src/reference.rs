@@ -214,6 +214,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "pure-functions",
     "records",
     "field-labels",
+    "map-literals",
     "list-concatenation",
     "list-splicing",
     "list-element-assignment",
@@ -817,6 +818,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "field-labels" => (
             "Uses exact wire names as explicit labels without declaring variables.",
             "Keyword spellings such as type, in, and match are legal explicit labels in schemas, literals, member and update paths, patterns, renamed destructuring, and named record/error constructor arguments. Keywords remain reserved binding and import names; keyword labels cannot be shorthand or puns. Quoted literal keys retain arbitrary bytes, including a dot as one key. Known fields keep their checked types; dynamic values retain require validation.",
+        ),
+        "map-literals" => (
+            "Constructs typed Maps with explicit computed keys and Map spreads.",
+            "`{[key]: value, fixed: other, ...more}` selects Map literal mode when any computed key exists or the expected type is Map[T]. Computed keys require Str; constant-key braces otherwise remain Records, and spread-only Maps require context. Spread operands must be Maps. Every key runs before its value, entries run once in source order, and failure skips subsequent entries. Later duplicates replace earlier values; iteration keeps canonical key order and aliases retain earlier contents. Quoted dots are one key, and incompatible concrete values do not widen to Any.",
         ),
         "records" => (
             "Defines structural and named record values.",

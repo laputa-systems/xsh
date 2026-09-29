@@ -136,6 +136,14 @@ OS-facing operations remain explicit indexed host-operation boundaries. The
 normal script runner and native-test harness execute the same verified indexed
 representation. There is no arena execution mode or compatibility interpreter.
 
+Brace literal entries reuse `ArenaRecordFieldKind` with explicit `Computed`
+key/value children. Computed entries and contextual `Map[T]` facts select
+`BuildExprRow::MapLiteral`; record spreads retain their separate interpretation.
+`CompactBodyProbe::check_compact_expr_expected` and `apply_compact_expected`
+preserve Map classification across bindings, returns, nested containers, and
+resolved call parameters. Both indexed routes evaluate each key before its
+value and populate one canonical Map, retaining source spans and alias values.
+
 List literals retain typed `ArenaListElementRange` entries with a child expression
 and optional splice span. Traversal-only owners use `list_element_exprs`; owners
 that interpret elements use `list_elements` so scalar nesting cannot be lost.

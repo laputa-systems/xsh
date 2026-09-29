@@ -397,23 +397,24 @@ fn build_replacement_text(
             Some(format!("{callee_text}({})", arg_parts.join(", ")))
         }
         ArenaExprKind::Record(fields) => {
-            let mut text = pattern_source.get(expr.span.range())?.to_string();
-            let mut replacements = Vec::new();
+            use xsh::frontend::syntax::arena::ArenaRecordFieldKind;
+            let mut text = pattern_source.get(expr.span.start()..expr.span.end())?.to_string();
+            let mut edits = Vec::new();
             for field in arena.record_fields(*fields) {
-                let values = match field.kind {
+                let children = match field.kind {
                     ArenaRecordFieldKind::Computed { key, value, .. } => vec![key, value],
                     ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Path { value, .. } => vec![value],
                     ArenaRecordFieldKind::Spread { expr, .. } => vec![expr],
-                    ArenaRecordFieldKind::Shorthand { .. } => continue,
+                    ArenaRecordFieldKind::Shorthand { .. } => Vec::new(),
                 };
-                for value in values {
-                    let span = arena.expr(value).span;
-                    replacements.push((span, build_replacement_text(arena, value, m, target_source, pattern_source)?));
+                for child in children {
+                    let span = arena.expr(child).span;
+                    let replacement = build_replacement_text(arena, child, m, target_source, pattern_source)?;
+                    edits.push((span.start() - expr.span.start(), span.end() - expr.span.start(), replacement));
                 }
             }
-            for (span, replacement) in replacements.into_iter().rev() {
-                text.replace_range(span.start() - expr.span.start()..span.end() - expr.span.start(), &replacement);
-            }
+            edits.sort_unstable_by_key(|(start, _, _)| std::cmp::Reverse(*start));
+            for (start, end, replacement) in edits { text.replace_range(start..end, &replacement); }
             Some(text)
         }
         ArenaExprKind::Ident(name) => Some(name.to_string()),

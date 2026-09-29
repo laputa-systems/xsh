@@ -325,7 +325,7 @@ fn grep_and_refactor_computed_map_entries_keep_static_labels_distinct() {
     let output = refactor_scripts("{[KEY]: VALUE}", "{[KEY]: VALUE, [\"two\"]: 2}", &paths(&path), false);
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     let updated = fs::read_to_string(&path).unwrap();
-    assert!(updated.contains("{[key]: 1, [\"two\"]: 2}"));
+    assert!(updated.contains("{[key]: 1, [\"two\"]: 2}"), "{updated}");
     assert!(updated.contains("let fixed = {key: 1}"));
 }
 
