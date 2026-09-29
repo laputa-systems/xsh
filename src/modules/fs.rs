@@ -357,11 +357,11 @@ pub(crate) fn rooted_filesystem_stats(
     span: Span,
 ) -> Result<RootFilesystemStats, RuntimeError> {
     rooted_check_path(path, "fs-root-filesystem-stats", span)?;
-    let directory = match root.open_dir(path) {
-        Ok(directory) => directory,
+    let target = match root.open_stat_target(path) {
+        Ok(target) => target,
         Err(error) => return Ok(root_filesystem_stats_failure(error)),
     };
-    let stats = match rfs::fstatvfs(&directory) {
+    let stats = match rfs::fstatvfs(&target) {
         Ok(stats) => stats,
         Err(error) => return Ok(root_filesystem_stats_failure(error.into())),
     };
@@ -605,6 +605,21 @@ pub(crate) fn rooted_readlink_result(
     span: Span,
 ) -> Result<RootReadlinkResult, RuntimeError> {
     rooted_check_path(path, "fs-root-readlink-result", span)?;
+    let mut depth = 0usize;
+    for component in path.components() {
+        match component {
+            Component::Normal(_) => depth += 1,
+            Component::ParentDir if depth == 0 => {
+                return Err(RuntimeError::new(
+                    "fs-root-readlink-result",
+                    "rooted path cannot escape the root",
+                )
+                .with_span(span));
+            }
+            Component::ParentDir => depth -= 1,
+            _ => {}
+        }
+    }
     let Some(leaf) = path.file_name() else {
         return Err(RuntimeError::new(
             "fs-root-readlink-result",

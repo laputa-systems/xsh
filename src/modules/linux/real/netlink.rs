@@ -177,7 +177,7 @@ impl DumpAccumulator {
                     }
                     let error = read_i32(payload, 0)
                         .ok_or(DumpError::Malformed("netlink error payload is truncated"))?;
-                    let request_type = read_u16(payload, 4)
+                    let request_type = read_u16(payload, 8)
                         .ok_or(DumpError::Malformed("acknowledged request type is missing"))?;
                     let request_sequence = read_u32(payload, 12)
                         .ok_or(DumpError::Malformed("acknowledged request sequence is missing"))?;
@@ -583,6 +583,16 @@ fn collect_dump_attempt(
     local_port: u32,
     kind: DumpKind,
 ) -> Result<Vec<NetlinkMessage>, DumpError> {
+    collect_dump_attempt_recorded(socket, sequence, local_port, kind, &mut |_| {})
+}
+
+fn collect_dump_attempt_recorded(
+    socket: &OwnedFd,
+    sequence: u32,
+    local_port: u32,
+    kind: DumpKind,
+    record: &mut impl FnMut(&[u8]),
+) -> Result<Vec<NetlinkMessage>, DumpError> {
     let mut request = Vec::with_capacity(NLMSG_HEADER_LEN + kind.payload_len());
     request.extend_from_slice(
         &u32::try_from(NLMSG_HEADER_LEN + kind.payload_len())
@@ -642,6 +652,7 @@ fn collect_dump_attempt(
             return Err(DumpError::Malformed("netlink response sender is not the kernel"));
         }
         accumulator.push_datagram(&buffer[..received])?;
+        record(&buffer[..received]);
     }
     if accumulator.interrupted {
         return Err(DumpError::Interrupted);
@@ -1154,6 +1165,135 @@ fn read_u64(bytes: &[u8], offset: usize) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sha2::{Digest, Sha256};
+    use std::io::{Read, Write};
+    use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
+
+    const RAW_REPLY_MAGIC: &[u8; 8] = b"XSHNL001";
+    const RAW_REPLY_MAX_BYTES: usize = 4 * MAX_DUMP_BYTES + 4 * MAX_DUMP_DATAGRAMS * 4 + 256;
+
+    #[derive(Debug)]
+    struct RawReplyReplay {
+        origin: &'static str,
+        captured_unix_ms: u64,
+        snapshot: Snapshot,
+    }
+
+    struct RawDump {
+        kind: DumpKind,
+        sequence: u32,
+        local_port: u32,
+        datagrams: Vec<Vec<u8>>,
+    }
+
+    fn dump_kinds() -> [DumpKind; 4] {
+        [DumpKind::Links, DumpKind::Addresses, DumpKind::Routes, DumpKind::Rules]
+    }
+
+    fn take_bytes<'a>(bytes: &'a [u8], cursor: &mut usize, len: usize) -> Result<&'a [u8], String> {
+        let end = (*cursor).checked_add(len).ok_or("raw reply offset overflowed")?;
+        let item = bytes.get(*cursor..end).ok_or("raw reply bundle is truncated")?;
+        *cursor = end;
+        Ok(item)
+    }
+
+    fn take_u32(bytes: &[u8], cursor: &mut usize) -> Result<u32, String> {
+        let raw: [u8; 4] = take_bytes(bytes, cursor, 4)?.try_into().expect("four bytes");
+        Ok(u32::from_le_bytes(raw))
+    }
+
+    fn encode_raw_replies(dumps: &[RawDump], origin: &str, captured_unix_ms: u64) -> Vec<u8> {
+        assert_eq!(dumps.len(), 4);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(RAW_REPLY_MAGIC);
+        bytes.push(if cfg!(target_endian = "little") { b'L' } else { b'B' });
+        bytes.push(match origin {
+            "synthetic" => 0,
+            "container_live" => 1,
+            "physical_live" => 2,
+            _ => panic!("unknown raw reply origin"),
+        });
+        bytes.extend_from_slice(&captured_unix_ms.to_le_bytes());
+        let architecture = std::env::consts::ARCH.as_bytes();
+        bytes.push(u8::try_from(architecture.len()).expect("architecture name fits in one byte"));
+        bytes.extend_from_slice(architecture);
+        for (index, dump) in dumps.iter().enumerate() {
+            assert_eq!(dump.kind, dump_kinds()[index]);
+            bytes.push(u8::try_from(index).expect("four dump kinds"));
+            bytes.extend_from_slice(&dump.sequence.to_le_bytes());
+            bytes.extend_from_slice(&dump.local_port.to_le_bytes());
+            bytes.extend_from_slice(&u32::try_from(dump.datagrams.len()).expect("bounded datagrams").to_le_bytes());
+            for datagram in &dump.datagrams {
+                bytes.extend_from_slice(&u32::try_from(datagram.len()).expect("bounded datagram length").to_le_bytes());
+                bytes.extend_from_slice(datagram);
+            }
+        }
+        assert!(bytes.len() <= RAW_REPLY_MAX_BYTES - 32, "raw reply bundle exceeds its size limit");
+        let digest = Sha256::digest(&bytes);
+        bytes.extend_from_slice(&digest);
+        bytes
+    }
+
+    fn replay_raw_replies(bytes: &[u8]) -> Result<RawReplyReplay, String> {
+        if bytes.len() > RAW_REPLY_MAX_BYTES || bytes.len() < 32 {
+            return Err("raw reply bundle size is invalid".to_owned());
+        }
+        let (body, saved_digest) = bytes.split_at(bytes.len() - 32);
+        if Sha256::digest(body).as_slice() != saved_digest {
+            return Err("raw reply bundle digest does not match".to_owned());
+        }
+        let mut cursor = 0;
+        if take_bytes(body, &mut cursor, 8)? != RAW_REPLY_MAGIC.as_slice() {
+            return Err("raw reply bundle version is unsupported".to_owned());
+        }
+        let endian = if cfg!(target_endian = "little") { b'L' } else { b'B' };
+        if take_bytes(body, &mut cursor, 1)? != &[endian][..] {
+            return Err("raw reply bundle has a different native byte order".to_owned());
+        }
+        let origin = match take_bytes(body, &mut cursor, 1)?[0] {
+            0 => "synthetic",
+            1 => "container_live",
+            2 => "physical_live",
+            _ => return Err("raw reply origin is invalid".to_owned()),
+        };
+        let captured_unix_ms = u64::from_le_bytes(
+            take_bytes(body, &mut cursor, 8)?.try_into().expect("eight bytes"),
+        );
+        let architecture_len = usize::from(take_bytes(body, &mut cursor, 1)?[0]);
+        if take_bytes(body, &mut cursor, architecture_len)? != std::env::consts::ARCH.as_bytes() {
+            return Err("raw reply bundle has a different architecture".to_owned());
+        }
+        let mut snapshot = Snapshot::default();
+        for (index, kind) in dump_kinds().into_iter().enumerate() {
+            if take_bytes(body, &mut cursor, 1)? != &[index as u8][..] {
+                return Err("raw reply dump order is invalid".to_owned());
+            }
+            let sequence = take_u32(body, &mut cursor)?;
+            let local_port = take_u32(body, &mut cursor)?;
+            let count = usize::try_from(take_u32(body, &mut cursor)?).map_err(|error| error.to_string())?;
+            if count == 0 || count > MAX_DUMP_DATAGRAMS {
+                return Err("raw reply datagram count is invalid".to_owned());
+            }
+            let mut accumulator = DumpAccumulator::new(sequence, local_port, kind.request_type(), kind.response_type());
+            for _ in 0..count {
+                let length = usize::try_from(take_u32(body, &mut cursor)?).map_err(|error| error.to_string())?;
+                if length == 0 || length > MAX_DATAGRAM_BYTES {
+                    return Err("raw reply datagram length is invalid".to_owned());
+                }
+                let datagram = take_bytes(body, &mut cursor, length)?;
+                accumulator.push_datagram(datagram).map_err(|error| error.to_string())?;
+            }
+            if !accumulator.complete || accumulator.interrupted {
+                return Err("raw reply dump did not finish cleanly".to_owned());
+            }
+            snapshot.successful_dumps += 1;
+            snapshot.add_messages(kind, &accumulator.messages);
+        }
+        if cursor != body.len() {
+            return Err("raw reply bundle has trailing bytes".to_owned());
+        }
+        Ok(RawReplyReplay { origin, captured_unix_ms, snapshot })
+    }
 
     fn append_message(
         output: &mut Vec<u8>,
@@ -1173,6 +1313,14 @@ mod tests {
         output.resize(output.len().next_multiple_of(4), 0);
     }
 
+    fn append_attribute(output: &mut Vec<u8>, kind: u16, data: &[u8]) {
+        let length = NLA_HEADER_LEN + data.len();
+        output.extend_from_slice(&(length as u16).to_ne_bytes());
+        output.extend_from_slice(&kind.to_ne_bytes());
+        output.extend_from_slice(data);
+        output.resize(output.len().next_multiple_of(4), 0);
+    }
+
     fn accumulator() -> DumpAccumulator {
         DumpAccumulator::new(7, 91, RTM_GETLINK, RTM_NEWLINK)
     }
@@ -1189,6 +1337,137 @@ mod tests {
     }
 
     #[test]
+    fn raw_reply_bundle_replays_validated_datagrams_and_rejects_tampering() {
+        let mut dumps = Vec::new();
+        for (index, kind) in dump_kinds().into_iter().enumerate() {
+            let sequence = u32::try_from(index + 1).expect("four requests");
+            let mut item = Vec::new();
+            let mut payload = vec![0_u8; kind.payload_len()];
+            if kind == DumpKind::Links {
+                payload[4..8].copy_from_slice(&9_i32.to_ne_bytes());
+                append_attribute(&mut payload, 3, b"eth9\0");
+            } else {
+                payload[0] = libc::AF_INET as u8;
+            }
+            append_message(&mut item, kind.response_type(), NLM_F_MULTI, sequence, 91, &payload);
+            let mut done = Vec::new();
+            append_message(&mut done, NLMSG_DONE, 0, sequence, 91, &0_i32.to_ne_bytes());
+            dumps.push(RawDump {
+                kind,
+                sequence,
+                local_port: 91,
+                datagrams: vec![item, done],
+            });
+        }
+        let mut encoded = encode_raw_replies(&dumps, "synthetic", 0);
+        let replay = replay_raw_replies(&encoded).expect("raw reply replay");
+        assert_eq!(replay.origin, "synthetic");
+        assert_eq!(replay.captured_unix_ms, 0);
+        let snapshot = replay.snapshot;
+        assert_eq!(snapshot.successful_dumps, 4);
+        assert_eq!(snapshot.links[0].ifindex, 9);
+        assert_eq!(snapshot.addresses.len(), 1);
+        assert_eq!(snapshot.routes.len(), 1);
+        assert_eq!(snapshot.rules.len(), 1);
+
+        let mut reframed = encoded.clone();
+        let first_datagram = 8 + 1 + 1 + 8 + 1 + std::env::consts::ARCH.len() + 1 + 4 + 4 + 4 + 4;
+        reframed[first_datagram + 8] ^= 1;
+        let digest_offset = reframed.len() - 32;
+        let digest = Sha256::digest(&reframed[..digest_offset]);
+        reframed[digest_offset..].copy_from_slice(&digest);
+        assert!(replay_raw_replies(&reframed).unwrap_err().contains("sequence"));
+
+        let tamper_offset = encoded.len() - 33;
+        encoded[tamper_offset] ^= 1;
+        assert!(replay_raw_replies(&encoded).unwrap_err().contains("digest"));
+    }
+
+    #[test]
+    #[ignore = "requires XSH_NETLINK_CAPTURE_DIR or XSH_NETLINK_REPLAY_DIR in the pinned Linux test image"]
+    fn live_raw_reply_capture_or_replay_uses_the_network_decoder() {
+        let capture = std::env::var_os("XSH_NETLINK_CAPTURE_DIR");
+        let replay = std::env::var_os("XSH_NETLINK_REPLAY_DIR");
+        assert!(capture.is_some() ^ replay.is_some(), "set exactly one raw reply bundle directory");
+        if let Some(directory) = replay {
+            let file = std::fs::File::open(std::path::Path::new(&directory).join("replies.bin"))
+                .expect("open saved raw replies");
+            let mut bytes = Vec::new();
+            file.take(u64::try_from(RAW_REPLY_MAX_BYTES + 1).expect("bounded raw reply size"))
+                .read_to_end(&mut bytes)
+                .expect("read bounded raw replies");
+            let replay = replay_raw_replies(&bytes).expect("replay saved raw replies");
+            assert_eq!(replay.snapshot.successful_dumps, 4);
+            println!("raw netlink replay: origin={}, captured={} ms, state={}, links={}, addresses={}, routes={}, rules={}",
+                replay.origin, replay.captured_unix_ms, replay.snapshot.state(), replay.snapshot.links.len(),
+                replay.snapshot.addresses.len(), replay.snapshot.routes.len(), replay.snapshot.rules.len());
+            return;
+        }
+
+        let origin = std::env::var("XSH_NETLINK_CAPTURE_ORIGIN").unwrap_or_else(|_| "container_live".to_owned());
+        assert!(matches!(origin.as_str(), "container_live" | "physical_live"), "live capture origin is invalid");
+
+        let socket = socket_with(AddressFamily::NETLINK, SocketType::RAW, SocketFlags::CLOEXEC, None)
+            .expect("open route netlink socket");
+        bind(&socket, &SocketAddrNetlink::new(0, 0)).expect("bind route netlink socket");
+        let local = rustix::net::getsockname(&socket).expect("read local netlink port");
+        let local = SocketAddrNetlink::try_from(local).expect("local route netlink address");
+        let mut dumps = Vec::new();
+        let mut live = Snapshot::default();
+        for (index, kind) in dump_kinds().into_iter().enumerate() {
+            let sequence = u32::try_from(index + 1).expect("four requests");
+            let mut datagrams = Vec::new();
+            let mut messages = None;
+            for attempt in 0..DUMP_ATTEMPTS {
+                datagrams.clear();
+                match collect_dump_attempt_recorded(
+                    &socket,
+                    sequence,
+                    local.pid(),
+                    kind,
+                    &mut |bytes| datagrams.push(bytes.to_vec()),
+                ) {
+                    Err(DumpError::Interrupted) if attempt + 1 < DUMP_ATTEMPTS => continue,
+                    result => {
+                        messages = Some(result.expect("capture a complete route netlink dump"));
+                        break;
+                    }
+                }
+            }
+            let messages = messages.expect("at least one netlink dump attempt");
+            live.successful_dumps += 1;
+            live.add_messages(kind, &messages);
+            dumps.push(RawDump { kind, sequence, local_port: local.pid(), datagrams });
+        }
+        let captured_unix_ms = u64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("capture clock predates Unix epoch")
+                .as_millis(),
+        )
+        .expect("capture timestamp fits u64");
+        let bytes = encode_raw_replies(&dumps, &origin, captured_unix_ms);
+        let decoded = replay_raw_replies(&bytes).expect("replay captured raw replies");
+        assert_eq!(format!("{live:?}"), format!("{:?}", decoded.snapshot));
+
+        let directory = std::path::PathBuf::from(capture.expect("capture directory"));
+        let mut builder = std::fs::DirBuilder::new();
+        builder.mode(0o700);
+        builder.create(&directory).expect("create new private raw reply directory");
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(directory.join("replies.bin"))
+            .expect("create private raw reply file");
+        file.write_all(&bytes).expect("save bounded raw replies");
+        file.sync_all().expect("sync raw reply file");
+        println!("raw netlink capture: origin={}, captured={} ms, state={}, links={}, addresses={}, routes={}, rules={}",
+            decoded.origin, decoded.captured_unix_ms, live.state(), live.links.len(), live.addresses.len(),
+            live.routes.len(), live.rules.len());
+    }
+
+    #[test]
     fn dump_accumulator_reads_multipart_messages_across_datagrams() {
         let mut state = accumulator();
         let mut first = Vec::new();
@@ -1201,6 +1480,76 @@ mod tests {
         append_message(&mut last, NLMSG_DONE, 0, 7, 91, &[]);
         state.push_datagram(&last).expect("terminator");
         assert!(state.complete);
+    }
+
+    #[test]
+    fn raw_multipart_dumps_replay_through_the_network_snapshot_decoder() {
+        let mut link = vec![0_u8; 16];
+        link[4..8].copy_from_slice(&4_i32.to_ne_bytes());
+        link[8..12].copy_from_slice(&1_u32.to_ne_bytes());
+        append_attribute(&mut link, 3, b"eth0\0");
+        append_attribute(&mut link, 4, &1500_u32.to_ne_bytes());
+
+        let mut address = vec![libc::AF_INET as u8, 24, 0, 0];
+        address.extend_from_slice(&4_u32.to_ne_bytes());
+        append_attribute(&mut address, 1, &[192, 0, 2, 10]);
+
+        let mut route = vec![0_u8; 12];
+        route[0] = libc::AF_INET as u8;
+        route[1] = 24;
+        route[4] = 254;
+        route[5] = 4;
+        route[7] = 1;
+        append_attribute(&mut route, 1, &[192, 0, 2, 0]);
+        append_attribute(&mut route, 4, &4_u32.to_ne_bytes());
+
+        let mut rule = vec![0_u8; 12];
+        rule[0] = libc::AF_INET as u8;
+        rule[4] = 254;
+        rule[7] = 1;
+        append_attribute(&mut rule, 6, &100_u32.to_ne_bytes());
+        append_attribute(&mut rule, 10, &3_u32.to_ne_bytes());
+
+        let mut snapshot = Snapshot::default();
+        for (index, (kind, payload)) in [
+            (DumpKind::Links, link),
+            (DumpKind::Addresses, address),
+            (DumpKind::Routes, route),
+            (DumpKind::Rules, rule),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let sequence = (index + 1) as u32;
+            let mut item = Vec::new();
+            append_message(&mut item, kind.response_type(), NLM_F_MULTI, sequence, 91, &payload);
+            let mut done = Vec::new();
+            append_message(&mut done, NLMSG_DONE, 0, sequence, 91, &0_i32.to_ne_bytes());
+            let mut accumulator = DumpAccumulator::new(sequence, 91, kind.request_type(), kind.response_type());
+            accumulator.push_datagram(&item).expect("multipart item");
+            accumulator.push_datagram(&done).expect("multipart terminator");
+            assert!(accumulator.complete);
+            assert!(!accumulator.interrupted);
+            snapshot.successful_dumps += 1;
+            snapshot.add_messages(kind, &accumulator.messages);
+        }
+
+        assert!(snapshot.issues.is_empty());
+        assert_eq!(snapshot.links[0].ifindex, 4);
+        assert_eq!(snapshot.links[0].mtu, Some(1500));
+        assert_eq!(snapshot.addresses[0].address.as_deref(), Some(&[192, 0, 2, 10][..]));
+        assert_eq!(snapshot.routes[0].destination.as_deref(), Some(&[192, 0, 2, 0][..]));
+        assert_eq!(snapshot.routes[0].output_ifindex, Some(4));
+        assert_eq!(snapshot.rules[0].priority, Some(100));
+        assert_eq!(snapshot.rules[0].fwmark, Some(3));
+        let Value::Record(value) = snapshot_value(snapshot) else {
+            panic!("network dump must be a record");
+        };
+        assert!(matches!(value.get("state"), Some(Value::Str(state)) if state.as_ref() == "complete"));
+        assert!(matches!(value.get("enumeration_succeeded"), Some(Value::Bool(true))));
+        for field in ["links", "addresses", "routes", "rules"] {
+            assert!(matches!(value.get(field), Some(Value::List(rows)) if rows.len() == 1));
+        }
     }
 
     #[test]
@@ -1362,7 +1711,7 @@ mod tests {
         assert_eq!(snapshot.addresses[0].ifindex, 3);
         assert_eq!(snapshot.addresses[0].address.as_deref(), Some(&[192, 0, 2, 2][..]));
         assert_eq!(snapshot.issues.len(), 1);
-        assert_eq!(snapshot.issues[0].object, "addresses");
+        assert_eq!(snapshot.issues[0].object, "address");
         assert_eq!(snapshot.issues[0].state, "malformed");
     }
 

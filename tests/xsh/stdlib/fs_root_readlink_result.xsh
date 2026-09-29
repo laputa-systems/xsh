@@ -9,6 +9,7 @@ proc test_fs_root_readlink_result_distinguishes_link_absence_and_read_failure() 
   test.eq(observed.state, "observed")?
   test.eq(observed.target.require(Path)?.display(), "target")?
   test.eq(observed.errno, null)?
+  test.eq(fs.root_readlink_result(root, p"nested/../nested/link")?.target.require(Path)?.display(), "target")?
 
   let absent = fs.root_readlink_result(root, p"nested/missing")?
   test.eq(absent.state, "absent")?
@@ -23,4 +24,5 @@ proc test_fs_root_readlink_result_distinguishes_link_absence_and_read_failure() 
   let missing_parent = fs.root_readlink_result(root, p"absent/link")?
   test.eq(missing_parent.state, "absent")?
   test.error_kind(fs.root_readlink_result(root, p"../escape"), "fs-root-readlink-result")?
+  test.error_kind(fs.root_readlink_result(root, p"nested/../../escape"), "fs-root-readlink-result")?
 }

@@ -153,7 +153,7 @@ export type CpuCache = {
   shared_cpus: List[Int],
 }
 
-## Describes one CPUFreq policy with requested and hardware-observed values separated.
+## Describes one CPUFreq policy with kernel scaling, governor request, and hardware values separated.
 export type CpuFreqPolicy = {
   name: Str,
   related_cpus: List[Int],
@@ -166,7 +166,7 @@ export type CpuFreqPolicy = {
   scaling_min_khz: Int?,
   scaling_max_khz: Int?,
   hardware_current_khz: Int?,
-  requested_current_khz: Int?,
+  scaling_current_khz: Int?,
   governor_requested_khz: Int?,
   average_current_khz: Int?,
   bios_limit_khz: Int?,
@@ -183,6 +183,7 @@ export type CpuFreqPolicy = {
 ## Describes one kernel-exported CPU idle state and its accounting.
 export type CpuIdleState = {
   cpu_id: Int?,
+  state_index: Int?,
   name: Str,
   description: Str?,
   disable_setting: Int?,
@@ -479,6 +480,7 @@ export type UsbDevice = {
   active_configuration: Int?,
   power_control: Str?,
   autosuspend_delay_ms: Int?,
+  runtime_status: Str?,
   is_root_hub: Bool,
   interfaces: List[UsbInterface],
 }
@@ -634,9 +636,10 @@ export type NetworkSection = {
   rules: List[NetworkRule],
 }
 
-## Describes one raw kernel sensor channel and its source units.
+## Keeps the hwmon class entry separate from its possibly repeated chip name.
 export type SensorChannel = {
   chip: Str,
+  chip_entry_name: Str?,
   channel: Str,
   label: TextObservation,
   kind: Str,
@@ -647,10 +650,12 @@ export type SensorChannel = {
   critical: Int?,
   alarm: Bool?,
   parent_device_class_index: Int?,
+  parent_pci_function_index: Int?,
+  parent_usb_device_index: Int?,
 }
 
-## Describes one thermal-zone trip point and its hysteresis.
-export type ThermalTrip = {kind: Str, temperature_millidegrees: Int?, hysteresis_millidegrees: Int?}
+## Describes one thermal-zone trip point by its exported index and hysteresis.
+export type ThermalTrip = {index: Int?, kind: Str, temperature_millidegrees: Int?, hysteresis_millidegrees: Int?}
 ## Describes one thermal zone and its reported trip points.
 export type ThermalZone = {
   id: Int,
@@ -727,8 +732,8 @@ export type FirmwareSection = {
   limitation: TextObservation,
 }
 
-## Describes one loaded kernel module.
-export type KernelModule = {name: Str, size_bytes: Int, users: Int, state: Str}
+## Describes one loaded kernel module; users is null when procfs cannot expose its use count.
+export type KernelModule = {name: Str, size_bytes: Int, users: Int?, state: Str}
 ## Stores one named kernel parameter observation.
 export type KernelParameter = {name: Str, value: TextObservation}
 ## Groups selected kernel command-line, module, parameter, and sysctl data.
@@ -758,9 +763,11 @@ export type ProcessRecord = {
 ## Collects visible processes while preserving enumeration status.
 export type ProcessSection = {status: SectionStatus, processes: List[ProcessRecord]}
 
-## Describes one kernel device-class entry and its available parent relations.
+## Keeps the class entry name separate from its possibly repeated display label.
+## Parent indexes refer to records in the same report, not stable host identities.
 export type DeviceClassRecord = {
   class: Str,
+  entry_name: TextObservation,
   name: TextObservation,
   parent_device_class_index: Int?,
   parent_pci_function_index: Int?,
@@ -971,11 +978,11 @@ pure not_requested_devices(section: DeviceSection) -> DeviceSection {
 }
 
 pure selection_needs_pci(selected: ReportSection) -> Bool {
-  return selected == ReportPci or selected == ReportUsb or selected == ReportNetwork or selected == ReportDevices
+  return selected == ReportPci or selected == ReportUsb or selected == ReportNetwork or selected == ReportDevices or selected == ReportSensors
 }
 
 pure selection_needs_usb(selected: ReportSection) -> Bool {
-  return selected == ReportUsb or selected == ReportNetwork or selected == ReportDevices
+  return selected == ReportUsb or selected == ReportNetwork or selected == ReportDevices or selected == ReportSensors
 }
 
 pure select_report_domain(
@@ -1161,6 +1168,7 @@ type JsonUsbDevice = {
   active_configuration: Int?,
   power_control: Str?,
   autosuspend_delay_ms: Int?,
+  runtime_status: Str?,
   is_root_hub: Bool,
   interfaces: List[UsbInterface],
 }
@@ -1307,6 +1315,7 @@ type JsonNetworkSection = {
 
 type JsonSensorChannel = {
   chip: Str,
+  chip_entry_name: Str?,
   channel: Str,
   label: JsonTextObservation,
   kind: Str,
@@ -1317,6 +1326,8 @@ type JsonSensorChannel = {
   critical: Int?,
   alarm: Bool?,
   parent_device_class_index: Int?,
+  parent_pci_function_index: Int?,
+  parent_usb_device_index: Int?,
 }
 
 type JsonSensorSection = {
@@ -1386,6 +1397,7 @@ type JsonProcessSection = {status: JsonSectionStatus, processes: List[JsonProces
 
 type JsonDeviceClassRecord = {
   class: Str,
+  entry_name: JsonTextObservation,
   name: JsonTextObservation,
   parent_device_class_index: Int?,
   parent_pci_function_index: Int?,
@@ -2247,6 +2259,7 @@ pure device_record_json(value: DeviceClassRecord) -> JsonDeviceClassRecord {
 
   return {
     ...value,
+    entry_name: text_observation_json(value.entry_name),
     name: text_observation_json(value.name),
     attributes: attributes,
   }
@@ -2260,6 +2273,7 @@ pure device_record_xsh(value: JsonDeviceClassRecord) -> Result[DeviceClassRecord
 
   return {
     ...value,
+    entry_name: text_observation_xsh(value.entry_name)?,
     name: text_observation_xsh(value.name)?,
     attributes: attributes,
   }
@@ -2347,6 +2361,54 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
   if report.schema_version != 1 {
     return Err(SystemReportError.UnsupportedSchema(version: report.schema_version, message: f"unsupported schema version ${report.schema_version}"))
   }
+  var class_keys = set.empty()
+  for device in report.devices.devices {
+    if device.parent_device_class_index != null and
+        ((device.parent_device_class_index ?? -1) < 0 or (device.parent_device_class_index ?? -1) >= report.devices.devices.len()) {
+      return Err(SystemReportError.InvalidJson(message: "device-class parent index is outside the report"))
+    }
+    if device.parent_pci_function_index != null and
+        ((device.parent_pci_function_index ?? -1) < 0 or (device.parent_pci_function_index ?? -1) >= report.pci.functions.len()) {
+      return Err(SystemReportError.InvalidJson(message: "device-class PCI parent index is outside the report"))
+    }
+    if device.parent_usb_device_index != null and
+        ((device.parent_usb_device_index ?? -1) < 0 or (device.parent_usb_device_index ?? -1) >= report.usb.devices.len()) {
+      return Err(SystemReportError.InvalidJson(message: "device-class USB parent index is outside the report"))
+    }
+    if device.entry_name.state == Observed {
+      let entry = device.entry_name.value ?? ""
+      if entry == "" or entry == "." or entry == ".." or entry.contains("/") or entry.contains("\u{0000}") {
+        return Err(SystemReportError.InvalidJson(message: "device-class entry names must be nonempty path components"))
+      }
+      let key = f"${device.class.byte_len()}:${device.class}${entry}"
+      if set.has(class_keys, key) {
+        return Err(SystemReportError.InvalidJson(message: "device-class entries must have unique class and entry names"))
+      }
+      class_keys = set.add(class_keys, key)
+    }
+  }
+  var sensor_keys = set.empty()
+  for channel in report.sensors.channels {
+    if channel.parent_pci_function_index != null and
+        ((channel.parent_pci_function_index ?? -1) < 0 or (channel.parent_pci_function_index ?? -1) >= report.pci.functions.len()) {
+      return Err(SystemReportError.InvalidJson(message: "hwmon PCI parent index is outside the report"))
+    }
+    if channel.parent_usb_device_index != null and
+        ((channel.parent_usb_device_index ?? -1) < 0 or (channel.parent_usb_device_index ?? -1) >= report.usb.devices.len()) {
+      return Err(SystemReportError.InvalidJson(message: "hwmon USB parent index is outside the report"))
+    }
+    if channel.chip_entry_name != null {
+      let entry = channel.chip_entry_name ?? ""
+      if entry == "" or entry == "." or entry == ".." or entry.contains("/") or entry.contains("\u{0000}") {
+        return Err(SystemReportError.InvalidJson(message: "hwmon chip entry names must be nonempty path components"))
+      }
+      let key = f"${entry.byte_len()}:${entry}${channel.channel}"
+      if set.has(sensor_keys, key) {
+        return Err(SystemReportError.InvalidJson(message: "hwmon channels must have unique chip entries and channel names"))
+      }
+      sensor_keys = set.add(sensor_keys, key)
+    }
+  }
   for zone in report.power.cap_zones {
     var previous_index = -1
     for constraint in zone.constraints {
@@ -2354,6 +2416,42 @@ pure require_report_v1(report: SystemReport) -> Result[Unit] {
         return Err(SystemReportError.InvalidJson(message: "powercap constraint indexes must be unique, ascending, and JSON-safe"))
       }
       previous_index = constraint.index
+    }
+  }
+  for zone in report.sensors.thermal_zones {
+    var previous_index = -1
+    var has_index = false
+    var missing_index = false
+    for trip in zone.trips {
+      if trip.index == null {
+        missing_index = true
+      } else {
+        has_index = true
+        let index = trip.index ?? -1
+        if index <= previous_index or index > 9007199254740991 {
+          return Err(SystemReportError.InvalidJson(message: "thermal trip indexes must be unique, ascending, and JSON-safe"))
+        }
+        previous_index = index
+      }
+    }
+    if has_index and missing_index {
+      return Err(SystemReportError.InvalidJson(message: "thermal trip indexes cannot mix known and legacy-unknown values"))
+    }
+  }
+  var idle_keys = set.empty()
+  for state in report.cpu.idle_states {
+    if state.state_index != null {
+      let index = state.state_index ?? -1
+      if index < 0 or index > 9007199254740991 {
+        return Err(SystemReportError.InvalidJson(message: "CPUIdle state indexes must be nonnegative and JSON-safe"))
+      }
+      if state.cpu_id != null {
+        let key = f"${state.cpu_id ?? -1}:${index}"
+        if set.has(idle_keys, key) {
+          return Err(SystemReportError.InvalidJson(message: "CPUIdle states must have unique CPU and state indexes"))
+        }
+        idle_keys = set.add(idle_keys, key)
+      }
     }
   }
   return Ok()
@@ -2407,6 +2505,155 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
         normalized = updated
       }
     }
+  }
+  match json.get(normalized, ["cpu", "idle_states"]) {
+    Ok(raw_states) => {
+      guard let states = raw_states.require(List[Any]) else |error| {
+        return Err(SystemReportError.InvalidJson(message: error.message))
+      }
+      for state_index in range(states.len()) {
+        match json.get(states[state_index], ["state_index"]) {
+          Ok(_) => {}
+          Err(_) => {
+            guard let updated = json.set(normalized, ["cpu", "idle_states", state_index, "state_index"], null) else |error| {
+              return Err(SystemReportError.InvalidJson(message: error.message))
+            }
+            normalized = updated
+          }
+        }
+      }
+    }
+    Err(_) => {}
+  }
+  match json.get(normalized, ["cpu", "frequency_policies"]) {
+    Ok(raw_policies) => {
+      guard let policies = raw_policies.require(List[Any]) else |error| {
+        return Err(SystemReportError.InvalidJson(message: error.message))
+      }
+      for policy_index in range(policies.len()) {
+        var legacy_current: Int? = null
+        var has_legacy_current = false
+        match json.get(policies[policy_index], ["requested_current_khz"]) {
+          Ok(raw_legacy) => {
+            has_legacy_current = true
+            guard let value = raw_legacy.require(Int?) else |error| {
+              return Err(SystemReportError.InvalidJson(message: error.message))
+            }
+            legacy_current = value
+          }
+          Err(_) => {}
+        }
+        match json.get(policies[policy_index], ["scaling_current_khz"]) {
+          Ok(raw_current) => {
+            guard let value = raw_current.require(Int?) else |error| {
+              return Err(SystemReportError.InvalidJson(message: error.message))
+            }
+            if has_legacy_current and value != legacy_current {
+              return Err(SystemReportError.InvalidJson(message: "CPUFreq current frequency has conflicting v1 field names"))
+            }
+          }
+          Err(_) => {
+            let replacement: Any = if legacy_current == null {null} else {legacy_current ?? -1}
+            guard let updated = json.set(normalized, ["cpu", "frequency_policies", policy_index, "scaling_current_khz"], replacement) else |error| {
+              return Err(SystemReportError.InvalidJson(message: error.message))
+            }
+            normalized = updated
+          }
+        }
+        if has_legacy_current {
+          guard let updated = json.remove(normalized, ["cpu", "frequency_policies", policy_index, "requested_current_khz"]) else |error| {
+            return Err(SystemReportError.InvalidJson(message: error.message))
+          }
+          normalized = updated
+        }
+      }
+    }
+    Err(_) => {}
+  }
+  match json.get(normalized, ["sensors", "thermal_zones"]) {
+    Ok(raw_zones) => {
+      guard let zones = raw_zones.require(List[Any]) else |error| {
+        return Err(SystemReportError.InvalidJson(message: error.message))
+      }
+      for zone_index in range(zones.len()) {
+        guard let trips = json.get(zones[zone_index], ["trips"])?.require(List[Any]) else |error| {
+          return Err(SystemReportError.InvalidJson(message: error.message))
+        }
+        for trip_index in range(trips.len()) {
+          match json.get(trips[trip_index], ["index"]) {
+            Ok(_) => {}
+            Err(_) => {
+              guard let updated = json.set(normalized, ["sensors", "thermal_zones", zone_index, "trips", trip_index, "index"], null) else |error| {
+                return Err(SystemReportError.InvalidJson(message: error.message))
+              }
+              normalized = updated
+            }
+          }
+        }
+      }
+    }
+    Err(_) => {}
+  }
+  match json.get(normalized, ["usb", "devices"]) {
+    Ok(raw_devices) => {
+      guard let devices = raw_devices.require(List[Any]) else |error| {
+        return Err(SystemReportError.InvalidJson(message: error.message))
+      }
+      for device_index in range(devices.len()) {
+        match json.get(devices[device_index], ["runtime_status"]) {
+          Ok(_) => {}
+          Err(_) => {
+            guard let updated = json.set(normalized, ["usb", "devices", device_index, "runtime_status"], null) else |error| {
+              return Err(SystemReportError.InvalidJson(message: error.message))
+            }
+            normalized = updated
+          }
+        }
+      }
+    }
+    Err(_) => {}
+  }
+  match json.get(normalized, ["sensors", "channels"]) {
+    Ok(raw_channels) => {
+      guard let channels = raw_channels.require(List[Any]) else |error| {
+        return Err(SystemReportError.InvalidJson(message: error.message))
+      }
+      for channel_index in range(channels.len()) {
+        for field in ["chip_entry_name", "parent_pci_function_index", "parent_usb_device_index"] {
+          match json.get(channels[channel_index], [field]) {
+            Ok(_) => {}
+            Err(_) => {
+              guard let updated = json.set(normalized, ["sensors", "channels", channel_index, field], null) else |error| {
+                return Err(SystemReportError.InvalidJson(message: error.message))
+              }
+              normalized = updated
+            }
+          }
+        }
+      }
+    }
+    Err(_) => {}
+  }
+  match json.get(normalized, ["devices", "devices"]) {
+    Ok(raw_devices) => {
+      guard let devices = raw_devices.require(List[Any]) else |error| {
+        return Err(SystemReportError.InvalidJson(message: error.message))
+      }
+      for device_index in range(devices.len()) {
+        match json.get(devices[device_index], ["entry_name"]) {
+          Ok(_) => {}
+          Err(_) => {
+            guard let updated = json.set(normalized, ["devices", "devices", device_index, "entry_name"], {
+              state: "unsupported", value: null, raw_bytes_base64: null,
+            }) else |error| {
+              return Err(SystemReportError.InvalidJson(message: error.message))
+            }
+            normalized = updated
+          }
+        }
+      }
+    }
+    Err(_) => {}
   }
   match json.get(normalized, ["power", "cap_zones"]) {
     Ok(raw_zones) => {
@@ -2582,6 +2829,14 @@ pure optional_int_display(value: Int?) -> Str {
   return f"${value ?? 0}"
 }
 
+pure integer_list_display(values: List[Int]) -> Str {
+  var texts: List[Str] = []
+  for value in values {
+    texts = texts.push(f"${value}")
+  }
+  return texts.join(",")
+}
+
 pure key_part(prefix: Str, value: Str) -> Str {
   return f"${prefix}${value.count_chars()}:${value}"
 }
@@ -2620,7 +2875,7 @@ pure cpu_policy_key(policy: CpuFreqPolicy) -> Str {
   key = f"${key}${optional_int_key(policy.scaling_min_khz)}"
   key = f"${key}${optional_int_key(policy.scaling_max_khz)}"
   key = f"${key}${optional_int_key(policy.hardware_current_khz)}"
-  key = f"${key}${optional_int_key(policy.requested_current_khz)}"
+  key = f"${key}${optional_int_key(policy.scaling_current_khz)}"
   key = f"${key}${optional_int_key(policy.governor_requested_khz)}"
   key = f"${key}${optional_int_key(policy.average_current_khz)}"
   key = f"${key}${optional_int_key(policy.bios_limit_khz)}"
@@ -2772,7 +3027,7 @@ pure render_typed_text(
     if output_report.cpu.status.state != SectionNotRequested {
       lines = lines.push("CPU caches:")
       for cache in output_report.cpu.caches {
-        lines = lines.push(f"  L${cache.level} ${terminal_quote(cache.kind)?} cache on CPU ${cache.owner_cpu_id} (sysfs index ${cache.sysfs_index}): ${byte_quantity(cache.size_bytes)}; shared CPUs ${cache.shared_cpus.join(",")}")
+        lines = lines.push(f"  L${cache.level} ${terminal_quote(cache.kind)?} cache on CPU ${cache.owner_cpu_id} (sysfs index ${cache.sysfs_index}): ${byte_quantity(cache.size_bytes)}; shared CPUs ${integer_list_display(cache.shared_cpus)}")
       }
 
       lines = lines.push("CPU idle states:")
@@ -2802,6 +3057,7 @@ pure render_typed_text(
         let port = optional_text_display(device.port_path)?
         let serial = observation_display(device.serial)?
         lines = lines.push(f"  ${name} port=${port} id=${optional_int_display(device.vendor_id)}:${optional_int_display(device.product_id)} serial=${serial}")
+        lines = lines.push(f"    runtime=${optional_text_display(device.runtime_status)?} control=${optional_text_display(device.power_control)?} autosuspend=${optional_int_display(device.autosuspend_delay_ms)} ms configuration=${optional_int_display(device.active_configuration)}/${optional_int_display(device.configuration_count)}")
         for interface in device.interfaces {
           lines = lines.push(f"    interface ${interface.number} ${optional_text_display(interface.name)?} driver=${optional_text_display(interface.driver)?} alternate=${optional_int_display(interface.active_alternate)}")
         }
@@ -2814,7 +3070,7 @@ pure render_typed_text(
         let name = optional_text_display(device.name)?
         let model = observation_display(device.model)?
         lines = lines.push(f"  ${name} ${optional_int_display(device.major)}:${optional_int_display(device.minor)} ${byte_quantity(device.size_bytes)} model=${model}")
-        lines = lines.push(f"    kind=${terminal_quote(device.kind)?} block-parent=${optional_int_display(device.parent_device_index)} pci-parent=${optional_int_display(device.parent_pci_function_index)} holders=${device.holder_indices.join(",")} slaves=${device.slave_indices.join(",")} scheduler=${optional_text_display(device.active_scheduler)?}")
+        lines = lines.push(f"    kind=${terminal_quote(device.kind)?} block-parent=${optional_int_display(device.parent_device_index)} pci-parent=${optional_int_display(device.parent_pci_function_index)} holders=${integer_list_display(device.holder_indices)} slaves=${integer_list_display(device.slave_indices)} scheduler=${optional_text_display(device.active_scheduler)?}")
       }
       lines = lines.push("Mounts:")
       for mount in output_report.storage.mounts {
@@ -2857,6 +3113,9 @@ pure render_typed_text(
       lines = lines.push("Thermal zones:")
       for zone in output_report.sensors.thermal_zones {
         lines = lines.push(f"  zone ${zone.id} kind=${optional_text_display(zone.kind)?} temperature=${optional_int_display(zone.temperature_millidegrees)} millidegrees Celsius")
+        for trip in zone.trips {
+          lines = lines.push(f"    trip ${optional_int_display(trip.index)} ${terminal_quote(trip.kind)?} temperature=${optional_int_display(trip.temperature_millidegrees)} hysteresis=${optional_int_display(trip.hysteresis_millidegrees)} millidegrees Celsius")
+        }
       }
     }
 
@@ -2877,7 +3136,7 @@ pure render_typed_text(
     if output_report.kernel.status.state != SectionNotRequested {
       lines = lines.push("Kernel modules:")
       for kernel_module in output_report.kernel.modules {
-        lines = lines.push(f"  ${terminal_quote(kernel_module.name)?} size=${kernel_module.size_bytes} bytes users=${kernel_module.users} state=${terminal_quote(kernel_module.state)?}")
+        lines = lines.push(f"  ${terminal_quote(kernel_module.name)?} size=${kernel_module.size_bytes} bytes users=${optional_int_display(kernel_module.users)} state=${terminal_quote(kernel_module.state)?}")
       }
       lines = lines.push(f"Kernel command line: ${observation_display(output_report.kernel.command_line)?}")
       lines = lines.push("Kernel parameters:")

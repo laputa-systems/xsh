@@ -10293,9 +10293,12 @@ impl Evaluator {
 
         let doc_diagnostics =
             crate::sema::check::Checker::check_public_module_docs(&parsed.arena, &module_text);
-        if !doc_diagnostics.is_empty() {
+        if let Some(diagnostic) = doc_diagnostics.first() {
             return Err(
-                RuntimeError::new("module-load", "loaded module has undocumented exports")
+                RuntimeError::new(
+                    "module-load",
+                    format!("loaded module has undocumented exports: {}", diagnostic.message),
+                )
                     .with_span(span),
             );
         }

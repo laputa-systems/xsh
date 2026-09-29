@@ -268,12 +268,15 @@ proc test_fs_root_operations_reject_traversal(ctx: TestContext) [fs, error] {
   test.ok(!observed.truncated)?
   let filesystem = fs.root_filesystem_stats(root, p".")?
   test.eq(filesystem.state, "observed")?
-  test.ok(filesystem.total_bytes != null and filesystem.total_bytes > 0)?
-  test.ok(filesystem.used_bytes != null and filesystem.used_bytes >= 0)?
-  test.ok(filesystem.available_bytes != null and filesystem.available_bytes >= 0)?
-  test.ok(filesystem.block_size_bytes != null and filesystem.block_size_bytes > 0)?
+  test.ok(filesystem.total_bytes != null and (filesystem.total_bytes ?? 0) > 0)?
+  test.ok(filesystem.used_bytes != null and (filesystem.used_bytes ?? -1) >= 0)?
+  test.ok(filesystem.available_bytes != null and (filesystem.available_bytes ?? -1) >= 0)?
+  test.ok(filesystem.block_size_bytes != null and (filesystem.block_size_bytes ?? 0) > 0)?
   let nested_filesystem = fs.root_filesystem_stats(root, p"nested")?
   test.eq(nested_filesystem.state, "observed")?
+  let file_filesystem = fs.root_filesystem_stats(root, p"nested/data.txt")?
+  test.eq(file_filesystem.state, "observed")?
+  test.eq(file_filesystem.total_bytes, nested_filesystem.total_bytes)?
   let absent_filesystem = fs.root_filesystem_stats(root, p"nested/missing")?
   test.eq(absent_filesystem.state, "absent")?
   test.eq(absent_filesystem.error_kind, "not_found")?

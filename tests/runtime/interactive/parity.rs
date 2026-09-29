@@ -954,9 +954,9 @@ fn normalize_pgid(row: &str) -> String {
     out
 }
 
-/// `l` rows carry the account that owns the file and the size of directory
-/// entries, both of which depend on the machine; everything else about the row
-/// (mode, link count, dates, name, spacing after the group) is kept.
+/// `l` rows carry account names, directory link counts, directory and symlink
+/// sizes, and size-column padding that depend on the host filesystem.
+/// Keep regular file link counts and sizes, modes, dates, names, and targets.
 fn normalize_ls_row(row: &str) -> String {
     let mut fields = row.split_whitespace();
     let (Some(mode), Some(nlink), Some(_owner), Some(_group)) =
@@ -967,7 +967,7 @@ fn normalize_ls_row(row: &str) -> String {
     let mode_ok = mode.len() == 10
         && mode.starts_with(['-', 'd', 'l', 'c', 'b', 'p', 's'])
         && mode[1..].chars().all(|ch| "rwxsStT-".contains(ch));
-    if !mode_ok || nlink.parse::<u64>().is_err() {
+    if !mode_ok || (nlink != "<NLINK>" && nlink.parse::<u64>().is_err()) {
         return row.to_owned();
     }
     // Locate the end of the group token in the original row.
@@ -991,16 +991,32 @@ fn normalize_ls_row(row: &str) -> String {
     if end == 0 {
         return row.to_owned();
     }
-    let rest = &row[end..];
-    let rest = if mode.starts_with(['d', 'l']) {
-        // Directory and symlink sizes are filesystem-specific.
-        let trimmed = rest.trim_start();
-        let size_end = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
-        format!(" <SIZE>{}", &trimmed[size_end..])
+    let rest = row[end..].trim_start();
+    let size_end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+    let size = if mode.starts_with(['d', 'l']) {
+        "<SIZE>"
     } else {
-        rest.to_owned()
+        &rest[..size_end]
     };
-    format!("{mode} {nlink} <USER> <GROUP>{rest}")
+    let nlink = if mode.starts_with('d') { "<NLINK>" } else { nlink };
+    let remainder = rest[size_end..].trim_start();
+    format!("{mode} {nlink} <USER> <GROUP> {size} {remainder}")
+}
+
+/// Recorded transcripts may contain older host-specific `l` columns.
+fn normalize_listing_transcript(transcript: &str) -> String {
+    let mut out = String::with_capacity(transcript.len());
+    for chunk in transcript.split_inclusive('\n') {
+        let (line, ending) = chunk.strip_suffix('\n').map_or((chunk, ""), |line| (line, "\n"));
+        if let Some(row) = line.strip_prefix('|') {
+            out.push('|');
+            out.push_str(&normalize_ls_row(row));
+        } else {
+            out.push_str(line);
+        }
+        out.push_str(ending);
+    }
+    out
 }
 
 /// Message prefixes name the shell (`ish: cd: ...` / `xshi: cd: ...`); that
@@ -1160,6 +1176,8 @@ pub(super) fn run_scenario(name: &str, fixture: &Fixture, script: fn(&mut Live))
         } else {
             let expected = std::fs::read_to_string(&golden)
                 .unwrap_or_else(|error| panic!("read golden {}: {error}", golden.display()));
+            let expected = normalize_listing_transcript(&expected);
+            let from_ish = normalize_listing_transcript(&from_ish);
             assert!(
                 expected == from_ish,
                 "{name}: ish no longer matches its recorded golden\n{}",
@@ -1174,7 +1192,8 @@ pub(super) fn run_scenario(name: &str, fixture: &Fixture, script: fn(&mut Live))
         )
     });
     let xshi = PathBuf::from(cargo_env!("CARGO_BIN_EXE_xshi"));
-    let actual = run_shell(ShellKind::Xshi, &xshi, fixture, script);
+    let expected = normalize_listing_transcript(&expected);
+    let actual = normalize_listing_transcript(&run_shell(ShellKind::Xshi, &xshi, fixture, script));
     assert!(
         expected == actual,
         "{name}: xshi differs from the ish golden\n{}",

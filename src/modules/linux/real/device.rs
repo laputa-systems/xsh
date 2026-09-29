@@ -132,7 +132,10 @@ pub(crate) fn loop_list(span: Span) -> Result<Value, RuntimeError> {
     let mut paths = Vec::new();
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
-        if !name.starts_with("loop") || !name[4..].chars().all(|ch| ch.is_ascii_digit()) {
+        if !name.starts_with("loop")
+            || name.len() == 4
+            || !name[4..].chars().all(|ch| ch.is_ascii_digit())
+        {
             continue;
         }
         paths.push(entry.path());

@@ -1211,6 +1211,9 @@ first thing inside the `{`. **Never mix the two**: `else { |e| ... }` will
 silently treat `|e|` as a pipeline expression inside the block, not as a
 parameter binding.
 
+A `guard let` else block inside a loop may use `break` or `continue`; either
+statement controls that enclosing loop.
+
 `Result` values are:
 
 ```text
@@ -2083,6 +2086,9 @@ on symlink target text without traversing it. This makes the rooted APIs the
 preferred surface when a trusted root directory is combined with untrusted
 relative names. `FsRoot` confines pathname resolution; it is not a process
 sandbox and does not restrict mounts or device nodes below the root.
+`fs.root_readlink_result` rejects a relative path whose `..` components cross
+the root as invalid input; a missing parent within the root remains an absent
+source result.
 `fs.root_children` returns child paths relative to the root, ordered by their
 raw filename bytes so non-UTF-8 names remain lossless. `max_entries` may be
 between zero and 65,536. `FsRootChildrenResult` carries `state`,

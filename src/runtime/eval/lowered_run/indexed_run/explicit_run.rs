@@ -1310,13 +1310,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     StmtFlow::Propagate(value) => {
                         self.complete_call(index, StmtFlow::Propagate(value))
                     }
-                    StmtFlow::Break(_) => {
-                        Err(RuntimeError::new("control-flow", "break outside loop").with_span(span))
-                    }
-                    StmtFlow::Continue => {
-                        Err(RuntimeError::new("control-flow", "continue outside loop")
-                            .with_span(span))
-                    }
+                    StmtFlow::Break(_) => self.break_loop(index),
+                    StmtFlow::Continue => self.continue_loop(index),
                 }
             }
         }

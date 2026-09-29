@@ -29,6 +29,10 @@ pub(crate) fn open_dir(dirfd: BorrowedFd<'_>, path: &CStr) -> io::Result<OwnedFd
     root_from_fd(fd)
 }
 
+pub(crate) fn open_stat_target(dirfd: BorrowedFd<'_>, path: &CStr) -> io::Result<File> {
+    file_from_fd(openat(dirfd, path, libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC, 0))
+}
+
 pub(crate) fn open_file(
     dirfd: BorrowedFd<'_>,
     path: &CStr,

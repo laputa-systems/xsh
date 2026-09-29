@@ -52,6 +52,12 @@ impl Root {
         platform::open_file(self.fd.as_fd(), &path, libc::O_RDONLY | libc::O_DIRECTORY, 0)
     }
 
+    /// Opens a file or directory for descriptor-based metadata queries without reading its data.
+    pub fn open_stat_target(&self, path: impl AsRef<Path>) -> io::Result<File> {
+        let path = relative_path_to_cstring(path.as_ref())?;
+        platform::open_stat_target(self.fd.as_fd(), &path)
+    }
+
     /// Opens a file beneath this root using the supplied limited options.
     pub fn open_with(&self, path: impl AsRef<Path>, options: &OpenOptions) -> io::Result<File> {
         let path = relative_path_to_cstring(path.as_ref())?;
@@ -206,10 +212,10 @@ fn invalid_path(message: &'static str) -> io::Error {
 
 #[cfg(target_os = "linux")]
 mod platform {
-    pub(super) use crate::linux::{open_dir, open_file, open_root};
+    pub(super) use crate::linux::{open_dir, open_file, open_root, open_stat_target};
 }
 
 #[cfg(target_os = "macos")]
 mod platform {
-    pub(super) use crate::macos::{open_dir, open_file, open_root};
+    pub(super) use crate::macos::{open_dir, open_file, open_root, open_stat_target};
 }

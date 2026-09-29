@@ -7,6 +7,22 @@ pure check_failure(message: Str) -> SystemReportCheckError {
   return SystemReportCheckError.Invalid(message: message)
 }
 
+proc capture_metadata_bytes(bundle: FsRoot, max_bytes: Int = 2097152) [fs, error] -> Result[Bytes] {
+  let raw = fs.root_read_result(bundle, p"capture.json", max_bytes: max_bytes)?
+  if raw.state != "observed" or raw.truncated or raw.data == null {
+    return Err(check_failure("capture metadata is missing or incomplete"))
+  }
+  return raw.data ?? b""
+}
+
+## Rejects a bundle whose provenance or source observations changed during replay.
+export proc require_capture_metadata_unchanged(bundle: FsRoot, expected: Bytes, max_bytes: Int = 2097152) [fs, error] -> Result[Unit] {
+  if capture_metadata_bytes(bundle, max_bytes: max_bytes)? != expected {
+    return Err(check_failure("capture metadata changed during replay"))
+  }
+  return Ok()
+}
+
 # The manifest keeps every comparison case independent of candidate output.
 type CoverageAssertion = {
   id: Str,
@@ -36,6 +52,357 @@ type CoverageManifest = {
 
 type LscpuExtendedCpu = {cpu: Int, online: Bool}
 type LscpuExtended = {cpus: List[LscpuExtendedCpu]}
+## Keeps util-linux's displayed topology IDs separate from raw kernel topology IDs.
+export type LscpuTopologyCpu = {cpu: Int, online: Bool, socket: Int?, core: Int?, node: Int?}
+type LscpuTopology = {cpus: List[LscpuTopologyCpu]}
+type CandidateCpuTopology = {
+  id: Int, present: Bool, online: Bool, package_id: Int?, core_id: Int?,
+  thread_siblings: List[Int], numa_node: Int?,
+}
+## Counts missing CPUs and mismatched groups after normalizing displayed topology IDs.
+export type LscpuTopologyComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_ids: List[Int], unexpected_ids: List[Int],
+  package_group_mismatches: List[Str], core_group_mismatches: List[Str],
+  sibling_mismatches: List[Str], node_mismatches: List[Str], field_missing: List[Str],
+  eligible: Bool, exact: Bool,
+}
+## Holds one CPU's bounded cache sysfs observation before shared instances are deduplicated.
+export type CpuCacheReference = {
+  owner_cpu_id: Int, sysfs_index: Int, kernel_id: Int?, level: Int, kind: Str,
+  size_bytes: Int, line_size_bytes: Int?, sets: Int?, shared_cpus: List[Int],
+}
+type CandidateCpuCache = {
+  id: Int, owner_cpu_id: Int, sysfs_index: Int, level: Int, kind: Str,
+  size_bytes: Int?, line_size_bytes: Int?, sets: Int?, shared_cpus: List[Int],
+}
+type CandidateCpuCacheMembership = {id: Int, cache_ids: List[Int]}
+## Scores unique shared cache instances and the links from every participating CPU.
+export type CpuCacheComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_keys: List[Str], unexpected_keys: List[Str], field_mismatches: List[Str],
+  relationship_mismatches: List[Str], eligible: Bool, exact: Bool,
+}
+## Distinguishes an absent frequency gauge from an incomplete sysfs read.
+export type CpuFreqGaugeReference = {value: Int?, complete: Bool}
+## Holds independently read policy identity, configured bounds, gauges, and exposed controls.
+export type CpuFreqPolicyReference = {
+  name: Str, related_cpus: List[Int], affected_cpus: List[Int], driver: Str?, governor: Str?,
+  hardware_min_khz: Int?, hardware_max_khz: Int?, scaling_min_khz: Int?, scaling_max_khz: Int?,
+  hardware_current: CpuFreqGaugeReference, scaling_current: CpuFreqGaugeReference,
+  average_current: CpuFreqGaugeReference, governor_requested: CpuFreqGaugeReference,
+  energy_performance_preference: Str?, available_energy_performance_preferences: List[Str],
+  boost_supported: Bool?, boost_allowed: Bool?, boost_active: Bool?, boost_scope: Str?,
+}
+## Separates boost capability, configured permission, and the source control's scope.
+export type CpuFreqBoostReference = {supported: Bool?, allowed: Bool?, scope: Str?}
+type CandidateCpuFreqPolicy = {
+  name: Str, related_cpus: List[Int], affected_cpus: List[Int], driver: Str?, governor: Str?,
+  hardware_min_khz: Int?, hardware_max_khz: Int?, scaling_min_khz: Int?, scaling_max_khz: Int?,
+  hardware_current_khz: Int?, scaling_current_khz: Int?, average_current_khz: Int?, governor_requested_khz: Int?,
+  energy_performance_preference: Str?, available_energy_performance_preferences: List[Str],
+  boost_supported: Bool?, boost_allowed: Bool?, boost_active: Bool?, boost_scope: Str?,
+}
+type CandidateCpuSectionStatus = {state: Str, enumeration_succeeded: Bool}
+## Scores policy identity separately from configured bounds, current gauges, and controls.
+export type CpuFreqPolicyComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_names: List[Str], unexpected_names: List[Str], policy_mismatches: List[Str],
+  bound_mismatches: List[Str], unstable_bounds: List[Str],
+  gauge_mismatches: List[Str], unstable_gauges: List[Str],
+  control_mismatches: List[Str], unstable_controls: List[Str],
+  exact_policies: Bool, eligible_bounds: Bool, exact_bounds: Bool,
+  eligible_controls: Bool, exact_controls: Bool,
+}
+## Holds independent per CPU sysfs topology values under a kernel CPU identity.
+export type CpuTopologyRawReference = {
+  id: Int, online: Bool, package_id: Int, die_id: Int?, core_id: Int,
+  siblings: List[Int], node_id: Int?,
+}
+type CandidateCpuTopologyRaw = {
+  id: Int, present: Bool, online: Bool, package_id: Int?, die_id: Int?, core_id: Int?,
+  thread_siblings: List[Int], numa_node: Int?,
+}
+## Reports exact per CPU topology values separately from missing or extra CPUs.
+export type CpuTopologyRawComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_ids: List[Int], unexpected_ids: List[Int], field_mismatches: List[Str],
+  eligible: Bool, exact: Bool,
+}
+## Identifies USB devices by sysfs topology names, independent of repeated numeric IDs.
+export type UsbTopologyReference = {
+  name: Str, parent_name: Str?, port_path: Str?, bus_number: Int?, device_number: Int?,
+  speed_mbps: Str?, is_root_hub: Bool,
+}
+## Derives the expected parent and bus identity from one kernel USB device name.
+export type UsbTopologyName = {parent_name: Str?, port_path: Str?, bus_number: Int, is_root_hub: Bool}
+type CandidateUsbTopologyDevice = {
+  sysfs_name: Str?, parent_device_index: Int?, port_path: Str?, bus_number: Int?,
+  device_number: Int?, speed_mbps: Str?, is_root_hub: Bool,
+}
+type CandidateUsbTopologySection = {status: CandidateCpuSectionStatus, devices: List[CandidateUsbTopologyDevice]}
+## Separates topology errors from attributes that changed around collection.
+export type UsbTopologyComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_names: List[Str], unexpected_names: List[Str], field_mismatches: List[Str],
+  unstable_fields: List[Str], eligible: Bool, exact: Bool,
+}
+## Keeps a bounded USB number distinct from an absent or incomplete source.
+export type UsbNumberReference = {value: Int?, complete: Bool}
+## Keeps a bounded USB string distinct from an absent or incomplete source.
+export type UsbTextReference = {value: Str?, complete: Bool}
+## Holds independently read raw USB device identity and source labels.
+export type UsbIdsReference = {
+  name: Str, vendor_id: UsbNumberReference, product_id: UsbNumberReference,
+  device_version: UsbTextReference, class_code: UsbNumberReference,
+  subclass: UsbNumberReference, protocol: UsbNumberReference,
+  manufacturer: UsbTextReference, product: UsbTextReference,
+}
+type CandidateUsbText = {state: Str, value: Str?}
+type CandidateUsbIdsDevice = {
+  sysfs_name: Str?, vendor_id: Int?, product_id: Int?, device_version: Str?,
+  class_code: Int?, subclass: Int?, protocol: Int?,
+  manufacturer: CandidateUsbText, product: CandidateUsbText,
+}
+type CandidateUsbIdsSection = {status: CandidateCpuSectionStatus, devices: List[CandidateUsbIdsDevice]}
+## Scores stable USB ID and label values by device name.
+export type UsbIdsComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_names: List[Str], unexpected_names: List[Str], field_mismatches: List[Str],
+  unstable_fields: List[Str], eligible: Bool, exact: Bool,
+}
+## Holds independently read USB power controls and the current runtime state.
+export type UsbPowerReference = {
+  name: Str, power_control: UsbTextReference, autosuspend_delay_ms: UsbNumberReference,
+  runtime_status: UsbTextReference, configuration_count: UsbNumberReference,
+  active_configuration: UsbNumberReference,
+}
+type CandidateUsbPowerDevice = {
+  sysfs_name: Str?, power_control: Str?, autosuspend_delay_ms: Int?,
+  runtime_status: Str?, configuration_count: Int?, active_configuration: Int?,
+}
+type CandidateUsbPowerSection = {status: CandidateCpuSectionStatus, devices: List[CandidateUsbPowerDevice]}
+## Separates stable power-setting agreement from runtime state changes.
+export type UsbPowerComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_names: List[Str], unexpected_names: List[Str], field_mismatches: List[Str],
+  unstable_fields: List[Str], eligible: Bool, exact: Bool,
+}
+## Describes one endpoint from a bounded USB configuration descriptor stream.
+export type UsbInterfaceEndpointReference = {
+  address: Int, direction: Str, transfer_type: Str, max_packet_size: Int, interval: Int,
+}
+## Preserves a descriptor setting independently of the kernel's active setting.
+export type UsbInterfaceSettingReference = {
+  configuration_value: Int?, interface_number: Int, number: Int,
+  class_code: Int, subclass: Int, protocol: Int,
+  endpoints: List[UsbInterfaceEndpointReference],
+}
+## Keeps live interface attributes and available descriptors as separate observations.
+export type UsbInterfaceReference = {
+  device_name: Str, name: Str, number: Int,
+  driver: UsbTextReference, active_alternate: UsbNumberReference,
+  active_class: UsbNumberReference, active_subclass: UsbNumberReference,
+  active_protocol: UsbNumberReference, active_endpoint_count: UsbNumberReference,
+  settings: List[UsbInterfaceSettingReference], descriptors_complete: Bool,
+}
+type CandidateUsbInterfaceSetting = {
+  configuration_value: Int?, number: Int, class_code: Int, subclass: Int,
+  protocol: Int, endpoints: List[UsbInterfaceEndpointReference],
+}
+type CandidateUsbInterface = {
+  number: Int, name: Str?, driver: Str?, active_alternate: Int?,
+  alternate_settings: List[CandidateUsbInterfaceSetting],
+}
+type CandidateUsbInterfaceDevice = {sysfs_name: Str?, interfaces: List[CandidateUsbInterface]}
+type CandidateUsbInterfaceSection = {status: CandidateCpuSectionStatus, devices: List[CandidateUsbInterfaceDevice]}
+## Reports stable interface disagreement and fields that changed during collection.
+export type UsbInterfaceComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_names: List[Str], unexpected_names: List[Str], field_mismatches: List[Str],
+  unstable_fields: List[Str], eligible: Bool, exact: Bool,
+}
+## Retains an optional power-supply attribute's value and read completeness.
+export type PowerTextReference = {value: Str?, complete: Bool}
+## Retains an optional numeric power-supply attribute and its read completeness.
+export type PowerNumberReference = {value: Int?, complete: Bool}
+## Keeps each raw power-supply quantity in its kernel-defined unit.
+export type PowerSupplyReference = {
+  name: Str, kind: PowerTextReference, status: PowerTextReference, health: PowerTextReference,
+  capacity_percent: PowerNumberReference,
+  energy_now_uwh: PowerNumberReference, energy_full_uwh: PowerNumberReference,
+  charge_now_uah: PowerNumberReference, charge_full_uah: PowerNumberReference,
+  voltage_now_uv: PowerNumberReference, current_now_ua: PowerNumberReference,
+  cycle_count: PowerNumberReference,
+}
+type CandidatePowerSupply = {
+  name: Str, kind: Str?, status: Str?, health: Str?, capacity_percent: Int?,
+  energy_now_uwh: Int?, energy_full_uwh: Int?, charge_now_uah: Int?, charge_full_uah: Int?,
+  voltage_now_uv: Int?, current_now_ua: Int?, cycle_count: Int?,
+}
+type CandidatePowerSupplySection = {status: CandidateCpuSectionStatus, supplies: List[CandidatePowerSupply]}
+## Separates stable power-supply disagreements from changing gauges and incomplete reads.
+export type PowerSupplyComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_names: List[Str], unexpected_names: List[Str], field_mismatches: List[Str],
+  unstable_fields: List[Str], eligible: Bool, exact: Bool,
+}
+## Retains one indexed powercap constraint and its optional source attributes.
+export type PowerCapConstraintReference = {
+  index: Int, name: PowerTextReference,
+  power_limit_uw: PowerNumberReference, time_window_us: PowerNumberReference,
+}
+## Separates the zone's stable identity and settings from its energy counter.
+export type PowerCapZoneReference = {
+  entry_name: Str, name: PowerTextReference, parent: PowerTextReference,
+  energy_uj: PowerNumberReference, maximum_energy_range_uj: PowerNumberReference,
+  constraints: List[PowerCapConstraintReference], constraints_complete: Bool,
+}
+type PowerCapBundleZone = {entry_name: Str, class_target: Str?, storage_path: Str}
+type PowerCapBundleLayout = {
+  listing_state: Str, zones: List[PowerCapBundleZone], source_paths: List[Str], complete: Bool,
+}
+type PowerCapSourceObservation = {
+  path: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+type PowerCapCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  layout: PowerCapBundleLayout, stable: Bool, scoreable: Bool,
+  sources: List[PowerCapSourceObservation], reference: List[PowerCapZoneReference]?,
+}
+type CandidatePowerCapConstraint = {index: Int, name: Str?, power_limit_uw: Int?, time_window_us: Int?}
+type CandidatePowerCapZone = {
+  entry_name: Str, name: Str, parent: Str?, energy_uj: Int?, maximum_energy_range_uj: Int?,
+  constraints: List[CandidatePowerCapConstraint],
+}
+type CandidatePowerCapSection = {status: CandidateCpuSectionStatus, cap_zones: List[CandidatePowerCapZone]}
+## Reports stable zone and constraint disagreements and counter intervals that cannot be scored.
+export type PowerCapComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_names: List[Str], unexpected_names: List[Str], field_mismatches: List[Str],
+  unstable_fields: List[Str], eligible: Bool, exact: Bool,
+}
+## Identifies a class entry independently of its display label.
+export type DeviceClassReference = {
+  class: Str, entry_name: Str, name: Str?, name_complete: Bool,
+  parent_target: Str?, parent_complete: Bool,
+}
+type DeviceClassTextRead = {value: Str?, complete: Bool}
+type DeviceClassParentRead = {target: Str?, complete: Bool}
+type DeviceClassParentIds = {pci: Str?, usb: Str?}
+type CandidateDeviceClass = {
+  class: Str, entry_name: CandidateTextObservation, name: CandidateTextObservation,
+  parent_pci_function_index: Int?, parent_usb_device_index: Int?,
+}
+type CandidateDeviceClassSection = {status: CandidateCpuSectionStatus, devices: List[CandidateDeviceClass]}
+type CandidateDeviceClassPci = {address: Str?}
+type CandidateDeviceClassUsb = {sysfs_name: Str?}
+type CandidateDeviceClassPciSection = {status: CandidateCpuSectionStatus, functions: List[CandidateDeviceClassPci]}
+type CandidateDeviceClassUsbSection = {status: CandidateCpuSectionStatus, devices: List[CandidateDeviceClassUsb]}
+## Separates stable class identity and parent errors from source changes.
+export type DeviceClassComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_names: List[Str], unexpected_names: List[Str], field_mismatches: List[Str],
+  unstable_fields: List[Str], eligible: Bool, exact: Bool,
+}
+## Separates an absent hwmon text attribute from an incomplete source read.
+export type HwmonTextReference = {value: Str?, complete: Bool}
+## Separates an absent hwmon integer attribute from an incomplete source read.
+export type HwmonNumberReference = {value: Int?, complete: Bool}
+type HwmonShape = {kind: Str, unit: Str}
+## Keys raw channel attributes by their hwmon class entry, independent of chip labels.
+export type HwmonReference = {
+  chip_entry_name: Str, chip: HwmonTextReference, channel: Str,
+  kind: Str, unit: Str, value: HwmonNumberReference, label: HwmonTextReference,
+  minimum: HwmonNumberReference, maximum: HwmonNumberReference,
+  critical: HwmonNumberReference, alarm: HwmonNumberReference,
+  parent_target: Str?, parent_complete: Bool,
+}
+type CandidateHwmonChannel = {
+  chip_entry_name: Str?, chip: Str, channel: Str, kind: Str, unit: Str,
+  value: Int?, label: CandidateTextObservation, minimum: Int?, maximum: Int?,
+  critical: Int?, alarm: Bool?, parent_device_class_index: Int?,
+  parent_pci_function_index: Int?, parent_usb_device_index: Int?,
+}
+type CandidateHwmonSection = {status: CandidateCpuSectionStatus, channels: List[CandidateHwmonChannel]}
+## Counts stable hwmon channel mismatches and fields changed during collection.
+export type HwmonComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_names: List[Str], unexpected_names: List[Str], field_mismatches: List[Str],
+  unstable_fields: List[Str], eligible: Bool, exact: Bool,
+}
+## Retains a DMI class attribute and distinguishes absence from a failed read.
+export type DmiTextReference = {value: Str?, complete: Bool}
+## Holds raw DMI identity attributes without substituting database labels.
+export type DmiIdentityReference = {
+  vendor: DmiTextReference, product: DmiTextReference,
+  board_vendor: DmiTextReference, board_product: DmiTextReference,
+  bios_vendor: DmiTextReference, bios_version: DmiTextReference,
+  serial: DmiTextReference, uuid: DmiTextReference,
+}
+type DmiIdentitySourceObservation = {
+  path: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+type DmiIdentityCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  stable: Bool, sources: List[DmiIdentitySourceObservation], reference: DmiIdentityReference?,
+}
+type CandidateDmiIdentity = {
+  source: Str, vendor: Str?, product: Str?, board_vendor: Str?, board_product: Str?,
+  bios_vendor: Str?, bios_version: Str?, serial: CandidateTextObservation,
+  uuid: CandidateTextObservation,
+}
+## Reports stable DMI fields that disagree with the sensitive report.
+export type DmiIdentityComparison = {
+  field_mismatches: List[Str], unstable_fields: List[Str], eligible: Bool, exact: Bool,
+}
+## Combines sensitive DMI value fidelity with default serial and UUID redaction.
+export type DmiIdentityBundleComparison = {
+  sensitive: DmiIdentityComparison, default_redacted: Bool, exact: Bool,
+}
+## Keeps each CPUIdle state keyed by its kernel state directory index.
+export type CpuIdleStateReference = {
+  cpu_id: Int, state_index: Int, name: Str, description: Str?, disable_setting: Int?,
+  latency_us: Int?, residency_us: Int?, usage_count: Int?, time_us: Int?,
+}
+## Holds independently read global CPUIdle metadata and every visible state.
+export type CpuIdleReference = {
+  driver: Str?, governor: Str?, available_governors: List[Str],
+  states: List[CpuIdleStateReference],
+}
+type CandidateCpuIdleState = {
+  cpu_id: Int?, state_index: Int, name: Str, description: Str?, disable_setting: Int?,
+  latency_us: Int?, residency_us: Int?, usage_count: Int?, time_us: Int?,
+}
+## Scores CPUIdle identities, stable metadata, and monotonic usage within a capture bracket.
+export type CpuIdleComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_keys: List[Str], unexpected_keys: List[Str],
+  field_mismatches: List[Str], counter_mismatches: List[Str], unstable_fields: List[Str],
+  eligible: Bool, exact: Bool,
+}
+type UsbBundleEntry = {name: Str, class_target: Str, storage_path: Str, driver_target: Str?}
+type UsbBundleLayout = {
+  listing_state: Str, entries: List[UsbBundleEntry], source_paths: List[Str], complete: Bool,
+}
+type UsbSourceObservation = {
+  path: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+type UsbBundleCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  layout: UsbBundleLayout, stable: Bool, scoreable: Bool,
+  sources: List[UsbSourceObservation], topology: List[UsbTopologyReference]?,
+  ids: List[UsbIdsReference]?, power: List[UsbPowerReference]?,
+  interfaces: List[UsbInterfaceReference]?,
+}
+## Keeps independently scored USB topology, identity, power, and interface replay results together.
+export type UsbBundleComparison = {
+  topology: UsbTopologyComparison, ids: UsbIdsComparison,
+  power: UsbPowerComparison, interface: UsbInterfaceComparison,
+}
 ## Records exact CPU identity-set agreement and both directions of missing identities.
 export type CpuIdSetComparison = {
   reference_count: Int,
@@ -100,6 +467,17 @@ export type ThpReferenceComparison = {
 ## Holds one raw kernel vulnerability description without interpreting its verdict.
 export type VulnerabilityReference = {name: Str, description: Str}
 
+type VulnerabilityCaptureSource = {
+  name: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+
+type VulnerabilityCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  stable: Bool, listing_state: Str, listing_errno: Int?, listing_error_kind: Str?,
+  sources: List[VulnerabilityCaptureSource], reference: List[VulnerabilityReference]?,
+}
+
 ## Scores the complete stable set of named kernel vulnerability descriptions.
 export type VulnerabilityReferenceComparison = {
   reference_count: Int,
@@ -111,12 +489,68 @@ export type VulnerabilityReferenceComparison = {
   exact: Bool,
 }
 
+## Identifies a huge-page pool by its NUMA node and byte-valued page size.
+export type HugePageReferencePool = {
+  node_id: Int?,
+  page_size_bytes: Int,
+  total: Int,
+  free: Int?,
+  reserved: Int?,
+  surplus: Int?,
+}
+
+## Separates stable pool mismatches from counters that changed across collection.
+export type HugePageReferenceComparison = {
+  reference_count: Int,
+  candidate_count: Int,
+  matched_count: Int,
+  missing_keys: List[Str],
+  unexpected_keys: List[Str],
+  mismatched_fields: List[Str],
+  changed_fields: List[Str],
+  exact_stable: Bool,
+  exact_scored: Bool,
+}
+type HugePageComparedField = {name: Str, before: Int?, after: Int?, candidate: Int?}
+
+## Holds one raw pressure-stall row with its cumulative microsecond total.
+export type PsiReferenceRow = {
+  resource: Str,
+  kind: Str,
+  avg10: Str,
+  avg60: Str,
+  avg300: Str,
+  total_us: Int,
+}
+
+## Separates bracketed cumulative totals from stable and changing averages.
+export type PsiReferenceComparison = {
+  reference_count: Int,
+  candidate_count: Int,
+  matched_count: Int,
+  missing_keys: List[Str],
+  unexpected_keys: List[Str],
+  mismatched_fields: List[Str],
+  changing_averages: List[Str],
+  exact_stable: Bool,
+  exact_scored: Bool,
+}
+type CandidatePsiRow = {
+  resource: Str,
+  kind: Str,
+  avg10: Str?,
+  avg60: Str?,
+  avg300: Str?,
+  total_us: Int?,
+}
+
 ## Scores swap identities and values separately from the presence of the candidate field.
 export type SwapReferenceComparison = {
   reference_count: Int,
   candidate_count: Int,
   matched_count: Int,
   candidate_field_missing: Bool,
+  source_issue: Bool,
   missing_names: List[Str],
   unexpected_names: List[Str],
   field_mismatches: List[Str],
@@ -127,9 +561,16 @@ export type SwapReferenceComparison = {
   exact: Bool,
 }
 
+type ProcSwapsCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  stable: Bool, source_state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?, reference: List[SwapReferenceDevice]?,
+}
+
 type CandidateSwapName = {state: Str, value: Str?}
 type CandidateSwapDevice = {name: CandidateSwapName, kind: Str, size_bytes: Int?, used_bytes: Int?, priority: Int?}
 type CandidateIssueField = {section: Str, field: Str}
+type CandidateIssueState = {section: Str, field: Str, state: Str}
 
 ## Holds numeric PCI identity and only the optional fields emitted by lspci's verbose machine format.
 export type PciReference = {
@@ -153,10 +594,100 @@ export type PciReferenceComparison = {
   missing_addresses: List[Str], unexpected_addresses: List[Str],
   field_mismatches: List[Str], candidate_field_missing: Bool, exact_static: Bool,
 }
+## Keeps the four PCIe link attributes read directly from one PCI sysfs function.
+export type PciLinkReference = {
+  address: Str, current_speed: Str?, current_width: Int?, maximum_speed: Str?, maximum_width: Int?,
+}
+type CandidatePciLinkFunction = {
+  address: Str?, current_link_speed: Str?, current_link_width: Int?,
+  maximum_link_speed: Str?, maximum_link_width: Int?,
+}
+## Separates stable PCIe link agreement from link values that changed around collection.
+export type PciLinkComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_addresses: List[Str], unexpected_addresses: List[Str],
+  field_mismatches: List[Str], unstable_fields: List[Str], candidate_field_missing: Bool,
+  eligible: Bool, exact: Bool,
+}
+## Keeps PCI driver, parent, NUMA, and IOMMU relationships under a BDF identity.
+export type PciBindingReference = {
+  address: Str, driver: Str?, parent_address: Str?, numa_node: Int?, iommu_group: Str?,
+}
+type CandidatePciBindingFunction = {
+  address: Str?, driver: Str?, parent_function_index: Int?, numa_node: Int?, iommu_group: Str?,
+}
+## Records stable binding agreement separately from relationships that changed during collection.
+export type PciBindingComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_addresses: List[Str], unexpected_addresses: List[Str],
+  field_mismatches: List[Str], unstable_fields: List[Str], candidate_field_missing: Bool,
+  eligible: Bool, exact: Bool,
+}
+type PciBundleFunction = {
+  address: Str, class_target: Str, storage_path: Str,
+  driver_target: Str?, iommu_target: Str?,
+}
+type PciBundleLayout = {
+  listing_state: Str, functions: List[PciBundleFunction], source_paths: List[Str], complete: Bool,
+}
+type PciSourceObservation = {
+  path: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+type PciBundleCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  layout: PciBundleLayout, stable: Bool, scoreable: Bool,
+  sources: List[PciSourceObservation],
+  identity: List[PciReference]?, binding: List[PciBindingReference]?, link: List[PciLinkReference]?,
+}
+## Keeps the independent PCI identity, binding, and link replay results together.
+export type PciBundleComparison = {
+  identity: PciReferenceComparison, binding: PciBindingComparison, link: PciLinkComparison,
+}
+## Keeps a thermal trip under its exported sysfs index.
+export type ThermalTripReference = {index: Int, kind: Str, temperature_millidegrees: Int?, hysteresis_millidegrees: Int?}
+## Keeps one thermal zone and its indexed trips from an independent sysfs read.
+export type ThermalZoneReference = {id: Int, kind: Str?, temperature_millidegrees: Int?, trips: List[ThermalTripReference]}
+type ThermalBundleLayout = {listing_state: Str, zone_paths: List[Str], source_paths: List[Str], complete: Bool}
+type ThermalSourceObservation = {
+  path: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+type ThermalCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  layout: ThermalBundleLayout, stable: Bool, scoreable: Bool,
+  sources: List[ThermalSourceObservation], reference: List[ThermalZoneReference]?,
+}
+type CandidateThermalTrip = {index: Int?, kind: Str, temperature_millidegrees: Int?, hysteresis_millidegrees: Int?}
+type CandidateThermalZone = {id: Int, kind: Str?, temperature_millidegrees: Int?, trips: List[CandidateThermalTrip]}
+type CandidateThermalStatus = {state: Str, enumeration_succeeded: Bool}
+type CandidateThermalSection = {status: CandidateThermalStatus, thermal_zones: List[CandidateThermalZone]}
+## Separates stable thermal disagreement from readings that changed around collection.
+export type ThermalZoneComparison = {
+  reference_count: Int, candidate_count: Int, field_mismatches: List[Str], unstable_fields: List[Str],
+  candidate_field_missing: Bool, eligible: Bool, exact: Bool,
+}
 
 ## Keeps the static link facts independently emitted by iproute2 JSON.
 export type IpLinkReference = {ifindex: Int, name: Str, mtu: Int, admin_up: Bool, operstate: Str?, kind: Str?, master_name: Str?, lower_name: Str?, lower_index: Int?}
 type CandidateNetworkTextObservation = {state: Str, value: Str?}
+## Holds kernel-exported link type, IFF bits, and cumulative byte counters by interface index.
+export type NetworkLinkRawReference = {
+  ifindex: Int, name: Str, hardware_type: Int?, flags: Int?,
+  rx_bytes: Int?, tx_bytes: Int?, complete: Bool,
+}
+type NetworkRawNumber = {value: Int?, complete: Bool}
+type CandidateNetworkRawCounter = {name: Str, value: Int, unit: Str}
+type CandidateNetworkRawLink = {
+  ifindex: Int, name: CandidateNetworkTextObservation, hardware_type: Int,
+  flags: List[Str], counters: List[CandidateNetworkRawCounter],
+}
+type CandidateNetworkRawSection = {status: CandidateCpuSectionStatus, links: List[CandidateNetworkRawLink]}
+## Separates mismatches in stable link facts from incomplete or changing observations.
+export type NetworkLinkRawComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  field_mismatches: List[Str], unstable_fields: List[Str], eligible: Bool, exact: Bool,
+}
 type CandidateIpLink = {ifindex: Int, name: CandidateNetworkTextObservation, mtu: Int?, admin_up: Bool?, operational_state: Str?, kind: Str?, master_ifindex: Int?, lower_ifindex: Int?}
 
 ## Counts static link identity and field agreement without treating dynamic counters as stable.
@@ -184,6 +715,8 @@ export type IpAddressReference = {
 }
 type CandidateIpAddress = {family: Str, address: CandidateNetworkTextObservation, prefix_length: Int, scope: Str?, broadcast: CandidateNetworkTextObservation}
 type CandidateAddressLink = {ifindex: Int, addresses: List[CandidateIpAddress]}
+type CandidateAddressLifetime = {family: Str, address: CandidateNetworkTextObservation, prefix_length: Int, valid_lifetime_seconds: Int?, preferred_lifetime_seconds: Int?}
+type CandidateAddressLifetimeLink = {ifindex: Int, addresses: List[CandidateAddressLifetime]}
 
 ## Scores static address identity and fields while retaining lifetime observations separately.
 export type IpAddressComparison = {
@@ -195,6 +728,11 @@ export type IpAddressComparison = {
   field_mismatches: List[Str],
   candidate_field_missing: Bool,
   exact_static: Bool,
+}
+## Checks countdowns against the time interval around one report collection.
+export type IpAddressLifetimeComparison = {
+  reference_count: Int, candidate_count: Int, field_mismatches: List[Str],
+  unstable_fields: List[Str], eligible: Bool, exact: Bool,
 }
 
 ## Keeps static policy selectors from one explicitly chosen iproute2 address family.
@@ -209,26 +747,31 @@ export type IpRuleReference = {
   fwmask: Int?,
   table: Int,
   action: Str,
+  goto_target: Int?,
   input_name: Str?,
   output_name: Str?,
+  unscored_fields: List[Str],
 }
+type CandidateRuleAttribute = {kind: Int, data: CandidateNetworkTextObservation}
 type CandidateIpRule = {
   family: Str, priority: Int?, source: CandidateNetworkTextObservation, source_prefix_length: Int,
   destination: CandidateNetworkTextObservation, destination_prefix_length: Int,
   fwmark: Int?, fwmask: Int?, table: Int?, action: Str,
-  input_ifindex: Int?, output_ifindex: Int?,
+  input_ifindex: Int?, output_ifindex: Int?, attributes: List[CandidateRuleAttribute],
 }
 type CandidateRuleLink = {ifindex: Int, name: CandidateNetworkTextObservation}
 
-## Scores static selectors; other iproute2 selectors remain outside this partial comparison.
+## Static agreement can remain true when raw rule attributes or reference fields are unscored.
 export type IpRuleComparison = {
   reference_count: Int,
   candidate_count: Int,
+  unscored_family_count: Int,
   matched_count: Int,
   missing_keys: List[Str],
   unexpected_keys: List[Str],
   candidate_field_missing: Bool,
   exact_static: Bool,
+  exact_scored: Bool,
 }
 
 ## Keeps independently reported static route identity from one address family.
@@ -237,6 +780,7 @@ export type IpRouteReference = {
   source: Str?, source_prefix_length: Int, preferred_source: Str?,
   metric: Int?, route_type: Str, scope: Str, protocol: Str,
   gateway: Str?, output_name: Str?, flags: Int, nexthops: List[IpRouteNexthopReference],
+  unscored_fields: List[Str],
 }
 ## Identifies one multipath gateway by output link, effective weight, and kernel flags.
 export type IpRouteNexthopReference = {output_name: Str, gateway: Str?, weight: Int, flags: Int}
@@ -253,7 +797,7 @@ type CandidateIpRoute = {
 export type IpRouteComparison = {
   reference_count: Int, candidate_count: Int, matched_count: Int,
   missing_keys: List[Str], unexpected_keys: List[Str],
-  candidate_field_missing: Bool, exact_static: Bool,
+  candidate_field_missing: Bool, exact_static: Bool, exact_scored: Bool,
 }
 
 ## Keeps explicit-column lsblk device facts separate from candidate block-device records.
@@ -298,6 +842,7 @@ export type BlockReferenceComparison = {
 ## Holds the queue and model fields actually available in explicit-column lsblk JSON.
 export type BlockQueueReference = {
   name: Str,
+  kind: Str?,
   scheduler: Str?,
   read_ahead_kb: Int?,
   discard_granularity_bytes: Int?,
@@ -356,7 +901,8 @@ type CandidateQueueSourceDevice = {
   io_counters: List[CandidateQueueCounter],
 }
 
-## Holds one flat kernel mount row from findmnt without collapsing repeated targets.
+## Holds one kernel mount row by ID; raw references retain sanitized optional fields.
+## A null optional-field list means the reference exposes only propagation class.
 export type MountReference = {
   mount_id: Int,
   parent_id: Int,
@@ -368,7 +914,14 @@ export type MountReference = {
   source: Str,
   mount_options: List[Str],
   super_options: List[Str],
+  optional_fields: List[Str]?,
   propagation: Str,
+}
+
+type MountinfoCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  stable: Bool, source_state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?, reference: List[MountReference]?,
 }
 
 ## Scores mount identities, parent relationships, values, options, and redaction.
@@ -423,6 +976,12 @@ export type KernelCommandLineComparison = {
   exact: Bool,
 }
 
+type KernelCommandLineCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  stable: Bool, source_state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?, reference_base64: Str?,
+}
+
 ## Holds one curated kernel value or an explicit source observation state.
 export type KernelParameterReference = {
   name: Str,
@@ -430,6 +989,17 @@ export type KernelParameterReference = {
   state: Str,
   value: Str?,
   raw_bytes_base64: Str?,
+}
+
+type KernelParameterSourceObservation = {
+  path: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+
+type KernelParametersCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  stable: Bool, sources: List[KernelParameterSourceObservation],
+  reference: List[KernelParameterReference]?,
 }
 
 ## Scores the fixed sysctl and module-parameter inventory by source and name.
@@ -477,8 +1047,8 @@ type CandidateBlockDevice = {
   slave_indices: List[Int],
 }
 
-## Holds module facts from lsmod together with the state exposed only by procfs.
-export type KernelModuleReference = {name: Str, size_bytes: Int, users: Int, state: Str}
+## Holds raw procfs module facts or corroborated lsmod facts, including unavailable use counts.
+export type KernelModuleReference = {name: Str, size_bytes: Int, users: Int?, state: Str}
 
 ## Scores kernel module identities and every declared module field separately.
 export type KernelModuleComparison = {
@@ -491,11 +1061,19 @@ export type KernelModuleComparison = {
   size_mismatches: Int,
   users_mismatches: Int,
   state_mismatches: Int,
+  enumeration_succeeded: Bool,
+  source_issue: Bool,
   candidate_field_missing: Bool,
   exact: Bool,
 }
 
-type CandidateKernelModule = {name: Str, size_bytes: Int, users: Int, state: Str}
+type CandidateKernelModule = {name: Str, size_bytes: Int, users: Int?, state: Str}
+
+type KernelModulesCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  stable: Bool, source_state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?, reference: List[KernelModuleReference]?,
+}
 
 ## Scores kernel release and architecture independently, including missing candidate fields.
 export type IdentityComparison = {
@@ -517,6 +1095,12 @@ export type UptimeComparison = {
   bracketed: Bool,
 }
 
+type UptimeCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  source_state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?, reference_seconds: Int?,
+}
+
 ## Identifies one process-visible namespace symlink target from an independent readlink.
 export type NamespaceReference = {field: Str, target: Str}
 
@@ -532,6 +1116,17 @@ export type NamespaceComparison = {
 ## Holds the release identity read independently from an os-release source file.
 export type OsReleaseReference = {id: Str, version_id: Str?}
 
+type OsReleaseSourceObservation = {
+  path: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+
+type OsReleaseCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  stable: Bool, selected_path: Str, sources: List[OsReleaseSourceObservation],
+  reference: OsReleaseReference?,
+}
+
 ## Scores required OS identity and optional version without filling candidate gaps.
 export type OsReleaseComparison = {
   id_missing: Bool,
@@ -543,6 +1138,15 @@ export type OsReleaseComparison = {
 
 ## Holds exact device-tree strings decoded independently from bounded od bytes.
 export type DeviceTreeReference = {model: Str?, compatible: List[Str]}
+
+type DeviceTreeSourceObservation = {
+  path: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+type DeviceTreeCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  stable: Bool, sources: List[DeviceTreeSourceObservation], reference: DeviceTreeReference?,
+}
 
 ## Scores model, ordered compatible values, and the candidate's source identity.
 export type DeviceTreeComparison = {
@@ -645,11 +1249,34 @@ type CheckOptions = {
   run_fixtures: Bool,
   run_macos_fixtures: Bool,
   compare_cpu: Bool,
+  compare_cpu_topology: Bool,
+  compare_cpu_cache: Bool,
+  compare_cpufreq: Bool,
+  compare_cpuidle: Bool,
+  compare_cpupower: Bool,
+  compare_cpu_scope: Bool,
+  compare_cgroup_v2: Bool,
   compare_vulnerabilities: Bool,
   compare_meminfo: Bool,
+  compare_huge_pages: Bool,
+  compare_pressure: Bool,
   compare_thp: Bool,
   compare_swaps: Bool,
   compare_pci: Bool,
+  compare_pci_bindings: Bool,
+  compare_pci_links: Bool,
+  compare_usb_topology: Bool,
+  compare_usb_ids: Bool,
+  compare_usb_power: Bool,
+  compare_usb_interfaces: Bool,
+  compare_lsusb: Bool,
+  compare_power_supplies: Bool,
+  compare_powercap: Bool,
+  compare_device_classes: Bool,
+  compare_hwmon: Bool,
+  compare_sensors_json: Bool,
+  compare_smbios: Bool,
+  compare_thermal: Bool,
   compare_network_links: Bool,
   compare_network_addresses: Bool,
   compare_network_rules: Bool,
@@ -666,8 +1293,49 @@ type CheckOptions = {
   compare_processes: Bool,
   capture_cpu_bundle: Str,
   replay_cpu_bundle: Str,
+  capture_cpufreq_bundle: Str,
+  replay_cpufreq_bundle: Str,
+  capture_cpu_topology_bundle: Str,
+  replay_cpu_topology_bundle: Str,
   capture_memory_bundle: Str,
   replay_memory_bundle: Str,
+  capture_pressure_bundle: Str,
+  replay_pressure_bundle: Str,
+  capture_swaps_bundle: Str,
+  replay_swaps_bundle: Str,
+  capture_os_release_bundle: Str,
+  replay_os_release_bundle: Str,
+  capture_uptime_bundle: Str,
+  replay_uptime_bundle: Str,
+  capture_dmi_identity_bundle: Str,
+  replay_dmi_identity_bundle: Str,
+  capture_device_tree_bundle: Str,
+  replay_device_tree_bundle: Str,
+  capture_kernel_command_line_bundle: Str,
+  replay_kernel_command_line_bundle: Str,
+  capture_kernel_modules_bundle: Str,
+  replay_kernel_modules_bundle: Str,
+  capture_vulnerabilities_bundle: Str,
+  replay_vulnerabilities_bundle: Str,
+  capture_mountinfo_bundle: Str,
+  replay_mountinfo_bundle: Str,
+  capture_kernel_parameters_bundle: Str,
+  replay_kernel_parameters_bundle: Str,
+  capture_thermal_bundle: Str,
+  replay_thermal_bundle: Str,
+  capture_powercap_bundle: Str,
+  replay_powercap_bundle: Str,
+  capture_pci_bundle: Str,
+  replay_pci_bundle: Str,
+  capture_usb_bundle: Str,
+  replay_usb_bundle: Str,
+  capture_smbios_bundle: Str,
+  replay_smbios_bundle: Str,
+  corroborate_smbios_bundle: Str,
+  dmidecode_bin: Str,
+  sensors_bin: Str,
+  cpupower_bin: Str,
+  lsusb_bin: Str,
   xsh_bin: Str,
   xsht_bin: Str,
   cargo_bin: Str,
@@ -681,6 +1349,79 @@ type NamespaceLinkObservation = {target: Str, started: Int, ended: Int}
 type KernelModuleObservation = {modules: List[KernelModuleReference], started: Int, ended: Int}
 type ThpObservation = {policies: List[ThpReferencePolicy], started: Int, ended: Int}
 type VulnerabilityObservation = {descriptions: List[VulnerabilityReference], started: Int, ended: Int}
+type HugePageObservation = {pools: List[HugePageReferencePool], started: Int, ended: Int}
+type HugePageLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type CpuFreqLiveResult = {scored: Int, partial: Bool, unavailable: Bool}
+type CpuIdleLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type PciLinkLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type PciBindingLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type UsbTopologyLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type UsbIdsLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type UsbPowerLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type UsbInterfaceLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type PowerSupplyLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type PowerCapLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type DeviceClassLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type HwmonLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type SmbiosLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type SmbiosCapturedRun = {origin: Str, captured_unix_ms: Int, stable: Bool, scoreable: Bool}
+type SmbiosReplayComparison = {
+  reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_names: List[Str], unexpected_names: List[Str], field_mismatches: List[Str],
+  unstable_fields: List[Str], eligible: Bool, exact: Bool,
+}
+type SmbiosUtilityComparison = {
+  reference_count: Int, decoded_count: Int, matched_count: Int,
+  missing_names: List[Str], unexpected_names: List[Str], field_mismatches: List[Str], exact: Bool,
+}
+type SmbiosUtilityRun = {
+  comparison: SmbiosUtilityComparison, version: Str,
+  started_unix_ms: Int, ended_unix_ms: Int,
+}
+type SmbiosReferenceModule = module {
+  export proc compare_live_smbios(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[SmbiosLiveResult]
+  export proc capture_smbios_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[SmbiosCapturedRun]
+  export proc replay_smbios_bundle(bundle: FsRoot) [fs, time, error] -> Result[SmbiosReplayComparison]
+  export proc corroborate_smbios_bundle(bundle: FsRoot, executable: Str) [fs, process, time, error] -> Result[SmbiosUtilityRun]
+}
+type SensorsJsonComparison = {reference_count: Int, compared: Int, mismatches: List[Str], partial: List[Str]}
+type SensorsJsonRun = {
+  comparison: SensorsJsonComparison, version: Str, executable: Str,
+  before_started_unix_ms: Int, candidate_started_unix_ms: Int, after_ended_unix_ms: Int,
+  before_sha256_hex: Str, after_sha256_hex: Str,
+}
+type SensorsReferenceModule = module {
+  export proc compare_live_sensors_json(xsh_bin: Str, script: Str, executable: Str) [fs, process, time, error] -> Result[SensorsJsonRun]
+}
+type CpupowerComparison = {matched_fields: Int, mismatches: List[Str], partial: List[Str]}
+type CpupowerRun = {
+  version: Str, executable: Str, comparison: CpupowerComparison,
+  reference_started_unix_ms: Int, candidate_started_unix_ms: Int,
+  driver_sha256_hex: Str, limits_sha256_hex: Str, idle_sha256_hex: Str,
+}
+type CpupowerReferenceModule = module {
+  export proc compare_live_cpupower(xsh_bin: Str, script: Str, executable: Str) [fs, process, time, error] -> Result[CpupowerRun]
+}
+type LsusbComparison = {
+  matched_devices: Int, matched_tree_rows: Int, matched_descriptor_fields: Int,
+  mismatches: List[Str], partial: List[Str],
+}
+type LsusbRun = {
+  version: Str, executable: Str, comparison: LsusbComparison,
+  reference_started_unix_ms: Int, candidate_started_unix_ms: Int,
+  list_sha256_hex: Str, tree_sha256_hex: Str, verbose_sha256_hex: Str,
+}
+type LsusbReferenceModule = module {
+  export proc compare_live_lsusb(xsh_bin: Str, script: Str, executable: Str) [fs, process, time, error] -> Result[LsusbRun]
+}
+type ThermalLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type NetworkLinkLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type NetworkAddressLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type NetworkRouteLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type NetworkRuleLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type PsiObservation = {rows: List[PsiReferenceRow], available_resources: List[Str], started: Int, ended: Int}
+type PsiLiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
+type Cgroup2LiveResult = {scored: Bool, partial: Bool, unavailable: Bool}
 type KernelCommandLineObservation = {data: Bytes, started: Int, ended: Int}
 type KernelParameterSource = {name: Str, source: Str, path: Path}
 type KernelParameterObservation = {values: List[KernelParameterReference], started: Int, ended: Int}
@@ -705,6 +1446,39 @@ type CpuSetCapture = {
   sources: List[CpuSetSourceObservation],
   reference: CpuSetReference?,
 }
+
+type CpuFreqBundleLayout = {
+  listing_state: Str, policies: List[Str], source_paths: List[Str], complete: Bool,
+}
+type CpuFreqSourceObservation = {
+  path: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+type CpuFreqBundleCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  layout: CpuFreqBundleLayout, stable_static: Bool, changing_gauges: List[Str], scoreable: Bool,
+  sources: List[CpuFreqSourceObservation], sets: CpuSetReference?,
+  policies: List[CpuFreqPolicyReference]?,
+}
+## Scores the CPU identity sets and frequency policies from one validated raw capture.
+export type CpuFreqBundleComparison = {sets: CpuSetComparison, policies: CpuFreqPolicyComparison}
+type CpuTopologyNodeLink = {cpu_id: Int, name: Str, target: Str}
+type CpuTopologyBundleLayout = {
+  cpu_ids: List[Int], node_links: List[CpuTopologyNodeLink],
+  source_paths: List[Str], complete: Bool,
+}
+type CpuTopologySourceObservation = {
+  path: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+type CpuTopologyBundleCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  layout: CpuTopologyBundleLayout, stable: Bool, scoreable: Bool,
+  sources: List[CpuTopologySourceObservation], sets: CpuSetReference?,
+  topology: List[CpuTopologyRawReference]?,
+}
+## Scores CPU identity sets and per CPU topology from a validated raw sysfs capture.
+export type CpuTopologyBundleComparison = {sets: CpuSetComparison, topology: CpuTopologyRawComparison}
 
 type MemorySourceObservation = {
   path: Str,
@@ -738,8 +1512,36 @@ type MemoryCapture = {
   reference: MemoryBundleReference?,
 }
 
+type PressureSourceObservation = {
+  path: Str,
+  state: Str,
+  truncated: Bool,
+  errno: Int?,
+  error_kind: Str?,
+  byte_count: Int,
+  sha256_hex: Str?,
+}
+
+type PressureCapture = {
+  schema_version: Int,
+  origin: Str,
+  captured_unix_ms: Int,
+  reference_adapter: Str,
+  sources: List[PressureSourceObservation],
+  reference: List[PsiReferenceRow]?,
+}
+
 type SystemReportLiveCollector = module {
   export proc collect_from_root(root: FsRoot, architecture: Str, page_size_bytes: Int, clock_ticks_per_second: Int, selected: Str = "", sensitive: Bool = false, include_local_mount_usage: Bool = false) [fs, time, error] -> Result[Record]
+}
+
+type SystemReportModelEncoder = module {
+  export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str]
+}
+
+proc encode_replayed_report(candidate: Record, sensitive: Bool) [fs, error] -> Result[Str] {
+  let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModelEncoder)?
+  return model.encode_report_json(candidate, sensitive, false)
 }
 
 ## Counts required assertions by their declared domain without consulting a report.
@@ -772,6 +1574,11 @@ export pure summary(assertions: List[CoverageAssertion]) -> Str {
 ## Reads CPU identities from util-linux's explicit-column JSON output.
 export pure parse_lscpu_online_cpu_ids(output: Str) -> Result[List[Int]] {
   let raw = json.decode(output)?
+  # Reject malformed utility booleans at the JSON boundary before typed row conversion.
+  let rows = json.get(raw, ["cpus"])?.require(List[Record])?
+  for row in rows {
+    let _online = json.get(row, ["online"])?.require(Bool)?
+  }
   let data = raw.require(LscpuExtended)?
   var seen: List[Int] = []
   var online: List[Int] = []
@@ -788,6 +1595,415 @@ export pure parse_lscpu_online_cpu_ids(output: Str) -> Result[List[Int]] {
     return Err(check_failure("lscpu JSON reported no online CPUs"))
   }
   return online |> sort-by .
+}
+
+## Parses explicit-column util-linux topology output without treating its IDs as kernel IDs.
+export pure parse_lscpu_topology(output: Str) -> Result[List[LscpuTopologyCpu]] {
+  let data = json.decode(output)?.require(LscpuTopology)?
+  var seen = set.empty()
+  var rows: List[LscpuTopologyCpu] = []
+  for item in data.cpus {
+    let key = f"${item.cpu}"
+    if item.cpu < 0 or set.has(seen, key) or
+        (item.socket != null and (item.socket ?? -1) < 0) or
+        (item.core != null and (item.core ?? -1) < 0) or
+        (item.node != null and (item.node ?? -1) < 0) {
+      return Err(check_failure("lscpu topology has an invalid or duplicate CPU identity"))
+    }
+    seen = set.add(seen, key)
+    rows = rows.push(item)
+  }
+  if rows.len() == 0 {return Err(check_failure("lscpu topology has no CPU rows"))}
+  return rows |> sort-by .cpu
+}
+
+## Selects kernel-present CPUs from lscpu's online and offline inventory.
+export pure select_present_lscpu_topology(rows: List[LscpuTopologyCpu], present: List[Int]) -> Result[List[LscpuTopologyCpu]] {
+  var present_set = set.empty()
+  for id in present {
+    let key = f"${id}"
+    if id < 0 or set.has(present_set, key) {
+      return Err(check_failure("CPU present reference has an invalid or duplicate ID"))
+    }
+    present_set = set.add(present_set, key)
+  }
+  var selected: List[LscpuTopologyCpu] = []
+  var seen = set.empty()
+  for item in rows {
+    let key = f"${item.cpu}"
+    if item.cpu < 0 or set.has(seen, key) {
+      return Err(check_failure("lscpu topology has an invalid or duplicate CPU ID"))
+    }
+    seen = set.add(seen, key)
+    if set.has(present_set, key) {selected = selected.push(item)}
+  }
+  if selected.len() != present.len() {
+    return Err(check_failure("lscpu topology omitted a kernel-present CPU"))
+  }
+  return selected |> sort-by .cpu
+}
+
+pure topology_group_signatures(groups: Map[List[Int]]) -> List[Str] {
+  var signatures: List[Str] = []
+  for key in groups.keys() {
+    let members = groups.get(key, []) |> sort-by .
+    var parts: List[Str] = []
+    for member in members {parts = parts.push(f"${member}")}
+    signatures = signatures.push(parts.join(","))
+  }
+  return signatures |> sort-by .
+}
+
+pure topology_group_difference(reference: List[Str], candidate: List[Str]) -> List[Str] {
+  var mismatches: List[Str] = []
+  var reference_set = set.empty()
+  var candidate_set = set.empty()
+  for item in reference {reference_set = set.add(reference_set, item)}
+  for item in candidate {candidate_set = set.add(candidate_set, item)}
+  for item in reference {
+    if !set.has(candidate_set, item) {mismatches = mismatches.push(f"missing:${item}")}
+  }
+  for item in candidate {
+    if !set.has(reference_set, item) {mismatches = mismatches.push(f"unexpected:${item}")}
+  }
+  return mismatches |> sort-by .
+}
+
+## Compares CPU topology as relationships so logical lscpu IDs cannot cause false mismatches.
+export pure compare_lscpu_topology(
+  candidate_json: Str, before: List[LscpuTopologyCpu], after: List[LscpuTopologyCpu],
+) -> Result[LscpuTopologyComparison] {
+  if before != after {return Err(check_failure("lscpu topology changed around candidate collection"))}
+  let data = json.decode(candidate_json)?
+  let status = json.get(data, ["cpu", "status"])?.require(CandidateCpuSectionStatus)?
+  let candidate = json.get(data, ["cpu", "cpus"])?.require(List[CandidateCpuTopology])?
+  var reference_by_id: Map[Int] = {}
+  var candidate_by_id: Map[Int] = {}
+  var reference_packages: Map[List[Int]] = {}
+  var reference_cores: Map[List[Int]] = {}
+  var candidate_packages: Map[List[Int]] = {}
+  var candidate_cores: Map[List[Int]] = {}
+  var eligible = before.len() > 0
+  for index in range(before.len()) {
+    let item = before[index]
+    let key = f"${item.cpu}"
+    if item.cpu < 0 or reference_by_id.has(key) {
+      return Err(check_failure("lscpu topology reference has an invalid or duplicate CPU"))
+    }
+    reference_by_id = reference_by_id.set(key, index)
+    if item.socket == null or item.core == null or item.node == null {
+      eligible = false
+      continue
+    }
+    let package_key = f"${item.socket ?? -1}"
+    let core_key = f"${package_key}/${item.core ?? -1}"
+    reference_packages = reference_packages.set(package_key, reference_packages.get(package_key, []).push(item.cpu))
+    reference_cores = reference_cores.set(core_key, reference_cores.get(core_key, []).push(item.cpu))
+  }
+  for index in range(candidate.len()) {
+    let item = candidate[index]
+    let key = f"${item.id}"
+    if item.id < 0 or candidate_by_id.has(key) {
+      return Err(check_failure("candidate topology has an invalid or duplicate CPU"))
+    }
+    candidate_by_id = candidate_by_id.set(key, index)
+    if item.package_id == null or item.core_id == null or (item.package_id ?? -1) < 0 or (item.core_id ?? -1) < 0 {continue}
+    let package_key = f"${item.package_id ?? -1}"
+    let core_key = f"${package_key}/${item.core_id ?? -1}"
+    candidate_packages = candidate_packages.set(package_key, candidate_packages.get(package_key, []).push(item.id))
+    candidate_cores = candidate_cores.set(core_key, candidate_cores.get(core_key, []).push(item.id))
+  }
+  var missing_ids: List[Int] = []
+  var unexpected_ids: List[Int] = []
+  var sibling_mismatches: List[Str] = []
+  var node_mismatches: List[Str] = []
+  var field_missing: List[Str] = []
+  var matched_count = 0
+  for item in before {
+    let key = f"${item.cpu}"
+    if !candidate_by_id.has(key) {
+      missing_ids = missing_ids.push(item.cpu)
+      continue
+    }
+    matched_count += 1
+    let actual = candidate[candidate_by_id.get(key)?]
+    if !actual.present or actual.online != item.online {field_missing = field_missing.push(f"${item.cpu}.presence_or_online")}
+    if actual.package_id == null or (actual.package_id ?? -1) < 0 {field_missing = field_missing.push(f"${item.cpu}.package_id")}
+    if actual.core_id == null or (actual.core_id ?? -1) < 0 {field_missing = field_missing.push(f"${item.cpu}.core_id")}
+    if item.node != null and actual.numa_node == null {
+      field_missing = field_missing.push(f"${item.cpu}.numa_node")
+    } else if item.node != null and actual.numa_node != item.node {
+      node_mismatches = node_mismatches.push(f"${item.cpu}.numa_node")
+    }
+    if item.socket != null and item.core != null {
+      let core_key = f"${item.socket ?? -1}/${item.core ?? -1}"
+      let expected_siblings = reference_cores.get(core_key, []) |> sort-by .
+      if actual.thread_siblings != expected_siblings {
+        sibling_mismatches = sibling_mismatches.push(f"${item.cpu}.thread_siblings")
+      }
+    }
+  }
+  for item in candidate {
+    if !reference_by_id.has(f"${item.id}") {unexpected_ids = unexpected_ids.push(item.id)}
+  }
+  let package_group_mismatches = topology_group_difference(
+    topology_group_signatures(reference_packages), topology_group_signatures(candidate_packages),
+  )
+  let core_group_mismatches = topology_group_difference(
+    topology_group_signatures(reference_cores), topology_group_signatures(candidate_cores),
+  )
+  let exact = eligible and status.enumeration_succeeded and missing_ids.len() == 0 and unexpected_ids.len() == 0 and
+    package_group_mismatches.len() == 0 and core_group_mismatches.len() == 0 and
+    sibling_mismatches.len() == 0 and node_mismatches.len() == 0 and field_missing.len() == 0
+  return Ok({
+    reference_count: before.len(), candidate_count: candidate.len(), matched_count: matched_count,
+    missing_ids: missing_ids |> sort-by ., unexpected_ids: unexpected_ids |> sort-by .,
+    package_group_mismatches: package_group_mismatches, core_group_mismatches: core_group_mismatches,
+    sibling_mismatches: sibling_mismatches |> sort-by ., node_mismatches: node_mismatches |> sort-by .,
+    field_missing: field_missing |> sort-by ., eligible: eligible, exact: exact,
+  })
+}
+
+pure cache_instance_key(source: CpuCacheReference) -> Str {
+  if source.kernel_id != null {
+    return f"kernel:${source.level}:${source.kind.count_chars()}:${source.kind}:${source.kernel_id ?? -1}"
+  }
+  var ids: List[Str] = []
+  for cpu_id in source.shared_cpus {ids = ids.push(f"${cpu_id}")}
+  return f"fallback:${source.level}:${source.kind.count_chars()}:${source.kind}:${source.sysfs_index}:${ids.join(",")}"
+}
+
+pure cache_reference_sources(rows: List[CpuCacheReference]) -> Result[Map[CpuCacheReference]] {
+  var sources: Map[CpuCacheReference] = {}
+  for row in rows {
+    if row.owner_cpu_id < 0 or row.sysfs_index < 0 or row.level <= 0 or row.kind == "" or
+        (row.kernel_id != null and (row.kernel_id ?? -1) < 0) or
+        row.size_bytes < 0 or row.size_bytes > 9007199254740991 or row.shared_cpus.len() == 0 or
+        row.shared_cpus != (row.shared_cpus |> sort-by .) or row.owner_cpu_id not in row.shared_cpus {
+      return Err(check_failure("cache reference has an invalid identity or size"))
+    }
+    var seen = set.empty()
+    for cpu_id in row.shared_cpus {
+      let key = f"${cpu_id}"
+      if cpu_id < 0 or set.has(seen, key) {return Err(check_failure("cache reference repeats a shared CPU"))}
+      seen = set.add(seen, key)
+    }
+    let source_key = f"${row.owner_cpu_id}:${row.sysfs_index}"
+    if sources.has(source_key) {return Err(check_failure("cache reference repeats a CPU cache index"))}
+    sources = sources.set(source_key, row)
+  }
+  return Ok(sources)
+}
+
+## Compares a complete shared-cache inventory and its per-CPU links with two stable raw snapshots.
+export pure compare_cpu_cache_sharing(
+  candidate_json: Str, before: List[CpuCacheReference], after: List[CpuCacheReference],
+) -> Result[CpuCacheComparison] {
+  let first_sources = cache_reference_sources(before)?
+  let last_sources = cache_reference_sources(after)?
+  if first_sources.keys().len() != last_sources.keys().len() {
+    return Err(check_failure("cache source set changed around candidate collection"))
+  }
+  for key in first_sources.keys() {
+    if !last_sources.has(key) or first_sources.get(key)? != last_sources.get(key)? {
+      return Err(check_failure("cache source changed around candidate collection"))
+    }
+  }
+  var instances: Map[CpuCacheReference] = {}
+  var eligible = before.len() > 0
+  for source in before {
+    if source.kernel_id == null {eligible = false}
+    let key = cache_instance_key(source)
+    if instances.has(key) {
+      let first = instances.get(key)?
+      if first.level != source.level or first.kind != source.kind or first.shared_cpus != source.shared_cpus or
+          first.size_bytes != source.size_bytes or first.line_size_bytes != source.line_size_bytes or first.sets != source.sets {
+        return Err(check_failure("shared cache attributes disagree across CPUs"))
+      }
+      if source.owner_cpu_id < first.owner_cpu_id {
+        instances = instances.set(key, source)
+      }
+    } else {
+      instances = instances.set(key, source)
+    }
+  }
+  var reference_by_key: Map[CpuCacheReference] = {}
+  for instance_key in instances.keys() {
+    let source = instances.get(instance_key)?
+    let key = f"${source.owner_cpu_id}:${source.sysfs_index}"
+    if reference_by_key.has(key) {return Err(check_failure("distinct cache instances share one owner index"))}
+    reference_by_key = reference_by_key.set(key, source)
+  }
+  let data = json.decode(candidate_json)?
+  let status = json.get(data, ["cpu", "status"])?.require(CandidateCpuSectionStatus)?
+  let candidate = json.get(data, ["cpu", "caches"])?.require(List[CandidateCpuCache])?
+  let cpus = json.get(data, ["cpu", "cpus"])?.require(List[CandidateCpuCacheMembership])?
+  var candidate_by_key: Map[CandidateCpuCache] = {}
+  var candidate_key_by_id: Map[Str] = {}
+  for cache in candidate {
+    let key = f"${cache.owner_cpu_id}:${cache.sysfs_index}"
+    let id_key = f"${cache.id}"
+    if cache.id < 0 or cache.owner_cpu_id < 0 or cache.sysfs_index < 0 or cache.level <= 0 or
+        cache.kind == "" or candidate_by_key.has(key) or candidate_key_by_id.has(id_key) {
+      return Err(check_failure("candidate cache inventory has an invalid or duplicate identity"))
+    }
+    candidate_by_key = candidate_by_key.set(key, cache)
+    candidate_key_by_id = candidate_key_by_id.set(id_key, key)
+  }
+  var missing_keys: List[Str] = []
+  var unexpected_keys: List[Str] = []
+  var field_mismatches: List[Str] = []
+  var matched_count = 0
+  var expected_by_cpu: Map[List[Str]] = {}
+  for key in reference_by_key.keys() {
+    let source = reference_by_key.get(key)?
+    for cpu_id in source.shared_cpus {
+      let cpu_key = f"${cpu_id}"
+      expected_by_cpu = expected_by_cpu.set(cpu_key, expected_by_cpu.get(cpu_key, []).push(key))
+    }
+    if !candidate_by_key.has(key) {
+      missing_keys = missing_keys.push(key)
+      continue
+    }
+    matched_count += 1
+    let actual = candidate_by_key.get(key)?
+    if actual.level != source.level {field_mismatches = field_mismatches.push(f"${key}.level")}
+    if actual.kind != source.kind {field_mismatches = field_mismatches.push(f"${key}.kind")}
+    if actual.shared_cpus != source.shared_cpus {field_mismatches = field_mismatches.push(f"${key}.shared_cpus")}
+    if actual.size_bytes != source.size_bytes {field_mismatches = field_mismatches.push(f"${key}.size_bytes")}
+    if actual.line_size_bytes != source.line_size_bytes {field_mismatches = field_mismatches.push(f"${key}.line_size_bytes")}
+    if actual.sets != source.sets {field_mismatches = field_mismatches.push(f"${key}.sets")}
+    if actual.owner_cpu_id != source.owner_cpu_id {field_mismatches = field_mismatches.push(f"${key}.owner_cpu_id")}
+    if actual.sysfs_index != source.sysfs_index {field_mismatches = field_mismatches.push(f"${key}.sysfs_index")}
+  }
+  for key in candidate_by_key.keys() {
+    if !reference_by_key.has(key) {unexpected_keys = unexpected_keys.push(key)}
+  }
+  var actual_by_cpu: Map[List[Str]] = {}
+  var seen_cpu = set.empty()
+  var relationship_mismatches: List[Str] = []
+  for cpu_item in cpus {
+    let cpu_key = f"${cpu_item.id}"
+    if cpu_item.id < 0 or set.has(seen_cpu, cpu_key) {return Err(check_failure("candidate cache membership repeats a CPU"))}
+    seen_cpu = set.add(seen_cpu, cpu_key)
+    var keys: List[Str] = []
+    var seen_id = set.empty()
+    for cache_id in cpu_item.cache_ids {
+      let id_key = f"${cache_id}"
+      if set.has(seen_id, id_key) {return Err(check_failure("candidate CPU repeats a cache link"))}
+      seen_id = set.add(seen_id, id_key)
+      if !candidate_key_by_id.has(id_key) {
+        relationship_mismatches = relationship_mismatches.push(f"${cpu_item.id}.unknown_cache_id")
+      } else {
+        keys = keys.push(candidate_key_by_id.get(id_key)?)
+      }
+    }
+    actual_by_cpu = actual_by_cpu.set(cpu_key, keys |> sort-by .)
+  }
+  for cpu_key in expected_by_cpu.keys() {
+    let expected = expected_by_cpu.get(cpu_key, []) |> sort-by .
+    let actual = actual_by_cpu.get(cpu_key, []) |> sort-by .
+    if expected != actual {relationship_mismatches = relationship_mismatches.push(f"${cpu_key}.cache_ids")}
+  }
+  for cpu_key in actual_by_cpu.keys() {
+    if !expected_by_cpu.has(cpu_key) and actual_by_cpu.get(cpu_key, []).len() > 0 {
+      relationship_mismatches = relationship_mismatches.push(f"${cpu_key}.cache_ids")
+    }
+  }
+  return Ok({
+    reference_count: reference_by_key.keys().len(), candidate_count: candidate.len(), matched_count: matched_count,
+    missing_keys: missing_keys |> sort-by ., unexpected_keys: unexpected_keys |> sort-by .,
+    field_mismatches: field_mismatches |> sort-by ., relationship_mismatches: relationship_mismatches |> sort-by .,
+    eligible: eligible,
+    exact: eligible and status.enumeration_succeeded and
+      missing_keys.len() == 0 and unexpected_keys.len() == 0 and field_mismatches.len() == 0 and relationship_mismatches.len() == 0,
+  })
+}
+
+## Parses the kernel cacheinfo byte or binary-size value within JSON's exact integer range.
+export pure parse_cpu_cache_size_reference(source: Str) -> Result[Int] {
+  if source == "" or source.trim() != source {return Err(check_failure("cache size reference is empty or padded"))}
+  var digits = source
+  var multiplier = 1
+  var maximum = 9007199254740991
+  if source.ends_with("K") {
+    digits = (source.split("") |> take(source.count_chars() - 1)).join("")
+    multiplier = 1024
+    maximum = 8796093022207
+  } else if source.ends_with("M") {
+    digits = (source.split("") |> take(source.count_chars() - 1)).join("")
+    multiplier = 1048576
+    maximum = 8589934591
+  } else if source.ends_with("G") {
+    digits = (source.split("") |> take(source.count_chars() - 1)).join("")
+    multiplier = 1073741824
+    maximum = 8388607
+  }
+  let count = reference_cpu_number(digits)?
+  if count > maximum {return Err(check_failure("cache size reference exceeds exact integer range"))}
+  return Ok(count * multiplier)
+}
+
+proc reference_cache_text(root: FsRoot, source_path: Path, required: Bool, max_bytes: Int = 4096) [fs, error] -> Result[Str?] {
+  let raw = fs.root_read_result(root, source_path, max_bytes: max_bytes)?
+  if raw.state == "absent" and !required {return Ok(null)}
+  if raw.state != "observed" or raw.truncated or raw.data == null {
+    return Err(check_failure(f"cache reference source ${source_path} is incomplete"))
+  }
+  match (raw.data ?? b"").utf8() {
+    Ok(value) => return Ok(value.trim())
+    Err(_) => return Err(check_failure(f"cache reference source ${source_path} is not UTF-8"))
+  }
+}
+
+proc reference_cache_optional_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+  let raw = reference_cache_text(root, source_path, false)?
+  if raw == null {return Ok(null)}
+  let parsed = reference_cpu_number(raw ?? "")?
+  if parsed > 9007199254740991 {
+    return Err(check_failure(f"cache reference source ${source_path} exceeds exact integer range"))
+  }
+  return Ok(parsed)
+}
+
+## Reads each present CPU's cacheinfo entries without using candidate cache identities.
+export proc read_cpu_cache_reference(root: FsRoot) [fs, error] -> Result[List[CpuCacheReference]] {
+  let present_text = reference_cache_text(root, p"sys/devices/system/cpu/present", true, max_bytes: 65536)?
+  let present = parse_reference_cpu_list(present_text ?? "", false)?
+  var rows: List[CpuCacheReference] = []
+  for cpu_id in present {
+    let cache_directory = fp"sys/devices/system/cpu/cpu${cpu_id}/cache"
+    let listing = fs.root_children(root, cache_directory, max_entries: 64)?
+    if listing.state == "absent" {continue}
+    if listing.state != "complete" {
+      return Err(check_failure(f"cache reference enumeration failed for CPU ${cpu_id}"))
+    }
+    for entry in listing.children {
+      let name = entry.name()
+      if !name.starts_with("index") {continue}
+      let index_text = (name.split("") |> drop(5)).join("")
+      let index = reference_cpu_number(index_text)?
+      let level_text = reference_cache_text(root, fp"${entry}/level", true)?
+      let level = reference_cpu_number(level_text ?? "")?
+      if level <= 0 {return Err(check_failure("cache reference has a nonpositive level"))}
+      let kind = reference_cache_text(root, fp"${entry}/type", true)?
+      if kind == null or kind == "" {return Err(check_failure("cache reference has an empty type"))}
+      let size_text = reference_cache_text(root, fp"${entry}/size", true)?
+      let shared_text = reference_cache_text(root, fp"${entry}/shared_cpu_list", true)?
+      let shared_cpus = parse_reference_cpu_list(shared_text ?? "", false)?
+      if cpu_id not in shared_cpus {return Err(check_failure("cache reference omits its owner CPU"))}
+      rows = rows.push({
+        owner_cpu_id: cpu_id, sysfs_index: index,
+        kernel_id: reference_cache_optional_number(root, fp"${entry}/id")?,
+        level: level, kind: kind ?? "",
+        size_bytes: parse_cpu_cache_size_reference(size_text ?? "")?,
+        line_size_bytes: reference_cache_optional_number(root, fp"${entry}/coherency_line_size")?,
+        sets: reference_cache_optional_number(root, fp"${entry}/number_of_sets")?,
+        shared_cpus: shared_cpus,
+      })
+    }
+  }
+  return Ok(rows)
 }
 
 pure reference_cpu_number(value: Str) -> Result[Int] {
@@ -845,6 +2061,2255 @@ export pure parse_reference_cpu_list(output: Str, allow_empty: Bool) -> Result[L
     }
   }
   return ids |> sort-by .
+}
+
+## Compares a complete policy set and stable configured limits by policy directory name.
+export pure compare_cpufreq_policies(
+  candidate_json: Str, before: List[CpuFreqPolicyReference], after: List[CpuFreqPolicyReference],
+) -> Result[CpuFreqPolicyComparison] {
+  var before_by_name: Map[Int] = {}
+  var after_by_name: Map[Int] = {}
+  for index in range(before.len()) {
+    let item = before[index]
+    if !item.name.starts_with("policy") or item.name == "policy" or before_by_name.has(item.name) {
+      return Err(check_failure("CPUFreq before reference has an invalid or duplicate policy"))
+    }
+    before_by_name = before_by_name.set(item.name, index)
+  }
+  for index in range(after.len()) {
+    let item = after[index]
+    if !before_by_name.has(item.name) or after_by_name.has(item.name) {
+      return Err(check_failure("CPUFreq policy set changed around collection"))
+    }
+    after_by_name = after_by_name.set(item.name, index)
+    let original = before[before_by_name.get(item.name)?]
+    if item.related_cpus != original.related_cpus or item.affected_cpus != original.affected_cpus or
+        item.driver != original.driver or item.governor != original.governor {
+      return Err(check_failure("CPUFreq policy identity changed around collection"))
+    }
+  }
+  if before.len() != after.len() {
+    return Err(check_failure("CPUFreq policy set changed around collection"))
+  }
+  let data = json.decode(candidate_json)?
+  let status = json.get(data, ["cpu", "status"])?.require(CandidateCpuSectionStatus)?
+  let candidate = json.get(data, ["cpu", "frequency_policies"])?.require(List[CandidateCpuFreqPolicy])?
+  let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
+  var candidate_by_name: Map[Int] = {}
+  for index in range(candidate.len()) {
+    if candidate[index].name == "" or candidate_by_name.has(candidate[index].name) {
+      return Err(check_failure("candidate CPUFreq policy has an empty or duplicate name"))
+    }
+    candidate_by_name = candidate_by_name.set(candidate[index].name, index)
+  }
+  var missing_names: List[Str] = []
+  var unexpected_names: List[Str] = []
+  var policy_mismatches: List[Str] = []
+  var bound_mismatches: List[Str] = []
+  var unstable_bounds: List[Str] = []
+  var gauge_mismatches: List[Str] = []
+  var unstable_gauges: List[Str] = []
+  var control_mismatches: List[Str] = []
+  var unstable_controls: List[Str] = []
+  var eligible_bounds = false
+  var eligible_controls = false
+  var matched_count = 0
+  for item in before {
+    if !candidate_by_name.has(item.name) {
+      missing_names = missing_names.push(item.name)
+      continue
+    }
+    matched_count += 1
+    let actual = candidate[candidate_by_name.get(item.name)?]
+    if actual.related_cpus != item.related_cpus {policy_mismatches = policy_mismatches.push(f"${item.name}.related_cpus")}
+    if actual.affected_cpus != item.affected_cpus {policy_mismatches = policy_mismatches.push(f"${item.name}.affected_cpus")}
+    if actual.driver != item.driver {policy_mismatches = policy_mismatches.push(f"${item.name}.driver")}
+    if actual.governor != item.governor {policy_mismatches = policy_mismatches.push(f"${item.name}.governor")}
+    let later = after[after_by_name.get(item.name)?]
+    if item.hardware_min_khz != null or item.hardware_max_khz != null or
+        item.scaling_min_khz != null or item.scaling_max_khz != null {
+      eligible_bounds = true
+    }
+    for field in [
+      {name: "hardware_min_khz", before: item.hardware_min_khz, after: later.hardware_min_khz, candidate: actual.hardware_min_khz},
+      {name: "hardware_max_khz", before: item.hardware_max_khz, after: later.hardware_max_khz, candidate: actual.hardware_max_khz},
+      {name: "scaling_min_khz", before: item.scaling_min_khz, after: later.scaling_min_khz, candidate: actual.scaling_min_khz},
+      {name: "scaling_max_khz", before: item.scaling_max_khz, after: later.scaling_max_khz, candidate: actual.scaling_max_khz},
+    ] {
+      if field.before != field.after {
+        unstable_bounds = unstable_bounds.push(f"${item.name}.${field.name}")
+      } else if field.candidate != field.before {
+        bound_mismatches = bound_mismatches.push(f"${item.name}.${field.name}")
+      }
+    }
+    for gauge in [
+      {name: "hardware_current_khz", source: "cpuinfo_cur_freq", before: item.hardware_current, after: later.hardware_current, candidate: actual.hardware_current_khz},
+      {name: "scaling_current_khz", source: "scaling_cur_freq", before: item.scaling_current, after: later.scaling_current, candidate: actual.scaling_current_khz},
+      {name: "average_current_khz", source: "cpuinfo_avg_freq", before: item.average_current, after: later.average_current, candidate: actual.average_current_khz},
+      {name: "governor_requested_khz", source: "scaling_setspeed", before: item.governor_requested, after: later.governor_requested, candidate: actual.governor_requested_khz},
+    ] {
+      var candidate_incomplete = false
+      for issue in issues {
+        if issue.section == "cpu" and issue.field == f"${item.name}.${gauge.source}" {
+          candidate_incomplete = true
+        }
+      }
+      if !gauge.before.complete or !gauge.after.complete or gauge.before.value != gauge.after.value or
+          (gauge.candidate != null and gauge.candidate != gauge.before.value) or candidate_incomplete {
+        unstable_gauges = unstable_gauges.push(f"${item.name}.${gauge.name}")
+      } else if gauge.candidate != gauge.before.value {
+        gauge_mismatches = gauge_mismatches.push(f"${item.name}.${gauge.name}")
+      }
+    }
+    if item.energy_performance_preference != null or item.available_energy_performance_preferences.len() > 0 or item.boost_supported != null {
+      eligible_controls = true
+    }
+    if item.energy_performance_preference != later.energy_performance_preference {
+      unstable_controls = unstable_controls.push(f"${item.name}.energy_performance_preference")
+    } else if actual.energy_performance_preference != item.energy_performance_preference {
+      control_mismatches = control_mismatches.push(f"${item.name}.energy_performance_preference")
+    }
+    if item.available_energy_performance_preferences != later.available_energy_performance_preferences {
+      unstable_controls = unstable_controls.push(f"${item.name}.available_energy_performance_preferences")
+    } else if actual.available_energy_performance_preferences != item.available_energy_performance_preferences {
+      control_mismatches = control_mismatches.push(f"${item.name}.available_energy_performance_preferences")
+    }
+    if item.boost_supported != later.boost_supported {
+      unstable_controls = unstable_controls.push(f"${item.name}.boost_supported")
+    } else if actual.boost_supported != item.boost_supported {
+      control_mismatches = control_mismatches.push(f"${item.name}.boost_supported")
+    }
+    if item.boost_allowed != later.boost_allowed {
+      unstable_controls = unstable_controls.push(f"${item.name}.boost_allowed")
+    } else if actual.boost_allowed != item.boost_allowed {
+      control_mismatches = control_mismatches.push(f"${item.name}.boost_allowed")
+    }
+    if item.boost_active != later.boost_active {
+      unstable_controls = unstable_controls.push(f"${item.name}.boost_active")
+    } else if actual.boost_active != item.boost_active {
+      control_mismatches = control_mismatches.push(f"${item.name}.boost_active")
+    }
+    if item.boost_scope != later.boost_scope {
+      unstable_controls = unstable_controls.push(f"${item.name}.boost_scope")
+    } else if actual.boost_scope != item.boost_scope {
+      control_mismatches = control_mismatches.push(f"${item.name}.boost_scope")
+    }
+  }
+  for item in candidate {
+    if !before_by_name.has(item.name) {unexpected_names = unexpected_names.push(item.name)}
+  }
+  let exact_policies = status.enumeration_succeeded and before.len() > 0 and missing_names.len() == 0 and
+    unexpected_names.len() == 0 and policy_mismatches.len() == 0
+  return Ok({
+    reference_count: before.len(), candidate_count: candidate.len(), matched_count: matched_count,
+    missing_names: missing_names |> sort-by ., unexpected_names: unexpected_names |> sort-by .,
+    policy_mismatches: policy_mismatches |> sort-by ., bound_mismatches: bound_mismatches |> sort-by .,
+    unstable_bounds: unstable_bounds |> sort-by ., exact_policies: exact_policies,
+    gauge_mismatches: gauge_mismatches |> sort-by ., unstable_gauges: unstable_gauges |> sort-by .,
+    eligible_bounds: eligible_bounds,
+    exact_bounds: exact_policies and eligible_bounds and bound_mismatches.len() == 0 and unstable_bounds.len() == 0 and
+      gauge_mismatches.len() == 0 and unstable_gauges.len() == 0,
+    control_mismatches: control_mismatches |> sort-by ., unstable_controls: unstable_controls |> sort-by .,
+    eligible_controls: eligible_controls,
+    exact_controls: exact_policies and eligible_controls and control_mismatches.len() == 0 and unstable_controls.len() == 0,
+  })
+}
+
+pure usb_topology_decimal(value: Str) -> Result[Int] {
+  if value == "" {return Err(check_failure("USB topology name has an empty number"))}
+  for character in value.split("") {
+    if !"0123456789".contains(character) {return Err(check_failure("USB topology name has a non-decimal number"))}
+  }
+  guard let number = value.parse_int() else |_| {
+    return Err(check_failure("USB topology number is outside the supported range"))
+  }
+  if number <= 0 or number > 9007199254740991 {return Err(check_failure("USB topology number is outside the supported range"))}
+  return Ok(number)
+}
+
+## Parses only kernel USB device names; interface names carry a colon and are not devices.
+export pure parse_usb_topology_name(name: Str) -> Result[UsbTopologyName] {
+  if name.starts_with("usb") {
+    let bus = usb_topology_decimal((name.split("") |> drop(3)).join(""))?
+    return Ok({parent_name: null, port_path: null, bus_number: bus, is_root_hub: true})
+  }
+  let parts = name.split("-")
+  if parts.len() != 2 {return Err(check_failure("USB device has an invalid sysfs name"))}
+  let bus = usb_topology_decimal(parts[0])?
+  let ports = parts[1].split(".")
+  for port in ports {let _ = usb_topology_decimal(port)?}
+  let parent = if ports.len() == 1 {f"usb${bus}"} else {f"${bus}-${(ports |> take(ports.len() - 1)).join(".")}"}
+  return Ok({parent_name: parent, port_path: parts[1], bus_number: bus, is_root_hub: false})
+}
+
+## Compares indexed candidate parent links with independently named kernel USB devices.
+export pure compare_usb_topology(candidate_json: Str, before: List[UsbTopologyReference], after: List[UsbTopologyReference]) -> Result[UsbTopologyComparison] {
+  let data = json.decode(candidate_json)?
+  let section = json.get(data, ["usb"])?.require(CandidateUsbTopologySection)?
+  let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
+  var before_by_name: Map[Int] = {}
+  var after_by_name: Map[Int] = {}
+  var candidate_by_name: Map[Int] = {}
+  for index in range(before.len()) {
+    let item = before[index]
+    let parsed = parse_usb_topology_name(item.name)?
+    if before_by_name.has(item.name) or item.parent_name != parsed.parent_name or item.port_path != parsed.port_path or
+        item.is_root_hub != parsed.is_root_hub or (item.bus_number != null and item.bus_number != parsed.bus_number) {
+      return Err(check_failure("USB topology reference has duplicate or inconsistent device identity"))
+    }
+    before_by_name = before_by_name.set(item.name, index)
+  }
+  for index in range(after.len()) {
+    let item = after[index]
+    let parsed = parse_usb_topology_name(item.name)?
+    if after_by_name.has(item.name) or item.parent_name != parsed.parent_name or item.port_path != parsed.port_path or
+        item.is_root_hub != parsed.is_root_hub or (item.bus_number != null and item.bus_number != parsed.bus_number) {
+      return Err(check_failure("USB topology after reference has duplicate or inconsistent device identity"))
+    }
+    after_by_name = after_by_name.set(item.name, index)
+  }
+  for index in range(section.devices.len()) {
+    let name = section.devices[index].sysfs_name ?? ""
+    if name == "" or candidate_by_name.has(name) {return Err(check_failure("candidate USB device has an empty or duplicate name"))}
+    candidate_by_name = candidate_by_name.set(name, index)
+  }
+  var missing_names: List[Str] = []
+  var unexpected_names: List[Str] = []
+  var field_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  var matched_count = 0
+  for item in before {
+    if !after_by_name.has(item.name) {
+      unstable_fields = unstable_fields.push(f"${item.name}.presence")
+      continue
+    }
+    if !candidate_by_name.has(item.name) {missing_names = missing_names.push(item.name); continue}
+    matched_count += 1
+    let actual = section.devices[candidate_by_name.get(item.name)?]
+    let parent_index = actual.parent_device_index ?? -1
+    if parent_index < -1 or parent_index >= section.devices.len() {return Err(check_failure("candidate USB parent index is outside the device list"))}
+    let actual_parent: Str? = if parent_index < 0 {null} else {section.devices[parent_index].sysfs_name}
+    let later = after[after_by_name.get(item.name)?]
+    for field in [
+      {name: "parent_name", before: item.parent_name, after: later.parent_name, candidate: actual_parent},
+      {name: "port_path", before: item.port_path, after: later.port_path, candidate: actual.port_path},
+      {name: "speed_mbps", before: item.speed_mbps, after: later.speed_mbps, candidate: actual.speed_mbps},
+    ] {
+      var candidate_incomplete = false
+      for issue in issues {
+        if issue.section == "usb" and issue.field == f"devices.${item.name}.${field.name}" {candidate_incomplete = true}
+      }
+      if field.before != field.after or candidate_incomplete {
+        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+      } else if field.candidate != field.before {
+        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+      }
+    }
+    for field in [
+      {name: "bus_number", before: item.bus_number, after: later.bus_number, candidate: actual.bus_number},
+      {name: "device_number", before: item.device_number, after: later.device_number, candidate: actual.device_number},
+    ] {
+      var candidate_incomplete = false
+      for issue in issues {
+        if issue.section == "usb" and issue.field == f"devices.${item.name}.${field.name}" {candidate_incomplete = true}
+      }
+      if field.before != field.after or candidate_incomplete {
+        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+      } else if field.candidate != field.before {
+        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+      }
+    }
+    if item.is_root_hub != later.is_root_hub {
+      unstable_fields = unstable_fields.push(f"${item.name}.is_root_hub")
+    } else if actual.is_root_hub != item.is_root_hub {
+      field_mismatches = field_mismatches.push(f"${item.name}.is_root_hub")
+    }
+  }
+  for item in after {if !before_by_name.has(item.name) {unstable_fields = unstable_fields.push(f"${item.name}.presence")}}
+  for item in section.devices {
+    let name = item.sysfs_name ?? ""
+    if !before_by_name.has(name) and !after_by_name.has(name) {unexpected_names = unexpected_names.push(name)}
+  }
+  let eligible = before.len() > 0 or after.len() > 0
+  return Ok({
+    reference_count: before.len(), candidate_count: section.devices.len(), matched_count: matched_count,
+    missing_names: missing_names |> sort-by ., unexpected_names: unexpected_names |> sort-by .,
+    field_mismatches: field_mismatches |> sort-by ., unstable_fields: unstable_fields |> sort-by .,
+    eligible: eligible,
+    exact: eligible and section.status.enumeration_succeeded and missing_names.len() == 0 and unexpected_names.len() == 0 and
+      field_mismatches.len() == 0 and unstable_fields.len() == 0,
+  })
+}
+
+proc reference_usb_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
+  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  if raw.state == "absent" {return Ok(null)}
+  if raw.state != "observed" or raw.truncated or raw.data == null {
+    return Err(check_failure(f"USB topology reference ${source_path} is incomplete"))
+  }
+  let value = (raw.data ?? b"").utf8()?.trim()
+  if value == "" {return Err(check_failure(f"USB topology reference ${source_path} is empty"))}
+  return Ok(value)
+}
+
+proc reference_usb_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+  let value = reference_usb_text(root, source_path)?
+  if value == null {return Ok(null)}
+  return Ok(usb_topology_decimal(value ?? "")?)
+}
+
+## Reads bounded USB device attributes without using the report collector or its parent joins.
+export proc read_usb_topology_reference(root: FsRoot) [fs, error] -> Result[List[UsbTopologyReference]] {
+  let listing = fs.root_children(root, p"sys/bus/usb/devices", max_entries: 4096)?
+  if listing.state == "absent" {return Ok([])}
+  if listing.state != "complete" {return Err(check_failure("USB topology device enumeration is incomplete"))}
+  var devices: List[UsbTopologyReference] = []
+  var names: List[Str] = []
+  for device_path in listing.children {
+    let name = device_path.name()
+    if name.contains(":") {continue}
+    if name in names {return Err(check_failure("USB topology reference repeats a device name"))}
+    names = names.push(name)
+    let identity = parse_usb_topology_name(name)?
+    let bus_number = reference_usb_number(root, fp"${device_path}/busnum")?
+    if bus_number != null and bus_number != identity.bus_number {
+      return Err(check_failure(f"USB device ${name} bus number disagrees with its sysfs name"))
+    }
+    devices = devices.push({
+      name: name, parent_name: identity.parent_name, port_path: identity.port_path,
+      bus_number: bus_number, device_number: reference_usb_number(root, fp"${device_path}/devnum")?,
+      speed_mbps: reference_usb_text(root, fp"${device_path}/speed")?, is_root_hub: identity.is_root_hub,
+    })
+  }
+  return devices |> sort-by .name
+}
+
+## Compares stable USB identity attributes without using vendor-name databases.
+export pure compare_usb_ids(candidate_json: Str, before: List[UsbIdsReference], after: List[UsbIdsReference]) -> Result[UsbIdsComparison] {
+  let data = json.decode(candidate_json)?
+  let section = json.get(data, ["usb"])?.require(CandidateUsbIdsSection)?
+  let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
+  var before_by_name: Map[Int] = {}
+  var after_by_name: Map[Int] = {}
+  var candidate_by_name: Map[Int] = {}
+  for index in range(before.len()) {
+    let name = before[index].name
+    let _ = parse_usb_topology_name(name)?
+    if before_by_name.has(name) {return Err(check_failure("USB identity reference repeats a name"))}
+    before_by_name = before_by_name.set(name, index)
+  }
+  for index in range(after.len()) {
+    let name = after[index].name
+    let _ = parse_usb_topology_name(name)?
+    if after_by_name.has(name) {return Err(check_failure("USB identity after reference repeats a name"))}
+    after_by_name = after_by_name.set(name, index)
+  }
+  for index in range(section.devices.len()) {
+    let name = section.devices[index].sysfs_name ?? ""
+    if name == "" or candidate_by_name.has(name) {return Err(check_failure("candidate USB identity has an empty or duplicate name"))}
+    candidate_by_name = candidate_by_name.set(name, index)
+  }
+  var missing_names: List[Str] = []
+  var unexpected_names: List[Str] = []
+  var field_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  var matched_count = 0
+  var eligible = false
+  for item in after {
+    if item.vendor_id.value != null or item.product_id.value != null or item.device_version.value != null or
+        item.class_code.value != null or item.subclass.value != null or item.protocol.value != null or
+        item.manufacturer.value != null or item.product.value != null {
+      eligible = true
+    }
+  }
+  for item in before {
+    if item.vendor_id.value != null or item.product_id.value != null or item.device_version.value != null or
+        item.class_code.value != null or item.subclass.value != null or item.protocol.value != null or
+        item.manufacturer.value != null or item.product.value != null {
+      eligible = true
+    }
+    if !after_by_name.has(item.name) {unstable_fields = unstable_fields.push(f"${item.name}.presence"); continue}
+    if !candidate_by_name.has(item.name) {missing_names = missing_names.push(item.name); continue}
+    matched_count += 1
+    let actual = section.devices[candidate_by_name.get(item.name)?]
+    let later = after[after_by_name.get(item.name)?]
+    for field in [
+      {name: "vendor_id", before: item.vendor_id, after: later.vendor_id, candidate: actual.vendor_id},
+      {name: "product_id", before: item.product_id, after: later.product_id, candidate: actual.product_id},
+      {name: "class_code", before: item.class_code, after: later.class_code, candidate: actual.class_code},
+      {name: "subclass", before: item.subclass, after: later.subclass, candidate: actual.subclass},
+      {name: "protocol", before: item.protocol, after: later.protocol, candidate: actual.protocol},
+    ] {
+      var candidate_incomplete = false
+      for issue in issues {
+        if issue.section == "usb" and issue.field == f"devices.${item.name}.${field.name}" {candidate_incomplete = true}
+      }
+      if !field.before.complete or !field.after.complete or field.before.value != field.after.value or candidate_incomplete {
+        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+      } else if field.candidate != field.before.value {
+        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+      }
+    }
+    for field in [
+      {name: "device_version", before: item.device_version, after: later.device_version, candidate: {state: if actual.device_version == null {"absent"} else {"observed"}, value: actual.device_version}},
+      {name: "manufacturer", before: item.manufacturer, after: later.manufacturer, candidate: actual.manufacturer},
+      {name: "product", before: item.product, after: later.product, candidate: actual.product},
+    ] {
+      var candidate_incomplete = false
+      for issue in issues {
+        if issue.section == "usb" and issue.field == f"devices.${item.name}.${field.name}" {candidate_incomplete = true}
+      }
+      if !field.before.complete or !field.after.complete or field.before.value != field.after.value or candidate_incomplete {
+        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+      } else {
+        let expected_state = if field.before.value == null {"absent"} else {"observed"}
+        if field.candidate.state != expected_state or field.candidate.value != field.before.value {
+          field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+        }
+      }
+    }
+  }
+  for item in after {if !before_by_name.has(item.name) {unstable_fields = unstable_fields.push(f"${item.name}.presence")}}
+  for item in section.devices {
+    let name = item.sysfs_name ?? ""
+    if !before_by_name.has(name) and !after_by_name.has(name) {unexpected_names = unexpected_names.push(name)}
+  }
+  return Ok({
+    reference_count: before.len(), candidate_count: section.devices.len(), matched_count: matched_count,
+    missing_names: missing_names |> sort-by ., unexpected_names: unexpected_names |> sort-by .,
+    field_mismatches: field_mismatches |> sort-by ., unstable_fields: unstable_fields |> sort-by .,
+    eligible: eligible,
+    exact: eligible and section.status.enumeration_succeeded and missing_names.len() == 0 and unexpected_names.len() == 0 and
+      field_mismatches.len() == 0 and unstable_fields.len() == 0,
+  })
+}
+
+pure usb_reference_hex(value: Str, width: Int) -> Result[Int] {
+  if value.byte_len() != width {return Err(check_failure("USB identity has an invalid hexadecimal width"))}
+  for character in value.lower().split("") {
+    if !"0123456789abcdef".contains(character) {return Err(check_failure("USB identity contains a nonhexadecimal digit"))}
+  }
+  return f"0x${value}".parse_int()
+}
+
+proc reference_usb_attribute(root: FsRoot, source_path: Path) [fs, error] -> Result[UsbTextReference] {
+  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  if raw.state == "absent" {return Ok({value: null, complete: true})}
+  if raw.state != "observed" or raw.truncated or raw.data == null {
+    return Ok({value: null, complete: false})
+  }
+  let value = (raw.data ?? b"").utf8()?.trim()
+  if value == "" {return Err(check_failure(f"USB identity reference ${source_path} is empty"))}
+  return Ok({value: value, complete: true})
+}
+
+proc reference_usb_hex_attribute(root: FsRoot, source_path: Path, width: Int) [fs, error] -> Result[UsbNumberReference] {
+  let raw = reference_usb_attribute(root, source_path)?
+  if raw.value == null {return Ok({value: null, complete: raw.complete})}
+  return Ok({value: usb_reference_hex(raw.value ?? "", width)?, complete: true})
+}
+
+## Reads fixed-width USB device IDs and optional labels through bounded rooted sysfs sources.
+export proc read_usb_ids_reference(root: FsRoot) [fs, error] -> Result[List[UsbIdsReference]] {
+  let listing = fs.root_children(root, p"sys/bus/usb/devices", max_entries: 4096)?
+  if listing.state == "absent" {return Ok([])}
+  if listing.state != "complete" {return Err(check_failure("USB identity device enumeration is incomplete"))}
+  var devices: List[UsbIdsReference] = []
+  var names: List[Str] = []
+  for device_path in listing.children {
+    let name = device_path.name()
+    if name.contains(":") {continue}
+    let _ = parse_usb_topology_name(name)?
+    if name in names {return Err(check_failure("USB identity reference repeats a device name"))}
+    names = names.push(name)
+    let version = reference_usb_attribute(root, fp"${device_path}/bcdDevice")?
+    if version.value != null {let _ = usb_reference_hex(version.value ?? "", 4)?}
+    devices = devices.push({
+      name: name,
+      vendor_id: reference_usb_hex_attribute(root, fp"${device_path}/idVendor", 4)?,
+      product_id: reference_usb_hex_attribute(root, fp"${device_path}/idProduct", 4)?,
+      device_version: version,
+      class_code: reference_usb_hex_attribute(root, fp"${device_path}/bDeviceClass", 2)?,
+      subclass: reference_usb_hex_attribute(root, fp"${device_path}/bDeviceSubClass", 2)?,
+      protocol: reference_usb_hex_attribute(root, fp"${device_path}/bDeviceProtocol", 2)?,
+      manufacturer: reference_usb_attribute(root, fp"${device_path}/manufacturer")?,
+      product: reference_usb_attribute(root, fp"${device_path}/product")?,
+    })
+  }
+  return devices |> sort-by .name
+}
+
+## Parses exact JSON-safe decimal values while retaining negative autosuspend delays.
+export pure parse_usb_power_number(value: Str, allow_negative: Bool) -> Result[Int] {
+  let negative = value.starts_with("-")
+  if negative and !allow_negative {return Err(check_failure("USB power value cannot be negative"))}
+  let digits = if negative {(value.split("") |> drop(1)).join("")} else {value}
+  if digits == "" {return Err(check_failure("USB power value has no decimal digits"))}
+  for digit in digits.split("") {
+    if !"0123456789".contains(digit) {return Err(check_failure("USB power value is not decimal"))}
+  }
+  guard let number = value.parse_int() else |_| {
+    return Err(check_failure("USB power value is outside the integer range"))
+  }
+  if number < -9007199254740991 or number > 9007199254740991 {
+    return Err(check_failure("USB power value is outside the exact JSON integer range"))
+  }
+  return Ok(number)
+}
+
+proc reference_usb_power_number(root: FsRoot, source_path: Path, allow_negative: Bool) [fs, error] -> Result[UsbNumberReference] {
+  let raw = reference_usb_attribute(root, source_path)?
+  if raw.value == null {return Ok({value: null, complete: raw.complete})}
+  return Ok({value: parse_usb_power_number(raw.value ?? "", allow_negative)?, complete: true})
+}
+
+## Reads USB runtime status, autosuspend policy, and active configuration independently.
+export proc read_usb_power_reference(root: FsRoot) [fs, error] -> Result[List[UsbPowerReference]] {
+  let listing = fs.root_children(root, p"sys/bus/usb/devices", max_entries: 4096)?
+  if listing.state == "absent" {return Ok([])}
+  if listing.state != "complete" {return Err(check_failure("USB power device enumeration is incomplete"))}
+  var devices: List[UsbPowerReference] = []
+  var names: List[Str] = []
+  for device_path in listing.children {
+    let name = device_path.name()
+    if name.contains(":") {continue}
+    let _ = parse_usb_topology_name(name)?
+    if name in names {return Err(check_failure("USB power reference repeats a device name"))}
+    names = names.push(name)
+    devices = devices.push({
+      name: name,
+      power_control: reference_usb_attribute(root, fp"${device_path}/power/control")?,
+      autosuspend_delay_ms: reference_usb_power_number(root, fp"${device_path}/power/autosuspend_delay_ms", true)?,
+      runtime_status: reference_usb_attribute(root, fp"${device_path}/power/runtime_status")?,
+      configuration_count: reference_usb_power_number(root, fp"${device_path}/bNumConfigurations", false)?,
+      active_configuration: reference_usb_power_number(root, fp"${device_path}/bConfigurationValue", true)?,
+    })
+  }
+  return devices |> sort-by .name
+}
+
+## Decodes only configuration, interface, and endpoint ownership from exported USB bytes.
+export pure parse_usb_interface_descriptors(data: Bytes) -> Result[List[UsbInterfaceSettingReference]] {
+  var settings: List[UsbInterfaceSettingReference] = []
+  var current: UsbInterfaceSettingReference? = null
+  var configuration: Int? = null
+  var configuration_end: Int? = null
+  var offset = 0
+  while offset < data.len() {
+    if data.len() - offset < 2 {return Err(check_failure("USB reference descriptor header is truncated"))}
+    let length = bytes.unpack_le(data, 1, offset)?
+    let kind = bytes.unpack_le(data, 1, offset + 1)?
+    if length < 2 or length > data.len() - offset {return Err(check_failure("USB reference descriptor length is invalid"))}
+    if configuration_end != null {
+      let end = configuration_end
+      if offset < end and offset + length > end {return Err(check_failure("USB reference descriptor exceeds its configuration"))}
+      if offset == end and kind != 1 and kind != 2 {return Err(check_failure("USB reference has bytes after a complete configuration"))}
+      if offset > end {return Err(check_failure("USB reference configuration length is inconsistent"))}
+    }
+    if kind == 1 {
+      if length < 18 {return Err(check_failure("USB reference device descriptor is truncated"))}
+      if configuration_end != null {if offset != configuration_end {return Err(check_failure("USB reference configuration ends early"))}}
+      if current != null {settings = settings.push(current.require(UsbInterfaceSettingReference)?)}
+      current = null
+      configuration = null
+      configuration_end = null
+    } else if kind == 2 {
+      if length < 9 {return Err(check_failure("USB reference configuration descriptor is truncated"))}
+      if configuration_end != null {if offset != configuration_end {return Err(check_failure("USB reference configuration ends early"))}}
+      let total = bytes.unpack_le(data, 2, offset + 2)?
+      if total < length or total > data.len() - offset {return Err(check_failure("USB reference configuration total length is invalid"))}
+      if current != null {settings = settings.push(current.require(UsbInterfaceSettingReference)?)}
+      current = null
+      configuration = bytes.unpack_le(data, 1, offset + 5)?
+      configuration_end = offset + total
+    } else if kind == 4 {
+      if length < 9 or configuration == null {return Err(check_failure("USB reference interface descriptor has no valid configuration"))}
+      if current != null {settings = settings.push(current.require(UsbInterfaceSettingReference)?)}
+      current = {
+        configuration_value: configuration,
+        interface_number: bytes.unpack_le(data, 1, offset + 2)?,
+        number: bytes.unpack_le(data, 1, offset + 3)?,
+        class_code: bytes.unpack_le(data, 1, offset + 5)?,
+        subclass: bytes.unpack_le(data, 1, offset + 6)?,
+        protocol: bytes.unpack_le(data, 1, offset + 7)?,
+        endpoints: [],
+      }
+    } else if kind == 5 {
+      if length < 7 or current == null {return Err(check_failure("USB reference endpoint has no owning interface"))}
+      let address = bytes.unpack_le(data, 1, offset + 2)?
+      let attributes = bytes.unpack_le(data, 1, offset + 3)?
+      let endpoint: UsbInterfaceEndpointReference = {
+        address: address,
+        direction: if address >= 128 {"in"} else {"out"},
+        transfer_type: match attributes % 4 {
+          0 => "control"
+          1 => "isochronous"
+          2 => "bulk"
+          _ => "interrupt"
+        },
+        max_packet_size: bytes.unpack_le(data, 2, offset + 4)?,
+        interval: bytes.unpack_le(data, 1, offset + 6)?,
+      }
+      let owner = current.require(UsbInterfaceSettingReference)?
+      current = {...owner, endpoints: owner.endpoints.push(endpoint)}
+    }
+    offset += length
+  }
+  if configuration_end != null {if offset != configuration_end {return Err(check_failure("USB reference configuration ends early"))}}
+  if current != null {settings = settings.push(current.require(UsbInterfaceSettingReference)?)}
+  return Ok(settings)
+}
+
+type UsbInterfaceName = {device_name: Str, configuration: Int, number: Int}
+
+pure parse_usb_interface_name(name: Str) -> Result[UsbInterfaceName] {
+  let pair = name.split(":")
+  if pair.len() != 2 {return Err(check_failure("USB interface name has no device and configuration"))}
+  let _ = parse_usb_topology_name(pair[0])?
+  let components = pair[1].split(".")
+  if components.len() != 2 {return Err(check_failure("USB interface name has no configuration and number"))}
+  let configuration = usb_topology_decimal(components[0])?
+  let number = parse_usb_power_number(components[1], false)?
+  if number > 255 {return Err(check_failure("USB interface number exceeds one byte"))}
+  return Ok({device_name: pair[0], configuration: configuration, number: number})
+}
+
+proc reference_usb_interface_driver(root: FsRoot, interface_path: Path) [fs, error] -> Result[UsbTextReference] {
+  let listing = fs.root_children(root, interface_path, max_entries: 4096)?
+  if listing.state != "complete" {return Ok({value: null, complete: false})}
+  for entry in listing.children {
+    if entry.name() == "driver" {
+      match fs.root_readlink(root, fp"${interface_path}/driver") {
+        Ok(target) => {
+          let name = target.name()
+          if name == "" {return Err(check_failure("USB interface driver link has an empty target"))}
+          return Ok({value: name, complete: true})
+        }
+        Err(_) => return Ok({value: null, complete: false})
+      }
+    }
+  }
+  return Ok({value: null, complete: true})
+}
+
+## Reads live USB interface attributes and the device's bounded raw descriptors independently.
+export proc read_usb_interface_reference(root: FsRoot) [fs, error] -> Result[List[UsbInterfaceReference]] {
+  let listing = fs.root_children(root, p"sys/bus/usb/devices", max_entries: 4096)?
+  if listing.state == "absent" {return Ok([])}
+  if listing.state != "complete" {return Err(check_failure("USB interface enumeration is incomplete"))}
+  var rows: List[UsbInterfaceReference] = []
+  var seen: List[Str] = []
+  for device_path in listing.children {
+    let device_name = device_path.name()
+    if device_name.contains(":") {continue}
+    let _ = parse_usb_topology_name(device_name)?
+    let raw = fs.root_read_result(root, fp"${device_path}/descriptors", max_bytes: 1048576)?
+    var descriptor_settings: List[UsbInterfaceSettingReference] = []
+    var descriptors_complete = false
+    if raw.state == "observed" and !raw.truncated and raw.data != null {
+      match parse_usb_interface_descriptors(raw.data ?? b"") {
+        Ok(settings) => {descriptor_settings = settings; descriptors_complete = true}
+        Err(_) => {}
+      }
+    }
+    for interface_path in listing.children {
+      let name = interface_path.name()
+      if !name.starts_with(f"${device_name}:") {continue}
+      let identity = parse_usb_interface_name(name)?
+      if identity.device_name != device_name or name in seen {return Err(check_failure("USB interface reference repeats or misnames an interface"))}
+      seen = seen.push(name)
+      let interface_number = reference_usb_hex_attribute(root, fp"${interface_path}/bInterfaceNumber", 2)?
+      if interface_number.value != null and interface_number.value != identity.number {
+        return Err(check_failure("USB interface number disagrees with its sysfs name"))
+      }
+      let active = reference_usb_power_number(root, fp"${interface_path}/bAlternateSetting", false)?
+      var owned: List[UsbInterfaceSettingReference] = []
+      for setting in descriptor_settings {
+        if setting.interface_number == identity.number {owned = owned.push(setting)}
+      }
+      rows = rows.push({
+        device_name: device_name, name: name, number: identity.number,
+        driver: reference_usb_interface_driver(root, interface_path)?,
+        active_alternate: active,
+        active_class: reference_usb_hex_attribute(root, fp"${interface_path}/bInterfaceClass", 2)?,
+        active_subclass: reference_usb_hex_attribute(root, fp"${interface_path}/bInterfaceSubClass", 2)?,
+        active_protocol: reference_usb_hex_attribute(root, fp"${interface_path}/bInterfaceProtocol", 2)?,
+        active_endpoint_count: reference_usb_hex_attribute(root, fp"${interface_path}/bNumEndpoints", 2)?,
+        settings: owned, descriptors_complete: descriptors_complete,
+      })
+    }
+  }
+  return rows |> sort-by .name
+}
+
+pure usb_interface_has_issue(issues: List[CandidateIssueField], field: Str) -> Bool {
+  for issue in issues {
+    if issue.section == "usb" and issue.field == field {return true}
+  }
+  return false
+}
+
+pure usb_interface_settings_match(reference: List[UsbInterfaceSettingReference], candidate: List[CandidateUsbInterfaceSetting], interface_number: Int) -> Bool {
+  if reference.len() != candidate.len() {return false}
+  var matched = set.empty()
+  for expected in reference {
+    let key = f"${expected.configuration_value ?? -1}:${expected.number}"
+    if set.has(matched, key) {return false}
+    var found = false
+    for actual in candidate {
+      if expected.configuration_value == actual.configuration_value and expected.number == actual.number {
+        if expected.interface_number != interface_number or expected.class_code != actual.class_code or
+            expected.subclass != actual.subclass or expected.protocol != actual.protocol or
+            expected.endpoints != actual.endpoints {return false}
+        found = true
+      }
+    }
+    if !found {return false}
+    matched = set.add(matched, key)
+  }
+  return true
+}
+
+## Brackets interface bindings and active settings while comparing descriptor alternatives separately.
+export pure compare_usb_interfaces(candidate_json: Str, before: List[UsbInterfaceReference], after: List[UsbInterfaceReference]) -> Result[UsbInterfaceComparison] {
+  let data = json.decode(candidate_json)?
+  let section = json.get(data, ["usb"])?.require(CandidateUsbInterfaceSection)?
+  let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
+  var before_by_name: Map[Int] = {}
+  var after_by_name: Map[Int] = {}
+  var candidate_by_name: Map[Int] = {}
+  for index in range(before.len()) {
+    let item = before[index]
+    let identity = parse_usb_interface_name(item.name)?
+    if identity.device_name != item.device_name or identity.number != item.number or before_by_name.has(item.name) {
+      return Err(check_failure("USB interface before reference has an invalid identity"))
+    }
+    before_by_name = before_by_name.set(item.name, index)
+  }
+  for index in range(after.len()) {
+    let item = after[index]
+    let identity = parse_usb_interface_name(item.name)?
+    if identity.device_name != item.device_name or identity.number != item.number or after_by_name.has(item.name) {
+      return Err(check_failure("USB interface after reference has an invalid identity"))
+    }
+    after_by_name = after_by_name.set(item.name, index)
+  }
+  var candidate_interfaces: List[CandidateUsbInterface] = []
+  for device in section.devices {
+    let device_name = device.sysfs_name ?? ""
+    if device_name == "" {return Err(check_failure("candidate USB interface device has no name"))}
+    for item in device.interfaces {
+      let name = item.name ?? ""
+      let identity = parse_usb_interface_name(name)?
+      if identity.device_name != device_name or identity.number != item.number or candidate_by_name.has(name) {
+        return Err(check_failure("candidate USB interface has an invalid or duplicate identity"))
+      }
+      candidate_by_name = candidate_by_name.set(name, candidate_interfaces.len())
+      candidate_interfaces = candidate_interfaces.push(item)
+    }
+  }
+  var missing_names: List[Str] = []
+  var unexpected_names: List[Str] = []
+  var field_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  var matched_count = 0
+  let eligible = before.len() > 0 or after.len() > 0
+  for item in before {
+    if !after_by_name.has(item.name) {unstable_fields = unstable_fields.push(f"${item.name}.presence"); continue}
+    if !candidate_by_name.has(item.name) {
+      if section.status.enumeration_succeeded {
+        missing_names = missing_names.push(item.name)
+      } else {
+        unstable_fields = unstable_fields.push(f"${item.name}.presence")
+      }
+      continue
+    }
+    matched_count += 1
+    let later = after[after_by_name.get(item.name)?]
+    let actual = candidate_interfaces[candidate_by_name.get(item.name)?]
+    if !item.driver.complete or !later.driver.complete or item.driver.value != later.driver.value or
+        usb_interface_has_issue(issues, f"devices.${item.device_name}.interfaces.${item.name}.driver") {
+      unstable_fields = unstable_fields.push(f"${item.name}.driver")
+    } else if actual.driver != item.driver.value {
+      field_mismatches = field_mismatches.push(f"${item.name}.driver")
+    }
+    if !item.active_alternate.complete or !later.active_alternate.complete or
+        item.active_alternate.value != later.active_alternate.value or
+        usb_interface_has_issue(issues, f"devices.${item.device_name}.interfaces.${item.name}.active_alternate") {
+      unstable_fields = unstable_fields.push(f"${item.name}.active_alternate")
+    } else if actual.active_alternate != item.active_alternate.value {
+      field_mismatches = field_mismatches.push(f"${item.name}.active_alternate")
+    }
+    if !item.descriptors_complete or !later.descriptors_complete or item.settings != later.settings or
+        usb_interface_has_issue(issues, f"devices.${item.device_name}.descriptors") {
+      unstable_fields = unstable_fields.push(f"${item.name}.alternate_settings")
+    } else if !usb_interface_settings_match(item.settings, actual.alternate_settings, item.number) {
+      field_mismatches = field_mismatches.push(f"${item.name}.alternate_settings")
+    }
+    let identity = parse_usb_interface_name(item.name)?
+    var active_setting: CandidateUsbInterfaceSetting? = null
+    let selected = actual.active_alternate ?? -1
+    for setting in actual.alternate_settings {
+      if setting.configuration_value == identity.configuration and setting.number == selected {
+        active_setting = setting
+      }
+    }
+    let actual_class: Int? = if active_setting == null {null} else {active_setting.require(CandidateUsbInterfaceSetting)?.class_code}
+    let actual_subclass: Int? = if active_setting == null {null} else {active_setting.require(CandidateUsbInterfaceSetting)?.subclass}
+    let actual_protocol: Int? = if active_setting == null {null} else {active_setting.require(CandidateUsbInterfaceSetting)?.protocol}
+    let actual_endpoints: Int? = if active_setting == null {null} else {active_setting.require(CandidateUsbInterfaceSetting)?.endpoints.len()}
+    for field in [
+      {name: "active_class", before: item.active_class, after: later.active_class, candidate: actual_class},
+      {name: "active_subclass", before: item.active_subclass, after: later.active_subclass, candidate: actual_subclass},
+      {name: "active_protocol", before: item.active_protocol, after: later.active_protocol, candidate: actual_protocol},
+      {name: "active_endpoint_count", before: item.active_endpoint_count, after: later.active_endpoint_count, candidate: actual_endpoints},
+    ] {
+      if field.before.value == null and field.after.value == null {continue}
+      if !field.before.complete or !field.after.complete or field.before.value != field.after.value or
+          !item.descriptors_complete or !later.descriptors_complete or item.settings != later.settings or
+          item.active_alternate.value != later.active_alternate.value {
+        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+      } else if field.candidate != field.before.value {
+        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+      }
+    }
+  }
+  for item in after {if !before_by_name.has(item.name) {unstable_fields = unstable_fields.push(f"${item.name}.presence")}}
+  for item in candidate_interfaces {
+    let name = item.name ?? ""
+    if !before_by_name.has(name) and !after_by_name.has(name) {unexpected_names = unexpected_names.push(name)}
+  }
+  return Ok({
+    reference_count: before.len(), candidate_count: candidate_interfaces.len(), matched_count: matched_count,
+    missing_names: missing_names |> sort-by ., unexpected_names: unexpected_names |> sort-by .,
+    field_mismatches: field_mismatches |> sort-by ., unstable_fields: unstable_fields |> sort-by .,
+    eligible: eligible,
+    exact: eligible and section.status.enumeration_succeeded and missing_names.len() == 0 and unexpected_names.len() == 0 and
+      field_mismatches.len() == 0 and unstable_fields.len() == 0,
+  })
+}
+
+## Parses signed or unsigned sysfs power values without losing exact JSON integers.
+export pure parse_power_supply_number(value: Str, signed: Bool) -> Result[Int] {
+  let negative = value.starts_with("-")
+  if negative and !signed {return Err(check_failure("power supply quantity cannot be negative"))}
+  let digits = if negative {(value.split("") |> drop(1)).join("")} else {value}
+  if digits == "" {return Err(check_failure("power supply quantity has no digits"))}
+  for digit in digits.split("") {
+    if !"0123456789".contains(digit) {return Err(check_failure("power supply quantity is not decimal"))}
+  }
+  guard let number = value.parse_int() else |_| {
+    return Err(check_failure("power supply quantity is outside the integer range"))
+  }
+  if number < -9007199254740991 or number > 9007199254740991 {
+    return Err(check_failure("power supply quantity is outside the exact JSON integer range"))
+  }
+  return Ok(number)
+}
+
+proc reference_power_text(root: FsRoot, source_path: Path) [fs, error] -> Result[PowerTextReference] {
+  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  if raw.state == "absent" {return Ok({value: null, complete: true})}
+  if raw.state != "observed" or raw.truncated or raw.data == null {
+    return Ok({value: null, complete: false})
+  }
+  let value = (raw.data ?? b"").utf8()?.trim()
+  if value == "" {return Err(check_failure(f"power supply attribute ${source_path} is empty"))}
+  return Ok({value: value, complete: true})
+}
+
+proc reference_power_number(root: FsRoot, source_path: Path, signed: Bool, percent: Bool) [fs, error] -> Result[PowerNumberReference] {
+  let raw = reference_power_text(root, source_path)?
+  if raw.value == null {return Ok({value: null, complete: raw.complete})}
+  let number = parse_power_supply_number(raw.value ?? "", signed)?
+  if percent and number > 100 {return Err(check_failure("power supply capacity exceeds 100 percent"))}
+  return Ok({value: number, complete: true})
+}
+
+## Reads bounded power-supply class attributes without calling the report collector.
+export proc read_power_supply_reference(root: FsRoot) [fs, error] -> Result[List[PowerSupplyReference]] {
+  let listing = fs.root_children(root, p"sys/class/power_supply", max_entries: 1024)?
+  if listing.state == "absent" {return Ok([])}
+  if listing.state != "complete" {return Err(check_failure("power supply enumeration is incomplete"))}
+  var supplies: List[PowerSupplyReference] = []
+  var seen: List[Str] = []
+  for supply_path in listing.children {
+    let name = supply_path.name()
+    if name == "" or name in seen {return Err(check_failure("power supply reference has an empty or duplicate name"))}
+    seen = seen.push(name)
+    supplies = supplies.push({
+      name: name,
+      kind: reference_power_text(root, fp"${supply_path}/type")?,
+      status: reference_power_text(root, fp"${supply_path}/status")?,
+      health: reference_power_text(root, fp"${supply_path}/health")?,
+      capacity_percent: reference_power_number(root, fp"${supply_path}/capacity", false, true)?,
+      energy_now_uwh: reference_power_number(root, fp"${supply_path}/energy_now", false, false)?,
+      energy_full_uwh: reference_power_number(root, fp"${supply_path}/energy_full", false, false)?,
+      charge_now_uah: reference_power_number(root, fp"${supply_path}/charge_now", false, false)?,
+      charge_full_uah: reference_power_number(root, fp"${supply_path}/charge_full", false, false)?,
+      voltage_now_uv: reference_power_number(root, fp"${supply_path}/voltage_now", false, false)?,
+      current_now_ua: reference_power_number(root, fp"${supply_path}/current_now", true, false)?,
+      cycle_count: reference_power_number(root, fp"${supply_path}/cycle_count", false, false)?,
+    })
+  }
+  return supplies |> sort-by .name
+}
+
+pure power_supply_has_issue(issues: List[CandidateIssueField], field: Str) -> Bool {
+  for issue in issues {
+    if issue.section == "power" and issue.field == field {return true}
+  }
+  return false
+}
+
+## Compares every exposed power-supply quantity only when its bracketing reads agree.
+export pure compare_power_supplies(candidate_json: Str, before: List[PowerSupplyReference], after: List[PowerSupplyReference]) -> Result[PowerSupplyComparison] {
+  let data = json.decode(candidate_json)?
+  let section = json.get(data, ["power"])?.require(CandidatePowerSupplySection)?
+  let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
+  var before_by_name: Map[Int] = {}
+  var after_by_name: Map[Int] = {}
+  var candidate_by_name: Map[Int] = {}
+  for index in range(before.len()) {
+    let name = before[index].name
+    if name == "" or before_by_name.has(name) {return Err(check_failure("power supply before reference has an invalid name"))}
+    before_by_name = before_by_name.set(name, index)
+  }
+  for index in range(after.len()) {
+    let name = after[index].name
+    if name == "" or after_by_name.has(name) {return Err(check_failure("power supply after reference has an invalid name"))}
+    after_by_name = after_by_name.set(name, index)
+  }
+  for index in range(section.supplies.len()) {
+    let name = section.supplies[index].name
+    if name == "" or candidate_by_name.has(name) {return Err(check_failure("candidate power supply has an invalid name"))}
+    candidate_by_name = candidate_by_name.set(name, index)
+  }
+  var missing_names: List[Str] = []
+  var unexpected_names: List[Str] = []
+  var field_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  let supply_enumeration_complete = !power_supply_has_issue(issues, "supplies") and section.status.state != "not_requested"
+  var matched_count = 0
+  for item in before {
+    if !after_by_name.has(item.name) {unstable_fields = unstable_fields.push(f"${item.name}.presence"); continue}
+    if !candidate_by_name.has(item.name) {
+      if supply_enumeration_complete {missing_names = missing_names.push(item.name)} else {unstable_fields = unstable_fields.push(f"${item.name}.presence")}
+      continue
+    }
+    matched_count += 1
+    let later = after[after_by_name.get(item.name)?]
+    let actual = section.supplies[candidate_by_name.get(item.name)?]
+    for field in [
+      {name: "kind", source: "type", before: item.kind, after: later.kind, candidate: actual.kind},
+      {name: "status", source: "status", before: item.status, after: later.status, candidate: actual.status},
+      {name: "health", source: "health", before: item.health, after: later.health, candidate: actual.health},
+    ] {
+      if !field.before.complete or !field.after.complete or field.before.value != field.after.value or
+          power_supply_has_issue(issues, f"supplies.${item.name}.${field.source}") {
+        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+      } else if field.candidate != field.before.value {
+        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+      }
+    }
+    for field in [
+      {name: "capacity_percent", source: "capacity", before: item.capacity_percent, after: later.capacity_percent, candidate: actual.capacity_percent},
+      {name: "energy_now_uwh", source: "energy_now", before: item.energy_now_uwh, after: later.energy_now_uwh, candidate: actual.energy_now_uwh},
+      {name: "energy_full_uwh", source: "energy_full", before: item.energy_full_uwh, after: later.energy_full_uwh, candidate: actual.energy_full_uwh},
+      {name: "charge_now_uah", source: "charge_now", before: item.charge_now_uah, after: later.charge_now_uah, candidate: actual.charge_now_uah},
+      {name: "charge_full_uah", source: "charge_full", before: item.charge_full_uah, after: later.charge_full_uah, candidate: actual.charge_full_uah},
+      {name: "voltage_now_uv", source: "voltage_now", before: item.voltage_now_uv, after: later.voltage_now_uv, candidate: actual.voltage_now_uv},
+      {name: "current_now_ua", source: "current_now", before: item.current_now_ua, after: later.current_now_ua, candidate: actual.current_now_ua},
+      {name: "cycle_count", source: "cycle_count", before: item.cycle_count, after: later.cycle_count, candidate: actual.cycle_count},
+    ] {
+      if !field.before.complete or !field.after.complete or field.before.value != field.after.value or
+          power_supply_has_issue(issues, f"supplies.${item.name}.${field.source}") {
+        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+      } else if field.candidate != field.before.value {
+        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+      }
+    }
+  }
+  for item in after {if !before_by_name.has(item.name) {unstable_fields = unstable_fields.push(f"${item.name}.presence")}}
+  for item in section.supplies {
+    if !before_by_name.has(item.name) and !after_by_name.has(item.name) {unexpected_names = unexpected_names.push(item.name)}
+  }
+  let eligible = before.len() > 0 or after.len() > 0
+  return Ok({
+    reference_count: before.len(), candidate_count: section.supplies.len(), matched_count: matched_count,
+    missing_names: missing_names |> sort-by ., unexpected_names: unexpected_names |> sort-by .,
+    field_mismatches: field_mismatches |> sort-by ., unstable_fields: unstable_fields |> sort-by .,
+    eligible: eligible,
+    exact: eligible and supply_enumeration_complete and missing_names.len() == 0 and unexpected_names.len() == 0 and
+      field_mismatches.len() == 0 and unstable_fields.len() == 0,
+  })
+}
+
+pure powercap_constraint_index(name: Str) -> Result[Int?] {
+  if !name.starts_with("constraint_") or !name.ends_with("_power_limit_uw") {return Ok(null)}
+  let parts = name.split("_")
+  if parts.len() != 5 or parts[0] != "constraint" or parts[2] != "power" or parts[3] != "limit" or parts[4] != "uw" {
+    return Err(check_failure("powercap constraint name has an invalid shape"))
+  }
+  let index = parse_power_supply_number(parts[1], false)?
+  if parts[1] != f"${index}" {return Err(check_failure("powercap constraint index is not canonical"))}
+  return Ok(index)
+}
+
+proc reference_powercap_parent(root: FsRoot, zone_path: Path, zone_names: List[Str]) [fs, error] -> Result[PowerTextReference] {
+  let name = zone_path.name()
+  match fs.root_readlink(root, zone_path) {
+    Ok(target) => {
+      if target.name() != name {return Err(check_failure("powercap class link does not end at its zone name"))}
+      let parent = target.parent().name()
+      let parent_value: Str? = if parent in zone_names {parent} else {null}
+      return Ok({value: parent_value, complete: true})
+    }
+    Err(_) => {
+      for candidate in zone_names {
+        if candidate != name and name.starts_with(f"${candidate}:") {
+          return Ok({value: null, complete: false})
+        }
+      }
+      return Ok({value: null, complete: true})
+    }
+  }
+}
+
+## Reads visible powercap zones and constraints by their class entry and numeric index.
+export proc read_powercap_reference(root: FsRoot) [fs, error] -> Result[List[PowerCapZoneReference]] {
+  let listing = fs.root_children(root, p"sys/class/powercap", max_entries: 1024)?
+  if listing.state == "absent" {return Ok([])}
+  if listing.state != "complete" {return Err(check_failure("powercap zone enumeration is incomplete"))}
+  var zone_paths: List[Path] = []
+  var zone_names: List[Str] = []
+  var names: List[PowerTextReference] = []
+  for entry in listing.children {
+    let name = reference_power_text(root, fp"${entry}/name")?
+    if name.value == null and name.complete {continue}
+    if entry.name() == "" or entry.name() in zone_names {return Err(check_failure("powercap reference has an empty or duplicate zone name"))}
+    zone_paths = zone_paths.push(entry)
+    zone_names = zone_names.push(entry.name())
+    names = names.push(name)
+  }
+  var zones: List[PowerCapZoneReference] = []
+  for index in range(zone_paths.len()) {
+    let zone_path = zone_paths[index]
+    let entry_name = zone_path.name()
+    let attributes = fs.root_children(root, zone_path, max_entries: 256)?
+    var constraints: List[PowerCapConstraintReference] = []
+    var indices: List[Int] = []
+    if attributes.state == "complete" {
+      for attribute in attributes.children {
+        let parsed_index = powercap_constraint_index(attribute.name())?
+        if parsed_index == null {continue}
+        let constraint_index = parsed_index.require(Int)?
+        if constraint_index in indices {return Err(check_failure("powercap reference repeats a constraint index"))}
+        indices = indices.push(constraint_index)
+        constraints = constraints.push({
+          index: constraint_index,
+          name: reference_power_text(root, fp"${zone_path}/constraint_${constraint_index}_name")?,
+          power_limit_uw: reference_power_number(root, attribute, false, false)?,
+          time_window_us: reference_power_number(root, fp"${zone_path}/constraint_${constraint_index}_time_window_us", false, false)?,
+        })
+      }
+    }
+    zones = zones.push({
+      entry_name: entry_name, name: names[index],
+      parent: reference_powercap_parent(root, zone_path, zone_names)?,
+      energy_uj: reference_power_number(root, fp"${zone_path}/energy_uj", false, false)?,
+      maximum_energy_range_uj: reference_power_number(root, fp"${zone_path}/max_energy_range_uj", false, false)?,
+      constraints: constraints |> sort-by .index, constraints_complete: attributes.state == "complete",
+    })
+  }
+  return zones |> sort-by .entry_name
+}
+
+# Resolves only class-local and sysfs device links without following arbitrary source paths.
+pure powercap_bundle_storage_path(entry_name: Str, target: Str?) -> Result[Str] {
+  if target == null {return Ok(f"sys/class/powercap/${entry_name}")}
+  let raw = target ?? ""
+  if raw == "" or raw.starts_with("/") {return Err(check_failure("powercap class link has an invalid target"))}
+  let components = raw.split("/")
+  var storage: List[Str] = ["sys", "class", "powercap"]
+  var first = 0
+  if components.len() >= 4 and components[0] == ".." and components[1] == ".." and components[2] == "devices" {
+    storage = ["sys"]
+    first = 2
+  }
+  for index in range(first, components.len()) {
+    let component = components[index]
+    if component == "" or component == "." or component == ".." {
+      return Err(check_failure("powercap class link leaves its allowed sysfs tree"))
+    }
+    storage = storage.push(component)
+  }
+  if storage[storage.len() - 1] != entry_name {
+    return Err(check_failure("powercap class link does not end at its entry name"))
+  }
+  return Ok(storage.join("/"))
+}
+
+# Lists only named powercap zones and the bounded attributes consumed by the collector.
+proc powercap_bundle_layout(root: FsRoot) [fs, error] -> Result[PowerCapBundleLayout] {
+  let listing = fs.root_children(root, p"sys/class/powercap", max_entries: 1024)?
+  var zones: List[PowerCapBundleZone] = []
+  var source_paths: List[Str] = []
+  var complete = listing.state == "complete" or listing.state == "absent"
+  if listing.state != "complete" {
+    return {listing_state: listing.state, zones: zones, source_paths: source_paths, complete: complete}
+  }
+  for entry in listing.children {
+    let name = reference_power_text(root, fp"${entry}/name")?
+    if name.value == null and name.complete {continue}
+    if !name.complete {complete = false}
+    let link = fs.root_readlink_result(root, entry)?
+    var target: Str? = null
+    if link.state == "observed" {
+      target = (link.target ?? p"").display()
+    } else if link.state != "read_failure" or link.errno != 22 {
+      return Err(check_failure("powercap class entry cannot be captured as a directory or link"))
+    }
+    let storage = powercap_bundle_storage_path(entry.name(), target)?
+    zones = zones.push({entry_name: entry.name(), class_target: target, storage_path: storage})
+    let prefix = entry.display()
+    source_paths = source_paths.extend([
+      f"${prefix}/name", f"${prefix}/energy_uj", f"${prefix}/max_energy_range_uj",
+    ])
+    let attributes = fs.root_children(root, entry, max_entries: 256)?
+    if attributes.state != "complete" {complete = false; continue}
+    var indices: List[Int] = []
+    for attribute in attributes.children {
+      let parsed = powercap_constraint_index(attribute.name())?
+      if parsed == null {continue}
+      let index = parsed.require(Int)?
+      if index in indices {return Err(check_failure("powercap capture repeats a constraint index"))}
+      indices = indices.push(index)
+      source_paths = source_paths.extend([
+        f"${prefix}/constraint_${index}_power_limit_uw",
+        f"${prefix}/constraint_${index}_name",
+        f"${prefix}/constraint_${index}_time_window_us",
+      ])
+    }
+    if source_paths.len() > 4096 {return Err(check_failure("powercap capture exceeds its source path bound"))}
+  }
+  return {
+    listing_state: listing.state, zones: zones |> sort-by .entry_name,
+    source_paths: source_paths |> sort-by ., complete: complete,
+  }
+}
+
+## Saves raw powercap attributes and their independent typed interpretation.
+export proc capture_powercap_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {
+    return Err(check_failure("powercap capture origin must be synthetic_fixture or live_capture"))
+  }
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/class/powercap")? {
+    return Err(check_failure("powercap capture destination is not empty"))
+  }
+  let layout = powercap_bundle_layout(source)?
+  if layout.listing_state == "complete" {
+    fs.root_mkdir(bundle, p"sys/class/powercap", mode: 0o700, parents: true)?
+    for zone in layout.zones {
+      fs.root_mkdir(bundle, fp"${zone.storage_path}", mode: 0o700, parents: true)?
+    }
+    for zone in layout.zones {
+      if zone.class_target != null {
+        fs.root_symlink(bundle, fp"${zone.class_target ?? ""}", fp"sys/class/powercap/${zone.entry_name}")?
+      }
+    }
+  }
+  var observations: List[PowerCapSourceObservation] = []
+  var saved_bytes: List[Bytes?] = []
+  var complete = layout.complete
+  for relative in layout.source_paths {
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    var sha256_hex: Str? = null
+    var byte_count = 0
+    if raw.data != null {
+      let data = raw.data ?? b""
+      fs.root_write(bundle, fp"${relative}", data)?
+      sha256_hex = hash.sha256(data).hex()
+      byte_count = data.len()
+    }
+    if raw.truncated or (raw.state != "observed" and raw.state != "absent") or
+        (relative.ends_with("/name") and !relative.contains("/constraint_") and raw.state != "observed") or
+        (relative.ends_with("_power_limit_uw") and raw.state != "observed") {
+      complete = false
+    }
+    saved_bytes = saved_bytes.push(raw.data)
+    observations = observations.push({
+      path: relative, state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind,
+      byte_count: byte_count, sha256_hex: sha256_hex,
+    })
+  }
+  let later_layout = powercap_bundle_layout(source)?
+  var stable = layout == later_layout
+  for index in range(layout.source_paths.len()) {
+    let relative = layout.source_paths[index]
+    if relative.ends_with("/energy_uj") {continue}
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    let first = observations[index]
+    if raw.state != first.state or raw.truncated != first.truncated or
+        raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
+      stable = false
+    }
+  }
+  var reference: List[PowerCapZoneReference]? = null
+  if complete {
+    match read_powercap_reference(bundle) {
+      Ok(parsed) => reference = parsed
+      Err(_) => {}
+    }
+  }
+  let scoreable = reference != null and (reference ?? []).len() > 0
+  let capture: PowerCapCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "powercap-raw-v1", layout: layout,
+    stable: stable, scoreable: scoreable, sources: observations, reference: reference,
+  }
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Rejects altered source identities, link topology, and raw bytes before replay.
+export proc validate_powercap_bundle(bundle: FsRoot) [fs, error] -> Result[List[PowerCapZoneReference]] {
+  let metadata = capture_metadata_bytes(bundle)?
+  let capture = json.decode(metadata.utf8()?)?.require(PowerCapCapture)?
+  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or
+      capture.reference_adapter != "powercap-raw-v1" or !capture.scoreable or
+      capture.reference == null or !capture.layout.complete {
+    return Err(check_failure("powercap capture has no scoreable reference"))
+  }
+  let layout = powercap_bundle_layout(bundle)?
+  if layout != capture.layout or capture.sources.len() != layout.source_paths.len() {
+    return Err(check_failure("powercap capture source layout differs from metadata"))
+  }
+  for index in range(layout.source_paths.len()) {
+    let expected = capture.sources[index]
+    let relative = layout.source_paths[index]
+    if expected.path != relative or expected.truncated {
+      return Err(check_failure("powercap capture source identity or completeness differs from metadata"))
+    }
+    if expected.state == "absent" {
+      if expected.byte_count != 0 or expected.sha256_hex != null or
+          fs.root_exists(bundle, fp"${relative}")? {
+        return Err(check_failure(f"powercap capture absent source ${relative} differs from metadata"))
+      }
+      continue
+    }
+    if expected.state != "observed" or expected.sha256_hex == null or
+        expected.errno != null or expected.error_kind != null {
+      return Err(check_failure(f"powercap capture cannot score ${relative} source"))
+    }
+    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 4096)?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"powercap capture ${relative} bytes differ from metadata"))
+    }
+  }
+  let reference = read_powercap_reference(bundle)?
+  if reference != (capture.reference ?? reference) {
+    return Err(check_failure("powercap capture reference differs from raw sources"))
+  }
+  return reference
+}
+
+## Runs the production power collector against the captured source tree.
+export proc replay_powercap_bundle(bundle: FsRoot) [fs, time, error] -> Result[PowerCapComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle)?
+  let reference = validate_powercap_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "power", true)?
+  if validate_powercap_bundle(bundle)? != reference {
+    return Err(check_failure("powercap capture changed during replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  return compare_powercap(encode_replayed_report(candidate, true)?, reference, reference)
+}
+
+pure powercap_constraint_issue(issues: List[CandidateIssueField], entry_name: Str) -> Bool {
+  let prefix = f"cap_zones.${entry_name}.constraint_"
+  for issue in issues {
+    if issue.section == "power" and (issue.field == f"cap_zones.${entry_name}.attributes" or issue.field.starts_with(prefix)) {
+      return true
+    }
+  }
+  return false
+}
+
+## Compares indexed powercap zones and limits while bracketing the wrapping energy counter.
+export pure compare_powercap(candidate_json: Str, before: List[PowerCapZoneReference], after: List[PowerCapZoneReference]) -> Result[PowerCapComparison] {
+  let data = json.decode(candidate_json)?
+  let section = json.get(data, ["power"])?.require(CandidatePowerCapSection)?
+  let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
+  var before_by_name: Map[Int] = {}
+  var after_by_name: Map[Int] = {}
+  var candidate_by_name: Map[Int] = {}
+  for index in range(before.len()) {
+    let name = before[index].entry_name
+    if name == "" or before_by_name.has(name) {return Err(check_failure("powercap before reference repeats or omits a zone name"))}
+    before_by_name = before_by_name.set(name, index)
+  }
+  for index in range(after.len()) {
+    let name = after[index].entry_name
+    if name == "" or after_by_name.has(name) {return Err(check_failure("powercap after reference repeats or omits a zone name"))}
+    after_by_name = after_by_name.set(name, index)
+  }
+  for index in range(section.cap_zones.len()) {
+    let name = section.cap_zones[index].entry_name
+    if name == "" or candidate_by_name.has(name) {return Err(check_failure("candidate powercap report repeats or omits a zone name"))}
+    candidate_by_name = candidate_by_name.set(name, index)
+  }
+  var missing_names: List[Str] = []
+  var unexpected_names: List[Str] = []
+  var field_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  let enumeration_complete = !power_supply_has_issue(issues, "cap_zones") and section.status.state != "not_requested"
+  var matched_count = 0
+  for zone in before {
+    let name = zone.entry_name
+    if !after_by_name.has(name) {unstable_fields = unstable_fields.push(f"${name}.presence"); continue}
+    if !candidate_by_name.has(name) {
+      if enumeration_complete {missing_names = missing_names.push(name)} else {unstable_fields = unstable_fields.push(f"${name}.presence")}
+      continue
+    }
+    matched_count += 1
+    let later = after[after_by_name.get(name)?]
+    let actual = section.cap_zones[candidate_by_name.get(name)?]
+    for field in [
+      {name: "name", before: zone.name, after: later.name, candidate: actual.name},
+      {name: "parent", before: zone.parent, after: later.parent, candidate: actual.parent},
+    ] {
+      if !field.before.complete or !field.after.complete or field.before.value != field.after.value or
+          power_supply_has_issue(issues, f"cap_zones.${name}.${field.name}") {
+        unstable_fields = unstable_fields.push(f"${name}.${field.name}")
+      } else if field.candidate != field.before.value {
+        field_mismatches = field_mismatches.push(f"${name}.${field.name}")
+      }
+    }
+    let range_before = zone.maximum_energy_range_uj
+    let range_after = later.maximum_energy_range_uj
+    if !range_before.complete or !range_after.complete or range_before.value != range_after.value or
+        power_supply_has_issue(issues, f"cap_zones.${name}.max_energy_range_uj") {
+      unstable_fields = unstable_fields.push(f"${name}.maximum_energy_range_uj")
+    } else if actual.maximum_energy_range_uj != range_before.value {
+      field_mismatches = field_mismatches.push(f"${name}.maximum_energy_range_uj")
+    }
+    let energy_before = zone.energy_uj
+    let energy_after = later.energy_uj
+    if !energy_before.complete or !energy_after.complete or
+        power_supply_has_issue(issues, f"cap_zones.${name}.energy_uj") {
+      unstable_fields = unstable_fields.push(f"${name}.energy_uj")
+    } else if energy_before.value == null and energy_after.value == null {
+      if actual.energy_uj != null {field_mismatches = field_mismatches.push(f"${name}.energy_uj")}
+    } else if energy_before.value == null or energy_after.value == null or range_before.value != range_after.value {
+      unstable_fields = unstable_fields.push(f"${name}.energy_uj")
+    } else {
+      let first = energy_before.value.require(Int)?
+      let last = energy_after.value.require(Int)?
+      let observed = actual.energy_uj
+      if first > last or !range_before.complete or range_before.value == null {
+        unstable_fields = unstable_fields.push(f"${name}.energy_uj")
+      } else if observed == null {
+        field_mismatches = field_mismatches.push(f"${name}.energy_uj")
+      } else {
+        let candidate_energy = observed.require(Int)?
+        if candidate_energy < first or candidate_energy > last {
+          field_mismatches = field_mismatches.push(f"${name}.energy_uj")
+        }
+      }
+    }
+    if !zone.constraints_complete or !later.constraints_complete or powercap_constraint_issue(issues, name) {
+      unstable_fields = unstable_fields.push(f"${name}.constraints")
+      continue
+    }
+    var before_by_index: Map[Int] = {}
+    var after_by_index: Map[Int] = {}
+    var candidate_by_index: Map[Int] = {}
+    for index in range(zone.constraints.len()) {
+      let key = zone.constraints[index].index
+      if key < 0 or key > 9007199254740991 or before_by_index.has(f"${key}") {return Err(check_failure("powercap before reference has an invalid constraint index"))}
+      before_by_index = before_by_index.set(f"${key}", index)
+    }
+    for index in range(later.constraints.len()) {
+      let key = later.constraints[index].index
+      if key < 0 or key > 9007199254740991 or after_by_index.has(f"${key}") {return Err(check_failure("powercap after reference has an invalid constraint index"))}
+      after_by_index = after_by_index.set(f"${key}", index)
+    }
+    for index in range(actual.constraints.len()) {
+      let key = actual.constraints[index].index
+      if key < 0 or key > 9007199254740991 or candidate_by_index.has(f"${key}") {return Err(check_failure("candidate powercap zone has an invalid constraint index"))}
+      candidate_by_index = candidate_by_index.set(f"${key}", index)
+    }
+    for constraint in zone.constraints {
+      let key = f"${constraint.index}"
+      let prefix = f"${name}.constraint_${constraint.index}"
+      if !after_by_index.has(key) {unstable_fields = unstable_fields.push(f"${prefix}.presence"); continue}
+      if !candidate_by_index.has(key) {field_mismatches = field_mismatches.push(f"${prefix}.presence"); continue}
+      let following = later.constraints[after_by_index.get(key)?]
+      let candidate = actual.constraints[candidate_by_index.get(key)?]
+      if !constraint.name.complete or !following.name.complete or constraint.name.value != following.name.value {
+        unstable_fields = unstable_fields.push(f"${prefix}.name")
+      } else if candidate.name != constraint.name.value {field_mismatches = field_mismatches.push(f"${prefix}.name")}
+      for field in [
+        {name: "power_limit_uw", before: constraint.power_limit_uw, after: following.power_limit_uw, candidate: candidate.power_limit_uw},
+        {name: "time_window_us", before: constraint.time_window_us, after: following.time_window_us, candidate: candidate.time_window_us},
+      ] {
+        if !field.before.complete or !field.after.complete or field.before.value != field.after.value {
+          unstable_fields = unstable_fields.push(f"${prefix}.${field.name}")
+        } else if field.candidate != field.before.value {
+          field_mismatches = field_mismatches.push(f"${prefix}.${field.name}")
+        }
+      }
+    }
+    for constraint in later.constraints {
+      if !before_by_index.has(f"${constraint.index}") {unstable_fields = unstable_fields.push(f"${name}.constraint_${constraint.index}.presence")}
+    }
+    for constraint in actual.constraints {
+      let key = f"${constraint.index}"
+      if !before_by_index.has(key) and !after_by_index.has(key) {field_mismatches = field_mismatches.push(f"${name}.constraint_${constraint.index}.presence")}
+    }
+  }
+  for zone in after {if !before_by_name.has(zone.entry_name) {unstable_fields = unstable_fields.push(f"${zone.entry_name}.presence")}}
+  for zone in section.cap_zones {
+    if !before_by_name.has(zone.entry_name) and !after_by_name.has(zone.entry_name) {unexpected_names = unexpected_names.push(zone.entry_name)}
+  }
+  let eligible = before.len() > 0 or after.len() > 0
+  return Ok({
+    reference_count: before.len(), candidate_count: section.cap_zones.len(), matched_count: matched_count,
+    missing_names: missing_names |> sort-by ., unexpected_names: unexpected_names |> sort-by .,
+    field_mismatches: field_mismatches |> sort-by ., unstable_fields: unstable_fields |> sort-by .,
+    eligible: eligible,
+    exact: eligible and enumeration_complete and missing_names.len() == 0 and unexpected_names.len() == 0 and
+      field_mismatches.len() == 0 and unstable_fields.len() == 0,
+  })
+}
+
+proc device_class_reference_name(root: FsRoot, entry: Path, class_name: Str) [fs, error] -> Result[DeviceClassTextRead] {
+  if class_name == "drm" {return Ok({value: entry.name(), complete: true})}
+  let field = if class_name == "sound" {"id"} else {"name"}
+  let source = fs.root_read_result(root, fp"${entry}/${field}", max_bytes: 4096)?
+  if source.state == "absent" {return Ok({value: entry.name(), complete: true})}
+  if source.state != "observed" or source.truncated or source.data == null {
+    return Ok({value: null, complete: false})
+  }
+  match (source.data ?? b"").utf8() {
+    Ok(value) => return Ok({value: value.trim(), complete: true})
+    Err(_) => return Ok({value: null, complete: false})
+  }
+}
+
+proc device_class_reference_parent(root: FsRoot, entry: Path) [fs, error] -> Result[DeviceClassParentRead] {
+  match fs.root_readlink(root, fp"${entry}/device") {
+    Ok(target) => return Ok({target: target.display(), complete: true})
+    Err(_) => {}
+  }
+  match fs.root_readlink(root, entry) {
+    Ok(target) => return Ok({target: target.display(), complete: true})
+    Err(_) => {}
+  }
+  match fs.root_metadata(root, entry) {
+    Ok(metadata) => return Ok({target: null, complete: metadata.kind == "dir"})
+    Err(_) => return Ok({target: null, complete: false})
+  }
+}
+
+## Reads class identities, display labels, and physical-device links from bounded sysfs paths.
+export proc read_device_class_reference(root: FsRoot) [fs, error] -> Result[List[DeviceClassReference]] {
+  var records: List[DeviceClassReference] = []
+  for source in [
+    {class_name: "drm", path: p"sys/class/drm"},
+    {class_name: "sound", path: p"sys/class/sound"},
+    {class_name: "input", path: p"sys/class/input"},
+  ] {
+    let listing = fs.root_children(root, source.path, max_entries: 4096)?
+    if listing.state == "absent" {continue}
+    if listing.state != "complete" {return Err(check_failure(f"${source.class_name} reference enumeration is incomplete"))}
+    for entry in listing.children {
+      if entry.name() == "" {return Err(check_failure("device-class reference has an empty entry name"))}
+      let name = device_class_reference_name(root, entry, source.class_name)?
+      let parent = device_class_reference_parent(root, entry)?
+      records = records.push({
+        class: source.class_name, entry_name: entry.name(),
+        name: name.value, name_complete: name.complete,
+        parent_target: parent.target, parent_complete: parent.complete,
+      })
+    }
+  }
+  return records
+}
+
+pure device_class_pci_address(component: Str) -> Bool {
+  let parts = component.split(":")
+  if parts.len() != 3 or parts[0].byte_len() != 4 or parts[1].byte_len() != 2 {return false}
+  let device_function = parts[2].split(".")
+  if device_function.len() != 2 or device_function[0].byte_len() != 2 or device_function[1].byte_len() != 1 {return false}
+  for part in [parts[0], parts[1], device_function[0], device_function[1]] {
+    for digit in part.split("") {
+      if digit not in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "a", "b", "c", "d", "e", "f", "A", "B", "C", "D", "E", "F"] {
+        return false
+      }
+    }
+  }
+  return true
+}
+
+pure device_class_parent_ids(target: Str?) -> DeviceClassParentIds {
+  var pci: Str? = null
+  var usb: Str? = null
+  if target != null {
+    for component in target.split("/") {
+      if device_class_pci_address(component) {pci = component}
+      let candidate = component.split(":").get(0, "")
+      match parse_usb_topology_name(candidate) {
+        Ok(_) => usb = candidate
+        Err(_) => {}
+      }
+    }
+  }
+  return {pci: pci, usb: usb}
+}
+
+pure device_class_has_issue(issues: List[CandidateIssueField], field: Str) -> Bool {
+  for issue in issues {
+    if issue.section == "devices" and issue.field == field {return true}
+  }
+  return false
+}
+
+## Scores class entries by sysfs identity and resolves parent indexes to physical devices.
+export pure compare_device_classes(candidate_json: Str, before: List[DeviceClassReference], after: List[DeviceClassReference]) -> Result[DeviceClassComparison] {
+  let data = json.decode(candidate_json)?
+  let section = json.get(data, ["devices"])?.require(CandidateDeviceClassSection)?
+  let pci = json.get(data, ["pci"])?.require(CandidateDeviceClassPciSection)?
+  let usb = json.get(data, ["usb"])?.require(CandidateDeviceClassUsbSection)?
+  let pci_enumerated = pci.status.enumeration_succeeded and pci.status.state != "absent" and pci.status.state != "not_requested"
+  let usb_enumerated = usb.status.enumeration_succeeded and usb.status.state != "absent" and usb.status.state != "not_requested"
+  let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
+  var before_by_key: Map[Int] = {}
+  var after_by_key: Map[Int] = {}
+  var candidate_by_key: Map[Int] = {}
+  for index in range(before.len()) {
+    let key = f"${before[index].class}:${before[index].entry_name}"
+    if before_by_key.has(key) {return Err(check_failure("device-class before reference repeats an entry"))}
+    before_by_key = before_by_key.set(key, index)
+  }
+  for index in range(after.len()) {
+    let key = f"${after[index].class}:${after[index].entry_name}"
+    if after_by_key.has(key) {return Err(check_failure("device-class after reference repeats an entry"))}
+    after_by_key = after_by_key.set(key, index)
+  }
+  for index in range(section.devices.len()) {
+    let item = section.devices[index]
+    if item.entry_name.state != "observed" or item.entry_name.value == null {
+      return Err(check_failure("candidate device-class entry identity is unavailable"))
+    }
+    let key = f"${item.class}:${item.entry_name.value ?? ""}"
+    if candidate_by_key.has(key) {return Err(check_failure("candidate device-class entries repeat an identity"))}
+    candidate_by_key = candidate_by_key.set(key, index)
+  }
+  var missing_names: List[Str] = []
+  var unexpected_names: List[Str] = []
+  var field_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  var matched_count = 0
+  let enumeration_complete = section.status.enumeration_succeeded and section.status.state != "not_requested"
+  for item in before {
+    let key = f"${item.class}:${item.entry_name}"
+    if !after_by_key.has(key) {unstable_fields = unstable_fields.push(f"${key}.presence"); continue}
+    if !candidate_by_key.has(key) {
+      if enumeration_complete {missing_names = missing_names.push(key)} else {unstable_fields = unstable_fields.push(f"${key}.presence")}
+      continue
+    }
+    matched_count += 1
+    let later = after[after_by_key.get(key)?]
+    let actual = section.devices[candidate_by_key.get(key)?]
+    let display_name: Str? = if actual.name.state == "observed" {actual.name.value} else {null}
+    if !item.name_complete or !later.name_complete or item.name != later.name or
+        device_class_has_issue(issues, f"${item.class}.${item.entry_name}.${if item.class == "sound" {"id"} else {"name"}}") {
+      unstable_fields = unstable_fields.push(f"${key}.name")
+    } else if display_name != item.name {
+      field_mismatches = field_mismatches.push(f"${key}.name")
+    }
+    if !item.parent_complete or !later.parent_complete or item.parent_target != later.parent_target or
+        device_class_has_issue(issues, f"${item.class}.${item.entry_name}.parent") {
+      unstable_fields = unstable_fields.push(f"${key}.parent")
+    } else {
+      let parents = device_class_parent_ids(item.parent_target)
+      var pci_address: Str? = null
+      var pci_index_valid = true
+      if actual.parent_pci_function_index != null {
+        let index = actual.parent_pci_function_index ?? -1
+        if index < 0 or index >= pci.functions.len() {
+          field_mismatches = field_mismatches.push(f"${key}.pci_parent")
+          pci_index_valid = false
+        } else {pci_address = pci.functions[index].address}
+      }
+      if pci_index_valid and pci_address != parents.pci {
+        if actual.parent_pci_function_index == null and parents.pci != null and !pci_enumerated {
+          unstable_fields = unstable_fields.push(f"${key}.pci_parent")
+        } else {field_mismatches = field_mismatches.push(f"${key}.pci_parent")}
+      }
+      var usb_name: Str? = null
+      var usb_index_valid = true
+      if actual.parent_usb_device_index != null {
+        let index = actual.parent_usb_device_index ?? -1
+        if index < 0 or index >= usb.devices.len() {
+          field_mismatches = field_mismatches.push(f"${key}.usb_parent")
+          usb_index_valid = false
+        } else {usb_name = usb.devices[index].sysfs_name}
+      }
+      if usb_index_valid and usb_name != parents.usb {
+        if actual.parent_usb_device_index == null and parents.usb != null and !usb_enumerated {
+          unstable_fields = unstable_fields.push(f"${key}.usb_parent")
+        } else {field_mismatches = field_mismatches.push(f"${key}.usb_parent")}
+      }
+    }
+  }
+  for item in after {
+    let key = f"${item.class}:${item.entry_name}"
+    if !before_by_key.has(key) {unstable_fields = unstable_fields.push(f"${key}.presence")}
+  }
+  for item in section.devices {
+    let key = f"${item.class}:${item.entry_name.value ?? ""}"
+    if !before_by_key.has(key) and !after_by_key.has(key) {unexpected_names = unexpected_names.push(key)}
+  }
+  let eligible = before.len() > 0 or after.len() > 0
+  return Ok({
+    reference_count: before.len(), candidate_count: section.devices.len(), matched_count: matched_count,
+    missing_names: missing_names |> sort-by ., unexpected_names: unexpected_names |> sort-by .,
+    field_mismatches: field_mismatches |> sort-by ., unstable_fields: unstable_fields |> sort-by .,
+    eligible: eligible,
+    exact: eligible and enumeration_complete and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+  })
+}
+
+pure hwmon_channel_shape(channel: Str) -> HwmonShape {
+  for spec in [
+    {prefix: "temp", kind: "temperature", unit: "millidegrees_celsius"},
+    {prefix: "in", kind: "voltage", unit: "millivolts"},
+    {prefix: "fan", kind: "fan", unit: "rpm"},
+    {prefix: "power", kind: "power", unit: "microwatts"},
+    {prefix: "energy", kind: "energy", unit: "microjoules"},
+    {prefix: "curr", kind: "current", unit: "milliamps"},
+  ] {
+    if !channel.starts_with(spec.prefix) {continue}
+    let suffix = (channel.split("") |> drop(spec.prefix.count_chars())).join("")
+    if suffix == "" {continue}
+    var digits = true
+    for digit in suffix.split("") {
+      if digit not in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] {digits = false}
+    }
+    if digits {return {kind: spec.kind, unit: spec.unit}}
+  }
+  return {kind: "unknown", unit: "raw"}
+}
+
+proc reference_hwmon_text(root: FsRoot, source_path: Path) [fs, error] -> Result[HwmonTextReference] {
+  let source = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  if source.state == "absent" {return Ok({value: null, complete: true})}
+  if source.state != "observed" or source.truncated or source.data == null {
+    return Ok({value: null, complete: false})
+  }
+  match (source.data ?? b"").utf8() {
+    Ok(value) => return Ok({value: value.trim(), complete: true})
+    Err(_) => return Ok({value: null, complete: false})
+  }
+}
+
+proc reference_hwmon_number(root: FsRoot, source_path: Path, nonnegative: Bool, alarm: Bool = false) [fs, error] -> Result[HwmonNumberReference] {
+  let source = reference_hwmon_text(root, source_path)?
+  if source.value == null {return Ok({value: null, complete: source.complete})}
+  match parse_power_supply_number(source.value ?? "", !nonnegative) {
+    Ok(value) => {
+      if alarm and value not in [0, 1] {return Ok({value: null, complete: false})}
+      return Ok({value: value, complete: true})
+    }
+    Err(_) => return Ok({value: null, complete: false})
+  }
+}
+
+## Reads only hwmon names and the informational attributes of exported input channels.
+export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonReference]] {
+  let chips = fs.root_children(root, p"sys/class/hwmon", max_entries: 1024)?
+  if chips.state == "absent" {return Ok([])}
+  if chips.state != "complete" {return Err(check_failure("hwmon chip enumeration is incomplete"))}
+  var channels: List[HwmonReference] = []
+  for chip_path in chips.children {
+    if !chip_path.name().starts_with("hwmon") {continue}
+    let chip_name = reference_hwmon_text(root, fp"${chip_path}/name")?
+    let parent = device_class_reference_parent(root, chip_path)?
+    let attributes = fs.root_children(root, chip_path, max_entries: 1024)?
+    if attributes.state != "complete" {return Err(check_failure("hwmon attribute enumeration is incomplete"))}
+    for attribute in attributes.children {
+      let name = attribute.name()
+      if !name.ends_with("_input") {continue}
+      let channel = (name.split("") |> take(name.count_chars() - 6)).join("")
+      let shape = hwmon_channel_shape(channel)
+      channels = channels.push({
+        chip_entry_name: chip_path.name(), chip: chip_name,
+        channel: channel, kind: shape.kind, unit: shape.unit,
+        value: reference_hwmon_number(root, attribute, false)?,
+        label: reference_hwmon_text(root, fp"${chip_path}/${channel}_label")?,
+        minimum: reference_hwmon_number(root, fp"${chip_path}/${channel}_min", false)?,
+        maximum: reference_hwmon_number(root, fp"${chip_path}/${channel}_max", false)?,
+        critical: reference_hwmon_number(root, fp"${chip_path}/${channel}_crit", false)?,
+        alarm: reference_hwmon_number(root, fp"${chip_path}/${channel}_alarm", true, true)?,
+        parent_target: parent.target, parent_complete: parent.complete,
+      })
+    }
+  }
+  return channels
+}
+
+pure hwmon_has_issue(issues: List[CandidateIssueField], field: Str) -> Bool {
+  for issue in issues {
+    if issue.section == "sensors" and issue.field == field {return true}
+  }
+  return false
+}
+
+pure hwmon_enumeration_issue(issues: List[CandidateIssueField]) -> Bool {
+  for issue in issues {
+    if issue.section == "sensors" and (issue.field == "hwmon" or
+        (issue.field.starts_with("hwmon.") and issue.field.ends_with(".attributes"))) {
+      return true
+    }
+  }
+  return false
+}
+
+## Compares raw hwmon channels only when the same source attributes bracket collection.
+export pure compare_hwmon(candidate_json: Str, before: List[HwmonReference], after: List[HwmonReference]) -> Result[HwmonComparison] {
+  let data = json.decode(candidate_json)?
+  let section = json.get(data, ["sensors"])?.require(CandidateHwmonSection)?
+  let pci = json.get(data, ["pci"])?.require(CandidateDeviceClassPciSection)?
+  let usb = json.get(data, ["usb"])?.require(CandidateDeviceClassUsbSection)?
+  let pci_enumerated = pci.status.enumeration_succeeded and pci.status.state != "absent" and pci.status.state != "not_requested"
+  let usb_enumerated = usb.status.enumeration_succeeded and usb.status.state != "absent" and usb.status.state != "not_requested"
+  let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
+  var before_by_key: Map[Int] = {}
+  var after_by_key: Map[Int] = {}
+  var candidate_by_key: Map[Int] = {}
+  for index in range(before.len()) {
+    let key = f"${before[index].chip_entry_name}:${before[index].channel}"
+    if before_by_key.has(key) {return Err(check_failure("hwmon before reference repeats a channel"))}
+    before_by_key = before_by_key.set(key, index)
+  }
+  for index in range(after.len()) {
+    let key = f"${after[index].chip_entry_name}:${after[index].channel}"
+    if after_by_key.has(key) {return Err(check_failure("hwmon after reference repeats a channel"))}
+    after_by_key = after_by_key.set(key, index)
+  }
+  for index in range(section.channels.len()) {
+    let item = section.channels[index]
+    if item.chip_entry_name == null {return Err(check_failure("candidate hwmon channel lacks a class entry identity"))}
+    let key = f"${item.chip_entry_name ?? ""}:${item.channel}"
+    if candidate_by_key.has(key) {return Err(check_failure("candidate hwmon report repeats a channel"))}
+    candidate_by_key = candidate_by_key.set(key, index)
+  }
+  var missing_names: List[Str] = []
+  var unexpected_names: List[Str] = []
+  var field_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  var matched_count = 0
+  let enumeration_complete = section.status.enumeration_succeeded and section.status.state != "not_requested" and
+    !hwmon_enumeration_issue(issues)
+  for channel in before {
+    let key = f"${channel.chip_entry_name}:${channel.channel}"
+    if !after_by_key.has(key) {unstable_fields = unstable_fields.push(f"${key}.presence"); continue}
+    if !candidate_by_key.has(key) {
+      if enumeration_complete {missing_names = missing_names.push(key)} else {unstable_fields = unstable_fields.push(f"${key}.presence")}
+      continue
+    }
+    matched_count += 1
+    let following = after[after_by_key.get(key)?]
+    let actual = section.channels[candidate_by_key.get(key)?]
+    if !channel.chip.complete or !following.chip.complete or channel.chip.value != following.chip.value or
+        hwmon_has_issue(issues, f"hwmon.${channel.chip_entry_name}.name") {
+      unstable_fields = unstable_fields.push(f"${key}.chip")
+    } else if actual.chip != (channel.chip.value ?? channel.chip_entry_name) {
+      field_mismatches = field_mismatches.push(f"${key}.chip")
+    }
+    if actual.kind != channel.kind {field_mismatches = field_mismatches.push(f"${key}.kind")}
+    if actual.unit != channel.unit {field_mismatches = field_mismatches.push(f"${key}.unit")}
+    if !channel.parent_complete or !following.parent_complete or channel.parent_target != following.parent_target or
+        hwmon_has_issue(issues, f"hwmon.${channel.chip_entry_name}.parent") {
+      unstable_fields = unstable_fields.push(f"${key}.parent")
+    } else {
+      let parents = device_class_parent_ids(channel.parent_target)
+      var pci_address: Str? = null
+      var pci_index_valid = true
+      if actual.parent_pci_function_index != null {
+        let index = actual.parent_pci_function_index ?? -1
+        if index < 0 or index >= pci.functions.len() {
+          field_mismatches = field_mismatches.push(f"${key}.pci_parent")
+          pci_index_valid = false
+        } else {pci_address = pci.functions[index].address}
+      }
+      if pci_index_valid and pci_address != parents.pci {
+        if actual.parent_pci_function_index == null and parents.pci != null and !pci_enumerated {
+          unstable_fields = unstable_fields.push(f"${key}.pci_parent")
+        } else {field_mismatches = field_mismatches.push(f"${key}.pci_parent")}
+      }
+      var usb_name: Str? = null
+      var usb_index_valid = true
+      if actual.parent_usb_device_index != null {
+        let index = actual.parent_usb_device_index ?? -1
+        if index < 0 or index >= usb.devices.len() {
+          field_mismatches = field_mismatches.push(f"${key}.usb_parent")
+          usb_index_valid = false
+        } else {usb_name = usb.devices[index].sysfs_name}
+      }
+      if usb_index_valid and usb_name != parents.usb {
+        if actual.parent_usb_device_index == null and parents.usb != null and !usb_enumerated {
+          unstable_fields = unstable_fields.push(f"${key}.usb_parent")
+        } else {field_mismatches = field_mismatches.push(f"${key}.usb_parent")}
+      }
+    }
+    let label: Str? = if actual.label.state == "observed" {actual.label.value} else {null}
+    if !channel.label.complete or !following.label.complete or channel.label.value != following.label.value or
+        hwmon_has_issue(issues, f"hwmon.${channel.chip_entry_name}.${channel.channel}_label") {
+      unstable_fields = unstable_fields.push(f"${key}.label")
+    } else if label != channel.label.value {
+      field_mismatches = field_mismatches.push(f"${key}.label")
+    }
+    for field in [
+      {name: "value", suffix: "input", before: channel.value, after: following.value, candidate: actual.value},
+      {name: "minimum", suffix: "min", before: channel.minimum, after: following.minimum, candidate: actual.minimum},
+      {name: "maximum", suffix: "max", before: channel.maximum, after: following.maximum, candidate: actual.maximum},
+      {name: "critical", suffix: "crit", before: channel.critical, after: following.critical, candidate: actual.critical},
+    ] {
+      if !field.before.complete or !field.after.complete or field.before.value != field.after.value or
+          hwmon_has_issue(issues, f"hwmon.${channel.chip_entry_name}.${channel.channel}_${field.suffix}") {
+        unstable_fields = unstable_fields.push(f"${key}.${field.name}")
+      } else if field.candidate != field.before.value {
+        if field.name == "value" {
+          unstable_fields = unstable_fields.push(f"${key}.${field.name}")
+        } else {
+          field_mismatches = field_mismatches.push(f"${key}.${field.name}")
+        }
+      }
+    }
+    let alarm: Int? = if actual.alarm == null {null} else if actual.alarm ?? false {1} else {0}
+    if !channel.alarm.complete or !following.alarm.complete or channel.alarm.value != following.alarm.value or
+        hwmon_has_issue(issues, f"hwmon.${channel.chip_entry_name}.${channel.channel}_alarm") {
+      unstable_fields = unstable_fields.push(f"${key}.alarm")
+    } else if alarm != channel.alarm.value {
+      field_mismatches = field_mismatches.push(f"${key}.alarm")
+    }
+  }
+  for channel in after {
+    let key = f"${channel.chip_entry_name}:${channel.channel}"
+    if !before_by_key.has(key) {unstable_fields = unstable_fields.push(f"${key}.presence")}
+  }
+  for channel in section.channels {
+    let key = f"${channel.chip_entry_name ?? ""}:${channel.channel}"
+    if !before_by_key.has(key) and !after_by_key.has(key) {unexpected_names = unexpected_names.push(key)}
+  }
+  let eligible = before.len() > 0 or after.len() > 0
+  return Ok({
+    reference_count: before.len(), candidate_count: section.channels.len(), matched_count: matched_count,
+    missing_names: missing_names |> sort-by ., unexpected_names: unexpected_names |> sort-by .,
+    field_mismatches: field_mismatches |> sort-by ., unstable_fields: unstable_fields |> sort-by .,
+    eligible: eligible,
+    exact: eligible and enumeration_complete and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+  })
+}
+
+## Compares stable USB power controls while leaving changing runtime state unscored.
+export pure compare_usb_power(candidate_json: Str, before: List[UsbPowerReference], after: List[UsbPowerReference]) -> Result[UsbPowerComparison] {
+  let data = json.decode(candidate_json)?
+  let section = json.get(data, ["usb"])?.require(CandidateUsbPowerSection)?
+  let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
+  var before_by_name: Map[Int] = {}
+  var after_by_name: Map[Int] = {}
+  var candidate_by_name: Map[Int] = {}
+  for index in range(before.len()) {
+    let name = before[index].name
+    let _ = parse_usb_topology_name(name)?
+    if before_by_name.has(name) {return Err(check_failure("USB power reference repeats a name"))}
+    before_by_name = before_by_name.set(name, index)
+  }
+  for index in range(after.len()) {
+    let name = after[index].name
+    let _ = parse_usb_topology_name(name)?
+    if after_by_name.has(name) {return Err(check_failure("USB power after reference repeats a name"))}
+    after_by_name = after_by_name.set(name, index)
+  }
+  for index in range(section.devices.len()) {
+    let name = section.devices[index].sysfs_name ?? ""
+    if name == "" or candidate_by_name.has(name) {return Err(check_failure("candidate USB power device has an empty or duplicate name"))}
+    candidate_by_name = candidate_by_name.set(name, index)
+  }
+  var missing_names: List[Str] = []
+  var unexpected_names: List[Str] = []
+  var field_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  var matched_count = 0
+  var eligible = false
+  for item in before.extend(after) {
+    if item.power_control.value != null or item.autosuspend_delay_ms.value != null or item.runtime_status.value != null or
+        item.configuration_count.value != null or item.active_configuration.value != null {eligible = true}
+  }
+  for item in before {
+    if !after_by_name.has(item.name) {unstable_fields = unstable_fields.push(f"${item.name}.presence"); continue}
+    if !candidate_by_name.has(item.name) {missing_names = missing_names.push(item.name); continue}
+    matched_count += 1
+    let actual = section.devices[candidate_by_name.get(item.name)?]
+    let later = after[after_by_name.get(item.name)?]
+    for field in [
+      {name: "power_control", before: item.power_control, after: later.power_control, candidate: actual.power_control},
+      {name: "runtime_status", before: item.runtime_status, after: later.runtime_status, candidate: actual.runtime_status},
+    ] {
+      var candidate_incomplete = false
+      for issue in issues {
+        if issue.section == "usb" and issue.field == f"devices.${item.name}.${field.name}" {candidate_incomplete = true}
+      }
+      if !field.before.complete or !field.after.complete or field.before.value != field.after.value or candidate_incomplete {
+        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+      } else if field.candidate != field.before.value {
+        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+      }
+    }
+    for field in [
+      {name: "autosuspend_delay_ms", before: item.autosuspend_delay_ms, after: later.autosuspend_delay_ms, candidate: actual.autosuspend_delay_ms},
+      {name: "configuration_count", before: item.configuration_count, after: later.configuration_count, candidate: actual.configuration_count},
+      {name: "active_configuration", before: item.active_configuration, after: later.active_configuration, candidate: actual.active_configuration},
+    ] {
+      var candidate_incomplete = false
+      for issue in issues {
+        if issue.section == "usb" and issue.field == f"devices.${item.name}.${field.name}" {candidate_incomplete = true}
+      }
+      if !field.before.complete or !field.after.complete or field.before.value != field.after.value or candidate_incomplete {
+        unstable_fields = unstable_fields.push(f"${item.name}.${field.name}")
+      } else if field.candidate != field.before.value {
+        field_mismatches = field_mismatches.push(f"${item.name}.${field.name}")
+      }
+    }
+  }
+  for item in after {if !before_by_name.has(item.name) {unstable_fields = unstable_fields.push(f"${item.name}.presence")}}
+  for item in section.devices {
+    let name = item.sysfs_name ?? ""
+    if !before_by_name.has(name) and !after_by_name.has(name) {unexpected_names = unexpected_names.push(name)}
+  }
+  return Ok({
+    reference_count: before.len(), candidate_count: section.devices.len(), matched_count: matched_count,
+    missing_names: missing_names |> sort-by ., unexpected_names: unexpected_names |> sort-by .,
+    field_mismatches: field_mismatches |> sort-by ., unstable_fields: unstable_fields |> sort-by .,
+    eligible: eligible,
+    exact: eligible and section.status.enumeration_succeeded and missing_names.len() == 0 and unexpected_names.len() == 0 and
+      field_mismatches.len() == 0 and unstable_fields.len() == 0,
+  })
+}
+
+## Compares every CPUIdle state by CPU and state index while bracketing cumulative counters.
+export pure compare_cpuidle(candidate_json: Str, before: CpuIdleReference, after: CpuIdleReference) -> Result[CpuIdleComparison] {
+  var before_by_key: Map[Int] = {}
+  var after_by_key: Map[Int] = {}
+  for index in range(before.states.len()) {
+    let state = before.states[index]
+    if state.cpu_id < 0 or state.state_index < 0 {return Err(check_failure("CPUIdle reference has a negative state identity"))}
+    let key = f"${state.cpu_id}:${state.state_index}"
+    if before_by_key.has(key) {return Err(check_failure("CPUIdle reference repeats a state identity"))}
+    before_by_key = before_by_key.set(key, index)
+  }
+  for index in range(after.states.len()) {
+    let state = after.states[index]
+    if state.cpu_id < 0 or state.state_index < 0 {return Err(check_failure("CPUIdle reference has a negative state identity"))}
+    let key = f"${state.cpu_id}:${state.state_index}"
+    if after_by_key.has(key) {return Err(check_failure("CPUIdle after reference repeats a state identity"))}
+    after_by_key = after_by_key.set(key, index)
+  }
+  let data = json.decode(candidate_json)?
+  let status = json.get(data, ["cpu", "status"])?.require(CandidateCpuSectionStatus)?
+  let driver = json.get(data, ["cpu", "global_idle_driver"])?.require(Str?)?
+  let governor = json.get(data, ["cpu", "global_idle_governor"])?.require(Str?)?
+  let available = json.get(data, ["cpu", "available_idle_governors"])?.require(List[Str])?
+  let states = json.get(data, ["cpu", "idle_states"])?.require(List[CandidateCpuIdleState])?
+  var candidate_by_key: Map[Int] = {}
+  for index in range(states.len()) {
+    let state = states[index]
+    let cpu_id = state.cpu_id ?? -1
+    if cpu_id < 0 or state.state_index < 0 {return Err(check_failure("candidate CPUIdle state has an invalid identity"))}
+    let key = f"${cpu_id}:${state.state_index}"
+    if candidate_by_key.has(key) {return Err(check_failure("candidate CPUIdle states repeat an identity"))}
+    candidate_by_key = candidate_by_key.set(key, index)
+  }
+  var missing_keys: List[Str] = []
+  var unexpected_keys: List[Str] = []
+  var field_mismatches: List[Str] = []
+  var counter_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  if before.driver != after.driver {unstable_fields = unstable_fields.push("global_idle_driver")} else if driver != before.driver {field_mismatches = field_mismatches.push("global_idle_driver")}
+  if before.governor != after.governor {unstable_fields = unstable_fields.push("global_idle_governor")} else if governor != before.governor {field_mismatches = field_mismatches.push("global_idle_governor")}
+  if before.available_governors != after.available_governors {unstable_fields = unstable_fields.push("available_idle_governors")} else if available != before.available_governors {field_mismatches = field_mismatches.push("available_idle_governors")}
+  var matched_count = 0
+  for expected in before.states {
+    let key = f"${expected.cpu_id}:${expected.state_index}"
+    if !after_by_key.has(key) {
+      unstable_fields = unstable_fields.push(f"${key}.presence")
+      continue
+    }
+    if !candidate_by_key.has(key) {
+      missing_keys = missing_keys.push(key)
+      continue
+    }
+    matched_count += 1
+    let actual = states[candidate_by_key.get(key)?]
+    let later = after.states[after_by_key.get(key)?]
+    if expected.name != later.name {unstable_fields = unstable_fields.push(f"${key}.name")} else if actual.name != expected.name {field_mismatches = field_mismatches.push(f"${key}.name")}
+    if expected.description != later.description {unstable_fields = unstable_fields.push(f"${key}.description")} else if actual.description != expected.description {field_mismatches = field_mismatches.push(f"${key}.description")}
+    for field in [
+      {name: "disable_setting", before: expected.disable_setting, after: later.disable_setting, candidate: actual.disable_setting},
+      {name: "latency_us", before: expected.latency_us, after: later.latency_us, candidate: actual.latency_us},
+      {name: "residency_us", before: expected.residency_us, after: later.residency_us, candidate: actual.residency_us},
+    ] {
+      if field.before != field.after {unstable_fields = unstable_fields.push(f"${key}.${field.name}")} else if field.candidate != field.before {field_mismatches = field_mismatches.push(f"${key}.${field.name}")}
+    }
+    for counter in [
+      {name: "usage_count", before: expected.usage_count, after: later.usage_count, candidate: actual.usage_count},
+      {name: "time_us", before: expected.time_us, after: later.time_us, candidate: actual.time_us},
+    ] {
+      let lower = counter.before ?? -1
+      let upper = counter.after ?? -1
+      let observed = counter.candidate ?? -1
+      if (counter.before == null) != (counter.after == null) or upper < lower {
+        unstable_fields = unstable_fields.push(f"${key}.${counter.name}")
+      } else if counter.before == null {
+        if counter.candidate != null {counter_mismatches = counter_mismatches.push(f"${key}.${counter.name}")}
+      } else if observed < lower or observed > upper {
+        counter_mismatches = counter_mismatches.push(f"${key}.${counter.name}")
+      }
+    }
+  }
+  for state in after.states {
+    let key = f"${state.cpu_id}:${state.state_index}"
+    if !before_by_key.has(key) {unstable_fields = unstable_fields.push(f"${key}.presence")}
+  }
+  for state in states {
+    let key = f"${state.cpu_id ?? -1}:${state.state_index}"
+    if !before_by_key.has(key) and !after_by_key.has(key) {unexpected_keys = unexpected_keys.push(key)}
+  }
+  let eligible = before.states.len() > 0 or after.states.len() > 0 or before.driver != null or after.driver != null or
+    before.governor != null or after.governor != null or before.available_governors.len() > 0 or after.available_governors.len() > 0
+  return Ok({
+    reference_count: before.states.len(), candidate_count: states.len(), matched_count: matched_count,
+    missing_keys: missing_keys |> sort-by ., unexpected_keys: unexpected_keys |> sort-by .,
+    field_mismatches: field_mismatches |> sort-by ., counter_mismatches: counter_mismatches |> sort-by .,
+    unstable_fields: unstable_fields |> sort-by .,
+    eligible: eligible,
+    exact: eligible and status.enumeration_succeeded and missing_keys.len() == 0 and unexpected_keys.len() == 0 and
+      field_mismatches.len() == 0 and counter_mismatches.len() == 0 and unstable_fields.len() == 0,
+  })
+}
+
+proc reference_cpuidle_text(root: FsRoot, source_path: Path, required: Bool, max_bytes: Int = 4096) [fs, error] -> Result[Str?] {
+  let raw = fs.root_read_result(root, source_path, max_bytes: max_bytes)?
+  if raw.state == "absent" and !required {return Ok(null)}
+  if raw.state != "observed" or raw.truncated or raw.data == null {
+    return Err(check_failure(f"CPUIdle reference source ${source_path} is incomplete"))
+  }
+  match (raw.data ?? b"").utf8() {
+    Ok(value) => return Ok(value.trim())
+    Err(_) => return Err(check_failure(f"CPUIdle reference source ${source_path} is not UTF-8"))
+  }
+}
+
+proc reference_cpuidle_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+  let raw = reference_cpuidle_text(root, source_path, false)?
+  if raw == null {return Ok(null)}
+  let parsed = reference_cpu_number(raw ?? "")?
+  if parsed > 9007199254740991 {return Err(check_failure(f"CPUIdle reference source ${source_path} exceeds exact integer range"))}
+  return Ok(parsed)
+}
+
+pure reference_cpuidle_words(value: Str) -> List[Str] {
+  return value.replace("\t", " ").split(" ") |> where .trim() != ""
+}
+
+## Reads global CPUIdle metadata and indexed states for every present CPU through bounded sysfs sources.
+export proc read_cpuidle_reference(root: FsRoot) [fs, error] -> Result[CpuIdleReference] {
+  let present_text = reference_cpuidle_text(root, p"sys/devices/system/cpu/present", true, max_bytes: 65536)?
+  let present = parse_reference_cpu_list(present_text ?? "", false)?
+  let driver = reference_cpuidle_text(root, p"sys/devices/system/cpu/cpuidle/current_driver", false)?
+  var governor = reference_cpuidle_text(root, p"sys/devices/system/cpu/cpuidle/current_governor", false)?
+  if governor == null {
+    governor = reference_cpuidle_text(root, p"sys/devices/system/cpu/cpuidle/current_governor_ro", false)?
+  }
+  let available = reference_cpuidle_text(root, p"sys/devices/system/cpu/cpuidle/available_governors", false)?
+  var states: List[CpuIdleStateReference] = []
+  for cpu_id in present {
+    let idle_path = fp"sys/devices/system/cpu/cpu${cpu_id}/cpuidle"
+    let listing = fs.root_children(root, idle_path, max_entries: 256)?
+    if listing.state == "absent" {continue}
+    if listing.state != "complete" {return Err(check_failure(f"CPUIdle state enumeration failed for CPU ${cpu_id}"))}
+    for state_path in listing.children {
+      let name = state_path.name()
+      if !name.starts_with("state") {continue}
+      let suffix = (name.split("") |> drop(5)).join("")
+      let index = reference_cpu_number(suffix)?
+      if index > 9007199254740991 or f"state${index}" != name {
+        return Err(check_failure("CPUIdle reference state has a noncanonical or inexact directory index"))
+      }
+      let state_name = reference_cpuidle_text(root, fp"${state_path}/name", true)?
+      if state_name == null or state_name == "" {return Err(check_failure("CPUIdle reference state has an empty name"))}
+      let disable = reference_cpuidle_number(root, fp"${state_path}/disable")?
+      if disable != null and disable != 0 and disable != 1 {return Err(check_failure("CPUIdle reference state has an invalid disable control"))}
+      states = states.push({
+        cpu_id: cpu_id,
+        state_index: index,
+        name: state_name ?? "",
+        description: reference_cpuidle_text(root, fp"${state_path}/desc", false)?,
+        disable_setting: disable,
+        latency_us: reference_cpuidle_number(root, fp"${state_path}/latency")?,
+        residency_us: reference_cpuidle_number(root, fp"${state_path}/residency")?,
+        usage_count: reference_cpuidle_number(root, fp"${state_path}/usage")?,
+        time_us: reference_cpuidle_number(root, fp"${state_path}/time")?,
+      })
+    }
+  }
+  return Ok({driver: driver, governor: governor, available_governors: reference_cpuidle_words(available ?? ""), states: states})
+}
+
+pure reference_cpufreq_members(output: Str) -> Result[List[Int]] {
+  var ids: List[Int] = []
+  var seen = set.empty()
+  for word in output.trim().replace("\t", " ").split(" ") {
+    if word == "" {continue}
+    let id = reference_cpu_number(word)?
+    let key = f"${id}"
+    if set.has(seen, key) {return Err(check_failure("CPUFreq CPU membership repeats an identifier"))}
+    if ids.len() >= 65536 {return Err(check_failure("CPUFreq CPU membership exceeds 65536 identifiers"))}
+    seen = set.add(seen, key)
+    ids = ids.push(id)
+  }
+  if ids.len() == 0 {return Err(check_failure("CPUFreq CPU membership is empty"))}
+  return ids |> sort-by .
+}
+
+pure reference_cpufreq_words(value: Str) -> List[Str] {
+  return value.replace("\t", " ").split(" ") |> where .trim() != ""
+}
+
+## Interprets the generic boost control before the inverted Intel-specific control.
+export pure parse_cpufreq_boost_reference(boost_text: Str?, no_turbo_text: Str?) -> Result[CpuFreqBoostReference] {
+  if boost_text != null {
+    if boost_text != "0" and boost_text != "1" {return Err(check_failure("CPUFreq boost control is invalid"))}
+    return Ok({supported: true, allowed: boost_text == "1", scope: "system"})
+  }
+  if no_turbo_text != null {
+    if no_turbo_text != "0" and no_turbo_text != "1" {return Err(check_failure("intel_pstate no_turbo control is invalid"))}
+    return Ok({supported: true, allowed: no_turbo_text == "0", scope: "intel_pstate"})
+  }
+  return Ok({supported: null, allowed: null, scope: null})
+}
+
+proc reference_cpufreq_text(root: FsRoot, source_path: Path, required: Bool) [fs, error] -> Result[Str?] {
+  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  if raw.state == "absent" and !required {return Ok(null)}
+  if raw.state != "observed" or raw.truncated or raw.data == null {
+    return Err(check_failure(f"CPUFreq reference source ${source_path} is incomplete"))
+  }
+  match (raw.data ?? b"").utf8() {
+    Ok(value) => return Ok(value.trim())
+    Err(_) => return Err(check_failure(f"CPUFreq reference source ${source_path} is not UTF-8"))
+  }
+}
+
+proc reference_cpufreq_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+  let source = reference_cpufreq_text(root, source_path, false)?
+  if source == null {return Ok(null)}
+  let value = source ?? ""
+  let number = reference_cpu_number(value)?
+  if number < 0 or number > 9007199254740991 {
+    return Err(check_failure(f"CPUFreq reference source ${source_path} exceeds the exact integer range"))
+  }
+  return Ok(number)
+}
+
+proc reference_cpufreq_gauge(root: FsRoot, source_path: Path) [fs, error] -> Result[CpuFreqGaugeReference] {
+  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  if raw.state == "absent" {return Ok({value: null, complete: true})}
+  if raw.state == "read_failure" or raw.state == "permission_denied" {
+    return Ok({value: null, complete: false})
+  }
+  if raw.state != "observed" or raw.truncated or raw.data == null {
+    return Err(check_failure(f"CPUFreq gauge ${source_path} is incomplete"))
+  }
+  let value = (raw.data ?? b"").utf8()?.trim()
+  let number = reference_cpu_number(value)?
+  if number < 0 or number > 9007199254740991 {
+    return Err(check_failure(f"CPUFreq gauge ${source_path} exceeds the exact integer range"))
+  }
+  return Ok({value: number, complete: true})
+}
+
+## Reads every visible policy through bounded sysfs sources, independent of candidate output.
+export proc read_cpufreq_policy_reference(root: FsRoot) [fs, error] -> Result[List[CpuFreqPolicyReference]] {
+  let listing = fs.root_children(root, p"sys/devices/system/cpu/cpufreq", max_entries: 1024)?
+  if listing.state == "absent" {return Ok([])}
+  if listing.state != "complete" {return Err(check_failure("CPUFreq policy enumeration is incomplete"))}
+  let boost_text = reference_cpufreq_text(root, p"sys/devices/system/cpu/cpufreq/boost", false)?
+  let no_turbo_text = reference_cpufreq_text(root, p"sys/devices/system/cpu/intel_pstate/no_turbo", false)?
+  let boost = parse_cpufreq_boost_reference(boost_text, no_turbo_text)?
+  var policies: List[CpuFreqPolicyReference] = []
+  var names: List[Str] = []
+  for policy_path in listing.children {
+    let name = policy_path.name()
+    if !name.starts_with("policy") {continue}
+    let suffix = (name.split("") |> drop(6)).join("")
+    let _ = reference_cpu_number(suffix)?
+    if name in names {return Err(check_failure("CPUFreq policy enumeration repeats a name"))}
+    names = names.push(name)
+    let related = reference_cpufreq_text(root, fp"${policy_path}/related_cpus", true)?
+    let affected = reference_cpufreq_text(root, fp"${policy_path}/affected_cpus", true)?
+    let governor = reference_cpufreq_text(root, fp"${policy_path}/scaling_governor", false)?
+    let available_epp = reference_cpufreq_text(root, fp"${policy_path}/energy_performance_available_preferences", false)?
+    policies = policies.push({
+      name: name,
+      related_cpus: reference_cpufreq_members(related ?? "")?,
+      affected_cpus: reference_cpufreq_members(affected ?? "")?,
+      driver: reference_cpufreq_text(root, fp"${policy_path}/scaling_driver", false)?,
+      governor: governor,
+      hardware_min_khz: reference_cpufreq_number(root, fp"${policy_path}/cpuinfo_min_freq")?,
+      hardware_max_khz: reference_cpufreq_number(root, fp"${policy_path}/cpuinfo_max_freq")?,
+      scaling_min_khz: reference_cpufreq_number(root, fp"${policy_path}/scaling_min_freq")?,
+      scaling_max_khz: reference_cpufreq_number(root, fp"${policy_path}/scaling_max_freq")?,
+      hardware_current: reference_cpufreq_gauge(root, fp"${policy_path}/cpuinfo_cur_freq")?,
+      scaling_current: reference_cpufreq_gauge(root, fp"${policy_path}/scaling_cur_freq")?,
+      average_current: reference_cpufreq_gauge(root, fp"${policy_path}/cpuinfo_avg_freq")?,
+      governor_requested: if governor == "userspace" {reference_cpufreq_gauge(root, fp"${policy_path}/scaling_setspeed")?} else {{value: null, complete: true}},
+      energy_performance_preference: reference_cpufreq_text(root, fp"${policy_path}/energy_performance_preference", false)?,
+      available_energy_performance_preferences: reference_cpufreq_words(available_epp ?? ""),
+      boost_supported: boost.supported,
+      boost_allowed: boost.allowed,
+      boost_active: null,
+      boost_scope: boost.scope,
+    })
+  }
+  return policies |> sort-by .name
+}
+
+## Reads the process-visible affinity from a complete proc status snapshot.
+export pure parse_proc_status_affinity(output: Str) -> Result[List[Int]] {
+  var affinity: Str? = null
+  for line in output.lines() {
+    if line.starts_with("Cpus_allowed_list:") {
+      if affinity != null {
+        return Err(check_failure("proc status repeats Cpus_allowed_list"))
+      }
+      affinity = line.split(":", maxsplit: 1).get(1, "").trim()
+    }
+  }
+  if affinity == null {
+    return Err(check_failure("proc status omits Cpus_allowed_list"))
+  }
+  return parse_reference_cpu_list(affinity ?? "", false)
 }
 
 proc captured_cpu_set_text(root: FsRoot, name: Str) [fs, error] -> Result[Str] {
@@ -956,7 +4421,8 @@ export proc validate_cpu_set_bundle(bundle: FsRoot) [fs, error] -> Result[CpuSet
   for index in range(4) {
     let expected = capture.sources[index]
     let name = names[index]
-    if expected.name != name or expected.state != "observed" or expected.truncated {
+    if expected.name != name or expected.state != "observed" or expected.truncated or
+        expected.errno != null or expected.error_kind != null {
       return Err(check_failure(f"CPU set capture cannot score ${name} source"))
     }
     let raw = fs.root_read_result(bundle, fp"sys/devices/system/cpu/${name}", max_bytes: 65536)?
@@ -977,9 +4443,14 @@ export proc validate_cpu_set_bundle(bundle: FsRoot) [fs, error] -> Result[CpuSet
 
 ## Re-runs the production collector on captured raw files and checks an independent oracle.
 export proc replay_cpu_set_bundle(bundle: FsRoot) [fs, time, error] -> Result[CpuSetComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_cpu_set_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "cpu", true)?
+  if validate_cpu_set_bundle(bundle)? != reference {
+    return Err(check_failure("CPU set capture changed during collector replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata)?
   let possible = compare_cpu_id_sets(candidate.cpu.possible, reference.possible)?
   let present = compare_cpu_id_sets(candidate.cpu.present, reference.present)?
   let online = compare_cpu_id_sets(candidate.cpu.online, reference.online)?
@@ -987,6 +4458,432 @@ export proc replay_cpu_set_bundle(bundle: FsRoot) [fs, time, error] -> Result[Cp
   return {
     possible: possible, present: present, online: online, offline: offline,
     exact: possible.exact and present.exact and online.exact and offline.exact,
+  }
+}
+
+pure cpufreq_bundle_source_limit(relative: Str) -> Int {
+  if relative in ["sys/devices/system/cpu/possible", "sys/devices/system/cpu/present",
+      "sys/devices/system/cpu/online", "sys/devices/system/cpu/offline"] or
+      relative.ends_with("/scaling_available_frequencies") {return 65536}
+  return 4096
+}
+
+pure cpufreq_bundle_is_gauge(relative: Str) -> Bool {
+  for name in ["cpuinfo_cur_freq", "scaling_cur_freq", "cpuinfo_avg_freq", "scaling_setspeed"] {
+    if relative.ends_with(f"/${name}") {return true}
+  }
+  return false
+}
+
+proc cpufreq_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuFreqBundleLayout] {
+  let listing = fs.root_children(root, p"sys/devices/system/cpu/cpufreq", max_entries: 1024)?
+  var policies: List[Str] = []
+  var source_paths: List[Str] = [
+    "sys/devices/system/cpu/possible", "sys/devices/system/cpu/present",
+    "sys/devices/system/cpu/online", "sys/devices/system/cpu/offline",
+    "sys/devices/system/cpu/cpufreq/boost", "sys/devices/system/cpu/intel_pstate/no_turbo",
+  ]
+  if listing.state != "complete" {
+    return {listing_state: listing.state, policies: policies,
+      source_paths: source_paths |> sort-by ., complete: listing.state == "absent"}
+  }
+  for entry in listing.children {
+    let name = entry.name()
+    if !name.starts_with("policy") {continue}
+    let suffix = (name.split("") |> drop(6)).join("")
+    let index = reference_cpu_number(suffix)?
+    if name != f"policy${index}" {return Err(check_failure("CPUFreq capture has a noncanonical policy name"))}
+    let attributes = fs.root_children(root, entry, max_entries: 256)?
+    if attributes.state != "complete" {return Err(check_failure("CPUFreq policy directory is incomplete"))}
+    policies = policies.push(name)
+    let prefix = entry.display()
+    for attribute in [
+      "related_cpus", "affected_cpus", "scaling_driver", "scaling_governor",
+      "scaling_available_governors", "cpuinfo_min_freq", "cpuinfo_max_freq",
+      "scaling_min_freq", "scaling_max_freq", "cpuinfo_cur_freq", "scaling_cur_freq",
+      "cpuinfo_avg_freq", "scaling_setspeed", "bios_limit",
+      "energy_performance_preference", "energy_performance_available_preferences",
+      "scaling_available_frequencies",
+    ] {source_paths = source_paths.push(f"${prefix}/${attribute}")}
+  }
+  if source_paths.len() > 17414 {return Err(check_failure("CPUFreq capture exceeds its source path bound"))}
+  return {listing_state: listing.state, policies: policies |> sort-by .,
+    source_paths: source_paths |> sort-by ., complete: true}
+}
+
+## Saves bounded CPU sets and policy sources with independently parsed references.
+export proc capture_cpufreq_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {return Err(check_failure("CPUFreq capture origin is invalid"))}
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/devices/system/cpu")? {
+    return Err(check_failure("CPUFreq capture destination is not empty"))
+  }
+  let layout = cpufreq_bundle_layout(source)?
+  fs.root_mkdir(bundle, p"sys/devices/system/cpu", mode: 0o700, parents: true)?
+  fs.root_mkdir(bundle, p"sys/devices/system/cpu/intel_pstate", mode: 0o700, parents: true)?
+  if layout.listing_state == "complete" {
+    fs.root_mkdir(bundle, p"sys/devices/system/cpu/cpufreq", mode: 0o700, parents: true)?
+    for policy in layout.policies {
+      fs.root_mkdir(bundle, fp"sys/devices/system/cpu/cpufreq/${policy}", mode: 0o700)?
+    }
+  }
+  var sources: List[CpuFreqSourceObservation] = []
+  var saved_bytes: List[Bytes?] = []
+  var complete = layout.complete
+  for relative in layout.source_paths {
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
+    var sha256_hex: Str? = null
+    var byte_count = 0
+    if raw.data != null {
+      let data = raw.data ?? b""
+      fs.root_write(bundle, fp"${relative}", data)?
+      sha256_hex = hash.sha256(data).hex()
+      byte_count = data.len()
+    }
+    if raw.truncated or raw.state not in ["observed", "absent"] or
+        (relative in ["sys/devices/system/cpu/possible", "sys/devices/system/cpu/present",
+          "sys/devices/system/cpu/online", "sys/devices/system/cpu/offline"] or
+          relative.ends_with("/related_cpus") or relative.ends_with("/affected_cpus")) and raw.state != "observed" {
+      complete = false
+    }
+    saved_bytes = saved_bytes.push(raw.data)
+    sources = sources.push({path: relative, state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind, byte_count: byte_count, sha256_hex: sha256_hex})
+  }
+  let later_layout = cpufreq_bundle_layout(source)?
+  var stable_static = layout == later_layout
+  var changing_gauges: List[Str] = []
+  for index in range(layout.source_paths.len()) {
+    let relative = layout.source_paths[index]
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
+    let first = sources[index]
+    if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or
+        raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
+      if cpufreq_bundle_is_gauge(relative) {
+        changing_gauges = changing_gauges.push(relative)
+      } else {
+        stable_static = false
+      }
+    }
+  }
+  var sets: CpuSetReference? = null
+  var policies: List[CpuFreqPolicyReference]? = null
+  if complete {
+    match captured_cpu_set_reference(bundle) {Ok(reference) => sets = reference; Err(_) => {}}
+    match read_cpufreq_policy_reference(bundle) {Ok(reference) => policies = reference; Err(_) => {}}
+  }
+  let scoreable = stable_static and sets != null and policies != null and (policies ?? []).len() > 0
+  let capture: CpuFreqBundleCapture = {schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "cpufreq-sysfs-raw-v1", layout: layout, stable_static: stable_static,
+    changing_gauges: changing_gauges, scoreable: scoreable, sources: sources,
+    sets: sets, policies: policies}
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Rejects changed policy directories, raw bytes, absence, and decoded references.
+export proc validate_cpufreq_bundle(bundle: FsRoot) [fs, error] -> Result[CpuFreqBundleCapture] {
+  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(CpuFreqBundleCapture)?
+  if capture.schema_version != 1 or capture.reference_adapter != "cpufreq-sysfs-raw-v1" or
+      capture.origin not in ["synthetic_fixture", "live_capture"] or !capture.stable_static or
+      !capture.scoreable or capture.sets == null or capture.policies == null {
+    return Err(check_failure("CPUFreq capture has no stable scoreable reference"))
+  }
+  let layout = cpufreq_bundle_layout(bundle)?
+  if layout != capture.layout or capture.sources.len() != layout.source_paths.len() {
+    return Err(check_failure("CPUFreq capture layout differs from metadata"))
+  }
+  var gauge_paths = set.empty()
+  for relative in capture.changing_gauges {
+    if relative not in layout.source_paths or !cpufreq_bundle_is_gauge(relative) or set.has(gauge_paths, relative) {
+      return Err(check_failure("CPUFreq capture has an invalid changing gauge path"))
+    }
+    gauge_paths = set.add(gauge_paths, relative)
+  }
+  for index in range(layout.source_paths.len()) {
+    let relative = layout.source_paths[index]
+    let expected = capture.sources[index]
+    if expected.path != relative or expected.truncated {return Err(check_failure("CPUFreq capture source identity differs"))}
+    if expected.state == "absent" {
+      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+        return Err(check_failure(f"CPUFreq absent source ${relative} differs"))
+      }
+      continue
+    }
+    if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
+      return Err(check_failure(f"CPUFreq capture cannot score ${relative}"))
+    }
+    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: cpufreq_bundle_source_limit(relative))?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"CPUFreq capture ${relative} bytes differ"))
+    }
+  }
+  let sets = captured_cpu_set_reference(bundle)?
+  let policies = read_cpufreq_policy_reference(bundle)?
+  if sets != (capture.sets ?? sets) or policies != (capture.policies ?? policies) {
+    return Err(check_failure("CPUFreq capture references differ from raw sources"))
+  }
+  return capture
+}
+
+## Runs the production CPU collector against a validated policy capture.
+export proc replay_cpufreq_bundle(bundle: FsRoot) [fs, time, error] -> Result[CpuFreqBundleComparison] {
+  let metadata = capture_metadata_bytes(bundle, max_bytes: 16777216)?
+  let capture = validate_cpufreq_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "cpu", true)?
+  if validate_cpufreq_bundle(bundle)? != capture {return Err(check_failure("CPUFreq capture changed during replay"))}
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)?
+  let report_json = encode_replayed_report(candidate, true)?
+  return {
+    sets: compare_cpu_sets(report_json, capture.sets ?? captured_cpu_set_reference(bundle)?)?,
+    policies: compare_cpufreq_policies(report_json, capture.policies ?? [], capture.policies ?? [])?,
+  }
+}
+
+proc cpu_topology_bundle_layout(root: FsRoot) [fs, error] -> Result[CpuTopologyBundleLayout] {
+  var source_paths: List[Str] = [
+    "sys/devices/system/cpu/possible", "sys/devices/system/cpu/present",
+    "sys/devices/system/cpu/online", "sys/devices/system/cpu/offline",
+  ]
+  var cpu_ids: List[Int] = []
+  var complete = true
+  match captured_cpu_set_reference(root) {
+    Ok(sets) => cpu_ids = sets.present
+    Err(_) => complete = false
+  }
+  if cpu_ids.len() > 4096 {return Err(check_failure("CPU topology capture exceeds its CPU bound"))}
+  var node_links: List[CpuTopologyNodeLink] = []
+  for cpu_id in cpu_ids {
+    let cpu_path = fp"sys/devices/system/cpu/cpu${cpu_id}"
+    let listing = fs.root_children(root, cpu_path, max_entries: 256)?
+    if listing.state != "complete" {complete = false}
+    var found_node = false
+    for entry in listing.children {
+      let name = entry.name()
+      if !name.starts_with("node") {continue}
+      let suffix = (name.split("") |> drop(4)).join("")
+      let node_id = reference_cpu_number(suffix)?
+      if name != f"node${node_id}" or found_node {
+        return Err(check_failure("CPU topology capture has an invalid or repeated NUMA node link"))
+      }
+      let target = fs.root_readlink(root, entry)?.display()
+      if target != f"../../node/${name}" {
+        return Err(check_failure("CPU topology NUMA link has an invalid target"))
+      }
+      found_node = true
+      node_links = node_links.push({cpu_id: cpu_id, name: name, target: target})
+    }
+    for attribute in ["physical_package_id", "die_id", "core_id", "thread_siblings_list"] {
+      source_paths = source_paths.push(f"${cpu_path}/topology/${attribute}")
+    }
+  }
+  return {cpu_ids: cpu_ids, node_links: node_links |> sort-by .cpu_id,
+    source_paths: source_paths |> sort-by ., complete: complete}
+}
+
+proc cpu_topology_reference_text(root: FsRoot, relative: Str, required: Bool) [fs, error] -> Result[Str?] {
+  let raw = fs.root_read_result(root, fp"${relative}", max_bytes: 4096)?
+  if raw.state == "absent" and !required {return Ok(null)}
+  if raw.state != "observed" or raw.truncated or raw.data == null {
+    return Err(check_failure(f"CPU topology source ${relative} is incomplete"))
+  }
+  let value = (raw.data ?? b"").utf8()?.trim()
+  if value == "" {return Err(check_failure(f"CPU topology source ${relative} is empty"))}
+  return Ok(value)
+}
+
+proc cpu_topology_reference_number(root: FsRoot, relative: Str, required: Bool) [fs, error] -> Result[Int?] {
+  let value = cpu_topology_reference_text(root, relative, required)?
+  if value == null {return Ok(null)}
+  return Ok(reference_cpu_number(value ?? "")?)
+}
+
+## Reads per CPU topology values without using the production collector's decoder or joins.
+export proc read_cpu_topology_raw_reference(root: FsRoot) [fs, error] -> Result[List[CpuTopologyRawReference]] {
+  let sets = captured_cpu_set_reference(root)?
+  let layout = cpu_topology_bundle_layout(root)?
+  if !layout.complete or sets.present != layout.cpu_ids {return Err(check_failure("CPU topology reference enumeration is incomplete"))}
+  var rows: List[CpuTopologyRawReference] = []
+  for cpu_id in sets.present {
+    let prefix = f"sys/devices/system/cpu/cpu${cpu_id}/topology"
+    let package = cpu_topology_reference_number(root, f"${prefix}/physical_package_id", true)?
+    let core = cpu_topology_reference_number(root, f"${prefix}/core_id", true)?
+    let sibling_text = cpu_topology_reference_text(root, f"${prefix}/thread_siblings_list", true)?
+    let siblings = parse_reference_cpu_list(sibling_text ?? "", false)?
+    if cpu_id not in siblings {return Err(check_failure("CPU topology siblings omit their owner"))}
+    var node_id: Int? = null
+    for link in layout.node_links {
+      if link.cpu_id == cpu_id {
+        node_id = reference_cpu_number((link.name.split("") |> drop(4)).join(""))?
+      }
+    }
+    rows = rows.push({id: cpu_id, online: cpu_id in sets.online,
+      package_id: package ?? -1,
+      die_id: cpu_topology_reference_number(root, f"${prefix}/die_id", false)?,
+      core_id: core ?? -1, siblings: siblings, node_id: node_id})
+  }
+  return rows
+}
+
+## Compares each saved kernel CPU identity and relationship against the collected report.
+export pure compare_cpu_topology_raw(candidate_json: Str, reference: List[CpuTopologyRawReference]) -> Result[CpuTopologyRawComparison] {
+  let data = json.decode(candidate_json)?
+  let status = json.get(data, ["cpu", "status"])?.require(CandidateCpuSectionStatus)?
+  let candidate = json.get(data, ["cpu", "cpus"])?.require(List[CandidateCpuTopologyRaw])?
+  var by_id: Map[Int] = {}
+  for index in range(candidate.len()) {
+    let id = candidate[index].id
+    let key = f"${id}"
+    if id < 0 or by_id.has(key) {return Err(check_failure("candidate CPU topology repeats an ID"))}
+    by_id = by_id.set(key, index)
+  }
+  var seen = set.empty()
+  var missing_ids: List[Int] = []
+  var field_mismatches: List[Str] = []
+  var matched_count = 0
+  for item in reference {
+    let key = f"${item.id}"
+    if item.id < 0 or set.has(seen, key) {return Err(check_failure("CPU topology reference repeats an ID"))}
+    seen = set.add(seen, key)
+    if !by_id.has(key) {missing_ids = missing_ids.push(item.id); continue}
+    matched_count += 1
+    let actual = candidate[by_id.get(key)?]
+    if !actual.present {field_mismatches = field_mismatches.push(f"${item.id}.present")}
+    if actual.online != item.online {field_mismatches = field_mismatches.push(f"${item.id}.online")}
+    if actual.package_id != item.package_id {field_mismatches = field_mismatches.push(f"${item.id}.package_id")}
+    if actual.die_id != item.die_id {field_mismatches = field_mismatches.push(f"${item.id}.die_id")}
+    if actual.core_id != item.core_id {field_mismatches = field_mismatches.push(f"${item.id}.core_id")}
+    if actual.thread_siblings != item.siblings {field_mismatches = field_mismatches.push(f"${item.id}.siblings")}
+    if actual.numa_node != item.node_id {field_mismatches = field_mismatches.push(f"${item.id}.node_id")}
+  }
+  var unexpected_ids: List[Int] = []
+  for item in candidate {if !set.has(seen, f"${item.id}") {unexpected_ids = unexpected_ids.push(item.id)}}
+  let eligible = reference.len() > 0
+  return {reference_count: reference.len(), candidate_count: candidate.len(), matched_count: matched_count,
+    missing_ids: missing_ids |> sort-by ., unexpected_ids: unexpected_ids |> sort-by .,
+    field_mismatches: field_mismatches |> sort-by ., eligible: eligible,
+    exact: eligible and status.enumeration_succeeded and missing_ids.len() == 0 and
+      unexpected_ids.len() == 0 and field_mismatches.len() == 0}
+}
+
+## Saves bounded CPU topology files and NUMA links with an independently parsed reference.
+export proc capture_cpu_topology_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {return Err(check_failure("CPU topology capture origin is invalid"))}
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/devices/system/cpu")? {
+    return Err(check_failure("CPU topology capture destination is not empty"))
+  }
+  let layout = cpu_topology_bundle_layout(source)?
+  fs.root_mkdir(bundle, p"sys/devices/system/cpu", mode: 0o700, parents: true)?
+  for cpu_id in layout.cpu_ids {
+    fs.root_mkdir(bundle, fp"sys/devices/system/cpu/cpu${cpu_id}/topology", mode: 0o700, parents: true)?
+  }
+  for link in layout.node_links {
+    fs.root_symlink(bundle, fp"${link.target}", fp"sys/devices/system/cpu/cpu${link.cpu_id}/${link.name}")?
+  }
+  var sources: List[CpuTopologySourceObservation] = []
+  var saved_bytes: List[Bytes?] = []
+  var complete = layout.complete
+  for relative in layout.source_paths {
+    let limit = if relative.ends_with("/possible") or relative.ends_with("/present") or
+      relative.ends_with("/online") or relative.ends_with("/offline") {65536} else {4096}
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: limit)?
+    var sha256_hex: Str? = null
+    var byte_count = 0
+    if raw.data != null {
+      let data = raw.data ?? b""
+      fs.root_write(bundle, fp"${relative}", data)?
+      sha256_hex = hash.sha256(data).hex()
+      byte_count = data.len()
+    }
+    if raw.truncated or raw.state not in ["observed", "absent"] or
+        !relative.ends_with("/die_id") and raw.state != "observed" {complete = false}
+    saved_bytes = saved_bytes.push(raw.data)
+    sources = sources.push({path: relative, state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind, byte_count: byte_count, sha256_hex: sha256_hex})
+  }
+  let later_layout = cpu_topology_bundle_layout(source)?
+  var stable = layout == later_layout
+  for index in range(layout.source_paths.len()) {
+    let relative = layout.source_paths[index]
+    let limit = if relative.ends_with("/possible") or relative.ends_with("/present") or
+      relative.ends_with("/online") or relative.ends_with("/offline") {65536} else {4096}
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: limit)?
+    let first = sources[index]
+    if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or
+        raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {stable = false}
+  }
+  var sets: CpuSetReference? = null
+  var topology: List[CpuTopologyRawReference]? = null
+  if complete {
+    match captured_cpu_set_reference(bundle) {Ok(reference) => sets = reference; Err(_) => {}}
+    match read_cpu_topology_raw_reference(bundle) {Ok(reference) => topology = reference; Err(_) => {}}
+  }
+  let scoreable = stable and sets != null and topology != null and (topology ?? []).len() > 0
+  let capture: CpuTopologyBundleCapture = {schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "cpu-topology-sysfs-raw-v1", layout: layout, stable: stable,
+    scoreable: scoreable, sources: sources, sets: sets, topology: topology}
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Validates CPU set bytes, topology values, and NUMA link targets before replay.
+export proc validate_cpu_topology_bundle(bundle: FsRoot) [fs, error] -> Result[CpuTopologyBundleCapture] {
+  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(CpuTopologyBundleCapture)?
+  if capture.schema_version != 1 or capture.reference_adapter != "cpu-topology-sysfs-raw-v1" or
+      capture.origin not in ["synthetic_fixture", "live_capture"] or !capture.stable or
+      !capture.scoreable or capture.sets == null or capture.topology == null {
+    return Err(check_failure("CPU topology capture has no stable scoreable reference"))
+  }
+  let layout = cpu_topology_bundle_layout(bundle)?
+  if layout != capture.layout or capture.sources.len() != layout.source_paths.len() {
+    return Err(check_failure("CPU topology capture layout differs from metadata"))
+  }
+  for index in range(layout.source_paths.len()) {
+    let relative = layout.source_paths[index]
+    let expected = capture.sources[index]
+    if expected.path != relative or expected.truncated {return Err(check_failure("CPU topology capture source identity differs"))}
+    if expected.state == "absent" {
+      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+        return Err(check_failure(f"CPU topology absent source ${relative} differs"))
+      }
+      continue
+    }
+    if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
+      return Err(check_failure(f"CPU topology capture cannot score ${relative}"))
+    }
+    let limit = if relative.ends_with("/possible") or relative.ends_with("/present") or
+      relative.ends_with("/online") or relative.ends_with("/offline") {65536} else {4096}
+    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: limit)?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"CPU topology capture ${relative} bytes differ"))
+    }
+  }
+  let sets = captured_cpu_set_reference(bundle)?
+  let topology = read_cpu_topology_raw_reference(bundle)?
+  if sets != (capture.sets ?? sets) or topology != (capture.topology ?? topology) {
+    return Err(check_failure("CPU topology capture references differ from raw sources"))
+  }
+  return capture
+}
+
+## Runs the production CPU collector against the validated topology capture.
+export proc replay_cpu_topology_bundle(bundle: FsRoot) [fs, time, error] -> Result[CpuTopologyBundleComparison] {
+  let metadata = capture_metadata_bytes(bundle, max_bytes: 16777216)?
+  let capture = validate_cpu_topology_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "cpu", true)?
+  if validate_cpu_topology_bundle(bundle)? != capture {return Err(check_failure("CPU topology capture changed during replay"))}
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)?
+  let report_json = encode_replayed_report(candidate, true)?
+  return {
+    sets: compare_cpu_sets(report_json, capture.sets ?? captured_cpu_set_reference(bundle)?)?,
+    topology: compare_cpu_topology_raw(report_json, capture.topology ?? [])?,
   }
 }
 
@@ -1118,7 +5015,8 @@ export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryB
       }
       continue
     }
-    if expected.state != "observed" or expected.sha256_hex == null {
+    if expected.state != "observed" or expected.sha256_hex == null or
+        expected.errno != null or expected.error_kind != null {
       return Err(check_failure(f"memory capture cannot score ${relative} source"))
     }
     let bound = if index == 0 {1048576} else {4096}
@@ -1141,11 +5039,15 @@ export proc validate_memory_bundle(bundle: FsRoot) [fs, error] -> Result[MemoryB
 
 ## Runs the production memory collector on captured sources and checks both oracles.
 export proc replay_memory_bundle(bundle: FsRoot) [fs, time, error] -> Result[MemoryBundleComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle)?
   let reference = validate_memory_bundle(bundle)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "memory", true)?
-  let wire: Any = candidate
-  let candidate_json = json.encode(wire)?
+  if validate_memory_bundle(bundle)? != reference {
+    return Err(check_failure("memory capture changed during collector replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  let candidate_json = encode_replayed_report(candidate, true)?
   return {
     meminfo: compare_meminfo(candidate_json, reference.meminfo, reference.meminfo)?,
     thp: compare_thp(candidate_json, reference.thp, reference.thp)?,
@@ -1190,6 +5092,18 @@ pure compare_cpu_id_sets(candidate: List[Int], reference: List[Int]) -> Result[C
     unexpected_ids: unexpected_ids |> sort-by .,
     exact: missing_ids.len() == 0 and unexpected_ids.len() == 0,
   }
+}
+
+## Compares a candidate's process affinity against a stable proc status bracket.
+export pure compare_cpu_scope_affinity(candidate_json: Str, before_status: Str, after_status: Str) -> Result[CpuIdSetComparison] {
+  let before = parse_proc_status_affinity(before_status)?
+  let after = parse_proc_status_affinity(after_status)?
+  if before != after {
+    return Err(check_failure("process affinity reference changed around collection"))
+  }
+  let data = json.decode(candidate_json)?
+  let candidate = json.get(data, ["cpu", "affinity"])?.require(List[Int])?
+  return compare_cpu_id_sets(candidate, before)
 }
 
 ## Compares the independently observed online CPU identities as sets.
@@ -1545,19 +5459,582 @@ export pure compare_vulnerabilities(
   })
 }
 
+## Saves bounded named vulnerability files and an independently decoded snapshot.
+export proc capture_vulnerabilities_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {
+    return Err(check_failure("vulnerability capture has an invalid origin"))
+  }
+  let directory = p"sys/devices/system/cpu/vulnerabilities"
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, directory)? {
+    return Err(check_failure("vulnerability capture destination is not empty"))
+  }
+  fs.root_mkdir(bundle, directory, mode: 0o700, parents: true)?
+  let first = fs.root_children(source, directory, max_entries: 256)?
+  var sources: List[VulnerabilityCaptureSource] = []
+  var reference: List[VulnerabilityReference] = []
+  var names: List[Str] = []
+  var captured_bytes = 0
+  var scoreable = first.state == "complete" and first.children.len() > 0
+  if first.state == "complete" {
+    for child in first.children {
+      let name = child.name()
+      if !valid_vulnerability_name(name) or name in names {
+        return Err(check_failure("vulnerability capture has an unsafe or duplicate name"))
+      }
+      names = names.push(name)
+      let raw = fs.root_read_result(source, child, max_bytes: 16384)?
+      var digest: Str? = null
+      if raw.data != null {
+        fs.root_write(bundle, child, raw.data ?? b"")?
+        digest = hash.sha256(raw.data ?? b"").hex()
+        captured_bytes += (raw.data ?? b"").len()
+        if captured_bytes > 262144 {scoreable = false}
+      }
+      sources = sources.push({
+        name: name, state: raw.state, truncated: raw.truncated,
+        errno: raw.errno, error_kind: raw.error_kind,
+        byte_count: if raw.data == null {0} else {(raw.data ?? b"").len()},
+        sha256_hex: digest,
+      })
+      if raw.state != "observed" or raw.truncated or raw.errno != null or
+          raw.error_kind != null or raw.data == null {
+        scoreable = false
+      } else if scoreable {
+        match (raw.data ?? b"").utf8() {
+          Ok(value) => reference = reference.push({name: name, description: value.trim()})
+          Err(_) => scoreable = false
+        }
+      }
+    }
+  }
+  let second = fs.root_children(source, directory, max_entries: 256)?
+  var second_names: List[Str] = []
+  if second.state == "complete" {
+    for child in second.children {second_names = second_names.push(child.name())}
+  }
+  var stable = first.state == second.state and first.errno == second.errno and
+    first.error_kind == second.error_kind and (names |> sort-by .) == (second_names |> sort-by .)
+  if first.state == "complete" {
+    for item in sources {
+      let relative = fp"sys/devices/system/cpu/vulnerabilities/${item.name}"
+      let later = fs.root_read_result(source, relative, max_bytes: 16384)?
+      let saved = fs.root_read_result(bundle, relative, max_bytes: 16384)?
+      if later.state != item.state or later.truncated != item.truncated or
+          later.errno != item.errno or later.error_kind != item.error_kind or
+          later.data != saved.data {
+        stable = false
+      }
+    }
+  }
+  let capture: VulnerabilityCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "vulnerability-sysfs-raw-v1", stable: stable,
+    listing_state: first.state, listing_errno: first.errno, listing_error_kind: first.error_kind,
+    sources: sources, reference: if scoreable and stable {reference} else {null},
+  }
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Checks the captured file set, source states, digests, and decoded descriptions.
+export proc validate_vulnerabilities_bundle(bundle: FsRoot) [fs, error] -> Result[List[VulnerabilityReference]] {
+  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 2097152)?
+  if metadata.state != "observed" or metadata.truncated or metadata.data == null {
+    return Err(check_failure("vulnerability capture metadata is missing or incomplete"))
+  }
+  let capture = json.decode((metadata.data ?? b"").utf8()?)?.require(VulnerabilityCapture)?
+  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or
+      capture.reference_adapter != "vulnerability-sysfs-raw-v1" or !capture.stable or
+      capture.listing_state != "complete" or capture.listing_errno != null or
+      capture.listing_error_kind != null or capture.sources.len() == 0 or capture.reference == null {
+    return Err(check_failure("vulnerability capture has no stable complete reference"))
+  }
+  let directory = p"sys/devices/system/cpu/vulnerabilities"
+  let listing = fs.root_children(bundle, directory, max_entries: 256)?
+  if listing.state != "complete" or listing.children.len() != capture.sources.len() {
+    return Err(check_failure("vulnerability capture file set differs from metadata"))
+  }
+  var names: List[Str] = []
+  for child in listing.children {names = names.push(child.name())}
+  var expected_names: List[Str] = []
+  var reference: List[VulnerabilityReference] = []
+  var captured_bytes = 0
+  for item in capture.sources {
+    if !valid_vulnerability_name(item.name) or item.name in expected_names or
+        item.state != "observed" or item.truncated or item.errno != null or
+        item.error_kind != null or item.sha256_hex == null {
+      return Err(check_failure("vulnerability capture contains an invalid source observation"))
+    }
+    expected_names = expected_names.push(item.name)
+    let relative = fp"sys/devices/system/cpu/vulnerabilities/${item.name}"
+    let raw = fs.root_read_result(bundle, relative, max_bytes: 16384)?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != item.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (item.sha256_hex ?? "") {
+      return Err(check_failure(f"vulnerability capture ${item.name} bytes differ from metadata"))
+    }
+    captured_bytes += (raw.data ?? b"").len()
+    if captured_bytes > 262144 {
+      return Err(check_failure("vulnerability capture exceeds its aggregate source bound"))
+    }
+    match (raw.data ?? b"").utf8() {
+      Ok(value) => reference = reference.push({name: item.name, description: value.trim()})
+      Err(_) => return Err(check_failure(f"vulnerability capture ${item.name} is not UTF-8"))
+    }
+  }
+  if (names |> sort-by .) != (expected_names |> sort-by .) or reference != (capture.reference ?? []) {
+    return Err(check_failure("vulnerability capture reference differs from saved files"))
+  }
+  return reference
+}
+
+## Runs the production CPU collector against the saved vulnerability files.
+export proc replay_vulnerabilities_bundle(bundle: FsRoot) [fs, time, error] -> Result[VulnerabilityReferenceComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle)?
+  let reference = validate_vulnerabilities_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "cpu", true)?
+  let after = validate_vulnerabilities_bundle(bundle)?
+  if after != reference {
+    return Err(check_failure("vulnerability capture changed during replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  return compare_vulnerabilities(encode_replayed_report(candidate, true)?, reference, reference)
+}
+
+pure huge_page_pool_key(pool: HugePageReferencePool) -> Str {
+  let scope = if pool.node_id == null {"global"} else {f"node${pool.node_id ?? -1}"}
+  return f"${scope}:${pool.page_size_bytes}"
+}
+
+pure valid_huge_page_reference(pool: HugePageReferencePool) -> Bool {
+  return pool.page_size_bytes > 0 and pool.page_size_bytes <= 9007199254740991 and
+    (pool.node_id == null or (pool.node_id ?? -1) >= 0) and
+    pool.total >= 0 and pool.total <= 9007199254740991 and
+    (pool.free == null or ((pool.free ?? -1) >= 0 and (pool.free ?? -1) <= 9007199254740991)) and
+    (pool.reserved == null or ((pool.reserved ?? -1) >= 0 and (pool.reserved ?? -1) <= 9007199254740991)) and
+    (pool.surplus == null or ((pool.surplus ?? -1) >= 0 and (pool.surplus ?? -1) <= 9007199254740991))
+}
+
+## Scores stable huge-page pool fields and identifies counters changed during collection.
+export pure compare_huge_pages(
+  candidate_json: Str, before: List[HugePageReferencePool], after: List[HugePageReferencePool],
+) -> Result[HugePageReferenceComparison] {
+  var before_by_key: Map[Int] = {}
+  var after_by_key: Map[Int] = {}
+  for index in range(before.len()) {
+    let pool = before[index]
+    let key = huge_page_pool_key(pool)
+    if !valid_huge_page_reference(pool) or before_by_key.has(key) {
+      return Err(check_failure("before huge-page reference has an invalid or duplicate pool"))
+    }
+    before_by_key = before_by_key.set(key, index)
+  }
+  for index in range(after.len()) {
+    let pool = after[index]
+    let key = huge_page_pool_key(pool)
+    if !valid_huge_page_reference(pool) or after_by_key.has(key) {
+      return Err(check_failure("after huge-page reference has an invalid or duplicate pool"))
+    }
+    after_by_key = after_by_key.set(key, index)
+  }
+  if before.len() != after.len() {
+    return Err(check_failure("huge-page reference pool set changed around collection"))
+  }
+  for pool in before {
+    if !after_by_key.has(huge_page_pool_key(pool)) {
+      return Err(check_failure("huge-page reference pool identity changed around collection"))
+    }
+  }
+  let data = json.decode(candidate_json)?
+  let candidates = json.get(data, ["memory", "huge_pages"])?.require(List[HugePageReferencePool])?
+  var candidate_by_key: Map[Int] = {}
+  for index in range(candidates.len()) {
+    let key = huge_page_pool_key(candidates[index])
+    if !valid_huge_page_reference(candidates[index]) or candidate_by_key.has(key) {
+      return Err(check_failure("candidate huge-page pool has invalid values or duplicate identity"))
+    }
+    candidate_by_key = candidate_by_key.set(key, index)
+  }
+  var missing_keys: List[Str] = []
+  var unexpected_keys: List[Str] = []
+  var mismatched_fields: List[Str] = []
+  var changed_fields: List[Str] = []
+  var matched_count = 0
+  for first in before {
+    let key = huge_page_pool_key(first)
+    if !candidate_by_key.has(key) {
+      missing_keys = missing_keys.push(key)
+      continue
+    }
+    matched_count += 1
+    let last = after[after_by_key.get(key, -1)]
+    let pool = candidates[candidate_by_key.get(key, -1)]
+    let fields: List[HugePageComparedField] = [
+      {name: "total", before: first.total, after: last.total, candidate: pool.total},
+      {name: "free", before: first.free, after: last.free, candidate: pool.free},
+      {name: "reserved", before: first.reserved, after: last.reserved, candidate: pool.reserved},
+      {name: "surplus", before: first.surplus, after: last.surplus, candidate: pool.surplus},
+    ]
+    for field in fields {
+      if field.before != field.after {
+        changed_fields = changed_fields.push(f"${key}.${field.name}")
+      } else if field.candidate != field.before {
+        mismatched_fields = mismatched_fields.push(f"${key}.${field.name}")
+      }
+    }
+  }
+  for key in candidate_by_key.keys() {
+    if !before_by_key.has(key) {
+      unexpected_keys = unexpected_keys.push(key)
+    }
+  }
+  let exact_stable = missing_keys.len() == 0 and unexpected_keys.len() == 0 and mismatched_fields.len() == 0
+  return Ok({
+    reference_count: before.len(), candidate_count: candidates.len(), matched_count: matched_count,
+    missing_keys: missing_keys |> sort-by ., unexpected_keys: unexpected_keys |> sort-by .,
+    mismatched_fields: mismatched_fields |> sort-by ., changed_fields: changed_fields |> sort-by .,
+    exact_stable: exact_stable,
+    exact_scored: before.len() > 0 and exact_stable and changed_fields.len() == 0,
+  })
+}
+
+pure psi_reference_average(value: Str) -> Bool {
+  let parts = value.split(".")
+  if parts.len() != 2 or parts[0] == "" or parts[1].count_chars() != 2 {
+    return false
+  }
+  for digit in parts[0].split("").extend(parts[1].split("")) {
+    if digit not in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] {
+      return false
+    }
+  }
+  match parts[0].parse_int() {
+    Ok(whole) => return whole <= 100 and (whole < 100 or parts[1] == "00")
+    Err(_) => return false
+  }
+}
+
+pure psi_reference_total(value: Str) -> Result[Int] {
+  if value == "" {return Err(check_failure("PSI reference total is empty"))}
+  for digit in value.split("") {
+    if digit not in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] {
+      return Err(check_failure("PSI reference total is not decimal"))
+    }
+  }
+  let total = value.parse_int()?
+  if total < 0 or total > 9007199254740991 {
+    return Err(check_failure("PSI reference total exceeds the exact integer range"))
+  }
+  return Ok(total)
+}
+
+## Parses complete raw PSI rows independently of the production collector.
+export pure parse_psi_reference(output: Str, resource: Str) -> Result[List[PsiReferenceRow]] {
+  if resource not in ["cpu", "memory", "io"] or output.trim() == "" {
+    return Err(check_failure("PSI reference has an invalid resource or empty source"))
+  }
+  var rows: List[PsiReferenceRow] = []
+  var kinds = set.empty()
+  for line in output.lines() {
+    let columns = line.replace("\t", " ").split(" ") |> where .trim() != ""
+    if columns.len() != 5 or columns[0] not in ["some", "full"] or set.has(kinds, columns[0]) {
+      return Err(check_failure("PSI reference has an invalid or duplicate row"))
+    }
+    let kind = columns[0]
+    kinds = set.add(kinds, kind)
+    var avg10: Str? = null
+    var avg60: Str? = null
+    var avg300: Str? = null
+    var total_text: Str? = null
+    var fields = set.empty()
+    for column in columns |> drop(1) {
+      let pair = column.split("=", maxsplit: 1)
+      if pair.len() != 2 or set.has(fields, pair[0]) {
+        return Err(check_failure("PSI reference has an invalid or duplicate field"))
+      }
+      fields = set.add(fields, pair[0])
+      match pair[0] {
+        "avg10" => avg10 = pair[1]
+        "avg60" => avg60 = pair[1]
+        "avg300" => avg300 = pair[1]
+        "total" => total_text = pair[1]
+        _ => return Err(check_failure("PSI reference has an unknown field"))
+      }
+    }
+    if avg10 == null or avg60 == null or avg300 == null or total_text == null or
+        !psi_reference_average(avg10 ?? "") or !psi_reference_average(avg60 ?? "") or
+        !psi_reference_average(avg300 ?? "") {
+      return Err(check_failure("PSI reference has an invalid average or missing field"))
+    }
+    rows = rows.push({
+      resource: resource, kind: kind, avg10: avg10 ?? "", avg60: avg60 ?? "",
+      avg300: avg300 ?? "", total_us: psi_reference_total(total_text ?? "")?,
+    })
+  }
+  return Ok(rows)
+}
+
+pure psi_reference_key(resource: Str, kind: Str) -> Str {
+  return f"${resource}.${kind}"
+}
+
+pure valid_psi_reference_row(row: PsiReferenceRow) -> Bool {
+  return row.resource in ["cpu", "memory", "io"] and row.kind in ["some", "full"] and
+    psi_reference_average(row.avg10) and psi_reference_average(row.avg60) and psi_reference_average(row.avg300) and
+    row.total_us >= 0 and row.total_us <= 9007199254740991
+}
+
+## Brackets cumulative PSI totals and scores averages only when raw observations agree.
+export pure compare_psi(
+  candidate_json: Str, before: List[PsiReferenceRow], after: List[PsiReferenceRow],
+) -> Result[PsiReferenceComparison] {
+  var before_by_key: Map[Int] = {}
+  var after_by_key: Map[Int] = {}
+  for index in range(before.len()) {
+    let row = before[index]
+    let key = psi_reference_key(row.resource, row.kind)
+    if !valid_psi_reference_row(row) or before_by_key.has(key) {
+      return Err(check_failure("before PSI reference has an invalid or duplicate row"))
+    }
+    before_by_key = before_by_key.set(key, index)
+  }
+  for index in range(after.len()) {
+    let row = after[index]
+    let key = psi_reference_key(row.resource, row.kind)
+    if !valid_psi_reference_row(row) or after_by_key.has(key) {
+      return Err(check_failure("after PSI reference has an invalid or duplicate row"))
+    }
+    after_by_key = after_by_key.set(key, index)
+  }
+  if before.len() != after.len() {
+    return Err(check_failure("PSI reference row set changed around collection"))
+  }
+  for row in before {
+    let key = psi_reference_key(row.resource, row.kind)
+    if !after_by_key.has(key) or after[after_by_key.get(key, -1)].total_us < row.total_us {
+      return Err(check_failure("PSI reference identity changed or cumulative total decreased"))
+    }
+  }
+  let data = json.decode(candidate_json)?
+  let candidates = json.get(data, ["memory", "pressure"])?.require(List[CandidatePsiRow])?
+  var candidate_by_key: Map[Int] = {}
+  for index in range(candidates.len()) {
+    let row = candidates[index]
+    let key = psi_reference_key(row.resource, row.kind)
+    if row.resource not in ["cpu", "memory", "io"] or row.kind not in ["some", "full"] or candidate_by_key.has(key) {
+      return Err(check_failure("candidate PSI report has an invalid or duplicate row"))
+    }
+    candidate_by_key = candidate_by_key.set(key, index)
+  }
+  var missing_keys: List[Str] = []
+  var unexpected_keys: List[Str] = []
+  var mismatched_fields: List[Str] = []
+  var changing_averages: List[Str] = []
+  var matched_count = 0
+  for first in before {
+    let key = psi_reference_key(first.resource, first.kind)
+    if !candidate_by_key.has(key) {
+      missing_keys = missing_keys.push(key)
+      continue
+    }
+    matched_count += 1
+    let last = after[after_by_key.get(key, -1)]
+    let candidate = candidates[candidate_by_key.get(key, -1)]
+    let total = candidate.total_us ?? -1
+    if total < first.total_us or total > last.total_us {
+      mismatched_fields = mismatched_fields.push(f"${key}.total_us")
+    }
+    for field in [
+      {name: "avg10", before: first.avg10, after: last.avg10, candidate: candidate.avg10},
+      {name: "avg60", before: first.avg60, after: last.avg60, candidate: candidate.avg60},
+      {name: "avg300", before: first.avg300, after: last.avg300, candidate: candidate.avg300},
+    ] {
+      if field.candidate == null or !psi_reference_average(field.candidate ?? "") {
+        mismatched_fields = mismatched_fields.push(f"${key}.${field.name}")
+      } else if field.before != field.after {
+        changing_averages = changing_averages.push(f"${key}.${field.name}")
+      } else if field.candidate != field.before {
+        mismatched_fields = mismatched_fields.push(f"${key}.${field.name}")
+      }
+    }
+  }
+  for key in candidate_by_key.keys() {
+    if !before_by_key.has(key) {unexpected_keys = unexpected_keys.push(key)}
+  }
+  let exact_stable = missing_keys.len() == 0 and unexpected_keys.len() == 0 and mismatched_fields.len() == 0
+  return Ok({
+    reference_count: before.len(), candidate_count: candidates.len(), matched_count: matched_count,
+    missing_keys: missing_keys |> sort-by ., unexpected_keys: unexpected_keys |> sort-by .,
+    mismatched_fields: mismatched_fields |> sort-by ., changing_averages: changing_averages |> sort-by .,
+    exact_stable: exact_stable,
+    exact_scored: before.len() > 0 and exact_stable and changing_averages.len() == 0,
+  })
+}
+
+proc pressure_bundle_reference(bundle: FsRoot) [fs, error] -> Result[List[PsiReferenceRow]] {
+  var rows: List[PsiReferenceRow] = []
+  for resource in ["cpu", "memory", "io"] {
+    let raw = fs.root_read_result(bundle, fp"proc/pressure/${resource}", max_bytes: 16384)?
+    if raw.state == "absent" {continue}
+    if raw.state != "observed" or raw.truncated or raw.data == null {
+      return Err(check_failure(f"pressure capture ${resource} source is incomplete"))
+    }
+    var source_text = ""
+    match (raw.data ?? b"").utf8() {
+      Ok(value) => source_text = value
+      Err(_) => return Err(check_failure(f"pressure capture ${resource} source is not UTF-8"))
+    }
+    rows = rows.extend(parse_psi_reference(source_text, resource)?)
+  }
+  if rows.len() == 0 {
+    return Err(check_failure("pressure capture has no observed rows"))
+  }
+  return rows
+}
+
+## Saves bounded pressure-stall source bytes and an independently parsed snapshot.
+export proc capture_pressure_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {
+    return Err(check_failure("pressure capture has an invalid origin"))
+  }
+  if fs.root_exists(bundle, p"capture.json")? {
+    return Err(check_failure("pressure capture already exists"))
+  }
+  for resource in ["cpu", "memory", "io"] {
+    if fs.root_exists(bundle, fp"proc/pressure/${resource}")? {
+      return Err(check_failure("pressure capture destination contains a source file"))
+    }
+  }
+  fs.root_mkdir(bundle, p"proc/pressure", mode: 0o700, parents: true)?
+  var sources: List[PressureSourceObservation] = []
+  var complete = true
+  for resource in ["cpu", "memory", "io"] {
+    let relative = fp"proc/pressure/${resource}"
+    let raw = fs.root_read_result(source, relative, max_bytes: 16384)?
+    if raw.truncated or raw.state not in ["observed", "absent"] or
+        (raw.state == "observed" and raw.data == null) or
+        (raw.state == "absent" and raw.data != null) {
+      complete = false
+    }
+    var byte_count = 0
+    var sha256_hex: Str? = null
+    if raw.data != null {
+      let data = raw.data ?? b""
+      fs.root_write(bundle, relative, data)?
+      byte_count = data.len()
+      sha256_hex = hash.sha256(data).hex()
+    }
+    sources = sources.push({
+      path: relative.display(), state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind,
+      byte_count: byte_count, sha256_hex: sha256_hex,
+    })
+  }
+  var reference: List[PsiReferenceRow]? = null
+  if complete {
+    match pressure_bundle_reference(bundle) {
+      Ok(parsed) => reference = parsed
+      Err(_) => {}
+    }
+  }
+  let capture: PressureCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "pressure-procfs-raw-v1", sources: sources, reference: reference,
+  }
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Verifies each saved pressure source and reparses its independently saved rows.
+export proc validate_pressure_bundle(bundle: FsRoot) [fs, error] -> Result[List[PsiReferenceRow]] {
+  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 262144)?
+  if metadata.state != "observed" or metadata.truncated or metadata.data == null {
+    return Err(check_failure("pressure capture metadata is missing or incomplete"))
+  }
+  let capture = json.decode((metadata.data ?? b"").utf8()?)?.require(PressureCapture)?
+  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or
+      capture.reference_adapter != "pressure-procfs-raw-v1" or capture.sources.len() != 3 or
+      capture.reference == null {
+    return Err(check_failure("pressure capture has no complete reference"))
+  }
+  let resources = ["cpu", "memory", "io"]
+  for index in range(3) {
+    let expected = capture.sources[index]
+    let relative = f"proc/pressure/${resources[index]}"
+    if expected.path != relative or expected.truncated {
+      return Err(check_failure("pressure capture source identity or completeness differs from metadata"))
+    }
+    if expected.state == "absent" {
+      if expected.byte_count != 0 or expected.sha256_hex != null or
+          fs.root_exists(bundle, fp"${relative}")? {
+        return Err(check_failure(f"pressure capture ${relative} absent source differs from metadata"))
+      }
+      continue
+    }
+    if expected.state != "observed" or expected.errno != null or expected.error_kind != null or
+        expected.sha256_hex == null {
+      return Err(check_failure(f"pressure capture cannot score ${relative} source"))
+    }
+    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 16384)?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"pressure capture ${relative} bytes differ from metadata"))
+    }
+  }
+  let reference = pressure_bundle_reference(bundle)?
+  if reference != (capture.reference ?? []) {
+    return Err(check_failure("pressure capture reference differs from raw sources"))
+  }
+  return reference
+}
+
+## Runs the memory collector on saved pressure sources and checks the parsed snapshot.
+export proc replay_pressure_bundle(bundle: FsRoot) [fs, time, error] -> Result[PsiReferenceComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle)?
+  let reference = validate_pressure_bundle(bundle)?
+  let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(PressureCapture)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "memory", true)?
+  if validate_pressure_bundle(bundle)? != reference {
+    return Err(check_failure("pressure capture changed during collector replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  let candidate_json = encode_replayed_report(candidate, true)?
+  let data = json.decode(candidate_json)?
+  let issues = json.get(data, ["issues"])?.require(List[CandidateIssueState])?
+  let resources = ["cpu", "memory", "io"]
+  for index in range(3) {
+    let resource = resources[index]
+    let field = f"pressure.${resource}"
+    let matching = issues |> where .section == "memory" and (.field == field or .field.starts_with(f"${field}."))
+    if capture.sources[index].state == "observed" {
+      if matching.len() > 0 {
+        return Err(check_failure(f"pressure collector reported a ${resource} source issue"))
+      }
+    } else if (matching |> where .field == field and .state == "absent").len() != 1 {
+      return Err(check_failure(f"pressure collector did not preserve absent ${resource} source"))
+    }
+  }
+  return compare_psi(candidate_json, reference, reference)
+}
+
 pure reference_swap_number(value: Str, signed: Bool) -> Result[Int] {
   let digits = if signed and value.starts_with("-") {(value.split("") |> drop(1)).join("")} else {value}
   if digits == "" {
-    return Err(check_failure("swapon reference contains an empty number"))
+    return Err(check_failure("swap reference contains an empty number"))
   }
   for character in digits.split("") {
     if !"0123456789".contains(character) {
-      return Err(check_failure("swapon reference contains a nondecimal number"))
+      return Err(check_failure("swap reference contains a nondecimal number"))
     }
   }
   let parsed = value.parse_int()?
   if parsed > 9007199254740991 or parsed < -9007199254740991 {
-    return Err(check_failure("swapon reference number exceeds the exact JSON integer range"))
+    return Err(check_failure("swap reference number exceeds the exact JSON integer range"))
   }
   return parsed
 }
@@ -1587,6 +6064,134 @@ export pure parse_swapon_raw(output: Str) -> Result[List[SwapReferenceDevice]] {
   return devices
 }
 
+pure proc_swap_words(line: Str) -> List[Str] {
+  return line.replace("\t", " ").split(" ") |> where .trim() != ""
+}
+
+pure proc_swap_name(value: Str) -> Str {
+  return value.replace("\\040", " ").replace("\\011", "\t").replace("\\012", "\n").replace("\\134", "\\")
+}
+
+## Decodes the kernel's KiB-valued swap table independently of the report collector.
+export pure parse_proc_swaps_raw_reference(raw: Str) -> Result[List[SwapReferenceDevice]] {
+  let lines = raw.trim().split("\n")
+  if lines.len() == 0 or proc_swap_words(lines[0]) != ["Filename", "Type", "Size", "Used", "Priority"] {
+    return Err(check_failure("proc swap reference has an unexpected header"))
+  }
+  var devices: List[SwapReferenceDevice] = []
+  var seen = set.empty()
+  for line in lines |> drop(1) {
+    let columns = proc_swap_words(line)
+    if columns.len() != 5 {
+      return Err(check_failure("proc swap reference has an incomplete row"))
+    }
+    let name = proc_swap_name(columns[0])
+    if name == "" or set.has(seen, name) {
+      return Err(check_failure("proc swap reference has an ambiguous or duplicate identity"))
+    }
+    let size_kib = reference_swap_number(columns[2], false)?
+    let used_kib = reference_swap_number(columns[3], false)?
+    let priority = reference_swap_number(columns[4], true)?
+    if size_kib > 8796093022207 or used_kib > size_kib {
+      return Err(check_failure("proc swap reference has an invalid byte counter"))
+    }
+    seen = set.add(seen, name)
+    devices = devices.push({
+      name: name, kind: columns[1], size_bytes: size_kib * 1024,
+      used_bytes: used_kib * 1024, priority: priority,
+    })
+  }
+  return devices
+}
+
+## Retains one bounded procfs swap table and its independently parsed device oracle.
+export proc capture_proc_swaps_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {
+    return Err(check_failure("proc swap capture has an invalid origin"))
+  }
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"proc/swaps")? {
+    return Err(check_failure("proc swap capture destination is not empty"))
+  }
+  fs.root_mkdir(bundle, p"proc", mode: 0o700, parents: true)?
+  let first = fs.root_read_result(source, p"proc/swaps", max_bytes: 262144)?
+  var byte_count = 0
+  var sha256_hex: Str? = null
+  if first.data != null {
+    let data = first.data ?? b""
+    fs.root_write(bundle, p"proc/swaps", data)?
+    byte_count = data.len()
+    sha256_hex = hash.sha256(data).hex()
+  }
+  let second = fs.root_read_result(source, p"proc/swaps", max_bytes: 262144)?
+  let stable = first.state == second.state and first.truncated == second.truncated and
+    first.errno == second.errno and first.error_kind == second.error_kind and first.data == second.data
+  var reference: List[SwapReferenceDevice]? = null
+  if stable and first.state == "observed" and !first.truncated and first.data != null {
+    match (first.data ?? b"").utf8() {
+      Ok(text) => match parse_proc_swaps_raw_reference(text) {
+        Ok(parsed) => reference = parsed
+        Err(_) => {}
+      }
+      Err(_) => {}
+    }
+  }
+  let capture: ProcSwapsCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "proc-swaps-raw-v1", stable: stable,
+    source_state: first.state, truncated: first.truncated,
+    errno: first.errno, error_kind: first.error_kind,
+    byte_count: byte_count, sha256_hex: sha256_hex, reference: reference,
+  }
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Requires saved bytes, source state, and the parsed device oracle to agree.
+export proc validate_proc_swaps_bundle(bundle: FsRoot) [fs, error] -> Result[List[SwapReferenceDevice]] {
+  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 262144)?
+  if metadata.state != "observed" or metadata.truncated or metadata.data == null {
+    return Err(check_failure("proc swap capture metadata is missing or incomplete"))
+  }
+  let capture = json.decode((metadata.data ?? b"").utf8()?)?.require(ProcSwapsCapture)?
+  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or
+      capture.reference_adapter != "proc-swaps-raw-v1" or !capture.stable or
+      capture.source_state != "observed" or capture.truncated or
+      capture.errno != null or capture.error_kind != null or
+      capture.sha256_hex == null or capture.reference == null {
+    return Err(check_failure("proc swap capture has no stable complete reference"))
+  }
+  let raw = fs.root_read_result(bundle, p"proc/swaps", max_bytes: 262144)?
+  if raw.state != "observed" or raw.truncated or raw.data == null or
+      (raw.data ?? b"").len() != capture.byte_count or
+      hash.sha256(raw.data ?? b"").hex() != (capture.sha256_hex ?? "") {
+    return Err(check_failure("proc swap capture bytes differ from metadata"))
+  }
+  var text = ""
+  match (raw.data ?? b"").utf8() {
+    Ok(value) => text = value
+    Err(_) => return Err(check_failure("proc swap capture is not UTF-8"))
+  }
+  let reference = parse_proc_swaps_raw_reference(text)?
+  if reference != (capture.reference ?? []) {
+    return Err(check_failure("proc swap capture oracle differs from saved bytes"))
+  }
+  return reference
+}
+
+## Recollects swap areas from saved procfs bytes before comparing the device set.
+export proc replay_proc_swaps_bundle(bundle: FsRoot) [fs, time, error] -> Result[SwapReferenceComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle)?
+  let reference = validate_proc_swaps_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let report_value = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "memory", true)?
+  if validate_proc_swaps_bundle(bundle)? != reference {
+    return Err(check_failure("proc swap capture changed during replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  return compare_swap_devices(encode_replayed_report(report_value, true)?, reference)
+}
+
 ## Compares swap areas by observed path, preserving missing and redacted candidate identities.
 export pure compare_swap_devices(candidate_json: Str, reference: List[SwapReferenceDevice]) -> Result[SwapReferenceComparison] {
   let data = json.decode(candidate_json)?
@@ -1601,10 +6206,26 @@ export pure compare_swap_devices(candidate_json: Str, reference: List[SwapRefere
     reference_seen = set.add(reference_seen, device.name)
   }
   let raw_swaps = json.get(data, ["memory", "swaps"], null)
+  let raw_state = json.get(data, ["memory", "status", "state"], null)
+  let raw_issues = json.get(data, ["issues"], null)
+  var source_issue = false
+  if raw_issues != null {
+    for issue in raw_issues.require(List[CandidateIssueField])? {
+      if issue.section == "memory" and (issue.field == "swaps" or issue.field.starts_with("swaps.")) {
+        source_issue = true
+      }
+    }
+  }
+  var section_requested = false
+  if raw_state != null {
+    section_requested = raw_state.require(Str)? in ["complete", "partial"]
+  }
+  let source_evidence_missing = raw_state == null or raw_issues == null or !section_requested
   if raw_swaps == null {
     return {
       reference_count: reference.len(), candidate_count: 0, matched_count: 0,
-      candidate_field_missing: true, missing_names: reference |> map .name |> sort-by .,
+      candidate_field_missing: true, source_issue: source_issue,
+      missing_names: reference |> map .name |> sort-by .,
       unexpected_names: [], field_mismatches: [],
       kind_mismatches: 0, size_mismatches: 0, used_mismatches: 0, priority_mismatches: 0,
       exact: false,
@@ -1612,7 +6233,7 @@ export pure compare_swap_devices(candidate_json: Str, reference: List[SwapRefere
   }
   let candidates = raw_swaps.require(List[CandidateSwapDevice])?
   var candidate_seen = set.empty()
-  var candidate_field_missing = false
+  var candidate_field_missing = source_evidence_missing
   var matched_count = 0
   var unexpected_names: List[Str] = []
   var field_mismatches: List[Str] = []
@@ -1656,12 +6277,13 @@ export pure compare_swap_devices(candidate_json: Str, reference: List[SwapRefere
   }
   return {
     reference_count: reference.len(), candidate_count: candidates.len(), matched_count: matched_count,
-    candidate_field_missing: candidate_field_missing,
+    candidate_field_missing: candidate_field_missing, source_issue: source_issue,
     missing_names: missing_names |> sort-by ., unexpected_names: unexpected_names |> sort-by .,
     field_mismatches: field_mismatches |> sort-by .,
     kind_mismatches: kind_mismatches, size_mismatches: size_mismatches,
     used_mismatches: used_mismatches, priority_mismatches: priority_mismatches,
-    exact: !candidate_field_missing and missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0,
+    exact: !candidate_field_missing and !source_issue and
+      missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0,
   }
 }
 
@@ -1866,6 +6488,1058 @@ export pure compare_lspci_identity(candidate_json: Str, reference: List[PciRefer
   }
 }
 
+## Compares every PCI function's exported link attributes when the surrounding sysfs reads agree.
+export pure compare_pci_links(candidate_json: Str, before: List[PciLinkReference], after: List[PciLinkReference]) -> Result[PciLinkComparison] {
+  var before_by_address: Map[Int] = {}
+  var after_by_address: Map[Int] = {}
+  for index in range(before.len()) {
+    let item = before[index]
+    if item.address == "" or before_by_address.has(item.address) {return Err(check_failure("PCI link before reference has an empty or duplicate address"))}
+    before_by_address = before_by_address.set(item.address, index)
+  }
+  for index in range(after.len()) {
+    let item = after[index]
+    if item.address == "" or after_by_address.has(item.address) {return Err(check_failure("PCI link after reference has an empty or duplicate address"))}
+    after_by_address = after_by_address.set(item.address, index)
+  }
+  let data = json.decode(candidate_json)?
+  let status = json.get(data, ["pci", "status"])?.require(CandidatePciStatus)?
+  let candidate = json.get(data, ["pci", "functions"])?.require(List[CandidatePciLinkFunction])?
+  var candidate_by_address: Map[Int] = {}
+  var candidate_field_missing = !status.enumeration_succeeded
+  for index in range(candidate.len()) {
+    let address = candidate[index].address ?? ""
+    if address == "" {candidate_field_missing = true; continue}
+    if candidate_by_address.has(address) {return Err(check_failure("candidate PCI link inventory repeats an address"))}
+    candidate_by_address = candidate_by_address.set(address, index)
+  }
+  var missing_addresses: List[Str] = []
+  var unexpected_addresses: List[Str] = []
+  var field_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  var matched_count = 0
+  var eligible = false
+  for item in before {
+    let address = item.address
+    if item.current_speed != null or item.current_width != null or item.maximum_speed != null or item.maximum_width != null {eligible = true}
+    if !after_by_address.has(address) {
+      unstable_fields = unstable_fields.push(f"${address}.presence")
+      continue
+    }
+    let later = after[after_by_address.get(address)?]
+    if later.current_speed != null or later.current_width != null or later.maximum_speed != null or later.maximum_width != null {eligible = true}
+    if !candidate_by_address.has(address) {missing_addresses = missing_addresses.push(address); continue}
+    matched_count += 1
+    let actual = candidate[candidate_by_address.get(address)?]
+    for field in [
+      {name: "current_link_speed", before: item.current_speed, after: later.current_speed, candidate: actual.current_link_speed},
+      {name: "maximum_link_speed", before: item.maximum_speed, after: later.maximum_speed, candidate: actual.maximum_link_speed},
+    ] {
+      if field.before != field.after {unstable_fields = unstable_fields.push(f"${address}.${field.name}")} else if field.candidate != field.before {field_mismatches = field_mismatches.push(f"${address}.${field.name}")}
+    }
+    for field in [
+      {name: "current_link_width", before: item.current_width, after: later.current_width, candidate: actual.current_link_width},
+      {name: "maximum_link_width", before: item.maximum_width, after: later.maximum_width, candidate: actual.maximum_link_width},
+    ] {
+      if field.before != field.after {unstable_fields = unstable_fields.push(f"${address}.${field.name}")} else if field.candidate != field.before {field_mismatches = field_mismatches.push(f"${address}.${field.name}")}
+    }
+  }
+  for item in after {
+    if item.current_speed != null or item.current_width != null or item.maximum_speed != null or item.maximum_width != null {eligible = true}
+    if !before_by_address.has(item.address) {unstable_fields = unstable_fields.push(f"${item.address}.presence")}
+  }
+  for item in candidate {
+    let address = item.address ?? ""
+    if address != "" and !before_by_address.has(address) and !after_by_address.has(address) {
+      unexpected_addresses = unexpected_addresses.push(address)
+    }
+  }
+  return {
+    reference_count: before.len(), candidate_count: candidate.len(), matched_count: matched_count,
+    missing_addresses: missing_addresses |> sort-by ., unexpected_addresses: unexpected_addresses |> sort-by .,
+    field_mismatches: field_mismatches |> sort-by ., unstable_fields: unstable_fields |> sort-by .,
+    candidate_field_missing: candidate_field_missing, eligible: eligible,
+    exact: eligible and !candidate_field_missing and missing_addresses.len() == 0 and unexpected_addresses.len() == 0 and
+      field_mismatches.len() == 0 and unstable_fields.len() == 0,
+  }
+}
+
+## Resolves candidate parent indexes to BDFs and compares stable PCI relationships.
+export pure compare_pci_bindings(candidate_json: Str, before: List[PciBindingReference], after: List[PciBindingReference]) -> Result[PciBindingComparison] {
+  var before_by_address: Map[Int] = {}
+  var after_by_address: Map[Int] = {}
+  for index in range(before.len()) {
+    let address = before[index].address
+    if address == "" or before_by_address.has(address) {return Err(check_failure("PCI binding before reference repeats an address"))}
+    before_by_address = before_by_address.set(address, index)
+  }
+  for index in range(after.len()) {
+    let address = after[index].address
+    if address == "" or after_by_address.has(address) {return Err(check_failure("PCI binding after reference repeats an address"))}
+    after_by_address = after_by_address.set(address, index)
+  }
+  let data = json.decode(candidate_json)?
+  let status = json.get(data, ["pci", "status"])?.require(CandidatePciStatus)?
+  let candidate = json.get(data, ["pci", "functions"])?.require(List[CandidatePciBindingFunction])?
+  var candidate_by_address: Map[Int] = {}
+  var candidate_field_missing = status.state != "complete" or !status.enumeration_succeeded
+  for index in range(candidate.len()) {
+    let address = candidate[index].address ?? ""
+    if address == "" {candidate_field_missing = true; continue}
+    if candidate_by_address.has(address) {return Err(check_failure("candidate PCI binding inventory repeats an address"))}
+    candidate_by_address = candidate_by_address.set(address, index)
+  }
+  var missing_addresses: List[Str] = []
+  var unexpected_addresses: List[Str] = []
+  var field_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  var matched_count = 0
+  for item in before {
+    let address = item.address
+    if !after_by_address.has(address) {
+      unstable_fields = unstable_fields.push(f"${address}.presence")
+      continue
+    }
+    let later = after[after_by_address.get(address)?]
+    if !candidate_by_address.has(address) {missing_addresses = missing_addresses.push(address); continue}
+    matched_count += 1
+    let actual = candidate[candidate_by_address.get(address)?]
+    for field in [
+      {name: "driver", before: item.driver, after: later.driver, candidate: actual.driver},
+      {name: "iommu_group", before: item.iommu_group, after: later.iommu_group, candidate: actual.iommu_group},
+    ] {
+      if field.before != field.after {unstable_fields = unstable_fields.push(f"${address}.${field.name}")} else if field.candidate != field.before {field_mismatches = field_mismatches.push(f"${address}.${field.name}")}
+    }
+    if item.numa_node != later.numa_node {
+      unstable_fields = unstable_fields.push(f"${address}.numa_node")
+    } else if actual.numa_node != item.numa_node {
+      field_mismatches = field_mismatches.push(f"${address}.numa_node")
+    }
+    var actual_parent: Str? = null
+    let parent_index = actual.parent_function_index
+    if parent_index != null {
+      if parent_index < 0 or parent_index >= candidate.len() {
+        field_mismatches = field_mismatches.push(f"${address}.parent_function_index")
+      } else {
+        actual_parent = candidate[parent_index].address
+        if actual_parent == null or actual_parent == "" {
+          field_mismatches = field_mismatches.push(f"${address}.parent_function_index")
+        }
+      }
+    }
+    if item.parent_address != later.parent_address {
+      unstable_fields = unstable_fields.push(f"${address}.parent_function_index")
+    } else if actual_parent != item.parent_address and !(field_mismatches |> any . == f"${address}.parent_function_index") {
+      field_mismatches = field_mismatches.push(f"${address}.parent_function_index")
+    }
+  }
+  for item in after {
+    if !before_by_address.has(item.address) {unstable_fields = unstable_fields.push(f"${item.address}.presence")}
+  }
+  for item in candidate {
+    let address = item.address ?? ""
+    if address != "" and !before_by_address.has(address) and !after_by_address.has(address) {
+      unexpected_addresses = unexpected_addresses.push(address)
+    }
+  }
+  let eligible = before.len() > 0 or after.len() > 0
+  return {
+    reference_count: before.len(), candidate_count: candidate.len(), matched_count: matched_count,
+    missing_addresses: missing_addresses |> sort-by ., unexpected_addresses: unexpected_addresses |> sort-by .,
+    field_mismatches: field_mismatches |> sort-by ., unstable_fields: unstable_fields |> sort-by .,
+    candidate_field_missing: candidate_field_missing, eligible: eligible,
+    exact: eligible and !candidate_field_missing and missing_addresses.len() == 0 and unexpected_addresses.len() == 0 and
+      field_mismatches.len() == 0 and unstable_fields.len() == 0,
+  }
+}
+
+## Compares thermal zones and trip identities by exported indexes across one collection interval.
+export pure compare_thermal_zones(candidate_json: Str, before: List[ThermalZoneReference], after: List[ThermalZoneReference]) -> Result[ThermalZoneComparison] {
+  let data = json.decode(candidate_json)?
+  let section = json.get(data, ["sensors"])?.require(CandidateThermalSection)?
+  let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
+  var candidate_field_missing = section.status.state == "not_requested"
+  for item in issues {
+    if item.section == "sensors" and item.field.starts_with("thermal_zones") {candidate_field_missing = true}
+  }
+  var before_by_id: Map[Int] = {}
+  var after_by_id: Map[Int] = {}
+  var candidate_by_id: Map[Int] = {}
+  for index in range(before.len()) {
+    let key = f"${before[index].id}"
+    if before[index].id < 0 or before_by_id.has(key) {return Err(check_failure("thermal before reference has duplicate or invalid zone IDs"))}
+    before_by_id = before_by_id.set(key, index)
+  }
+  for index in range(after.len()) {
+    let key = f"${after[index].id}"
+    if after[index].id < 0 or after_by_id.has(key) {return Err(check_failure("thermal after reference has duplicate or invalid zone IDs"))}
+    after_by_id = after_by_id.set(key, index)
+  }
+  for index in range(section.thermal_zones.len()) {
+    let key = f"${section.thermal_zones[index].id}"
+    if section.thermal_zones[index].id < 0 or candidate_by_id.has(key) {return Err(check_failure("candidate thermal zones repeat or invalidate an ID"))}
+    candidate_by_id = candidate_by_id.set(key, index)
+  }
+  var field_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  for zone in before {
+    let zone_key = f"${zone.id}"
+    if !after_by_id.has(zone_key) {unstable_fields = unstable_fields.push(f"zone.${zone.id}.presence"); continue}
+    if !candidate_by_id.has(zone_key) {field_mismatches = field_mismatches.push(f"zone.${zone.id}.presence"); continue}
+    let later = after[after_by_id.get(zone_key)?]
+    let actual = section.thermal_zones[candidate_by_id.get(zone_key)?]
+    if zone.kind != later.kind {unstable_fields = unstable_fields.push(f"zone.${zone.id}.kind")} else if zone.kind != actual.kind {field_mismatches = field_mismatches.push(f"zone.${zone.id}.kind")}
+    if zone.temperature_millidegrees != later.temperature_millidegrees {
+      unstable_fields = unstable_fields.push(f"zone.${zone.id}.temperature_millidegrees")
+    } else if zone.temperature_millidegrees != actual.temperature_millidegrees {
+      field_mismatches = field_mismatches.push(f"zone.${zone.id}.temperature_millidegrees")
+    }
+    var before_trips: Map[Int] = {}
+    var after_trips: Map[Int] = {}
+    var candidate_trips: Map[Int] = {}
+    for index in range(zone.trips.len()) {
+      let key = f"${zone.trips[index].index}"
+      if zone.trips[index].index < 0 or before_trips.has(key) {return Err(check_failure("thermal before reference repeats a trip index"))}
+      before_trips = before_trips.set(key, index)
+    }
+    for index in range(later.trips.len()) {
+      let key = f"${later.trips[index].index}"
+      if later.trips[index].index < 0 or after_trips.has(key) {return Err(check_failure("thermal after reference repeats a trip index"))}
+      after_trips = after_trips.set(key, index)
+    }
+    for index in range(actual.trips.len()) {
+      let trip_index = actual.trips[index].index
+      if trip_index == null {candidate_field_missing = true; continue}
+      let known_index = trip_index ?? -1
+      let key = f"${known_index}"
+      if known_index < 0 or candidate_trips.has(key) {return Err(check_failure("candidate thermal zone repeats a trip index"))}
+      candidate_trips = candidate_trips.set(key, index)
+    }
+    for trip in zone.trips {
+      let key = f"${trip.index}"
+      let field = f"zone.${zone.id}.trip.${trip.index}"
+      if !after_trips.has(key) {unstable_fields = unstable_fields.push(f"${field}.presence"); continue}
+      if !candidate_trips.has(key) {field_mismatches = field_mismatches.push(f"${field}.presence"); continue}
+      let later_trip = later.trips[after_trips.get(key)?]
+      let actual_trip = actual.trips[candidate_trips.get(key)?]
+      if trip.kind != later_trip.kind {unstable_fields = unstable_fields.push(f"${field}.kind")} else if trip.kind != actual_trip.kind {field_mismatches = field_mismatches.push(f"${field}.kind")}
+      if trip.temperature_millidegrees != later_trip.temperature_millidegrees {unstable_fields = unstable_fields.push(f"${field}.temperature_millidegrees")} else if trip.temperature_millidegrees != actual_trip.temperature_millidegrees {field_mismatches = field_mismatches.push(f"${field}.temperature_millidegrees")}
+      if trip.hysteresis_millidegrees != later_trip.hysteresis_millidegrees {unstable_fields = unstable_fields.push(f"${field}.hysteresis_millidegrees")} else if trip.hysteresis_millidegrees != actual_trip.hysteresis_millidegrees {field_mismatches = field_mismatches.push(f"${field}.hysteresis_millidegrees")}
+    }
+    for trip in later.trips {
+      if !before_trips.has(f"${trip.index}") {unstable_fields = unstable_fields.push(f"zone.${zone.id}.trip.${trip.index}.presence")}
+    }
+    for trip in actual.trips {
+      if trip.index != null {
+        let known_index = trip.index ?? -1
+        if !before_trips.has(f"${known_index}") and !after_trips.has(f"${known_index}") {field_mismatches = field_mismatches.push(f"zone.${zone.id}.trip.${known_index}.presence")}
+      }
+    }
+  }
+  for zone in after {
+    if !before_by_id.has(f"${zone.id}") {unstable_fields = unstable_fields.push(f"zone.${zone.id}.presence")}
+  }
+  for zone in section.thermal_zones {
+    if !before_by_id.has(f"${zone.id}") and !after_by_id.has(f"${zone.id}") {field_mismatches = field_mismatches.push(f"zone.${zone.id}.presence")}
+  }
+  let eligible = before.len() > 0 or after.len() > 0
+  return {
+    reference_count: before.len(), candidate_count: section.thermal_zones.len(),
+    field_mismatches: field_mismatches |> sort-by ., unstable_fields: unstable_fields |> sort-by .,
+    candidate_field_missing: candidate_field_missing, eligible: eligible,
+    exact: eligible and !candidate_field_missing and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+  }
+}
+
+proc reference_thermal_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
+  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  if raw.state == "absent" {return Ok(null)}
+  if raw.state != "observed" or raw.truncated or raw.data == null {
+    return Err(check_failure(f"thermal reference source ${source_path} is incomplete"))
+  }
+  match raw.data.require(Bytes)?.utf8() {
+    Ok(value) => return Ok(value.trim())
+    Err(_) => return Err(check_failure(f"thermal reference source ${source_path} is not UTF-8"))
+  }
+}
+
+proc reference_thermal_number(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+  let raw = reference_thermal_text(root, source_path)?
+  if raw == null {return Ok(null)}
+  let value = raw ?? ""
+  let digits = if value.starts_with("-") {(value.split("") |> drop(1)).join("")} else {value}
+  if digits == "" {return Err(check_failure("thermal reference has an empty integer"))}
+  for digit in digits.split("") {
+    if !"0123456789".contains(digit) {return Err(check_failure("thermal reference has a nondecimal integer"))}
+  }
+  let parsed = value.parse_int()?
+  if parsed < -9007199254740991 or parsed > 9007199254740991 {return Err(check_failure("thermal reference integer exceeds exact JSON range"))}
+  return Ok(parsed)
+}
+
+pure reference_thermal_index(value: Str) -> Result[Int] {
+  if value == "" {return Err(check_failure("thermal reference has an empty index"))}
+  for digit in value.split("") {
+    if !"0123456789".contains(digit) {return Err(check_failure("thermal reference has a nondecimal index"))}
+  }
+  let parsed = value.parse_int()?
+  if parsed > 9007199254740991 or f"${parsed}" != value {
+    return Err(check_failure("thermal reference index is noncanonical or exceeds exact JSON range"))
+  }
+  return Ok(parsed)
+}
+
+## Reads every visible thermal zone and indexed trip through bounded sysfs sources.
+export proc read_thermal_zone_reference(root: FsRoot) [fs, error] -> Result[List[ThermalZoneReference]] {
+  let listing = fs.root_children(root, p"sys/class/thermal", max_entries: 1024)?
+  if listing.state == "absent" {return Ok([])}
+  if listing.state != "complete" {return Err(check_failure("thermal zone reference enumeration is incomplete"))}
+  var zones: List[ThermalZoneReference] = []
+  var seen_zones = set.empty()
+  for zone_path in listing.children {
+    let zone_name = zone_path.name()
+    if !zone_name.starts_with("thermal_zone") {continue}
+    let suffix = (zone_name.split("") |> drop("thermal_zone".count_chars())).join("")
+    let id = reference_thermal_index(suffix)?
+    if zone_name != f"thermal_zone${id}" or set.has(seen_zones, f"${id}") {
+      return Err(check_failure("thermal reference has a noncanonical or duplicate zone ID"))
+    }
+    seen_zones = set.add(seen_zones, f"${id}")
+    let attributes = fs.root_children(root, zone_path, max_entries: 256)?
+    if attributes.state != "complete" {return Err(check_failure(f"thermal reference attributes for ${zone_name} are incomplete"))}
+    var trip_indices: List[Int] = []
+    var seen_trips = set.empty()
+    for attribute in attributes.children {
+      let name = attribute.name()
+      if !name.starts_with("trip_point_") or !name.ends_with("_temp") {continue}
+      let parts = name.split("_")
+      if parts.len() != 4 {return Err(check_failure("thermal reference has a malformed trip name"))}
+      let trip_index = reference_thermal_index(parts[2])?
+      if name != f"trip_point_${trip_index}_temp" or set.has(seen_trips, f"${trip_index}") {
+        return Err(check_failure("thermal reference has a noncanonical or duplicate trip index"))
+      }
+      seen_trips = set.add(seen_trips, f"${trip_index}")
+      trip_indices = trip_indices.push(trip_index)
+    }
+    var trips: List[ThermalTripReference] = []
+    for trip_index in trip_indices |> sort-by . {
+      trips = trips.push({
+        index: trip_index,
+        kind: reference_thermal_text(root, fp"${zone_path}/trip_point_${trip_index}_type")? ?? "unknown",
+        temperature_millidegrees: reference_thermal_number(root, fp"${zone_path}/trip_point_${trip_index}_temp")?,
+        hysteresis_millidegrees: reference_thermal_number(root, fp"${zone_path}/trip_point_${trip_index}_hyst")?,
+      })
+    }
+    zones = zones.push({
+      id: id,
+      kind: reference_thermal_text(root, fp"${zone_path}/type")?,
+      temperature_millidegrees: reference_thermal_number(root, fp"${zone_path}/temp")?,
+      trips: trips,
+    })
+  }
+  return zones |> sort-by .id
+}
+
+pure thermal_bundle_trip_source(name: Str) -> Bool {
+  return name.starts_with("trip_point_") and name.ends_with("_temp")
+}
+
+# Enumerates only thermal-zone identity, temperature, and indexed trip sources.
+proc thermal_bundle_layout(root: FsRoot) [fs, error] -> Result[ThermalBundleLayout] {
+  let listing = fs.root_children(root, p"sys/class/thermal", max_entries: 1024)?
+  var zone_paths: List[Str] = []
+  var source_paths: List[Str] = []
+  var complete = listing.state == "complete" or listing.state == "absent"
+  if listing.state != "complete" {
+    return {listing_state: listing.state, zone_paths: zone_paths, source_paths: source_paths, complete: complete}
+  }
+  for zone_path in listing.children {
+    if !zone_path.name().starts_with("thermal_zone") {continue}
+    let zone = zone_path.display()
+    zone_paths = zone_paths.push(zone)
+    source_paths = source_paths.extend([f"${zone}/type", f"${zone}/temp"])
+    let attributes = fs.root_children(root, zone_path, max_entries: 256)?
+    if attributes.state != "complete" {complete = false; continue}
+    for attribute in attributes.children {
+      let name = attribute.name()
+      if !thermal_bundle_trip_source(name) {continue}
+      let stem = (name.split("") |> take(name.count_chars() - 5)).join("")
+      source_paths = source_paths.extend([
+        f"${zone}/${name}", f"${zone}/${stem}_type", f"${zone}/${stem}_hyst",
+      ])
+    }
+    if source_paths.len() > 4096 {
+      return Err(check_failure("thermal capture exceeds its source path bound"))
+    }
+  }
+  return {
+    listing_state: listing.state, zone_paths: zone_paths |> sort-by .,
+    source_paths: source_paths |> sort-by ., complete: complete,
+  }
+}
+
+## Saves a bounded thermal source tree and an independent parsed reference.
+export proc capture_thermal_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {
+    return Err(check_failure("thermal capture origin must be synthetic_fixture or live_capture"))
+  }
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/class/thermal")? {
+    return Err(check_failure("thermal capture destination is not empty"))
+  }
+  let layout = thermal_bundle_layout(source)?
+  if layout.listing_state == "complete" {
+    fs.root_mkdir(bundle, p"sys/class/thermal", mode: 0o700, parents: true)?
+    for zone in layout.zone_paths {
+      fs.root_mkdir(bundle, fp"${zone}", mode: 0o700, parents: true)?
+    }
+  }
+  var observations: List[ThermalSourceObservation] = []
+  var saved_bytes: List[Bytes?] = []
+  var complete = layout.complete
+  for relative in layout.source_paths {
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    var sha256_hex: Str? = null
+    var byte_count = 0
+    if raw.data != null {
+      let data = raw.data ?? b""
+      fs.root_write(bundle, fp"${relative}", data)?
+      sha256_hex = hash.sha256(data).hex()
+      byte_count = data.len()
+    }
+    if raw.truncated or (raw.state != "observed" and raw.state != "absent") or
+        (relative.contains("/trip_point_") and relative.ends_with("_temp") and raw.state != "observed") {
+      complete = false
+    }
+    saved_bytes = saved_bytes.push(raw.data)
+    observations = observations.push({
+      path: relative, state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind,
+      byte_count: byte_count, sha256_hex: sha256_hex,
+    })
+  }
+  let later_layout = thermal_bundle_layout(source)?
+  var stable = layout == later_layout
+  for index in range(layout.source_paths.len()) {
+    let raw = fs.root_read_result(source, fp"${layout.source_paths[index]}", max_bytes: 4096)?
+    let first = observations[index]
+    if raw.state != first.state or raw.truncated != first.truncated or
+        raw.errno != first.errno or raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
+      stable = false
+    }
+  }
+  var reference: List[ThermalZoneReference]? = null
+  if complete {
+    match read_thermal_zone_reference(bundle) {
+      Ok(parsed) => reference = parsed
+      Err(_) => {}
+    }
+  }
+  let scoreable = reference != null and (reference ?? []).len() > 0
+  let capture: ThermalCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "thermal-raw-v1", layout: layout,
+    stable: stable, scoreable: scoreable, sources: observations, reference: reference,
+  }
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Validates source identities, presence, byte digests, and the saved reference.
+export proc validate_thermal_bundle(bundle: FsRoot) [fs, error] -> Result[List[ThermalZoneReference]] {
+  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 2097152)?
+  if metadata.state != "observed" or metadata.truncated or metadata.data == null {
+    return Err(check_failure("thermal capture metadata is missing or incomplete"))
+  }
+  let capture = json.decode((metadata.data ?? b"").utf8()?)?.require(ThermalCapture)?
+  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or
+      capture.reference_adapter != "thermal-raw-v1" or !capture.scoreable or
+      capture.reference == null or !capture.layout.complete {
+    return Err(check_failure("thermal capture has no stable scoreable reference"))
+  }
+  let layout = thermal_bundle_layout(bundle)?
+  if layout != capture.layout or capture.sources.len() != layout.source_paths.len() {
+    return Err(check_failure("thermal capture source layout differs from metadata"))
+  }
+  for index in range(layout.source_paths.len()) {
+    let expected = capture.sources[index]
+    let relative = layout.source_paths[index]
+    if expected.path != relative or expected.truncated {
+      return Err(check_failure("thermal capture source identity or completeness differs from metadata"))
+    }
+    if expected.state == "absent" {
+      if expected.byte_count != 0 or expected.sha256_hex != null or
+          fs.root_exists(bundle, fp"${relative}")? {
+        return Err(check_failure(f"thermal capture absent source ${relative} differs from metadata"))
+      }
+      continue
+    }
+    if expected.state != "observed" or expected.sha256_hex == null or
+        expected.errno != null or expected.error_kind != null {
+      return Err(check_failure(f"thermal capture cannot score ${relative} source"))
+    }
+    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 4096)?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"thermal capture ${relative} bytes differ from metadata"))
+    }
+  }
+  let reference = read_thermal_zone_reference(bundle)?
+  if reference != (capture.reference ?? reference) {
+    return Err(check_failure("thermal capture reference differs from raw sources"))
+  }
+  return reference
+}
+
+## Runs the production sensors collector on the captured thermal tree.
+export proc replay_thermal_bundle(bundle: FsRoot) [fs, time, error] -> Result[ThermalZoneComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle)?
+  let reference = validate_thermal_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "sensors", true)?
+  if validate_thermal_bundle(bundle)? != reference {
+    return Err(check_failure("thermal capture changed during replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  return compare_thermal_zones(encode_replayed_report(candidate, true)?, reference, reference)
+}
+
+## Interprets the bus-entry symlink's real device path as a PCI parent chain.
+export pure pci_binding_parent_from_target(target: Path, address: Str) -> Result[Str?] {
+  var preceding: Str? = null
+  var last_bdf: Str? = null
+  for component in target.display().split("/") {
+    match pci_reference_bdf(component) {
+      Ok(bdf) => {
+        preceding = last_bdf
+        last_bdf = bdf.address
+      }
+      Err(_) => {}
+    }
+  }
+  if last_bdf != address or target.name().lower() != address {
+    return Err(check_failure("PCI binding reference symlink does not end at its BDF"))
+  }
+  return Ok(preceding)
+}
+
+proc reference_pci_link_name(root: FsRoot, source_path: Path, present: Bool) [fs, error] -> Result[Str?] {
+  if !present {return Ok(null)}
+  let name = fs.root_readlink(root, source_path)?.name()
+  if name == "" {return Err(check_failure(f"PCI binding reference link ${source_path} has an empty target"))}
+  return Ok(name)
+}
+
+proc reference_pci_numa_node(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+  let raw = reference_pci_link_text(root, source_path)?
+  if raw == null or raw == "-1" {return Ok(null)}
+  let value = reference_cpu_number(raw ?? "")?
+  if value > 9007199254740991 {return Err(check_failure("PCI NUMA node exceeds exact JSON range"))}
+  return Ok(value)
+}
+
+## Reads the PCI binding links and NUMA sentinel independently for every visible function.
+export proc read_pci_binding_reference(root: FsRoot) [fs, error] -> Result[List[PciBindingReference]] {
+  let listing = fs.root_children(root, p"sys/bus/pci/devices", max_entries: 65536)?
+  if listing.state == "absent" {return Ok([])}
+  if listing.state != "complete" {return Err(check_failure("PCI binding reference enumeration is incomplete"))}
+  var rows: List[PciBindingReference] = []
+  var seen = set.empty()
+  for device_path in listing.children {
+    let address = pci_reference_bdf(device_path.name())?.address
+    if set.has(seen, address) {return Err(check_failure("PCI binding reference repeats a BDF"))}
+    seen = set.add(seen, address)
+    let entry = fs.root_readlink(root, device_path)?
+    let attributes = fs.root_children(root, device_path, max_entries: 4096)?
+    if attributes.state != "complete" {
+      return Err(check_failure(f"PCI binding reference attributes for ${device_path} are incomplete"))
+    }
+    var driver_present = false
+    var iommu_present = false
+    for attribute in attributes.children {
+      if attribute.name() == "driver" {driver_present = true}
+      if attribute.name() == "iommu_group" {iommu_present = true}
+    }
+    rows = rows.push({
+      address: address,
+      driver: reference_pci_link_name(root, fp"${device_path}/driver", driver_present)?,
+      parent_address: pci_binding_parent_from_target(entry, address)?,
+      numa_node: reference_pci_numa_node(root, fp"${device_path}/numa_node")?,
+      iommu_group: reference_pci_link_name(root, fp"${device_path}/iommu_group", iommu_present)?,
+    })
+  }
+  return rows |> sort-by .address
+}
+
+proc reference_pci_link_text(root: FsRoot, source_path: Path) [fs, error] -> Result[Str?] {
+  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  if raw.state == "absent" {return Ok(null)}
+  if raw.state != "observed" or raw.truncated or raw.data == null {
+    return Err(check_failure(f"PCI link reference source ${source_path} is incomplete"))
+  }
+  match (raw.data ?? b"").utf8() {
+    Ok(value) => return Ok(value.trim())
+    Err(_) => return Err(check_failure(f"PCI link reference source ${source_path} is not UTF-8"))
+  }
+}
+
+proc reference_pci_link_width(root: FsRoot, source_path: Path) [fs, error] -> Result[Int?] {
+  let raw = reference_pci_link_text(root, source_path)?
+  if raw == null {return Ok(null)}
+  let value = reference_cpu_number(raw ?? "")?
+  if value > 9007199254740991 {return Err(check_failure(f"PCI link width at ${source_path} exceeds exact JSON range"))}
+  return Ok(value)
+}
+
+## Reads PCIe link speeds and widths for every visible BDF without parsing candidate output.
+export proc read_pci_link_reference(root: FsRoot) [fs, error] -> Result[List[PciLinkReference]] {
+  let listing = fs.root_children(root, p"sys/bus/pci/devices", max_entries: 65536)?
+  if listing.state == "absent" {return Ok([])}
+  if listing.state != "complete" {return Err(check_failure("PCI link reference enumeration is incomplete"))}
+  var rows: List[PciLinkReference] = []
+  var seen = set.empty()
+  for device_path in listing.children {
+    let address = pci_reference_bdf(device_path.name())?.address
+    if set.has(seen, address) {return Err(check_failure("PCI link reference repeats a BDF"))}
+    seen = set.add(seen, address)
+    rows = rows.push({
+      address: address,
+      current_speed: reference_pci_link_text(root, fp"${device_path}/current_link_speed")?,
+      current_width: reference_pci_link_width(root, fp"${device_path}/current_link_width")?,
+      maximum_speed: reference_pci_link_text(root, fp"${device_path}/max_link_speed")?,
+      maximum_width: reference_pci_link_width(root, fp"${device_path}/max_link_width")?,
+    })
+  }
+  return rows |> sort-by .address
+}
+
+proc pci_raw_hex(root: FsRoot, source_path: Path, width: Int) [fs, error] -> Result[Int] {
+  let raw = reference_pci_link_text(root, source_path)?
+  if raw == null or !(raw ?? "").starts_with("0x") {
+    return Err(check_failure(f"PCI raw identity ${source_path} is absent or lacks a hex prefix"))
+  }
+  return pci_reference_hex((raw ?? "").replace("0x", ""), width)
+}
+
+## Interprets fixed-width sysfs numbers independently from the collector's decoder.
+export proc read_pci_raw_reference(root: FsRoot) [fs, error] -> Result[List[PciReference]] {
+  let bindings = read_pci_binding_reference(root)?
+  var rows: List[PciReference] = []
+  for binding in bindings {
+    let address = binding.address
+    let bdf = pci_reference_bdf(address)?
+    let prefix = f"sys/bus/pci/devices/${address}"
+    let class_code = pci_raw_hex(root, fp"${prefix}/class", 6)?
+    rows = rows.push({
+      address: address, domain: bdf.domain, bus: bdf.bus, device: bdf.device, function: bdf.function,
+      vendor_id: pci_raw_hex(root, fp"${prefix}/vendor", 4)?,
+      device_id: pci_raw_hex(root, fp"${prefix}/device", 4)?,
+      class_code: class_code, prog_if: class_code.bit_and(255),
+      revision: pci_raw_hex(root, fp"${prefix}/revision", 2)?,
+      subsystem_vendor_id: pci_raw_hex(root, fp"${prefix}/subsystem_vendor", 4)?,
+      subsystem_device_id: pci_raw_hex(root, fp"${prefix}/subsystem_device", 4)?,
+      driver: binding.driver, numa_node: binding.numa_node, iommu_group: binding.iommu_group,
+    })
+  }
+  return rows
+}
+
+# Restricts bus entry links to the sysfs devices tree and their own BDF.
+pure pci_bundle_storage_path(address: Str, target: Str) -> Result[Str] {
+  let components = target.split("/")
+  if components.len() < 4 or components[0] != ".." or components[1] != ".." or
+      components[2] != ".." or components[3] != "devices" or
+      components[components.len() - 1] != address {
+    return Err(check_failure("PCI bus entry has an invalid sysfs target"))
+  }
+  for index in range(3, components.len()) {
+    if components[index] == "" or components[index] == "." or components[index] == ".." {
+      return Err(check_failure("PCI bus entry leaves the sysfs devices tree"))
+    }
+  }
+  var storage: List[Str] = ["sys"]
+  for index in range(3, components.len()) {storage = storage.push(components[index])}
+  return storage.join("/")
+}
+
+proc pci_bundle_layout(root: FsRoot) [fs, error] -> Result[PciBundleLayout] {
+  let listing = fs.root_children(root, p"sys/bus/pci/devices", max_entries: 4096)?
+  var functions: List[PciBundleFunction] = []
+  var source_paths: List[Str] = []
+  if listing.state != "complete" {
+    return {listing_state: listing.state, functions: functions, source_paths: source_paths,
+      complete: listing.state == "absent"}
+  }
+  for entry in listing.children {
+    let address = pci_reference_bdf(entry.name())?.address
+    let class_target = fs.root_readlink(root, entry)?.display()
+    let storage = pci_bundle_storage_path(address, class_target)?
+    let attributes = fs.root_children(root, entry, max_entries: 4096)?
+    if attributes.state != "complete" {return Err(check_failure("PCI function attributes are incomplete"))}
+    var driver_target: Str? = null
+    var iommu_target: Str? = null
+    for attribute in attributes.children {
+      if attribute.name() == "driver" {driver_target = fs.root_readlink(root, attribute)?.display()}
+      if attribute.name() == "iommu_group" {iommu_target = fs.root_readlink(root, attribute)?.display()}
+    }
+    functions = functions.push({address: address, class_target: class_target, storage_path: storage,
+      driver_target: driver_target, iommu_target: iommu_target})
+    let prefix = entry.display()
+    for name in ["vendor", "device", "subsystem_vendor", "subsystem_device", "class", "revision",
+        "numa_node", "current_link_speed", "current_link_width", "max_link_speed", "max_link_width"] {
+      source_paths = source_paths.push(f"${prefix}/${name}")
+    }
+  }
+  if source_paths.len() > 45056 {return Err(check_failure("PCI capture exceeds its source path bound"))}
+  return {listing_state: listing.state, functions: functions |> sort-by .address,
+    source_paths: source_paths |> sort-by ., complete: true}
+}
+
+## Saves PCI bus topology, raw attributes, and independently decoded references.
+export proc capture_pci_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {return Err(check_failure("PCI capture origin is invalid"))}
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/bus/pci/devices")? {
+    return Err(check_failure("PCI capture destination is not empty"))
+  }
+  let layout = pci_bundle_layout(source)?
+  if layout.listing_state == "complete" {
+    fs.root_mkdir(bundle, p"sys/bus/pci/devices", mode: 0o700, parents: true)?
+    for function in layout.functions {
+      fs.root_mkdir(bundle, fp"${function.storage_path}", mode: 0o700, parents: true)?
+      if function.driver_target != null {
+        fs.root_symlink(bundle, fp"${function.driver_target ?? ""}", fp"${function.storage_path}/driver")?
+      }
+      if function.iommu_target != null {
+        fs.root_symlink(bundle, fp"${function.iommu_target ?? ""}", fp"${function.storage_path}/iommu_group")?
+      }
+      fs.root_symlink(bundle, fp"${function.class_target}", fp"sys/bus/pci/devices/${function.address}")?
+    }
+  }
+  var sources: List[PciSourceObservation] = []
+  var saved_bytes: List[Bytes?] = []
+  var complete = layout.complete
+  for relative in layout.source_paths {
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    var sha256_hex: Str? = null
+    var byte_count = 0
+    if raw.data != null {
+      let data = raw.data ?? b""
+      fs.root_write(bundle, fp"${relative}", data)?
+      sha256_hex = hash.sha256(data).hex()
+      byte_count = data.len()
+    }
+    if raw.truncated or raw.state not in ["observed", "absent"] or
+        (relative.ends_with("/vendor") or relative.ends_with("/device") or
+         relative.ends_with("/subsystem_vendor") or relative.ends_with("/subsystem_device") or
+         relative.ends_with("/class") or relative.ends_with("/revision")) and raw.state != "observed" {
+      complete = false
+    }
+    saved_bytes = saved_bytes.push(raw.data)
+    sources = sources.push({path: relative, state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind, byte_count: byte_count, sha256_hex: sha256_hex})
+  }
+  let later_layout = pci_bundle_layout(source)?
+  var stable = layout == later_layout
+  for index in range(layout.source_paths.len()) {
+    let raw = fs.root_read_result(source, fp"${layout.source_paths[index]}", max_bytes: 4096)?
+    let first = sources[index]
+    if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or
+        raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {stable = false}
+  }
+  var identity: List[PciReference]? = null
+  var binding: List[PciBindingReference]? = null
+  var link: List[PciLinkReference]? = null
+  if complete {
+    match read_pci_raw_reference(bundle) {Ok(rows) => identity = rows; Err(_) => {}}
+    match read_pci_binding_reference(bundle) {Ok(rows) => binding = rows; Err(_) => {}}
+    match read_pci_link_reference(bundle) {Ok(rows) => link = rows; Err(_) => {}}
+  }
+  let scoreable = stable and identity != null and binding != null and link != null and (identity ?? []).len() > 0
+  let capture: PciBundleCapture = {schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "pci-raw-v1", layout: layout, stable: stable, scoreable: scoreable,
+    sources: sources, identity: identity, binding: binding, link: link}
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Rejects changed PCI links, source absence, raw bytes, and decoded identities.
+export proc validate_pci_bundle(bundle: FsRoot) [fs, error] -> Result[PciBundleCapture] {
+  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(PciBundleCapture)?
+  if capture.schema_version != 1 or capture.reference_adapter != "pci-raw-v1" or
+      capture.origin not in ["synthetic_fixture", "live_capture"] or !capture.stable or
+      !capture.scoreable or capture.identity == null or capture.binding == null or capture.link == null {
+    return Err(check_failure("PCI capture has no stable scoreable reference"))
+  }
+  let layout = pci_bundle_layout(bundle)?
+  if layout != capture.layout or capture.sources.len() != layout.source_paths.len() {
+    return Err(check_failure("PCI capture topology differs from metadata"))
+  }
+  for index in range(layout.source_paths.len()) {
+    let relative = layout.source_paths[index]
+    let expected = capture.sources[index]
+    if expected.path != relative or expected.truncated {return Err(check_failure("PCI capture source identity differs"))}
+    if expected.state == "absent" {
+      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+        return Err(check_failure(f"PCI absent source ${relative} differs"))
+      }
+      continue
+    }
+    if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
+      return Err(check_failure(f"PCI capture cannot score ${relative}"))
+    }
+    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 4096)?
+    if raw.state != "observed" or raw.truncated or raw.data == null {
+      return Err(check_failure(f"PCI capture ${relative} read is incomplete: ${raw.state}"))
+    }
+    if (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"PCI capture ${relative} bytes differ"))
+    }
+  }
+  if read_pci_raw_reference(bundle)? != (capture.identity ?? []) or
+      read_pci_binding_reference(bundle)? != (capture.binding ?? []) or
+      read_pci_link_reference(bundle)? != (capture.link ?? []) {
+    return Err(check_failure("PCI capture references differ from raw sources"))
+  }
+  return capture
+}
+
+## Runs the production PCI collector over the captured sysfs tree.
+export proc replay_pci_bundle(bundle: FsRoot) [fs, time, error] -> Result[PciBundleComparison] {
+  let metadata = capture_metadata_bytes(bundle, max_bytes: 16777216)?
+  let capture = validate_pci_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "pci", true)?
+  if validate_pci_bundle(bundle)? != capture {return Err(check_failure("PCI capture changed during replay"))}
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)?
+  let report_json = encode_replayed_report(candidate, true)?
+  return {
+    identity: compare_lspci_identity(report_json, capture.identity ?? [])?,
+    binding: compare_pci_bindings(report_json, capture.binding ?? [], capture.binding ?? [])?,
+    link: compare_pci_links(report_json, capture.link ?? [], capture.link ?? [])?,
+  }
+}
+
+# Restricts a USB bus entry link to its named node in the sysfs devices tree.
+pure usb_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
+  let components = target.split("/")
+  if components.len() < 5 or components[0] != ".." or components[1] != ".." or
+      components[2] != ".." or components[3] != "devices" or
+      components[components.len() - 1] != name {
+    return Err(check_failure("USB bus entry has an invalid sysfs target"))
+  }
+  var storage: List[Str] = ["sys"]
+  for index in range(3, components.len()) {
+    let component = components[index]
+    if component == "" or component == "." or component == ".." {
+      return Err(check_failure("USB bus entry leaves the sysfs devices tree"))
+    }
+    storage = storage.push(component)
+  }
+  return storage.join("/")
+}
+
+pure usb_bundle_source_limit(relative: Str) -> Int {
+  if relative.ends_with("/descriptors") {return 1048576}
+  return 4096
+}
+
+pure usb_bundle_root_hub_interface(name: Str) -> Result[Bool] {
+  let parts = name.split(":")
+  if parts.len() != 2 {return Ok(false)}
+  let device = parts[0].split("-")
+  if device.len() != 2 or device[1] != "0" {return Ok(false)}
+  let _ = usb_topology_decimal(device[0])?
+  let setting = parts[1].split(".")
+  if setting.len() != 2 {return Err(check_failure("USB root hub interface name has no setting number"))}
+  let _ = usb_topology_decimal(setting[0])?
+  let number = parse_usb_power_number(setting[1], false)?
+  if number > 255 {return Err(check_failure("USB root hub interface number exceeds one byte"))}
+  return Ok(true)
+}
+
+proc usb_bundle_layout(root: FsRoot) [fs, error] -> Result[UsbBundleLayout] {
+  let listing = fs.root_children(root, p"sys/bus/usb/devices", max_entries: 4096)?
+  var entries: List[UsbBundleEntry] = []
+  var source_paths: List[Str] = []
+  if listing.state != "complete" {
+    return {listing_state: listing.state, entries: entries, source_paths: source_paths,
+      complete: listing.state == "absent"}
+  }
+  for entry in listing.children {
+    let name = entry.name()
+    let interface = name.contains(":")
+    if interface {
+      if !usb_bundle_root_hub_interface(name)? {let _ = parse_usb_interface_name(name)?}
+    } else {let _ = parse_usb_topology_name(name)?}
+    let class_target = fs.root_readlink(root, entry)?.display()
+    let storage = usb_bundle_storage_path(name, class_target)?
+    var driver_target: Str? = null
+    if interface {
+      let attributes = fs.root_children(root, entry, max_entries: 4096)?
+      if attributes.state != "complete" {return Err(check_failure("USB interface attributes are incomplete"))}
+      for attribute in attributes.children {
+        if attribute.name() == "driver" {driver_target = fs.root_readlink(root, attribute)?.display()}
+      }
+    }
+    entries = entries.push({name: name, class_target: class_target, storage_path: storage,
+      driver_target: driver_target})
+    let prefix = entry.display()
+    if interface {
+      for attribute in ["bInterfaceNumber", "bAlternateSetting", "bInterfaceClass",
+          "bInterfaceSubClass", "bInterfaceProtocol", "bNumEndpoints"] {
+        source_paths = source_paths.push(f"${prefix}/${attribute}")
+      }
+    } else {
+      for attribute in ["busnum", "devnum", "speed", "idVendor", "idProduct", "bcdDevice",
+          "bDeviceClass", "bDeviceSubClass", "bDeviceProtocol", "manufacturer", "product",
+          "serial", "bNumConfigurations", "bConfigurationValue", "descriptors",
+          "power/control", "power/autosuspend_delay_ms", "power/runtime_status"] {
+        source_paths = source_paths.push(f"${prefix}/${attribute}")
+      }
+    }
+  }
+  if source_paths.len() > 73728 {return Err(check_failure("USB capture exceeds its source path bound"))}
+  return {listing_state: listing.state, entries: entries |> sort-by .name,
+    source_paths: source_paths |> sort-by ., complete: true}
+}
+
+## Saves bounded USB attributes and raw descriptors with independent reference interpretations.
+export proc capture_usb_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {return Err(check_failure("USB capture origin is invalid"))}
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/bus/usb/devices")? {
+    return Err(check_failure("USB capture destination is not empty"))
+  }
+  let layout = usb_bundle_layout(source)?
+  if layout.listing_state == "complete" {
+    fs.root_mkdir(bundle, p"sys/bus/usb/devices", mode: 0o700, parents: true)?
+    for entry in layout.entries {
+      if !fs.root_exists(bundle, fp"${entry.storage_path}")? {
+        fs.root_mkdir(bundle, fp"${entry.storage_path}", mode: 0o700, parents: true)?
+      }
+      if !entry.name.contains(":") {
+        if !fs.root_exists(bundle, fp"${entry.storage_path}/power")? {
+          fs.root_mkdir(bundle, fp"${entry.storage_path}/power", mode: 0o700, parents: true)?
+        }
+      }
+    }
+    for entry in layout.entries {
+      if entry.driver_target != null {
+        fs.root_symlink(bundle, fp"${entry.driver_target ?? ""}", fp"${entry.storage_path}/driver")?
+      }
+      fs.root_symlink(bundle, fp"${entry.class_target}", fp"sys/bus/usb/devices/${entry.name}")?
+    }
+  }
+  var sources: List[UsbSourceObservation] = []
+  var saved_bytes: List[Bytes?] = []
+  var complete = layout.complete
+  for relative in layout.source_paths {
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: usb_bundle_source_limit(relative))?
+    var sha256_hex: Str? = null
+    var byte_count = 0
+    if raw.data != null {
+      let data = raw.data ?? b""
+      fs.root_write(bundle, fp"${relative}", data)?
+      sha256_hex = hash.sha256(data).hex()
+      byte_count = data.len()
+    }
+    if raw.truncated or raw.state not in ["observed", "absent"] or
+        (relative.ends_with("/idVendor") or relative.ends_with("/idProduct")) and raw.state != "observed" {
+      complete = false
+    }
+    saved_bytes = saved_bytes.push(raw.data)
+    sources = sources.push({path: relative, state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind, byte_count: byte_count, sha256_hex: sha256_hex})
+  }
+  let later_layout = usb_bundle_layout(source)?
+  var stable = layout == later_layout
+  for index in range(layout.source_paths.len()) {
+    let relative = layout.source_paths[index]
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: usb_bundle_source_limit(relative))?
+    let first = sources[index]
+    if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or
+        raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {stable = false}
+  }
+  var topology: List[UsbTopologyReference]? = null
+  var ids: List[UsbIdsReference]? = null
+  var power: List[UsbPowerReference]? = null
+  var interfaces: List[UsbInterfaceReference]? = null
+  if complete {
+    match read_usb_topology_reference(bundle) {Ok(rows) => topology = rows; Err(_) => {}}
+    match read_usb_ids_reference(bundle) {Ok(rows) => ids = rows; Err(_) => {}}
+    match read_usb_power_reference(bundle) {Ok(rows) => power = rows; Err(_) => {}}
+    match read_usb_interface_reference(bundle) {Ok(rows) => interfaces = rows; Err(_) => {}}
+  }
+  let scoreable = stable and topology != null and ids != null and power != null and interfaces != null and
+    (topology ?? []).len() > 0
+  let capture: UsbBundleCapture = {schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "usb-raw-v1", layout: layout, stable: stable, scoreable: scoreable,
+    sources: sources, topology: topology, ids: ids, power: power, interfaces: interfaces}
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Rejects changed USB links, source absence, descriptors, attributes, and reference values.
+export proc validate_usb_bundle(bundle: FsRoot) [fs, error] -> Result[UsbBundleCapture] {
+  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(UsbBundleCapture)?
+  if capture.schema_version != 1 or capture.reference_adapter != "usb-raw-v1" or
+      capture.origin not in ["synthetic_fixture", "live_capture"] or !capture.stable or !capture.scoreable or
+      capture.topology == null or capture.ids == null or capture.power == null or capture.interfaces == null {
+    return Err(check_failure("USB capture has no stable scoreable reference"))
+  }
+  let layout = usb_bundle_layout(bundle)?
+  if layout != capture.layout or capture.sources.len() != layout.source_paths.len() {
+    return Err(check_failure("USB capture topology differs from metadata"))
+  }
+  for index in range(layout.source_paths.len()) {
+    let relative = layout.source_paths[index]
+    let expected = capture.sources[index]
+    if expected.path != relative or expected.truncated {return Err(check_failure("USB capture source identity differs"))}
+    if expected.state == "absent" {
+      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+        return Err(check_failure(f"USB absent source ${relative} differs"))
+      }
+      continue
+    }
+    if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
+      return Err(check_failure(f"USB capture cannot score ${relative}"))
+    }
+    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: usb_bundle_source_limit(relative))?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"USB capture ${relative} bytes differ"))
+    }
+  }
+  if read_usb_topology_reference(bundle)? != (capture.topology ?? []) or
+      read_usb_ids_reference(bundle)? != (capture.ids ?? []) or
+      read_usb_power_reference(bundle)? != (capture.power ?? []) or
+      read_usb_interface_reference(bundle)? != (capture.interfaces ?? []) {
+    return Err(check_failure("USB capture references differ from raw sources"))
+  }
+  return capture
+}
+
+## Runs the production USB collector against a validated raw sysfs capture.
+export proc replay_usb_bundle(bundle: FsRoot) [fs, time, error] -> Result[UsbBundleComparison] {
+  let metadata = capture_metadata_bytes(bundle, max_bytes: 16777216)?
+  let capture = validate_usb_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "usb", true)?
+  if validate_usb_bundle(bundle)? != capture {return Err(check_failure("USB capture changed during replay"))}
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)?
+  let report_json = encode_replayed_report(candidate, true)?
+  return {
+    topology: compare_usb_topology(report_json, capture.topology ?? [], capture.topology ?? [])?,
+    ids: compare_usb_ids(report_json, capture.ids ?? [], capture.ids ?? [])?,
+    power: compare_usb_power(report_json, capture.power ?? [], capture.power ?? [])?,
+    interface: compare_usb_interfaces(report_json, capture.interfaces ?? [], capture.interfaces ?? [])?,
+  }
+}
+
 pure ip_link_operstate(value: Str) -> Result[Str] {
   match value {
     "UNKNOWN" => return Ok("unknown")
@@ -2029,6 +7703,205 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     missing_ids: missing_ids, unexpected_ids: unexpected_ids, field_mismatches: field_mismatches,
     candidate_field_missing: candidate_field_missing,
     exact: !candidate_field_missing and missing_ids.len() == 0 and unexpected_ids.len() == 0 and field_mismatches.len() == 0,
+  }
+}
+
+pure network_link_raw_flags(bits: Int) -> List[Str] {
+  var names: List[Str] = []
+  for spec in [
+    {bit: 1, name: "up"}, {bit: 2, name: "broadcast"},
+    {bit: 8, name: "loopback"}, {bit: 16, name: "point_to_point"},
+    {bit: 64, name: "running"}, {bit: 256, name: "promiscuous"},
+    {bit: 4096, name: "multicast"}, {bit: 65536, name: "lower_up"},
+    {bit: 131072, name: "dormant"},
+  ] {
+    if bits.bit_and(spec.bit) != 0 {names = names.push(spec.name)}
+  }
+  return names.push(f"raw_bits=${bits}") |> sort-by .
+}
+
+pure network_link_candidate_bits(flags: List[Str]) -> Int? {
+  var bits: Int? = null
+  for flag in flags {
+    if !flag.starts_with("raw_bits=") {continue}
+    if bits != null {return null}
+    let raw = (flag.split("") |> drop(9)).join("")
+    let parsed = raw.parse_int() ?? -1
+    if parsed < 0 or parsed > 4294967295 or f"${parsed}" != raw {return null}
+    bits = parsed
+  }
+  return bits
+}
+
+# Sysfs prints net_device.flags, while rtnetlink adds operational and group-managed bits.
+pure network_link_sysfs_comparable_flags(bits: Int) -> Int {
+  return bits.bit_and(4294507711)
+}
+
+proc network_raw_number(root: FsRoot, source_path: Path, hexadecimal: Bool, maximum: Int) [fs, error] -> Result[NetworkRawNumber] {
+  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  if raw.state != "observed" or raw.truncated or raw.data == null {
+    return Ok({value: null, complete: false})
+  }
+  let decoded = (raw.data ?? b"").utf8()
+  guard let value = decoded else |_| {return Ok({value: null, complete: false})}
+  let cleaned = value.trim().lower()
+  if hexadecimal and !cleaned.starts_with("0x") {return Ok({value: null, complete: false})}
+  let digits = if hexadecimal and cleaned.starts_with("0x") {(cleaned.split("") |> drop(2)).join("")} else {cleaned}
+  if digits == "" {return Ok({value: null, complete: false})}
+  for digit in digits.split("") {
+    if !(if hexadecimal {"0123456789abcdef"} else {"0123456789"}).contains(digit) {
+      return Ok({value: null, complete: false})
+    }
+  }
+  let parsed = cleaned.parse_int()
+  guard let number = parsed else |_| {return Ok({value: null, complete: false})}
+  if number < 0 or number > maximum {return Ok({value: null, complete: false})}
+  return Ok({value: number, complete: true})
+}
+
+## Reads independently exported kernel link facts through bounded rooted sysfs access.
+export proc read_network_link_raw_reference(root: FsRoot) [fs, error] -> Result[List[NetworkLinkRawReference]] {
+  let listing = fs.root_children(root, p"sys/class/net", max_entries: 65536)?
+  if listing.state == "absent" {return Ok([])}
+  if listing.state != "complete" {return Err(check_failure("network link reference enumeration is incomplete"))}
+  var links: List[NetworkLinkRawReference] = []
+  var seen_indices = set.empty()
+  var seen_names = set.empty()
+  for entry in listing.children {
+    let name = entry.name()
+    if name == "" or set.has(seen_names, name) {return Err(check_failure("network link reference has an invalid interface name"))}
+    seen_names = set.add(seen_names, name)
+    let ifindex = network_raw_number(root, fp"${entry}/ifindex", false, 9007199254740991)?
+    if !ifindex.complete or (ifindex.value ?? 0) <= 0 {
+      return Err(check_failure(f"network link reference lacks an exact interface index for ${name}"))
+    }
+    let index = ifindex.value ?? 0
+    if set.has(seen_indices, f"${index}") {return Err(check_failure("network link reference repeats an interface index"))}
+    seen_indices = set.add(seen_indices, f"${index}")
+    let hardware_type = network_raw_number(root, fp"${entry}/type", false, 65535)?
+    let flags = network_raw_number(root, fp"${entry}/flags", true, 4294967295)?
+    let rx_bytes = network_raw_number(root, fp"${entry}/statistics/rx_bytes", false, 9007199254740991)?
+    let tx_bytes = network_raw_number(root, fp"${entry}/statistics/tx_bytes", false, 9007199254740991)?
+    links = links.push({
+      ifindex: index, name: name,
+      hardware_type: hardware_type.value, flags: flags.value,
+      rx_bytes: rx_bytes.value, tx_bytes: tx_bytes.value,
+      complete: hardware_type.complete and flags.complete and rx_bytes.complete and tx_bytes.complete,
+    })
+  }
+  return links |> sort-by .ifindex
+}
+
+## Compares full IFF bits, hardware type, and byte counters bracketed by rooted sources.
+export pure compare_network_link_raw(candidate_json: Str, before: List[NetworkLinkRawReference], after: List[NetworkLinkRawReference]) -> Result[NetworkLinkRawComparison] {
+  let data = json.decode(candidate_json)?
+  let section = json.get(data, ["network"])?.require(CandidateNetworkRawSection)?
+  var before_by_index: Map[Int] = {}
+  var after_by_index: Map[Int] = {}
+  var candidate_by_index: Map[Int] = {}
+  for index in range(before.len()) {
+    let item = before[index]
+    let key = f"${item.ifindex}"
+    if item.ifindex <= 0 or item.name == "" or before_by_index.has(key) {
+      return Err(check_failure("network raw before reference has an invalid link identity"))
+    }
+    before_by_index = before_by_index.set(key, index)
+  }
+  for index in range(after.len()) {
+    let item = after[index]
+    let key = f"${item.ifindex}"
+    if item.ifindex <= 0 or item.name == "" or after_by_index.has(key) {
+      return Err(check_failure("network raw after reference has an invalid link identity"))
+    }
+    after_by_index = after_by_index.set(key, index)
+  }
+  for index in range(section.links.len()) {
+    let item = section.links[index]
+    let key = f"${item.ifindex}"
+    if item.ifindex <= 0 or candidate_by_index.has(key) {
+      return Err(check_failure("candidate network report repeats or invalidates a link index"))
+    }
+    candidate_by_index = candidate_by_index.set(key, index)
+  }
+  var field_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  var matched_count = 0
+  let enumerated = network_candidate_enumerated(section.status.state, section.status.enumeration_succeeded)
+  for item in before {
+    let key = f"${item.ifindex}"
+    if !after_by_index.has(key) or item.name != after[after_by_index.get(key)?].name {
+      unstable_fields = unstable_fields.push(f"${key}.presence")
+      continue
+    }
+    if !candidate_by_index.has(key) {
+      if enumerated {field_mismatches = field_mismatches.push(f"${key}.presence")} else {unstable_fields = unstable_fields.push(f"${key}.presence")}
+      continue
+    }
+    matched_count += 1
+    let later = after[after_by_index.get(key)?]
+    let observed = section.links[candidate_by_index.get(key)?]
+    if observed.name.state != "observed" or observed.name.value != item.name {
+      field_mismatches = field_mismatches.push(f"${key}.name")
+    }
+    if !item.complete or !later.complete {
+      unstable_fields = unstable_fields.push(f"${key}.source")
+      continue
+    }
+    if item.hardware_type != later.hardware_type {
+      unstable_fields = unstable_fields.push(f"${key}.hardware_type")
+    } else if item.hardware_type != observed.hardware_type {
+      field_mismatches = field_mismatches.push(f"${key}.hardware_type")
+    }
+    if item.flags != later.flags {
+      unstable_fields = unstable_fields.push(f"${key}.flags")
+    } else {
+      let candidate_bits = network_link_candidate_bits(observed.flags)
+      if candidate_bits == null or (observed.flags |> sort-by .) != network_link_raw_flags(candidate_bits ?? 0) or
+          network_link_sysfs_comparable_flags(candidate_bits ?? 0) != network_link_sysfs_comparable_flags(item.flags ?? 0) {
+        field_mismatches = field_mismatches.push(f"${key}.flags")
+      }
+    }
+    var counter_by_name: Map[Int] = {}
+    for index in range(observed.counters.len()) {
+      let counter = observed.counters[index]
+      if counter_by_name.has(counter.name) {return Err(check_failure("candidate network link repeats a counter name"))}
+      counter_by_name = counter_by_name.set(counter.name, index)
+    }
+    for spec in [
+      {name: "rx_bytes", first: item.rx_bytes, last: later.rx_bytes},
+      {name: "tx_bytes", first: item.tx_bytes, last: later.tx_bytes},
+    ] {
+      let field = f"${key}.${spec.name}"
+      if spec.first == null or spec.last == null or (spec.last ?? 0) < (spec.first ?? 0) {
+        unstable_fields = unstable_fields.push(field)
+      } else if !counter_by_name.has(spec.name) {
+        field_mismatches = field_mismatches.push(field)
+      } else {
+        let counter = observed.counters[counter_by_name.get(spec.name)?]
+        if counter.value < (spec.first ?? 0) or counter.value > (spec.last ?? 0) or counter.unit != "bytes" {
+          field_mismatches = field_mismatches.push(field)
+        }
+      }
+    }
+  }
+  for item in after {
+    if !before_by_index.has(f"${item.ifindex}") {
+      unstable_fields = unstable_fields.push(f"${item.ifindex}.presence")
+    }
+  }
+  for item in section.links {
+    let key = f"${item.ifindex}"
+    if !before_by_index.has(key) and !after_by_index.has(key) {
+      field_mismatches = field_mismatches.push(f"${key}.presence")
+    }
+  }
+  let eligible = before.len() > 0 or after.len() > 0
+  return {
+    reference_count: before.len(), candidate_count: section.links.len(), matched_count: matched_count,
+    field_mismatches: field_mismatches |> sort-by ., unstable_fields: unstable_fields |> sort-by .,
+    eligible: eligible,
+    exact: eligible and enumerated and field_mismatches.len() == 0 and unstable_fields.len() == 0,
   }
 }
 
@@ -2204,6 +8077,77 @@ export pure compare_ip_addresses(candidate_json: Str, reference: List[IpAddressR
   }
 }
 
+## Scores address lifetimes when independent samples form a monotone countdown.
+export pure compare_ip_address_lifetimes(candidate_json: Str, before: List[IpAddressReference], after: List[IpAddressReference]) -> Result[IpAddressLifetimeComparison] {
+  let data = json.decode(candidate_json)?
+  let state = json.get(data, ["network", "status", "state"])?.require(Str)?
+  let enumerated = json.get(data, ["network", "status", "enumeration_succeeded"])?.require(Bool)?
+  let links = json.get(data, ["network", "links"])?.require(List[CandidateAddressLifetimeLink])?
+  var observed_by_key: Map[CandidateAddressLifetime] = {}
+  var seen_links = set.empty()
+  var candidate_count = 0
+  for link in links {
+    let link_key = f"${link.ifindex}"
+    if link.ifindex <= 0 or set.has(seen_links, link_key) {
+      return Err(check_failure("candidate address lifetime comparison has a duplicate link identity"))
+    }
+    seen_links = set.add(seen_links, link_key)
+    for address in link.addresses {
+      candidate_count += 1
+      if address.address.state != "observed" or address.address.value == null {continue}
+      let key = ip_address_key(link.ifindex, address.family, address.address.value ?? "", address.prefix_length)
+      if observed_by_key.has(key) {return Err(check_failure("candidate address lifetime comparison has a duplicate address identity"))}
+      observed_by_key = observed_by_key.set(key, address)
+    }
+  }
+  var after_by_key: Map[IpAddressReference] = {}
+  for address in after {
+    let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
+    if after_by_key.has(key) {return Err(check_failure("after address reference repeats an identity"))}
+    after_by_key = after_by_key.set(key, address)
+  }
+  var seen_before = set.empty()
+  var field_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  for address in before {
+    let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
+    if set.has(seen_before, key) {return Err(check_failure("before address reference repeats an identity"))}
+    seen_before = set.add(seen_before, key)
+    if !after_by_key.has(key) {
+      unstable_fields = unstable_fields.push(f"${key}.presence")
+      continue
+    }
+    if !observed_by_key.has(key) {
+      field_mismatches = field_mismatches.push(f"${key}.presence")
+      continue
+    }
+    let later = after_by_key.get(key)?
+    let observed = observed_by_key.get(key)?
+    for field in [
+      {name: "valid_lifetime_seconds", first: address.valid_lifetime_seconds, last: later.valid_lifetime_seconds, candidate: observed.valid_lifetime_seconds},
+      {name: "preferred_lifetime_seconds", first: address.preferred_lifetime_seconds, last: later.preferred_lifetime_seconds, candidate: observed.preferred_lifetime_seconds},
+    ] {
+      let field_key = f"${key}.${field.name}"
+      if field.first == null or field.last == null or (field.last ?? 0) > (field.first ?? 0) {
+        unstable_fields = unstable_fields.push(field_key)
+      } else if field.candidate == null or (field.candidate ?? -1) < (field.last ?? 0) or (field.candidate ?? -1) > (field.first ?? 0) {
+        field_mismatches = field_mismatches.push(field_key)
+      }
+    }
+  }
+  for address in after {
+    let key = ip_address_key(address.ifindex, address.family, address.address, address.prefix_length)
+    if !set.has(seen_before, key) {unstable_fields = unstable_fields.push(f"${key}.presence")}
+  }
+  let eligible = before.len() > 0 or after.len() > 0
+  return {
+    reference_count: before.len(), candidate_count: candidate_count,
+    field_mismatches: field_mismatches |> sort-by ., unstable_fields: unstable_fields |> sort-by .,
+    eligible: eligible,
+    exact: eligible and network_candidate_enumerated(state, enumerated) and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+  }
+}
+
 pure ip_rule_table(value: Str) -> Result[Int] {
   match value {
     "local" => return Ok(255)
@@ -2232,6 +8176,8 @@ pure ip_rule_prefix(value: Str?, length: Int?, family: Str) -> Result[Str?] {
   if prefix_length < 0 or prefix_length > maximum {
     return Err(check_failure("ip rule reference has an invalid prefix length"))
   }
+  # iproute2 prints "0" when the rule header has a prefix length but no address attribute.
+  if value == "0" and length != null and prefix_length > 0 {return Ok(null)}
   if value == null or value == "all" {
     if prefix_length != 0 {
       return Err(check_failure("ip rule reference has a prefix length without an address"))
@@ -2257,11 +8203,40 @@ pure ip_rule_hex(value: Str?) -> Result[Int?] {
   return Ok(parsed)
 }
 
+pure ip_rule_action(value: Str) -> Result[Str] {
+  if value == "" {return Err(check_failure("ip rule reference has an empty action"))}
+  match value {
+    "none" => return Ok("action_0")
+    "anycast" => return Ok("action_4")
+    "multicast" => return Ok("action_5")
+    "throw" => return Ok("action_9")
+    "nat" => return Ok("action_10")
+    "xresolve" => return Ok("action_11")
+    _ => {}
+  }
+  for character in value.split("") {
+    if !"0123456789".contains(character) {return Ok(value)}
+  }
+  let number = value.parse_int()?
+  if number < 0 or number > 255 {
+    return Err(check_failure("ip rule reference has an out-of-range action"))
+  }
+  match number {
+    1 => return Ok("to_table")
+    2 => return Ok("goto")
+    3 => return Ok("nop")
+    6 => return Ok("blackhole")
+    7 => return Ok("unreachable")
+    8 => return Ok("prohibit")
+    _ => return Ok(f"action_${number}")
+  }
+}
+
 pure ip_rule_key(rule: IpRuleReference) -> Result[Str] {
   return json.encode([
     rule.family, f"${rule.priority}", rule.source ?? "", f"${rule.source_prefix_length}",
     rule.destination ?? "", f"${rule.destination_prefix_length}", f"${rule.fwmark ?? -1}",
-    f"${rule.fwmask ?? -1}", f"${rule.table}", rule.action,
+    f"${rule.fwmask ?? -1}", f"${rule.table}", rule.action, f"${rule.goto_target ?? -1}",
     rule.input_name ?? "", rule.output_name ?? "",
   ])
 }
@@ -2288,6 +8263,12 @@ export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleRe
   var rules: List[IpRuleReference] = []
   var keys = set.empty()
   for row in rows {
+    var unscored_fields: List[Str] = []
+    for field in row.keys() {
+      if field not in ["priority", "src", "srclen", "dst", "dstlen", "fwmark", "fwmask", "table", "iif", "oif", "action", "goto", "nop"] {
+        unscored_fields = unscored_fields.push(field)
+      }
+    }
     let priority = json.get(row, ["priority"])?.require(Int)?
     let source = json.get(row, ["src"], null).require(Str?)?
     let source_length = json.get(row, ["srclen"], null).require(Int?)?
@@ -2299,21 +8280,23 @@ export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleRe
     let input_name = json.get(row, ["iif"], null).require(Str?)?
     let output_name = json.get(row, ["oif"], null).require(Str?)?
     let action_name = json.get(row, ["action"], null).require(Str?)?
-    let goto_value = json.get(row, ["goto"], null)
-    let action = if action_name != null {action_name ?? ""} else if goto_value != null {"goto"} else if "nop" in row.keys() {"nop"} else {"to_table"}
+    let goto_target = json.get(row, ["goto"], null).require(Int?)?
+    let action = if action_name != null {ip_rule_action(action_name ?? "")?} else if "masquerade" in row.keys() or "nat_gateway" in row.keys() {"action_10"} else if goto_target != null {"goto"} else if "nop" in row.keys() {"nop"} else {"to_table"}
     let source_address = ip_rule_prefix(source, source_length, family)?
     let destination_address = ip_rule_prefix(destination, destination_length, family)?
     let maximum = if family == "ipv4" {32} else {128}
     let source_prefix_length = source_length ?? (if source_address == null {0} else {maximum})
     let destination_prefix_length = destination_length ?? (if destination_address == null {0} else {maximum})
-    if priority < 0 or priority > 4294967295 or action == "" or input_name == "" or output_name == "" {
+    if priority < 0 or priority > 4294967295 or action == "" or input_name == "" or output_name == "" or
+        (goto_target != null and ((goto_target ?? 0) < 0 or (goto_target ?? 0) > 4294967295 or action != "goto")) {
       return Err(check_failure("ip rule reference has an invalid selector"))
     }
     let rule: IpRuleReference = {
       family: family, priority: priority, source: source_address, source_prefix_length: source_prefix_length,
       destination: destination_address, destination_prefix_length: destination_prefix_length,
       fwmark: mark, fwmask: if mask == 4294967295 {null} else {mask}, table: ip_rule_table(table_name)?, action: action,
-      input_name: input_name, output_name: output_name,
+      goto_target: goto_target, input_name: input_name, output_name: output_name,
+      unscored_fields: unscored_fields |> sort-by .,
     }
     let key = ip_rule_key(rule)?
     if set.has(keys, key) {
@@ -2338,15 +8321,18 @@ export pure ip_rule_reference_stable(before: List[IpRuleReference], after: List[
   return Ok((before_keys |> sort-by .) == (after_keys |> sort-by .))
 }
 
-## Compares static rule tuples after resolving candidate interface indices to names.
+## Resolves interface names and scores only rules whose selectors and raw attributes are represented.
 export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReference]) -> Result[IpRuleComparison] {
   let candidate_data = json.decode(candidate_json)?
   let state = json.get(candidate_data, ["network", "status", "state"])?.require(Str)?
   let enumeration_succeeded = json.get(candidate_data, ["network", "status", "enumeration_succeeded"])?.require(Bool)?
   let links = json.get(candidate_data, ["network", "links"])?.require(List[CandidateRuleLink])?
   let candidate = json.get(candidate_data, ["network", "rules"])?.require(List[CandidateIpRule])?
+  let raw_candidate = json.get(candidate_data, ["network", "rules"])?.require(List[Record])?
   var names_by_index: Map[Str] = {}
   var candidate_field_missing = !network_candidate_enumerated(state, enumeration_succeeded)
+  var fully_represented = true
+  for rule in reference {if rule.unscored_fields.len() > 0 {fully_represented = false}}
   for link in links {
     if link.ifindex <= 0 or names_by_index.has(f"${link.ifindex}") {
       return Err(check_failure("candidate network rules have an invalid or duplicate link index"))
@@ -2359,7 +8345,27 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
   }
   var candidate_keys = set.empty()
   var candidate_key_list: List[Str] = []
-  for rule in candidate {
+  var comparable_count = 0
+  var unscored_family_count = 0
+  for rule_index in range(candidate.len()) {
+    let rule = candidate[rule_index]
+    if rule.family not in ["ipv4", "ipv6"] {
+      unscored_family_count += 1
+      continue
+    }
+    comparable_count += 1
+    if rule.priority == null {fully_represented = false}
+    let flags = json.get(raw_candidate[rule_index], ["flags"], null).require(Int?)?
+    if flags == null or flags != 0 {fully_represented = false}
+    for attribute in rule.attributes {
+      if attribute.kind < 0 or attribute.kind > 65535 or attribute.kind != attribute.kind.bit_and(16383) or
+          attribute.kind not in [1, 2, 3, 4, 6, 10, 15, 16, 17] or
+          attribute.data.state != "observed" or attribute.data.value == null {
+        fully_represented = false
+      } else {
+        let _raw = (attribute.data.value ?? "").base64_decode()?
+      }
+    }
     if rule.source.state not in ["observed", "absent"] or rule.destination.state not in ["observed", "absent"] {
       candidate_field_missing = true
       continue
@@ -2383,12 +8389,29 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
       candidate_field_missing = true
       continue
     }
+    var goto_target: Int? = null
+    for attribute in rule.attributes {
+      if attribute.kind.bit_and(16383) != 4 {continue}
+      if goto_target != null {return Err(check_failure("candidate rule has duplicate goto target attributes"))}
+      if attribute.data.state != "observed" or attribute.data.value == null {
+        candidate_field_missing = true
+        continue
+      }
+      let raw = (attribute.data.value ?? "").base64_decode()?
+      if raw.len() != 4 {return Err(check_failure("candidate rule goto target is not a 32-bit integer"))}
+      goto_target = bytes.unpack_le(raw, 4, 0)?
+    }
+    if rule.action == "goto" and goto_target == null {
+      candidate_field_missing = true
+      continue
+    }
     let normalized: IpRuleReference = {
       family: rule.family, priority: rule.priority ?? 0,
       source: rule.source.value, source_prefix_length: rule.source_prefix_length,
       destination: rule.destination.value, destination_prefix_length: rule.destination_prefix_length,
       fwmark: rule.fwmark, fwmask: if rule.fwmask == 4294967295 {null} else {rule.fwmask}, table: rule.table ?? 0, action: rule.action,
-      input_name: input_name, output_name: output_name,
+      goto_target: goto_target, input_name: input_name, output_name: output_name,
+      unscored_fields: [],
     }
     let key = ip_rule_key(normalized)?
     if set.has(candidate_keys, key) {
@@ -2412,11 +8435,13 @@ export pure compare_ip_rules(candidate_json: Str, reference: List[IpRuleReferenc
   for key in candidate_key_list {
     if !set.has(reference_keys, key) {unexpected_keys = unexpected_keys.push(key)}
   }
+  let exact_static = !candidate_field_missing and missing_keys.len() == 0 and unexpected_keys.len() == 0
   return {
-    reference_count: reference.len(), candidate_count: candidate.len(), matched_count: matched_count,
+    reference_count: reference.len(), candidate_count: comparable_count, unscored_family_count: unscored_family_count, matched_count: matched_count,
     missing_keys: missing_keys |> sort-by ., unexpected_keys: unexpected_keys |> sort-by .,
     candidate_field_missing: candidate_field_missing,
-    exact_static: !candidate_field_missing and missing_keys.len() == 0 and unexpected_keys.len() == 0,
+    exact_static: exact_static,
+    exact_scored: exact_static and reference.len() > 0 and fully_represented,
   }
 }
 
@@ -2447,12 +8472,70 @@ pure ip_route_destination(value: Str, family: Str) -> Result[List[Str]] {
   return Ok([parts[0], f"${length}"])
 }
 
-pure ip_route_protocol(value: Str) -> Str {
-  match value {
-    "ra" => return "router_advertisement"
-    "unspec" => return "unspecified"
-    _ => return value
+pure ip_route_numeric_enum(value: Str) -> Result[Int?] {
+  if value == "" {return Err(check_failure("ip route reference has an empty enum"))}
+  for digit in value.split("") {if !"0123456789".contains(digit) {return Ok(null)}}
+  let number = value.parse_int()?
+  if number < 0 or number > 255 {return Err(check_failure("ip route reference has an out-of-range enum"))}
+  return Ok(number)
+}
+
+pure ip_route_protocol(value: Str) -> Result[Str] {
+  let number = ip_route_numeric_enum(value)?
+  if number != null {
+    match number {
+      0 => return Ok("unspecified")
+      1 => return Ok("redirect")
+      2 => return Ok("kernel")
+      3 => return Ok("boot")
+      4 => return Ok("static")
+      8 => return Ok("gated")
+      9 => return Ok("router_advertisement")
+      16 => return Ok("dhcp")
+      _ => return Ok(f"protocol_${number}")
+    }
   }
+  match value {
+    "ra" => return Ok("router_advertisement")
+    "unspec" => return Ok("unspecified")
+    _ => return Ok(value)
+  }
+}
+
+pure ip_route_type(value: Str) -> Result[Str] {
+  let number = ip_route_numeric_enum(value)?
+  if number != null {
+    match number {
+      1 => return Ok("unicast")
+      2 => return Ok("local")
+      3 => return Ok("broadcast")
+      4 => return Ok("anycast")
+      5 => return Ok("multicast")
+      6 => return Ok("blackhole")
+      7 => return Ok("unreachable")
+      8 => return Ok("prohibit")
+      9 => return Ok("throw")
+      10 => return Ok("nat")
+      11 => return Ok("external_resolve")
+      _ => return Ok(f"route_type_${number}")
+    }
+  }
+  return Ok(if value == "xresolve" {"external_resolve"} else {value})
+}
+
+pure ip_route_scope(value: Str) -> Result[Str] {
+  let number = ip_route_numeric_enum(value)?
+  if number != null {
+    match number {
+      0 => return Ok("global")
+      200 => return Ok("site")
+      253 => return Ok("link")
+      254 => return Ok("host")
+      255 => return Ok("nowhere")
+      _ => return Ok(f"scope_${number}")
+    }
+  }
+  return Ok(value)
 }
 
 pure ip_route_flags(names: List[Str], route_level: Bool) -> Result[Int] {
@@ -2488,6 +8571,50 @@ pure ip_route_has_only_reported_flags(flags: Int) -> Bool {
   return flags >= 0 and flags.bit_and(536920447) == flags
 }
 
+# Unknown nested next-hop attributes can change forwarding without changing the decoded gateway.
+pure route_multipath_representable(raw: Bytes) -> Result[Bool] {
+  if raw.len() < 8 or raw.len() > 65536 {return Ok(false)}
+  var offset = 0
+  var hop_count = 0
+  while offset < raw.len() {
+    if raw.len() - offset < 8 {return Ok(false)}
+    let length = bytes.unpack_le(raw, 2, offset)?
+    if length < 8 or length > raw.len() - offset {return Ok(false)}
+    let end = offset + length
+    var attribute_offset = offset + 8
+    var gateway_seen = false
+    while attribute_offset < end {
+      if end - attribute_offset < 4 {return Ok(false)}
+      let attribute_length = bytes.unpack_le(raw, 2, attribute_offset)?
+      let kind = bytes.unpack_le(raw, 2, attribute_offset + 2)?
+      if attribute_length < 4 or attribute_length > end - attribute_offset or kind != 5 or gateway_seen or
+          attribute_length - 4 not in [4, 16] {
+        return Ok(false)
+      }
+      gateway_seen = true
+      var aligned_attribute_length = attribute_length
+      while aligned_attribute_length.bit_and(3) != 0 {aligned_attribute_length += 1}
+      if attribute_offset + aligned_attribute_length > end {
+        if attribute_offset + attribute_length != end {return Ok(false)}
+        attribute_offset = end
+      } else {
+        attribute_offset += aligned_attribute_length
+      }
+    }
+    hop_count += 1
+    if hop_count > 4096 {return Ok(false)}
+    var aligned_length = length
+    while aligned_length.bit_and(3) != 0 {aligned_length += 1}
+    if offset + aligned_length > raw.len() {
+      if end != raw.len() {return Ok(false)}
+      offset = raw.len()
+    } else {
+      offset += aligned_length
+    }
+  }
+  return Ok(hop_count > 0)
+}
+
 pure ip_route_nexthop_key(hop: IpRouteNexthopReference) -> Result[Str] {
   return json.encode([hop.output_name, hop.gateway ?? "", f"${hop.weight}", f"${hop.flags}"])
 }
@@ -2518,6 +8645,12 @@ export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRoute
   var routes: List[IpRouteReference] = []
   var keys = set.empty()
   for row in rows {
+    var unscored_fields: List[Str] = []
+    for field in row.keys() {
+      if field not in ["dst", "from", "src", "prefsrc", "table", "metric", "type", "scope", "protocol", "gateway", "dev", "flags", "nexthops"] {
+        unscored_fields = unscored_fields.push(field)
+      }
+    }
     let destination_text = json.get(row, ["dst"])?.require(Str)?
     let destination_parts = ip_route_destination(destination_text, family)?
     let source_text = json.get(row, ["from"], null).require(Str?)?
@@ -2556,6 +8689,11 @@ export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRoute
     }
     var nexthops: List[IpRouteNexthopReference] = []
     for hop_row in hop_rows {
+      for field in hop_row.keys() {
+        if field not in ["dev", "gateway", "weight", "flags"] {
+          unscored_fields = unscored_fields.push(f"nexthops.${field}")
+        }
+      }
       if json.get(hop_row, ["via"], null) != null {
         return Err(check_failure("ip route reference has an unsupported cross-family next hop"))
       }
@@ -2575,9 +8713,9 @@ export pure parse_ip_route_json(output: Str, family: Str) -> Result[List[IpRoute
       family: family, destination: destination_parts[0], prefix_length: destination_parts[1].parse_int()?,
       source: source, source_prefix_length: source_prefix_length, preferred_source: preferred_source,
       table: ip_rule_table(table_name)?, metric: metric,
-      route_type: if route_type == "xresolve" {"external_resolve"} else {route_type},
-      scope: scope, protocol: ip_route_protocol(protocol), gateway: gateway, output_name: output_name, flags: flags,
-      nexthops: nexthops,
+      route_type: ip_route_type(route_type)?,
+      scope: ip_route_scope(scope)?, protocol: ip_route_protocol(protocol)?, gateway: gateway, output_name: output_name, flags: flags,
+      nexthops: nexthops, unscored_fields: unscored_fields |> sort-by .,
     }
     let key = ip_route_key(route)?
     if set.has(keys, key) {
@@ -2605,8 +8743,11 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
   let enumeration_succeeded = json.get(candidate_data, ["network", "status", "enumeration_succeeded"])?.require(Bool)?
   let links = json.get(candidate_data, ["network", "links"])?.require(List[CandidateRuleLink])?
   let candidate = json.get(candidate_data, ["network", "routes"])?.require(List[CandidateIpRoute])?
+  let raw_candidate = json.get(candidate_data, ["network", "routes"])?.require(List[Record])?
   var names_by_index: Map[Str] = {}
   var candidate_field_missing = !network_candidate_enumerated(state, enumeration_succeeded)
+  var fully_represented = true
+  for route in reference {if route.unscored_fields.len() > 0 {fully_represented = false}}
   for link in links {
     if link.ifindex <= 0 or names_by_index.has(f"${link.ifindex}") {
       return Err(check_failure("candidate network routes have an invalid or duplicate link index"))
@@ -2619,7 +8760,27 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
   }
   var candidate_keys = set.empty()
   var candidate_key_list: List[Str] = []
-  for route in candidate {
+  for route_index in range(candidate.len()) {
+    let route = candidate[route_index]
+    let input_ifindex = json.get(raw_candidate[route_index], ["input_ifindex"], null).require(Int?)?
+    if input_ifindex != null {fully_represented = false}
+    let raw_attributes = json.get(raw_candidate[route_index], ["attributes"], null)
+    if raw_attributes == null {
+      fully_represented = false
+    } else {
+      for attribute in raw_attributes.require(List[Record])? {
+        let kind = json.get(attribute, ["kind"])?.require(Int)?
+        let data = json.get(attribute, ["data"])?.require(CandidateNetworkTextObservation)?
+        if kind < 0 or kind > 65535 or kind != kind.bit_and(16383) or
+            kind not in [1, 2, 4, 5, 6, 7, 9, 15] or data.state != "observed" {
+          fully_represented = false
+        } else if kind.bit_and(16383) == 9 {
+          if data.value == null or !route_multipath_representable((data.value ?? "").base64_decode()?)? {
+            fully_represented = false
+          }
+        }
+      }
+    }
     if route.destination.state != "observed" or route.destination.value == null or
         route.source.state == "observed" and route.source.value == null or
         route.source.state == "absent" and route.source.value != null or
@@ -2630,10 +8791,11 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
         route.gateway.state == "observed" and route.gateway.value == null or
         route.gateway.state == "absent" and route.gateway.value != null or
         route.gateway.state not in ["observed", "absent"] or route.scope == null or route.protocol == null or
-        !ip_route_has_only_reported_flags(route.flags) {
+        route.flags < 0 or route.flags > 4294967295 {
       candidate_field_missing = true
       continue
     }
+    if !ip_route_has_only_reported_flags(route.flags) {fully_represented = false}
     let output_index = route.output_ifindex ?? 0
     if output_index != 0 and !names_by_index.has(f"${output_index}") {
       candidate_field_missing = true
@@ -2646,16 +8808,17 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
     for hop in route.nexthops {
       let hop_index = hop.ifindex
       if hop_index <= 0 or !names_by_index.has(f"${hop_index}") or hop.hops < 0 or hop.hops > 255 or
-          hop.flags < 0 or hop.flags > 127 or
+          hop.flags < 0 or hop.flags > 255 or
           hop.gateway.state == "observed" and hop.gateway.value == null or
           hop.gateway.state == "absent" and hop.gateway.value != null or
           hop.gateway.state not in ["observed", "absent"] {
         hop_missing = true
         continue
       }
+      if hop.flags > 127 {fully_represented = false}
       nexthops = nexthops.push({
         output_name: names_by_index.get(f"${hop_index}")?,
-        gateway: hop.gateway.value, weight: hop.hops + 1, flags: hop.flags,
+        gateway: hop.gateway.value, weight: hop.hops + 1, flags: hop.flags.bit_and(127),
       })
     }
     if hop_missing {
@@ -2668,7 +8831,8 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
       preferred_source: route.preferred_source.value,
       table: route.table, metric: route.metric, route_type: route.route_type,
       scope: route.scope ?? "", protocol: route.protocol ?? "",
-      gateway: route.gateway.value, output_name: output_name, flags: route.flags, nexthops: nexthops,
+      gateway: route.gateway.value, output_name: output_name, flags: route.flags.bit_and(536920447), nexthops: nexthops,
+      unscored_fields: [],
     }
     let key = ip_route_key(normalized)?
     if set.has(candidate_keys, key) {
@@ -2692,11 +8856,13 @@ export pure compare_ip_routes(candidate_json: Str, reference: List[IpRouteRefere
   for key in candidate_key_list {
     if !set.has(reference_keys, key) {unexpected_keys = unexpected_keys.push(key)}
   }
+  let exact_static = !candidate_field_missing and missing_keys.len() == 0 and unexpected_keys.len() == 0
   return {
     reference_count: reference.len(), candidate_count: candidate.len(), matched_count: matched_count,
     missing_keys: missing_keys |> sort-by ., unexpected_keys: unexpected_keys |> sort-by .,
     candidate_field_missing: candidate_field_missing,
-    exact_static: !candidate_field_missing and missing_keys.len() == 0 and unexpected_keys.len() == 0,
+    exact_static: exact_static,
+    exact_scored: exact_static and reference.len() > 0 and fully_represented,
   }
 }
 
@@ -2866,9 +9032,12 @@ export pure compare_block_devices(candidate_json: Str, reference: BlockReference
     let source = reference.devices[reference_by_name.get(name)?]
     let major_minor_bad = device.major != source.major or device.minor != source.minor
     let size_bad = device.size_bytes != source.size_bytes
-    let sector_bad = device.logical_sector_bytes != source.logical_sector_bytes or
-      device.physical_sector_bytes != source.physical_sector_bytes
-    let flag_bad = device.removable != source.removable or device.rotational != source.rotational or
+    # lsblk projects parent queue values onto partitions that lack those sysfs files.
+    let partition_source_absent = source.kind == "part" and device.kind == "partition"
+    let sector_bad = ((device.logical_sector_bytes != null or !partition_source_absent) and device.logical_sector_bytes != source.logical_sector_bytes) or
+      ((device.physical_sector_bytes != null or !partition_source_absent) and device.physical_sector_bytes != source.physical_sector_bytes)
+    let flag_bad = ((device.removable != null or !partition_source_absent) and device.removable != source.removable) or
+      ((device.rotational != null or !partition_source_absent) and device.rotational != source.rotational) or
       device.read_only != source.read_only
     let partition_bad = (device.kind == "partition") != (source.kind == "part")
     if major_minor_bad {major_minor_mismatches += 1}
@@ -2994,6 +9163,7 @@ export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReferen
   var seen = set.empty()
   for row in raw.require(List[Record])? {
     let name = json.get(row, ["kname"])?.require(Str)?
+    let kind = json.get(row, ["type"], null).require(Str?)?
     let scheduler = json.get(row, ["sched"])?.require(Str?)?
     let read_ahead = json.get(row, ["ra"])?.require(Int?)?
     let discard_granularity = json.get(row, ["disc-gran"])?.require(Int?)?
@@ -3012,6 +9182,7 @@ export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReferen
     seen = set.add(seen, name)
     devices = devices.push({
       name: name,
+      kind: kind,
       scheduler: if scheduler == null {null} else {scheduler.trim()},
       read_ahead_kb: read_ahead,
       discard_granularity_bytes: discard_granularity,
@@ -3036,6 +9207,7 @@ export pure compare_block_queue_fields(candidate_json: Str, reference: List[Bloc
     }
   }
   let candidates = raw.require(List[CandidateBlockQueueDevice])?
+  let raw_candidates = raw.require(List[Record])?
   var reference_by_name: Map[Int] = {}
   for index in range(reference.len()) {
     let name = reference[index].name
@@ -3053,7 +9225,8 @@ export pure compare_block_queue_fields(candidate_json: Str, reference: List[Bloc
   var read_ahead_mismatches = 0
   var discard_mismatches = 0
   var model_mismatches = 0
-  for device in candidates {
+  for index in range(candidates.len()) {
+    let device = candidates[index]
     if device.name == null or device.name == "" {
       candidate_field_missing = true
       continue
@@ -3069,10 +9242,13 @@ export pure compare_block_queue_fields(candidate_json: Str, reference: List[Bloc
     }
     matched_count += 1
     let source = reference[reference_by_name.get(name)?]
-    let scheduler_bad = device.active_scheduler != source.scheduler
-    let read_ahead_bad = device.read_ahead_kb != source.read_ahead_kb
-    let discard_bad = device.discard_granularity_bytes != source.discard_granularity_bytes or
-      device.discard_max_bytes != source.discard_max_bytes
+    let candidate_kind = json.get(raw_candidates[index], ["kind"], null).require(Str?)?
+    # lsblk projects disk queue values onto partition rows without those sysfs attributes.
+    let projected_partition = source.kind == "part" and candidate_kind == "partition"
+    let scheduler_bad = (device.active_scheduler != null or !projected_partition) and device.active_scheduler != source.scheduler
+    let read_ahead_bad = (device.read_ahead_kb != null or !projected_partition) and device.read_ahead_kb != source.read_ahead_kb
+    let discard_bad = ((device.discard_granularity_bytes != null or !projected_partition) and device.discard_granularity_bytes != source.discard_granularity_bytes) or
+      ((device.discard_max_bytes != null or !projected_partition) and device.discard_max_bytes != source.discard_max_bytes)
     let model_bad = if source.model == null {
       device.model.state != "absent" or device.model.value != null
     } else {
@@ -3338,6 +9514,20 @@ pure reference_mount_sanitized_options(options: List[Str]) -> List[Str] {
   return output
 }
 
+pure reference_mount_sanitized_optional_fields(fields: List[Str]) -> List[Str] {
+  var output: List[Str] = []
+  for field in fields {
+    let parts = field.split(":")
+    if field == "unbindable" or (parts.len() == 2 and
+        parts[0] in ["shared", "master", "propagate_from"] and reference_mount_decimal(parts[1])) {
+      output = output.push(field)
+    } else {
+      output = output.push("redacted")
+    }
+  }
+  return output
+}
+
 pure reference_mount_source_sensitive(source: Str) -> Bool {
   let lower = source.lower()
   return source.contains("@") or lower.contains("password=") or lower.contains("token=") or lower.contains("secret=")
@@ -3369,6 +9559,177 @@ pure reference_mount_propagation(fields: List[Str]) -> Str {
   if shared {return "shared"}
   if slave {return "slave"}
   return "private"
+}
+
+pure decode_mountinfo_reference_field(value: Str) -> Result[Str] {
+  let fragments = value.split("\\")
+  var decoded = fragments[0]
+  for index in range(1, fragments.len()) {
+    let fragment = fragments[index]
+    if fragment.byte_len() < 3 {
+      return Err(check_failure("mountinfo reference has an incomplete escape"))
+    }
+    let escape = fragment.byte_slice(0, length: 3)
+    if escape not in ["040", "011", "012", "134"] {
+      return Err(check_failure("mountinfo reference has an unknown escape"))
+    }
+    let character = if escape == "040" {" "} else if escape == "011" {"\t"} else if escape == "012" {"\n"} else {"\\"}
+    decoded = f"${decoded}${character}${fragment.byte_slice(3)}"
+  }
+  return decoded
+}
+
+## Independently decodes the bounded procfs mount table by mount ID.
+export pure parse_mountinfo_raw_reference(source: Str) -> Result[List[MountReference]] {
+  if source.byte_len() > 4194304 {
+    return Err(check_failure("mountinfo reference exceeds the source byte bound"))
+  }
+  var mounts: List[MountReference] = []
+  var seen = set.empty()
+  for line in source.lines() {
+    if mounts.len() >= 65536 {
+      return Err(check_failure("mountinfo reference exceeds the row bound"))
+    }
+    let fields = line.split(" ") |> where . != ""
+    var separator = -1
+    for index in range(fields.len()) {
+      if fields[index] == "-" {
+        if separator >= 0 {return Err(check_failure("mountinfo reference has repeated separators"))}
+        separator = index
+      }
+    }
+    if separator < 6 or fields.len() != separator + 4 {
+      return Err(check_failure("mountinfo reference has an incomplete row"))
+    }
+    for value in [fields[0], fields[1]] {
+      if !reference_mount_decimal(value) {
+        return Err(check_failure("mountinfo reference has a nondecimal mount identity"))
+      }
+    }
+    let mount_id = fields[0].parse_int()?
+    let parent_id = fields[1].parse_int()?
+    let device = parse_major_minor_reference(fields[2], "mountinfo")?
+    let key = f"${mount_id}"
+    if mount_id <= 0 or mount_id > 9007199254740991 or parent_id < 0 or
+        parent_id > 9007199254740991 or set.has(seen, key) {
+      return Err(check_failure("mountinfo reference has an invalid or duplicate mount ID"))
+    }
+    seen = set.add(seen, key)
+    var optional_fields: List[Str] = []
+    for index in range(6, separator) {
+      optional_fields = optional_fields.push(fields[index])
+    }
+    let safe_optional_fields = reference_mount_sanitized_optional_fields(optional_fields)
+    let propagation = reference_mount_propagation(safe_optional_fields)
+    let root = decode_mountinfo_reference_field(fields[3])?
+    let target = decode_mountinfo_reference_field(fields[4])?
+    let source_name = decode_mountinfo_reference_field(fields[separator + 2])?
+    let mount_options = fields[5].split(",")
+    let super_options = fields[separator + 3].split(",")
+    if propagation == "unknown" or root == "" or !target.starts_with("/") or
+        fields[separator + 1] == "" or source_name == "" or
+        (mount_options |> any . == "") or (super_options |> any . == "") {
+      return Err(check_failure("mountinfo reference has an invalid mount value"))
+    }
+    mounts = mounts.push({
+      mount_id: mount_id, parent_id: parent_id, major: device[0], minor: device[1],
+      root: root, target: target, filesystem: fields[separator + 1], source: source_name,
+      mount_options: mount_options, super_options: super_options,
+      optional_fields: safe_optional_fields, propagation: propagation,
+    })
+  }
+  return mounts
+}
+
+## Saves one bounded mount namespace snapshot with an independently parsed oracle.
+export proc capture_mountinfo_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {
+    return Err(check_failure("mountinfo capture has an invalid origin"))
+  }
+  let relative = p"proc/self/mountinfo"
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, relative)? {
+    return Err(check_failure("mountinfo capture destination is not empty"))
+  }
+  fs.root_mkdir(bundle, p"proc/self", mode: 0o700, parents: true)?
+  let first = fs.root_read_result(source, relative, max_bytes: 4194304)?
+  var byte_count = 0
+  var sha256_hex: Str? = null
+  var reference: List[MountReference]? = null
+  if first.data != null {
+    let data = first.data ?? b""
+    fs.root_write(bundle, relative, data)?
+    byte_count = data.len()
+    sha256_hex = hash.sha256(data).hex()
+    if first.state == "observed" and !first.truncated and first.errno == null and first.error_kind == null {
+      match data.utf8() {
+        Ok(text) => match parse_mountinfo_raw_reference(text) {
+          Ok(parsed) => if parsed.len() > 0 {reference = parsed}
+          Err(_) => {}
+        }
+        Err(_) => {}
+      }
+    }
+  }
+  let second = fs.root_read_result(source, relative, max_bytes: 4194304)?
+  let stable = first.state == second.state and first.truncated == second.truncated and
+    first.errno == second.errno and first.error_kind == second.error_kind and first.data == second.data
+  var capture: MountinfoCapture = {
+    schema_version: 2, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "mountinfo-procfs-raw-v2", stable: stable,
+    source_state: first.state, truncated: first.truncated,
+    errno: first.errno, error_kind: first.error_kind,
+    byte_count: byte_count, sha256_hex: sha256_hex, reference: reference,
+  }
+  let wire: Any = capture
+  var metadata_text = json.encode(wire, pretty: true)?
+  if metadata_text.byte_len() > 16777216 {
+    capture = {...capture, reference: null}
+    let reduced_wire: Any = capture
+    metadata_text = json.encode(reduced_wire, pretty: true)?
+  }
+  fs.root_write_atomic(bundle, p"capture.json", metadata_text)?
+  return Ok()
+}
+
+## Recomputes the mount oracle from digest-checked saved procfs bytes.
+export proc validate_mountinfo_bundle(bundle: FsRoot) [fs, error] -> Result[List[MountReference]] {
+  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 16777216)?
+  if metadata.state != "observed" or metadata.truncated or metadata.data == null {
+    return Err(check_failure("mountinfo capture metadata is missing or incomplete"))
+  }
+  let capture = json.decode((metadata.data ?? b"").utf8()?)?.require(MountinfoCapture)?
+  if capture.schema_version != 2 or capture.origin not in ["synthetic_fixture", "live_capture"] or
+      capture.reference_adapter != "mountinfo-procfs-raw-v2" or
+      capture.source_state != "observed" or capture.truncated or
+      capture.errno != null or capture.error_kind != null or
+      capture.sha256_hex == null or capture.reference == null {
+    return Err(check_failure("mountinfo capture has no complete reference"))
+  }
+  let raw = fs.root_read_result(bundle, p"proc/self/mountinfo", max_bytes: 4194304)?
+  if raw.state != "observed" or raw.truncated or raw.data == null or
+      (raw.data ?? b"").len() != capture.byte_count or
+      hash.sha256(raw.data ?? b"").hex() != (capture.sha256_hex ?? "") {
+    return Err(check_failure("mountinfo capture bytes differ from metadata"))
+  }
+  let source = (raw.data ?? b"").utf8()?
+  let reference = parse_mountinfo_raw_reference(source)?
+  if reference.len() == 0 or reference != (capture.reference ?? []) {
+    return Err(check_failure("mountinfo capture oracle differs from saved bytes"))
+  }
+  return reference
+}
+
+## Recollects mounts from the saved procfs file without querying mount capacity.
+export proc replay_mountinfo_bundle(bundle: FsRoot) [fs, time, error] -> Result[MountComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle, max_bytes: 16777216)?
+  let reference = validate_mountinfo_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "storage", true)?
+  if validate_mountinfo_bundle(bundle)? != reference {
+    return Err(check_failure("mountinfo capture changed during collector replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata, max_bytes: 16777216)?
+  return compare_mounts(encode_replayed_report(candidate, true)?, reference)
 }
 
 ## Parses every flat findmnt row by mount ID, retaining mounts that share a target or source.
@@ -3407,7 +9768,7 @@ export pure parse_findmnt_json(output: Str) -> Result[List[MountReference]] {
       mount_id: mount_id, parent_id: parent_id, major: numbers[0], minor: numbers[1],
       root: root, target: target, filesystem: filesystem, source: source,
       mount_options: vfs_options.split(","), super_options: fs_options.split(","),
-      propagation: propagation,
+      optional_fields: null, propagation: propagation,
     })
   }
   return mounts
@@ -3469,7 +9830,8 @@ export pure compare_mounts(candidate_json: Str, reference: List[MountReference])
     }
     let option_bad = mount.mount_options != reference_mount_sanitized_options(source.mount_options) or
       mount.super_options != reference_mount_sanitized_options(source.super_options)
-    let propagation_bad = reference_mount_propagation(mount.optional_fields) != source.propagation
+    let propagation_bad = reference_mount_propagation(mount.optional_fields) != source.propagation or
+      (source.optional_fields != null and mount.optional_fields != (source.optional_fields ?? []))
     if parent_bad {parent_mismatches += 1}
     if identity_bad {identity_mismatches += 1}
     if path_bad {path_mismatches += 1}
@@ -3665,6 +10027,26 @@ pure module_reference_words(line: Str) -> List[Str] {
   return line.replace("\t", " ").split(" ") |> where .trim() != ""
 }
 
+## Decodes the complete procfs row set independently of the report collector.
+export pure parse_proc_modules_raw_reference(raw: Str) -> Result[List[KernelModuleReference]] {
+  if raw == "" {return []}
+  var modules: List[KernelModuleReference] = []
+  var seen = set.empty()
+  let lines = raw.split("\n")
+  for row in lines |> enumerate() {
+    if row.index == lines.len() - 1 and row.value == "" {continue}
+    let words = module_reference_words(row.value)
+    if words.len() not in [6, 7] or words[0] == "" or set.has(seen, words[0]) {
+      return Err(check_failure("proc module raw reference has an incomplete or duplicate row"))
+    }
+    let size = reference_module_number(words[1])?
+    let users: Int? = if words[2] == "-" {null} else {reference_module_number(words[2])?}
+    seen = set.add(seen, words[0])
+    modules = modules.push({name: words[0], size_bytes: size, users: users, state: words[4]})
+  }
+  return modules
+}
+
 ## Joins lsmod's size and use count with the state exposed by the same procfs snapshot.
 export pure parse_lsmod_reference(formatted: Str, raw: Str) -> Result[List[KernelModuleReference]] {
   let lines = formatted.trim().split("\n")
@@ -3688,7 +10070,7 @@ export pure parse_lsmod_reference(formatted: Str, raw: Str) -> Result[List[Kerne
   if raw.trim() != "" {
     for line in raw.trim().split("\n") {
       let words = module_reference_words(line)
-      if words.len() < 6 or words[0] == "" or words[4] == "" or set.has(raw_seen, words[0]) or
+      if words.len() not in [6, 7] or words[0] == "" or words[4] == "" or set.has(raw_seen, words[0]) or
           !formatted_by_name.has(words[0]) {
         return Err(check_failure("proc module reference has an ambiguous, duplicate, or unmatched row"))
       }
@@ -3711,11 +10093,29 @@ export pure parse_lsmod_reference(formatted: Str, raw: Str) -> Result[List[Kerne
 export pure compare_kernel_modules(candidate_json: Str, reference: List[KernelModuleReference]) -> Result[KernelModuleComparison] {
   let data = json.decode(candidate_json)?
   let raw = json.get(data, ["kernel", "modules"], null)
+  let raw_state = json.get(data, ["kernel", "status", "state"], null)
+  let raw_enumeration = json.get(data, ["kernel", "status", "enumeration_succeeded"], null)
+  let raw_issues = json.get(data, ["issues"], null)
+  var enumeration_succeeded = false
+  if raw_state != null and raw_enumeration != null {
+    let state = raw_state.require(Str)?
+    enumeration_succeeded = raw_enumeration.require(Bool)? and state in ["complete", "partial"]
+  }
+  var source_issue = false
+  if raw_issues != null {
+    for issue in raw_issues.require(List[CandidateIssueField])? {
+      if issue.section == "kernel" and (issue.field == "modules" or issue.field.starts_with("modules.line.")) {
+        source_issue = true
+      }
+    }
+  }
+  let candidate_field_missing = raw == null or raw_state == null or raw_enumeration == null or raw_issues == null
   if raw == null {
     return {
       reference_count: reference.len(), candidate_count: 0, matched_count: 0,
       missing_names: reference |> map .name |> sort-by ., unexpected_names: [], field_mismatches: [],
       size_mismatches: 0, users_mismatches: 0, state_mismatches: 0,
+      enumeration_succeeded: enumeration_succeeded, source_issue: source_issue,
       candidate_field_missing: true, exact: false,
     }
   }
@@ -3767,14 +10167,103 @@ export pure compare_kernel_modules(candidate_json: Str, reference: List[KernelMo
     missing_names: missing_names |> sort-by ., unexpected_names: unexpected_names |> sort-by .,
     field_mismatches: field_mismatches |> sort-by .,
     size_mismatches: size_mismatches, users_mismatches: users_mismatches,
-    state_mismatches: state_mismatches, candidate_field_missing: false,
-    exact: missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0,
+    state_mismatches: state_mismatches, enumeration_succeeded: enumeration_succeeded,
+    source_issue: source_issue, candidate_field_missing: candidate_field_missing,
+    exact: enumeration_succeeded and !source_issue and !candidate_field_missing and
+      missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0,
   }
 }
 
 ## Ignores reference row order while requiring every module fact to remain unchanged.
 export pure kernel_module_reference_stable(before: List[KernelModuleReference], after: List[KernelModuleReference]) -> Bool {
   return (before |> sort-by .name) == (after |> sort-by .name)
+}
+
+## Retains the bounded procfs module inventory and its independent parsed oracle.
+export proc capture_kernel_modules_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {
+    return Err(check_failure("kernel module capture has an invalid origin"))
+  }
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"proc/modules")? {
+    return Err(check_failure("kernel module capture destination is not empty"))
+  }
+  fs.root_mkdir(bundle, p"proc", mode: 0o700, parents: true)?
+  let first = fs.root_read_result(source, p"proc/modules", max_bytes: 1048576)?
+  var byte_count = 0
+  var sha256_hex: Str? = null
+  if first.data != null {
+    let data = first.data ?? b""
+    fs.root_write(bundle, p"proc/modules", data)?
+    byte_count = data.len()
+    sha256_hex = hash.sha256(data).hex()
+  }
+  let second = fs.root_read_result(source, p"proc/modules", max_bytes: 1048576)?
+  let stable = first.state == second.state and first.truncated == second.truncated and
+    first.errno == second.errno and first.error_kind == second.error_kind and first.data == second.data
+  var reference: List[KernelModuleReference]? = null
+  if stable and first.state == "observed" and !first.truncated and first.data != null {
+    match (first.data ?? b"").utf8() {
+      Ok(text) => match parse_proc_modules_raw_reference(text) {
+        Ok(parsed) => reference = parsed
+        Err(_) => {}
+      }
+      Err(_) => {}
+    }
+  }
+  let capture: KernelModulesCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "proc-modules-raw-v1", stable: stable,
+    source_state: first.state, truncated: first.truncated, errno: first.errno, error_kind: first.error_kind,
+    byte_count: byte_count, sha256_hex: sha256_hex, reference: reference,
+  }
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Validates saved procfs bytes before returning the independently parsed module set.
+export proc validate_kernel_modules_bundle(bundle: FsRoot) [fs, error] -> Result[List[KernelModuleReference]] {
+  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 262144)?
+  if metadata.state != "observed" or metadata.truncated or metadata.data == null {
+    return Err(check_failure("kernel module capture metadata is missing or incomplete"))
+  }
+  let capture = json.decode((metadata.data ?? b"").utf8()?)?.require(KernelModulesCapture)?
+  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or
+      capture.reference_adapter != "proc-modules-raw-v1" or !capture.stable or
+      capture.source_state != "observed" or capture.truncated or
+      capture.errno != null or capture.error_kind != null or
+      capture.sha256_hex == null or capture.reference == null {
+    return Err(check_failure("kernel module capture has no stable complete reference"))
+  }
+  let raw = fs.root_read_result(bundle, p"proc/modules", max_bytes: 1048576)?
+  if raw.state != "observed" or raw.truncated or raw.data == null or
+      (raw.data ?? b"").len() != capture.byte_count or
+      hash.sha256(raw.data ?? b"").hex() != (capture.sha256_hex ?? "") {
+    return Err(check_failure("kernel module capture bytes differ from metadata"))
+  }
+  var text = ""
+  match (raw.data ?? b"").utf8() {
+    Ok(value) => text = value
+    Err(_) => return Err(check_failure("kernel module capture is not UTF-8"))
+  }
+  let reference = parse_proc_modules_raw_reference(text)?
+  if reference != (capture.reference ?? []) {
+    return Err(check_failure("kernel module capture oracle differs from saved bytes"))
+  }
+  return reference
+}
+
+## Recollects modules from saved procfs bytes and compares the resulting report.
+export proc replay_kernel_modules_bundle(bundle: FsRoot) [fs, time, error] -> Result[KernelModuleComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle)?
+  let reference = validate_kernel_modules_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let report_value = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "kernel", true)?
+  if validate_kernel_modules_bundle(bundle)? != reference {
+    return Err(check_failure("kernel module capture changed during replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  return compare_kernel_modules(encode_replayed_report(report_value, true)?, reference)
 }
 
 ## Requires the complete procfs command line in sensitive output and no payload in default output.
@@ -3799,6 +10288,83 @@ export pure compare_kernel_command_line(
     sensitive_exact: sensitive_exact, redacted_exact: redacted_exact,
     candidate_field_missing: false, exact: sensitive_exact and redacted_exact,
   }
+}
+
+## Saves the bounded procfs bytes in a private bundle because command lines may contain secrets.
+export proc capture_kernel_command_line_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {
+    return Err(check_failure("kernel command-line capture has an invalid origin"))
+  }
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"proc/cmdline")? {
+    return Err(check_failure("kernel command-line capture destination is not empty"))
+  }
+  fs.root_mkdir(bundle, p"proc", mode: 0o700, parents: true)?
+  let first = fs.root_read_result(source, p"proc/cmdline", max_bytes: 65536)?
+  var byte_count = 0
+  var sha256_hex: Str? = null
+  var reference_base64: Str? = null
+  if first.data != null {
+    let data = first.data ?? b""
+    fs.root_write(bundle, p"proc/cmdline", data)?
+    byte_count = data.len()
+    sha256_hex = hash.sha256(data).hex()
+    if first.state == "observed" and !first.truncated {
+      reference_base64 = data.base64()
+    }
+  }
+  let second = fs.root_read_result(source, p"proc/cmdline", max_bytes: 65536)?
+  let stable = first.state == second.state and first.truncated == second.truncated and
+    first.errno == second.errno and first.error_kind == second.error_kind and first.data == second.data
+  let capture: KernelCommandLineCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "proc-cmdline-raw-v1", stable: stable,
+    source_state: first.state, truncated: first.truncated, errno: first.errno, error_kind: first.error_kind,
+    byte_count: byte_count, sha256_hex: sha256_hex, reference_base64: reference_base64,
+  }
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Requires the saved bytes to match the capture digest and exact byte reference.
+export proc validate_kernel_command_line_bundle(bundle: FsRoot) [fs, error] -> Result[Bytes] {
+  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 262144)?
+  if metadata.state != "observed" or metadata.truncated or metadata.data == null {
+    return Err(check_failure("kernel command-line capture metadata is missing or incomplete"))
+  }
+  let capture = json.decode((metadata.data ?? b"").utf8()?)?.require(KernelCommandLineCapture)?
+  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or
+      capture.reference_adapter != "proc-cmdline-raw-v1" or !capture.stable or
+      capture.source_state != "observed" or capture.truncated or
+      capture.errno != null or capture.error_kind != null or
+      capture.sha256_hex == null or capture.reference_base64 == null {
+    return Err(check_failure("kernel command-line capture has no stable complete reference"))
+  }
+  let raw = fs.root_read_result(bundle, p"proc/cmdline", max_bytes: 65536)?
+  if raw.state != "observed" or raw.truncated or raw.data == null or
+      (raw.data ?? b"").len() != capture.byte_count or
+      hash.sha256(raw.data ?? b"").hex() != (capture.sha256_hex ?? "") or
+      (raw.data ?? b"").base64() != (capture.reference_base64 ?? "") {
+    return Err(check_failure("kernel command-line capture bytes differ from metadata"))
+  }
+  return raw.data ?? b""
+}
+
+## Runs the kernel collector twice over saved bytes to check raw output and default redaction.
+export proc replay_kernel_command_line_bundle(bundle: FsRoot) [fs, time, error] -> Result[KernelCommandLineComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle)?
+  let reference = validate_kernel_command_line_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let sensitive = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "kernel", true)?
+  let redacted = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "kernel", false)?
+  if validate_kernel_command_line_bundle(bundle)? != reference {
+    return Err(check_failure("kernel command-line capture changed during replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  return compare_kernel_command_line(
+    encode_replayed_report(sensitive, true)?,
+    encode_replayed_report(redacted, false)?, reference,
+  )
 }
 
 ## Requires the exact allowlisted value set and preserves absent and failed observations.
@@ -3865,6 +10431,164 @@ export pure compare_kernel_parameters(
     field_mismatches: field_mismatches |> sort-by ., candidate_field_missing: false,
     exact: missing_names.len() == 0 and unexpected_names.len() == 0 and field_mismatches.len() == 0,
   }
+}
+
+proc kernel_parameter_bundle_reference(bundle: FsRoot) [fs, error] -> Result[List[KernelParameterReference]] {
+  var reference: List[KernelParameterReference] = []
+  for source in kernel_parameter_sources() {
+    let relative = source.path.strip_prefix(p"/")?
+    let raw = fs.root_read_result(bundle, relative, max_bytes: 4096)?
+    if raw.state == "absent" and !raw.truncated and raw.data == null {
+      reference = reference.push({
+        name: source.name, source: source.source,
+        state: "absent", value: null, raw_bytes_base64: null,
+      })
+      continue
+    }
+    if raw.state != "observed" or raw.truncated or raw.data == null {
+      return Err(check_failure(f"kernel parameter bundle has no complete ${source.name} source"))
+    }
+    let data = raw.data ?? b""
+    match data.utf8() {
+      Ok(value) => reference = reference.push({
+        name: source.name, source: source.source,
+        state: "observed", value: value.trim(), raw_bytes_base64: null,
+      })
+      Err(_) => reference = reference.push({
+        name: source.name, source: source.source,
+        state: "malformed", value: null, raw_bytes_base64: data.base64(),
+      })
+    }
+  }
+  return reference
+}
+
+## Saves the nine bounded procfs and sysfs values with source states and an independent raw oracle.
+export proc capture_kernel_parameters_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {
+    return Err(check_failure("kernel parameter capture has an invalid origin"))
+  }
+  if fs.root_exists(bundle, p"capture.json")? {
+    return Err(check_failure("kernel parameter capture destination already has metadata"))
+  }
+  let sources = kernel_parameter_sources()
+  for item in sources {
+    let relative = item.path.strip_prefix(p"/")?
+    if fs.root_exists(bundle, relative)? {
+      return Err(check_failure("kernel parameter capture destination contains a source file"))
+    }
+  }
+  var observations: List[KernelParameterSourceObservation] = []
+  var saved_bytes: List[Bytes?] = []
+  var complete = true
+  for item in sources {
+    let relative = item.path.strip_prefix(p"/")?
+    let raw = fs.root_read_result(source, relative, max_bytes: 4096)?
+    if raw.state not in ["observed", "absent"] or raw.truncated or
+        (raw.state == "observed" and raw.data == null) or
+        (raw.state == "absent" and raw.data != null) {
+      complete = false
+    }
+    var byte_count = 0
+    var sha256_hex: Str? = null
+    if raw.data != null {
+      let data = raw.data ?? b""
+      if !fs.root_exists(bundle, relative.parent())? {
+        fs.root_mkdir(bundle, relative.parent(), mode: 0o700, parents: true)?
+      }
+      fs.root_write(bundle, relative, data)?
+      byte_count = data.len()
+      sha256_hex = hash.sha256(data).hex()
+    }
+    observations = observations.push({
+      path: relative.display(), state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind,
+      byte_count: byte_count, sha256_hex: sha256_hex,
+    })
+    saved_bytes = saved_bytes.push(raw.data)
+  }
+  var stable = true
+  for index in range(sources.len()) {
+    let relative = sources[index].path.strip_prefix(p"/")?
+    let again = fs.root_read_result(source, relative, max_bytes: 4096)?
+    let first = observations[index]
+    if again.state != first.state or again.truncated != first.truncated or
+        again.errno != first.errno or again.error_kind != first.error_kind or
+        again.data != saved_bytes[index] {
+      stable = false
+    }
+  }
+  var reference: List[KernelParameterReference]? = null
+  if complete and stable {
+    match kernel_parameter_bundle_reference(bundle) {
+      Ok(parsed) => reference = parsed
+      Err(_) => {}
+    }
+  }
+  let capture: KernelParametersCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "kernel-parameters-raw-v1", stable: stable,
+    sources: observations, reference: reference,
+  }
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Validates every saved source before returning the independently decoded nine-key oracle.
+export proc validate_kernel_parameters_bundle(bundle: FsRoot) [fs, error] -> Result[List[KernelParameterReference]] {
+  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 262144)?
+  if metadata.state != "observed" or metadata.truncated or metadata.data == null {
+    return Err(check_failure("kernel parameter capture metadata is missing or incomplete"))
+  }
+  let capture = json.decode((metadata.data ?? b"").utf8()?)?.require(KernelParametersCapture)?
+  let sources = kernel_parameter_sources()
+  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or
+      capture.reference_adapter != "kernel-parameters-raw-v1" or !capture.stable or
+      capture.sources.len() != sources.len() or capture.reference == null {
+    return Err(check_failure("kernel parameter capture has no stable complete reference"))
+  }
+  for index in range(sources.len()) {
+    let expected = capture.sources[index]
+    let relative = sources[index].path.strip_prefix(p"/")?
+    if expected.path != relative.display() or expected.truncated {
+      return Err(check_failure("kernel parameter capture source identity or completeness differs from metadata"))
+    }
+    if expected.state == "absent" {
+      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, relative)? {
+        return Err(check_failure(f"kernel parameter capture absent ${sources[index].name} differs from metadata"))
+      }
+      continue
+    }
+    if expected.state != "observed" or expected.sha256_hex == null or
+        expected.errno != null or expected.error_kind != null {
+      return Err(check_failure(f"kernel parameter capture cannot score ${sources[index].name} source"))
+    }
+    let raw = fs.root_read_result(bundle, relative, max_bytes: 4096)?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"kernel parameter capture ${sources[index].name} bytes differ from metadata"))
+    }
+  }
+  let reference = kernel_parameter_bundle_reference(bundle)?
+  if reference != (capture.reference ?? []) {
+    return Err(check_failure("kernel parameter capture oracle differs from saved bytes"))
+  }
+  return reference
+}
+
+## Recollects the fixed parameter set from the validated raw bundle.
+export proc replay_kernel_parameters_bundle(bundle: FsRoot) [fs, time, error] -> Result[KernelParameterComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle)?
+  let reference = validate_kernel_parameters_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let report_value = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "kernel", true)?
+  if validate_kernel_parameters_bundle(bundle)? != reference {
+    return Err(check_failure("kernel parameter capture changed during replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  return compare_kernel_parameters(encode_replayed_report(report_value, true)?, reference)
 }
 
 ## Compares stable kernel identity fields against independently observed uname values.
@@ -3996,6 +10720,149 @@ export pure compare_os_release(candidate_json: Str, reference: OsReleaseReferenc
   }
 }
 
+pure os_release_bundle_paths() -> List[Str] {return ["etc/os-release", "usr/lib/os-release"]}
+
+## Captures both release sources so replay can verify local-file precedence over vendor data.
+export proc capture_os_release_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {
+    return Err(check_failure("os-release capture has an invalid origin"))
+  }
+  if fs.root_exists(bundle, p"capture.json")? {
+    return Err(check_failure("os-release capture already exists"))
+  }
+  let paths = os_release_bundle_paths()
+  for relative in paths {
+    if fs.root_exists(bundle, fp"${relative}")? {
+      return Err(check_failure("os-release capture destination contains a source file"))
+    }
+  }
+  fs.root_mkdir(bundle, p"etc", mode: 0o700, parents: true)?
+  fs.root_mkdir(bundle, p"usr/lib", mode: 0o700, parents: true)?
+  var observations: List[OsReleaseSourceObservation] = []
+  var saved_bytes: List[Bytes?] = []
+  for relative in paths {
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 65536)?
+    var sha256_hex: Str? = null
+    var byte_count = 0
+    if raw.data != null {
+      let data = raw.data ?? b""
+      fs.root_write(bundle, fp"${relative}", data)?
+      sha256_hex = hash.sha256(data).hex()
+      byte_count = data.len()
+    }
+    observations = observations.push({
+      path: relative, state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind,
+      byte_count: byte_count, sha256_hex: sha256_hex,
+    })
+    saved_bytes = saved_bytes.push(raw.data)
+  }
+  var stable = true
+  for index in range(paths.len()) {
+    let again = fs.root_read_result(source, fp"${paths[index]}", max_bytes: 65536)?
+    let first = observations[index]
+    if again.state != first.state or again.truncated != first.truncated or
+        again.errno != first.errno or again.error_kind != first.error_kind or again.data != saved_bytes[index] {
+      stable = false
+    }
+  }
+  let selected_path = if observations[0].state == "observed" and !observations[0].truncated {
+    paths[0]
+  } else if observations[0].state == "absent" and observations[1].state == "observed" and !observations[1].truncated {
+    paths[1]
+  } else {""}
+  var reference: OsReleaseReference? = null
+  if selected_path != "" {
+    let index = if selected_path == paths[0] {0} else {1}
+    match (saved_bytes[index] ?? b"").utf8() {
+      Ok(text) => match parse_reference_os_release(text) {
+        Ok(parsed) => reference = parsed
+        Err(_) => {}
+      }
+      Err(_) => {}
+    }
+  }
+  let capture: OsReleaseCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "os-release-raw-v1", stable: stable,
+    selected_path: selected_path, sources: observations, reference: reference,
+  }
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Verifies every saved source before using its independently parsed release identity.
+export proc validate_os_release_bundle(bundle: FsRoot) [fs, error] -> Result[OsReleaseReference] {
+  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 262144)?
+  if metadata.state != "observed" or metadata.truncated or metadata.data == null {
+    return Err(check_failure("os-release capture metadata is missing or incomplete"))
+  }
+  let capture = json.decode((metadata.data ?? b"").utf8()?)?.require(OsReleaseCapture)?
+  let paths = os_release_bundle_paths()
+  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or
+      capture.reference_adapter != "os-release-raw-v1" or !capture.stable or
+      capture.sources.len() != paths.len() {
+    return Err(check_failure("os-release capture metadata has an unsupported contract"))
+  }
+  for index in range(paths.len()) {
+    let expected = capture.sources[index]
+    let relative = paths[index]
+    if expected.path != relative or expected.truncated {
+      return Err(check_failure("os-release capture source identity or completeness differs from metadata"))
+    }
+    if expected.state == "absent" or (index == 1 and capture.sources[0].state == "observed" and
+        expected.state in ["read_failure", "permission_denied"] and expected.sha256_hex == null) {
+      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+        return Err(check_failure(f"os-release unavailable source ${relative} differs from metadata"))
+      }
+      continue
+    }
+    if expected.state != "observed" or expected.sha256_hex == null or
+        expected.errno != null or expected.error_kind != null {
+      return Err(check_failure(f"os-release cannot score ${relative} source"))
+    }
+    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 65536)?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"os-release ${relative} bytes differ from metadata"))
+    }
+  }
+  let selected_path = if capture.sources[0].state == "observed" {
+    paths[0]
+  } else if capture.sources[0].state == "absent" and capture.sources[1].state == "observed" {
+    paths[1]
+  } else {""}
+  if selected_path == "" or capture.selected_path != selected_path or capture.reference == null {
+    return Err(check_failure("os-release capture has no usable reference"))
+  }
+  let selected = fs.root_read_result(bundle, fp"${selected_path}", max_bytes: 65536)?
+  let index = if selected_path == paths[0] {0} else {1}
+  if selected.state != "observed" or selected.truncated or selected.data == null or
+      hash.sha256(selected.data ?? b"").hex() != (capture.sources[index].sha256_hex ?? "") {
+    return Err(check_failure("os-release selected source changed during validation"))
+  }
+  let reference = parse_reference_os_release((selected.data ?? b"").utf8()?)?
+  if reference != (capture.reference ?? reference) {
+    return Err(check_failure("os-release reference differs from raw source"))
+  }
+  return reference
+}
+
+## Reruns the production identity collector from the verified release source files.
+export proc replay_os_release_bundle(bundle: FsRoot) [fs, time, error] -> Result[OsReleaseComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle)?
+  let reference = validate_os_release_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "identity", true)?
+  if validate_os_release_bundle(bundle)? != reference {
+    return Err(check_failure("os-release capture changed during collector replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  return compare_os_release(encode_replayed_report(candidate, true)?, reference)
+}
+
 ## Decodes fixed-width od output and rejects non-byte tokens and oversized sources.
 export pure parse_reference_od_bytes(output: Str, max_bytes: Int) -> Result[Bytes] {
   if max_bytes <= 0 {
@@ -4065,15 +10932,19 @@ export pure parse_reference_device_tree(model_raw: Bytes?, compatible_raw: Bytes
   return {model: model, compatible: compatible}
 }
 
-## Compares available device-tree values in source order and detects malformed candidates.
-export pure compare_device_tree(candidate_json: Str, reference: DeviceTreeReference) -> Result[DeviceTreeComparison] {
+## Compares device-tree values and selects firmware source from independent DMI evidence.
+export pure compare_device_tree(candidate_json: Str, reference: DeviceTreeReference, dmi_identity_present: Bool) -> Result[DeviceTreeComparison] {
   let data = json.decode(candidate_json)?
   let candidate_source = json.get(data, ["identity", "firmware", "source"], null).require(Str?)?
+  let vendor = json.get(data, ["identity", "firmware", "vendor"], null).require(Str?)?
+  let product = json.get(data, ["identity", "firmware", "product"], null).require(Str?)?
   let model_state = json.get(data, ["identity", "firmware", "device_tree_model", "state"], null).require(Str?)?
   let model_value = json.get(data, ["identity", "firmware", "device_tree_model", "value"], null).require(Str?)?
   let candidate_compatible = json.get(data, ["identity", "firmware", "device_tree_compatible"], []).require(List[Record])?
-  let source_exact = candidate_source == "device-tree"
-  let model_exact = if reference.model == null {model_state == "absent" and model_value == null} else {model_state == "observed" and model_value == reference.model}
+  let expected_source = if dmi_identity_present {"dmi"} else {"device-tree"}
+  let source_exact = candidate_source == expected_source and
+    (vendor != null or product != null) == dmi_identity_present
+  var model_exact = if reference.model == null {model_state == "absent" and model_value == null} else {model_state == "observed" and model_value == reference.model}
   var compatible_exact = candidate_compatible.len() == reference.compatible.len()
   if compatible_exact {
     var index = 0
@@ -4090,6 +10961,9 @@ export pure compare_device_tree(candidate_json: Str, reference: DeviceTreeRefere
   let candidate_issues = json.get(data, ["issues"], []).require(List[Record])?
   for candidate_issue in candidate_issues {
     let field = json.get(candidate_issue, ["field"], null).require(Str?)?
+    if field == "firmware.device_tree_model" {
+      model_exact = false
+    }
     if field == "firmware.device_tree_compatible" {
       compatible_exact = false
     }
@@ -4102,25 +10976,499 @@ export pure compare_device_tree(candidate_json: Str, reference: DeviceTreeRefere
   }
 }
 
+pure device_tree_bundle_paths() -> List[Str] {
+  return ["sys/firmware/devicetree/base/model", "sys/firmware/devicetree/base/compatible"]
+}
+
+## Saves bounded raw device-tree identity strings and an independently decoded reference.
+export proc capture_device_tree_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {
+    return Err(check_failure("device-tree capture has an invalid origin"))
+  }
+  if fs.root_exists(bundle, p"capture.json")? {
+    return Err(check_failure("device-tree capture already exists"))
+  }
+  let paths = device_tree_bundle_paths()
+  for relative in paths {
+    if fs.root_exists(bundle, fp"${relative}")? {
+      return Err(check_failure("device-tree capture destination contains a source file"))
+    }
+  }
+  fs.root_mkdir(bundle, p"sys/firmware/devicetree/base", mode: 0o700, parents: true)?
+  var sources: List[DeviceTreeSourceObservation] = []
+  var saved_bytes: List[Bytes?] = []
+  var complete = true
+  for index in range(paths.len()) {
+    let relative = paths[index]
+    let limit = if index == 0 {4096} else {16384}
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: limit)?
+    if raw.truncated or raw.state not in ["observed", "absent"] or
+        (raw.state == "observed" and (raw.data == null or raw.errno != null or raw.error_kind != null)) or
+        (raw.state == "absent" and raw.data != null) {
+      complete = false
+    }
+    var byte_count = 0
+    var sha256_hex: Str? = null
+    if raw.data != null {
+      let data = raw.data ?? b""
+      fs.root_write(bundle, fp"${relative}", data)?
+      byte_count = data.len()
+      sha256_hex = hash.sha256(data).hex()
+    }
+    saved_bytes = saved_bytes.push(raw.data)
+    sources = sources.push({
+      path: relative, state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind,
+      byte_count: byte_count, sha256_hex: sha256_hex,
+    })
+  }
+  var stable = true
+  for index in range(paths.len()) {
+    let limit = if index == 0 {4096} else {16384}
+    let again = fs.root_read_result(source, fp"${paths[index]}", max_bytes: limit)?
+    let first = sources[index]
+    if again.state != first.state or again.truncated != first.truncated or
+        again.errno != first.errno or again.error_kind != first.error_kind or
+        again.data != saved_bytes[index] {
+      stable = false
+    }
+  }
+  var reference: DeviceTreeReference? = null
+  if complete and stable and (saved_bytes[0] != null or saved_bytes[1] != null) {
+    match parse_reference_device_tree(saved_bytes[0], saved_bytes[1]) {
+      Ok(parsed) => reference = parsed
+      Err(_) => {}
+    }
+  }
+  let capture: DeviceTreeCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "device-tree-raw-v1", stable: stable,
+    sources: sources, reference: reference,
+  }
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Verifies saved source states, digests, and the decoded device-tree reference.
+export proc validate_device_tree_bundle(bundle: FsRoot) [fs, error] -> Result[DeviceTreeReference] {
+  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 65536)?
+  if metadata.state != "observed" or metadata.truncated or metadata.data == null {
+    return Err(check_failure("device-tree capture metadata is missing or incomplete"))
+  }
+  let capture = json.decode((metadata.data ?? b"").utf8()?)?.require(DeviceTreeCapture)?
+  let paths = device_tree_bundle_paths()
+  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or
+      capture.reference_adapter != "device-tree-raw-v1" or !capture.stable or
+      capture.sources.len() != paths.len() or capture.reference == null {
+    return Err(check_failure("device-tree capture has no stable complete reference"))
+  }
+  var raw_values: List[Bytes?] = []
+  for index in range(paths.len()) {
+    let expected = capture.sources[index]
+    let relative = paths[index]
+    if expected.path != relative or expected.truncated {
+      return Err(check_failure("device-tree source identity or completeness differs from metadata"))
+    }
+    if expected.state == "absent" {
+      if expected.byte_count != 0 or
+          expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+        return Err(check_failure(f"device-tree absent source ${relative} differs from metadata"))
+      }
+      raw_values = raw_values.push(null)
+      continue
+    }
+    if expected.state != "observed" or expected.errno != null or expected.error_kind != null or
+        expected.sha256_hex == null {
+      return Err(check_failure(f"device-tree cannot score ${relative} source"))
+    }
+    let limit = if index == 0 {4096} else {16384}
+    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: limit)?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"device-tree ${relative} bytes differ from metadata"))
+    }
+    raw_values = raw_values.push(raw.data)
+  }
+  let reference = parse_reference_device_tree(raw_values[0], raw_values[1])?
+  if reference != (capture.reference ?? reference) {
+    return Err(check_failure("device-tree reference differs from saved raw sources"))
+  }
+  return reference
+}
+
+## Reruns identity collection on the saved device-tree sources.
+export proc replay_device_tree_bundle(bundle: FsRoot) [fs, time, error] -> Result[DeviceTreeComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle)?
+  let reference = validate_device_tree_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "identity", false)?
+  if validate_device_tree_bundle(bundle)? != reference {
+    return Err(check_failure("device-tree capture changed during collector replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  return compare_device_tree(encode_replayed_report(candidate, true)?, reference, false)
+}
+
+proc reference_dmi_text(root: FsRoot, source_path: Path) [fs, error] -> Result[DmiTextReference] {
+  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  if raw.state == "absent" {return Ok({value: null, complete: true})}
+  if raw.state != "observed" or raw.truncated or raw.data == null {return Ok({value: null, complete: false})}
+  match (raw.data ?? b"").utf8() {
+    Ok(value) => return Ok({value: value.trim(), complete: true})
+    Err(_) => return Ok({value: null, complete: false})
+  }
+}
+
+## Reads DMI identity fields from bounded class attributes independently of collection.
+export proc read_dmi_identity_reference(root: FsRoot) [fs, error] -> Result[DmiIdentityReference] {
+  return Ok({
+    vendor: reference_dmi_text(root, p"sys/class/dmi/id/sys_vendor")?,
+    product: reference_dmi_text(root, p"sys/class/dmi/id/product_name")?,
+    board_vendor: reference_dmi_text(root, p"sys/class/dmi/id/board_vendor")?,
+    board_product: reference_dmi_text(root, p"sys/class/dmi/id/board_name")?,
+    bios_vendor: reference_dmi_text(root, p"sys/class/dmi/id/bios_vendor")?,
+    bios_version: reference_dmi_text(root, p"sys/class/dmi/id/bios_version")?,
+    serial: reference_dmi_text(root, p"sys/class/dmi/id/product_serial")?,
+    uuid: reference_dmi_text(root, p"sys/class/dmi/id/product_uuid")?,
+  })
+}
+
+pure dmi_identity_bundle_paths() -> List[Str] {
+  return [
+    "sys/class/dmi/id/sys_vendor", "sys/class/dmi/id/product_name",
+    "sys/class/dmi/id/board_vendor", "sys/class/dmi/id/board_name",
+    "sys/class/dmi/id/bios_vendor", "sys/class/dmi/id/bios_version",
+    "sys/class/dmi/id/product_serial", "sys/class/dmi/id/product_uuid",
+  ]
+}
+
+pure dmi_identity_reference_scoreable(reference: DmiIdentityReference) -> Bool {
+  return (reference.vendor.value != null or reference.product.value != null) and
+    reference.vendor.complete and reference.product.complete and
+    reference.board_vendor.complete and reference.board_product.complete and
+    reference.bios_vendor.complete and reference.bios_version.complete and
+    reference.serial.complete and reference.uuid.complete
+}
+
+## Saves bounded DMI class attributes and an independent raw-value reference.
+export proc capture_dmi_identity_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {
+    return Err(check_failure("DMI identity capture has an invalid origin"))
+  }
+  if fs.root_exists(bundle, p"capture.json")? {
+    return Err(check_failure("DMI identity capture already exists"))
+  }
+  let paths = dmi_identity_bundle_paths()
+  for relative in paths {
+    if fs.root_exists(bundle, fp"${relative}")? {
+      return Err(check_failure("DMI identity capture destination contains a source file"))
+    }
+  }
+  fs.root_mkdir(bundle, p"sys/class/dmi/id", mode: 0o700, parents: true)?
+  var sources: List[DmiIdentitySourceObservation] = []
+  var saved_bytes: List[Bytes?] = []
+  var complete = true
+  for relative in paths {
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    if raw.truncated or raw.state not in ["observed", "absent"] or
+        (raw.state == "observed" and (raw.data == null or raw.errno != null or raw.error_kind != null)) or
+        (raw.state == "absent" and raw.data != null) {
+      complete = false
+    }
+    var byte_count = 0
+    var sha256_hex: Str? = null
+    if raw.data != null {
+      let data = raw.data ?? b""
+      fs.root_write(bundle, fp"${relative}", data)?
+      byte_count = data.len()
+      sha256_hex = hash.sha256(data).hex()
+    }
+    saved_bytes = saved_bytes.push(raw.data)
+    sources = sources.push({
+      path: relative, state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind,
+      byte_count: byte_count, sha256_hex: sha256_hex,
+    })
+  }
+  var stable = true
+  for index in range(paths.len()) {
+    let again = fs.root_read_result(source, fp"${paths[index]}", max_bytes: 4096)?
+    let first = sources[index]
+    if again.state != first.state or again.truncated != first.truncated or
+        again.errno != first.errno or again.error_kind != first.error_kind or
+        again.data != saved_bytes[index] {
+      stable = false
+    }
+  }
+  var reference: DmiIdentityReference? = null
+  if complete and stable {
+    let parsed = read_dmi_identity_reference(bundle)?
+    if dmi_identity_reference_scoreable(parsed) {reference = parsed}
+  }
+  let capture: DmiIdentityCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "dmi-identity-raw-v1", stable: stable,
+    sources: sources, reference: reference,
+  }
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Checks DMI class source states, digests, and the saved raw-value reference.
+export proc validate_dmi_identity_bundle(bundle: FsRoot) [fs, error] -> Result[DmiIdentityReference] {
+  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 262144)?
+  if metadata.state != "observed" or metadata.truncated or metadata.data == null {
+    return Err(check_failure("DMI identity capture metadata is missing or incomplete"))
+  }
+  let capture = json.decode((metadata.data ?? b"").utf8()?)?.require(DmiIdentityCapture)?
+  let paths = dmi_identity_bundle_paths()
+  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or
+      capture.reference_adapter != "dmi-identity-raw-v1" or !capture.stable or
+      capture.sources.len() != paths.len() or capture.reference == null {
+    return Err(check_failure("DMI identity capture has no stable complete reference"))
+  }
+  for index in range(paths.len()) {
+    let expected = capture.sources[index]
+    let relative = paths[index]
+    if expected.path != relative or expected.truncated {
+      return Err(check_failure("DMI identity source identity or completeness differs from metadata"))
+    }
+    if expected.state == "absent" {
+      if expected.byte_count != 0 or expected.sha256_hex != null or
+          fs.root_exists(bundle, fp"${relative}")? {
+        return Err(check_failure(f"DMI identity absent source ${relative} differs from metadata"))
+      }
+      continue
+    }
+    if expected.state != "observed" or expected.errno != null or expected.error_kind != null or
+        expected.sha256_hex == null {
+      return Err(check_failure(f"DMI identity cannot score ${relative} source"))
+    }
+    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 4096)?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"DMI identity ${relative} bytes differ from metadata"))
+    }
+  }
+  let reference = read_dmi_identity_reference(bundle)?
+  if !dmi_identity_reference_scoreable(reference) or reference != (capture.reference ?? reference) {
+    return Err(check_failure("DMI identity reference differs from saved raw sources"))
+  }
+  return reference
+}
+
+## Reruns sensitive and default identity collection on saved DMI class attributes.
+export proc replay_dmi_identity_bundle(bundle: FsRoot) [fs, time, error] -> Result[DmiIdentityBundleComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle)?
+  let reference = validate_dmi_identity_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let sensitive_candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "identity", true)?
+  let default_candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "identity", false)?
+  if validate_dmi_identity_bundle(bundle)? != reference {
+    return Err(check_failure("DMI identity capture changed during collector replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  let sensitive = compare_dmi_identity(encode_replayed_report(sensitive_candidate, true)?, reference, reference)?
+  let default_redacted = dmi_identity_redacted(encode_replayed_report(default_candidate, false)?, reference)?
+  return {sensitive: sensitive, default_redacted: default_redacted, exact: sensitive.exact and default_redacted}
+}
+
+pure dmi_reference_has_issue(issues: List[CandidateIssueField], name: Str) -> Bool {
+  for issue in issues {
+    if issue.section == "identity" and issue.field == f"firmware.${name}" {return true}
+  }
+  return false
+}
+
+## Compares stable raw DMI fields, including sensitive serial and UUID observations.
+export pure compare_dmi_identity(candidate_json: Str, before: DmiIdentityReference, after: DmiIdentityReference) -> Result[DmiIdentityComparison] {
+  let data = json.decode(candidate_json)?
+  let actual = json.get(data, ["identity", "firmware"])?.require(CandidateDmiIdentity)?
+  let issues = json.get(data, ["issues"], []).require(List[CandidateIssueField])?
+  var field_mismatches: List[Str] = []
+  var unstable_fields: List[Str] = []
+  var eligible = false
+  for field in [
+    {name: "vendor", before: before.vendor, after: after.vendor, candidate: actual.vendor},
+    {name: "product", before: before.product, after: after.product, candidate: actual.product},
+    {name: "board_vendor", before: before.board_vendor, after: after.board_vendor, candidate: actual.board_vendor},
+    {name: "board_product", before: before.board_product, after: after.board_product, candidate: actual.board_product},
+    {name: "bios_vendor", before: before.bios_vendor, after: after.bios_vendor, candidate: actual.bios_vendor},
+    {name: "bios_version", before: before.bios_version, after: after.bios_version, candidate: actual.bios_version},
+  ] {
+    if field.before.value != null or field.after.value != null {eligible = true}
+    if !field.before.complete or !field.after.complete or field.before.value != field.after.value or dmi_reference_has_issue(issues, field.name) {
+      unstable_fields = unstable_fields.push(field.name)
+    } else if field.candidate != field.before.value {
+      field_mismatches = field_mismatches.push(field.name)
+    }
+  }
+  for field in [
+    {name: "serial", before: before.serial, after: after.serial, candidate: actual.serial},
+    {name: "uuid", before: before.uuid, after: after.uuid, candidate: actual.uuid},
+  ] {
+    if field.before.value != null or field.after.value != null {eligible = true}
+    if !field.before.complete or !field.after.complete or field.before.value != field.after.value or dmi_reference_has_issue(issues, field.name) {
+      unstable_fields = unstable_fields.push(field.name)
+    } else if field.before.value == null {
+      if field.candidate.state != "absent" or field.candidate.value != null {field_mismatches = field_mismatches.push(field.name)}
+    } else if field.candidate.state != "observed" or field.candidate.value != field.before.value {
+      field_mismatches = field_mismatches.push(field.name)
+    }
+  }
+  if !before.vendor.complete or !after.vendor.complete or before.vendor.value != after.vendor.value or
+      !before.product.complete or !after.product.complete or before.product.value != after.product.value {
+    unstable_fields = unstable_fields.push("source")
+  } else if before.vendor.value != null or before.product.value != null {
+    if actual.source != "dmi" {field_mismatches = field_mismatches.push("source")}
+  }
+  return Ok({
+    field_mismatches: field_mismatches |> sort-by ., unstable_fields: unstable_fields |> sort-by .,
+    eligible: eligible,
+    exact: eligible and field_mismatches.len() == 0 and unstable_fields.len() == 0,
+  })
+}
+
+## Requires default output to withhold present DMI serial and UUID values.
+export pure dmi_identity_redacted(candidate_json: Str, reference: DmiIdentityReference) -> Result[Bool] {
+  if !dmi_identity_reference_scoreable(reference) {
+    return Err(check_failure("DMI redaction reference has no complete identity"))
+  }
+  let data = json.decode(candidate_json)?
+  let candidate = json.get(data, ["identity", "firmware"])?.require(CandidateDmiIdentity)?
+  let serial_raw = json.get(data, ["identity", "firmware", "serial", "raw_bytes_base64"], null).require(Str?)?
+  let uuid_raw = json.get(data, ["identity", "firmware", "uuid", "raw_bytes_base64"], null).require(Str?)?
+  let serial_state = if reference.serial.value == null {"absent"} else {"redacted"}
+  let uuid_state = if reference.uuid.value == null {"absent"} else {"redacted"}
+  return candidate.serial.state == serial_state and candidate.serial.value == null and serial_raw == null and
+    candidate.uuid.state == uuid_state and candidate.uuid.value == null and uuid_raw == null
+}
+
+pure uptime_reference_digits(value: Str) -> Bool {
+  if value == "" {return false}
+  for character in value.split("") {
+    if !"0123456789".contains(character) {return false}
+  }
+  return true
+}
+
 ## Parses the uptime gauge from the kernel's two-column decimal source.
 export pure parse_reference_uptime_seconds(output: Str) -> Result[Int] {
-  let columns = output.trim().split(" ")
-  if columns.len() < 2 {
-    return Err(check_failure("/proc/uptime is missing its two decimal columns"))
+  let columns = output.trim().replace("\t", " ").split(" ") |> where .trim() != ""
+  if columns.len() != 2 {
+    return Err(check_failure("/proc/uptime requires exactly two decimal columns"))
   }
   let parts = columns[0].split(".")
   if parts.len() != 2 {
     return Err(check_failure("/proc/uptime has an invalid uptime decimal"))
   }
-  let seconds = reference_cpu_number(parts[0])?
-  let _ = reference_cpu_number(parts[1])?
+  if !uptime_reference_digits(parts[0]) or !uptime_reference_digits(parts[1]) {
+    return Err(check_failure("/proc/uptime has an invalid uptime decimal"))
+  }
+  var seconds = 0
+  match parts[0].parse_int() {
+    Ok(value) => seconds = value
+    Err(_) => return Err(check_failure("/proc/uptime exceeds the supported integer range"))
+  }
   let idle_parts = columns[1].split(".")
   if idle_parts.len() != 2 {
     return Err(check_failure("/proc/uptime has an invalid idle decimal"))
   }
-  let _ = reference_cpu_number(idle_parts[0])?
-  let _ = reference_cpu_number(idle_parts[1])?
+  if !uptime_reference_digits(idle_parts[0]) or !uptime_reference_digits(idle_parts[1]) {
+    return Err(check_failure("/proc/uptime has an invalid idle decimal"))
+  }
+  if seconds > 9007199254740991 {
+    return Err(check_failure("/proc/uptime exceeds the exact JSON integer range"))
+  }
   return Ok(seconds)
+}
+
+## Saves one bounded uptime reading and its independently parsed whole seconds.
+export proc capture_uptime_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {
+    return Err(check_failure("uptime capture has an invalid origin"))
+  }
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"proc/uptime")? {
+    return Err(check_failure("uptime capture destination is not empty"))
+  }
+  fs.root_mkdir(bundle, p"proc", mode: 0o700, parents: true)?
+  let raw = fs.root_read_result(source, p"proc/uptime", max_bytes: 4096)?
+  var byte_count = 0
+  var sha256_hex: Str? = null
+  var reference_seconds: Int? = null
+  if raw.data != null {
+    let data = raw.data ?? b""
+    fs.root_write(bundle, p"proc/uptime", data)?
+    byte_count = data.len()
+    sha256_hex = hash.sha256(data).hex()
+    if raw.state == "observed" and !raw.truncated and raw.errno == null and raw.error_kind == null {
+      match data.utf8() {
+        Ok(value) => match parse_reference_uptime_seconds(value) {
+          Ok(parsed) => reference_seconds = parsed
+          Err(_) => {}
+        }
+        Err(_) => {}
+      }
+    }
+  }
+  let capture: UptimeCapture = {
+    schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "proc-uptime-raw-v1", source_state: raw.state,
+    truncated: raw.truncated, errno: raw.errno, error_kind: raw.error_kind,
+    byte_count: byte_count, sha256_hex: sha256_hex,
+    reference_seconds: reference_seconds,
+  }
+  let wire: Any = capture
+  fs.root_write_atomic(bundle, p"capture.json", json.encode(wire, pretty: true)?)?
+  return Ok()
+}
+
+## Verifies saved uptime bytes before using the parsed whole-second oracle.
+export proc validate_uptime_bundle(bundle: FsRoot) [fs, error] -> Result[Int] {
+  let metadata = fs.root_read_result(bundle, p"capture.json", max_bytes: 65536)?
+  if metadata.state != "observed" or metadata.truncated or metadata.data == null {
+    return Err(check_failure("uptime capture metadata is missing or incomplete"))
+  }
+  let capture = json.decode((metadata.data ?? b"").utf8()?)?.require(UptimeCapture)?
+  if capture.schema_version != 1 or capture.origin not in ["synthetic_fixture", "live_capture"] or
+      capture.reference_adapter != "proc-uptime-raw-v1" or capture.source_state != "observed" or
+      capture.truncated or capture.errno != null or capture.error_kind != null or
+      capture.sha256_hex == null or capture.reference_seconds == null {
+    return Err(check_failure("uptime capture has no complete reference"))
+  }
+  let raw = fs.root_read_result(bundle, p"proc/uptime", max_bytes: 4096)?
+  if raw.state != "observed" or raw.truncated or raw.data == null or
+      (raw.data ?? b"").len() != capture.byte_count or
+      hash.sha256(raw.data ?? b"").hex() != (capture.sha256_hex ?? "") {
+    return Err(check_failure("uptime capture bytes differ from metadata"))
+  }
+  var source_text = ""
+  match (raw.data ?? b"").utf8() {
+    Ok(value) => source_text = value
+    Err(_) => return Err(check_failure("uptime capture source is not UTF-8"))
+  }
+  let reference = parse_reference_uptime_seconds(source_text)?
+  if reference != (capture.reference_seconds ?? -1) {
+    return Err(check_failure("uptime capture oracle differs from saved bytes"))
+  }
+  return reference
+}
+
+## Recollects uptime from saved procfs bytes and compares the whole second exactly.
+export proc replay_uptime_bundle(bundle: FsRoot) [fs, time, error] -> Result[UptimeComparison] {
+  let capture_metadata = capture_metadata_bytes(bundle)?
+  let reference = validate_uptime_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "identity", true)?
+  if validate_uptime_bundle(bundle)? != reference {
+    return Err(check_failure("uptime capture changed during collector replay"))
+  }
+  require_capture_metadata_unchanged(bundle, capture_metadata)?
+  return compare_uptime(encode_replayed_report(candidate, true)?, reference, reference)
 }
 
 pure process_reference_number(value: Str) -> Result[Int] {
@@ -4262,6 +11610,577 @@ export pure parse_proc_cgroup_reference(output: Str) -> Result[Str?] {
     }
   }
   return Ok(unified_path)
+}
+
+## Identifies a visible cgroup2 mount source and the current membership path.
+export type VisibleCgroup2Location = {
+  group_path: Str,
+  visible_path: Str,
+  source_path: Str,
+  mount_root: Str,
+  mount_source_path: Str,
+}
+
+## Names one visible cgroup2 ancestor and its rooted source directory.
+export type VisibleCgroup2Ancestor = {visible_path: Str, source_path: Str, hierarchy_level: Int}
+
+## Preserves the raw quota and period without converting them to CPU counts.
+export type CpuScopeQuota = {quota: Int?, period: Int, unlimited: Bool}
+
+## Records the observed CPU constraints at one visible cgroup level.
+export type CpuScopeAncestorReference = {path: Str, hierarchy_level: Int, effective_cpus: List[Int]?, quota: CpuScopeQuota?}
+
+## Brackets a rooted raw cgroup source read for a live comparison.
+export type CpuScopeCgroupObservation = {ancestors: List[CpuScopeAncestorReference], started: Int, ended: Int}
+
+type CandidateCpuScopeResource = {
+  path: CandidateTextObservation, hierarchy_level: Int, resource: Str, state: Str,
+  quota: Int?, period: Int?, maximum_unlimited: Bool?, effective_cpus: List[Int],
+}
+
+## Summarizes exact agreement for the visible CPU controller resources.
+export type CpuScopeCgroupComparison = {eligible: Bool, checked_resources: Int, mismatched_fields: List[Str], exact: Bool}
+
+## Preserves a cgroup maximum's explicit unlimited state.
+export type Cgroup2LimitReference = {value: Int?, unlimited: Bool}
+
+## Names one independently decoded cgroup counter and its kernel unit.
+export type Cgroup2CounterReference = {resource: Str, value: Int, unit: Str}
+
+## Holds one independently decoded cgroup2 resource with the report's raw units.
+export type Cgroup2ResourceReference = {
+  path: Str, hierarchy_level: Int, controller: Str, resource: Str,
+  maximum_value: Int?, current_value: Int?, unit: Str, maximum_unlimited: Bool?,
+  quota: Int?, period: Int?, effective_cpus: List[Int],
+}
+
+## Records all visible cgroup2 resource identities and one bounded read interval.
+export type Cgroup2ResourceObservation = {ancestors: List[Str], resources: List[Cgroup2ResourceReference], started: Int, ended: Int}
+
+type CandidateCgroup2Resource = {
+  path: CandidateTextObservation, hierarchy_level: Int, controller: Str, resource: Str, state: Str,
+  maximum_value: Int?, current_value: Int?, unit: Str, maximum_unlimited: Bool?,
+  quota: Int?, period: Int?, effective_cpus: List[Int], hidden_ancestors_possible: Bool,
+}
+
+## Separates exact cgroup resource agreement from changing live gauges.
+export type Cgroup2ResourceComparison = {
+  eligible: Bool, reference_count: Int, candidate_count: Int, matched_count: Int,
+  missing_keys: List[Str], unexpected_keys: List[Str], field_mismatches: List[Str], unscored_gauges: List[Str],
+  exact_stable: Bool, exact_scored: Bool,
+}
+
+pure visible_cgroup2_path_safe(value: Str) -> Bool {
+  if !value.starts_with("/") {return false}
+  if value == "/" {return true}
+  for segment in value.split("/") |> drop(1) {
+    if segment == "" or segment == "." or segment == ".." {return false}
+  }
+  return true
+}
+
+pure visible_cgroup2_decode_mount_field(value: Str) -> Str {
+  return value.replace("\\040", " ").replace("\\011", "\t").replace("\\012", "\n").replace("\\134", "\\")
+}
+
+pure find_visible_cgroup2_location(membership: Str, mountinfo: Str) -> Result[VisibleCgroup2Location?] {
+  let membership_path = parse_proc_cgroup_reference(membership)?
+  if membership_path == null or !visible_cgroup2_path_safe(membership_path ?? "") {
+    return Err(check_failure("cgroup2 reference lacks a safe unified membership path"))
+  }
+  let group_path = membership_path ?? ""
+  var chosen_root = ""
+  var chosen_point = ""
+  var chosen_root_length = -1
+  for line in mountinfo.lines() {
+    let columns = line.split(" ") |> where . != ""
+    var separator = 0
+    while separator < columns.len() and columns[separator] != "-" {
+      separator += 1
+    }
+    if separator == columns.len() {
+      return Err(check_failure("cgroup2 reference mountinfo row lacks a separator"))
+    }
+    if separator < 6 or separator + 3 >= columns.len() {
+      return Err(check_failure("cgroup2 reference has an incomplete mount row"))
+    }
+    if columns[separator + 1] != "cgroup2" {continue}
+    let root = visible_cgroup2_decode_mount_field(columns[3])
+    let point = visible_cgroup2_decode_mount_field(columns[4])
+    if !visible_cgroup2_path_safe(root) or !visible_cgroup2_path_safe(point) {
+      return Err(check_failure("cgroup2 reference has an unsafe mount path"))
+    }
+    if root != "/" and group_path != root and !group_path.starts_with(f"${root}/") {continue}
+    let root_length = root.count_chars()
+    if root_length > chosen_root_length {
+      chosen_root = root
+      chosen_point = point
+      chosen_root_length = root_length
+    } else if root_length == chosen_root_length {
+      return Err(check_failure("cgroup2 reference has ambiguous applicable mounts"))
+    }
+  }
+  if chosen_root_length < 0 {
+    return Ok(null)
+  }
+  let relative = if chosen_root == "/" {
+    (group_path.split("") |> drop(1)).join("")
+  } else if group_path == chosen_root {
+    ""
+  } else {
+    (group_path.split("") |> drop(chosen_root.count_chars() + 1)).join("")
+  }
+  let mount_relative = (chosen_point.split("/") |> where . != "").join("/")
+  let source_path = if relative == "" {
+    if mount_relative == "" {"."} else {mount_relative}
+  } else if mount_relative == "" {
+    relative
+  } else {
+    f"${mount_relative}/${relative}"
+  }
+  return Ok({group_path: group_path, visible_path: group_path, source_path: source_path, mount_root: chosen_root, mount_source_path: if mount_relative == "" {"."} else {mount_relative}})
+}
+
+## Resolves the current unified cgroup against the most specific visible mount root.
+export pure resolve_visible_cgroup2_location(membership: Str, mountinfo: Str) -> Result[VisibleCgroup2Location] {
+  let selected = find_visible_cgroup2_location(membership, mountinfo)?
+  if selected != null {return Ok(selected)}
+  return Err(check_failure("cgroup2 reference has no visible mount"))
+}
+
+## Enumerates only ancestors visible through the selected cgroup2 mount.
+export pure visible_cgroup2_ancestors(location: VisibleCgroup2Location) -> Result[List[VisibleCgroup2Ancestor]] {
+  var ancestors: List[VisibleCgroup2Ancestor] = []
+  var visible = location.visible_path
+  var source = location.source_path
+  var level = 0
+  while level < 64 {
+    ancestors = ancestors.push({visible_path: visible, source_path: source, hierarchy_level: level})
+    if visible == location.mount_root {
+      if source != location.mount_source_path {
+        return Err(check_failure("cgroup2 reference mount ancestry is inconsistent"))
+      }
+      return Ok(ancestors)
+    }
+    let visible_parts = visible.split("/")
+    let source_parts = source.split("/")
+    if visible_parts.len() < 2 or source_parts.len() < 1 {
+      return Err(check_failure("cgroup2 reference has an invalid visible ancestor path"))
+    }
+    visible = (visible_parts |> take(visible_parts.len() - 1)).join("/")
+    if visible == "" {visible = "/"}
+    source = (source_parts |> take(source_parts.len() - 1)).join("/")
+    if source == "" {source = "."}
+    level += 1
+  }
+  return Err(check_failure("cgroup2 reference exceeds 64 visible ancestor levels"))
+}
+
+## Decodes the kernel's two-field cpu.max value with exact integer bounds.
+export pure parse_cpu_scope_quota(output: Str) -> Result[CpuScopeQuota] {
+  let fields = output.trim().replace("\t", " ").split(" ") |> where .trim() != ""
+  if fields.len() != 2 {
+    return Err(check_failure("CPU scope quota reference requires two fields"))
+  }
+  let unlimited = fields[0] == "max"
+  var quota: Int? = null
+  if !unlimited {
+    let amount = reference_cpu_number(fields[0])?
+    if amount < 1 or amount > 9007199254740991 {
+      return Err(check_failure("CPU scope quota reference is outside the exact range"))
+    }
+    quota = amount
+  }
+  let period = reference_cpu_number(fields[1])?
+  if period < 1 or period > 9007199254740991 {
+    return Err(check_failure("CPU scope period reference is outside the exact range"))
+  }
+  return Ok({quota: quota, period: period, unlimited: unlimited})
+}
+
+pure cgroup2_reference_number(value: Str) -> Result[Int] {
+  let number = reference_cpu_number(value)?
+  if number > 9007199254740991 {
+    return Err(check_failure("cgroup2 reference value exceeds the exact integer range"))
+  }
+  return Ok(number)
+}
+
+pure cgroup2_reference_words(value: Str) -> List[Str] {
+  return value.replace("\t", " ").split(" ") |> where .trim() != ""
+}
+
+## Parses a single unlimited or exact decimal cgroup limit.
+export pure parse_cgroup2_limit(output: Str) -> Result[Cgroup2LimitReference] {
+  let fields = cgroup2_reference_words(output.trim())
+  if fields.len() != 1 {
+    return Err(check_failure("cgroup2 limit reference needs one value"))
+  }
+  if fields[0] == "max" {return Ok({value: null, unlimited: true})}
+  return Ok({value: cgroup2_reference_number(fields[0])?, unlimited: false})
+}
+
+## Decodes the named CPU counters the report exports from a complete cpu.stat source.
+export pure parse_cgroup2_cpu_stat(output: Str) -> Result[List[Cgroup2CounterReference]] {
+  var counters: List[Cgroup2CounterReference] = []
+  var seen = set.empty()
+  for line in output.lines() {
+    let fields = cgroup2_reference_words(line)
+    if fields.len() == 0 {continue}
+    if fields.len() != 2 {
+      return Err(check_failure("cgroup2 cpu.stat reference has an invalid row"))
+    }
+    let name = fields[0]
+    if name not in ["usage_usec", "user_usec", "system_usec", "nr_periods", "nr_throttled", "throttled_usec", "nr_bursts", "burst_usec"] {
+      continue
+    }
+    if set.has(seen, name) {
+      return Err(check_failure("cgroup2 cpu.stat reference repeats a counter"))
+    }
+    seen = set.add(seen, name)
+    counters = counters.push({resource: f"cpu.stat.${name}", value: cgroup2_reference_number(fields[1])?, unit: if name.starts_with("nr_") {"count"} else {"microseconds"}})
+  }
+  return Ok(counters)
+}
+
+## Decodes per-device I/O counters while rejecting ambiguous device and field identities.
+export pure parse_cgroup2_io_stat(output: Str) -> Result[List[Cgroup2CounterReference]] {
+  var counters: List[Cgroup2CounterReference] = []
+  var devices = set.empty()
+  for line in output.lines() {
+    let fields = cgroup2_reference_words(line)
+    if fields.len() == 0 {continue}
+    let device = fields[0]
+    let device_parts = device.split(":")
+    if device_parts.len() != 2 or set.has(devices, device) {
+      return Err(check_failure("cgroup2 io.stat reference has an invalid or duplicate device"))
+    }
+    let _major = cgroup2_reference_number(device_parts[0])?
+    let _minor = cgroup2_reference_number(device_parts[1])?
+    devices = set.add(devices, device)
+    var seen_fields = set.empty()
+    for item in fields |> drop(1) {
+      let pair = item.split("=", maxsplit: 1)
+      if pair.len() != 2 {
+        return Err(check_failure("cgroup2 io.stat reference has an invalid counter"))
+      }
+      if pair[0] not in ["rbytes", "wbytes", "rios", "wios", "dbytes", "dios"] {continue}
+      if set.has(seen_fields, pair[0]) {
+        return Err(check_failure("cgroup2 io.stat reference repeats a device counter"))
+      }
+      seen_fields = set.add(seen_fields, pair[0])
+      counters = counters.push({resource: f"io.stat.${device}.${pair[0]}", value: cgroup2_reference_number(pair[1])?, unit: if pair[0].ends_with("bytes") {"bytes"} else {"requests"}})
+    }
+  }
+  return Ok(counters)
+}
+
+pure cgroup2_reference_resource(
+  visible_path: Str, level: Int, controller: Str, resource: Str, unit: Str,
+  maximum: Int?, current: Int?, unlimited: Bool?, quota: Int?, period: Int?, cpus: List[Int],
+) -> Cgroup2ResourceReference {
+  return {
+    path: visible_path, hierarchy_level: level, controller: controller, resource: resource,
+    maximum_value: maximum, current_value: current, unit: unit,
+    maximum_unlimited: unlimited, quota: quota, period: period, effective_cpus: cpus,
+  }
+}
+
+proc cgroup2_reference_text(root: FsRoot, source_path: Path, max_bytes: Int, required: Bool) [fs, error] -> Result[Str?] {
+  let read = fs.root_read_result(root, source_path, max_bytes: max_bytes)?
+  if read.state == "absent" and !required {return Ok(null)}
+  if read.state != "observed" or read.truncated or read.data == null {
+    return Err(check_failure(f"cgroup2 reference source ${source_path} is incomplete"))
+  }
+  match (read.data ?? b"").utf8() {
+    Ok(value) => return Ok(value)
+    Err(_) => return Err(check_failure(f"cgroup2 reference source ${source_path} is not UTF-8"))
+  }
+}
+
+pure cgroup2_mount_row_present(mountinfo: Str) -> Result[Bool] {
+  var has_cgroup2 = false
+  var saw_row = false
+  for line in mountinfo.lines() {
+    let columns = line.split(" ") |> where . != ""
+    if columns.len() == 0 {
+      return Err(check_failure("cgroup2 reference mountinfo has an empty row"))
+    }
+    saw_row = true
+    var separator = 0
+    while separator < columns.len() and columns[separator] != "-" {separator += 1}
+    if separator == columns.len() {
+      return Err(check_failure("cgroup2 reference mountinfo row lacks a separator"))
+    }
+    if separator < 6 or separator + 3 >= columns.len() {
+      return Err(check_failure("cgroup2 reference mountinfo has an incomplete row"))
+    }
+    if separator + 1 < columns.len() and columns[separator + 1] == "cgroup2" {has_cgroup2 = true}
+  }
+  if !saw_row {return Err(check_failure("cgroup2 reference mountinfo is empty"))}
+  return Ok(has_cgroup2)
+}
+
+proc visible_cgroup2_reference_paths(root: FsRoot) [fs, error] -> Result[List[VisibleCgroup2Ancestor]] {
+  let membership = cgroup2_reference_text(root, p"proc/self/cgroup", 65536, true)? ?? ""
+  let mountinfo = cgroup2_reference_text(root, p"proc/self/mountinfo", 4194304, true)? ?? ""
+  let has_mount = cgroup2_mount_row_present(mountinfo)?
+  if parse_proc_cgroup_reference(membership)? == null or !has_mount {
+    return Ok([])
+  }
+  let selected = find_visible_cgroup2_location(membership, mountinfo)?
+  if selected != null {return visible_cgroup2_ancestors(selected)}
+  return Ok([])
+}
+
+## Reads all exported cgroup2 resource families for the current group and visible ancestors.
+export proc read_cgroup2_resource_reference(root: FsRoot) [fs, time, error] -> Result[Cgroup2ResourceObservation] {
+  let started = time.now()
+  let paths = visible_cgroup2_reference_paths(root)?
+  var ancestors: List[Str] = []
+  var resources: List[Cgroup2ResourceReference] = []
+  for path_item in paths {
+    ancestors = ancestors.push(path_item.visible_path)
+    for family in [
+      {resource: "memory.max", controller: "memory", unit: "bytes", maximum_file: "memory.max", current_file: "memory.current"},
+      {resource: "memory.swap.max", controller: "memory", unit: "bytes", maximum_file: "memory.swap.max", current_file: "memory.swap.current"},
+      {resource: "pids.max", controller: "pids", unit: "count", maximum_file: "pids.max", current_file: "pids.current"},
+    ] {
+      let maximum_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/${family.maximum_file}", 4096, false)?
+      let current_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/${family.current_file}", 4096, false)?
+      if maximum_raw == null and current_raw == null {continue}
+      if maximum_raw == null or current_raw == null {
+        return Err(check_failure(f"cgroup2 ${family.resource} reference has an incomplete limit pair"))
+      }
+      let maximum = parse_cgroup2_limit(maximum_raw ?? "")?
+      let current = cgroup2_reference_number((current_raw ?? "").trim())?
+      resources = resources.push(cgroup2_reference_resource(
+        path_item.visible_path, path_item.hierarchy_level, family.controller, family.resource, family.unit,
+        maximum.value, current, maximum.unlimited, null, null, [],
+      ))
+    }
+    let quota_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/cpu.max", 4096, false)?
+    if quota_raw != null {
+      let quota = parse_cpu_scope_quota(quota_raw)?
+      resources = resources.push(cgroup2_reference_resource(
+        path_item.visible_path, path_item.hierarchy_level, "cpu", "cpu.max", "quota_period",
+        null, null, quota.unlimited, quota.quota, quota.period, [],
+      ))
+    }
+    let cpu_stat_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/cpu.stat", 16384, false)?
+    if cpu_stat_raw != null {
+      for counter in parse_cgroup2_cpu_stat(cpu_stat_raw)? {
+        resources = resources.push(cgroup2_reference_resource(
+          path_item.visible_path, path_item.hierarchy_level, "cpu", counter.resource, counter.unit,
+          null, counter.value, null, null, null, [],
+        ))
+      }
+    }
+    let cpuset_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/cpuset.cpus.effective", 65536, false)?
+    if cpuset_raw != null {
+      resources = resources.push(cgroup2_reference_resource(
+        path_item.visible_path, path_item.hierarchy_level, "cpuset", "cpuset.cpus.effective", "cpu_ids",
+        null, null, null, null, null, parse_reference_cpu_list(cpuset_raw, true)?,
+      ))
+    }
+    let io_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/io.stat", 262144, false)?
+    if io_raw != null {
+      for counter in parse_cgroup2_io_stat(io_raw)? {
+        resources = resources.push(cgroup2_reference_resource(
+          path_item.visible_path, path_item.hierarchy_level, "io", counter.resource, counter.unit,
+          null, counter.value, null, null, null, [],
+        ))
+      }
+    }
+  }
+  return Ok({ancestors: ancestors, resources: resources, started: started, ended: time.now()})
+}
+
+## Scores stable limits and bracketed monotonic counters without treating changing gauges as exact.
+export pure compare_cgroup2_resources(candidate_json: Str, before: Cgroup2ResourceObservation, after: Cgroup2ResourceObservation) -> Result[Cgroup2ResourceComparison] {
+  if before.ancestors != after.ancestors {
+    return Err(check_failure("cgroup2 visible ancestor set changed around collection"))
+  }
+  var before_by_key: Map[Cgroup2ResourceReference] = {}
+  var after_by_key: Map[Cgroup2ResourceReference] = {}
+  for resource in before.resources {
+    let key = f"${resource.hierarchy_level}:${resource.resource}"
+    if before_by_key.has(key) {
+      return Err(check_failure("cgroup2 reference repeats a resource identity"))
+    }
+    before_by_key = before_by_key.set(key, resource)
+  }
+  for resource in after.resources {
+    let key = f"${resource.hierarchy_level}:${resource.resource}"
+    if after_by_key.has(key) or !before_by_key.has(key) {
+      return Err(check_failure("cgroup2 resource identities changed around collection"))
+    }
+    after_by_key = after_by_key.set(key, resource)
+    let original = before_by_key.get(key)?
+    if original.path != resource.path or original.controller != resource.controller or
+        original.maximum_value != resource.maximum_value or original.maximum_unlimited != resource.maximum_unlimited or
+        original.quota != resource.quota or original.period != resource.period or
+        original.effective_cpus != resource.effective_cpus or original.unit != resource.unit {
+      return Err(check_failure("cgroup2 static resource field changed around collection"))
+    }
+    if (resource.resource.starts_with("cpu.stat.") or resource.resource.starts_with("io.stat.")) and
+        (resource.current_value ?? -1) < (original.current_value ?? -1) {
+      return Err(check_failure("cgroup2 monotonic counter moved backward around collection"))
+    }
+  }
+  if before_by_key.len() != after_by_key.len() {
+    return Err(check_failure("cgroup2 resource identities changed around collection"))
+  }
+  let data = json.decode(candidate_json)?
+  let candidates = json.get(data, ["memory", "cgroup"])?.require(List[CandidateCgroup2Resource])?
+  var seen = set.empty()
+  var matched = 0
+  var unexpected: List[Str] = []
+  var field_mismatches: List[Str] = []
+  var unscored_gauges: List[Str] = []
+  for candidate in candidates {
+    let key = f"${candidate.hierarchy_level}:${candidate.resource}"
+    if set.has(seen, key) {
+      return Err(check_failure("candidate cgroup2 resources repeat an identity"))
+    }
+    seen = set.add(seen, key)
+    if !before_by_key.has(key) {
+      unexpected = unexpected.push(key)
+      continue
+    }
+    matched += 1
+    let original = before_by_key.get(key)?
+    let last = after_by_key.get(key)?
+    let cpus_compared = compare_cpu_id_sets(candidate.effective_cpus, original.effective_cpus)?
+    if candidate.path.state != "observed" or candidate.path.value != original.path or
+        candidate.controller != original.controller or candidate.state != "observed" or
+        candidate.maximum_value != original.maximum_value or candidate.unit != original.unit or
+        candidate.maximum_unlimited != original.maximum_unlimited or candidate.quota != original.quota or
+        candidate.period != original.period or !cpus_compared.exact or
+        !candidate.hidden_ancestors_possible {
+      field_mismatches = field_mismatches.push(key)
+      continue
+    }
+    if original.current_value != null {
+      if candidate.current_value == null {
+        field_mismatches = field_mismatches.push(key)
+      } else if candidate.resource.starts_with("cpu.stat.") or candidate.resource.starts_with("io.stat.") {
+        let current = candidate.current_value ?? -1
+        if current < (original.current_value ?? -1) or current > (last.current_value ?? -1) {
+          field_mismatches = field_mismatches.push(key)
+        }
+      } else if original.current_value != last.current_value or candidate.current_value != original.current_value {
+        unscored_gauges = unscored_gauges.push(key)
+      }
+    } else if candidate.current_value != null {
+      field_mismatches = field_mismatches.push(key)
+    }
+  }
+  var missing: List[Str] = []
+  for resource in before.resources {
+    let key = f"${resource.hierarchy_level}:${resource.resource}"
+    if !set.has(seen, key) {missing = missing.push(key)}
+  }
+  let exact_stable = missing.len() == 0 and unexpected.len() == 0 and field_mismatches.len() == 0
+  let eligible = before.ancestors.len() > 0 and before.resources.len() > 0
+  return Ok({
+    eligible: eligible, reference_count: before.resources.len(), candidate_count: candidates.len(), matched_count: matched,
+    missing_keys: missing |> sort-by ., unexpected_keys: unexpected |> sort-by ., field_mismatches: field_mismatches |> sort-by .,
+    unscored_gauges: unscored_gauges |> sort-by ., exact_stable: exact_stable,
+    exact_scored: eligible and exact_stable and unscored_gauges.len() == 0,
+  })
+}
+
+## Reads the current cgroup and visible ancestors through bounded raw kernel sources.
+export proc read_cpu_scope_cgroup_reference(root: FsRoot) [fs, time, error] -> Result[CpuScopeCgroupObservation] {
+  let started = time.now()
+  let paths = visible_cgroup2_reference_paths(root)?
+  var ancestors: List[CpuScopeAncestorReference] = []
+  for path_item in paths {
+    let cpuset_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/cpuset.cpus.effective", 65536, false)?
+    let quota_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/cpu.max", 4096, false)?
+    let cpus: List[Int]? = if cpuset_raw == null {null} else {parse_reference_cpu_list(cpuset_raw ?? "", true)?}
+    let quota: CpuScopeQuota? = if quota_raw == null {null} else {parse_cpu_scope_quota(quota_raw ?? "")?}
+    ancestors = ancestors.push({path: path_item.visible_path, hierarchy_level: path_item.hierarchy_level, effective_cpus: cpus, quota: quota})
+  }
+  return Ok({ancestors: ancestors, started: started, ended: time.now()})
+}
+
+## Compares stable visible cgroup CPU constraints and the current effective set.
+export pure compare_cpu_scope_cgroup(candidate_json: Str, before: CpuScopeCgroupObservation, after: CpuScopeCgroupObservation) -> Result[CpuScopeCgroupComparison] {
+  if before.ancestors != after.ancestors {
+    return Err(check_failure("CPU scope cgroup reference changed around collection"))
+  }
+  let data = json.decode(candidate_json)?
+  let candidates = json.get(data, ["memory", "cgroup"])?.require(List[CandidateCpuScopeResource])?
+  let candidate_cpuset = json.get(data, ["cpu", "effective_cpuset"])?.require(List[Int])?
+  var by_level: Map[CpuScopeAncestorReference] = {}
+  for ancestor in before.ancestors {
+    let key = f"${ancestor.hierarchy_level}"
+    if ancestor.hierarchy_level < 0 or by_level.has(key) {
+      return Err(check_failure("CPU scope reference has a duplicate ancestor level"))
+    }
+    by_level = by_level.set(key, ancestor)
+  }
+  var seen = set.empty()
+  var mismatches: List[Str] = []
+  var checked = 0
+  for candidate in candidates {
+    if candidate.resource not in ["cpu.max", "cpuset.cpus.effective"] {continue}
+    let key = f"${candidate.hierarchy_level}:${candidate.resource}"
+    if set.has(seen, key) {
+      return Err(check_failure("candidate CPU scope has duplicate resource identities"))
+    }
+    seen = set.add(seen, key)
+    checked += 1
+    let level = f"${candidate.hierarchy_level}"
+    if !by_level.has(level) {
+      mismatches = mismatches.push(key)
+      continue
+    }
+    let expected = by_level.get(level)?
+    if candidate.path.state != "observed" or candidate.path.value != expected.path or candidate.state != "observed" {
+      mismatches = mismatches.push(key)
+      continue
+    }
+    if candidate.resource == "cpu.max" {
+      if expected.quota == null {
+        mismatches = mismatches.push(key)
+      } else {
+        let quota = expected.quota ?? {quota: null, period: 0, unlimited: false}
+        if candidate.quota != quota.quota or candidate.period != quota.period or
+            candidate.maximum_unlimited != quota.unlimited or candidate.effective_cpus != [] {
+          mismatches = mismatches.push(key)
+        }
+      }
+    } else if expected.effective_cpus == null {
+      mismatches = mismatches.push(key)
+    } else {
+      let compared = compare_cpu_id_sets(candidate.effective_cpus, expected.effective_cpus ?? [])?
+      if !compared.exact or candidate.quota != null or candidate.period != null or candidate.maximum_unlimited != null {
+        mismatches = mismatches.push(key)
+      }
+    }
+  }
+  for ancestor in before.ancestors {
+    for resource in ["cpu.max", "cpuset.cpus.effective"] {
+      let key = f"${ancestor.hierarchy_level}:${resource}"
+      let observed = if resource == "cpu.max" {ancestor.quota != null} else {ancestor.effective_cpus != null}
+      if observed and !set.has(seen, key) {
+        mismatches = mismatches.push(key)
+      }
+    }
+  }
+  var eligible = false
+  if before.ancestors.len() > 0 {
+    let current = before.ancestors[0]
+    eligible = current.hierarchy_level == 0 and current.effective_cpus != null and current.quota != null
+    if current.effective_cpus != null {
+      let compared = compare_cpu_id_sets(candidate_cpuset, current.effective_cpus ?? [])?
+      if !compared.exact {mismatches = mismatches.push("cpu.effective_cpuset")}
+    }
+  }
+  return Ok({eligible: eligible, checked_resources: checked, mismatched_fields: mismatches |> sort-by ., exact: mismatches.len() == 0})
 }
 
 proc process_reference_text(root: FsRoot, source_path: Path, max_bytes: Int) [fs, error] -> Result[Str?] {
@@ -4670,8 +12589,8 @@ export pure require_live_linux_report(candidate_json: Str) -> Result[Unit] {
 
 pure trace_audit_argv(binary: Str, trace_file: Str, xsh_bin: Str, script: Str, applet_args: List[Str]) -> List[Str] {
   return [
-    binary, "-f", "-qq", "-s", "4096", "-e",
-    "trace=process,network,file,init_module,finit_module,delete_module,swapon,swapoff,write,writev,pwrite64,pwritev,pwritev2",
+    binary, "-f", "-qq", "-yy", "-s", "4096", "-e",
+    "trace=process,network,file,init_module,finit_module,delete_module,swapon,swapoff,write,writev,pwrite64,pwritev,pwritev2,utimensat,fchmodat2,fallocate,copy_file_range,sendfile,splice,vmsplice,tee,ioctl,setuid,setgid,setreuid,setregid,setresuid,setresgid,setfsuid,setfsgid,capset,unshare,setns,chroot,pivot_root,reboot,kexec_load,kexec_file_load,sethostname,setdomainname,clock_settime,settimeofday,clock_adjtime,adjtimex",
     "-o", trace_file, "--", xsh_bin, script, "--",
   ].extend(applet_args)
 }
@@ -4698,10 +12617,90 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
     if assertion.tier == "mandatory" {
       has_mandatory = true
     }
-    let rooted_reference = assertion.reference_adapter == "procfs-rooted-v1"
+    let rooted_process = assertion.reference_adapter == "procfs-rooted-v1"
+    let rooted_huge_pages = assertion.reference_adapter == "hugepage-sysfs-rooted-v1"
+    let rooted_cgroup = assertion.reference_adapter == "cgroup-v2-rooted-v1"
+    let rooted_cpufreq = assertion.reference_adapter == "cpufreq-sysfs-rooted-v1"
+    let rooted_cpuidle = assertion.reference_adapter == "cpuidle-sysfs-rooted-v1"
+    let rooted_pci_links = assertion.reference_adapter == "pci-link-sysfs-rooted-v1"
+    let rooted_pci_bindings = assertion.reference_adapter == "pci-binding-sysfs-rooted-v1"
+    let rooted_usb_topology = assertion.reference_adapter == "usb-topology-sysfs-rooted-v1"
+    let rooted_usb_ids = assertion.reference_adapter == "usb-ids-sysfs-rooted-v1"
+    let rooted_usb_power = assertion.reference_adapter == "usb-power-sysfs-rooted-v1"
+    let rooted_usb_interfaces = assertion.reference_adapter == "usb-interface-sysfs-rooted-v1"
+    let rooted_power_supplies = assertion.reference_adapter == "power-supply-sysfs-rooted-v1"
+    let rooted_powercap = assertion.reference_adapter == "powercap-sysfs-rooted-v1"
+    let rooted_device_classes = assertion.reference_adapter == "device-class-sysfs-rooted-v1"
+    let rooted_hwmon = assertion.reference_adapter == "hwmon-sysfs-rooted-v1"
+    let rooted_smbios = assertion.reference_adapter == "smbios-raw-rooted-v1"
+    let rooted_firmware_identity = assertion.reference_adapter == "firmware-identity-rooted-v1"
+    let rooted_thermal = assertion.reference_adapter == "thermal-sysfs-rooted-v1"
+    let rooted_cpu_cache = assertion.reference_adapter == "cache-sysfs-rooted-v1"
+    let rooted_reference = [
+      rooted_process, rooted_huge_pages, rooted_cgroup, rooted_cpufreq, rooted_cpuidle,
+      rooted_pci_links, rooted_pci_bindings, rooted_usb_topology, rooted_usb_ids,
+      rooted_usb_power, rooted_usb_interfaces, rooted_power_supplies, rooted_powercap,
+      rooted_device_classes, rooted_hwmon, rooted_smbios, rooted_firmware_identity,
+      rooted_thermal, rooted_cpu_cache,
+    ] |> any .
+    let rooted_binding_invalid = [
+      rooted_process and assertion.domain != "process",
+      rooted_huge_pages and assertion.id != "memory.hugepages",
+      rooted_cgroup and assertion.id != "memory.cgroup-v2",
+      rooted_cpufreq and assertion.id not in ["cpu.freq-policies", "cpu.freq-bounds", "cpu.epp-boost"],
+      rooted_cpuidle and assertion.id != "cpu.idle",
+      rooted_pci_links and assertion.id != "pci.link",
+      rooted_pci_bindings and assertion.id != "pci.binding",
+      rooted_usb_topology and assertion.id != "usb.topology",
+      rooted_usb_ids and assertion.id != "usb.ids",
+      rooted_usb_power and assertion.id != "usb.power",
+      rooted_usb_interfaces and assertion.id != "usb.interfaces",
+      rooted_power_supplies and assertion.id != "power.supplies",
+      rooted_powercap and assertion.id != "power.powercap",
+      rooted_device_classes and assertion.id != "devices.graphics-audio-input",
+      rooted_hwmon and assertion.id != "sensors.hwmon",
+      rooted_smbios and assertion.id != "firmware.smbios",
+      rooted_firmware_identity and assertion.id != "identity.firmware",
+      rooted_thermal and assertion.id != "sensors.thermal",
+      rooted_cpu_cache and assertion.id != "cpu.cache-sharing",
+    ] |> any .
+    let dmidecode_binding_invalid = [
+      assertion.domain != "firmware", assertion.tier != "supplemental",
+      assertion.reference_adapter != "dmidecode-hex-v1",
+      assertion.reference_commands != [
+        ["dmidecode", "--version"],
+        ["dmidecode", "--no-quirks", "--dump", "--from-dump", "<captured SMBIOS dump>"],
+      ],
+    ] |> any .
+    if assertion.id == "firmware.dmidecode" and dmidecode_binding_invalid {
+      return Err(check_failure("firmware.dmidecode must declare the opt-in saved-dump reference commands"))
+    }
+    if assertion.id == "sensors.lm-sensors" and (assertion.domain != "sensors" or
+        assertion.tier != "supplemental" or assertion.reference_adapter != "sensors-json-v1" or
+        assertion.reference_commands != [["sensors", "-v"], ["sensors", "-j", "-c", "/dev/null"]]) {
+      return Err(check_failure("sensors.lm-sensors must declare the opt-in unconfigured JSON reference commands"))
+    }
+    if assertion.id == "cpu.cpupower" and (assertion.domain != "cpu" or
+        assertion.tier != "supplemental" or assertion.reference_adapter != "cpupower-text-v1" or
+        assertion.reference_commands != [
+          ["cpupower", "--version"],
+          ["cpupower", "-c", "0", "frequency-info", "--driver"],
+          ["cpupower", "-c", "0", "frequency-info", "--hwlimits"],
+          ["cpupower", "-c", "0", "idle-info"],
+        ]) {
+      return Err(check_failure("cpu.cpupower must declare the opt-in CPU 0 reference commands"))
+    }
+    if assertion.id == "usb.lsusb" and (assertion.domain != "usb" or
+        assertion.tier != "supplemental" or assertion.reference_adapter != "lsusb-text-v1" or
+        assertion.reference_commands != [
+          ["lsusb", "--version"], ["lsusb"], ["lsusb", "-t"],
+          ["lsusb", "-v", "-s", "<selected bus:device>"],
+        ]) {
+      return Err(check_failure("usb.lsusb must declare the opt-in inventory, tree, and selected descriptor commands"))
+    }
     if assertion.source_abi.trim() == "" or assertion.reference_adapter.trim() == "" or
         (assertion.reference_commands.len() == 0 and !rooted_reference) or
-        (rooted_reference and (assertion.domain != "process" or assertion.reference_commands.len() != 0)) {
+        (rooted_reference and assertion.reference_commands.len() != 0) or rooted_binding_invalid {
       return Err(check_failure(f"assertion '${assertion.id}' has an invalid source ABI or reference invocation"))
     }
     var seen_commands: List[List[Str]] = []
@@ -4716,9 +12715,46 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
       }
       seen_commands = seen_commands.push(command)
     }
+    if assertion.id == "network.links" and
+        (assertion.reference_adapter != "iproute2+network-link-sysfs-rooted-v1" or
+          assertion.reference_commands != [["ip", "-json", "-details", "link", "show"]]) {
+      return Err(check_failure("network.links must declare iproute2 JSON and rooted sysfs references"))
+    }
+    if assertion.id == "network.addresses" and
+        (assertion.reference_adapter != "iproute2" or
+          assertion.reference_commands != [["ip", "-json", "address", "show"]]) {
+      return Err(check_failure("network.addresses must declare the iproute2 JSON reference"))
+    }
     if assertion.id == "network.routes" and assertion.reference_commands != [network_route_argv("ipv4"), network_route_argv("ipv6")] or
+        assertion.id == "cpu.topology" and
+          (assertion.reference_adapter != "lscpu" or assertion.reference_commands != [["lscpu", "--json", "--extended=CPU,ONLINE,SOCKET,CORE,NODE", "--all"]]) or
+        assertion.id == "cpu.cache-sharing" and !rooted_cpu_cache or
+        assertion.id in ["cpu.freq-policies", "cpu.freq-bounds", "cpu.epp-boost"] and !rooted_cpufreq or
+        assertion.id == "cpu.idle" and !rooted_cpuidle or
+        assertion.id == "pci.link" and !rooted_pci_links or
+        assertion.id == "pci.binding" and !rooted_pci_bindings or
+        assertion.id == "usb.interfaces" and !rooted_usb_interfaces or
+        assertion.id == "power.supplies" and !rooted_power_supplies or
+        assertion.id == "power.powercap" and !rooted_powercap or
+        assertion.id == "devices.graphics-audio-input" and !rooted_device_classes or
+        assertion.id == "sensors.hwmon" and !rooted_hwmon or
+        assertion.id == "firmware.smbios" and !rooted_smbios or
+        assertion.id == "identity.firmware" and !rooted_firmware_identity or
+        assertion.id == "sensors.thermal" and !rooted_thermal or
         assertion.id == "network.rules" and assertion.reference_commands != [network_rule_argv("ipv4"), network_rule_argv("ipv6")] or
-        assertion.id in ["pci.identity", "pci.binding"] and
+        assertion.id == "memory.hugepages" and assertion.reference_adapter != "hugepage-sysfs-rooted-v1" or
+        assertion.id == "memory.cgroup-v2" and assertion.reference_adapter != "cgroup-v2-rooted-v1" or
+        assertion.id == "memory.pressure" and
+          (assertion.reference_adapter != "pressure-procfs-v1" or assertion.reference_commands != [
+            ["/bin/cat", "/proc/pressure/cpu"], ["/bin/cat", "/proc/pressure/memory"], ["/bin/cat", "/proc/pressure/io"],
+          ]) or
+        assertion.id == "memory.cpu-scope" and
+          (assertion.reference_adapter != "cpu-scope-procfs-cgroup-v1" or
+            assertion.reference_commands != [["/bin/cat", "/proc/self/status"]]) or
+        assertion.id == "cpu.vulnerabilities" and
+          (assertion.reference_adapter != "kernel-vulnerability-files" or
+            assertion.reference_commands != [["/bin/cat", "/sys/devices/system/cpu/vulnerabilities/<name>"]]) or
+        assertion.id == "pci.identity" and
           (assertion.reference_adapter != "lspci" or assertion.reference_commands != [pci_reference_argv()]) or
         assertion.id in ["privacy.no-process-data", "safety.no-child", "safety.no-mutation"] and
           (assertion.reference_adapter != "strace" or assertion.reference_commands != [trace_audit_argv("strace", "<trace file>", "<xsh binary>", "<system-report script>", ["--json"])]) {
@@ -4780,10 +12816,14 @@ export pure validate(manifest: CoverageManifest) -> Result[Unit] {
     var seen_tests: List[Str] = []
     for test_name in fixture_case.tests {
       let native_case = test_name.starts_with("tests/xsh/system-report.xsh::test_system_report_")
+      let source_parser_case = test_name.starts_with("tests/xsh/system-report-collect.xsh::test_system_report_")
       let reference_case = test_name.starts_with("dev/tests/test-system-report-check.xsh::test_system_report_")
+      let sensors_reference_case = test_name.starts_with("dev/tests/test-system-report-sensors-check.xsh::test_system_report_")
+      let cpupower_reference_case = test_name.starts_with("dev/tests/test-system-report-cpupower-check.xsh::test_system_report_")
+      let lsusb_reference_case = test_name.starts_with("dev/tests/test-system-report-lsusb-check.xsh::test_system_report_")
       let rust_netlink_case = test_name.starts_with("src/modules/linux/real/netlink.rs::")
       let rust_privilege_case = test_name.starts_with("tests/linux_priv.rs::system_report_")
-      if (!native_case and !reference_case and !rust_netlink_case and !rust_privilege_case) or test_name.split("::").len() != 2 or test_name in seen_tests {
+      if (!native_case and !source_parser_case and !reference_case and !sensors_reference_case and !cpupower_reference_case and !lsusb_reference_case and !rust_netlink_case and !rust_privilege_case) or test_name.split("::").len() != 2 or test_name in seen_tests {
         return Err(check_failure(f"fixture case '${fixture_case.scenario}' has an invalid or duplicate test"))
       }
       seen_tests = seen_tests.push(test_name)
@@ -4833,7 +12873,11 @@ export pure rust_fixture_test_definition_exists(source: Str, test_name: Str) -> 
 
 proc validate_fixture_test_definitions(root: Path, fixture_cases: List[FixtureCase]) [fs, error] -> Result[Unit] {
   let native_source = context.repo_path(root, "tests/xsh/system-report.xsh").read_text()?
+  let source_parser_tests = context.repo_path(root, "tests/xsh/system-report-collect.xsh").read_text()?
   let reference_source = context.repo_path(root, "dev/tests/test-system-report-check.xsh").read_text()?
+  let sensors_reference_source = context.repo_path(root, "dev/tests/test-system-report-sensors-check.xsh").read_text()?
+  let cpupower_reference_source = context.repo_path(root, "dev/tests/test-system-report-cpupower-check.xsh").read_text()?
+  let lsusb_reference_source = context.repo_path(root, "dev/tests/test-system-report-lsusb-check.xsh").read_text()?
   let rust_netlink_source = context.repo_path(root, "src/modules/linux/real/netlink.rs").read_text()?
   let rust_privilege_source = context.repo_path(root, "tests/linux_priv.rs").read_text()?
   for fixture_case in fixture_cases {
@@ -4846,6 +12890,14 @@ proc validate_fixture_test_definitions(root: Path, fixture_cases: List[FixtureCa
         exists = rust_fixture_test_definition_exists(rust_privilege_source, parts[1])
       } else if parts[0] == "tests/xsh/system-report.xsh" {
         exists = fixture_test_definition_exists(native_source, parts[1])
+      } else if parts[0] == "tests/xsh/system-report-collect.xsh" {
+        exists = fixture_test_definition_exists(source_parser_tests, parts[1])
+      } else if parts[0] == "dev/tests/test-system-report-sensors-check.xsh" {
+        exists = fixture_test_definition_exists(sensors_reference_source, parts[1])
+      } else if parts[0] == "dev/tests/test-system-report-cpupower-check.xsh" {
+        exists = fixture_test_definition_exists(cpupower_reference_source, parts[1])
+      } else if parts[0] == "dev/tests/test-system-report-lsusb-check.xsh" {
+        exists = fixture_test_definition_exists(lsusb_reference_source, parts[1])
       } else {
         exists = fixture_test_definition_exists(reference_source, parts[1])
       }
@@ -4897,7 +12949,7 @@ pure traced_syscall(line: Str, name: Str) -> Bool {
   return before_call == name or before_call.ends_with(f" ${name}")
 }
 
-# Extracts syscall arguments without splitting commas inside payloads or quoted strings.
+# Extracts syscall arguments without splitting inside payloads, strings, or descriptor paths.
 pure traced_call_arguments(line: Str, name: Str) -> List[Str] {
   let call = line.split(f"${name}(", maxsplit: 1)
   if call.len() != 2 {
@@ -4908,6 +12960,7 @@ pure traced_call_arguments(line: Str, name: Str) -> List[Str] {
   var braces = 0
   var brackets = 0
   var parentheses = 0
+  var angles = 0
   var quoted = false
   var escaped = false
   for character in call[1].split("") {
@@ -4920,6 +12973,11 @@ pure traced_call_arguments(line: Str, name: Str) -> List[Str] {
       } else if character == "\"" {
         quoted = false
       }
+      continue
+    }
+    if angles > 0 {
+      if character == ">" {angles = 0}
+      current = current.push(character)
       continue
     }
     if character == "\"" {
@@ -4937,22 +12995,28 @@ pure traced_call_arguments(line: Str, name: Str) -> List[Str] {
     } else if character == "]" {
       brackets -= 1
       current = current.push(character)
+    } else if character == "<" {
+      angles = 1
+      current = current.push(character)
+    } else if character == ">" {
+      angles -= 1
+      current = current.push(character)
     } else if character == "(" {
       parentheses += 1
       current = current.push(character)
-    } else if character == ")" and braces == 0 and brackets == 0 and parentheses == 0 {
+    } else if character == ")" and braces == 0 and brackets == 0 and parentheses == 0 and angles == 0 {
       arguments = arguments.push(current.join("").trim())
       return arguments
     } else if character == ")" {
       parentheses -= 1
       current = current.push(character)
-    } else if character == "," and braces == 0 and brackets == 0 and parentheses == 0 {
+    } else if character == "," and braces == 0 and brackets == 0 and parentheses == 0 and angles == 0 {
       arguments = arguments.push(current.join("").trim())
       current = []
     } else {
       current = current.push(character)
     }
-    if braces < 0 or brackets < 0 or parentheses < 0 {
+    if braces < 0 or brackets < 0 or parentheses < 0 or angles < 0 {
       return []
     }
   }
@@ -5000,10 +13064,47 @@ pure route_netlink_query_only(message: Str) -> Bool {
   return true
 }
 
-## Flags system mutations and network operations outside route queries.
+# Route-netlink queries must address the kernel unicast port, not a user port or multicast group.
+pure route_netlink_kernel_destination(destination: Str) -> Bool {
+  let fields = destination.split(",")
+  let family = fields.get(0, "").trim()
+  if family != "{sa_family=AF_NETLINK" and family != "{nl_family=AF_NETLINK" {
+    return false
+  }
+  var pid_fields = 0
+  var group_fields = 0
+  for part in fields |> drop(1) {
+    let field = part.trim().split("}").get(0, "").trim()
+    if field.starts_with("nl_pid=") {
+      if field != "nl_pid=0" {return false}
+      pid_fields += 1
+    } else if field.starts_with("nl_groups=") {
+      let group_bits = field.split("=", maxsplit: 1).get(1, "")
+      if group_bits == "" {return false}
+      for bit in group_bits.split("") {
+        if bit != "0" {return false}
+      }
+      group_fields += 1
+    } else {
+      return false
+    }
+  }
+  return pid_fields == 1 and group_fields == 1
+}
+
+## Flags system mutations, non-query network operations, and incomplete syscall records.
 export pure host_effect_trace_violations(trace: Str) -> List[Str] {
   var violations: List[Str] = []
   for line in trace.lines() {
+    if line.trim().ends_with("<unfinished ...>") or
+        (line.contains(" <... ") and line.contains(" resumed>")) {
+      violations = violations.push("incomplete syscall trace")
+    }
+    for name in ["openat", "openat2", "readlinkat", "newfstatat", "statx", "faccessat", "faccessat2"] {
+      if traced_syscall(line, name) and unresolved_source_directory(line, name) {
+        violations = violations.push("unresolved source directory descriptor")
+      }
+    }
     for name in [
       "creat", "rename", "renameat", "renameat2", "unlink", "unlinkat",
       "mkdir", "mkdirat", "rmdir", "link", "linkat", "symlink", "symlinkat",
@@ -5011,6 +13112,12 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
       "fchown", "fchownat", "truncate", "ftruncate", "mount", "umount2",
       "swapon", "swapoff", "init_module", "finit_module", "delete_module",
       "setxattr", "lsetxattr", "fsetxattr", "removexattr", "lremovexattr", "fremovexattr",
+      "utime", "utimes", "futimesat", "utimensat", "fchmodat2", "fallocate",
+      "copy_file_range", "sendfile", "sendfile64", "splice", "vmsplice", "tee",
+      "setuid", "setgid", "setreuid", "setregid", "setresuid", "setresgid",
+      "setfsuid", "setfsgid", "capset", "unshare", "setns", "chroot", "pivot_root",
+      "reboot", "kexec_load", "kexec_file_load", "sethostname", "setdomainname",
+      "clock_settime", "settimeofday", "clock_adjtime", "adjtimex",
     ] {
       if traced_syscall(line, name) {
         violations = violations.push(f"system mutation syscall ${name}")
@@ -5019,6 +13126,10 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
     let open_name = if traced_syscall(line, "open") {"open"} else if traced_syscall(line, "openat") {"openat"} else if traced_syscall(line, "openat2") {"openat2"} else {""}
     if open_name != "" {
       let arguments = traced_call_arguments(line, open_name)
+      let minimum_arguments = if open_name == "open" {2} else if open_name == "openat" {3} else {4}
+      if arguments.len() < minimum_arguments {
+        violations = violations.push("incomplete file open trace")
+      }
       let flags = if open_name == "open" {arguments.get(1, "")} else {arguments.get(2, "")}
       if flags.contains("O_WRONLY") or flags.contains("O_RDWR") or flags.contains("O_CREAT") or flags.contains("O_TRUNC") or flags.contains("O_APPEND") {
         violations = violations.push("writable file open")
@@ -5026,7 +13137,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
     }
     for name in ["write", "writev"] {
       if traced_syscall(line, name) {
-        let descriptor = line.split(f"${name}(", maxsplit: 1).get(1, "").split(",").get(0, "").trim()
+        let descriptor = line.split(f"${name}(", maxsplit: 1).get(1, "").split(",").get(0, "").split("<").get(0, "").trim()
         if descriptor != "1" and descriptor != "2" {
           violations = violations.push("write to non-output descriptor")
         }
@@ -5035,6 +13146,16 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
     for name in ["pwrite64", "pwritev", "pwritev2"] {
       if traced_syscall(line, name) {
         violations = violations.push("positioned write syscall")
+      }
+    }
+    if traced_syscall(line, "ioctl") {
+      let request = traced_call_arguments(line, "ioctl").get(1, "")
+      if request not in [
+        "TIOCGWINSZ", "TCGETS", "SIOCGIFFLAGS", "SIOCGIFMTU",
+        "BLKSSZGET", "BLKGETSIZE64", "FS_IOC_GETFLAGS", "FS_IOC_GETVERSION",
+        "RTC_RD_TIME", "LOOP_GET_STATUS64",
+      ] {
+        violations = violations.push("unapproved ioctl request")
       }
     }
     if traced_syscall(line, "socket") {
@@ -5085,7 +13206,9 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
       if destination.starts_with("{sa_family=AF_INET") or destination.starts_with("{sa_family=AF_PACKET") {
         violations = violations.push("external network syscall")
       } else if destination.starts_with("{sa_family=AF_NETLINK") or destination.starts_with("{nl_family=AF_NETLINK") {
-        if !route_netlink_query_only(arguments.get(1, "")) {
+        if !route_netlink_kernel_destination(destination) {
+          violations = violations.push("non-kernel netlink destination")
+        } else if !route_netlink_query_only(arguments.get(1, "")) {
           violations = violations.push("non-query netlink request")
         }
       } else {
@@ -5096,6 +13219,19 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
     }
   }
   return violations
+}
+
+# A relative source path needs either the known root cwd or a decoded absolute directory descriptor.
+pure unresolved_source_directory(line: Str, name: Str) -> Bool {
+  let arguments = traced_call_arguments(line, name)
+  let source_argument = arguments.get(1, "")
+  if !source_argument.starts_with("\"") {return false}
+  let source_path = source_argument.split("\"").get(1, "")
+  if source_path.starts_with("/") {return false}
+  let directory = arguments.get(0, "")
+  if directory == "AT_FDCWD" {return false}
+  let descriptor_parts = directory.split("<", maxsplit: 1)
+  return descriptor_parts.len() != 2 or !descriptor_parts[1].starts_with("/")
 }
 
 pure process_path_identity(value: Str) -> Bool {
@@ -5129,6 +13265,26 @@ pure normalized_traced_path(argument: Str) -> List[Str] {
   return components
 }
 
+# Resolves relative paths against a decoded descriptor path when strace provides one.
+pure normalized_traced_call_path(line: Str, name: Str, path_index: Int) -> List[Str] {
+  let arguments = traced_call_arguments(line, name)
+  let argument = arguments.get(path_index, "")
+  if !argument.starts_with("\"") {return []}
+  let traced_path = argument.split("\"").get(1, "")
+  if traced_path.starts_with("/") or path_index != 1 {
+    return normalized_traced_path(argument)
+  }
+  let descriptor_parts = arguments.get(0, "").split("<", maxsplit: 1)
+  if descriptor_parts.len() != 2 {
+    return normalized_traced_path(argument)
+  }
+  let directory = descriptor_parts[1].split(">", maxsplit: 1).get(0, "")
+  if !directory.starts_with("/") {
+    return normalized_traced_path(argument)
+  }
+  return normalized_traced_path(f"\"${directory}/${traced_path}\"")
+}
+
 ## Rejects reads of per-process environments, command lines, memory, and open paths.
 export pure forbidden_process_read_violations(trace: Str) -> List[Str] {
   var violations: List[Str] = []
@@ -5136,8 +13292,7 @@ export pure forbidden_process_read_violations(trace: Str) -> List[Str] {
     for name in ["open", "openat", "openat2", "readlink", "readlinkat"] {
       if traced_syscall(line, name) {
         let path_index = if name in ["openat", "openat2", "readlinkat"] {1} else {0}
-        let argument = traced_call_arguments(line, name).get(path_index, "")
-        let path_parts = normalized_traced_path(argument)
+        let path_parts = normalized_traced_call_path(line, name, path_index)
         if path_parts.len() < 3 or path_parts[0] != "proc" or !process_path_identity(path_parts[1]) {
           continue
         }
@@ -5169,14 +13324,12 @@ export pure forbidden_process_field_violations(candidate_json: Str) -> Result[Li
   return Ok(violations)
 }
 
-pure replay_live_source_path(source_path: Str) -> Bool {
-  let components = normalized_traced_path(source_path)
+pure replay_live_source_path(components: List[Str]) -> Bool {
   return components.len() > 0 and components[0] in ["proc", "sys", "etc"]
 }
 
-## Flags live-source file and metadata reads during saved-report replay.
-export pure replay_host_read_violations(trace: Str) -> List[Str] {
-  var violations: List[Str] = []
+pure replay_host_read_keys(trace: Str) -> List[Str] {
+  var keys: List[Str] = []
   for line in trace.lines() {
     for name in [
       "open", "openat", "openat2", "readlink", "readlinkat", "stat", "lstat",
@@ -5184,11 +13337,38 @@ export pure replay_host_read_violations(trace: Str) -> List[Str] {
     ] {
       if traced_syscall(line, name) {
         let path_index = if name in ["openat", "openat2", "readlinkat", "newfstatat", "statx", "faccessat", "faccessat2"] { 1 } else { 0 }
-        let source_path = traced_call_arguments(line, name).get(path_index, "")
+        let source_path = normalized_traced_call_path(line, name, path_index)
         if replay_live_source_path(source_path) {
-          violations = violations.push("saved-report replay read a live source")
+          keys = keys.push(f"${name}:${source_path.join("/")}")
         }
       }
+    }
+  }
+  return keys
+}
+
+## Flags live-source file and metadata reads during saved-report replay.
+export pure replay_host_read_violations(trace: Str) -> List[Str] {
+  var violations: List[Str] = []
+  for _ in replay_host_read_keys(trace) {
+    violations = violations.push("saved-report replay read a live source")
+  }
+  return violations
+}
+
+## Excludes only live-source probes also made by the same applet's no-collection startup path.
+export pure replay_host_read_violations_after_baseline(trace: Str, baseline: Str) -> List[Str] {
+  var allowed: Map[Int] = {}
+  for key in replay_host_read_keys(baseline) {
+    allowed = allowed.set(key, allowed.get(key, 0) + 1)
+  }
+  var violations: List[Str] = []
+  for key in replay_host_read_keys(trace) {
+    let remaining = allowed.get(key, 0)
+    if remaining > 0 {
+      allowed = allowed.set(key, remaining - 1)
+    } else {
+      violations = violations.push("saved-report replay read a live source")
     }
   }
   return violations
@@ -5295,9 +13475,10 @@ export proc audit_no_subprocess(xsh_bin: Str, script: Str) [fs, process, error] 
   audit_no_subprocess_case(xsh_bin, script, ["--from", unsupported_path.display()], false, "unsupported-schema", scratch)?
   audit_no_subprocess_case(xsh_bin, script, ["--from", invalid_utf8_path.display()], false, "invalid-utf8-replay", scratch)?
   audit_no_subprocess_case(xsh_bin, script, ["--from", missing_path.display()], false, "missing-replay", scratch)?
+  let startup_trace = fs.root_read_text(scratch, p"trace-version")?
   for label in ["offline-replay", "malformed-replay", "unsupported-schema", "invalid-utf8-replay", "missing-replay"] {
     let replay_trace = fs.root_read_text(scratch, fp"trace-${label}")?
-    let replay_reads = replay_host_read_violations(replay_trace)
+    let replay_reads = replay_host_read_violations_after_baseline(replay_trace, startup_trace)
     if replay_reads.len() > 0 {
       let reasons = replay_reads.join(", ")
       return Err(check_failure(f"${label}: ${reasons}"))
@@ -5459,17 +13640,20 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, io, er
   let os_release_path = if p"/etc/os-release".exists()? {"/etc/os-release"} else if p"/usr/lib/os-release".exists()? {"/usr/lib/os-release"} else {""}
   let scratch = fs.tempdir()?
   defer fs.close_root(scratch)?
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
   let before_release = read_uname_reference("-r", scratch, "release-before")?
   let before_architecture = read_uname_reference("-m", scratch, "architecture-before")?
   let before_uptime = read_uptime_reference(scratch, "uptime-before")?
   let before_os_release = if os_release_path == "" {{value: "", started: 0, ended: 0}} else {read_os_release_reference(scratch, os_release_path, "os-release-before")?}
   let before_device_tree_model = read_device_tree_raw_reference(scratch, p"/sys/firmware/devicetree/base/model", 4096, "device-tree-model-before")?
   let before_device_tree_compatible = read_device_tree_raw_reference(scratch, p"/sys/firmware/devicetree/base/compatible", 16384, "device-tree-compatible-before")?
+  let before_dmi = read_dmi_identity_reference(source)?
   let scratch_path = fs.root_path(scratch)?
   fs.root_write(scratch, p"candidate", "")?
   let candidate_started = time.now()
   let candidate_status = process.run(process.command_argv(
-    xsh_bin, [xsh_bin, script, "--", "--section", "identity", "--json"],
+    xsh_bin, [xsh_bin, script, "--", "--section", "identity", "--sensitive", "--json"],
     cwd: p"/",
     env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
     stdout: fp"${scratch_path}/candidate",
@@ -5481,6 +13665,7 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, io, er
   let after_os_release = if os_release_path == "" {{value: "", started: 0, ended: 0}} else {read_os_release_reference(scratch, os_release_path, "os-release-after")?}
   let after_device_tree_model = read_device_tree_raw_reference(scratch, p"/sys/firmware/devicetree/base/model", 4096, "device-tree-model-after")?
   let after_device_tree_compatible = read_device_tree_raw_reference(scratch, p"/sys/firmware/devicetree/base/compatible", 16384, "device-tree-compatible-after")?
+  let after_dmi = read_dmi_identity_reference(source)?
   let after_uptime = read_uptime_reference(scratch, "uptime-after")?
   let after_release = read_uname_reference("-r", scratch, "release-after")?
   let after_architecture = read_uname_reference("-m", scratch, "architecture-after")?
@@ -5503,6 +13688,7 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, io, er
   require_live_linux_report(candidate)?
   let compared = compare_identity(candidate, before_release.value, before_architecture.value)?
   let uptime_compared = compare_uptime(candidate, before_uptime.seconds, after_uptime.seconds)?
+  let dmi_compared = compare_dmi_identity(candidate, before_dmi, after_dmi)?
   var os_release_exact = true
   var os_release_scored = 0
   var os_release_line = "identity.os.release: reference unavailable (no os-release source)"
@@ -5521,7 +13707,8 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, io, er
   var device_tree_provenance = "device-tree=unavailable"
   if before_device_tree_model.data != null or before_device_tree_compatible.data != null {
     let device_tree_reference = parse_reference_device_tree(before_device_tree_model.data, before_device_tree_compatible.data)?
-    let device_tree_compared = compare_device_tree(candidate, device_tree_reference)?
+    let device_tree_compared = compare_device_tree(candidate, device_tree_reference,
+      before_dmi.vendor.value != null or before_dmi.product.value != null)?
     let device_tree_state = if device_tree_compared.exact {"exact"} else {"mismatch"}
     device_tree_line = f"firmware.device-tree: ${device_tree_state}; source_exact=${device_tree_compared.source_exact}, model_exact=${device_tree_compared.model_exact}, compatible_exact=${device_tree_compared.compatible_exact}"
     var device_tree_argv: List[List[Str]] = []
@@ -5536,6 +13723,11 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, io, er
     device_tree_exact = device_tree_compared.exact
     device_tree_scored = 1
   }
+  let firmware_identity_scored = if dmi_compared.eligible or device_tree_scored > 0 {1} else {0}
+  let firmware_identity_exact = if firmware_identity_scored == 0 {true} else if dmi_compared.eligible {dmi_compared.exact} else {
+    device_tree_exact and dmi_compared.field_mismatches.len() == 0 and dmi_compared.unstable_fields.len() == 0
+  }
+  let firmware_identity_state = if firmware_identity_scored == 0 {"reference unavailable"} else if firmware_identity_exact {"exact"} else {"mismatch or incomplete"}
   let release_state = if compared.release_exact {"exact"} else if compared.release_missing {"candidate missing"} else {"mismatch"}
   let architecture_state = if compared.architecture_exact {"exact"} else if compared.architecture_missing {"candidate missing"} else {"mismatch"}
   let release_display = compared.candidate_release ?? "null"
@@ -5555,11 +13747,12 @@ proc compare_live_identity(xsh_bin: Str, script: Str) [fs, process, time, io, er
   print f"identity.uptime: ${uptime_state}; before=${before_uptime.seconds}, candidate=${candidate_uptime_display}, after=${after_uptime.seconds} seconds"
   print f"${os_release_line}"
   print f"${device_tree_line}"
-  print f"reference: uname=${uname_version}; cat=${cat_version}; argv=/bin/uname -r, /bin/uname -m, /bin/cat /proc/uptime; ${os_release_provenance}; ${device_tree_provenance}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before-release=${before_release.started}..${before_release.ended} ms; before-architecture=${before_architecture.started}..${before_architecture.ended} ms; before-uptime=${before_uptime.started}..${before_uptime.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after-uptime=${after_uptime.started}..${after_uptime.ended} ms; after-release=${after_release.started}..${after_release.ended} ms; after-architecture=${after_architecture.started}..${after_architecture.ended} ms"
-  if !compared.exact or !uptime_compared.bracketed or !os_release_exact or !device_tree_exact {
+  print f"identity.firmware: ${firmware_identity_state}; dmi_exposed=${dmi_compared.eligible}, dmi_mismatches=${dmi_compared.field_mismatches.len()}, dmi_changed_or_incomplete=${dmi_compared.unstable_fields.len()}"
+  print f"reference: uname=${uname_version}; cat=${cat_version}; argv=/bin/uname -r, /bin/uname -m, /bin/cat /proc/uptime; ${os_release_provenance}; ${device_tree_provenance}; dmi=/sys/class/dmi/id/{sys_vendor,product_name,board_vendor,board_name,bios_vendor,bios_version,product_serial,product_uuid}, bound=4096 bytes per attribute; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before-release=${before_release.started}..${before_release.ended} ms; before-architecture=${before_architecture.started}..${before_architecture.ended} ms; before-uptime=${before_uptime.started}..${before_uptime.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after-uptime=${after_uptime.started}..${after_uptime.ended} ms; after-release=${after_release.started}..${after_release.ended} ms; after-architecture=${after_architecture.started}..${after_architecture.ended} ms"
+  if !compared.exact or !uptime_compared.bracketed or !os_release_exact or !device_tree_exact or !firmware_identity_exact {
     return Err(check_failure("mandatory identity assertions failed"))
   }
-  return Ok(3 + os_release_scored + device_tree_scored)
+  return Ok(3 + os_release_scored + device_tree_scored + firmware_identity_scored)
 }
 
 # Brackets namespace symlink identities around one sensitive, identity-only candidate snapshot.
@@ -5625,7 +13818,7 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, io, 
   let missing = json.encode(compared.missing_fields)?
   let mismatched = json.encode(compared.mismatched_fields)?
   let argv_display = json.encode(reference_argv)?
-  let agreement = if compared.exact {"exact"} else {"mismatch"}
+  let agreement = if compared.exact {"exact"} else if compared.eligible {"mismatch"} else {"reference_incomplete"}
   print f"identity.scope.namespaces: ${agreement}; reference=${compared.reference_count}, matched=${compared.matched_count}, candidate_missing=${missing}, mismatched=${mismatched}"
   print f"reference: ${version}; executable=/usr/bin/readlink; argv_each_bracket=${argv_display}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
   if !compared.exact {
@@ -5802,6 +13995,259 @@ proc compare_live_thp(xsh_bin: Str, script: Str) [fs, process, time, io, error] 
   return Ok(true)
 }
 
+## Parses one complete decimal sysfs counter within the JSON exact-integer range.
+export pure parse_huge_page_counter_reference(source: Str) -> Result[Int] {
+  let value = source.trim()
+  if value == "" {
+    return Err(check_failure("huge-page reference counter is empty"))
+  }
+  for digit in value.split("") {
+    if digit not in ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] {
+      return Err(check_failure("huge-page reference counter is not decimal"))
+    }
+  }
+  let parsed = value.parse_int()?
+  if parsed < 0 or parsed > 9007199254740991 {
+    return Err(check_failure("huge-page reference counter exceeds the exact integer range"))
+  }
+  return Ok(parsed)
+}
+
+pure parse_huge_page_size_reference(name: Str) -> Result[Int] {
+  let parts = name.split("-")
+  if parts.len() != 2 or parts[0] != "hugepages" or !parts[1].ends_with("kB") {
+    return Err(check_failure("huge-page reference has an invalid pool name"))
+  }
+  let size_text = parts[1].split("kB").get(0, "")
+  if f"${size_text}kB" != parts[1] {
+    return Err(check_failure("huge-page reference has an invalid size suffix"))
+  }
+  let kib = parse_huge_page_counter_reference(size_text)?
+  if kib <= 0 or kib > 8796093022207 {
+    return Err(check_failure("huge-page reference size exceeds the byte range"))
+  }
+  return Ok(kib * 1024)
+}
+
+proc read_huge_page_counter_reference(root: FsRoot, source_path: Path, required: Bool) [fs, error] -> Result[Int?] {
+  let raw = fs.root_read_result(root, source_path, max_bytes: 4096)?
+  if raw.state == "absent" and !required {
+    return Ok(null)
+  }
+  if raw.state != "observed" or raw.truncated or raw.data == null {
+    return Err(check_failure(f"huge-page reference source ${source_path} is incomplete"))
+  }
+  var value = ""
+  match (raw.data ?? b"").utf8() {
+    Ok(text) => value = text
+    Err(_) => return Err(check_failure(f"huge-page reference source ${source_path} is not UTF-8"))
+  }
+  return Ok(parse_huge_page_counter_reference(value)?)
+}
+
+proc read_huge_page_pool_reference(root: FsRoot, source_path: Path, node_id: Int?) [fs, error] -> Result[HugePageReferencePool] {
+  let page_size_bytes = parse_huge_page_size_reference(source_path.name())?
+  let total = read_huge_page_counter_reference(root, fp"${source_path}/nr_hugepages", true)?
+  if total == null {
+    return Err(check_failure("required huge-page count is unavailable"))
+  }
+  let total_count = total ?? -1
+  let free = read_huge_page_counter_reference(root, fp"${source_path}/free_hugepages", false)?
+  let reserved = read_huge_page_counter_reference(root, fp"${source_path}/resv_hugepages", false)?
+  let surplus = read_huge_page_counter_reference(root, fp"${source_path}/surplus_hugepages", false)?
+  return Ok({
+    node_id: node_id, page_size_bytes: page_size_bytes, total: total_count,
+    free: free, reserved: reserved, surplus: surplus,
+  })
+}
+
+## Reads global and visible NUMA huge-page pools through an independent bounded parser.
+export proc read_huge_page_reference(root: FsRoot) [fs, time, error] -> Result[HugePageObservation] {
+  let started = time.now()
+  var pools: List[HugePageReferencePool] = []
+  let global = fs.root_children(root, p"sys/kernel/mm/hugepages", max_entries: 1024)?
+  if global.state != "complete" and global.state != "absent" {
+    return Err(check_failure("global huge-page reference enumeration is incomplete"))
+  }
+  for source_path in global.children {
+    if source_path.name().starts_with("hugepages-") {
+      pools = pools.push(read_huge_page_pool_reference(root, source_path, null)?)
+    }
+  }
+  let nodes = fs.root_children(root, p"sys/devices/system/node", max_entries: 1024)?
+  if nodes.state != "complete" and nodes.state != "absent" {
+    return Err(check_failure("NUMA node reference enumeration is incomplete"))
+  }
+  for node in nodes.children {
+    if !node.name().starts_with("node") {continue}
+    let node_text = (node.name().split("") |> drop(4)).join("")
+    let node_id = parse_huge_page_counter_reference(node_text)?
+    let listing = fs.root_children(root, fp"${node}/hugepages", max_entries: 1024)?
+    if listing.state != "complete" and listing.state != "absent" {
+      return Err(check_failure(f"NUMA huge-page reference enumeration is incomplete for node ${node_id}"))
+    }
+    for source_path in listing.children {
+      if source_path.name().starts_with("hugepages-") {
+        pools = pools.push(read_huge_page_pool_reference(root, source_path, node_id)?)
+      }
+    }
+  }
+  return Ok({pools: pools, started: started, ended: time.now()})
+}
+
+# Brackets one sensitive memory report with global and visible NUMA pool snapshots.
+proc compare_live_huge_pages(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[HugePageLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before = read_huge_page_reference(source)?
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  fs.root_write(scratch, p"candidate-error", "")?
+  let candidate_started = time.now()
+  let candidate_status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate", stderr: fp"${scratch_path}/candidate-error",
+  ))?
+  let candidate_ended = time.now()
+  if !candidate_status.exited_with(0) {
+    return Err(check_failure("candidate memory collection failed"))
+  }
+  let after = read_huge_page_reference(source)?
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let data = json.decode(candidate)?
+  let issues = json.get(data, ["issues"])?.require(List[CandidateIssueField])?
+  for item in issues {
+    if item.section == "memory" and (item.field.starts_with("huge_pages") or
+        (item.field.starts_with("numa.") and item.field.contains("huge_pages"))) {
+      return Err(check_failure("candidate huge-page pool source has a collection issue"))
+    }
+  }
+  let compared = compare_huge_pages(candidate, before.pools, after.pools)?
+  if before.pools.len() == 0 and after.pools.len() == 0 {
+    if !compared.exact_stable {
+      return Err(check_failure("candidate reports a huge-page pool absent from the raw reference"))
+    }
+    print "memory.hugepages: reference unavailable (no huge-page pools are exported)"
+    return Ok({scored: false, partial: false, unavailable: true})
+  }
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  let agreement = if compared.exact_scored {"exact"} else if compared.exact_stable {"partial_stable"} else {"mismatch"}
+  print f"memory.hugepages: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, mismatched=${compared.mismatched_fields.len()}, changed_counters=${compared.changed_fields.len()}"
+  print f"reference: adapter=hugepage-sysfs-rooted-v1; sources=/sys/kernel/mm/hugepages,/sys/devices/system/node/node*/hugepages; bound=4096 bytes per counter,1024 entries per directory; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before.started}..${before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after.started}..${after.ended} ms"
+  if !compared.exact_stable {
+    return Err(check_failure("huge-page pool identities or stable fields differ from sysfs"))
+  }
+  return Ok({scored: compared.exact_scored, partial: !compared.exact_scored, unavailable: false})
+}
+
+# Reads each available pressure source with an explicit raw reference command.
+proc read_psi_reference(scratch: FsRoot, label: Str) [fs, process, time, error] -> Result[PsiObservation] {
+  let started = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  var rows: List[PsiReferenceRow] = []
+  var available_resources: List[Str] = []
+  for resource in ["cpu", "memory", "io"] {
+    let source_path = fp"/proc/pressure/${resource}"
+    if !source_path.exists()? {continue}
+    available_resources = available_resources.push(resource)
+    let output_name = f"psi-${label}-${resource}"
+    fs.root_write(scratch, fp"${output_name}", "")?
+    fs.root_write(scratch, fp"${output_name}-error", "")?
+    let status = process.run(process.command_argv(
+      "/bin/cat", ["cat", source_path.display()], cwd: p"/",
+      env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
+      stdout: fp"${scratch_path}/${output_name}", stderr: fp"${scratch_path}/${output_name}-error",
+    ))?
+    if !status.exited_with(0) {
+      return Err(check_failure(f"PSI ${resource} raw reference command failed"))
+    }
+    let raw = fs.root_read_result(scratch, fp"${output_name}", max_bytes: 16384)?
+    if raw.state != "observed" or raw.truncated or raw.data == null {
+      return Err(check_failure(f"PSI ${resource} raw reference is incomplete"))
+    }
+    var output = ""
+    match (raw.data ?? b"").utf8() {
+      Ok(value) => output = value
+      Err(_) => return Err(check_failure(f"PSI ${resource} raw reference is not UTF-8"))
+    }
+    rows = rows.extend(parse_psi_reference(output, resource)?)
+  }
+  return Ok({rows: rows, available_resources: available_resources, started: started, ended: time.now()})
+}
+
+# Brackets one sensitive memory report with all process-visible pressure sources.
+proc compare_live_psi(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[PsiLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  if !p"/bin/cat".exists()? {
+    return Err(check_failure("PSI comparison needs /bin/cat"))
+  }
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before = read_psi_reference(scratch, "before")?
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  fs.root_write(scratch, p"candidate-error", "")?
+  let candidate_started = time.now()
+  let candidate_status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate", stderr: fp"${scratch_path}/candidate-error",
+  ))?
+  let candidate_ended = time.now()
+  if !candidate_status.exited_with(0) {
+    return Err(check_failure("candidate memory collection failed"))
+  }
+  let after = read_psi_reference(scratch, "after")?
+  if before.available_resources != after.available_resources {
+    return Err(check_failure("PSI source availability changed around collection"))
+  }
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let data = json.decode(candidate)?
+  let issues = json.get(data, ["issues"])?.require(List[CandidateIssueState])?
+  for resource in ["cpu", "memory", "io"] {
+    let field = f"pressure.${resource}"
+    let matching = issues |> where .section == "memory" and (.field == field or .field.starts_with(f"${field}."))
+    if resource in before.available_resources {
+      if matching.len() > 0 {
+        return Err(check_failure(f"candidate PSI ${resource} source has a collection issue"))
+      }
+    } else if (matching |> where .field == field and .state == "absent").len() != 1 {
+      return Err(check_failure(f"candidate PSI ${resource} source did not retain its absent state"))
+    }
+  }
+  let compared = compare_psi(candidate, before.rows, after.rows)?
+  if before.rows.len() == 0 {
+    if !compared.exact_stable {
+      return Err(check_failure("candidate reports PSI rows absent from the raw reference"))
+    }
+    print "memory.pressure: reference unavailable (no PSI sources are exported)"
+    return Ok({scored: false, partial: false, unavailable: true})
+  }
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  let agreement = if compared.exact_scored {"exact"} else if compared.exact_stable {"partial_stable"} else {"mismatch"}
+  var reference_argv: List[List[Str]] = []
+  for resource in before.available_resources {
+    reference_argv = reference_argv.push(["/bin/cat", f"/proc/pressure/${resource}"])
+  }
+  let cat_version = read_reference_tool_version("/bin/cat", "cat", scratch, "cat")?
+  print f"memory.pressure: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, mismatched=${compared.mismatched_fields.len()}, changing_averages=${compared.changing_averages.len()}"
+  print f"reference: adapter=pressure-procfs-v1; cat=${cat_version}; argv=${json.encode(reference_argv)?}; bound=16384 bytes per file; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before.started}..${before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after.started}..${after.ended} ms"
+  if !compared.exact_stable {
+    return Err(check_failure("PSI identities, cumulative totals, or stable averages differ"))
+  }
+  return Ok({scored: compared.exact_scored, partial: !compared.exact_scored, unavailable: false})
+}
+
 # Captures every visible named vulnerability through a bounded raw cat read.
 proc read_vulnerability_reference(scratch: FsRoot, label: Str) [fs, process, time, error] -> Result[VulnerabilityObservation] {
   let source_root = fs.open_root(p"/sys/devices/system/cpu")?
@@ -5956,7 +14402,7 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, io, error
   let candidate_data = json.decode(candidate)?
   let issues = json.get(candidate_data, ["issues"])?.require(List[CandidateIssueField])?
   for issue in issues {
-    if issue.section == "memory" and issue.field == "swaps" {
+    if issue.section == "memory" and (issue.field == "swaps" or issue.field.starts_with("swaps.")) {
       return Err(check_failure("candidate swap source has a collection issue"))
     }
   }
@@ -5969,7 +14415,7 @@ proc compare_live_swaps(xsh_bin: Str, script: Str) [fs, process, time, io, error
   let unexpected_count = compared.unexpected_names.len()
   let mismatch_count = compared.field_mismatches.len()
   let agreement = if compared.exact {"exact"} else {"mismatch"}
-  print f"memory.swap: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${missing_count}, unexpected=${unexpected_count}, field_mismatches=${mismatch_count}, kind=${compared.kind_mismatches}, size_bytes=${compared.size_mismatches}, used_bytes=${compared.used_mismatches}, priority=${compared.priority_mismatches}, candidate_field_missing=${compared.candidate_field_missing}"
+  print f"memory.swap: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${missing_count}, unexpected=${unexpected_count}, field_mismatches=${mismatch_count}, kind=${compared.kind_mismatches}, size_bytes=${compared.size_mismatches}, used_bytes=${compared.used_mismatches}, priority=${compared.priority_mismatches}, candidate_field_missing=${compared.candidate_field_missing}, source_issue=${compared.source_issue}"
   print f"reference: ${version}; executable=${binary}; argv=${argv_display}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
   if !compared.exact {
     return Err(check_failure("memory.swap mandatory assertion failed"))
@@ -6065,6 +14511,443 @@ proc compare_live_pci_identity(xsh_bin: Str, script: Str) [fs, process, time, io
   return Ok()
 }
 
+# Brackets one PCI report with bounded sysfs link attributes for every visible function.
+proc compare_live_pci_links(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[PciLinkLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before_started = time.now()
+  let before = read_pci_link_reference(source)?
+  let before_ended = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "pci", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !status.exited_with(0) {return Err(check_failure("candidate PCI link collection failed"))}
+  let after_started = time.now()
+  let after = read_pci_link_reference(source)?
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_pci_links(candidate, before, after)?
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  print f"pci.link: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_addresses.len()}, unexpected=${compared.unexpected_addresses.len()}, stable_mismatches=${compared.field_mismatches.len()}, changed_fields=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
+  print f"reference: adapter=pci-link-sysfs-rooted-v1; source=/sys/bus/pci/devices/*/{current_link_speed,current_link_width,max_link_speed,max_link_width}; bound=4096 bytes per attribute, 65536 functions; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if compared.missing_addresses.len() > 0 or compared.unexpected_addresses.len() > 0 or
+      compared.field_mismatches.len() > 0 or compared.candidate_field_missing {
+    return Err(check_failure("PCIe link fields differ from the stable kernel reference"))
+  }
+  return Ok({scored: compared.exact, partial: compared.eligible and !compared.exact, unavailable: !compared.eligible})
+}
+
+# Brackets one sensitive USB report with independently enumerated kernel device paths.
+proc compare_live_usb_topology(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[UsbTopologyLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before_started = time.now()
+  let before = read_usb_topology_reference(source)?
+  let before_ended = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "usb", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !status.exited_with(0) {return Err(check_failure("candidate USB topology collection failed"))}
+  let after_started = time.now()
+  let after = read_usb_topology_reference(source)?
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_usb_topology(candidate, before, after)?
+  if compared.reference_count == 0 and after.len() == 0 {
+    if compared.candidate_count != 0 {return Err(check_failure("candidate USB devices exist without a kernel USB directory"))}
+    print "usb.topology: reference unavailable (no USB device entries)"
+    return Ok({scored: false, partial: false, unavailable: true})
+  }
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  print f"usb.topology: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed=${compared.unstable_fields.len()}, exact=${compared.exact}"
+  print f"reference: adapter=usb-topology-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{busnum,devnum,speed}; bound=4096 entries, 4096 bytes per attribute; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+    return Err(check_failure("USB topology differs from stable kernel device paths"))
+  }
+  return Ok({scored: compared.exact, partial: compared.eligible and !compared.exact, unavailable: !compared.eligible})
+}
+
+# Brackets one sensitive USB report with fixed-width raw identifiers and labels.
+proc compare_live_usb_ids(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[UsbIdsLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before_started = time.now()
+  let before = read_usb_ids_reference(source)?
+  let before_ended = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "usb", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !status.exited_with(0) {return Err(check_failure("candidate USB identity collection failed"))}
+  let after_started = time.now()
+  let after = read_usb_ids_reference(source)?
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_usb_ids(candidate, before, after)?
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  print f"usb.ids: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
+  print f"reference: adapter=usb-ids-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{idVendor,idProduct,bcdDevice,bDeviceClass,bDeviceSubClass,bDeviceProtocol,manufacturer,product}; bound=4096 entries, 4096 bytes per attribute; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+    return Err(check_failure("USB identity fields differ from stable kernel attributes"))
+  }
+  return Ok({scored: compared.exact, partial: compared.eligible and !compared.exact, unavailable: !compared.eligible})
+}
+
+# Brackets one sensitive USB report with runtime power and configuration attributes.
+proc compare_live_usb_power(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[UsbPowerLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before_started = time.now()
+  let before = read_usb_power_reference(source)?
+  let before_ended = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "usb", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !status.exited_with(0) {return Err(check_failure("candidate USB power collection failed"))}
+  let after_started = time.now()
+  let after = read_usb_power_reference(source)?
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_usb_power(candidate, before, after)?
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  print f"usb.power: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
+  print f"reference: adapter=usb-power-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{power/control,power/autosuspend_delay_ms,power/runtime_status,bNumConfigurations,bConfigurationValue}; bound=4096 entries, 4096 bytes per attribute; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+    return Err(check_failure("USB power fields differ from stable kernel attributes"))
+  }
+  return Ok({scored: compared.exact, partial: compared.eligible and !compared.exact, unavailable: !compared.eligible})
+}
+
+# Brackets live USB interfaces with independent sysfs attributes and descriptor decoding.
+proc compare_live_usb_interfaces(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[UsbInterfaceLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before_started = time.now()
+  let before = read_usb_interface_reference(source)?
+  let before_ended = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "usb", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !status.exited_with(0) {return Err(check_failure("candidate USB interface collection failed"))}
+  let after_started = time.now()
+  let after = read_usb_interface_reference(source)?
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_usb_interfaces(candidate, before, after)?
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  print f"usb.interfaces: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
+  print f"reference: adapter=usb-interface-sysfs-rooted-v1; source=/sys/bus/usb/devices/*/{bInterfaceNumber,bAlternateSetting,bInterfaceClass,bInterfaceSubClass,bInterfaceProtocol,bNumEndpoints,driver,descriptors}; bound=4096 entries, 4096 bytes per attribute, 1048576 descriptor bytes; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+    return Err(check_failure("USB interface fields differ from stable kernel attributes and descriptors"))
+  }
+  return Ok({scored: compared.exact, partial: compared.eligible and !compared.exact, unavailable: !compared.eligible})
+}
+
+# Brackets one power report with independently read power-supply class attributes.
+proc compare_live_power_supplies(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[PowerSupplyLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before_started = time.now()
+  let before = read_power_supply_reference(source)?
+  let before_ended = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "power", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !status.exited_with(0) {return Err(check_failure("candidate power-supply collection failed"))}
+  let after_started = time.now()
+  let after = read_power_supply_reference(source)?
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_power_supplies(candidate, before, after)?
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  print f"power.supplies: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
+  print f"reference: adapter=power-supply-sysfs-rooted-v1; source=/sys/class/power_supply/*/{type,status,health,capacity,energy_now,energy_full,charge_now,charge_full,voltage_now,current_now,cycle_count}; bound=1024 entries, 4096 bytes per attribute; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+    return Err(check_failure("power-supply fields differ from stable kernel attributes"))
+  }
+  return Ok({scored: compared.exact, partial: compared.eligible and !compared.exact, unavailable: !compared.eligible})
+}
+
+# Brackets one power report with independently enumerated powercap zones and constraints.
+proc compare_live_powercap(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[PowerCapLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before_started = time.now()
+  let before = read_powercap_reference(source)?
+  let before_ended = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "power", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !status.exited_with(0) {return Err(check_failure("candidate powercap collection failed"))}
+  let after_started = time.now()
+  let after = read_powercap_reference(source)?
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_powercap(candidate, before, after)?
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  print f"power.powercap: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
+  print f"reference: adapter=powercap-sysfs-rooted-v1; source=/sys/class/powercap/*/{name,energy_uj,max_energy_range_uj,constraint_*}; bound=1024 zones, 256 entries per zone, 4096 bytes per attribute; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+    return Err(check_failure("powercap zones or constraints differ from stable kernel attributes"))
+  }
+  return Ok({scored: compared.exact, partial: compared.eligible and !compared.exact, unavailable: !compared.eligible})
+}
+
+# Brackets a sensitive device report with independently read class entries and parent links.
+proc compare_live_device_classes(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[DeviceClassLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before_started = time.now()
+  guard let before = read_device_class_reference(source) else |_| {
+    print "devices.graphics-audio-input: reference enumeration incomplete; comparison remains partial"
+    return Ok({scored: false, partial: true, unavailable: false})
+  }
+  let before_ended = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "devices", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !status.exited_with(0) {return Err(check_failure("candidate device-class collection failed"))}
+  let after_started = time.now()
+  guard let after = read_device_class_reference(source) else |_| {
+    print "devices.graphics-audio-input: later reference enumeration incomplete; comparison remains partial"
+    return Ok({scored: false, partial: true, unavailable: false})
+  }
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_device_classes(candidate, before, after)?
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  print f"devices.graphics-audio-input: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
+  print f"reference: adapter=device-class-sysfs-rooted-v1; source=/sys/class/drm|sound|input entries and device links; bound=4096 entries per class, 4096 bytes per label; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+    return Err(check_failure("device-class entries or parent links differ from stable kernel sources"))
+  }
+  return Ok({scored: compared.exact, partial: compared.eligible and !compared.exact, unavailable: !compared.eligible})
+}
+
+# Brackets raw hwmon channels with the sensitive report and its PCI/USB dependencies.
+proc compare_live_hwmon(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[HwmonLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before_started = time.now()
+  guard let before = read_hwmon_reference(source) else |_| {
+    print "sensors.hwmon: reference enumeration incomplete; comparison remains partial"
+    return Ok({scored: false, partial: true, unavailable: false})
+  }
+  let before_ended = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "sensors", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !status.exited_with(0) {return Err(check_failure("candidate hwmon collection failed"))}
+  let after_started = time.now()
+  guard let after = read_hwmon_reference(source) else |_| {
+    print "sensors.hwmon: later reference enumeration incomplete; comparison remains partial"
+    return Ok({scored: false, partial: true, unavailable: false})
+  }
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_hwmon(candidate, before, after)?
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  print f"sensors.hwmon: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${json.encode(compared.missing_names)?}, unexpected=${json.encode(compared.unexpected_names)?}, mismatched=${json.encode(compared.field_mismatches)?}, changed_or_incomplete=${compared.unstable_fields.len()}, exposed=${compared.eligible}, exact=${compared.exact}"
+  print f"reference: adapter=hwmon-sysfs-rooted-v1; source=/sys/class/hwmon informational input, label, threshold, alarm, and device-link attributes; bound=1024 chips, 1024 entries per chip, 4096 bytes per value; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if compared.missing_names.len() > 0 or compared.unexpected_names.len() > 0 or compared.field_mismatches.len() > 0 {
+    return Err(check_failure("hwmon channels or parents differ from stable kernel sources"))
+  }
+  return Ok({scored: compared.exact, partial: compared.eligible and !compared.exact, unavailable: !compared.eligible})
+}
+
+# Brackets one PCI report with rooted driver, parent, NUMA, and IOMMU sources.
+proc compare_live_pci_bindings(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[PciBindingLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before_started = time.now()
+  let before = read_pci_binding_reference(source)?
+  let before_ended = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "pci", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !status.exited_with(0) {return Err(check_failure("candidate PCI binding collection failed"))}
+  let after_started = time.now()
+  let after = read_pci_binding_reference(source)?
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_pci_bindings(candidate, before, after)?
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  print f"pci.binding: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_addresses.len()}, unexpected=${compared.unexpected_addresses.len()}, stable_mismatches=${compared.field_mismatches.len()}, changed_fields=${compared.unstable_fields.len()}, eligible=${compared.eligible}, exact=${compared.exact}"
+  print f"reference: adapter=pci-binding-sysfs-rooted-v1; source=/sys/bus/pci/devices/*/{driver,numa_node,iommu_group} and bus-entry target; bound=4096 bytes per attribute, 4096 directory entries per function, 65536 functions; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if compared.missing_addresses.len() > 0 or compared.unexpected_addresses.len() > 0 or
+      compared.field_mismatches.len() > 0 or compared.candidate_field_missing {
+    return Err(check_failure("PCI binding fields differ from the stable kernel reference"))
+  }
+  return Ok({scored: compared.exact, partial: compared.eligible and !compared.exact, unavailable: !compared.eligible})
+}
+
+# Brackets one sensor report with bounded thermal zone and indexed trip sources.
+proc compare_live_thermal(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[ThermalLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before_started = time.now()
+  let before = read_thermal_zone_reference(source)?
+  let before_ended = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "sensors", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !status.exited_with(0) {return Err(check_failure("candidate thermal collection failed"))}
+  let after_started = time.now()
+  let after = read_thermal_zone_reference(source)?
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_thermal_zones(candidate, before, after)?
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  print f"sensors.thermal: reference=${compared.reference_count}, candidate=${compared.candidate_count}, stable_mismatches=${compared.field_mismatches.len()}, changed_fields=${compared.unstable_fields.len()}, eligible=${compared.eligible}, exact=${compared.exact}"
+  print f"reference: adapter=thermal-sysfs-rooted-v1; source=/sys/class/thermal/thermal_zone*/{type,temp,trip_point_N_*}; bound=4096 bytes per attribute, 256 attributes per zone, 1024 class entries; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if compared.field_mismatches.len() > 0 or compared.candidate_field_missing {
+    return Err(check_failure("thermal zone fields differ from the stable kernel reference"))
+  }
+  return Ok({scored: compared.exact, partial: compared.eligible and !compared.exact, unavailable: !compared.eligible})
+}
+
 proc read_ip_json_reference(scratch: FsRoot, output_name: Str) [fs, error] -> Result[Str] {
   let raw = fs.root_read_result(scratch, fp"${output_name}", max_bytes: 16777216)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
@@ -6101,8 +14984,8 @@ proc ip_reference_version(binary: Str, scratch: FsRoot) [fs, process, error] -> 
   return Ok(if version_stdout != "" {version_stdout} else {version_stderr})
 }
 
-# Brackets one network report with independently decoded iproute2 link JSON.
-proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[Unit] {
+# Brackets one network report with iproute2 identity and bounded kernel link attributes.
+proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[NetworkLinkLiveResult] {
   if !xsh_bin.starts_with("/") or !script.starts_with("/") {
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
@@ -6111,6 +14994,8 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, io, er
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
   defer fs.close_root(scratch)?
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
   let scratch_path = fs.root_path(scratch)?
   let version = ip_reference_version(binary, scratch)?
 
@@ -6124,6 +15009,9 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, io, er
     return Err(check_failure("ip link JSON reference failed before candidate collection"))
   }
   let before = parse_ip_link_json(read_ip_json_reference(scratch, "ip-before")?)?
+  let raw_before_started = time.now()
+  let raw_before = read_network_link_raw_reference(source)?
+  let raw_before_ended = time.now()
 
   let candidate_started = time.now()
   let candidate_status = process.run(process.command_argv(
@@ -6135,6 +15023,10 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, io, er
   if !candidate_status.exited_with(0) {
     return Err(check_failure("candidate network collection failed"))
   }
+
+  let raw_after_started = time.now()
+  let raw_after = read_network_link_raw_reference(source)?
+  let raw_after_ended = time.now()
 
   let after_started = time.now()
   let after_status = process.run(process.command_argv(
@@ -6152,6 +15044,7 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, io, er
   let candidate = fs.root_read_text(scratch, p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_ip_links(candidate, before)?
+  let raw_compared = compare_network_link_raw(candidate, raw_before, raw_after)?
   let candidate_data = json.decode(candidate)?
   let host_claim = json.get(candidate_data, ["scope", "host_claim"])?.require(Str)?
   let host_claim_display = json.encode(host_claim)?
@@ -6159,14 +15052,23 @@ proc compare_live_ip_links(xsh_bin: Str, script: Str) [fs, process, time, io, er
   let agreement = if compared.exact {"exact_static"} else {"mismatch"}
   print f"network.links.static: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_ids.len()}, unexpected=${compared.unexpected_ids.len()}, field_mismatches=${compared.field_mismatches.len()}, candidate_field_missing=${compared.candidate_field_missing}"
   print f"reference: ${version}; executable=${binary}; argv=${argv_display}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  print f"network.links.raw: reference=${raw_compared.reference_count}, candidate=${raw_compared.candidate_count}, matched=${raw_compared.matched_count}, mismatched=${raw_compared.field_mismatches.len()}, changed_or_incomplete=${raw_compared.unstable_fields.len()}, eligible=${raw_compared.eligible}, exact=${raw_compared.exact}"
+  print f"reference: adapter=network-link-sysfs-rooted-v1; source=/sys/class/net/*/{{ifindex,type,flags,statistics/rx_bytes,statistics/tx_bytes}}; bound=65536 links, 4096 bytes per attribute; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${raw_before_started}..${raw_before_ended} ms; after=${raw_after_started}..${raw_after_ended} ms"
   if !compared.exact {
     return Err(check_failure("network link static comparison failed"))
   }
-  return Ok()
+  if raw_compared.field_mismatches.len() > 0 {
+    return Err(check_failure(f"network link raw fields differ from stable kernel references: ${raw_compared.field_mismatches.join(", ")}"))
+  }
+  return Ok({
+    scored: raw_compared.exact,
+    partial: raw_compared.eligible and !raw_compared.exact,
+    unavailable: !raw_compared.eligible,
+  })
 }
 
 # Brackets one network report with independently decoded iproute2 address JSON.
-proc compare_live_ip_addresses(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[Unit] {
+proc compare_live_ip_addresses(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[NetworkAddressLiveResult] {
   if !xsh_bin.starts_with("/") or !script.starts_with("/") {
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
@@ -6216,17 +15118,26 @@ proc compare_live_ip_addresses(xsh_bin: Str, script: Str) [fs, process, time, io
   let candidate = fs.root_read_text(scratch, p"candidate")?
   require_live_linux_report(candidate)?
   let compared = compare_ip_addresses(candidate, before)?
+  let lifetimes = compare_ip_address_lifetimes(candidate, before, after)?
   let candidate_data = json.decode(candidate)?
   let host_claim = json.get(candidate_data, ["scope", "host_claim"])?.require(Str)?
   let host_claim_display = json.encode(host_claim)?
   let argv_display = json.encode(argv)?
   let agreement = if compared.exact_static {"exact_static"} else {"mismatch"}
-  print f"network.addresses.static: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, field_mismatches=${compared.field_mismatches.len()}, candidate_field_missing=${compared.candidate_field_missing}, lifetimes_unscored=yes"
+  print f"network.addresses.static: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, field_mismatches=${compared.field_mismatches.len()}, candidate_field_missing=${compared.candidate_field_missing}"
+  print f"network.addresses.lifetimes: reference=${lifetimes.reference_count}, candidate=${lifetimes.candidate_count}, mismatched=${lifetimes.field_mismatches.len()}, changed_or_incomplete=${lifetimes.unstable_fields.len()}, eligible=${lifetimes.eligible}, exact=${lifetimes.exact}"
   print f"reference: ${version}; executable=${binary}; argv=${argv_display}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
   if !compared.exact_static {
     return Err(check_failure("network address static comparison failed"))
   }
-  return Ok()
+  if lifetimes.field_mismatches.len() > 0 {
+    return Err(check_failure("network address lifetimes differ from bracketing references"))
+  }
+  return Ok({
+    scored: lifetimes.exact,
+    partial: lifetimes.eligible and !lifetimes.exact,
+    unavailable: !lifetimes.eligible,
+  })
 }
 
 proc read_ip_rule_family(binary: Str, scratch: FsRoot, output_name: Str, family: Str) [fs, process, error] -> Result[List[IpRuleReference]] {
@@ -6246,7 +15157,7 @@ proc read_ip_rule_family(binary: Str, scratch: FsRoot, output_name: Str, family:
 }
 
 # Brackets one network report with separate IPv4 and IPv6 iproute2 rule captures.
-proc compare_live_ip_rules(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[Unit] {
+proc compare_live_ip_rules(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[NetworkRuleLiveResult] {
   if !xsh_bin.starts_with("/") or !script.starts_with("/") {
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
@@ -6287,12 +15198,16 @@ proc compare_live_ip_rules(xsh_bin: Str, script: Str) [fs, process, time, io, er
   let host_claim_display = json.encode(host_claim)?
   let reference_commands = [network_rule_argv("ipv4"), network_rule_argv("ipv6")]
   let agreement = if compared.exact_static {"exact_static"} else {"mismatch"}
-  print f"network.rules.static: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, candidate_field_missing=${compared.candidate_field_missing}"
+  print f"network.rules.static: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, unscored_families=${compared.unscored_family_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, candidate_field_missing=${compared.candidate_field_missing}, exact_scored=${compared.exact_scored}"
   print f"reference: ${version}; executable=${binary}; argv=${json.encode(reference_commands)?}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
   if !compared.exact_static {
     return Err(check_failure("network rule static comparison failed"))
   }
-  return Ok()
+  return Ok({
+    scored: compared.exact_scored,
+    partial: compared.reference_count > 0 and !compared.exact_scored,
+    unavailable: compared.reference_count == 0,
+  })
 }
 
 proc read_ip_route_family(binary: Str, scratch: FsRoot, output_name: Str, family: Str) [fs, process, error] -> Result[List[IpRouteReference]] {
@@ -6312,7 +15227,7 @@ proc read_ip_route_family(binary: Str, scratch: FsRoot, output_name: Str, family
 }
 
 # Brackets one network report with separate IPv4 and IPv6 iproute2 route captures.
-proc compare_live_ip_routes(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[Unit] {
+proc compare_live_ip_routes(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[NetworkRouteLiveResult] {
   if !xsh_bin.starts_with("/") or !script.starts_with("/") {
     return Err(check_failure("--xsh-bin and --script must be absolute paths"))
   }
@@ -6353,12 +15268,16 @@ proc compare_live_ip_routes(xsh_bin: Str, script: Str) [fs, process, time, io, e
   let host_claim_display = json.encode(host_claim)?
   let reference_commands = [network_route_argv("ipv4"), network_route_argv("ipv6")]
   let agreement = if compared.exact_static {"exact_static"} else {"mismatch"}
-  print f"network.routes.static: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, candidate_field_missing=${compared.candidate_field_missing}"
+  print f"network.routes.static: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, candidate_field_missing=${compared.candidate_field_missing}, exact_scored=${compared.exact_scored}"
   print f"reference: ${version}; executable=${binary}; argv=${json.encode(reference_commands)?}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
   if !compared.exact_static {
     return Err(check_failure("network route static comparison failed"))
   }
-  return Ok()
+  return Ok({
+    scored: compared.exact_scored,
+    partial: compared.reference_count > 0 and !compared.exact_scored,
+    unavailable: compared.reference_count == 0,
+  })
 }
 
 # Brackets one storage report with explicit-column util-linux block inventories.
@@ -6428,7 +15347,7 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, io, err
          issue.field.ends_with(".removable") or issue.field.ends_with(".rotational") or
          issue.field.ends_with(".read_only") or issue.field.ends_with(".holders") or
          issue.field.ends_with(".slaves")) {
-      return Err(check_failure("candidate block source has a collection issue"))
+      return Err(check_failure(f"candidate block source has a collection issue: ${issue.field}"))
     }
   }
   let compared = compare_block_devices(candidate, before)?
@@ -6440,7 +15359,7 @@ proc compare_live_storage(xsh_bin: Str, script: Str) [fs, process, time, io, err
   print f"storage.devices: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, edges=${compared.matched_edges}/${before.edges.len()}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, field_mismatches=${compared.field_mismatches.len()}, missing_edges=${compared.missing_edges}, unexpected_edges=${compared.unexpected_edges}, major_minor=${compared.major_minor_mismatches}, size_bytes=${compared.size_mismatches}, sectors=${compared.sector_mismatches}, flags=${compared.flag_mismatches}, partitions=${compared.partition_mismatches}, candidate_field_missing=${compared.candidate_field_missing}"
   print f"reference: ${version}; executable=${binary}; argv=${argv_display}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
   if !compared.exact {
-    return Err(check_failure("storage.devices mandatory assertion failed"))
+    return Err(check_failure(f"storage.devices mandatory assertion failed: ${compared.field_mismatches.join(", ")}"))
   }
   return Ok()
 }
@@ -6455,7 +15374,7 @@ proc compare_live_queue(xsh_bin: Str, script: Str) [fs, process, time, io, error
     print "storage.queue: reference unavailable (lsblk or block sysfs is absent)"
     return Err(check_failure("queue comparison needs lsblk and mounted block sysfs"))
   }
-  let argv = ["lsblk", "--all", "--list", "--json", "--bytes", "--output=KNAME,SCHED,RA,DISC-GRAN,DISC-MAX,MODEL,REV"]
+  let argv = ["lsblk", "--all", "--list", "--json", "--bytes", "--output=KNAME,TYPE,SCHED,RA,DISC-GRAN,DISC-MAX,MODEL,REV"]
   let reference_env = {PATH: "/usr/sbin:/sbin:/usr/bin:/bin", LANG: "C", LC_ALL: "C"}
   let scratch = fs.tempdir()?
   defer fs.close_root(scratch)?
@@ -6682,7 +15601,7 @@ proc compare_live_mount_usage(xsh_bin: Str, script: Str) [fs, process, time, io,
   let version = read_reference_tool_version(binary, "findmnt", scratch, "findmnt-usage")?
   let host_claim = json.get(candidate_data, ["scope", "host_claim"])?.require(Str)?
   let agreement = if compared.exact {"exact"} else if compared.unstable {"unstable"} else {"mismatch"}
-  print f"storage.mount-usage: ${agreement}; eligible=${compared.eligible_count}, skipped=${compared.skipped_count}, matched=${compared.matched_count}, mismatched=${compared.mismatched_ids.len()}"
+  print f"storage.mount-usage: ${agreement}; eligible=${compared.eligible_count}, skipped=${compared.skipped_count}, matched=${compared.matched_count}, mismatched_ids=${json.encode(compared.mismatched_ids)?}"
   print f"reference: ${version}; executable=${binary}; inventory_argv=${json.encode(inventory_argv)?}; capacity_argv=${json.encode(capacity_argv)?}; eligible_ids=${json.encode(mount_usage_eligible_ids(before_mounts))?}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
   if compared.unstable {return Err(check_failure("storage.mount-usage could not be scored because total capacity changed"))}
   if !compared.exact {return Err(check_failure("storage.mount-usage mandatory assertion failed"))}
@@ -6759,7 +15678,7 @@ proc compare_live_modules(xsh_bin: Str, script: Str) [fs, process, time, io, err
   let host_claim = json.get(candidate_data, ["scope", "host_claim"])?.require(Str)?
   let host_claim_display = json.encode(host_claim)?
   let agreement = if compared.exact {"exact"} else {"mismatch"}
-  print f"kernel.modules: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, field_mismatches=${compared.field_mismatches.len()}, size=${compared.size_mismatches}, users=${compared.users_mismatches}, state=${compared.state_mismatches}, candidate_field_missing=${compared.candidate_field_missing}"
+  print f"kernel.modules: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, field_mismatches=${compared.field_mismatches.len()}, size=${compared.size_mismatches}, users=${compared.users_mismatches}, state=${compared.state_mismatches}, enumerated=${compared.enumeration_succeeded}, source_issue=${compared.source_issue}, candidate_field_missing=${compared.candidate_field_missing}"
   print f"reference: ${version}; executable=${binary}; argv=[\"lsmod\"] and [\"cat\",\"/proc/modules\"]; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before.started}..${before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after.started}..${after.ended} ms"
   if !compared.exact {
     return Err(check_failure("kernel.modules mandatory assertion failed"))
@@ -6926,6 +15845,335 @@ proc compare_live_kernel_parameters(xsh_bin: Str, script: Str) [fs, process, tim
   print f"reference: ${version}; sysctl_executable=${sysctl_binary}; sysctl_argv=[\"sysctl\",\"-n\",KEY]; module_argv=[\"cat\",PATH]; keys=${json.encode(kernel_parameter_sources() |> map .name)?}; max_bytes=4096 each; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before.started}..${before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after.started}..${after.ended} ms"
   if !compared.exact {return Err(check_failure("kernel.parameters mandatory assertion failed"))}
   return Ok()
+}
+
+type ProcStatusAffinityObservation = {raw: Str, started: Int, ended: Int}
+
+# Reads bounded process-visible affinity from a child with inherited scheduling.
+proc read_proc_status_affinity_reference(scratch: FsRoot, name: Str) [fs, process, time, error] -> Result[ProcStatusAffinityObservation] {
+  let scratch_path = fs.root_path(scratch)?
+  let output_name = fp"${name}"
+  fs.root_write(scratch, output_name, "")?
+  fs.root_write(scratch, fp"${name}-error", "")?
+  let started = time.now()
+  let status = process.run(process.command_argv(
+    "/bin/cat", ["cat", "/proc/self/status"], cwd: p"/",
+    env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"},
+    stdout: fp"${scratch_path}/${output_name}", stderr: fp"${scratch_path}/${name}-error",
+  ))?
+  let ended = time.now()
+  if !status.exited_with(0) {
+    return Err(check_failure("proc status affinity reference command failed"))
+  }
+  let raw_read = fs.root_read_result(scratch, output_name, max_bytes: 65536)?
+  if raw_read.state != "observed" or raw_read.truncated or raw_read.data == null {
+    return Err(check_failure("proc status affinity reference is incomplete"))
+  }
+  var raw = ""
+  match (raw_read.data ?? b"").utf8() {
+    Ok(value) => raw = value
+    Err(_) => return Err(check_failure("proc status affinity reference is not UTF-8"))
+  }
+  let _ = parse_proc_status_affinity(raw)?
+  return Ok({raw: raw, started: started, ended: ended})
+}
+
+# Brackets one report with process affinity and visible cgroup CPU constraints.
+proc compare_live_cpu_scope(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[Bool] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  if !p"/bin/cat".exists()? or !p"/proc/self/status".exists()? {
+    return Err(check_failure("CPU scope affinity comparison needs /bin/cat and /proc/self/status"))
+  }
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let affinity_before = read_proc_status_affinity_reference(scratch, "cpu-scope-before")?
+  let cgroup_before = read_cpu_scope_cgroup_reference(source)?
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  fs.root_write(scratch, p"candidate-error", "")?
+  let candidate_started = time.now()
+  let candidate_status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate", stderr: fp"${scratch_path}/candidate-error",
+  ))?
+  let candidate_ended = time.now()
+  if !candidate_status.exited_with(0) {
+    return Err(check_failure("candidate CPU scope collection failed"))
+  }
+  let cgroup_after = read_cpu_scope_cgroup_reference(source)?
+  let affinity_after = read_proc_status_affinity_reference(scratch, "cpu-scope-after")?
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let data = json.decode(candidate)?
+  let issues = json.get(data, ["issues"])?.require(List[CandidateIssueState])?
+  let has_visible_cgroup = cgroup_before.ancestors.len() > 0
+  var has_current_cpuset = false
+  if has_visible_cgroup {has_current_cpuset = cgroup_before.ancestors[0].effective_cpus != null}
+  for item in issues {
+    if (item.section == "cpu" and
+        (item.field == "affinity" or (has_current_cpuset and item.field == "cgroup.effective_cpuset"))) or
+        (has_visible_cgroup and item.section == "memory" and item.field.starts_with("cgroup.") and
+          (item.field.contains("cpu.max") or item.field.contains("cpuset.cpus.effective"))) {
+      return Err(check_failure("candidate CPU scope has a collection issue"))
+    }
+  }
+  let affinity_compared = compare_cpu_scope_affinity(candidate, affinity_before.raw, affinity_after.raw)?
+  let cgroup_compared = compare_cpu_scope_cgroup(candidate, cgroup_before, cgroup_after)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  let cat_version = read_reference_tool_version("/bin/cat", "cat", scratch, "cat-cpu-scope")?
+  let agreement = if affinity_compared.exact and cgroup_compared.exact {"exact"} else {"mismatch"}
+  print f"memory.cpu-scope: ${agreement}; affinity_reference=${affinity_compared.reference_count}, affinity_matched=${affinity_compared.matched_count}, visible_cgroup_resources=${cgroup_compared.checked_resources}, cgroup_mismatches=${cgroup_compared.mismatched_fields.len()}, eligible=${cgroup_compared.eligible}"
+  print f"reference: adapter=cpu-scope-procfs-cgroup-v1; cat=${cat_version}; argv=[\"/bin/cat\",\"/proc/self/status\"]; rooted_sources=/proc/self/cgroup,/proc/self/mountinfo,visible_cgroup2_cpu.max,visible_cgroup2_cpuset.cpus.effective; bounds=65536,4194304,4096,65536 bytes; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; affinity_before=${affinity_before.started}..${affinity_before.ended} ms; cgroup_before=${cgroup_before.started}..${cgroup_before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; cgroup_after=${cgroup_after.started}..${cgroup_after.ended} ms; affinity_after=${affinity_after.started}..${affinity_after.ended} ms"
+  if !affinity_compared.exact or !cgroup_compared.exact {
+    return Err(check_failure("candidate CPU scope differs from independent references"))
+  }
+  return Ok(cgroup_compared.eligible)
+}
+
+# Brackets a memory report with every independently readable visible cgroup2 resource.
+proc compare_live_cgroup2(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[Cgroup2LiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before = read_cgroup2_resource_reference(source)?
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  fs.root_write(scratch, p"candidate-error", "")?
+  let candidate_started = time.now()
+  let candidate_status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "memory", "--sensitive", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate", stderr: fp"${scratch_path}/candidate-error",
+  ))?
+  let candidate_ended = time.now()
+  if !candidate_status.exited_with(0) {
+    return Err(check_failure("candidate cgroup2 memory collection failed"))
+  }
+  let after = read_cgroup2_resource_reference(source)?
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let data = json.decode(candidate)?
+  let issues = json.get(data, ["issues"])?.require(List[CandidateIssueState])?
+  if before.resources.len() > 0 {
+    for item in issues {
+      if item.section == "memory" and item.field.starts_with("cgroup.") and item.field != "cgroup.v1" {
+        return Err(check_failure("candidate cgroup2 resource has a collection issue"))
+      }
+    }
+  }
+  let compared = compare_cgroup2_resources(candidate, before, after)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  let agreement = if compared.exact_scored {"exact"} else if compared.exact_stable {"partial_stable"} else {"mismatch"}
+  print f"memory.cgroup-v2: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, mismatched=${compared.field_mismatches.len()}, changing_gauges=${compared.unscored_gauges.len()}, eligible=${compared.eligible}"
+  print f"reference: adapter=cgroup-v2-rooted-v1; sources=/proc/self/cgroup,/proc/self/mountinfo,visible_cgroup2_{memory.max,memory.current,memory.swap.max,memory.swap.current,cpu.max,cpu.stat,cpuset.cpus.effective,pids.max,pids.current,io.stat}; bounds=65536,4194304,4096_to_262144_bytes; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before.started}..${before.ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after.started}..${after.ended} ms"
+  if !compared.exact_stable {
+    return Err(check_failure("candidate cgroup2 resource identities or stable values differ"))
+  }
+  return Ok({scored: compared.exact_scored, partial: compared.eligible and !compared.exact_scored, unavailable: !compared.eligible})
+}
+
+# Brackets one CPU report with independently read per-CPU cacheinfo entries.
+proc compare_live_cpu_cache(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[Bool] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before_started = time.now()
+  let before = read_cpu_cache_reference(source)?
+  let before_ended = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let candidate_status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "cpu", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !candidate_status.exited_with(0) {return Err(check_failure("candidate CPU cache collection failed"))}
+  let after_started = time.now()
+  let after = read_cpu_cache_reference(source)?
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_cpu_cache_sharing(candidate, before, after)?
+  if compared.reference_count == 0 {
+    if compared.candidate_count != 0 {
+      return Err(check_failure("candidate caches exist without kernel cacheinfo entries"))
+    }
+    print "cpu.cache-sharing: reference unavailable (no cacheinfo entries for present CPUs)"
+    return Ok(false)
+  }
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  let agreement = if compared.exact {"exact"} else if compared.eligible {"mismatch"} else {"reference_incomplete"}
+  print f"cpu.cache-sharing: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, fields=${compared.field_mismatches.len()}, relationships=${compared.relationship_mismatches.len()}"
+  print f"reference: adapter=cache-sysfs-rooted-v1; sources=/sys/devices/system/cpu/present,/sys/devices/system/cpu/cpu*/cache/index*/{id,level,type,size,shared_cpu_list,coherency_line_size,number_of_sets}; bound=65536 bytes for present, 4096 per attribute, 64 entries per CPU; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if !compared.eligible {return Ok(false)}
+  if !compared.exact {return Err(check_failure("CPU cache instances or sharing relationships differ from the kernel reference"))}
+  return Ok(true)
+}
+
+# Brackets a CPU report with two explicit-column util-linux topology observations.
+proc compare_live_cpu_topology(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[Bool] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  if !p"/usr/bin/lscpu".exists()? {
+    print "cpu.topology: reference unavailable (/usr/bin/lscpu is absent)"
+    return Ok(false)
+  }
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let scratch_path = fs.root_path(scratch)?
+  let argv = ["lscpu", "--json", "--extended=CPU,ONLINE,SOCKET,CORE,NODE", "--all"]
+  let reference_env = {PATH: "/nonexistent", LANG: "C", LC_ALL: "C"}
+  let before_started = time.now()
+  let before_status = process.run(process.command_argv(
+    "/usr/bin/lscpu", argv, cwd: p"/", env: reference_env,
+    stdout: fp"${scratch_path}/before",
+  ))?
+  if !before_status.exited_with(0) {
+    return Err(check_failure("lscpu topology reference failed before candidate collection"))
+  }
+  let before_sets = read_reference_cpu_sets()?
+  let before = select_present_lscpu_topology(parse_lscpu_topology(fs.root_read_text(scratch, p"before")?)?, before_sets.present)?
+  let before_ended = time.now()
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let candidate_status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "cpu", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !candidate_status.exited_with(0) {return Err(check_failure("candidate CPU topology collection failed"))}
+  let after_started = time.now()
+  let after_status = process.run(process.command_argv(
+    "/usr/bin/lscpu", argv, cwd: p"/", env: reference_env,
+    stdout: fp"${scratch_path}/after",
+  ))?
+  if !after_status.exited_with(0) {
+    return Err(check_failure("lscpu topology reference failed after candidate collection"))
+  }
+  let after_sets = read_reference_cpu_sets()?
+  if before_sets.present != after_sets.present {
+    return Err(check_failure("kernel-present CPU set changed around topology comparison"))
+  }
+  let after = select_present_lscpu_topology(parse_lscpu_topology(fs.root_read_text(scratch, p"after")?)?, after_sets.present)?
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_lscpu_topology(candidate, before, after)?
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  let version = read_reference_tool_version("/usr/bin/lscpu", "lscpu", scratch, "lscpu")?
+  let agreement = if compared.exact {"exact"} else if compared.eligible {"mismatch"} else {"reference_incomplete"}
+  print f"cpu.topology: ${agreement}; reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_ids.len()}, unexpected=${compared.unexpected_ids.len()}, package_groups=${compared.package_group_mismatches.len()}, core_groups=${compared.core_group_mismatches.len()}, siblings=${compared.sibling_mismatches.len()}, nodes=${compared.node_mismatches.len()}, candidate_fields_missing=${compared.field_missing.len()}"
+  print f"reference: ${version}; argv=${json.encode(argv)?}; present=/sys/devices/system/cpu/present; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if !compared.eligible {return Ok(false)}
+  if !compared.exact {return Err(check_failure("CPU topology relationships differ from lscpu reference"))}
+  return Ok(true)
+}
+
+# Brackets one CPU report with independently read policy membership, bounds, and controls.
+proc compare_live_cpufreq(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[CpuFreqLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before_started = time.now()
+  let before = read_cpufreq_policy_reference(source)?
+  let before_ended = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "cpu", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !status.exited_with(0) {return Err(check_failure("candidate CPUFreq collection failed"))}
+  let after_started = time.now()
+  let after = read_cpufreq_policy_reference(source)?
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_cpufreq_policies(candidate, before, after)?
+  if before.len() == 0 {
+    if compared.candidate_count != 0 {
+      return Err(check_failure("candidate CPUFreq policies exist without a kernel policy directory"))
+    }
+    print "cpu.freq-policies: reference unavailable (no CPUFreq policy directories)"
+    return Ok({scored: 0, partial: false, unavailable: true})
+  }
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  print f"cpu.freq-policies: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.policy_mismatches.len()}, exact=${compared.exact_policies}"
+  print f"cpu.freq-bounds: exposed=${compared.eligible_bounds}, bound_mismatches=${compared.bound_mismatches.len()}, changed_bounds=${compared.unstable_bounds.len()}, gauge_mismatches=${compared.gauge_mismatches.len()}, unstable_gauges=${compared.unstable_gauges.len()}, exact=${compared.exact_bounds}"
+  print f"cpu.epp-boost: exposed=${compared.eligible_controls}, stable_mismatches=${compared.control_mismatches.len()}, changed_controls=${compared.unstable_controls.len()}, exact=${compared.exact_controls}"
+  print f"reference: adapter=cpufreq-sysfs-rooted-v1; source=/sys/devices/system/cpu/cpufreq/policy*; bound=4096 bytes per attribute, 1024 entries; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if !compared.exact_policies or compared.bound_mismatches.len() > 0 or compared.gauge_mismatches.len() > 0 or compared.control_mismatches.len() > 0 {
+    return Err(check_failure("CPUFreq policy membership, stable bounds, gauges, or controls differ from the kernel reference"))
+  }
+  let scored = 1 + (if compared.exact_bounds {1} else {0}) + (if compared.exact_controls {1} else {0})
+  return Ok({scored: scored, partial: (compared.eligible_bounds and !compared.exact_bounds) or
+    (compared.eligible_controls and !compared.exact_controls), unavailable: !compared.eligible_bounds or !compared.eligible_controls})
+}
+
+# Brackets one CPU report with independently read global CPUIdle metadata and indexed state counters.
+proc compare_live_cpuidle(xsh_bin: Str, script: Str) [fs, process, time, io, error] -> Result[CpuIdleLiveResult] {
+  if !xsh_bin.starts_with("/") or !script.starts_with("/") {
+    return Err(check_failure("--xsh-bin and --script must be absolute paths"))
+  }
+  let source = fs.open_root(p"/")?
+  defer fs.close_root(source)?
+  let scratch = fs.tempdir()?
+  defer fs.close_root(scratch)?
+  let before_started = time.now()
+  let before = read_cpuidle_reference(source)?
+  let before_ended = time.now()
+  let scratch_path = fs.root_path(scratch)?
+  fs.root_write(scratch, p"candidate", "")?
+  let candidate_started = time.now()
+  let status = process.run(process.command_argv(
+    xsh_bin, [xsh_bin, script, "--", "--section", "cpu", "--json"],
+    cwd: p"/", env: {PATH: "/nonexistent", LANG: "C", LC_ALL: "C", XSH_LINUX_REAL: "1"},
+    stdout: fp"${scratch_path}/candidate",
+  ))?
+  let candidate_ended = time.now()
+  if !status.exited_with(0) {return Err(check_failure("candidate CPUIdle collection failed"))}
+  let after_started = time.now()
+  let after = read_cpuidle_reference(source)?
+  let after_ended = time.now()
+  let candidate = fs.root_read_text(scratch, p"candidate")?
+  require_live_linux_report(candidate)?
+  let compared = compare_cpuidle(candidate, before, after)?
+  let data = json.decode(candidate)?
+  let host_claim = json.get(data, ["scope", "host_claim"])?.require(Str)?
+  print f"cpu.idle: reference=${compared.reference_count}, candidate=${compared.candidate_count}, matched=${compared.matched_count}, missing=${compared.missing_keys.len()}, unexpected=${compared.unexpected_keys.len()}, field_mismatches=${compared.field_mismatches.len()}, counter_mismatches=${compared.counter_mismatches.len()}, changed_fields=${compared.unstable_fields.len()}, eligible=${compared.eligible}, exact=${compared.exact}"
+  print f"reference: adapter=cpuidle-sysfs-rooted-v1; source=/sys/devices/system/cpu/cpuidle and cpu*/cpuidle/state*; bound=4096 bytes per attribute, 256 states per CPU; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${json.encode(host_claim)?}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
+  if compared.missing_keys.len() > 0 or compared.unexpected_keys.len() > 0 or
+      compared.field_mismatches.len() > 0 or compared.counter_mismatches.len() > 0 {
+    return Err(check_failure("CPUIdle states or stable fields differ from the kernel reference"))
+  }
+  return Ok({scored: compared.exact, partial: compared.eligible and !compared.exact, unavailable: !compared.eligible})
 }
 
 # Brackets one candidate observation with sysfs CPU sets and util-linux JSON.
@@ -7110,22 +16358,38 @@ export pure rust_fixture_single_test_passed(output: Str) -> Bool {
     lines.get(lines.len() - 1, "").starts_with("test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;")
 }
 
+## Reports a failed test summary or the diagnostic from a command that could not start its test.
+export pure fixture_failure_summary(output: Str, stderr_output: Str) -> Str {
+  let result_lines = output.trim().lines()
+  let result = result_lines.get(result_lines.len() - 1, "")
+  if result.starts_with("test result:") {return result}
+  let error_lines = stderr_output.trim().lines()
+  if error_lines.len() > 0 {return error_lines.get(error_lines.len() - 1, "")}
+  if result != "" {return result}
+  return "no test output"
+}
+
 ## Selects one Rust host-boundary test without running unrelated tests.
 export pure rust_fixture_argv(cargo_bin: Str, test_name: Str) -> Result[List[Str]] {
+  return rust_fixture_argv_for_target(cargo_bin, test_name, "aarch64-unknown-linux-musl")
+}
+
+## Carries the selected Linux target into isolated Rust fixture invocations.
+export pure rust_fixture_argv_for_target(cargo_bin: Str, test_name: Str, target: Str) -> Result[List[Str]] {
   let parts = test_name.split("::")
   if parts.len() != 2 or parts[1] == "" {
     return Err(check_failure("Rust fixture has an invalid test name"))
   }
   if parts[0] == "src/modules/linux/real/netlink.rs" {
     return Ok([
-      cargo_bin, "test", "--offline", "-p", "xsh", "--lib", "--target", "aarch64-unknown-linux-musl",
+      cargo_bin, "test", "--offline", "-p", "xsh", "--lib", "--target", target,
       f"modules::linux::real::netlink::tests::${parts[1]}", "--", "--exact", "--test-threads=1",
     ])
   }
   if parts[0] == "tests/linux_priv.rs" {
     return Ok([
       cargo_bin, "test", "--offline", "-p", "xsh", "--test", "linux_priv", "--features", "linux-priv-tests",
-      "--target", "aarch64-unknown-linux-musl", parts[1], "--", "--exact", "--test-threads=1",
+      "--target", target, parts[1], "--", "--exact", "--test-threads=1",
     ])
   }
   return Err(check_failure("Rust fixture has an unsupported owner"))
@@ -7137,7 +16401,7 @@ pure rust_fixture_name(test_name: Str) -> Bool {
 }
 
 # Runs explicitly mapped fixtures and counts only cases whose tests all passed.
-proc run_fixture_cases(root: Path, xsh_bin: Str, xsht_bin: Str, cargo_bin: Str, fixture_cases: List[FixtureCase]) [fs, process, io, error] -> Result[FixtureRun] {
+proc run_fixture_cases(root: Path, xsh_bin: Str, xsht_bin: Str, cargo_bin: Str, target: Str, fixture_cases: List[FixtureCase]) [fs, process, io, error] -> Result[FixtureRun] {
   if !xsh_bin.starts_with("/") or !xsht_bin.starts_with("/") {
     return Err(check_failure("--xsh-bin and --xsht-bin must be absolute paths"))
   }
@@ -7175,7 +16439,7 @@ proc run_fixture_cases(root: Path, xsh_bin: Str, xsht_bin: Str, cargo_bin: Str, 
       let rust_case = rust_fixture_name(test_name)
       let status = if rust_case {
         process.run(process.command_argv(
-          cargo_bin, rust_fixture_argv(cargo_bin, test_name)?,
+          cargo_bin, rust_fixture_argv_for_target(cargo_bin, test_name, target)?,
           cwd: root, stdout: stdout_path, stderr: stderr_path,
         ))?
       } else {
@@ -7196,8 +16460,8 @@ proc run_fixture_cases(root: Path, xsh_bin: Str, xsht_bin: Str, cargo_bin: Str, 
       test_results = test_results.set(test_name, passed)
       if !passed {
         case_passed = false
-        let output_lines = output.trim().lines()
-        let result_line = output_lines.get(output_lines.len() - 1, "no test output")
+        let stderr_output = fs.root_read_text(scratch, p"stderr")?
+        let result_line = fixture_failure_summary(output, stderr_output)
         test_failures = test_failures.set(test_name, result_line)
         print f"fixture ${fixture_case.scenario}: failed ${test_name} (${result_line})"
       }
@@ -7236,12 +16500,48 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
       form: "--compare-cpu",
       default: false,
     },
+    compare_cpu_topology: {
+      form: "--compare-cpu-topology",
+      default: false,
+    },
+    compare_cpu_cache: {
+      form: "--compare-cpu-cache",
+      default: false,
+    },
+    compare_cpufreq: {
+      form: "--compare-cpufreq",
+      default: false,
+    },
+    compare_cpuidle: {
+      form: "--compare-cpuidle",
+      default: false,
+    },
+    compare_cpupower: {
+      form: "--compare-cpupower",
+      default: false,
+    },
+    compare_cpu_scope: {
+      form: "--compare-cpu-scope",
+      default: false,
+    },
+    compare_cgroup_v2: {
+      form: "--compare-cgroup-v2",
+      default: false,
+    },
     compare_vulnerabilities: {
       form: "--compare-vulnerabilities",
       default: false,
     },
     compare_meminfo: {
       form: "--compare-meminfo",
+      default: false,
+    },
+    compare_huge_pages: {
+      form: "--compare-huge-pages",
+      default: false,
+    },
+    compare_pressure: {
+      form: "--compare-pressure",
       default: false,
     },
     compare_thp: {
@@ -7254,6 +16554,62 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     },
     compare_pci: {
       form: "--compare-pci",
+      default: false,
+    },
+    compare_pci_bindings: {
+      form: "--compare-pci-bindings",
+      default: false,
+    },
+    compare_pci_links: {
+      form: "--compare-pci-links",
+      default: false,
+    },
+    compare_usb_topology: {
+      form: "--compare-usb-topology",
+      default: false,
+    },
+    compare_usb_ids: {
+      form: "--compare-usb-ids",
+      default: false,
+    },
+    compare_usb_power: {
+      form: "--compare-usb-power",
+      default: false,
+    },
+    compare_usb_interfaces: {
+      form: "--compare-usb-interfaces",
+      default: false,
+    },
+    compare_lsusb: {
+      form: "--compare-lsusb",
+      default: false,
+    },
+    compare_power_supplies: {
+      form: "--compare-power-supplies",
+      default: false,
+    },
+    compare_powercap: {
+      form: "--compare-powercap",
+      default: false,
+    },
+    compare_device_classes: {
+      form: "--compare-device-classes",
+      default: false,
+    },
+    compare_hwmon: {
+      form: "--compare-hwmon",
+      default: false,
+    },
+    compare_sensors_json: {
+      form: "--compare-sensors-json",
+      default: false,
+    },
+    compare_smbios: {
+      form: "--compare-smbios",
+      default: false,
+    },
+    compare_thermal: {
+      form: "--compare-thermal",
       default: false,
     },
     compare_network_links: {
@@ -7320,12 +16676,176 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
       form: "--replay-cpu-bundle DIR",
       default: "",
     },
+    capture_cpufreq_bundle: {
+      form: "--capture-cpufreq-bundle DIR",
+      default: "",
+    },
+    replay_cpufreq_bundle: {
+      form: "--replay-cpufreq-bundle DIR",
+      default: "",
+    },
+    capture_cpu_topology_bundle: {
+      form: "--capture-cpu-topology-bundle DIR",
+      default: "",
+    },
+    replay_cpu_topology_bundle: {
+      form: "--replay-cpu-topology-bundle DIR",
+      default: "",
+    },
     capture_memory_bundle: {
       form: "--capture-memory-bundle DIR",
       default: "",
     },
     replay_memory_bundle: {
       form: "--replay-memory-bundle DIR",
+      default: "",
+    },
+    capture_pressure_bundle: {
+      form: "--capture-pressure-bundle DIR",
+      default: "",
+    },
+    replay_pressure_bundle: {
+      form: "--replay-pressure-bundle DIR",
+      default: "",
+    },
+    capture_swaps_bundle: {
+      form: "--capture-swaps-bundle DIR",
+      default: "",
+    },
+    replay_swaps_bundle: {
+      form: "--replay-swaps-bundle DIR",
+      default: "",
+    },
+    capture_os_release_bundle: {
+      form: "--capture-os-release-bundle DIR",
+      default: "",
+    },
+    replay_os_release_bundle: {
+      form: "--replay-os-release-bundle DIR",
+      default: "",
+    },
+    capture_uptime_bundle: {
+      form: "--capture-uptime-bundle DIR",
+      default: "",
+    },
+    replay_uptime_bundle: {
+      form: "--replay-uptime-bundle DIR",
+      default: "",
+    },
+    capture_dmi_identity_bundle: {
+      form: "--capture-dmi-identity-bundle DIR",
+      default: "",
+    },
+    replay_dmi_identity_bundle: {
+      form: "--replay-dmi-identity-bundle DIR",
+      default: "",
+    },
+    capture_device_tree_bundle: {
+      form: "--capture-device-tree-bundle DIR",
+      default: "",
+    },
+    replay_device_tree_bundle: {
+      form: "--replay-device-tree-bundle DIR",
+      default: "",
+    },
+    capture_kernel_command_line_bundle: {
+      form: "--capture-kernel-command-line-bundle DIR",
+      default: "",
+    },
+    replay_kernel_command_line_bundle: {
+      form: "--replay-kernel-command-line-bundle DIR",
+      default: "",
+    },
+    capture_kernel_modules_bundle: {
+      form: "--capture-kernel-modules-bundle DIR",
+      default: "",
+    },
+    replay_kernel_modules_bundle: {
+      form: "--replay-kernel-modules-bundle DIR",
+      default: "",
+    },
+    capture_vulnerabilities_bundle: {
+      form: "--capture-vulnerabilities-bundle DIR",
+      default: "",
+    },
+    replay_vulnerabilities_bundle: {
+      form: "--replay-vulnerabilities-bundle DIR",
+      default: "",
+    },
+    capture_mountinfo_bundle: {
+      form: "--capture-mountinfo-bundle DIR",
+      default: "",
+    },
+    replay_mountinfo_bundle: {
+      form: "--replay-mountinfo-bundle DIR",
+      default: "",
+    },
+    capture_kernel_parameters_bundle: {
+      form: "--capture-kernel-parameters-bundle DIR",
+      default: "",
+    },
+    replay_kernel_parameters_bundle: {
+      form: "--replay-kernel-parameters-bundle DIR",
+      default: "",
+    },
+    capture_thermal_bundle: {
+      form: "--capture-thermal-bundle DIR",
+      default: "",
+    },
+    replay_thermal_bundle: {
+      form: "--replay-thermal-bundle DIR",
+      default: "",
+    },
+    capture_powercap_bundle: {
+      form: "--capture-powercap-bundle DIR",
+      default: "",
+    },
+    replay_powercap_bundle: {
+      form: "--replay-powercap-bundle DIR",
+      default: "",
+    },
+    capture_pci_bundle: {
+      form: "--capture-pci-bundle DIR",
+      default: "",
+    },
+    replay_pci_bundle: {
+      form: "--replay-pci-bundle DIR",
+      default: "",
+    },
+    capture_usb_bundle: {
+      form: "--capture-usb-bundle DIR",
+      default: "",
+    },
+    replay_usb_bundle: {
+      form: "--replay-usb-bundle DIR",
+      default: "",
+    },
+    capture_smbios_bundle: {
+      form: "--capture-smbios-bundle DIR",
+      default: "",
+    },
+    replay_smbios_bundle: {
+      form: "--replay-smbios-bundle DIR",
+      default: "",
+    },
+    corroborate_smbios_bundle: {
+      form: "--corroborate-smbios-bundle DIR",
+      default: "",
+    },
+    dmidecode_bin: {
+      form: "--dmidecode-bin FILE",
+      default: "",
+    },
+    sensors_bin: {
+      form: "--sensors-bin FILE",
+      default: "",
+    },
+    cpupower_bin: {
+      form: "--cpupower-bin FILE",
+      default: "",
+    },
+    lsusb_bin: {
+      form: "--lsusb-bin FILE",
       default: "",
     },
     xsh_bin: {
@@ -7351,11 +16871,34 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     run_fixtures: parsed.run_fixtures,
     run_macos_fixtures: parsed.run_macos_fixtures,
     compare_cpu: parsed.compare_cpu,
+    compare_cpu_topology: parsed.compare_cpu_topology,
+    compare_cpu_cache: parsed.compare_cpu_cache,
+    compare_cpufreq: parsed.compare_cpufreq,
+    compare_cpuidle: parsed.compare_cpuidle,
+    compare_cpupower: parsed.compare_cpupower,
+    compare_cpu_scope: parsed.compare_cpu_scope,
+    compare_cgroup_v2: parsed.compare_cgroup_v2,
     compare_vulnerabilities: parsed.compare_vulnerabilities,
     compare_meminfo: parsed.compare_meminfo,
+    compare_huge_pages: parsed.compare_huge_pages,
+    compare_pressure: parsed.compare_pressure,
     compare_thp: parsed.compare_thp,
     compare_swaps: parsed.compare_swaps,
     compare_pci: parsed.compare_pci,
+    compare_pci_bindings: parsed.compare_pci_bindings,
+    compare_pci_links: parsed.compare_pci_links,
+    compare_usb_topology: parsed.compare_usb_topology,
+    compare_usb_ids: parsed.compare_usb_ids,
+    compare_usb_power: parsed.compare_usb_power,
+    compare_usb_interfaces: parsed.compare_usb_interfaces,
+    compare_lsusb: parsed.compare_lsusb,
+    compare_power_supplies: parsed.compare_power_supplies,
+    compare_powercap: parsed.compare_powercap,
+    compare_device_classes: parsed.compare_device_classes,
+    compare_hwmon: parsed.compare_hwmon,
+    compare_sensors_json: parsed.compare_sensors_json,
+    compare_smbios: parsed.compare_smbios,
+    compare_thermal: parsed.compare_thermal,
     compare_network_links: parsed.compare_network_links,
     compare_network_addresses: parsed.compare_network_addresses,
     compare_network_rules: parsed.compare_network_rules,
@@ -7372,8 +16915,49 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     compare_processes: parsed.compare_processes,
     capture_cpu_bundle: parsed.capture_cpu_bundle,
     replay_cpu_bundle: parsed.replay_cpu_bundle,
+    capture_cpufreq_bundle: parsed.capture_cpufreq_bundle,
+    replay_cpufreq_bundle: parsed.replay_cpufreq_bundle,
+    capture_cpu_topology_bundle: parsed.capture_cpu_topology_bundle,
+    replay_cpu_topology_bundle: parsed.replay_cpu_topology_bundle,
     capture_memory_bundle: parsed.capture_memory_bundle,
     replay_memory_bundle: parsed.replay_memory_bundle,
+    capture_pressure_bundle: parsed.capture_pressure_bundle,
+    replay_pressure_bundle: parsed.replay_pressure_bundle,
+    capture_swaps_bundle: parsed.capture_swaps_bundle,
+    replay_swaps_bundle: parsed.replay_swaps_bundle,
+    capture_os_release_bundle: parsed.capture_os_release_bundle,
+    replay_os_release_bundle: parsed.replay_os_release_bundle,
+    capture_uptime_bundle: parsed.capture_uptime_bundle,
+    replay_uptime_bundle: parsed.replay_uptime_bundle,
+    capture_dmi_identity_bundle: parsed.capture_dmi_identity_bundle,
+    replay_dmi_identity_bundle: parsed.replay_dmi_identity_bundle,
+    capture_device_tree_bundle: parsed.capture_device_tree_bundle,
+    replay_device_tree_bundle: parsed.replay_device_tree_bundle,
+    capture_kernel_command_line_bundle: parsed.capture_kernel_command_line_bundle,
+    replay_kernel_command_line_bundle: parsed.replay_kernel_command_line_bundle,
+    capture_kernel_modules_bundle: parsed.capture_kernel_modules_bundle,
+    replay_kernel_modules_bundle: parsed.replay_kernel_modules_bundle,
+    capture_vulnerabilities_bundle: parsed.capture_vulnerabilities_bundle,
+    replay_vulnerabilities_bundle: parsed.replay_vulnerabilities_bundle,
+    capture_mountinfo_bundle: parsed.capture_mountinfo_bundle,
+    replay_mountinfo_bundle: parsed.replay_mountinfo_bundle,
+    capture_kernel_parameters_bundle: parsed.capture_kernel_parameters_bundle,
+    replay_kernel_parameters_bundle: parsed.replay_kernel_parameters_bundle,
+    capture_thermal_bundle: parsed.capture_thermal_bundle,
+    replay_thermal_bundle: parsed.replay_thermal_bundle,
+    capture_powercap_bundle: parsed.capture_powercap_bundle,
+    replay_powercap_bundle: parsed.replay_powercap_bundle,
+    capture_pci_bundle: parsed.capture_pci_bundle,
+    replay_pci_bundle: parsed.replay_pci_bundle,
+    capture_usb_bundle: parsed.capture_usb_bundle,
+    replay_usb_bundle: parsed.replay_usb_bundle,
+    capture_smbios_bundle: parsed.capture_smbios_bundle,
+    replay_smbios_bundle: parsed.replay_smbios_bundle,
+    corroborate_smbios_bundle: parsed.corroborate_smbios_bundle,
+    dmidecode_bin: parsed.dmidecode_bin,
+    sensors_bin: parsed.sensors_bin,
+    cpupower_bin: parsed.cpupower_bin,
+    lsusb_bin: parsed.lsusb_bin,
     xsh_bin: parsed.xsh_bin,
     xsht_bin: parsed.xsht_bin,
     cargo_bin: parsed.cargo_bin,
@@ -7388,16 +16972,68 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     return Err(check_failure("choose one fixture platform gate"))
   }
   var bundle_mode_count = 0
-  for value in [options.capture_cpu_bundle, options.replay_cpu_bundle, options.capture_memory_bundle, options.replay_memory_bundle] {
+  for value in [
+    options.capture_cpu_bundle, options.replay_cpu_bundle,
+    options.capture_cpufreq_bundle, options.replay_cpufreq_bundle,
+    options.capture_cpu_topology_bundle, options.replay_cpu_topology_bundle,
+    options.capture_memory_bundle, options.replay_memory_bundle,
+    options.capture_pressure_bundle, options.replay_pressure_bundle,
+    options.capture_swaps_bundle, options.replay_swaps_bundle,
+    options.capture_os_release_bundle, options.replay_os_release_bundle,
+    options.capture_uptime_bundle, options.replay_uptime_bundle,
+    options.capture_dmi_identity_bundle, options.replay_dmi_identity_bundle,
+    options.capture_device_tree_bundle, options.replay_device_tree_bundle,
+    options.capture_kernel_command_line_bundle, options.replay_kernel_command_line_bundle,
+    options.capture_kernel_modules_bundle, options.replay_kernel_modules_bundle,
+    options.capture_vulnerabilities_bundle, options.replay_vulnerabilities_bundle,
+    options.capture_mountinfo_bundle, options.replay_mountinfo_bundle,
+    options.capture_kernel_parameters_bundle, options.replay_kernel_parameters_bundle,
+    options.capture_thermal_bundle, options.replay_thermal_bundle,
+    options.capture_powercap_bundle, options.replay_powercap_bundle,
+    options.capture_pci_bundle, options.replay_pci_bundle,
+    options.capture_usb_bundle, options.replay_usb_bundle,
+    options.capture_smbios_bundle, options.replay_smbios_bundle,
+    options.corroborate_smbios_bundle,
+  ] {
     if value != "" {
       bundle_mode_count += 1
     }
   }
   if bundle_mode_count > 1 {
-    return Err(check_failure("choose one capture or replay bundle operation"))
+    return Err(check_failure("choose one corroboration, capture, or replay operation"))
   }
-  if bundle_mode_count > 0 and
-      (options.run_fixtures or options.run_macos_fixtures or options.no_subprocess or options.compare_cpu or options.compare_vulnerabilities or options.compare_meminfo or options.compare_thp or options.compare_swaps or options.compare_pci or options.compare_network_links or options.compare_network_addresses or options.compare_network_rules or options.compare_network_routes or options.compare_storage or options.compare_queue or options.compare_mounts or options.compare_mount_usage or options.compare_modules or options.compare_command_line or options.compare_parameters or options.compare_identity or options.compare_namespaces or options.compare_processes) {
+  if (options.corroborate_smbios_bundle != "" and options.dmidecode_bin == "") or
+      (options.corroborate_smbios_bundle == "" and options.dmidecode_bin != "") {
+    return Err(check_failure("--corroborate-smbios-bundle requires --dmidecode-bin and both must be used together"))
+  }
+  if options.compare_sensors_json != (options.sensors_bin != "") {
+    return Err(check_failure("--compare-sensors-json requires --sensors-bin and both must be used together"))
+  }
+  if options.compare_cpupower != (options.cpupower_bin != "") {
+    return Err(check_failure("--compare-cpupower requires --cpupower-bin and both must be used together"))
+  }
+  if options.compare_lsusb != (options.lsusb_bin != "") {
+    return Err(check_failure("--compare-lsusb requires --lsusb-bin and both must be used together"))
+  }
+  let live_or_fixture_requested = [
+    options.run_fixtures, options.run_macos_fixtures, options.no_subprocess,
+    options.compare_cpu, options.compare_cpu_topology, options.compare_cpu_cache,
+    options.compare_cpufreq, options.compare_cpuidle, options.compare_cpupower, options.compare_cpu_scope,
+    options.compare_cgroup_v2, options.compare_vulnerabilities, options.compare_meminfo,
+    options.compare_huge_pages, options.compare_pressure, options.compare_thp,
+    options.compare_swaps, options.compare_pci, options.compare_pci_bindings,
+    options.compare_pci_links, options.compare_usb_topology, options.compare_usb_ids,
+    options.compare_usb_power, options.compare_usb_interfaces, options.compare_lsusb, options.compare_power_supplies,
+    options.compare_powercap, options.compare_device_classes, options.compare_hwmon,
+    options.compare_sensors_json,
+    options.compare_smbios, options.compare_thermal,
+    options.compare_network_links, options.compare_network_addresses, options.compare_network_rules,
+    options.compare_network_routes, options.compare_storage, options.compare_queue,
+    options.compare_mounts, options.compare_mount_usage, options.compare_modules,
+    options.compare_command_line, options.compare_parameters, options.compare_identity,
+    options.compare_namespaces, options.compare_processes,
+  ] |> any .
+  if bundle_mode_count > 0 and live_or_fixture_requested {
     return Err(check_failure("bundle operations cannot be combined with fixture, live comparison, or trace operations"))
   }
   if options.capture_cpu_bundle != "" {
@@ -7436,6 +17072,64 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     }
     return Ok()
   }
+  if options.capture_cpufreq_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_cpufreq_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {return Err(check_failure("CPUFreq capture destination already exists"))}
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_cpufreq_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(CpuFreqBundleCapture)?
+    print f"CPUFreq raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; policies=${capture.layout.policies.len()}; changing_gauges=${capture.changing_gauges.len()}"
+    print f"Replay with --replay-cpufreq-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_cpufreq_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_cpufreq_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_cpufreq_bundle(bundle)?
+    let bounds_state = if result.policies.exact_bounds {"exact"} else if !result.policies.eligible_bounds {"unavailable"} else {"partial"}
+    let controls_state = if result.policies.exact_controls {"exact"} else if !result.policies.eligible_controls {"unavailable"} else {"partial"}
+    print f"CPUFreq raw replay: sets=${result.sets.exact}; policies=${result.policies.exact_policies}; bounds=${bounds_state}; controls=${controls_state}; policies_count=${result.policies.reference_count}"
+    if !result.sets.exact or !result.policies.exact_policies or
+        result.policies.bound_mismatches.len() > 0 or result.policies.gauge_mismatches.len() > 0 or
+        result.policies.control_mismatches.len() > 0 {
+      return Err(check_failure("CPUFreq raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_cpu_topology_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_cpu_topology_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {return Err(check_failure("CPU topology capture destination already exists"))}
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_cpu_topology_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(CpuTopologyBundleCapture)?
+    print f"CPU topology raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; CPUs=${capture.layout.cpu_ids.len()}; node_links=${capture.layout.node_links.len()}"
+    print f"Replay with --replay-cpu-topology-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_cpu_topology_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_cpu_topology_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_cpu_topology_bundle(bundle)?
+    print f"CPU topology raw replay: sets=${result.sets.exact}; topology=${result.topology.exact}; CPUs=${result.topology.reference_count}; mismatches=${result.topology.field_mismatches.len()}"
+    if !result.sets.exact or !result.topology.exact {
+      return Err(check_failure("CPU topology raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
   if options.capture_memory_bundle != "" {
     let destination = path.absolute(fp"${options.capture_memory_bundle}")?
     let parent = fs.open_root(destination.parent())?
@@ -7469,13 +17163,565 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     }
     return Ok()
   }
+  if options.capture_pressure_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_pressure_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {
+      return Err(check_failure("pressure capture destination already exists"))
+    }
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_pressure_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(PressureCapture)?
+    let scoreable = if capture.reference != null {"yes"} else {"no"}
+    print f"pressure raw capture saved at ${destination}; origin=live_capture; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
+    print f"Replay with --replay-pressure-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_pressure_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_pressure_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_pressure_bundle(bundle)?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(PressureCapture)?
+    let state = if result.exact_scored {"exact"} else {"mismatch"}
+    print f"pressure raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.mismatched_fields.len()}"
+    if !result.exact_scored {
+      return Err(check_failure("pressure raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_swaps_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_swaps_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {
+      return Err(check_failure("swap capture destination already exists"))
+    }
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_proc_swaps_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(ProcSwapsCapture)?
+    let scoreable = if capture.reference != null {"yes"} else {"no"}
+    print f"swap raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
+    print f"Replay with --replay-swaps-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_swaps_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_swaps_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_proc_swaps_bundle(bundle)?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(ProcSwapsCapture)?
+    let state = if result.exact {"exact"} else {"mismatch"}
+    print f"swap raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}; source_issue=${result.source_issue}"
+    if !result.exact {
+      return Err(check_failure("swap raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_os_release_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_os_release_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {
+      return Err(check_failure("os-release capture destination already exists"))
+    }
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_os_release_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(OsReleaseCapture)?
+    let scoreable = if capture.stable and capture.reference != null {"yes"} else {"no"}
+    print f"os-release raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; selected=${capture.selected_path}"
+    print f"Replay with --replay-os-release-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_os_release_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_os_release_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_os_release_bundle(bundle)?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(OsReleaseCapture)?
+    let state = if result.exact {"exact"} else {"mismatch"}
+    print f"os-release raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; selected=${capture.selected_path}"
+    if !result.exact {
+      return Err(check_failure("os-release raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_uptime_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_uptime_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {
+      return Err(check_failure("uptime capture destination already exists"))
+    }
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_uptime_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(UptimeCapture)?
+    let scoreable = if capture.reference_seconds != null {"yes"} else {"no"}
+    print f"uptime raw capture saved at ${destination}; origin=${capture.origin}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
+    print f"Replay with --replay-uptime-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_uptime_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_uptime_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_uptime_bundle(bundle)?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(UptimeCapture)?
+    let state = if result.bracketed {"exact"} else {"mismatch"}
+    let candidate_seconds = if result.candidate_seconds == null {"null"} else {f"${result.candidate_seconds ?? -1}"}
+    print f"uptime raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference_seconds=${result.before_seconds}; candidate_seconds=${candidate_seconds}"
+    if !result.bracketed {
+      return Err(check_failure("uptime raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_dmi_identity_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_dmi_identity_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {
+      return Err(check_failure("DMI identity capture destination already exists"))
+    }
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_dmi_identity_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(DmiIdentityCapture)?
+    let scoreable = if capture.stable and capture.reference != null {"yes"} else {"no"}
+    print f"DMI identity raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
+    print f"Replay with --replay-dmi-identity-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_dmi_identity_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_dmi_identity_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_dmi_identity_bundle(bundle)?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(DmiIdentityCapture)?
+    let state = if result.exact {"exact"} else {"mismatch"}
+    print f"DMI identity raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; mismatched=${result.sensitive.field_mismatches.len()}; unstable=${result.sensitive.unstable_fields.len()}; default_redacted=${result.default_redacted}"
+    if !result.exact {
+      return Err(check_failure("DMI identity raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_device_tree_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_device_tree_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {
+      return Err(check_failure("device-tree capture destination already exists"))
+    }
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_device_tree_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(DeviceTreeCapture)?
+    let scoreable = if capture.stable and capture.reference != null {"yes"} else {"no"}
+    print f"device-tree raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
+    print f"Replay with --replay-device-tree-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_device_tree_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_device_tree_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_device_tree_bundle(bundle)?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(DeviceTreeCapture)?
+    let state = if result.exact {"exact"} else {"mismatch"}
+    print f"device-tree raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; source=${result.source_exact}; model=${result.model_exact}; compatible=${result.compatible_exact}"
+    if !result.exact {
+      return Err(check_failure("device-tree raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_kernel_command_line_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_kernel_command_line_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {
+      return Err(check_failure("kernel command-line capture destination already exists"))
+    }
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_kernel_command_line_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(KernelCommandLineCapture)?
+    let scoreable = if capture.stable and capture.reference_base64 != null {"yes"} else {"no"}
+    print f"kernel command-line raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
+    print f"Replay with --replay-kernel-command-line-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_kernel_command_line_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_kernel_command_line_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_kernel_command_line_bundle(bundle)?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(KernelCommandLineCapture)?
+    let state = if result.exact {"exact"} else {"mismatch"}
+    print f"kernel command-line raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; sensitive_exact=${result.sensitive_exact}; redacted_exact=${result.redacted_exact}"
+    if !result.exact {
+      return Err(check_failure("kernel command-line raw replay differs from its reference"))
+    }
+    return Ok()
+  }
+  if options.capture_kernel_modules_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_kernel_modules_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {
+      return Err(check_failure("kernel module capture destination already exists"))
+    }
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_kernel_modules_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(KernelModulesCapture)?
+    let scoreable = if capture.reference != null {"yes"} else {"no"}
+    print f"kernel module raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
+    print f"Replay with --replay-kernel-modules-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_kernel_modules_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_kernel_modules_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_kernel_modules_bundle(bundle)?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(KernelModulesCapture)?
+    let state = if result.exact {"exact"} else {"mismatch"}
+    print f"kernel module raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}"
+    if !result.exact {
+      return Err(check_failure("kernel module raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_vulnerabilities_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_vulnerabilities_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {
+      return Err(check_failure("vulnerability capture destination already exists"))
+    }
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_vulnerabilities_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(VulnerabilityCapture)?
+    let scoreable = if capture.reference != null {"yes"} else {"no"}
+    print f"vulnerability raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
+    print f"Replay with --replay-vulnerabilities-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_vulnerabilities_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_vulnerabilities_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_vulnerabilities_bundle(bundle)?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(VulnerabilityCapture)?
+    let state = if result.exact {"exact"} else {"mismatch"}
+    print f"vulnerability raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.mismatched_names.len()}"
+    if !result.exact {
+      return Err(check_failure("vulnerability raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_mountinfo_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_mountinfo_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {
+      return Err(check_failure("mountinfo capture destination already exists"))
+    }
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_mountinfo_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(MountinfoCapture)?
+    let scoreable = if capture.reference != null {"yes"} else {"no"}
+    print f"mountinfo raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
+    print f"Replay with --replay-mountinfo-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_mountinfo_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_mountinfo_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_mountinfo_bundle(bundle)?
+    let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(MountinfoCapture)?
+    let state = if result.exact {"exact"} else {"mismatch"}
+    print f"mountinfo raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}"
+    if !result.exact {
+      return Err(check_failure("mountinfo raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_kernel_parameters_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_kernel_parameters_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {
+      return Err(check_failure("kernel parameter capture destination already exists"))
+    }
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_kernel_parameters_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(KernelParametersCapture)?
+    let scoreable = if capture.reference != null {"yes"} else {"no"}
+    print f"kernel parameter raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${scoreable}; captured=${capture.captured_unix_ms} ms"
+    print f"Replay with --replay-kernel-parameters-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_kernel_parameters_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_kernel_parameters_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_kernel_parameters_bundle(bundle)?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(KernelParametersCapture)?
+    let state = if result.exact {"exact"} else {"mismatch"}
+    print f"kernel parameter raw replay: ${state}; origin=${capture.origin}; captured=${capture.captured_unix_ms} ms; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}"
+    if !result.exact {
+      return Err(check_failure("kernel parameter raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_thermal_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_thermal_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {
+      return Err(check_failure("thermal capture destination already exists"))
+    }
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_thermal_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(ThermalCapture)?
+    print f"thermal raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; captured=${capture.captured_unix_ms} ms"
+    print f"Replay with --replay-thermal-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_thermal_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_thermal_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_thermal_bundle(bundle)?
+    let state = if result.exact {"exact"} else {"mismatch"}
+    print f"thermal raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}; partial=${result.unstable_fields.len()}"
+    if !result.exact {
+      return Err(check_failure("thermal raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_powercap_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_powercap_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {
+      return Err(check_failure("powercap capture destination already exists"))
+    }
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_powercap_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(PowerCapCapture)?
+    print f"powercap raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; captured=${capture.captured_unix_ms} ms"
+    print f"Replay with --replay-powercap-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_powercap_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_powercap_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_powercap_bundle(bundle)?
+    let state = if result.exact {"exact"} else {"mismatch"}
+    print f"powercap raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}; partial=${result.unstable_fields.len()}"
+    if !result.exact {
+      return Err(check_failure("powercap raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_pci_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_pci_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {return Err(check_failure("PCI capture destination already exists"))}
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_pci_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(PciBundleCapture)?
+    print f"PCI raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; functions=${capture.layout.functions.len()}"
+    print f"Replay with --replay-pci-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_pci_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_pci_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_pci_bundle(bundle)?
+    let binding_state = if !result.binding.eligible {"unavailable"} else if result.binding.exact {"exact"} else {"mismatch"}
+    let link_unavailable = !result.link.eligible and !result.link.candidate_field_missing and
+      result.link.missing_addresses.len() == 0 and result.link.unexpected_addresses.len() == 0 and
+      result.link.field_mismatches.len() == 0 and result.link.unstable_fields.len() == 0
+    let link_state = if result.link.exact {"exact"} else if link_unavailable {"unavailable"} else {"mismatch"}
+    print f"PCI raw replay: identity=${result.identity.exact_static}; binding=${binding_state}; link=${link_state}; functions=${result.identity.reference_count}"
+    if !result.identity.exact_static or binding_state == "mismatch" or link_state == "mismatch" {
+      return Err(check_failure("PCI raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_usb_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_usb_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {return Err(check_failure("USB capture destination already exists"))}
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_usb_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(UsbBundleCapture)?
+    print f"USB raw capture saved at ${destination}; origin=${capture.origin}; stable=${capture.stable}; scoreable=${capture.scoreable}; entries=${capture.layout.entries.len()}"
+    print f"Replay with --replay-usb-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_usb_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_usb_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_usb_bundle(bundle)?
+    let power_unavailable = !result.power.eligible and result.power.missing_names.len() == 0 and
+      result.power.unexpected_names.len() == 0 and result.power.field_mismatches.len() == 0 and
+      result.power.unstable_fields.len() == 0
+    let interface_unavailable = !result.interface.eligible and result.interface.missing_names.len() == 0 and
+      result.interface.unexpected_names.len() == 0 and result.interface.field_mismatches.len() == 0 and
+      result.interface.unstable_fields.len() == 0
+    let power_state = if result.power.exact {"exact"} else if power_unavailable {"unavailable"} else {"mismatch"}
+    let interface_state = if result.interface.exact {"exact"} else if interface_unavailable {"unavailable"} else {"mismatch"}
+    print f"USB raw replay: topology=${result.topology.exact}; ids=${result.ids.exact}; power=${power_state}; interfaces=${interface_state}; devices=${result.topology.reference_count}"
+    if !result.topology.exact or !result.ids.exact or power_state == "mismatch" or interface_state == "mismatch" {
+      return Err(check_failure("USB raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_smbios_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_smbios_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {
+      return Err(check_failure("SMBIOS capture destination already exists"))
+    }
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    let smbios_module = module.load(fp"${ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
+    let captured = smbios_module.capture_smbios_bundle(source, bundle, "live_capture")?
+    print f"SMBIOS raw capture saved at ${destination}; origin=${captured.origin}; stable=${captured.stable}; scoreable=${captured.scoreable}; captured=${captured.captured_unix_ms} ms"
+    print f"Replay with --replay-smbios-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_smbios_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_smbios_bundle}")?
+    defer fs.close_root(bundle)?
+    let smbios_module = module.load(fp"${ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
+    let result = smbios_module.replay_smbios_bundle(bundle)?
+    let state = if result.exact {"exact"} else {"mismatch"}
+    print f"SMBIOS raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; matched=${result.matched_count}; missing=${result.missing_names.len()}; unexpected=${result.unexpected_names.len()}; field_mismatches=${result.field_mismatches.len()}"
+    if !result.exact {
+      return Err(check_failure("SMBIOS raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.corroborate_smbios_bundle != "" {
+    if !options.dmidecode_bin.starts_with("/") {
+      return Err(check_failure("--dmidecode-bin must name an absolute executable path"))
+    }
+    let bundle = fs.open_root(fp"${options.corroborate_smbios_bundle}")?
+    defer fs.close_root(bundle)?
+    let smbios_module = module.load(fp"${ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
+    let result = smbios_module.corroborate_smbios_bundle(bundle, options.dmidecode_bin)?
+    let compared = result.comparison
+    print f"firmware.dmidecode: reference=${compared.reference_count}, decoded=${compared.decoded_count}, matched=${compared.matched_count}, missing=${compared.missing_names.len()}, unexpected=${compared.unexpected_names.len()}, mismatched=${compared.field_mismatches.len()}, exact=${compared.exact}"
+    print f"reference: adapter=dmidecode-hex-v1; executable=${options.dmidecode_bin}; version=${result.version}; locale=C; source_mode=captured_replay; started=${result.started_unix_ms} ms; ended=${result.ended_unix_ms} ms; output and full provenance saved in the private bundle"
+    if !compared.exact {
+      return Err(check_failure("dmidecode hexadecimal records differ from the captured raw SMBIOS table"))
+    }
+    return Ok()
+  }
   var mandatory_count = 0
   var cpu_sets_declared = false
+  var cpu_topology_declared = false
+  var cpu_cache_declared = false
+  var cpufreq_declared = false
+  var cpufreq_bounds_declared = false
+  var cpufreq_controls_declared = false
+  var cpuidle_declared = false
+  var cpu_scope_declared = false
+  var cgroup_v2_declared = false
   var vulnerabilities_declared = false
   var meminfo_declared = false
+  var huge_pages_declared = false
+  var pressure_declared = false
   var thp_declared = false
   var swaps_declared = false
   var pci_identity_declared = false
+  var pci_binding_declared = false
+  var pci_link_declared = false
+  var usb_topology_declared = false
+  var usb_ids_declared = false
+  var usb_power_declared = false
+  var usb_interfaces_declared = false
+  var power_supplies_declared = false
+  var powercap_declared = false
+  var device_classes_declared = false
+  var hwmon_declared = false
+  var sensors_json_declared = false
+  var cpupower_declared = false
+  var lsusb_declared = false
+  var smbios_declared = false
+  var thermal_declared = false
   var network_links_declared = false
   var network_addresses_declared = false
   var network_rules_declared = false
@@ -7491,6 +17737,7 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
   var architecture_declared = false
   var uptime_declared = false
   var os_release_declared = false
+  var firmware_identity_declared = false
   var namespaces_declared = false
   var processes_declared = false
   for assertion in manifest.assertions {
@@ -7500,11 +17747,41 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     if assertion.id == "cpu.sets" and assertion.tier == "mandatory" {
       cpu_sets_declared = true
     }
+    if assertion.id == "cpu.topology" and assertion.tier == "mandatory" {
+      cpu_topology_declared = true
+    }
+    if assertion.id == "cpu.cache-sharing" and assertion.tier == "mandatory" {
+      cpu_cache_declared = true
+    }
+    if assertion.id == "cpu.freq-policies" and assertion.tier == "mandatory" {
+      cpufreq_declared = true
+    }
+    if assertion.id == "cpu.freq-bounds" and assertion.tier == "mandatory" {
+      cpufreq_bounds_declared = true
+    }
+    if assertion.id == "cpu.epp-boost" and assertion.tier == "mandatory" {
+      cpufreq_controls_declared = true
+    }
+    if assertion.id == "cpu.idle" and assertion.tier == "mandatory" {
+      cpuidle_declared = true
+    }
+    if assertion.id == "memory.cpu-scope" and assertion.tier == "mandatory" {
+      cpu_scope_declared = true
+    }
+    if assertion.id == "memory.cgroup-v2" and assertion.tier == "mandatory" {
+      cgroup_v2_declared = true
+    }
     if assertion.id == "cpu.vulnerabilities" and assertion.tier == "mandatory" {
       vulnerabilities_declared = true
     }
     if assertion.id == "memory.meminfo" and assertion.tier == "mandatory" {
       meminfo_declared = true
+    }
+    if assertion.id == "memory.hugepages" and assertion.tier == "mandatory" {
+      huge_pages_declared = true
+    }
+    if assertion.id == "memory.pressure" and assertion.tier == "mandatory" {
+      pressure_declared = true
     }
     if assertion.id == "memory.thp" and assertion.tier == "mandatory" {
       thp_declared = true
@@ -7514,6 +17791,51 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     }
     if assertion.id == "pci.identity" and assertion.tier == "mandatory" {
       pci_identity_declared = true
+    }
+    if assertion.id == "pci.link" and assertion.tier == "mandatory" {
+      pci_link_declared = true
+    }
+    if assertion.id == "pci.binding" and assertion.tier == "mandatory" {
+      pci_binding_declared = true
+    }
+    if assertion.id == "usb.topology" and assertion.tier == "mandatory" {
+      usb_topology_declared = true
+    }
+    if assertion.id == "usb.ids" and assertion.tier == "mandatory" {
+      usb_ids_declared = true
+    }
+    if assertion.id == "usb.power" and assertion.tier == "mandatory" {
+      usb_power_declared = true
+    }
+    if assertion.id == "usb.interfaces" and assertion.tier == "mandatory" {
+      usb_interfaces_declared = true
+    }
+    if assertion.id == "power.supplies" and assertion.tier == "mandatory" {
+      power_supplies_declared = true
+    }
+    if assertion.id == "power.powercap" and assertion.tier == "mandatory" {
+      powercap_declared = true
+    }
+    if assertion.id == "devices.graphics-audio-input" and assertion.tier == "mandatory" {
+      device_classes_declared = true
+    }
+    if assertion.id == "sensors.hwmon" and assertion.tier == "mandatory" {
+      hwmon_declared = true
+    }
+    if assertion.id == "sensors.lm-sensors" and assertion.tier == "supplemental" {
+      sensors_json_declared = true
+    }
+    if assertion.id == "cpu.cpupower" and assertion.tier == "supplemental" {
+      cpupower_declared = true
+    }
+    if assertion.id == "usb.lsusb" and assertion.tier == "supplemental" {
+      lsusb_declared = true
+    }
+    if assertion.id == "firmware.smbios" and assertion.tier == "mandatory" {
+      smbios_declared = true
+    }
+    if assertion.id == "sensors.thermal" and assertion.tier == "mandatory" {
+      thermal_declared = true
     }
     if assertion.id == "network.links" and assertion.tier == "mandatory" {
       network_links_declared = true
@@ -7554,6 +17876,9 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     if assertion.id == "identity.kernel.architecture" and assertion.tier == "mandatory" {
       architecture_declared = true
     }
+    if assertion.id == "identity.firmware" and assertion.tier == "mandatory" {
+      firmware_identity_declared = true
+    }
     if assertion.id == "identity.uptime" and assertion.tier == "mandatory" {
       uptime_declared = true
     }
@@ -7574,6 +17899,7 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
   var scored = 0
   var partial_compared = false
   var reference_unavailable = false
+  var supplemental_compared = false
   var fixture_cases_passed = 0
   if options.run_fixtures {
     if system.uname()?.sysname != "Linux" {
@@ -7585,7 +17911,7 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     if manifest.fixture_cases.len() == 0 {
       return Err(check_failure("coverage manifest has no executable fixture cases"))
     }
-    let fixture_run = run_fixture_cases(ctx.root, options.xsh_bin, options.xsht_bin, options.cargo_bin, manifest.fixture_cases)?
+    let fixture_run = run_fixture_cases(ctx.root, options.xsh_bin, options.xsht_bin, options.cargo_bin, ctx.target.triple, manifest.fixture_cases)?
     fixture_cases_passed = fixture_run.passed
     print f"fixture coverage: ${fixture_run.passed} passed, ${fixture_run.failed} failed, ${manifest.fixture_scenarios.len() - manifest.fixture_cases.len()} declared scenarios not executed"
     if fixture_run.failed > 0 {
@@ -7602,7 +17928,7 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     if manifest.macos_fixture_cases.len() == 0 {
       return Err(check_failure("coverage manifest has no macOS fixture cases"))
     }
-    let fixture_run = run_fixture_cases(ctx.root, options.xsh_bin, options.xsht_bin, options.cargo_bin, manifest.macos_fixture_cases)?
+    let fixture_run = run_fixture_cases(ctx.root, options.xsh_bin, options.xsht_bin, options.cargo_bin, ctx.target.triple, manifest.macos_fixture_cases)?
     fixture_cases_passed = fixture_run.passed
     print f"macOS fixture coverage: ${fixture_run.passed} passed, ${fixture_run.failed} failed, ${manifest.fixture_scenarios.len() - manifest.macos_fixture_cases.len()} declared scenarios not executed on macOS"
     if fixture_run.failed > 0 {
@@ -7627,6 +17953,81 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     compare_live_cpu_sets(options.xsh_bin, options.script)?
     scored += 1
   }
+  if options.compare_cpu_topology {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-cpu-topology requires --xsh-bin and --script"))
+    }
+    if !cpu_topology_declared {
+      return Err(check_failure("coverage manifest lacks mandatory cpu.topology assertion"))
+    }
+    if compare_live_cpu_topology(options.xsh_bin, options.script)? {
+      scored += 1
+    } else {
+      reference_unavailable = true
+    }
+  }
+  if options.compare_cpu_cache {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-cpu-cache requires --xsh-bin and --script"))
+    }
+    if !cpu_cache_declared {
+      return Err(check_failure("coverage manifest lacks mandatory cpu.cache-sharing assertion"))
+    }
+    if compare_live_cpu_cache(options.xsh_bin, options.script)? {
+      scored += 1
+    } else {
+      reference_unavailable = true
+    }
+  }
+  if options.compare_cpufreq {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-cpufreq requires --xsh-bin and --script"))
+    }
+    if !cpufreq_declared or !cpufreq_bounds_declared or !cpufreq_controls_declared {
+      return Err(check_failure("coverage manifest lacks mandatory CPUFreq policy, bound, or control assertion"))
+    }
+    let frequency_result = compare_live_cpufreq(options.xsh_bin, options.script)?
+    scored += frequency_result.scored
+    if frequency_result.partial {partial_compared = true}
+    if frequency_result.unavailable {reference_unavailable = true}
+  }
+  if options.compare_cpuidle {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-cpuidle requires --xsh-bin and --script"))
+    }
+    if !cpuidle_declared {
+      return Err(check_failure("coverage manifest lacks mandatory cpu.idle assertion"))
+    }
+    let idle_result = compare_live_cpuidle(options.xsh_bin, options.script)?
+    if idle_result.scored {scored += 1}
+    if idle_result.partial {partial_compared = true}
+    if idle_result.unavailable {reference_unavailable = true}
+  }
+  if options.compare_cpu_scope {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-cpu-scope requires --xsh-bin and --script"))
+    }
+    if !cpu_scope_declared {
+      return Err(check_failure("coverage manifest lacks mandatory memory.cpu-scope assertion"))
+    }
+    if compare_live_cpu_scope(options.xsh_bin, options.script)? {
+      scored += 1
+    } else {
+      reference_unavailable = true
+    }
+  }
+  if options.compare_cgroup_v2 {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-cgroup-v2 requires --xsh-bin and --script"))
+    }
+    if !cgroup_v2_declared {
+      return Err(check_failure("coverage manifest lacks mandatory memory.cgroup-v2 assertion"))
+    }
+    let cgroup_result = compare_live_cgroup2(options.xsh_bin, options.script)?
+    if cgroup_result.scored {scored += 1}
+    if cgroup_result.partial {partial_compared = true}
+    if cgroup_result.unavailable {reference_unavailable = true}
+  }
   if options.compare_vulnerabilities {
     if options.xsh_bin.trim() == "" or options.script.trim() == "" {
       return Err(check_failure("--compare-vulnerabilities requires --xsh-bin and --script"))
@@ -7649,6 +18050,30 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     }
     compare_live_meminfo(options.xsh_bin, options.script)?
     partial_compared = true
+  }
+  if options.compare_huge_pages {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-huge-pages requires --xsh-bin and --script"))
+    }
+    if !huge_pages_declared {
+      return Err(check_failure("coverage manifest lacks mandatory memory.hugepages assertion"))
+    }
+    let huge_result = compare_live_huge_pages(options.xsh_bin, options.script)?
+    if huge_result.scored {scored += 1}
+    if huge_result.partial {partial_compared = true}
+    if huge_result.unavailable {reference_unavailable = true}
+  }
+  if options.compare_pressure {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-pressure requires --xsh-bin and --script"))
+    }
+    if !pressure_declared {
+      return Err(check_failure("coverage manifest lacks mandatory memory.pressure assertion"))
+    }
+    let psi_result = compare_live_psi(options.xsh_bin, options.script)?
+    if psi_result.scored {scored += 1}
+    if psi_result.partial {partial_compared = true}
+    if psi_result.unavailable {reference_unavailable = true}
   }
   if options.compare_thp {
     if options.xsh_bin.trim() == "" or options.script.trim() == "" {
@@ -7683,6 +18108,209 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     compare_live_pci_identity(options.xsh_bin, options.script)?
     partial_compared = true
   }
+  if options.compare_pci_bindings {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-pci-bindings requires --xsh-bin and --script"))
+    }
+    if !pci_binding_declared {
+      return Err(check_failure("coverage manifest lacks mandatory pci.binding assertion"))
+    }
+    let binding_result = compare_live_pci_bindings(options.xsh_bin, options.script)?
+    if binding_result.scored {scored += 1}
+    if binding_result.partial {partial_compared = true}
+    if binding_result.unavailable {reference_unavailable = true}
+  }
+  if options.compare_pci_links {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-pci-links requires --xsh-bin and --script"))
+    }
+    if !pci_link_declared {
+      return Err(check_failure("coverage manifest lacks mandatory pci.link assertion"))
+    }
+    let link_result = compare_live_pci_links(options.xsh_bin, options.script)?
+    if link_result.scored {scored += 1}
+    if link_result.partial {partial_compared = true}
+    if link_result.unavailable {reference_unavailable = true}
+  }
+  if options.compare_usb_topology {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-usb-topology requires --xsh-bin and --script"))
+    }
+    if !usb_topology_declared {
+      return Err(check_failure("coverage manifest lacks mandatory usb.topology assertion"))
+    }
+    let usb_result = compare_live_usb_topology(options.xsh_bin, options.script)?
+    if usb_result.scored {scored += 1}
+    if usb_result.partial {partial_compared = true}
+    if usb_result.unavailable {reference_unavailable = true}
+  }
+  if options.compare_usb_ids {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-usb-ids requires --xsh-bin and --script"))
+    }
+    if !usb_ids_declared {
+      return Err(check_failure("coverage manifest lacks mandatory usb.ids assertion"))
+    }
+    let ids_result = compare_live_usb_ids(options.xsh_bin, options.script)?
+    if ids_result.scored {scored += 1}
+    if ids_result.partial {partial_compared = true}
+    if ids_result.unavailable {reference_unavailable = true}
+  }
+  if options.compare_usb_power {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-usb-power requires --xsh-bin and --script"))
+    }
+    if !usb_power_declared {
+      return Err(check_failure("coverage manifest lacks mandatory usb.power assertion"))
+    }
+    let power_result = compare_live_usb_power(options.xsh_bin, options.script)?
+    if power_result.scored {scored += 1}
+    if power_result.partial {partial_compared = true}
+    if power_result.unavailable {reference_unavailable = true}
+  }
+  if options.compare_usb_interfaces {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-usb-interfaces requires --xsh-bin and --script"))
+    }
+    if !usb_interfaces_declared {
+      return Err(check_failure("coverage manifest lacks mandatory usb.interfaces assertion"))
+    }
+    let interface_result = compare_live_usb_interfaces(options.xsh_bin, options.script)?
+    if interface_result.scored {scored += 1}
+    if interface_result.partial {partial_compared = true}
+    if interface_result.unavailable {reference_unavailable = true}
+  }
+  if options.compare_power_supplies {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-power-supplies requires --xsh-bin and --script"))
+    }
+    if !power_supplies_declared {
+      return Err(check_failure("coverage manifest lacks mandatory power.supplies assertion"))
+    }
+    let supply_result = compare_live_power_supplies(options.xsh_bin, options.script)?
+    if supply_result.scored {scored += 1}
+    if supply_result.partial {partial_compared = true}
+    if supply_result.unavailable {reference_unavailable = true}
+  }
+  if options.compare_powercap {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-powercap requires --xsh-bin and --script"))
+    }
+    if !powercap_declared {
+      return Err(check_failure("coverage manifest lacks mandatory power.powercap assertion"))
+    }
+    let cap_result = compare_live_powercap(options.xsh_bin, options.script)?
+    if cap_result.scored {scored += 1}
+    if cap_result.partial {partial_compared = true}
+    if cap_result.unavailable {reference_unavailable = true}
+  }
+  if options.compare_device_classes {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-device-classes requires --xsh-bin and --script"))
+    }
+    if !device_classes_declared {
+      return Err(check_failure("coverage manifest lacks mandatory devices.graphics-audio-input assertion"))
+    }
+    let class_result = compare_live_device_classes(options.xsh_bin, options.script)?
+    if class_result.scored {scored += 1}
+    if class_result.partial {partial_compared = true}
+    if class_result.unavailable {reference_unavailable = true}
+  }
+  if options.compare_hwmon {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-hwmon requires --xsh-bin and --script"))
+    }
+    if !hwmon_declared {
+      return Err(check_failure("coverage manifest lacks mandatory sensors.hwmon assertion"))
+    }
+    let hwmon_result = compare_live_hwmon(options.xsh_bin, options.script)?
+    if hwmon_result.scored {scored += 1}
+    if hwmon_result.partial {partial_compared = true}
+    if hwmon_result.unavailable {reference_unavailable = true}
+  }
+  if options.compare_sensors_json {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" or
+        !options.sensors_bin.starts_with("/") {
+      return Err(check_failure("--compare-sensors-json requires absolute --sensors-bin, --xsh-bin, and --script paths"))
+    }
+    if !sensors_json_declared {
+      return Err(check_failure("coverage manifest lacks supplemental sensors.lm-sensors assertion"))
+    }
+    let sensors_module = module.load(fp"${ctx.root}/dev/system_report_sensors_check.xsh")?.require(SensorsReferenceModule)?
+    let result = sensors_module.compare_live_sensors_json(options.xsh_bin, options.script, options.sensors_bin)?
+    supplemental_compared = true
+    let compared = result.comparison
+    print f"sensors.lm-sensors: reference=${compared.reference_count}, compared=${compared.compared}, mismatched=${compared.mismatches.len()}, ambiguous_or_changed=${compared.partial.len()}"
+    print f"reference: adapter=sensors-json-v1; executable=${result.executable}; version=${result.version}; argv=-j -c /dev/null; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; before=${result.before_started_unix_ms} ms; candidate=${result.candidate_started_unix_ms} ms; after=${result.after_ended_unix_ms} ms; before_sha256=${result.before_sha256_hex}; after_sha256=${result.after_sha256_hex}"
+    if compared.mismatches.len() > 0 {
+      return Err(check_failure(f"unconfigured sensors JSON differs from stable raw report fields: ${compared.mismatches.join(", ")}"))
+    }
+    if compared.reference_count == 0 {reference_unavailable = true}
+    if compared.partial.len() > 0 {partial_compared = true}
+  }
+  if options.compare_cpupower {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" or
+        !options.cpupower_bin.starts_with("/") {
+      return Err(check_failure("--compare-cpupower requires absolute --cpupower-bin, --xsh-bin, and --script paths"))
+    }
+    if !cpupower_declared {
+      return Err(check_failure("coverage manifest lacks supplemental cpu.cpupower assertion"))
+    }
+    let cpupower_module = module.load(fp"${ctx.root}/dev/system_report_cpupower_check.xsh")?.require(CpupowerReferenceModule)?
+    let result = cpupower_module.compare_live_cpupower(options.xsh_bin, options.script, options.cpupower_bin)?
+    supplemental_compared = true
+    let compared = result.comparison
+    print f"cpu.cpupower: matched_fields=${compared.matched_fields}, mismatches=${json.encode(compared.mismatches)?}, partial=${json.encode(compared.partial)?}"
+    print f"reference: adapter=cpupower-text-v1; executable=${result.executable}; version=${result.version}; argv=[--version,-c 0 frequency-info --driver,-c 0 frequency-info --hwlimits,-c 0 idle-info]; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; reference=${result.reference_started_unix_ms} ms; candidate=${result.candidate_started_unix_ms} ms; driver_sha256=${result.driver_sha256_hex}; limits_sha256=${result.limits_sha256_hex}; idle_sha256=${result.idle_sha256_hex}"
+    if compared.mismatches.len() > 0 {
+      return Err(check_failure(f"cpupower disagrees with the report on stable CPU metadata: ${compared.mismatches.join(", ")}"))
+    }
+    if compared.partial.len() > 0 {partial_compared = true}
+  }
+  if options.compare_lsusb {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" or
+        !options.lsusb_bin.starts_with("/") {
+      return Err(check_failure("--compare-lsusb requires absolute --lsusb-bin, --xsh-bin, and --script paths"))
+    }
+    if !lsusb_declared {
+      return Err(check_failure("coverage manifest lacks supplemental usb.lsusb assertion"))
+    }
+    let lsusb_module = module.load(fp"${ctx.root}/dev/system_report_lsusb_check.xsh")?.require(LsusbReferenceModule)?
+    let result = lsusb_module.compare_live_lsusb(options.xsh_bin, options.script, options.lsusb_bin)?
+    supplemental_compared = true
+    let compared = result.comparison
+    print f"usb.lsusb: devices=${compared.matched_devices}, tree_rows=${compared.matched_tree_rows}, descriptor_fields=${compared.matched_descriptor_fields}, mismatches=${json.encode(compared.mismatches)?}, partial=${json.encode(compared.partial)?}"
+    print f"reference: adapter=lsusb-text-v1; executable=${result.executable}; version=${result.version}; argv=[--version,list,-t,-v -s independently_selected_bus:device]; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; reference=${result.reference_started_unix_ms} ms; candidate=${result.candidate_started_unix_ms} ms; list_sha256=${result.list_sha256_hex}; tree_sha256=${result.tree_sha256_hex}; verbose_sha256=${result.verbose_sha256_hex}"
+    if compared.mismatches.len() > 0 {
+      return Err(check_failure(f"lsusb disagrees with the report: ${compared.mismatches.join(", ")}"))
+    }
+    if compared.partial.len() > 0 {partial_compared = true}
+  }
+  if options.compare_smbios {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-smbios requires --xsh-bin and --script"))
+    }
+    if !smbios_declared {
+      return Err(check_failure("coverage manifest lacks mandatory firmware.smbios assertion"))
+    }
+    let smbios_module = module.load(fp"${ctx.root}/dev/system_report_smbios_check.xsh")?.require(SmbiosReferenceModule)?
+    let smbios_result = smbios_module.compare_live_smbios(options.xsh_bin, options.script)?
+    if smbios_result.scored {scored += 1}
+    if smbios_result.partial {partial_compared = true}
+    if smbios_result.unavailable {reference_unavailable = true}
+  }
+  if options.compare_thermal {
+    if options.xsh_bin.trim() == "" or options.script.trim() == "" {
+      return Err(check_failure("--compare-thermal requires --xsh-bin and --script"))
+    }
+    if !thermal_declared {
+      return Err(check_failure("coverage manifest lacks mandatory sensors.thermal assertion"))
+    }
+    let thermal_result = compare_live_thermal(options.xsh_bin, options.script)?
+    if thermal_result.scored {scored += 1}
+    if thermal_result.partial {partial_compared = true}
+    if thermal_result.unavailable {reference_unavailable = true}
+  }
   if options.compare_network_links {
     if options.xsh_bin.trim() == "" or options.script.trim() == "" {
       return Err(check_failure("--compare-network-links requires --xsh-bin and --script"))
@@ -7690,8 +18318,10 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     if !network_links_declared {
       return Err(check_failure("coverage manifest lacks mandatory network.links assertion"))
     }
-    compare_live_ip_links(options.xsh_bin, options.script)?
-    partial_compared = true
+    let link_result = compare_live_ip_links(options.xsh_bin, options.script)?
+    if link_result.scored {scored += 1}
+    if link_result.partial {partial_compared = true}
+    if link_result.unavailable {reference_unavailable = true}
   }
   if options.compare_network_addresses {
     if options.xsh_bin.trim() == "" or options.script.trim() == "" {
@@ -7700,8 +18330,10 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     if !network_addresses_declared {
       return Err(check_failure("coverage manifest lacks mandatory network.addresses assertion"))
     }
-    compare_live_ip_addresses(options.xsh_bin, options.script)?
-    partial_compared = true
+    let address_result = compare_live_ip_addresses(options.xsh_bin, options.script)?
+    if address_result.scored {scored += 1}
+    if address_result.partial {partial_compared = true}
+    if address_result.unavailable {reference_unavailable = true}
   }
   if options.compare_network_rules {
     if options.xsh_bin.trim() == "" or options.script.trim() == "" {
@@ -7710,8 +18342,10 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     if !network_rules_declared {
       return Err(check_failure("coverage manifest lacks mandatory network.rules assertion"))
     }
-    compare_live_ip_rules(options.xsh_bin, options.script)?
-    partial_compared = true
+    let rule_result = compare_live_ip_rules(options.xsh_bin, options.script)?
+    if rule_result.scored {scored += 1}
+    if rule_result.partial {partial_compared = true}
+    if rule_result.unavailable {reference_unavailable = true}
   }
   if options.compare_network_routes {
     if options.xsh_bin.trim() == "" or options.script.trim() == "" {
@@ -7720,8 +18354,10 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     if !network_routes_declared {
       return Err(check_failure("coverage manifest lacks mandatory network.routes assertion"))
     }
-    compare_live_ip_routes(options.xsh_bin, options.script)?
-    partial_compared = true
+    let route_result = compare_live_ip_routes(options.xsh_bin, options.script)?
+    if route_result.scored {scored += 1}
+    if route_result.partial {partial_compared = true}
+    if route_result.unavailable {reference_unavailable = true}
   }
   if options.compare_storage {
     if options.xsh_bin.trim() == "" or options.script.trim() == "" {
@@ -7797,7 +18433,7 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     if options.xsh_bin.trim() == "" or options.script.trim() == "" {
       return Err(check_failure("--compare-identity requires --xsh-bin and --script"))
     }
-    if !release_declared or !architecture_declared or !uptime_declared or !os_release_declared {
+    if !release_declared or !architecture_declared or !uptime_declared or !os_release_declared or !firmware_identity_declared {
       return Err(check_failure("coverage manifest lacks mandatory identity assertions"))
     }
     scored += compare_live_identity(options.xsh_bin, options.script)?
@@ -7828,7 +18464,8 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
   if partial_compared {
     print "partial comparisons passed; mandatory assertions remain unscored where reference fields are incomplete or unstable"
   }
-  if !options.no_subprocess and scored == 0 and fixture_cases_passed == 0 and !partial_compared and !reference_unavailable {
+  if supplemental_compared {print "supplemental utility corroboration completed"}
+  if !options.no_subprocess and scored == 0 and fixture_cases_passed == 0 and !partial_compared and !reference_unavailable and !supplemental_compared {
     print "No candidate or reference cases were run by manifest validation."
   }
 

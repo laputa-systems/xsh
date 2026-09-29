@@ -1,0 +1,60 @@
+use system_report_lsusb_check as lsusb_reference
+
+proc test_system_report_lsusb_saved_outputs_score_ids_tree_and_selected_descriptor() [error] {
+  let devices = lsusb_reference.parse_lsusb_list(
+    "Bus 001 Device 001: ID 1d6b:0002 Linux root hub\nBus 001 Device 002: ID 05e3:0610 USB hub\n",
+  )?
+  let tree = lsusb_reference.parse_lsusb_tree(
+    "/:  Bus 001.Port 001: Dev 001, Class=root_hub, Driver=xhci_hcd/2p, 480M\n    |__ Port 002: Dev 002, If 0, Class=Hub, Driver=hub/4p, 480M\n",
+  )?
+  let descriptor = lsusb_reference.parse_lsusb_verbose(
+    "\nBus 001 Device 001: ID 1d6b:0002\nDevice Descriptor:\n  idVendor 0x1d6b Linux\n  idProduct 0x0002 Hub\n  bDeviceClass 9\n  bNumConfigurations 1\n",
+    1, 1,
+  )?
+  let candidate = """{"usb":{"devices":[{"bus_number":1,"device_number":1,"vendor_id":7531,"product_id":2,"class_code":9,"configuration_count":1,"port_path":null,"interfaces":[]},{"bus_number":1,"device_number":2,"vendor_id":1507,"product_id":1552,"class_code":9,"configuration_count":1,"port_path":"2","interfaces":[{"number":0,"driver":"hub"}]}]}}"""
+  let exact = lsusb_reference.compare_lsusb(candidate, devices, tree, descriptor)?
+  test.eq(exact.matched_devices, 2)?
+  test.eq(exact.matched_tree_rows, 2)?
+  test.eq(exact.matched_descriptor_fields, 4)?
+  test.ok(exact.mismatches.len() == 0 and exact.partial.len() == 0)?
+  let wrong = lsusb_reference.compare_lsusb(candidate.replace("\"driver\":\"hub\"", "\"driver\":\"wrong\""), devices, tree, descriptor)?
+  test.ok("1:2.driver" in wrong.mismatches)?
+  let wrong_port = lsusb_reference.compare_lsusb(candidate.replace("\"port_path\":\"2\"", "\"port_path\":\"3\""), devices, tree, descriptor)?
+  test.ok("1:2.port" in wrong_port.mismatches)?
+}
+
+proc test_system_report_lsusb_rejects_duplicate_and_unsupported_utility_rows() [error] {
+  test.error_kind(lsusb_reference.parse_lsusb_list("Bus 001 Device 001: ID 1d6b:0002\nBus 001 Device 001: ID 1d6b:0002\n"), "LsusbCheckError.Invalid")?
+  test.error_kind(lsusb_reference.parse_lsusb_list("Bus 001 Device 001: ID 1d6b:xyz2\n"), "LsusbCheckError.Invalid")?
+  test.error_kind(lsusb_reference.parse_lsusb_tree("|__ Port 002: Dev 002, If 0, Driver=hub/4p\n"), "LsusbCheckError.Invalid")?
+  test.error_kind(lsusb_reference.parse_lsusb_verbose("idVendor 0x1d6b\n", 1, 1), "LsusbCheckError.Invalid")?
+  test.error_kind(lsusb_reference.parse_lsusb_verbose("Bus 002 Device 001: ID 1d6b:0002\nidVendor 0x1d6b\nidProduct 0x0002\nbDeviceClass 9\nbNumConfigurations 1\n", 1, 1), "LsusbCheckError.Invalid")?
+}
+
+proc test_system_report_lsusb_live_reference_uses_bounded_selected_descriptor() [fs, process, time, error] {
+  let tools_root = fs.tempdir()?
+  defer fs.close_root(tools_root)?
+  fs.root_write(tools_root, p"lsusb", """#!/bin/sh
+case "$*" in
+  "--version") printf 'lsusb (usbutils) 019\n' ;;
+  "") printf 'Bus 001 Device 001: ID 1d6b:0002 Root hub\n' ;;
+  "-t") printf '/:  Bus 001.Port 001: Dev 001, Class=root_hub, Driver=xhci_hcd/2p, 480M\n' ;;
+  "-v -s 1:1") printf '\nBus 001 Device 001: ID 1d6b:0002\nDevice Descriptor:\n  idVendor 0x1d6b\n  idProduct 0x0002\n  bDeviceClass 9\n  bNumConfigurations 1\n' ;;
+  *) exit 4 ;;
+esac
+""")?
+  fs.root_write(tools_root, p"xsh", """#!/bin/sh
+printf '{"source_mode":"live_linux","usb":{"devices":[{"bus_number":1,"device_number":1,"vendor_id":7531,"product_id":2,"class_code":9,"configuration_count":1,"port_path":null,"interfaces":[]}]}}\n'
+""")?
+  fs.root_chmod(tools_root, p"lsusb", 0o700)?
+  fs.root_chmod(tools_root, p"xsh", 0o700)?
+  let root_path = fs.root_path(tools_root)?
+  let result = lsusb_reference.compare_live_lsusb(
+    fp"${root_path}/xsh".display(), fp"${root_path}/script".display(),
+    fp"${root_path}/lsusb".display(),
+  )?
+  test.eq(result.comparison.matched_devices, 1)?
+  test.eq(result.comparison.matched_tree_rows, 1)?
+  test.eq(result.comparison.matched_descriptor_fields, 4)?
+  test.ok(result.comparison.mismatches.len() == 0 and result.comparison.partial.len() == 0)?
+}

@@ -2955,9 +2955,10 @@ impl Evaluator {
         let mut evaluator = Self {
             sources,
             command_name,
-            exe_path: std::env::current_exe()
-                .ok()
-                .and_then(|p| p.to_str().map(String::from))
+            // The invocation name is available without reading process metadata.
+            exe_path: std::env::args_os()
+                .next()
+                .and_then(|arg| arg.into_string().ok())
                 .unwrap_or_default(),
             scopes: vec![FxHashMap::default()],
             module_export_signatures: Arc::new(FxHashMap::default()),

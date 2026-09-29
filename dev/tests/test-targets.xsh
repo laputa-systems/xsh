@@ -99,6 +99,7 @@ proc test_docker_argv_is_direct_and_carries_mount_environment_policy() [error] {
     [],
   )
   test.eq(argv[0], "docker")?
+  test.ok("--init" in argv)?
   test.ok("--privileged" in argv)?
   test.ok("/repo:/work" in argv)?
   test.ok("/repo/target:/work/target" in argv)?
@@ -116,7 +117,70 @@ proc test_release_names_and_core_paths_are_deterministic() [error] {
   test.eq(target_policy.release_suffix("aarch64-apple-darwin")?, "aarch64-apple-darwin")?
   test.eq(releases.core_install_path(p"bin/hello.xsh").display(), "core/bin/hello")?
   test.eq(releases.core_install_path(p"top.xsh").display(), "core/top")?
+  test.eq(releases.core_install_path(p"system-report.xsh").display(), "core/system-report")?
+  test.eq(releases.core_install_path(p"bin/report.xsh-helper.xsh").display(), "core/bin/report.xsh-helper")?
   test.eq(releases.core_install_path(p"lib/auth.xsh").display(), "core/lib/auth.xsh")?
+}
+
+proc test_core_archive_stages_command_and_library_paths(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "core-archive")?
+  fp"${root}/core".mkdir()?
+  fp"${root}/core/bin".mkdir()?
+  fp"${root}/core/lib".mkdir()?
+  fp"${root}/core/tests".mkdir()?
+  fp"${root}/core/bin/report.xsh-helper.xsh".write("print \"command\"\n")?
+  fp"${root}/core/lib/report.xsh-helper.xsh".write("print \"library\"\n")?
+  fp"${root}/core/tests/ignored.xsh".write("print \"test\"\n")?
+  let release_ctx = fixtures.linux_context(root, "dev")?
+  releases.package_core(release_ctx, "fixture")?
+  let archive_path = fp"${root}/dist/core-fixture.tar.xz"
+  let entries = archive.tar_list(archive_path)?.collect()
+  let members = entries |> map .path.display()
+  test.eq(members.len(), 2)?
+  test.ok("core/bin/report.xsh-helper" in members)?
+  test.ok("core/lib/report.xsh-helper.xsh" in members)?
+  test.eq((entries |> where .path.display() == "core/bin/report.xsh-helper")[0].mode.bit_and(0o777), 0o755)?
+  test.eq((entries |> where .path.display() == "core/lib/report.xsh-helper.xsh")[0].mode.bit_and(0o777), 0o644)?
+  let extracted = fp"${root}/extracted"
+  archive.tar_extract(archive_path, extracted)?
+  test.eq(fp"${extracted}/core/bin/report.xsh-helper".read_text()?, "print \"command\"\n")?
+  test.eq(fp"${extracted}/core/lib/report.xsh-helper.xsh".read_text()?, "print \"library\"\n")?
+  test.ok(!fp"${extracted}/core/tests/ignored".exists()?)?
+  test.contains(fp"${root}/dist/core-fixture.sha256".read_text()?, "  dist/core-fixture.tar.xz\n")?
+}
+
+proc test_core_archive_rejects_conflicting_artifact_before_writing(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "core-archive-conflict")?
+  fp"${root}/core".mkdir()?
+  fp"${root}/core/report.xsh".write("print \"ok\"\n")?
+  fp"${root}/dist".mkdir()?
+  let stale = fp"${root}/dist/unrelated.tar.xz"
+  stale.write("existing artifact")?
+  let release_ctx = fixtures.linux_context(root, "dev")?
+  match releases.package_core(release_ctx, "fixture") {
+    Ok(_) => test.fail("conflicting archive was accepted")?
+    Err(error) => test.contains(error.message, "StageError.Failed")?
+  }
+  test.eq(stale.read_text()?, "existing artifact")?
+  test.ok(!fp"${root}/dist/core-fixture.tar.xz".exists()?)?
+  test.ok(!fp"${root}/dist/core-fixture.sha256".exists()?)?
+}
+
+proc test_core_archive_contains_current_system_report(ctx: TestContext) [fs, error] {
+  let repository = ctx.core_dir.parent()
+  let artifact_dir = test.temp_dir(ctx, name: "system-report-core-archive")?
+  let base = fixtures.linux_context(repository, "dev")?
+  let release_ctx: lifecycle.Context = {...base, artifact_dir: artifact_dir}
+  releases.package_core(release_ctx, "fixture")?
+  let archive_path = fp"${artifact_dir}/core-fixture.tar.xz"
+  let entries = archive.tar_list(archive_path)?.collect()
+  let installed = entries |> where .path.display() == "core/system-report"
+  test.eq(installed.len(), 1)?
+  test.eq(installed[0].mode.bit_and(0o777), 0o755)?
+  let extracted = fp"${artifact_dir}/extracted"
+  archive.tar_extract(archive_path, extracted)?
+  test.eq(fp"${extracted}/core/system-report".read_bytes()?, fp"${repository}/core/system-report.xsh".read_bytes()?)?
+  test.ok(fp"${extracted}/core/lib/system_report.xsh".exists()?)?
 }
 
 proc test_release_checksum_sidecars_keep_a_relative_artifact_name(ctx: TestContext) [fs, error] {
@@ -288,6 +352,15 @@ main()?
   )?
   test.ok(platform.success, platform.stderr)?
   test.eq(platform.stdout.trim(), "linux/override")?
+}
+
+proc test_dev_main_target_override_reaches_context(ctx: TestContext) [fs, process, error] {
+  let root = fs.cwd()?
+  let output = test.temp_path(ctx, name: "dev-target.stdout")
+  let stderr = test.temp_path(ctx, name: "dev-target.stderr")
+  let status = run.status ${ctx.xsh_bin} fp"${root}/dev/main.xsh" -- system-report-check --target x86_64-unknown-linux-musl > $output 2> $stderr
+  test.ok(status.exited_with(0), stderr.read_text()?)?
+  test.contains(output.read_text()?, "system-report coverage manifest")?
 }
 
 proc test_rustybench_override_stays_a_direct_argv_prefix(ctx: TestContext) [fs, error] {

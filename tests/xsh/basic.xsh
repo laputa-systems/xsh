@@ -2,6 +2,22 @@ proc test_pass() [error] {
   test.eq(1, 1)?
 }
 
+proc test_guard_failure_controls_enclosing_loop() [error] {
+  var numbers: List[Int] = []
+  for source in ["1", "invalid", "2"] {
+    guard let number = source.parse_int() else |_| {continue}
+    numbers = numbers.push(number)
+  }
+  test.eq(numbers, [1, 2])?
+
+  numbers = []
+  for source in ["1", "invalid", "2"] {
+    guard let number = source.parse_int() else |_| {break}
+    numbers = numbers.push(number)
+  }
+  test.eq(numbers, [1])?
+}
+
 proc test_typed_integer_augmented_assignment_keeps_results_and_errors(ctx: TestContext) [error] {
   var value: Int = 13
   value += 5

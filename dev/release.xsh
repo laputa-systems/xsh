@@ -63,8 +63,13 @@ export pure core_install_path(relative_source: Path) -> Path {
   if relative_source.display().starts_with("lib/") {
     return fp"core/${relative_source.display()}"
   }
-
-  return fp"core/${relative_source.display().replace(".xsh", "")}"
+  let relative = relative_source.display()
+  let command = if relative.ends_with(".xsh") {
+    relative.byte_slice(0, length: relative.byte_len() - 4)
+  } else {
+    relative
+  }
+  return fp"core/${command}"
 }
 
 ## Collects core script sources deterministically while excluding the native test subtree.
@@ -94,6 +99,19 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
   }
 
   stages.ensure_dir(ctx.artifact_dir)?
+  let core_archive = fp"${ctx.artifact_dir}/core-${tag}.tar.xz"
+  for entry in fs.files(ctx.artifact_dir, hidden: true)? {
+    if entry.ext == "xz" and entry.path != core_archive {
+      return Err(
+        stages.StageError.Failed(
+          stage: "release-core",
+          target: ctx.target.triple,
+          detail: f"unexpected compressed artifact ${entry.path.display()}",
+        ),
+      )
+    }
+  }
+
   let root_handle = fs.tempdir()?
   defer fs.close_root(root_handle)?
   let stage = fs.root_path(root_handle)?
@@ -114,7 +132,6 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
     archive_entries = archive_entries.push(installed)
   }
 
-  let core_archive = fp"${ctx.artifact_dir}/core-${tag}.tar.xz"
   archive.tar_create(core_archive, stage, archive_entries, compression: "xz", overwrite: true)?
 
   if core_archive.metadata()?.size == 0 {
@@ -124,18 +141,6 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
   }
 
   fp"${ctx.artifact_dir}/core-${tag}.sha256".write(checksum_line(core_archive, ctx.root)?)?
-
-  for entry in fs.files(ctx.artifact_dir, hidden: true)? {
-    if entry.ext == "xz" and entry.path != core_archive {
-      return Err(
-        stages.StageError.Failed(
-          stage: "release-core",
-          target: ctx.target.triple,
-          detail: f"unexpected compressed artifact ${entry.path.display()}",
-        ),
-      )
-    }
-  }
 }
 
 ## Validates the full nine-product release artifact set and checksum sidecars.

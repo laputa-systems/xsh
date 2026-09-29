@@ -1,8 +1,8 @@
 #![cfg(target_os = "linux")]
 
 // Tests for Linux-specific XSH module functions that require elevated capabilities.
-// Run in the pinned Dockerfile.test image with --privileged. Cases report the
-// missing capability when invoked without it.
+// Run with root and the capabilities needed for loop devices and mount namespaces.
+// Cases report a missing capability when invoked without it.
 
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
@@ -11,6 +11,42 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
+
+use miniserde::json::{Number as JsonNumber, Value as JsonValue};
+
+fn report_json(bytes: &[u8]) -> JsonValue {
+    miniserde::json::from_str(std::str::from_utf8(bytes).expect("collector emits UTF-8 JSON"))
+        .expect("collector emits one JSON report")
+}
+
+fn report_field<'a>(value: &'a JsonValue, key: &str) -> &'a JsonValue {
+    let JsonValue::Object(object) = value else {
+        panic!("report field parent is not an object: {key}");
+    };
+    object.get(key).unwrap_or_else(|| panic!("report field is absent: {key}"))
+}
+
+fn report_array(value: &JsonValue) -> &[JsonValue] {
+    let JsonValue::Array(items) = value else {
+        panic!("report field is not an array");
+    };
+    items
+}
+
+fn report_text(value: &JsonValue) -> &str {
+    let JsonValue::String(text) = value else {
+        panic!("report field is not text");
+    };
+    text
+}
+
+fn report_i64(value: &JsonValue) -> Option<i64> {
+    match value {
+        JsonValue::Number(JsonNumber::I64(number)) => Some(*number),
+        JsonValue::Number(JsonNumber::U64(number)) => i64::try_from(*number).ok(),
+        _ => None,
+    }
+}
 
 /// Returns true when running as root (i.e. under test-linux-priv).
 /// Use at the top of any test that needs CAP_SYS_ADMIN, CAP_MKNOD, or CAP_NET_ADMIN:
@@ -542,7 +578,7 @@ fn system_report_sysctl_denial_as_unprivileged_reader_creates_no_child() {
     }
     let script = root.join("collect.xsh");
     let source = format!(
-        "use core.lib.system_report_live as collector\nlet root = fs.open_root(fp{})?\nlet report = collector.collect_from_root(root, \"fixture-arch\", 4096, 100, \"kernel\", true)?\nlet encoded = json.encode(report)?\nprint $encoded\n",
+        "use core.lib.system_report_live as collector\nuse core.lib.system_report as model\nlet root = fs.open_root(fp{})?\nlet report = collector.collect_from_root(root, \"fixture-arch\", 4096, 100, \"kernel\", true)?\nlet encoded = model.encode_report_json(report, true, false)?\nprint $encoded\n",
         xsh_string_literal(root.to_str().expect("fixture path is UTF-8")),
     );
     std::fs::write(&script, source).expect("write collector fixture script");
@@ -566,6 +602,7 @@ fn system_report_sysctl_denial_as_unprivileged_reader_creates_no_child() {
         .env("PATH", "/nonexistent")
         .env("HOME", "/nonexistent")
         .env("LANG", "C")
+        .env("XSH_MODULE_PATH", env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("run collector as an unprivileged reader");
     assert!(
@@ -575,29 +612,31 @@ fn system_report_sysctl_denial_as_unprivileged_reader_creates_no_child() {
     );
     let process_trace = std::fs::read_to_string(&trace).expect("read process trace");
     assert_no_child_process_trace(&process_trace);
-    let report: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("collector emits one JSON report");
-    let sysctls = report["kernel"]["sysctls"]
-        .as_array()
-        .expect("kernel sysctls are an array");
+    let report = report_json(&output.stdout);
+    let sysctls = report_array(report_field(report_field(&report, "kernel"), "sysctls"));
     let pid_max = sysctls
         .iter()
-        .find(|item| item["name"] == "kernel.pid_max")
+        .find(|item| report_text(report_field(item, "name")) == "kernel.pid_max")
         .expect("pid_max observation is retained");
-    assert_eq!(pid_max["value"]["state"], "permission_denied");
-    assert!(pid_max["value"]["value"].is_null());
+    let pid_max_value = report_field(pid_max, "value");
+    assert_eq!(
+        report_text(report_field(pid_max_value, "state")),
+        "permission_denied"
+    );
+    assert!(matches!(report_field(pid_max_value, "value"), JsonValue::Null));
     let swappiness = sysctls
         .iter()
-        .find(|item| item["name"] == "vm.swappiness")
+        .find(|item| report_text(report_field(item, "name")) == "vm.swappiness")
         .expect("neighboring sysctl is retained");
-    assert_eq!(swappiness["value"]["state"], "observed");
-    assert_eq!(swappiness["value"]["value"], "60");
-    assert!(report["issues"].as_array().is_some_and(|issues| issues.iter().any(|issue| {
-        issue["section"] == "kernel"
-            && issue["field"] == "sysctl.kernel.pid_max"
-            && issue["state"] == "permission_denied"
-            && issue["errno"].as_i64() == Some(i64::from(libc::EACCES))
-    })));
+    let swappiness_value = report_field(swappiness, "value");
+    assert_eq!(report_text(report_field(swappiness_value, "state")), "observed");
+    assert_eq!(report_text(report_field(swappiness_value, "value")), "60");
+    assert!(report_array(report_field(&report, "issues")).iter().any(|issue| {
+        report_text(report_field(issue, "section")) == "kernel"
+            && report_text(report_field(issue, "field")) == "sysctl.kernel.pid_max"
+            && report_text(report_field(issue, "state")) == "permission_denied"
+            && report_i64(report_field(issue, "errno")) == Some(i64::from(libc::EACCES))
+    }));
 }
 
 #[test]
@@ -621,7 +660,7 @@ fn system_report_pci_keeps_numeric_ids_without_a_label_database_or_helper() {
     }
     let script = root.join("collect.xsh");
     let source = format!(
-        "use core.lib.system_report_live as collector\nlet root = fs.open_root(fp{})?\nlet report = collector.collect_from_root(root, \"fixture-arch\", 4096, 100, \"pci\", true)?\nlet encoded = json.encode(report)?\nprint $encoded\n",
+        "use core.lib.system_report_live as collector\nuse core.lib.system_report as model\nlet root = fs.open_root(fp{})?\nlet report = collector.collect_from_root(root, \"fixture-arch\", 4096, 100, \"pci\", true)?\nlet encoded = model.encode_report_json(report, true, false)?\nprint $encoded\n",
         xsh_string_literal(root.to_str().expect("fixture path is UTF-8")),
     );
     std::fs::write(&script, source).expect("write database-free collector script");
@@ -637,6 +676,7 @@ fn system_report_pci_keeps_numeric_ids_without_a_label_database_or_helper() {
         .env("PATH", "/nonexistent")
         .env("HOME", "/nonexistent")
         .env("LANG", "C")
+        .env("XSH_MODULE_PATH", env!("CARGO_MANIFEST_DIR"))
         .output()
         .expect("run PCI collector without command search or label database");
     assert!(
@@ -652,15 +692,12 @@ fn system_report_pci_keeps_numeric_ids_without_a_label_database_or_helper() {
             "collector accessed a label database: {database}"
         );
     }
-    let report: serde_json::Value =
-        serde_json::from_slice(&output.stdout).expect("collector emits one JSON report");
-    let functions = report["pci"]["functions"]
-        .as_array()
-        .expect("PCI functions are an array");
+    let report = report_json(&output.stdout);
+    let functions = report_array(report_field(report_field(&report, "pci"), "functions"));
     assert_eq!(functions.len(), 1);
-    assert_eq!(functions[0]["address"], "0000:00:01.0");
-    assert_eq!(functions[0]["vendor_id"].as_i64(), Some(0x1234));
-    assert_eq!(functions[0]["device_id"].as_i64(), Some(0xabcd));
+    assert_eq!(report_text(report_field(&functions[0], "address")), "0000:00:01.0");
+    assert_eq!(report_i64(report_field(&functions[0], "vendor_id")), Some(0x1234));
+    assert_eq!(report_i64(report_field(&functions[0], "device_id")), Some(0xabcd));
 }
 
 struct ChildCleanup(Child);

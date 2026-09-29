@@ -71,7 +71,8 @@ export pure internal_argv(
   stress_repeat: Str,
   extra: List[Str],
 ) -> List[Str] {
-  var argv = ["docker", "run", "--rm", "--platform", selected_platform]
+  # PID 1 must reap orphaned jobs after an interactive shell exits.
+  var argv = ["docker", "run", "--rm", "--init", "--platform", selected_platform]
 
   if privileged {
     argv = argv.push("--privileged")
