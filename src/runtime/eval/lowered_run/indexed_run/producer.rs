@@ -18,7 +18,7 @@ use super::{
     Arc, Evaluator, LoweredFunctionKey, LoweredFunctionKind, LoweredValue, RuntimeError, Span,
     StreamValue, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind,
 };
-use crate::runtime::value::ScriptStreamState;
+use crate::runtime::value::{ScriptStreamState, ScriptStreamStep};
 
 /// A producer suspended between pulls.
 pub(super) struct ScriptProducer {
@@ -36,10 +36,52 @@ pub(super) struct ScriptProducer {
     /// defers to run and no scopes to close.
     started: bool,
     finished: bool,
-    /// A body that ends by returning another stream hands its remaining items
-    /// over to that stream; the producer is finished and drains it instead.
-    delegated: Option<Box<StreamValue>>,
-    delegated_prefix: std::collections::VecDeque<super::Value>,
+    /// A delegated child retains its one-shot cursor while this frame suspends.
+    /// A proc that returns a stream uses the same cursor after its frame ends.
+    delegated: Option<DelegatedSource>,
+}
+
+/// A single active source; List and Stream cursors cannot coexist.
+enum DelegatedSource {
+    List(DelegatedList),
+    Stream {
+        value: Box<StreamValue>,
+        prefix: std::collections::VecDeque<super::Value>,
+        span: Span,
+    },
+}
+
+impl DelegatedSource {
+    fn new(value: LoweredValue, span: Span) -> Result<Self, RuntimeError> {
+        match value {
+            LoweredValue::List(items) => Ok(Self::List(DelegatedList::Owned(items.into_iter()))),
+            LoweredValue::SharedList(items) => Ok(Self::List(DelegatedList::Shared { items, next: 0 })),
+            LoweredValue::Stream(mut value) => {
+                let prefix = std::mem::take(&mut value.items).into_iter().map(|item| item.value).collect();
+                Ok(Self::Stream { value, prefix, span })
+            }
+            _ => Err(RuntimeError::new("type-error", "yield delegation requires List or Stream").with_span(span)),
+        }
+    }
+}
+
+/// List delegation retains shared storage and clones only the current item.
+enum DelegatedList {
+    Owned(std::vec::IntoIter<LoweredValue>),
+    Shared { items: Arc<Vec<LoweredValue>>, next: usize },
+}
+
+impl DelegatedList {
+    fn next(&mut self) -> Option<LoweredValue> {
+        match self {
+            Self::Owned(items) => items.next(),
+            Self::Shared { items, next } => {
+                let value = items.get(*next)?.clone();
+                *next += 1;
+                Some(value)
+            }
+        }
+    }
 }
 
 /// The stream value's view of a producer: it can resume it and stop it, and the
@@ -47,7 +89,7 @@ pub(super) struct ScriptProducer {
 impl ScriptProducer {
     /// Whether the body has ended or been stopped.
     fn is_finished(&self) -> bool {
-        self.finished
+        self.finished && self.delegated.is_none()
     }
 }
 
@@ -56,14 +98,27 @@ impl crate::runtime::value::ScriptStream for ScriptProducer {
         self.is_finished()
     }
 
-    fn pull(
+    fn poll(
         &mut self,
         evaluator: &mut Evaluator,
         span: Span,
-    ) -> Result<Option<super::Value>, RuntimeError> {
-        Ok(evaluator
-            .pull_script_producer(self, span)?
-            .map(super::LoweredValue::into_value))
+    ) -> Result<ScriptStreamStep, RuntimeError> {
+        evaluator.pull_script_producer(self, span)
+    }
+
+    fn delegated_finished(&mut self) {
+        self.delegated = None;
+    }
+
+    fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>) {
+        let child = self.delegated.take().and_then(|source| match source {
+            DelegatedSource::Stream { value, .. } => value.script().cloned(),
+            DelegatedSource::List(_) => None,
+        });
+        let scopes = if self.started && !self.finished {
+            self.frame.as_ref().expect("suspended producer frame").open_scopes()
+        } else { Vec::new() };
+        (child, scopes)
     }
 
     fn cancel(&mut self, evaluator: &mut Evaluator, span: Span) -> Result<(), RuntimeError> {
@@ -113,7 +168,6 @@ impl Evaluator {
             started: false,
             finished: false,
             delegated: None,
-            delegated_prefix: std::collections::VecDeque::new(),
         });
         // The evaluator keeps a handle so a producer the program can no longer
         // reach can still be stopped, which is what runs its defers.
@@ -157,7 +211,7 @@ impl Evaluator {
                 kept.push(state);
                 continue;
             }
-            if let Err(error) = state.lock(span).and_then(|mut p| p.cancel(self, span)) {
+            if let Err(error) = self.cancel_script_state(state.clone(), span) {
                 first_error.get_or_insert(error);
             }
         }
@@ -168,105 +222,112 @@ impl Evaluator {
         }
     }
 
-    /// Pull the next item, or `None` when the body has ended.
+    /// Resume the frame or hand a retained child to the pull driver.
     pub(super) fn pull_script_producer(
         &mut self,
         producer: &mut ScriptProducer,
         span: Span,
-    ) -> Result<Option<LoweredValue>, RuntimeError> {
-        if producer.finished {
-            return self.pull_delegated(producer, span);
-        }
-        let mut just_started = false;
-        if !producer.started {
-            producer.started = true;
-            just_started = true;
-            let scope_id = self.enter_owned_host_scope();
-            producer
+    ) -> Result<ScriptStreamStep, RuntimeError> {
+        loop {
+            if let Some(step) = self.poll_delegated(producer)? { return Ok(step); }
+            if producer.finished { return Ok(ScriptStreamStep::Finished); }
+            let mut just_started = false;
+            if !producer.started {
+                producer.started = true;
+                just_started = true;
+                let scope_id = self.enter_owned_host_scope();
+                producer
+                    .frame
+                    .as_mut()
+                    .expect("a suspended producer owns its frame")
+                    .start(scope_id);
+                let (frame_kind, enter_kind) = match producer.kind {
+                    LoweredFunctionKind::Pure => (TracebackFrameKind::Pure, TraceKind::PureEnter),
+                    LoweredFunctionKind::Proc => (TracebackFrameKind::Proc, TraceKind::ProcEnter),
+                };
+                if self.trace_enabled {
+                    let name = producer.function.display_name();
+                    self.trace_enter_with_definition(
+                        enter_kind,
+                        Some(producer.call_span),
+                        Some(producer.definition_span),
+                        Some(&name),
+                        TracePayload::None,
+                    );
+                }
+                self.call_stack.push(TracebackFrame {
+                    kind: frame_kind,
+                    name: producer.function.traceback_name(),
+                    definition_span: Some(producer.definition_span),
+                    call_span: Some(producer.call_span),
+                });
+            }
+            // The consumer may be inside scopes of its own, so the body's scopes are
+            // reattached for this pull and detached again if it suspends. A finished
+            // or stopped body has already closed them.
+            let scopes = producer
                 .frame
-                .as_mut()
+                .as_ref()
                 .expect("a suspended producer owns its frame")
-                .start(scope_id);
-            let (frame_kind, enter_kind) = match producer.kind {
-                LoweredFunctionKind::Pure => (TracebackFrameKind::Pure, TraceKind::PureEnter),
-                LoweredFunctionKind::Proc => (TracebackFrameKind::Proc, TraceKind::ProcEnter),
-            };
-            if self.trace_enabled {
-                let name = producer.function.display_name();
-                self.trace_enter_with_definition(
-                    enter_kind,
-                    Some(producer.call_span),
-                    Some(producer.definition_span),
-                    Some(&name),
-                    TracePayload::None,
-                );
+                .open_scopes();
+            if !just_started {
+                self.reattach_owned_host_scopes(&scopes);
             }
-            self.call_stack.push(TracebackFrame {
-                kind: frame_kind,
-                name: producer.function.traceback_name(),
-                definition_span: Some(producer.definition_span),
-                call_span: Some(producer.call_span),
-            });
-        }
-        // The consumer may be inside scopes of its own, so the body's scopes are
-        // reattached for this pull and detached again if it suspends. A finished
-        // or stopped body has already closed them.
-        let scopes = producer
-            .frame
-            .as_ref()
-            .expect("a suspended producer owns its frame")
-            .open_scopes();
-        if !just_started {
-            self.reattach_owned_host_scopes(&scopes);
-        }
-        let program = Arc::clone(&producer.program);
-        // The body's nested calls resolve against the program the body belongs
-        // to, which is not necessarily the one the consumer is running.
-        let previous_program = self.indexed_program.replace(Arc::clone(&program));
-        let call = CallFrame::from_state(
-            program.as_ref(),
-            producer.function,
-            producer.kind,
-            producer.call_span,
-            producer.definition_span,
-            producer
-                .frame
-                .take()
-                .expect("a suspended producer owns its frame"),
-        )
-        .map_err(|error| super::indexed_error(error, span))?
-        .ok_or_else(|| {
-            RuntimeError::new("unresolved-lowered-call", "a suspended producer's function")
-                .with_span(span)
-        })?;
-        let mut frames = ExplicitFrames::new(self, program.as_ref());
-        let step = frames.run_producer(call);
-        self.indexed_program = previous_program;
-        match step {
-            ProducerStep::Yielded { value, state } => {
-                // The suspension point decides which scopes the body has open,
-                // which may be more than it had at the start of this pull.
-                let open = state.open_scopes().len();
-                self.detach_owned_host_scopes(open);
-                producer.frame = Some(state);
-                Ok(Some(value))
-            }
-            ProducerStep::Finished(result) => {
-                // `finish_call` closed the scope on the way out.
-                producer.finished = true;
-                match result {
-                    // A body that returns a stream hands the rest of its output
-                    // to that stream.
-                    Ok(LoweredValue::Stream(mut stream)) => {
-                        producer.delegated_prefix = std::mem::take(&mut stream.items)
-                            .into_iter()
-                            .map(|item| item.value)
-                            .collect();
-                        producer.delegated = Some(stream);
-                        self.pull_delegated(producer, span)
+            let program = Arc::clone(&producer.program);
+            // The body's nested calls resolve against the program the body belongs
+            // to, which is not necessarily the one the consumer is running.
+            let previous_program = self.indexed_program.replace(Arc::clone(&program));
+            let call = CallFrame::from_state(
+                program.as_ref(),
+                producer.function,
+                producer.kind,
+                producer.call_span,
+                producer.definition_span,
+                producer
+                    .frame
+                    .take()
+                    .expect("a suspended producer owns its frame"),
+            )
+            .map_err(|error| super::indexed_error(error, span))?
+            .ok_or_else(|| {
+                RuntimeError::new("unresolved-lowered-call", "a suspended producer's function")
+                    .with_span(span)
+            })?;
+            let mut frames = ExplicitFrames::new(self, program.as_ref());
+            let step = frames.run_producer(call);
+            self.indexed_program = previous_program;
+            match step {
+                ProducerStep::Yielded { value, state } => {
+                    // The suspension point decides which scopes the body has open,
+                    // which may be more than it had at the start of this pull.
+                    let open = state.open_scopes().len();
+                    self.detach_owned_host_scopes(open);
+                    producer.frame = Some(state);
+                    return Ok(ScriptStreamStep::Yielded(value.into_value()));
+                }
+                ProducerStep::Delegated { value, span, state } => {
+                    self.detach_owned_host_scopes(state.open_scopes().len());
+                    producer.frame = Some(state);
+                    match DelegatedSource::new(value, span) {
+                        Ok(source) => producer.delegated = Some(source),
+                        Err(error) => {
+                            let _ = self.cancel_script_producer(producer, span);
+                            return Err(error);
+                        }
                     }
-                    Ok(_) => Ok(None),
-                    Err(error) => Err(error),
+                }
+                ProducerStep::Finished(result) => {
+                    // `finish_call` closed the scope on the way out.
+                    producer.finished = true;
+                    match result {
+                        // A body that returns a stream hands the rest of its output
+                        // to that stream.
+                        Ok(value @ LoweredValue::Stream(_)) => {
+                            producer.delegated = Some(DelegatedSource::new(value, span)?);
+                        }
+                        Ok(_) => return Ok(ScriptStreamStep::Finished),
+                        Err(error) => return Err(error),
+                    }
                 }
             }
         }
@@ -280,10 +341,6 @@ impl Evaluator {
         span: Span,
     ) -> Result<(), RuntimeError> {
         if producer.finished {
-            producer.delegated_prefix.clear();
-            if let Some(mut stream) = producer.delegated.take() {
-                self.stream_cancel(&mut stream, span)?;
-            }
             return Ok(());
         }
         producer.finished = true;
@@ -323,42 +380,35 @@ impl Evaluator {
         outcome
     }
 
-    /// Hand out items from a stream a finished body delegated to.
-    fn pull_delegated(
-        &mut self,
-        producer: &mut ScriptProducer,
-        span: Span,
-    ) -> Result<Option<LoweredValue>, RuntimeError> {
-        if let Some(value) = producer.delegated_prefix.pop_front() {
-            return super::lowered_value_from_runtime_any(&value)
-                .map(Some)
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "type-error",
-                        format!("stream produced unsupported {}", value.type_name()),
-                    )
-                    .with_span(span)
-                });
-        }
-        let Some(stream) = producer.delegated.as_mut() else {
-            return Ok(None);
+    /// Poll the retained source without recursively entering another producer.
+    fn poll_delegated(&mut self, producer: &mut ScriptProducer) -> Result<Option<ScriptStreamStep>, RuntimeError> {
+        let Some(source) = producer.delegated.as_mut() else { return Ok(None); };
+        let (next, span) = match source {
+            DelegatedSource::List(items) => (Ok(items.next().map(LoweredValue::into_value)), producer.call_span),
+            DelegatedSource::Stream { value, prefix, span } => {
+                if let Some(item) = prefix.pop_front() {
+                    return Ok(Some(ScriptStreamStep::Yielded(item)));
+                }
+                if let Some(child) = value.script() {
+                    let scopes = if producer.finished { Vec::new() } else {
+                        producer.frame.as_ref().expect("suspended producer frame").open_scopes()
+                    };
+                    return Ok(Some(ScriptStreamStep::Delegate { child: child.clone(), span: *span, scopes }));
+                }
+                (value.next_live(*span), *span)
+            }
         };
-        match self.stream_next(stream, span)? {
-            Some(value) => super::lowered_value_from_runtime_any(&value)
-                .map(Some)
-                .ok_or_else(|| {
-                    RuntimeError::new(
-                        "type-error",
-                        format!("stream produced unsupported {}", value.type_name()),
-                    )
-                    .with_span(span)
-                }),
-            None => {
+        match next {
+            Ok(Some(value)) => Ok(Some(ScriptStreamStep::Yielded(value))),
+            Ok(None) => { producer.delegated = None; Ok(None) }
+            Err(error) => {
                 producer.delegated = None;
-                Ok(None)
+                let _ = self.cancel_script_producer(producer, span);
+                Err(error)
             }
         }
     }
+
 }
 
 /// Runs a producer frame to its next yield, and a cancelled frame to its end.
@@ -375,7 +425,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             ProducerStep::Finished(Err(error)) => Err(error),
             // The frame's remaining work was discarded, so its body cannot
             // reach another `yield`.
-            ProducerStep::Yielded { .. } => Err(RuntimeError::new(
+            ProducerStep::Yielded { .. } | ProducerStep::Delegated { .. } => Err(RuntimeError::new(
                 "control-flow",
                 "a cancelled producer yielded",
             )

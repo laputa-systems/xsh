@@ -274,3 +274,11 @@ fn grep_regex_literal_compares_raw_patterns_across_delimiter_spellings() {
     assert!(stdout.contains("2 matches"), "{stdout}");
     assert!(!stdout.contains("[0-9]+"));
 }
+
+#[test]
+fn grep_visits_delegated_source_expressions_with_original_spans() {
+    let file = temp_xsh("yield_delegation_source", "stream rows() -> Stream[Int] { yield @(load(\"α\")?) }\n");
+    let output = grep_scripts("load(ARG)", &paths(&file));
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    assert!(output_text(&output.stdout).contains("load(\"α\")"));
+}

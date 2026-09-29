@@ -167,6 +167,9 @@ enum FrameContinuation {
     /// A `yield` statement's value: the frame suspends here and hands the value
     /// to whoever pulled the producer.
     Yield,
+    YieldDelegate {
+        span: Span,
+    },
     CallArguments {
         function: LoweredFunctionKey,
         kind: LoweredFunctionKind,
@@ -326,15 +329,20 @@ pub(super) struct CallFrame<'p> {
     return_to: Option<FrameContinuation>,
 }
 
+enum ProducerSuspension {
+    Yielded(LoweredValue),
+    Delegated { value: LoweredValue, span: Span },
+}
+
 pub(super) struct ExplicitFrames<'a, 'p> {
     evaluator: &'a mut Evaluator,
     program: &'p FullProgram,
     calls: Vec<CallFrame<'p>>,
     result: Option<Result<LoweredValue, RuntimeError>>,
     pending_error: Option<RuntimeError>,
-    /// Set when a producer frame executes a `yield`: the value the puller
-    /// receives, with the frame's remaining work left on its stack.
-    suspended: Option<LoweredValue>,
+    /// The yielded item or delegation source, with the remaining work saved
+    /// on the frame's stack until its consumer requests another item.
+    suspended: Option<ProducerSuspension>,
 }
 
 impl Evaluator {
@@ -425,6 +433,12 @@ pub(super) enum ProducerStep {
     /// state is the continuation.
     Yielded {
         value: LoweredValue,
+        state: ProducerFrameState,
+    },
+    /// The parent pauses while this source supplies elements to its consumer.
+    Delegated {
+        value: LoweredValue,
+        span: Span,
         state: ProducerFrameState,
     },
     /// The body ended, propagated an error, or returned a stream.
@@ -707,11 +721,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.begin_error_unwind(error);
             }
         }
-        if let Some(value) = self.suspended.take() {
-            let frame = self.calls.pop().expect("suspended producer frame");
-            return ProducerStep::Yielded {
-                value,
-                state: frame.into_state(),
+        if let Some(suspension) = self.suspended.take() {
+            let state = self.calls.pop().expect("suspended producer frame").into_state();
+            return match suspension {
+                ProducerSuspension::Yielded(value) => ProducerStep::Yielded { value, state },
+                ProducerSuspension::Delegated { value, span } => ProducerStep::Delegated { value, span, state },
             };
         }
         ProducerStep::Finished(self.result.take().expect("indexed frame result"))
@@ -1321,8 +1335,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 indexed_finish(payload, span)?;
                 self.continue_loop(index)
             }
-            FullTag::StmtYield => {
+            FullTag::StmtYield | FullTag::StmtYieldDelegate => {
                 let value = indexed_raw(&mut payload, span)?;
+                let span = if tag == FullTag::StmtYieldDelegate {
+                    indexed_decode(&mut payload, &self.calls[index].execution, span)?
+                } else { span };
                 indexed_finish(payload, span)?;
                 if !self.calls[index].producer {
                     return Err(
@@ -1330,7 +1347,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                             .with_span(span),
                     );
                 }
-                self.push_expr(index, value, span, FrameContinuation::Yield);
+                let continuation = if tag == FullTag::StmtYieldDelegate {
+                    FrameContinuation::YieldDelegate { span }
+                } else {
+                    FrameContinuation::Yield
+                };
+                self.push_expr(index, value, span, continuation);
                 Ok(())
             }
             FullTag::StmtDefer => {
@@ -2563,11 +2585,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Return(value));
                 }
             },
+            FrameContinuation::YieldDelegate { span } => match value {
+                FrameValue::Value(value) => {
+                    self.suspended = Some(ProducerSuspension::Delegated { value, span });
+                    return Ok(());
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+            },
             FrameContinuation::Yield => match value {
                 FrameValue::Value(value) => {
                     // The frame keeps everything after this statement on its
                     // work stack; the puller receives the value.
-                    self.suspended = Some(value);
+                    self.suspended = Some(ProducerSuspension::Yielded(value));
                     return Ok(());
                 }
                 FrameValue::Break(value) => {
@@ -2897,9 +2926,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let header = view
             .header()
             .map_err(|error| indexed_error(error, call.call_span))?;
+        // Producer failures leave the stream boundary as runtime errors. Keep
+        // the original propagation location when converting the Result value.
+        let return_span = if call.producer {
+            self.evaluator.pending_traceback.as_ref()
+                .and_then(|traceback| traceback.failing_span)
+                .unwrap_or(call.call_span)
+        } else {
+            call.call_span
+        };
         let value = match flow {
             StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
-                lowered_return_value(header.return_kind, value, call.call_span)
+                lowered_return_value(header.return_kind, value, return_span)
             }
             // A producer ends by running out of statements; that is the end of
             // the stream, not a function that failed to return.

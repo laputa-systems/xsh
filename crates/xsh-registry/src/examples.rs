@@ -91,6 +91,7 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "language.core.postfix-question" => {
             include_str!("../../../docs/snippets/api/core-postfix-question.xsh")
         }
+        "language.core.streams" => include_str!("../../../docs/snippets/api/core-streams.xsh"),
         "language.core.comprehensions" => {
             include_str!("../../../docs/snippets/api/core-comprehensions.xsh")
         }

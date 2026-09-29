@@ -34,9 +34,7 @@ proc total() [error] -> Int {
 # A producer whose `defer` must still run when a bounded terminal stops early.
 stream guarded(log: Path) [fs, error] -> Stream[Int] {
   defer log.write("closed")?
-  for item in items() {
-    yield item
-  }
+  yield @items()
 }
 
 proc main() [io, env, error] {

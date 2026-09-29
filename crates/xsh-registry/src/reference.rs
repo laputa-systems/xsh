@@ -826,7 +826,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "streams" => (
             "Defines lazy structured stream values.",
-            "A stream owns source cleanup until a terminal, cancellation, or failure consumes that lifecycle.",
+            "A stream owns source cleanup until a terminal, cancellation, or failure consumes that lifecycle. Inside stream producers, yield @source delegates List or Stream elements lazily, resumes after exhaustion, and closes children before parent cleanup on early termination. Results require explicit handling.",
         ),
         "comprehensions" => (
             "Builds lists and maps through ordered nested iteration and filtering.",

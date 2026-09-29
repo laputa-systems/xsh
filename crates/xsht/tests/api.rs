@@ -742,6 +742,14 @@ fn api_regex_literals_exposes_preparation_raw_syntax_and_dynamic_compile() {
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
     for fragment in ["rx\"", "no escapes or interpolation", "unreachable code", "repeated calls share", "regex.compile(runtime_pattern)", "structured regex-compile errors"] {
+}
+
+#[test]
+fn api_streams_explains_yield_delegation_and_cleanup_order() {
+    let output = xsht(&["api", "language:core.streams"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for fragment in ["yield @source", "Results require explicit handling", "closes children before parent cleanup", "yield @rows()"] {
         assert!(stdout.contains(fragment), "missing {fragment}: {stdout}");
     }
 }

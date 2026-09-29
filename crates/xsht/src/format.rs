@@ -457,6 +457,10 @@ impl<'a> Writer<'a> {
                     self.write_expr_or_run_safe(value, output);
                 }
             }
+            ArenaStmtKind::YieldDelegate(value) => {
+                output.push_str("yield @");
+                self.write_expr(*value, 0, output);
+            }
             ArenaStmtKind::Yield(value) => {
                 output.push_str("yield ");
                 self.write_expr_or_run_safe(value, output);
@@ -735,7 +739,7 @@ impl<'a> Writer<'a> {
     ) {
         let def = self.arena.function_def(def_id).clone();
         output.push_str(keyword);
-        output.push(' ');
+        if keyword != "yield @" { output.push(' '); }
         output.push_str(def.name.as_str().as_str());
         output.push('(');
         let params = self.arena.params(def.params).to_vec();
@@ -772,7 +776,7 @@ impl<'a> Writer<'a> {
     ) {
         let def = self.arena.function_def(def_id).clone();
         output.push_str(keyword);
-        output.push(' ');
+        if keyword != "yield @" { output.push(' '); }
         output.push_str(def.name.as_str().as_str());
         output.push_str("(\n");
         let params = self.arena.params(def.params).to_vec();
@@ -978,6 +982,10 @@ impl<'a> Writer<'a> {
                     output.push(' ');
                     self.write_expr_or_run_safe(value, output);
                 }
+            }
+            ArenaStmtKind::YieldDelegate(value) => {
+                output.push_str("yield @");
+                self.write_expr(*value, 0, output);
             }
             ArenaStmtKind::Yield(value) => {
                 output.push_str("yield ");
@@ -1274,6 +1282,7 @@ impl<'a> Writer<'a> {
     fn write_guarded_action(&mut self, stmt: StmtId, indent: usize, output: &mut String) {
         let (keyword, value) = match self.arena.stmt(stmt).kind {
             ArenaStmtKind::Return(Some(value)) => ("return", value),
+            ArenaStmtKind::YieldDelegate(value) => ("yield @", ArenaExprOrRun::Expr(value)),
             ArenaStmtKind::Yield(value) => ("yield", value),
             ArenaStmtKind::Break { value: Some(value) } => ("break", ArenaExprOrRun::Expr(value)),
             _ => {
@@ -1282,7 +1291,7 @@ impl<'a> Writer<'a> {
             }
         };
         output.push_str(keyword);
-        output.push(' ');
+        if keyword != "yield @" { output.push(' '); }
         // Group the payload so command argv cannot consume the postfix guard.
         let mut payload = String::new();
         self.write_expr_or_run_safe(&value, &mut payload);

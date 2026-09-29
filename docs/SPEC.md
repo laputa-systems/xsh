@@ -487,7 +487,7 @@ module_contract_kind = ("let")? IDENT ":" type_expr
              | "pure" IDENT param_list "->" type_expr ;
 type_ann     = ":" type_expr ;
 defer_stmt   = "defer" (block | expr_or_run) terminator ;
-yield_stmt   = "yield" expr_or_run (("when" | "unless") expr)? terminator ;
+yield_stmt   = "yield" (expr_or_run | "@" expr) (("when" | "unless") expr)? terminator ;
 ```
 
 Module path segments accept hyphenated identifiers (proc-ident form) in addition
@@ -1152,9 +1152,26 @@ Stream producers are named lazy functions declared with `stream`. Calling a
 producer returns `Stream[T]`; its body starts evaluating only when the stream is
 consumed by a direct `for` loop or structured pipeline. Each `yield value`
 emits one `T` item to the consumer. A producer signature must explicitly return
-`Stream[T]`, and each yielded value must match `T`; yielding a stream value is
-rejected so nested streams are introduced through explicit stages such as
-`flat-map`.
+`Stream[T]`, and each yielded value must match `T`. Ordinary `yield [a, b]`
+emits one list item; ordinary `yield stream` is rejected.
+
+`yield @source` delegates the elements of a `List[T]` or `Stream[T]` to the
+current producer. Evaluate `source` exactly once when reached. Lists preserve
+order; delegated streams pull only on demand and resume the parent after
+exhaustion. Handle Results explicitly, as in `yield @(load_rows()?)`; Map, Str,
+and Bytes are not delegation sources. A guarded delegation evaluates its
+source only when its guard succeeds. Early termination closes the child before
+the parent's cleanup, once each; failures retain their original error identity
+and stop the parent. Delegation retains one-shot stream alias semantics and
+resource ownership. Chained delegation uses the existing frame engine through
+an iterative pull and cancellation driver, without a worker or native stack
+growth proportional to delegation depth.
+
+`lint.prefer-yield-delegation` fixes checked transparent single-binding loops
+whose sole body statement yields that binding unchanged. It preserves explicit
+Result propagation and refuses implicit Result sources, conversions, comments,
+filters, transformations, cleanup, effects, additional transfers, and source
+pipelines whose direct-loop cursor differs from expression materialization.
 
 Stream producers use proc-like effect annotations because a producer may open
 files, run commands, or propagate `Result` failures while it is being consumed.
@@ -1307,7 +1324,7 @@ break_stmt   = "break" expr? (("when" | "unless") expr)? terminator ;
 continue_stmt = "continue" terminator
               | "continue" ("when" | "unless") expr terminator ;
 return_stmt  = "return" expr_or_run? (("when" | "unless") expr)? terminator ;
-yield_stmt   = "yield" expr_or_run (("when" | "unless") expr)? terminator ;
+yield_stmt   = "yield" (expr_or_run | "@" expr) (("when" | "unless") expr)? terminator ;
 match_stmt   = "match" expr "{" match_arm* "}" ;
 ```
 

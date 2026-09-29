@@ -1201,6 +1201,10 @@ enum BuildStmtRow {
     Yield {
         value: BuildExprId,
     },
+    YieldDelegate {
+        value: BuildExprId,
+        span: Span,
+    },
     Break,
     BreakValue {
         value: BuildExprId,

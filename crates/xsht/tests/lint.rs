@@ -3048,3 +3048,54 @@ fn linter_regex_literals_retains_compile_calls_in_result_recovery_branches() {
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
     assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-regex-literal")));
 }
+
+#[test]
+fn yield_delegation_forwarding_fix_is_checked_and_idempotent() {
+    for iterable in ["values", "(Ok(values)?)"] {
+        let source = format!("stream rows(values: List[Int]) [error] -> Stream[Int] {{\n  for item in {iterable} {{\n    yield item\n  }}\n}}\n");
+        let parsed = parse_lint_source(&source);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let diagnostics = Linter::lint(&parsed.arena, &source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+        let hint = diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-yield-delegation")).and_then(|d| d.fix_hints.first()).expect("forwarding fix");
+        let mut fixed = source.clone();
+        fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+        assert!(fixed.contains("yield @"), "{fixed}");
+        if iterable.contains('?') { assert!(fixed.contains("Ok(values)?"), "{fixed}"); }
+        assert_parse_check_standalone("yield delegation fix", &fixed);
+        let parsed = parse_lint_source(&fixed);
+        let again = Linter::lint(&parsed.arena, &fixed, LintOptions::default());
+        assert!(!again.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-yield-delegation")));
+    }
+}
+
+#[test]
+fn yield_delegation_fix_preserves_nontransparent_forwarding_loops() {
+    for body in ["yield item * 2", "if item > 0 { yield item }", "print $item\n    yield item", "defer close()\n    yield item", "yield item\n    break", "# current item\n    yield item"] {
+        let source = format!("proc close() [io] {{ print \"close\" }}\nstream rows(values: List[Int]) [io] -> Stream[Int] {{\n  for item in values {{\n    {body}\n  }}\n}}\n");
+        let parsed = parse_lint_source(&source);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+        let output = Linter::lint(&parsed.arena, &source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-yield-delegation")), "unsafe fix: {source}");
+    }
+    for source in [
+        "stream rows(values: Result[List[Int]]) [error] -> Stream[Int] { for item in values { yield item } }\n",
+        "stream rows(values: Stream[Int]) [] -> Stream[Int] { for item in values |> map { |number| number + 1 } { yield item } }\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+        assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-yield-delegation")));
+    }
+}
+
+#[test]
+fn formatter_preserves_yield_delegation_and_postfix_guards() {
+    let source = "stream rows() -> Stream[Int] {\n  yield @[1, 2]\n  yield @([3]) when true\n}\n";
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_parse_check_standalone("formatted delegation", &formatted.formatted);
+    let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(again.formatted, formatted.formatted);
+}

@@ -403,6 +403,7 @@ impl<'a> Linter<'a> {
             | ArenaStmtKind::Let { .. }
             | ArenaStmtKind::Var { .. }
             | ArenaStmtKind::Return(_)
+            | ArenaStmtKind::YieldDelegate(_)
             | ArenaStmtKind::Yield(_)
             | ArenaStmtKind::Defer(_)
             | ArenaStmtKind::Break { .. }
@@ -725,6 +726,7 @@ impl<'a> Linter<'a> {
                 }
             }
             ArenaStmtKind::Defer(value) => self.lint_expr_or_run(&value),
+            ArenaStmtKind::YieldDelegate(value) => self.lint_expr(value),
             ArenaStmtKind::Yield(value) => self.lint_expr_or_run(&value),
             ArenaStmtKind::If {
                 branches,
@@ -750,6 +752,7 @@ impl<'a> Linter<'a> {
                 block,
             } => {
                 self.lint_map_entry_iteration(stmt_id, target, iter, block);
+                self.lint_yield_delegation(stmt.span, target, iter, block);
                 self.lint_prefer_file_lines(iter);
                 self.lint_expr(iter);
                 self.push_scope();
@@ -2638,6 +2641,29 @@ impl<'a> Linter<'a> {
         text
     }
 
+    /// A forwarding loop can be replaced only when no body work or binder
+    /// conversion is lost and the checked source already has iterable type.
+    fn lint_yield_delegation(&mut self, span: Span, target: BindingTargetId, iter: ExprId, block: BlockId) {
+        let Some(Type::Stream(expected)) = self.function_return_types.last() else { return; };
+        let ArenaBindingTargetKind::Name(binding) = self.arena.binding_target(target).kind else { return; };
+        let statements: Vec<_> = self.arena.stmt_ids(self.arena.block(block).statements).collect();
+        if statements.len() != 1 { return; }
+        let ArenaStmtKind::Yield(ArenaExprOrRun::Expr(value)) = self.arena.stmt(statements[0]).kind else { return; };
+        if !matches!(self.arena.expr(value).kind, ArenaExprKind::Ident(name) if name == binding) { return; }
+        // Direct loop pipelines can fuse into a lazy cursor while expression
+        // pipelines collect first. Keep that consumer boundary explicit.
+        if matches!(self.arena.expr(iter).kind, ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. }) { return; }
+        let Some(Type::List(item) | Type::Stream(item)) = self.expr_types.get(&self.arena.expr(iter).span) else { return; };
+        if item != expected || matches!(item.as_ref(), Type::Any | Type::Unknown) { return; }
+        if self.source.get(span.range()).is_none_or(|text| text.contains('#')) { return; }
+        let Some(source) = self.source.get(self.arena.expr(iter).span.range()) else { return; };
+        let source = if source.contains('\n') { format!("({source})") } else { source.to_string() };
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "delegate a transparent forwarding loop with `yield @`")
+            .with_code("lint.prefer-yield-delegation")
+            .with_label(Label::secondary(span, "this loop only yields its current item"))
+            .with_fix_hint(FixHint::replacement(span, "delegate the iterable", format!("yield @{source}"))));
+    }
+
     fn lint_suggest_list_comp(&mut self, var_id: StmtId, for_id: StmtId) {
         let var_stmt = self.arena.stmt(var_id);
         let for_stmt = self.arena.stmt(for_id);
@@ -3776,6 +3802,7 @@ impl<'a> Linter<'a> {
             ArenaStmtKind::Break { .. } => "break",
             ArenaStmtKind::Continue => "continue",
             ArenaStmtKind::Return(_) => "return",
+            ArenaStmtKind::YieldDelegate(_) => "yield",
             ArenaStmtKind::Yield(_) => "yield",
             _ => return,
         };
@@ -4257,7 +4284,7 @@ fn lazy_visit_stmt(
                 lazy_visit_block(arena, arm.block, out);
             }
         }
-        ArenaStmtKind::Expr(expr) => {
+        ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) => {
             lazy_visit_expr(arena, expr, out);
         }
         ArenaStmtKind::Command(cmd_id) => {
@@ -5383,7 +5410,7 @@ fn stmt_contains_read_text_lines_call(arena: &AstArena, stmt: StmtId) -> bool {
             ArenaExprOrRun::Expr(expr) => expr_contains_read_text_lines_call(arena, expr),
             ArenaExprOrRun::Run(_) => false,
         },
-        ArenaStmtKind::Expr(expr) | ArenaStmtKind::Break { value: Some(expr) } => {
+        ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) | ArenaStmtKind::Break { value: Some(expr) } => {
             expr_contains_read_text_lines_call(arena, expr)
         }
         ArenaStmtKind::If {
@@ -6510,7 +6537,7 @@ fn collect_stmt_effects(
         ArenaStmtKind::Export(inner) => collect_stmt_effects(arena, inner, effects, proc_effects),
         // Don't descend into nested function defs — they have their own effect scope
         ArenaStmtKind::ProcDef(_) | ArenaStmtKind::PureDef(_) => {}
-        ArenaStmtKind::Expr(e) => collect_expr_effects(arena, e, effects, proc_effects),
+        ArenaStmtKind::Expr(e) | ArenaStmtKind::YieldDelegate(e) => collect_expr_effects(arena, e, effects, proc_effects),
         ArenaStmtKind::Command(cmd) => {
             collect_command_effects(&arena.command_stmt(cmd).command, effects)
         }
@@ -6894,7 +6921,7 @@ fn collect_retry_stmt_effects(
             collect_retry_block_effects(arena, body, effects, proc_effects);
             collect_retry_block_effects(arena, else_block, effects, proc_effects);
         }
-        ArenaStmtKind::Break { value: Some(expr) } | ArenaStmtKind::Expr(expr) => {
+        ArenaStmtKind::Break { value: Some(expr) } | ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) => {
             collect_retry_expr_effects(arena, expr, effects, proc_effects);
         }
         ArenaStmtKind::Match { value, arms } => {
@@ -7389,7 +7416,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             }
             ArenaStmtKind::Command(command) => self.scan_command(command),
             ArenaStmtKind::TailBareIdent(name) => self.add_direct_unqualified(name),
-            ArenaStmtKind::Expr(expr) => self.scan_expr(expr),
+            ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) => self.scan_expr(expr),
             // Callable bodies and hooks have their own entry conditions. A
             // declaration is never executed while its containing initializer
             // runs, so only roots and graph edges scan those bodies.
@@ -8035,7 +8062,7 @@ fn stmt_flow(
         }
         ArenaStmtKind::Command(command) => command_flow(arena, command, terminating_call_spans),
         ArenaStmtKind::TailBareIdent(_) => FlowSummary::fallthrough(),
-        ArenaStmtKind::Expr(expr) => expr_flow(arena, expr, terminating_call_spans),
+        ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) => expr_flow(arena, expr, terminating_call_spans),
         ArenaStmtKind::Use(_)
         | ArenaStmtKind::TypeDef(_)
         | ArenaStmtKind::ErrorDef(_)

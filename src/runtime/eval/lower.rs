@@ -2135,7 +2135,7 @@ fn compact_collect_stmt_call_edges(
             compact_collect_stmt_call_edges(program, stmt, namespace, index_of, edges);
             compact_collect_expr_call_edges(program, condition, namespace, index_of, edges);
         }
-        ArenaStmtKind::Break { value: Some(value) } | ArenaStmtKind::Expr(value) => {
+        ArenaStmtKind::Break { value: Some(value) } | ArenaStmtKind::Expr(value) | ArenaStmtKind::YieldDelegate(value) => {
             compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
         }
         ArenaStmtKind::Match { value, arms } => {
@@ -2557,6 +2557,7 @@ fn compact_stmt_kind_index(kind: ArenaStmtKind) -> usize {
         ArenaStmtKind::StreamDef(_) => 9,
         ArenaStmtKind::SignalHook(_) => 10,
         ArenaStmtKind::Return(_) => 11,
+        ArenaStmtKind::YieldDelegate(_) => 12,
         ArenaStmtKind::Yield(_) => 12,
         ArenaStmtKind::Defer(_) => 13,
         ArenaStmtKind::If { .. } => 14,
@@ -2589,6 +2590,7 @@ fn compact_stmt_kind_label(kind: ArenaStmtKind) -> &'static str {
         ArenaStmtKind::StreamDef(_) => "stream_def",
         ArenaStmtKind::SignalHook(_) => "signal_hook",
         ArenaStmtKind::Return(_) => "return",
+        ArenaStmtKind::YieldDelegate(_) => "yield-delegate",
         ArenaStmtKind::Yield(_) => "yield",
         ArenaStmtKind::Defer(_) => "defer",
         ArenaStmtKind::If { .. } => "if",
@@ -6688,6 +6690,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                     value: push_build_row!(self, expr, BuildExprRow::Unit),
                 }
             )),
+            ArenaStmtKind::YieldDelegate(value) => Some(push_build_row!(self, stmt, BuildStmtRow::YieldDelegate {
+                value: self.lower_expr(value, slots, current_function, item_slot)?,
+                span: self.program.arena.stmt(id).span,
+            })),
             ArenaStmtKind::Yield(ArenaExprOrRun::Expr(value)) => Some(push_build_row!(
                 self,
                 stmt,
@@ -14857,7 +14863,7 @@ pub(super) fn lowered_body_can_return(scratch: &BuildScratch, statements: &[Buil
         .any(|stmt| match &scratch.statements[stmt.index()] {
             BuildStmtRow::Return { .. } => true,
             BuildStmtRow::Defer { .. } => false,
-            BuildStmtRow::Yield { .. } => false,
+            BuildStmtRow::Yield { .. } | BuildStmtRow::YieldDelegate { .. } => false,
             BuildStmtRow::ScanLines { .. } => false,
             BuildStmtRow::ScanBytes { .. } => false,
             BuildStmtRow::Break | BuildStmtRow::BreakValue { .. } => false,

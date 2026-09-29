@@ -2234,6 +2234,12 @@ impl<'a> ArenaProgramBuilder<'a> {
         id
     }
 
+    pub fn push_yield_delegate(&mut self, value: ExprId, span: Span) -> StmtId {
+        let id = self.lowerer.push_stmt_kind(ArenaStmtKind::YieldDelegate(value), span);
+        self.push_current_statement(id);
+        id
+    }
+
     pub fn push_defer(&mut self, value: ArenaExprOrRun, span: Span) -> StmtId {
         let id = self
             .lowerer
@@ -3707,6 +3713,7 @@ impl AstArena {
             ArenaStmtTag::ReturnRun => {
                 ArenaStmtKind::Return(Some(ArenaExprOrRun::Run(RunFormId::new(data.lhs as usize))))
             }
+            ArenaStmtTag::YieldDelegate => ArenaStmtKind::YieldDelegate(ExprId::new(data.lhs as usize)),
             ArenaStmtTag::YieldExpr => {
                 ArenaStmtKind::Yield(ArenaExprOrRun::Expr(ExprId::new(data.lhs as usize)))
             }
@@ -4645,6 +4652,7 @@ pub enum ArenaStmtTag {
     ReturnRun,
     YieldExpr,
     YieldRun,
+    YieldDelegate,
     DeferExpr,
     DeferRun,
     IfNoElse,
@@ -4713,6 +4721,7 @@ pub enum ArenaStmtKind {
     SignalHook(SignalHookId),
     Return(Option<ArenaExprOrRun>),
     Yield(ArenaExprOrRun),
+    YieldDelegate(ExprId),
     Defer(ArenaExprOrRun),
     If {
         branches: ArenaRange,
@@ -5984,6 +5993,7 @@ impl ArenaLowerer<'_> {
                 ArenaStmtTag::ReturnRun,
                 ArenaStmtData::new(raw_run_form_id(id), 0),
             ),
+            ArenaStmtKind::YieldDelegate(id) => (ArenaStmtTag::YieldDelegate, ArenaStmtData::new(raw_expr_id(id), 0)),
             ArenaStmtKind::Yield(ArenaExprOrRun::Expr(id)) => (
                 ArenaStmtTag::YieldExpr,
                 ArenaStmtData::new(raw_expr_id(id), 0),

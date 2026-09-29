@@ -1092,17 +1092,37 @@ pub struct StreamValue {
     pub(crate) script: Option<ScriptStreamState>,
 }
 
+/// A pull either emits a value, ends, or asks the evaluator to pull a child.
+/// Child pulls are scheduled iteratively so delegation depth does not consume
+/// the native call stack.
+pub(crate) enum ScriptStreamStep {
+    Yielded(Value),
+    Finished,
+    Delegate {
+        child: ScriptStreamState,
+        span: Span,
+        scopes: Vec<u64>,
+    },
+}
+
 /// A script producer as a stream value sees it.
 pub(crate) trait ScriptStream: Send {
     /// Whether the producer has already finished or been stopped.
     fn finished(&self) -> bool;
 
     /// Resumes the producer until it yields, finishes, or fails.
-    fn pull(
+    fn poll(
         &mut self,
         evaluator: &mut crate::runtime::eval::Evaluator,
         span: Span,
-    ) -> Result<Option<Value>, RuntimeError>;
+    ) -> Result<ScriptStreamStep, RuntimeError>;
+
+    /// Resume this frame after its delegated child has exhausted.
+    fn delegated_finished(&mut self);
+
+    /// Removes an active child before cancellation, retaining parent scopes
+    /// while the driver stops the child first.
+    fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>);
 
     /// Stops a producer early, running the defers its body registered.
     fn cancel(
@@ -1132,6 +1152,10 @@ impl ScriptStreamState {
         self.producer.lock().map_err(|_| {
             RuntimeError::new("stream-state", "stream producer state is poisoned").with_span(span)
         })
+    }
+
+    pub(crate) fn identity(&self) -> usize {
+        Arc::as_ptr(&self.producer) as usize
     }
 
     pub(crate) fn same_as(&self, other: &Self) -> bool {

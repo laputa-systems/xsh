@@ -20,6 +20,17 @@ method named in this document, then open its owner file and nearest test. For
 the complete frontend vocabulary, see `docs/FRONTEND.md`; use the routing
 policy in `AGENTS.md` for task-specific reading and verification.
 
+## Producer suspension and delegation
+
+`indexed_run/explicit_run.rs::ProducerStep` returns either an item, a delegated
+source with the saved frame, or completion. `indexed_run/producer.rs` retains
+that frame, List cursor, and Stream handle. `runtime/eval/stream.rs` drives
+`ScriptStreamStep::Delegate` iteratively, releasing each producer lock before
+entering its child while retaining ancestor ownership scopes. Cancellation
+removes delegation links and runs child cleanup before parent cleanup. The
+same evaluator and indexed frame engine execute every producer; delegation
+depth does not become native call depth.
+
 ## `libxsh` Rust façade
 
 The root `xsh` package also provides the shared Rust library consumed by the

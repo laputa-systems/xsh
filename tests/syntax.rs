@@ -3559,3 +3559,18 @@ fn regex_literal_unterminated_delimiters_are_lexical_errors() {
         assert!(lexed.diagnostics.iter().any(|d| d.code.as_deref() == Some("lex.unterminated-string")), "{:?}", lexed.diagnostics);
     }
 }
+
+#[test]
+fn parser_yield_delegation_retains_source_expression_and_unicode_byte_span() {
+    let source = "stream rows() [] -> Stream[Str] {\n  yield \"α\"\n  yield @[\"β\", \"γ\"]\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let stmt = parsed.arena.arena.stmt_ids(parsed.arena.statements).next().unwrap();
+    let ArenaStmtKind::StreamDef(function) = parsed.arena.arena.stmt(stmt).kind else { panic!("stream definition"); };
+    let block = parsed.arena.arena.function_def(function).body;
+    let statements: Vec<_> = parsed.arena.arena.stmt_ids(parsed.arena.arena.block(block).statements).collect();
+    assert!(matches!(parsed.arena.arena.stmt(statements[0]).kind, ArenaStmtKind::Yield(_)));
+    let ArenaStmtKind::YieldDelegate(expr) = parsed.arena.arena.stmt(statements[1]).kind else { panic!("delegation"); };
+    assert_eq!(&source[parsed.arena.arena.expr(expr).span.range()], "[\"β\", \"γ\"]");
+    assert!(matches!(parsed.arena.arena.expr(expr).kind, ArenaExprKind::List(_)));
+}

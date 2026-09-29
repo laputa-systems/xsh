@@ -428,6 +428,9 @@ impl Checker {
             ArenaStmtKind::Return(value) => {
                 self.check_return_arena(arena, source, value, stmt.span);
             }
+            ArenaStmtKind::YieldDelegate(value) => {
+                self.check_yield_delegation_arena(arena, source, value, stmt.span);
+            }
             ArenaStmtKind::Yield(value) => {
                 self.check_yield_arena(arena, source, value, stmt.span);
             }
@@ -1465,6 +1468,37 @@ impl Checker {
         }
     }
 
+    fn check_yield_delegation_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        value: ExprId,
+        span: Span,
+    ) {
+        let expected = self.current_yield.clone();
+        if expected.is_none() {
+            self.error(span, "`yield` is valid only in stream producers", "check.yield");
+        }
+        // A list context gives empty and nested literals their item type;
+        // checked stream expressions retain their own stream type.
+        let collection = expected.as_ref().map(|ty| Type::List(Box::new(ty.clone())));
+        let actual = self.check_expr_arena(arena, source, value, collection.as_ref());
+        let value_span = arena.arena.expr(value).span;
+        match actual {
+            Type::List(item) | Type::Stream(item) => {
+                if let Some(expected) = expected {
+                    self.expect_type(&expected, &item, value_span);
+                }
+            }
+            Type::Unknown => {}
+            _ => self.error(
+                value_span,
+                "yield delegation requires a List or Stream; handle Results explicitly",
+                "check.yield-delegation",
+            ),
+        }
+    }
+
     fn check_yield_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -1492,7 +1526,7 @@ impl Checker {
         if matches!(actual, Type::Stream(_)) {
             self.error(
                 value_span,
-                "`yield` does not accept a stream; use `for item in stream { yield item }`",
+                "`yield` does not accept a stream; use `yield @stream`",
                 "check.yield-stream",
             );
             return;

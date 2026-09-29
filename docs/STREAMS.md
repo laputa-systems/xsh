@@ -34,6 +34,17 @@ source or suspended script producer. `stream_next` pulls one value; a script
 producer resumes in the current evaluator. `stream_cancel` closes a script
 producer that a consumer stops early and runs its defers once.
 
+`yield @source` suspends a producer with a retained List cursor or child stream.
+`ScriptStreamStep::Delegate` releases the parent state lock before the iterative
+`stream_next` driver enters the child, retaining ancestor ownership scopes.
+Child exhaustion resumes the parent's saved frame. Cancellation removes child
+links and stops frames from the innermost child outward, without recursion
+proportional to delegation depth. Shared lists retain their storage and clone
+only the current element; streams retain their shared one-shot cursor. Source
+expressions and explicit Result propagation execute once when reached.
+`tests/xsh/yield-delegation.xsh` owns lifecycle and error coverage;
+`tests/runtime/stack_depth.rs` verifies the host stack boundary.
+
 For a live source, `serial_pipeline.rs` runs supported serial stages on each
 source item before pulling the next. `flat-map` sends each expanded value through
 the remaining stages in order, so `take` can stop within an expansion. The

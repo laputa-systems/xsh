@@ -231,6 +231,7 @@ pub(in crate::runtime::eval) enum FullTag {
     StmtLoop,
     StmtReturn,
     StmtYield,
+    StmtYieldDelegate,
     StmtBreak,
     StmtBreakValue,
     StmtContinue,
@@ -7555,6 +7556,10 @@ impl_node_codec! {
         BuildStmtRow::Return { value } => StmtReturn {
             value: BuildExprId,
         } => BuildStmtRow::Return { value },
+        BuildStmtRow::YieldDelegate { value, span } => StmtYieldDelegate {
+            value: BuildExprId,
+            span: Span,
+        } => BuildStmtRow::YieldDelegate { value, span },
         BuildStmtRow::Yield { value } => StmtYield {
             value: BuildExprId,
         } => BuildStmtRow::Yield { value },
@@ -8563,4 +8568,40 @@ proc main() [error] {
 
         let _ = fs::remove_dir_all(root);
     }
+
+    #[test]
+    fn yield_delegation_verifies_operands_and_preserves_nominal_error_payload() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/yield-delegation.xsh");
+            let program = fixture("yield-delegation.xsh", source);
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::StmtYieldDelegate).unwrap();
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let mut malformed = program.clone();
+            malformed.store.extra[payload.start] = u32::MAX;
+            assert!(FullVerifier::verify(&malformed).is_err());
+            let mut malformed = program.clone();
+            malformed.store.extra[payload.start + 1] = u32::MAX;
+            assert!(FullVerifier::verify(&malformed).is_err());
+            let program = Arc::new(program);
+            program.symbol_owner().with_current(|| {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let span = Span::new(program.store.source_id, 0, 0);
+                let value = evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "parent")), LoweredFunctionKind::Pure, &[], span,
+                ).expect("producer function").expect("producer creation");
+                let Value::Stream(mut stream) = value else { panic!("producer returns stream"); };
+                for expected in [1, 2, 3] {
+                    assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), Some(Value::Int(expected)));
+                }
+                let error = evaluator.stream_next(&mut stream, span).expect_err("late delegated error");
+                assert_eq!(error.family, "RowsError");
+                assert_eq!(error.variant, "Late");
+                assert_eq!(error.payload.get("row"), Some(&Value::Int(4)));
+                assert_eq!(source[error.span.unwrap().range()].trim(), "fail()?");
+                assert_eq!(evaluator.stream_next(&mut stream, span).unwrap(), None);
+            });
+        });
+    }
+
 }

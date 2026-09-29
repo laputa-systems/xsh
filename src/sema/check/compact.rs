@@ -661,6 +661,10 @@ impl CompactBodyProbe<'_> {
                 self.mark_tail_position(block, false);
                 self.output.expr_types.insert(expr, Type::Unit);
             }
+            ArenaStmtKind::YieldDelegate(value) => {
+                self.output.supported_statements += 1;
+                self.check_compact_expr(value);
+            }
             ArenaStmtKind::Yield(value) | ArenaStmtKind::Defer(value) => {
                 self.output.supported_statements += 1;
                 self.check_compact_expr_or_run(value);
