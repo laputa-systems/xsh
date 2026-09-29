@@ -23,8 +23,9 @@ Boolean guards use ordinary Bool/Status condition checks. The full checker
 publishes `CheckOutput::definitely_exiting_block_spans` only after checking
 failure paths, lexical exit applicability, match coverage, and terminating calls.
 The safe leading-if rewrite consumes those facts. Guard branches share existing
-null, type, pattern, and field-presence refinements; assignment restores a mutable
-binding's unrefined type, and local procedure calls invalidate mutable facts.
+null, type, pattern, and field-presence refinements. Assignments invalidate
+overlapping record paths; writes to proven disjoint siblings retain evidence.
+Unknown procedure calls invalidate mutable facts independently of declared effects.
 No Result error input or success payload is introduced by a Boolean guard.
 
 Default checking is compatibility-oriented. It reports definite syntax, name,
@@ -284,7 +285,8 @@ Optional receiver.
 `??` unwraps `Optional[T]` by returning the contained `T` when present or the
 fallback when the value is `null`. The fallback must match `T`.
 
-The checker performs local flow-sensitive narrowing for simple null tests. In
+The checker performs local flow-sensitive narrowing for null tests on bindings
+and statically known record-field paths. In
 the true branch of `if value != null`, and the false branch of `if value ==
 null`, a binding of type `T?` is narrowed to `T`. `!` reverses the refinement.
 For `and`, true-branch refinements from both operands apply. For `or`,
@@ -367,9 +369,19 @@ Supported refinements:
 - `match value { name is Type => ... }` tests dynamic values and binds `name`
   as `Type` inside that arm. `_ is Type` tests without introducing a binding.
 
-Refinements do not mutate the binding's type outside the proven scope. The
-checker does not infer arbitrary boolean implications, field relationships,
-numeric ranges, or path existence from conditions.
+Immutable Bool aliases share bounded facts identified by binding identity,
+mutation version, and known record path. Alias chains do not expand expressions.
+Assignments invalidate overlapping paths and prefixes; disjoint static sibling
+writes preserve facts. Calls that may change captures invalidate mutable facts
+without treating an effect clause as an alias guarantee. Immutable record copies
+retain independent snapshot identities, including in deferred bodies.
+
+Successful guards, ordinary statement assertions, and branches preserve proofs
+on their continuations; joins intersect reaching facts. Recovery from a failed
+assertion does not establish its success facts. Callable and deferred mutable
+captures require checks at execution scope. The checker does not infer arbitrary
+Boolean implications, dynamic indexing relationships, numeric ranges, resource
+liveness, or filesystem existence from conditions.
 
 ## Match And Patterns
 

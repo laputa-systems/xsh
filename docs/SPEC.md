@@ -1814,13 +1814,27 @@ no Result or catch boundary; explicit errors, effects, defer order, and lexical
 return/loop/retry targets retain their ordinary meaning.
 
 Checked condition refinements apply to following statements on success and to
-the failure block on failure. Assignments restore the declared type of mutable
-refined bindings; procedure calls invalidate mutable refinements because lexical
-captures may change. Conditions with calls or nested value computation conservatively
-establish refinements only for immutable bindings. Shape predicates retain their checked field/type
-facts and never authorize an unchecked schema conversion. Boolean subexpressions
-remain values rather than statement assertions. Imported modules retain their
-executable-statement restrictions.
+the failure block on failure. Null, type/pattern, and field-presence proofs may
+refer to a binding or a statically known record-field path. Immutable Bool aliases
+retain bounded shared proof provenance through `!`, `and`, and `or`; they emit no
+additional checks. Facts identify the original binding and its mutation history.
+Parent replacement and overlapping writes invalidate them; proved disjoint sibling
+writes preserve them. Unknown or procedure calls invalidate mutable capture facts
+regardless of their effect summary. Immutable record copies remain snapshots.
+
+Branches, guards, and successful statement assertions preserve only facts true
+on every reaching continuation. Caught assertion failure supplies no success proof
+after recovery. Deferred or callable mutable captures require fresh checks inside
+the body. Shape predicates keep their existing field/type information and never
+authorize an unchecked schema conversion, bounds check, filesystem observation,
+or effectful getter. Boolean subexpressions remain values rather than assertions.
+Imported modules retain their executable-statement restrictions.
+
+A previously Optional receiver proved present may retain an authored `??`
+fallback; indexed lowering reuses the present receiver without evaluating the
+unreachable fallback. `lint.redundant-optional-fallback` removes it only with
+checked presence provenance and inert, type-equivalent fallback data, preserving
+comments. Plain non-Optional receivers without that proof still reject `??`.
 
 `lint.boolean-guard` replaces a leading negative if only with checked evidence
 that its body always exits. It retains the authored failure body and error.

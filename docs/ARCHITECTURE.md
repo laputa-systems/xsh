@@ -846,3 +846,11 @@ plan pool, so execution does not normalize static descriptors again. Ordinary
 argument entries still evaluate once in source order; missing slots remain
 separate from supplied null values. Dynamic descriptors use the same normalizer
 at the runtime boundary.
+Record projection and Boolean alias provenance is owned by
+`src/sema/check/proof.rs::BindingProof` and `ConditionNarrowings`. Full and compact
+checkers share subject identities, bounded mutation stamps, path overlap rules,
+and continuation intersections. Immutable aliases retain shared proof sets;
+`condition_proofs` records when predicates were checked so later mutations cannot
+revive stale evidence. Both routes publish precise expression types and proved
+Optional fallback receivers. Indexed lowering reads those facts and inserts no
+casts or runtime proof checks.

@@ -97,6 +97,7 @@ pub struct CompactBodyProbeOutput {
     pub unsupported_structured_pipeline_exprs: usize,
     pub unsupported_builder_call_exprs: usize,
     pub expr_types: FxHashMap<ExprId, Type>,
+    pub proven_nonnull_fallback_receivers: FxHashSet<ExprId>,
     pub statement_positions: FxHashMap<StmtId, super::StatementPosition>,
     pub block_types: FxHashMap<BlockId, Type>,
     // Keep inferred value tails separate from contextual Unit consumption.
@@ -172,6 +173,7 @@ impl Checker {
                 declarations,
                 output,
                 scopes: vec![FxHashMap::default()],
+                condition_proofs: FxHashMap::default(),
                 stream_items: Vec::new(),
                 return_types: Vec::new(),
                 pipeline_hole_types: FxHashMap::default(),
@@ -600,6 +602,7 @@ struct CompactBodyProbe<'a> {
     declarations: &'a CompactDeclOutput,
     output: CompactBodyProbeOutput,
     scopes: Vec<FxHashMap<Name, CompactBinding>>,
+    condition_proofs: FxHashMap<ExprId, std::sync::Arc<super::proof::ConditionNarrowings>>,
     stream_items: Vec<Type>,
     return_types: Vec<Type>,
     pipeline_hole_types: FxHashMap<ExprId, Type>,
@@ -610,52 +613,158 @@ struct CompactBinding {
     ty: Type,
     mutable: bool,
     unrefined_ty: Option<Type>,
+    proof: super::proof::BindingProof,
+    boolean_proof: Option<std::sync::Arc<super::proof::ConditionNarrowings>>,
 }
 
 impl CompactBinding {
     fn new(ty: Type, mutable: bool) -> Self {
-        Self { ty, mutable, unrefined_ty: None }
+        Self { ty, mutable, unrefined_ty: None, proof: super::proof::BindingProof::default(), boolean_proof: None }
     }
 }
 
 impl CompactBodyProbe<'_> {
-    fn compact_guard_narrowings(&self, expr: ExprId, success: bool) -> Vec<(Name, Type)> {
-        match self.program.arena.expr(expr).kind {
-            ArenaExprKind::PatternTest { value, arms } if success => {
-                let ArenaExprKind::Ident(name) = self.program.arena.expr(value).kind else { return vec![]; };
-                if !self.lookup_binding(name).is_some_and(|binding| !binding.mutable) { return vec![]; }
-                let pattern = self.program.arena.match_expr_arms(arms)[0].pattern;
-                match self.program.arena.pattern(pattern).kind {
-                    crate::syntax::arena::ArenaPatternKind::TestName { ty, .. }
-                    | crate::syntax::arena::ArenaPatternKind::Type { binding: None, ty } => vec![(name, self.type_from_arena(ty))],
-                    _ => vec![],
+    fn compact_subject(&self, mut expr: ExprId) -> Option<(Name, Vec<Name>, Type)> {
+        let mut path = Vec::new();
+        loop {
+            match self.program.arena.expr(expr).kind {
+                ArenaExprKind::Ident(name) => {
+                    path.reverse();
+                    let ty = super::proof::projected_type(&self.lookup_binding(name)?.ty, &path)?.clone();
+                    return Some((name, path, ty));
                 }
+                ArenaExprKind::Field { base, name } if path.len() < 128 => { path.push(name); expr = base; }
+                _ => return None,
             }
-            ArenaExprKind::Unary { op: UnaryOp::Not, expr } => self.compact_guard_narrowings(expr, !success),
-            ArenaExprKind::Binary { op: BinaryOp::Eq | BinaryOp::Ne, left, right } => {
-                let is_ne = matches!(self.program.arena.expr(expr).kind, ArenaExprKind::Binary { op: BinaryOp::Ne, .. });
-                if success != is_ne { return vec![]; }
-                let name = match (self.program.arena.expr(left).kind, self.program.arena.expr(right).kind) {
-                    (ArenaExprKind::Ident(name), ArenaExprKind::Null) | (ArenaExprKind::Null, ArenaExprKind::Ident(name)) => name,
-                    _ => return vec![],
-                };
-                match self.lookup_binding(name).map(|binding| &binding.ty) {
-                    Some(Type::Optional(inner)) => vec![(name, inner.as_ref().clone())],
-                    _ => vec![],
-                }
-            }
-            _ => vec![],
         }
     }
 
-    fn apply_compact_guard_narrowings(&mut self, narrowings: Vec<(Name, Type)>) {
-        for (name, ty) in narrowings {
-            if let Some(mut binding) = self.lookup_binding(name).cloned() {
+    fn compact_condition_proof(&self, expr: ExprId) -> super::proof::ConditionNarrowings {
+        let mut proof = self.condition_proofs.get(&expr).map(|proof| proof.as_ref().clone())
+            .unwrap_or_else(|| self.compact_condition_proof_inner(expr));
+        let valid = |fact: &super::proof::Narrowing| self.lookup_binding(fact.name).is_some_and(|binding| binding.proof.accepts(fact));
+        proof.when_true.retain(valid); proof.when_false.retain(valid);
+        proof
+    }
+
+    fn compact_condition_proof_inner(&self, expr: ExprId) -> super::proof::ConditionNarrowings {
+        use super::proof::ConditionNarrowings as C;
+        let true_fact = |name, path, ty| C { when_true: vec![self.lookup_binding(name).unwrap().proof.fact(name, path, ty)], when_false: Vec::new() };
+        match self.program.arena.expr(expr).kind {
+            ArenaExprKind::Ident(name) => self.lookup_binding(name).and_then(|binding| binding.boolean_proof.as_ref()).map(|proof| proof.as_ref().clone()).unwrap_or_default(),
+            ArenaExprKind::Unary { op: UnaryOp::Not, expr } => {
+                let proof = self.compact_condition_proof(expr); C { when_true: proof.when_false, when_false: proof.when_true }
+            }
+            ArenaExprKind::Binary { op: BinaryOp::And, left, right } => self.compact_condition_proof(left).and(self.compact_condition_proof(right)),
+            ArenaExprKind::Binary { op: BinaryOp::Or, left, right } => self.compact_condition_proof(left).or(self.compact_condition_proof(right)),
+            ArenaExprKind::Binary { op: op @ (BinaryOp::Eq | BinaryOp::Ne), left, right } => {
+                let subject = match (self.program.arena.expr(left).kind, self.program.arena.expr(right).kind) {
+                    (_, ArenaExprKind::Null) => left, (ArenaExprKind::Null, _) => right, _ => return C::default(),
+                };
+                let Some((name, path, Type::Optional(inner))) = self.compact_subject(subject) else { return C::default(); };
+                let proof = true_fact(name, path, *inner);
+                if op == BinaryOp::Ne { proof } else { C { when_true: proof.when_false, when_false: proof.when_true } }
+            }
+            ArenaExprKind::PatternTest { value, arms } | ArenaExprKind::PatternCondition { value, arms } => {
+                let Some((name, path, ty)) = self.compact_subject(value) else { return C::default(); };
+                let pattern = self.program.arena.match_expr_arms(arms)[0].pattern;
+                let narrowed = match self.program.arena.pattern(pattern).kind {
+                    crate::syntax::arena::ArenaPatternKind::TestName { ty, .. }
+                    | crate::syntax::arena::ArenaPatternKind::Type { binding: None, ty } => self.type_from_arena(ty),
+                    crate::syntax::arena::ArenaPatternKind::ErrorVariant { family, variant, .. } => Type::ErrorVariant { family, variant },
+                    crate::syntax::arena::ArenaPatternKind::Facet(facet) => if matches!(ty, Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError) { ty } else { Type::ErrorFacet(facet) },
+                    _ => return C::default(),
+                };
+                true_fact(name, path, narrowed)
+            }
+            ArenaExprKind::Call { callee, args } => {
+                let ArenaExprKind::Field { base, name } = self.program.arena.expr(callee).kind else { return C::default(); };
+                if name != "has" { return C::default(); }
+                let args = self.program.arena.call_args(args);
+                let (record, field) = if args.len() == 1 { (base, super::call_arg_expr_id_arena(&args[0].kind)) }
+                    else if args.len() == 2 && matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(name) if name == "record") {
+                        (super::call_arg_expr_id_arena(&args[0].kind), super::call_arg_expr_id_arena(&args[1].kind))
+                    } else { return C::default(); };
+                let Some((name, path, Type::Record(mut fields))) = self.compact_subject(record) else { return C::default(); };
+                let ArenaExprKind::Str(field) = self.program.arena.expr(field).kind else { return C::default(); };
+                fields.entry(Name::intern(self.program.arena.string_literal(field))).or_insert(Type::Any);
+                true_fact(name, path, Type::Record(fields))
+            }
+            _ => C::default(),
+        }
+    }
+
+    fn compact_guard_narrowings(&self, expr: ExprId, success: bool) -> Vec<super::proof::Narrowing> {
+        let proof = self.compact_condition_proof(expr);
+        if success { proof.when_true } else { proof.when_false }
+    }
+
+    fn apply_compact_guard_narrowings(&mut self, narrowings: Vec<super::proof::Narrowing>) {
+        for fact in narrowings {
+            if let Some(mut binding) = self.lookup_binding(fact.name).cloned() {
+                if !binding.proof.accepts(&fact) { continue; }
                 if binding.unrefined_ty.is_none() { binding.unrefined_ty = Some(binding.ty.clone()); }
-                binding.ty = ty;
+                if !super::proof::replace_projection(&mut binding.ty, &fact.path, fact.ty) { continue; }
+                self.current_scope_mut().insert(fact.name, binding);
+            }
+        }
+    }
+
+    // Compact facts are consumed only after source checking has validated these transfers.
+    fn compact_block_definitely_exits(&self, block: BlockId) -> bool {
+        self.program.arena.stmt_ids(self.program.arena.block(block).statements).any(|statement| {
+            match self.program.arena.stmt(statement).kind {
+                ArenaStmtKind::Return(_) | ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue => true,
+                ArenaStmtKind::Expr(expr) => self.compact_expr_definitely_exits(expr),
+                ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(expr), .. }
+                | ArenaStmtKind::Var { initializer: ArenaExprOrRun::Expr(expr), .. }
+                | ArenaStmtKind::Assign { value: ArenaExprOrRun::Expr(expr), .. } => self.compact_expr_definitely_exits(expr),
+                ArenaStmtKind::If { branches, else_block } => {
+                    for branch in self.program.arena.if_branches(branches) {
+                        match self.program.arena.expr(branch.condition).kind {
+                            ArenaExprKind::Bool(false) => continue,
+                            ArenaExprKind::Bool(true) => return self.compact_block_definitely_exits(branch.block),
+                            _ if !self.compact_block_definitely_exits(branch.block) => return false,
+                            _ => {}
+                        }
+                    }
+                    else_block.is_some_and(|block| self.compact_block_definitely_exits(block))
+                }
+                ArenaStmtKind::With { body, else_block, .. } => self.compact_block_definitely_exits(body) && self.compact_block_definitely_exits(else_block),
+                _ => false,
+            }
+        })
+    }
+
+    fn compact_expr_definitely_exits(&self, expr: ExprId) -> bool {
+        match self.program.arena.expr(expr).kind {
+            ArenaExprKind::ValueBlock(block) => self.compact_block_definitely_exits(block),
+            ArenaExprKind::Call { callee, .. } => matches!(self.program.arena.expr(callee).kind,
+                ArenaExprKind::Ident(name) if name == "abort" && self.lookup_binding(name).is_none()),
+            _ => false,
+        }
+    }
+
+    fn push_compact_deferred_capture_scope(&mut self) {
+        let visible = self.scopes.iter().flat_map(|scope| scope.iter())
+            .map(|(name, binding)| (*name, binding.clone())).collect::<FxHashMap<_, _>>();
+        self.push_scope();
+        for (name, mut binding) in visible {
+            if binding.mutable {
+                binding.proof.mutate(&[]);
+                if let Some(original) = binding.unrefined_ty.take() { binding.ty = original; }
                 self.current_scope_mut().insert(name, binding);
             }
         }
+    }
+
+    fn invalidate_compact_mutable_proofs(&mut self) {
+        for scope in &mut self.scopes { for binding in scope.values_mut() {
+            if binding.mutable {
+                binding.proof.mutate(&[]);
+                if let Some(original) = binding.unrefined_ty.take() { binding.ty = original; }
+            }
+        } }
     }
 
     fn type_from_arena(&self, id: TypeExprId) -> Type {
@@ -721,10 +830,12 @@ impl CompactBodyProbe<'_> {
                 self.check_compact_expr(condition);
                 let success = self.compact_guard_narrowings(condition, true);
                 let failure = self.compact_guard_narrowings(condition, false);
+                let success_scopes = self.scopes.clone();
                 self.push_scope();
                 self.apply_compact_guard_narrowings(failure);
                 self.check_compact_block(else_block);
                 self.pop_scope();
+                self.scopes = success_scopes;
                 self.apply_compact_guard_narrowings(success);
             }
             ArenaStmtKind::Use(_)
@@ -736,6 +847,9 @@ impl CompactBodyProbe<'_> {
             ArenaStmtKind::TailBareIdent(name) => {
                 self.output.supported_statements += 1;
                 if name == "_" { self.error(stmt.span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole"); }
+                if let Some(proof) = self.lookup_binding(name).and_then(|binding| binding.boolean_proof.clone()) {
+                    self.apply_compact_guard_narrowings(proof.when_true.clone());
+                }
             }
             ArenaStmtKind::Export(inner) => {
                 self.output.supported_statements += 1;
@@ -764,7 +878,16 @@ impl CompactBodyProbe<'_> {
                 };
                 let binding_ty = expected.unwrap_or(actual);
                 let mutable = matches!(self.program.arena.stmt(id).kind, ArenaStmtKind::Var { .. });
+                let boolean_proof = if !mutable && binding_ty == Type::Bool {
+                    if let ArenaExprOrRun::Expr(expr) = initializer {
+                        if let ArenaExprKind::Ident(name) = self.program.arena.expr(expr).kind { self.lookup_binding(name).and_then(|binding| binding.boolean_proof.clone()) }
+                        else { Some(std::sync::Arc::new(self.compact_condition_proof(expr))) }
+                    } else { None }
+                } else { None };
                 self.define_binding_target(target, binding_ty, mutable);
+                if let ArenaBindingTargetKind::Name(name) = self.program.arena.binding_target(target).kind {
+                    if let Some(binding) = self.current_scope_mut().get_mut(&name) { binding.boolean_proof = boolean_proof; }
+                }
             }
             ArenaStmtKind::Assign { target, value, .. } => {
                 self.output.supported_statements += 1;
@@ -775,11 +898,20 @@ impl CompactBodyProbe<'_> {
                     ArenaExprOrRun::Run(run) => { self.check_compact_expr_or_run(ArenaExprOrRun::Run(run)); }
                 }
                 if let Some(name) = self.assign_target_root_name(target) {
-                    for scope in self.scopes.iter_mut().rev() {
-                        if let Some(binding) = scope.get_mut(&name) {
-                            if binding.mutable && let Some(original) = binding.unrefined_ty.take() { binding.ty = original; }
-                            else { break; }
-                        }
+                    let mut path = Vec::new(); let mut current = target;
+                    loop { match self.program.arena.assign_target(current).kind {
+                        ArenaAssignTargetKind::Field { base, name } if path.len() < 128 => { path.push(name); current = base; }
+                        ArenaAssignTargetKind::Name(_) => { path.reverse(); break; }
+                        _ => { path.clear(); break; }
+                    } }
+                    if let Some(identity) = self.lookup_binding(name).map(|binding| binding.proof.clone()) {
+                        for scope in &mut self.scopes { for binding in scope.values_mut().filter(|binding| binding.proof.same_binding(&identity)) {
+                            if binding.mutable {
+                                binding.proof.mutate(&path);
+                                if let Some(original) = &binding.unrefined_ty { super::proof::restore_projection(&mut binding.ty, original, &path); }
+                                if path.is_empty() { binding.unrefined_ty = None; }
+                            }
+                        } }
                     }
                 }
             }
@@ -808,7 +940,10 @@ impl CompactBodyProbe<'_> {
                 self.output.supported_statements += 1;
                 let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(expr).kind else { unreachable!() };
                 let previous_errors = self.with_initializer_errors.take();
+                let saved_scopes = self.scopes.clone();
+                self.push_compact_deferred_capture_scope();
                 self.check_compact_block(block);
+                self.scopes = saved_scopes;
                 self.with_initializer_errors = previous_errors;
                 self.mark_tail_position(block, false);
                 self.output.expr_types.insert(expr, Type::Unit);
@@ -829,26 +964,65 @@ impl CompactBodyProbe<'_> {
                 self.output.supported_statements += 1;
                 self.check_compact_expr_or_run(value);
             }
-            ArenaStmtKind::If {
-                branches,
-                else_block,
-            } => {
+            ArenaStmtKind::If { branches, else_block } => {
                 self.output.supported_statements += 1;
-                for branch in self.program.arena.if_branches(branches) {
+                let initial_scopes = self.scopes.clone();
+                let initial = self.scopes.iter().flat_map(|scope| scope.iter()).map(|(name, binding)| (*name, binding.clone())).collect::<FxHashMap<_, _>>();
+                let mut reaching = Vec::new(); let mut failure = Vec::new();
+                for branch in self.program.arena.if_branches(branches).to_vec() {
+                    self.push_scope(); self.apply_compact_guard_narrowings(failure.clone());
                     self.check_compact_expr(branch.condition);
-                    self.push_scope();
+                    let facts = self.compact_condition_proof(branch.condition);
+                    let failure_scopes = self.scopes.clone();
+                    self.apply_compact_guard_narrowings(facts.when_true);
                     self.bind_compact_pattern_condition(branch.condition);
                     self.check_compact_block_in_current_scope(branch.block);
-                    self.pop_scope();
+                    if !self.compact_block_definitely_exits(branch.block) {
+                        reaching.push(self.scopes.iter().flat_map(|scope| scope.iter()).map(|(name, binding)| (*name, binding.clone())).collect::<FxHashMap<_, _>>());
+                    }
+                    failure.extend(facts.when_false); self.scopes = failure_scopes; self.pop_scope();
                 }
+                self.push_scope(); self.apply_compact_guard_narrowings(failure);
                 if let Some(block) = else_block {
-                    self.check_compact_block(block);
+                    self.check_compact_block_in_current_scope(block);
+                    if !self.compact_block_definitely_exits(block) {
+                        reaching.push(self.scopes.iter().flat_map(|scope| scope.iter()).map(|(name, binding)| (*name, binding.clone())).collect());
+                    }
+                } else { reaching.push(self.scopes.iter().flat_map(|scope| scope.iter()).map(|(name, binding)| (*name, binding.clone())).collect()); }
+                self.pop_scope();
+                self.scopes = initial_scopes;
+                for (name, original) in &initial {
+                    for bindings in &reaching {
+                        if let Some(binding) = bindings.get(name).filter(|binding| binding.proof.same_binding(&original.proof)) {
+                            for path in binding.proof.mutation_paths_since(&original.proof) {
+                                for scope in &mut self.scopes { for binding in scope.values_mut().filter(|binding| binding.proof.same_binding(&original.proof) && binding.mutable) {
+                                    binding.proof.mutate(&path);
+                                    if let Some(original) = &binding.unrefined_ty { super::proof::restore_projection(&mut binding.ty, original, &path); }
+                                    if path.is_empty() { binding.unrefined_ty = None; }
+                                } }
+                            }
+                        }
+                    }
+                }
+                if !reaching.is_empty() {
+                    let mut facts = Vec::new();
+                    for (name, original) in initial {
+                        let Some(current) = self.lookup_binding(name) else { continue; };
+                        if !current.proof.same_binding(&original.proof) { continue; }
+                        let types = reaching.iter().map(|bindings| bindings.get(&name).filter(|binding| binding.proof.same_binding(&original.proof))
+                            .map(|binding| binding.ty.clone()).unwrap_or_else(|| original.unrefined_ty.as_ref().unwrap_or(&original.ty).clone())).collect::<Vec<_>>();
+                        let ty = super::proof::intersection_type(original.unrefined_ty.as_ref().unwrap_or(&original.ty), &types);
+                        if ty != current.ty { facts.push(current.proof.fact(name, Vec::new(), ty)); }
+                    }
+                    self.apply_compact_guard_narrowings(facts);
                 }
             }
             ArenaStmtKind::While { condition, block } => {
                 self.output.supported_statements += 1;
                 self.check_compact_expr(condition);
+                let facts = self.compact_guard_narrowings(condition, true);
                 self.push_scope();
+                self.apply_compact_guard_narrowings(facts);
                 self.bind_compact_pattern_condition(condition);
                 self.check_compact_block_in_current_scope(block);
                 self.pop_scope();
@@ -893,7 +1067,8 @@ impl CompactBodyProbe<'_> {
             }
             ArenaStmtKind::Expr(expr) => {
                 self.output.supported_statements += 1;
-                self.check_compact_expr(expr);
+                let ty = self.check_compact_expr(expr);
+                if ty == Type::Bool { let facts = self.compact_guard_narrowings(expr, true); self.apply_compact_guard_narrowings(facts); }
                 if matches!(self.program.arena.expr(expr).kind, ArenaExprKind::ValueBlock(_)) {
                     self.apply_compact_expected(expr, &Type::Unit);
                 }
@@ -901,7 +1076,10 @@ impl CompactBodyProbe<'_> {
             ArenaStmtKind::SignalHook(hook) => {
                 self.output.supported_statements += 1;
                 let hook = self.program.arena.signal_hook(hook);
+                let saved_scopes = self.scopes.clone();
+                self.push_compact_deferred_capture_scope();
                 self.check_compact_block(hook.body);
+                self.scopes = saved_scopes;
             }
             ArenaStmtKind::With { bindings, body, else_block } => {
                 self.output.supported_statements += 1;
@@ -936,6 +1114,8 @@ impl CompactBodyProbe<'_> {
                 self.output.supported_statements += 1;
                 self.check_compact_expr(condition);
                 self.check_compact_expr(message);
+                let facts = self.compact_guard_narrowings(condition, true);
+                self.apply_compact_guard_narrowings(facts);
             }
             ArenaStmtKind::GuardedStmt {
                 stmt, condition, ..
@@ -952,7 +1132,8 @@ impl CompactBodyProbe<'_> {
     fn check_compact_function(&mut self, id: FunctionDefId) {
         self.output.functions += 1;
         let def = self.program.arena.function_def(id);
-        self.push_scope();
+        let saved_scopes = self.scopes.clone();
+        self.push_compact_deferred_capture_scope();
         for param in self.program.arena.params(def.params) {
             let ty = self.type_from_arena(param.ty);
             self.current_scope_mut()
@@ -971,6 +1152,7 @@ impl CompactBodyProbe<'_> {
         if !matches!(expected, Type::Stream(_)) { self.apply_compact_block_expected(def.body, &expected); }
         self.mark_tail_position(def.body, expected != Type::Unit && !expected.is_result_unit() && !matches!(expected, Type::Stream(_)));
         self.pop_scope();
+        self.scopes = saved_scopes;
     }
 
     fn apply_compact_capture_block_expected(&mut self, block: BlockId, expected: &Type) {
@@ -1120,6 +1302,7 @@ impl CompactBodyProbe<'_> {
     }
 
     fn check_compact_expr_inner(&mut self, id: ExprId, expected: Option<&Type>) -> Type {
+        self.condition_proofs.remove(&id);
         self.output.expressions += 1;
         if let Some(ty) = self.declarations.prepared_constants.types.get(&id) {
             self.output.expr_types.insert(id, ty.clone());
@@ -1247,7 +1430,9 @@ impl CompactBodyProbe<'_> {
                 let mut ty = None;
                 for branch in self.program.arena.if_expr_branches(branches) {
                     self.check_compact_expr(branch.condition);
+                    let facts = self.compact_guard_narrowings(branch.condition, true);
                     self.push_scope();
+                    self.apply_compact_guard_narrowings(facts);
                     self.bind_compact_pattern_condition(branch.condition);
                     ty = Some(merge_types(ty, self.check_compact_expr(branch.value)));
                     self.pop_scope();
@@ -1519,7 +1704,19 @@ impl CompactBodyProbe<'_> {
     }
 
     fn check_compact_binary(&mut self, op: BinaryOp, left: ExprId, right: ExprId) -> Type {
+        let left_id = left;
         let left = self.check_compact_expr(left);
+        if op == BinaryOp::ResultFallback && !matches!(left, Type::Optional(_) | Type::Result(_, _))
+            && self.compact_subject(left_id).is_some_and(|(name, path, _)| {
+                self.lookup_binding(name).and_then(|binding| binding.unrefined_ty.as_ref())
+                    .and_then(|ty| super::proof::projected_type(ty, &path)).is_some_and(|ty| matches!(ty, Type::Optional(_)))
+            }) { self.output.proven_nonnull_fallback_receivers.insert(left_id); }
+        let saved_scopes = self.output.proven_nonnull_fallback_receivers.contains(&left_id).then(|| self.scopes.clone());
+        let short_circuit = matches!(op, BinaryOp::And | BinaryOp::Or);
+        if short_circuit {
+            let facts = self.compact_guard_narrowings(left_id, op == BinaryOp::And);
+            self.push_scope(); self.apply_compact_guard_narrowings(facts);
+        }
         let right = if op == BinaryOp::ResultFallback {
             if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(right).kind {
                 self.push_scope();
@@ -1534,6 +1731,8 @@ impl CompactBodyProbe<'_> {
                 ty
             } else { self.check_compact_expr(right) }
         } else { self.check_compact_expr(right) };
+        if short_circuit { self.pop_scope(); }
+        if let Some(scopes) = saved_scopes { self.scopes = scopes; }
         match op {
             BinaryOp::Or
             | BinaryOp::And
@@ -1587,6 +1786,9 @@ impl CompactBodyProbe<'_> {
             _ => None,
         };
         if let Some(params) = params { self.apply_compact_call_expected(args, &params); }
+        let erased_proc_call = matches!(callee_expr.kind, ArenaExprKind::Field { base, name } if name == "call"
+            && self.output.expr_types.get(&base) == Some(&Type::Proc));
+        if callee_ty == Type::Proc || erased_proc_call { self.invalidate_compact_mutable_proofs(); }
         if let ArenaExprKind::Field { base, name } = callee_expr.kind {
             let base_ty = self.output.expr_types.get(&base).cloned();
             let item = match base_ty { Some(Type::Map(_, item)) if name == "set" => Some((1, *item)), Some(Type::List(item)) if name == "push" => Some((0, *item)), _ => None };
@@ -1631,11 +1833,7 @@ impl CompactBodyProbe<'_> {
                     _ => sig.return_ty.clone(),
                 };
                 if self.declarations.procs.contains_key(&name) {
-                    for scope in &mut self.scopes {
-                        for binding in scope.values_mut() {
-                            if binding.mutable && let Some(original) = binding.unrefined_ty.take() { binding.ty = original; }
-                        }
-                    }
+                    self.invalidate_compact_mutable_proofs();
                 }
                 return result;
             }
@@ -1984,10 +2182,12 @@ impl CompactBodyProbe<'_> {
             Ok(None) => {}
         }
         if let Some(block) = stream.block {
+            self.push_compact_deferred_capture_scope();
             self.stream_items.push(item);
             self.check_compact_block(block);
             self.mark_tail_position(block, !matches!(stream.kind, crate::syntax::node::StreamStageKind::Each | crate::syntax::node::StreamStageKind::Tee));
             self.stream_items.pop();
+            self.pop_scope();
         }
     }
 

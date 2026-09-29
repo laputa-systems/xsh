@@ -9442,6 +9442,25 @@ proc configured() [] -> Int {
     }
 
     #[test]
+    fn record_proof_precise_types_and_unreachable_fallback_survive_frontend_drop() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/proof-provenance.xsh");
+            let program = Arc::new(fixture("proof-provenance.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "verified")),
+                    LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("proof function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Str("ready".into()));
+            }
+        });
+    }
+
+    #[test]
     fn duration_arithmetic_retains_checked_operands_after_frontend_drop_on_both_routes() {
         run_with_large_stack(|| {
             let source = include_str!("../../../../tests/fixtures/frontend-indexed/duration-arithmetic.xsh");

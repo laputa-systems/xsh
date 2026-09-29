@@ -41,6 +41,8 @@ mod infer_return;
 mod method;
 #[path = "check/pattern.rs"]
 mod pattern;
+#[path = "check/proof.rs"]
+mod proof;
 #[path = "check/stmt.rs"]
 mod stmt;
 #[path = "check/stream.rs"]
@@ -83,6 +85,8 @@ pub enum StatementPosition {
 pub struct CheckOutput {
     pub static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     pub prepared_constants: super::constants::PreparedConstants,
+    /// Optional receivers whose checked presence proof makes their fallback unreachable.
+    pub proven_nonnull_fallback_receivers: BTreeSet<Span>,
     pub diagnostics: Vec<Diagnostic>,
     pub annotation_facts: Vec<AnnotationFact>,
     pub function_return_types: BTreeMap<Span, Type>,
@@ -139,6 +143,8 @@ pub(super) struct Binding {
     mutable: bool,
     pure_local_mutation: bool,
     unrefined_ty: Option<Type>,
+    proof: proof::BindingProof,
+    boolean_proof: Option<Arc<proof::ConditionNarrowings>>,
 }
 
 impl Binding {
@@ -150,6 +156,8 @@ impl Binding {
             mutable,
             pure_local_mutation: false,
             unrefined_ty: None,
+            proof: proof::BindingProof::default(),
+            boolean_proof: None,
         }
     }
 
@@ -161,6 +169,8 @@ impl Binding {
             mutable: true,
             pure_local_mutation: true,
             unrefined_ty: None,
+            proof: proof::BindingProof::default(),
+            boolean_proof: None,
         }
     }
 }
@@ -300,6 +310,9 @@ pub struct Checker {
     pending_record_constructors: Vec<(Span, super::constants::SchemaInstance, Type)>,
     prepared_constants: super::constants::PreparedConstants,
     wire_enums: crate::sema::wire_enums::PreparedWireEnums,
+    condition_proofs: FxHashMap<crate::syntax::arena::ExprId, Arc<proof::ConditionNarrowings>>,
+    block_exit_bindings: FxHashMap<crate::syntax::arena::BlockId, FxHashMap<Name, Binding>>,
+    proven_nonnull_fallback_receivers: BTreeSet<Span>,
     current_namespace: Option<Name>,
     scopes: Vec<FxHashMap<Name, Binding>>,
     procs: FxHashMap<Name, FunctionSig>,
@@ -404,6 +417,7 @@ impl Checker {
             CheckOutput {
                 static_callable_aliases: checker.static_callable_aliases,
                 prepared_constants: checker.prepared_constants,
+                proven_nonnull_fallback_receivers: checker.proven_nonnull_fallback_receivers,
                 diagnostics: checker.diagnostics,
                 annotation_facts: checker.annotation_facts,
                 function_return_types: checker.function_return_types,
@@ -493,6 +507,7 @@ impl Checker {
             CheckOutput {
                 static_callable_aliases: checker.static_callable_aliases,
                 prepared_constants: checker.prepared_constants,
+                proven_nonnull_fallback_receivers: checker.proven_nonnull_fallback_receivers,
                 diagnostics: checker.diagnostics,
                 annotation_facts: checker.annotation_facts,
                 function_return_types: checker.function_return_types,
@@ -531,6 +546,9 @@ impl Checker {
             pending_record_constructors: Vec::new(),
             prepared_constants: super::constants::PreparedConstants::default(),
             wire_enums: crate::sema::wire_enums::PreparedWireEnums::default(),
+            condition_proofs: FxHashMap::default(),
+            block_exit_bindings: FxHashMap::default(),
+            proven_nonnull_fallback_receivers: BTreeSet::default(),
             current_namespace: None,
             type_namespaces: FxHashMap::default(),
             tag_variants: FxHashMap::default(),

@@ -476,7 +476,7 @@ impl Checker {
                 "check.stream-block-params",
             );
         }
-        self.push_scope();
+        self.push_deferred_capture_scope();
         for (index, param) in params.iter().take(max_params).enumerate() {
             let ty = param_tys.get(index).cloned().unwrap_or(Type::Unknown);
             self.define(

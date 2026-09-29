@@ -77,6 +77,7 @@ pub struct LintOptions {
     pub interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
     pub function_return_types: BTreeMap<Span, Type>,
     pub expr_types: BTreeMap<Span, Type>,
+    pub proven_nonnull_fallback_receivers: BTreeSet<Span>,
     pub statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
     pub function_effect_facts: BTreeMap<xsh::frontend::check::EffectDeclarationId, xsh::frontend::check::FunctionEffectFact>,
@@ -97,6 +98,7 @@ impl Default for LintOptions {
             interactive_command_replacement: None,
             function_return_types: BTreeMap::default(),
             expr_types: BTreeMap::default(),
+            proven_nonnull_fallback_receivers: BTreeSet::default(),
             statement_positions: BTreeMap::default(),
             callable_effects: FxHashMap::default(),
             function_effect_facts: BTreeMap::default(),
@@ -133,6 +135,7 @@ pub struct Linter<'a> {
     diagnostics: Vec<Diagnostic>,
     checked_function_returns: BTreeMap<Span, Type>,
     expr_types: BTreeMap<Span, Type>,
+    proven_nonnull_fallback_receivers: BTreeSet<Span>,
     statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
     result_unit_functions: Vec<bool>,
     result_path_functions: Vec<bool>,
@@ -245,6 +248,7 @@ impl<'a> Linter<'a> {
             diagnostics: Vec::new(),
             checked_function_returns: options.function_return_types,
             expr_types: options.expr_types,
+            proven_nonnull_fallback_receivers: options.proven_nonnull_fallback_receivers,
             statement_positions: options.statement_positions,
             result_unit_functions: Vec::new(),
             result_path_functions: Vec::new(),
@@ -4073,6 +4077,23 @@ impl<'a> Linter<'a> {
             .with_fix_hint(FixHint::replacement(expression.span, "replace nested spreads with static field paths", replacement)));
     }
 
+    fn lint_proven_nonnull_fallback(&mut self, expr: ExprId) {
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } = expression.kind else { return; };
+        if !self.proven_nonnull_fallback_receivers.contains(&self.arena.expr(left).span)
+            || !inert_constant_initializer(self.arena, right)
+            || matches!(self.arena.expr(right).kind, ArenaExprKind::Regex(_))
+            || self.source.get(expression.span.range()).is_none_or(|source| source.contains('#')) { return; }
+        let Some(expected) = self.expr_types.get(&self.arena.expr(left).span) else { return; };
+        let Some(value) = xsh::frontend::check::LiteralConstant::analyze(self.arena, right, &FxHashMap::default()) else { return; };
+        if !value.matches_data_type(expected) { return; }
+        let Some(replacement) = self.source.get(self.arena.expr(left).span.range()) else { return; };
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "this Optional receiver is proved present")
+            .with_code("lint.redundant-optional-fallback")
+            .with_label(Label::secondary(expression.span, "the fallback cannot be reached"))
+            .with_fix_hint(FixHint::replacement(expression.span, "use the proved present value", replacement)));
+    }
+
     fn lint_expr(&mut self, expr: ExprId) {
         LintExprVisitor {
             linter: self,
@@ -6955,6 +6976,7 @@ impl LintExprVisitor<'_, '_> {
     }
 
     fn visit_expr(&mut self, expr: ExprId) {
+        if !self.suppress_expr_autofixes { self.linter.lint_proven_nonnull_fallback(expr); }
         if !self.suppress_expr_autofixes {
             self.linter.lint_nested_record_update(expr);
             self.linter.lint_nested_value_pipeline(expr);

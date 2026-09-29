@@ -8218,6 +8218,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(value)
             }
             ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } => {
+                if self.bodies.proven_nonnull_fallback_receivers.contains(&left) {
+                    return self.lower_expr(left, slots, current_function, item_slot);
+                }
                 if let ArenaExprKind::ValueBlock(block) = self.program.arena.expr(right).kind {
                     let [parameter] = self.program.arena.block_params(self.program.arena.block(block).params) else { return None; };
                     let parameter = parameter.name;

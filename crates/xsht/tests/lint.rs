@@ -4351,3 +4351,36 @@ fn explicit_accept_policy_keeps_propagation_and_custom_status_handlers() {
     let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
     assert_eq!(again.formatted, formatted.formatted);
 }
+
+#[test]
+fn record_proof_fallback_fix_requires_checked_presence_and_inert_data() {
+    let source = "pure select(value: Str?) -> Str {\n  let available = value != null\n  guard available else { return \"missing\" }\n  value ?? \"fallback\"\n}\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let linted = Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        proven_nonnull_fallback_receivers: checked.proven_nonnull_fallback_receivers,
+        ..LintOptions::default()
+    });
+    let fix = &linted.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-optional-fallback")).unwrap().fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+    assert!(fixed.contains("  value\n"));
+    assert_parse_check_standalone("proved fallback", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let again = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types,
+        proven_nonnull_fallback_receivers: checked.proven_nonnull_fallback_receivers, ..LintOptions::default() });
+    assert!(!again.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-optional-fallback")));
+    for source in [
+        "pure select(value: Str?) -> Str { value ?? \"fallback\" }\n",
+        "pure fallback() -> Str { \"fallback\" }\npure select(value: Str?) -> Str { guard value != null else { return \"missing\" }; value ?? fallback() }\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let linted = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types,
+            proven_nonnull_fallback_receivers: checked.proven_nonnull_fallback_receivers, ..LintOptions::default() });
+        assert!(!linted.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-optional-fallback")));
+    }
+}

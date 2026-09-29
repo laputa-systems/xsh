@@ -16,17 +16,7 @@ use crate::syntax::arena::{
 use crate::syntax::node::AssignOp;
 use rustc_hash::FxHashMap;
 
-#[derive(Clone, Debug)]
-pub(super) struct Narrowing {
-    name: Name,
-    ty: Type,
-}
-
-#[derive(Clone, Debug, Default)]
-pub(super) struct ConditionNarrowings {
-    pub(super) when_true: Vec<Narrowing>,
-    pub(super) when_false: Vec<Narrowing>,
-}
+pub(super) use super::proof::{Narrowing, ConditionNarrowings};
 
 fn annotation_type_is_nontrivial(ty: &Type) -> bool {
     matches!(
@@ -353,11 +343,12 @@ impl Checker {
             let Some(binding) = self.lookup(narrowing.name).cloned() else {
                 continue;
             };
+            if !binding.proof.accepts(narrowing) { continue; }
             let mut narrowed = binding;
             if narrowed.unrefined_ty.is_none() {
                 narrowed.unrefined_ty = Some(narrowed.ty.clone());
             }
-            narrowed.ty = narrowing.ty.clone();
+            if !super::proof::replace_projection(&mut narrowed.ty, &narrowing.path, narrowing.ty.clone()) { continue; }
             self.current_scope_mut().insert(narrowing.name, narrowed);
         }
     }
@@ -389,11 +380,8 @@ impl Checker {
         self.statement_positions.entry(stmt.span).or_insert(super::StatementPosition::Statement);
         match stmt.kind {
             ArenaStmtKind::BooleanGuard { condition, else_block } => {
-                let mut narrowings = self.check_condition_arena(arena, source, condition, "check.guard-condition");
-                if self.condition_may_mutate_bindings_arena(arena, condition) {
-                    narrowings.when_true.retain(|narrowing| self.lookup(narrowing.name).is_some_and(|binding| !binding.mutable));
-                    narrowings.when_false.retain(|narrowing| self.lookup(narrowing.name).is_some_and(|binding| !binding.mutable));
-                }
+                let narrowings = self.check_condition_arena(arena, source, condition, "check.guard-condition");
+                let success_scopes = self.scopes.clone();
                 self.push_scope();
                 self.apply_narrowings(&narrowings.when_false);
                 self.check_block_arena(arena, source, else_block);
@@ -401,6 +389,7 @@ impl Checker {
                 if !self.definitely_exiting_block_spans.contains(&arena.arena.span(arena.arena.block(else_block).span)) {
                     self.error(arena.arena.span(arena.arena.block(else_block).span), "guard failure branch must leave the enclosing continuation on every reachable path", "check.guard-fallthrough");
                 }
+                self.scopes = success_scopes;
                 self.apply_narrowings(&narrowings.when_true);
             }
             ArenaStmtKind::Use(use_id) => {
@@ -521,6 +510,8 @@ impl Checker {
                 if message_ty != Type::Str && !matches!(message_ty, Type::Unknown | Type::Invalid) {
                     self.error(arena.arena.expr(message).span, "assert message requires Str", "check.assert-message");
                 }
+                let facts = self.infer_condition_narrowings_arena(arena, condition);
+                self.apply_narrowings(&facts.when_true);
             }
             ArenaStmtKind::Expr(expr_id) if matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ErrorContext { .. }) => {
                 let ArenaExprKind::ErrorContext { message, block } = arena.arena.expr(expr_id).kind else { unreachable!() };
@@ -533,6 +524,7 @@ impl Checker {
                 let expected = matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ValueBlock(_)).then_some(Type::Unit);
                 let ty = self.check_expr_arena(arena, source, expr_id, expected.as_ref());
                 self.record_statement_error(&ty, stmt.span);
+                if ty == Type::Bool { let facts = self.infer_condition_narrowings_arena(arena, expr_id); self.apply_narrowings(&facts.when_true); }
                 if !expr_ty_auto_propagates(&ty) {
                     let expr_span = arena.arena.expr(expr_id).span;
                     self.reject_ignored_result(&ty, expr_span);
@@ -620,6 +612,10 @@ impl Checker {
                 if !command_ty_auto_propagates(&ty) {
                     self.reject_ignored_result(&ty, stmt.span);
                 }
+                if ty == Type::Bool {
+                    let facts = self.lookup(name).and_then(|binding| binding.boolean_proof.clone());
+                    if let Some(facts) = facts { self.apply_narrowings(&facts.when_true); }
+                }
             }
         }
     }
@@ -650,12 +646,38 @@ impl Checker {
         ConditionNarrowings::default()
     }
 
-    pub(super) fn infer_condition_narrowings_arena(
+    pub(super) fn infer_condition_narrowings_arena(&self, arena: &ArenaProgram, condition: ExprId) -> ConditionNarrowings {
+        let mut facts = self.condition_proofs.get(&condition).map(|facts| facts.as_ref().clone())
+            .unwrap_or_else(|| self.infer_condition_proof_arena(arena, condition));
+        let valid = |fact: &Narrowing| self.lookup(fact.name).is_some_and(|binding| binding.proof.accepts(fact));
+        facts.when_true.retain(valid);
+        facts.when_false.retain(valid);
+        facts
+    }
+
+    pub(super) fn proof_subject_arena(&self, arena: &ArenaProgram, mut expr: ExprId) -> Option<(Name, Vec<Name>, Type)> {
+        let mut path = Vec::new();
+        loop {
+            match arena.arena.expr(expr).kind {
+                ArenaExprKind::Ident(name) => {
+                    path.reverse();
+                    let ty = super::proof::projected_type(&self.lookup(name)?.ty, &path)?.clone();
+                    return Some((name, path, ty));
+                }
+                ArenaExprKind::Field { base, name } if path.len() < 128 => { path.push(name); expr = base; }
+                _ => return None,
+            }
+        }
+    }
+
+    pub(super) fn infer_condition_proof_arena(
         &self,
         arena: &ArenaProgram,
         condition: ExprId,
     ) -> ConditionNarrowings {
         match arena.arena.expr(condition).kind {
+            ArenaExprKind::Ident(name) => self.lookup(name).and_then(|binding| binding.boolean_proof.as_ref())
+                .map(|proof| proof.as_ref().clone()).unwrap_or_default(),
             ArenaExprKind::Unary {
                 op: UnaryOp::Not,
                 expr,
@@ -671,20 +693,14 @@ impl Checker {
                 left,
                 right,
             } => {
-                let mut left = self.infer_condition_narrowings_arena(arena, left);
-                let right = self.infer_condition_narrowings_arena(arena, right);
-                left.when_true.extend(right.when_true);
-                left
+                self.infer_condition_narrowings_arena(arena, left).and(self.infer_condition_narrowings_arena(arena, right))
             }
             ArenaExprKind::Binary {
                 op: BinaryOp::Or,
                 left,
                 right,
             } => {
-                let left = self.infer_condition_narrowings_arena(arena, left);
-                let mut right = self.infer_condition_narrowings_arena(arena, right);
-                right.when_false.extend(left.when_false);
-                right
+                self.infer_condition_narrowings_arena(arena, left).or(self.infer_condition_narrowings_arena(arena, right))
             }
             ArenaExprKind::Binary {
                 op: BinaryOp::Eq | BinaryOp::Ne,
@@ -692,11 +708,8 @@ impl Checker {
                 right,
             } => self.infer_null_comparison_narrowings_arena(arena, condition, left, right),
             ArenaExprKind::PatternTest { value, arms } | ArenaExprKind::PatternCondition { value, arms } => {
-                let ArenaExprKind::Ident(name) = arena.arena.expr(value).kind else {
-                    return ConditionNarrowings::default();
-                };
+                let Some((name, path, subject_ty)) = self.proof_subject_arena(arena, value) else { return ConditionNarrowings::default(); };
                 let Some(binding) = self.lookup(name) else { return ConditionNarrowings::default(); };
-                if binding.mutable { return ConditionNarrowings::default(); }
                 let pattern = arena.arena.match_expr_arms(arms)[0].pattern;
                 let ty = self.pattern_test_narrowed_type(arena, pattern);
                 // A facet filters a nominal error without changing its family or
@@ -704,17 +717,17 @@ impl Checker {
                 let ty = ty.map(|ty| {
                     if matches!(ty, Type::ErrorFacet(_))
                         && matches!(
-                            binding.ty,
+                            subject_ty,
                             Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError
                         )
                     {
-                        binding.ty.clone()
+                        subject_ty.clone()
                     } else {
                         ty
                     }
                 });
                 ConditionNarrowings {
-                    when_true: ty.into_iter().map(|ty| Narrowing { name, ty }).collect(),
+                    when_true: ty.into_iter().map(|ty| binding.proof.fact(name, path.clone(), ty)).collect(),
                     when_false: Vec::new(),
                 }
             }
@@ -738,11 +751,11 @@ impl Checker {
         left: ExprId,
         right: ExprId,
     ) -> ConditionNarrowings {
-        let Some((name, inner)) = self.null_compared_optional_binding_arena(arena, left, right)
+        let Some((name, path, inner)) = self.null_compared_optional_binding_arena(arena, left, right)
         else {
             return ConditionNarrowings::default();
         };
-        let narrowing = Narrowing { name, ty: inner };
+        let narrowing = self.lookup(name).unwrap().proof.fact(name, path, inner);
         if matches!(
             arena.arena.expr(condition).kind,
             ArenaExprKind::Binary {
@@ -762,22 +775,15 @@ impl Checker {
         }
     }
 
-    fn null_compared_optional_binding_arena(
-        &self,
-        arena: &ArenaProgram,
-        left: ExprId,
-        right: ExprId,
-    ) -> Option<(Name, Type)> {
-        match (arena.arena.expr(left).kind, arena.arena.expr(right).kind) {
-            (ArenaExprKind::Ident(name), ArenaExprKind::Null)
-            | (ArenaExprKind::Null, ArenaExprKind::Ident(name)) => {
-                let Type::Optional(inner) = &self.lookup(name)?.ty else {
-                    return None;
-                };
-                Some((name, inner.as_ref().clone()))
-            }
-            _ => None,
-        }
+    fn null_compared_optional_binding_arena(&self, arena: &ArenaProgram, left: ExprId, right: ExprId) -> Option<(Name, Vec<Name>, Type)> {
+        let subject = match (arena.arena.expr(left).kind, arena.arena.expr(right).kind) {
+            (_, ArenaExprKind::Null) => left,
+            (ArenaExprKind::Null, _) => right,
+            _ => return None,
+        };
+        let (name, path, ty) = self.proof_subject_arena(arena, subject)?;
+        let Type::Optional(inner) = ty else { return None; };
+        Some((name, path, *inner))
     }
 
     fn infer_record_has_narrowing_arena(
@@ -798,22 +804,17 @@ impl Checker {
         // that original binding or literal just as an ordinary call does.
         let retained_input = |value| pipeline_input.filter(|(hole, _)| *hole == value).map_or(value, |(_, input)| input);
 
-        let (record_name, field_expr) = if matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "record")
+        let (record_expr, field_expr) = if matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(module) if module == "record")
             && call_args.len() == 2
         {
             let record_expr_id = retained_input(call_arg_expr_id_arena(&call_args[0].kind));
-            let ArenaExprKind::Ident(record_name) = arena.arena.expr(record_expr_id).kind else {
-                return ConditionNarrowings::default();
-            };
-            (record_name, call_arg_expr_id_arena(&call_args[1].kind))
+            (record_expr_id, call_arg_expr_id_arena(&call_args[1].kind))
         } else if call_args.len() == 1 {
-            let ArenaExprKind::Ident(record_name) = arena.arena.expr(base).kind else {
-                return ConditionNarrowings::default();
-            };
-            (record_name, call_arg_expr_id_arena(&call_args[0].kind))
+            (base, call_arg_expr_id_arena(&call_args[0].kind))
         } else {
             return ConditionNarrowings::default();
         };
+        let Some((record_name, path, subject_ty)) = self.proof_subject_arena(arena, record_expr) else { return ConditionNarrowings::default(); };
         if record_name == "record" {
             return ConditionNarrowings::default();
         };
@@ -824,50 +825,78 @@ impl Checker {
         let Some(binding) = self.lookup(record_name) else {
             return ConditionNarrowings::default();
         };
-        let mut fields = match &binding.ty {
+        let mut fields = match &subject_ty {
             Type::Record(fields) => fields.clone(),
             Type::Any | Type::Unknown => return ConditionNarrowings::default(),
             _ => return ConditionNarrowings::default(),
         };
         fields.entry(Name::intern(&field_name)).or_insert(Type::Any);
         ConditionNarrowings {
-            when_true: vec![Narrowing {
-                name: record_name,
-                ty: Type::Record(fields),
-            }],
+            when_true: vec![binding.proof.fact(record_name, path, Type::Record(fields))],
             when_false: Vec::new(),
         }
     }
 
-    fn check_if_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        branches: ArenaRange,
-        else_block: Option<BlockId>,
-    ) {
+    fn check_if_arena(&mut self, arena: &ArenaProgram, source: &str, branches: ArenaRange, else_block: Option<BlockId>) {
+        let initial_scopes = self.scopes.clone();
         let branch_list = arena.arena.if_branches(branches);
+        let original = self.scopes.iter().flat_map(|scope| scope.iter()).map(|(name, binding)| (*name, binding.clone())).collect::<FxHashMap<_, _>>();
+        let mut reaching = Vec::new();
+        let mut previous_failure = Vec::new();
         for branch in branch_list {
-            let narrowings =
-                self.check_condition_arena(arena, source, branch.condition, "check.if-condition");
             self.push_scope();
-            self.apply_narrowings(&narrowings.when_true);
+            self.apply_narrowings(&previous_failure);
+            let facts = self.check_condition_arena(arena, source, branch.condition, "check.if-condition");
+            let failure_scopes = self.scopes.clone();
+            self.apply_narrowings(&facts.when_true);
             self.bind_pattern_condition_arena(arena, source, branch.condition);
             self.check_block_arena(arena, source, branch.block);
+            if !self.definitely_exiting_block_spans.contains(&arena.arena.span(arena.arena.block(branch.block).span)) {
+                if let Some(bindings) = self.block_exit_bindings.get(&branch.block) { reaching.push(bindings.clone()); }
+            }
+            previous_failure.extend(facts.when_false);
+            self.scopes = failure_scopes;
             self.pop_scope();
         }
+        self.push_scope();
+        self.apply_narrowings(&previous_failure);
         if let Some(block) = else_block {
-            if branch_list.len() == 1 {
-                let narrowings =
-                    self.infer_condition_narrowings_arena(arena, branch_list[0].condition);
-                self.push_scope();
-                self.apply_narrowings(&narrowings.when_false);
-                self.check_block_arena(arena, source, block);
-                self.pop_scope();
-                return;
-            }
             self.check_block_arena(arena, source, block);
+            if !self.definitely_exiting_block_spans.contains(&arena.arena.span(arena.arena.block(block).span)) {
+                if let Some(bindings) = self.block_exit_bindings.get(&block) { reaching.push(bindings.clone()); }
+            }
+        } else {
+            reaching.push(self.scopes.iter().flat_map(|scope| scope.iter()).map(|(name, binding)| (*name, binding.clone())).collect());
         }
+        self.pop_scope();
+        self.scopes = initial_scopes;
+        for (name, initial) in &original {
+            for bindings in &reaching {
+                if let Some(binding) = bindings.get(name).filter(|binding| binding.proof.same_binding(&initial.proof)) {
+                    for path in binding.proof.mutation_paths_since(&initial.proof) {
+                        for scope in &mut self.scopes {
+                            for binding in scope.values_mut().filter(|binding| binding.proof.same_binding(&initial.proof) && binding.mutable) {
+                                binding.proof.mutate(&path);
+                                if let Some(original) = &binding.unrefined_ty { super::proof::restore_projection(&mut binding.ty, original, &path); }
+                                if path.is_empty() { binding.unrefined_ty = None; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if reaching.is_empty() { return; }
+        let mut facts = Vec::new();
+        for (name, initial) in original {
+            let Some(current) = self.lookup(name) else { continue; };
+            if !initial.proof.same_binding(&current.proof) { continue; }
+            let types = reaching.iter().map(|bindings| bindings.get(&name)
+                .filter(|binding| binding.proof.same_binding(&initial.proof)).map(|binding| binding.ty.clone())
+                .unwrap_or_else(|| initial.unrefined_ty.as_ref().unwrap_or(&initial.ty).clone())).collect::<Vec<_>>();
+            let ty = super::proof::intersection_type(initial.unrefined_ty.as_ref().unwrap_or(&initial.ty), &types);
+            if ty != current.ty { facts.push(current.proof.fact(name, Vec::new(), ty)); }
+        }
+        self.apply_narrowings(&facts);
     }
 
     fn check_while_arena(
@@ -1117,6 +1146,21 @@ impl Checker {
         self.pop_scope();
     }
 
+    // Deferred bodies read mutable captures after the declaration's current proofs can expire.
+    pub(super) fn push_deferred_capture_scope(&mut self) {
+        let visible = self.scopes.iter().flat_map(|scope| scope.iter())
+            .map(|(name, binding)| (*name, binding.clone())).collect::<FxHashMap<_, _>>();
+        self.push_scope();
+        for (name, mut binding) in visible {
+            if binding.mutable {
+                binding.proof.mutate(&[]);
+                if let Some(original) = binding.unrefined_ty.take() { binding.ty = original; }
+                binding.pure_local_mutation = false;
+                self.current_scope_mut().insert(name, binding);
+            }
+        }
+    }
+
     pub(super) fn check_function_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -1137,6 +1181,7 @@ impl Checker {
             && self.function_return_types.contains_key(&body_span) {
             return;
         }
+        let saved_capture_scopes = self.scopes.clone();
         let previous_errors = self.with_initializer_errors.take();
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
         let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
@@ -1160,7 +1205,7 @@ impl Checker {
         } else {
             self.effective_function_effects(arena, def)
         };
-        self.push_scope();
+        self.push_deferred_capture_scope();
         let mut saw_default = false;
         let mut param_types = Vec::new();
         let mut names = FxHashSet::default();
@@ -1244,6 +1289,7 @@ impl Checker {
             });
         }
         self.pop_scope();
+        self.scopes = saved_capture_scopes;
         self.current_return = previous_return;
         self.return_schema = previous_return_schema;
         self.expected_schema = previous_expected_schema;
@@ -1262,6 +1308,7 @@ impl Checker {
         source: &str,
         def: &ArenaFunctionDef,
     ) {
+        let saved_capture_scopes = self.scopes.clone();
         let previous_errors = self.with_initializer_errors.take();
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
         let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
@@ -1291,7 +1338,7 @@ impl Checker {
         self.current_effects = def
             .effects
             .map(|effects| arena.arena.effects(effects).collect());
-        self.push_scope();
+        self.push_deferred_capture_scope();
         let mut saw_default = false;
         let mut param_types = Vec::new();
         let mut names = FxHashSet::default();
@@ -1341,6 +1388,7 @@ impl Checker {
         }
         self.check_value_block_arena(arena, source, def.body, &Type::Unit);
         self.pop_scope();
+        self.scopes = saved_capture_scopes;
         self.current_return = previous_return;
         self.current_yield = previous_yield;
         self.in_pure = previous_pure;
@@ -1430,6 +1478,8 @@ impl Checker {
             );
         }
 
+        let saved_capture_scopes = self.scopes.clone();
+        self.push_deferred_capture_scope();
         let previous_return = self.current_return.clone();
         let previous_pure = self.in_pure;
         let previous_effects = self.current_effects.clone();
@@ -1440,6 +1490,8 @@ impl Checker {
         self.current_effects = Some(arena.arena.effects(hook.effects).collect());
         self.in_signal_hook = true;
         let ty = self.check_tail_block_arena(arena, source, hook.body, None);
+        self.pop_scope();
+        self.scopes = saved_capture_scopes;
         self.current_return = previous_return;
         self.in_pure = previous_pure;
         self.current_effects = previous_effects;
@@ -1508,6 +1560,13 @@ impl Checker {
                 ty: final_ty.clone(),
             });
         }
+        let boolean_proof = if !mutable && final_ty == Type::Bool {
+            if let ArenaExprOrRun::Expr(expr) = initializer {
+                if let ArenaExprKind::Ident(name) = arena.arena.expr(expr).kind {
+                    self.lookup(name).and_then(|binding| binding.boolean_proof.clone())
+                } else { Some(std::sync::Arc::new(self.infer_condition_narrowings_arena(arena, expr))) }
+            } else { None }
+        } else { None };
         self.define_binding_target_arena(arena, target, &final_ty, mutable, span);
         if let Some(alias) = callable_alias
             && let ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind {
@@ -1515,6 +1574,9 @@ impl Checker {
                 self.error(span, "an exported callable alias requires an explicit return and effect contract on its target", "check.callable-alias-export");
             }
             self.attach_callable_alias(name, alias, expr_or_run_span_arena(arena, initializer));
+        }
+        if let crate::syntax::arena::ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind {
+            if let Some(binding) = self.current_scope_mut().get_mut(&name) { binding.boolean_proof = boolean_proof; }
         }
     }
 
@@ -1551,24 +1613,34 @@ impl Checker {
             let actual = self.check_expr_or_run_arena(arena, source, value, Some(&target_ty));
             let value_span = expr_or_run_span_arena(arena, value);
             self.expect_type(&target_ty, &actual, value_span);
-            self.invalidate_binding_narrowing(name);
+            self.invalidate_binding_projection_arena(arena, target, name);
             return;
         }
         let rhs = self.check_expr_or_run_arena(arena, source, value, Some(&target_ty));
         let value_span = expr_or_run_span_arena(arena, value);
         let result = self.check_compound_assignment_op(op, &target_ty, &rhs, span, value_span);
         self.expect_type(&target_ty, &result, span);
-        self.invalidate_binding_narrowing(name);
+        self.invalidate_binding_projection_arena(arena, target, name);
     }
 
-    fn invalidate_binding_narrowing(&mut self, name: Name) {
-        for scope in self.scopes.iter_mut().rev() {
-            if let Some(binding) = scope.get_mut(&name) {
-                if binding.mutable && let Some(original) = binding.unrefined_ty.take() {
-                    binding.ty = original;
-                } else {
-                    break;
+    fn invalidate_binding_projection_arena(&mut self, arena: &ArenaProgram, mut target: AssignTargetId, name: Name) {
+        let mut path = Vec::new();
+        loop {
+            match arena.arena.assign_target(target).kind {
+                ArenaAssignTargetKind::Field { base, name } if path.len() < 128 => { path.push(name); target = base; }
+                ArenaAssignTargetKind::Name(_) => { path.reverse(); break; }
+                _ => { path.clear(); break; }
+            }
+        }
+        let Some(identity) = self.lookup(name).map(|binding| binding.proof.clone()) else { return; };
+        for scope in &mut self.scopes {
+            for binding in scope.values_mut().filter(|binding| binding.proof.same_binding(&identity)) {
+                if !binding.mutable { continue; }
+                binding.proof.mutate(&path);
+                if let Some(original) = &binding.unrefined_ty {
+                    super::proof::restore_projection(&mut binding.ty, original, &path);
                 }
+                if path.is_empty() { binding.unrefined_ty = None; }
             }
         }
     }
@@ -1576,19 +1648,10 @@ impl Checker {
     pub(super) fn invalidate_mutable_narrowings(&mut self) {
         for scope in &mut self.scopes {
             for binding in scope.values_mut() {
-                if binding.mutable && let Some(original) = binding.unrefined_ty.take() { binding.ty = original; }
+                if !binding.mutable { continue; }
+                binding.proof.mutate(&[]);
+                if let Some(original) = binding.unrefined_ty.take() { binding.ty = original; }
             }
-        }
-    }
-
-    fn condition_may_mutate_bindings_arena(&self, arena: &ArenaProgram, expr: ExprId) -> bool {
-        match arena.arena.expr(expr).kind {
-            ArenaExprKind::Call { .. } | ArenaExprKind::ValueBlock(_) | ArenaExprKind::If { .. } => true,
-            ArenaExprKind::Binary { left, right, .. } => self.condition_may_mutate_bindings_arena(arena, left) || self.condition_may_mutate_bindings_arena(arena, right),
-            ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => self.condition_may_mutate_bindings_arena(arena, expr),
-            ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => self.condition_may_mutate_bindings_arena(arena, base),
-            ArenaExprKind::Ident(_) | ArenaExprKind::Bool(_) | ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) | ArenaExprKind::Null => false,
-            _ => true,
         }
     }
 
@@ -1791,6 +1854,7 @@ impl Checker {
         if let ArenaExprOrRun::Expr(expr) = value
             && let ArenaExprKind::ValueBlock(block) = arena.arena.expr(expr).kind
         {
+            let saved_capture_scopes = self.scopes.clone();
             let previous_errors = self.with_initializer_errors.take();
             let previous_defer = std::mem::replace(&mut self.in_defer_block, true);
             let previous_loop = std::mem::replace(&mut self.loop_depth, 0);
@@ -1800,8 +1864,9 @@ impl Checker {
             for scope in &self.scopes {
                 for (&name, binding) in scope {
                     let mut binding = binding.clone();
-                    if binding.mutable && let Some(original) = &binding.unrefined_ty {
-                        binding.ty = original.clone();
+                    if binding.mutable {
+                        binding.proof.mutate(&[]);
+                        if let Some(original) = binding.unrefined_ty.take() { binding.ty = original; }
                     }
                     captures.insert(name, binding);
                 }
@@ -1825,6 +1890,7 @@ impl Checker {
             self.block_depth -= 1;
             self.pop_scope();
             self.pop_scope();
+            self.scopes = saved_capture_scopes;
             self.in_defer_block = previous_defer;
             self.with_initializer_errors = previous_errors;
             self.loop_depth = previous_loop;
@@ -1876,6 +1942,8 @@ impl Checker {
             if self.inferred_returns.is_some() && self.return_inference_stmt_returns(arena, stmt_id) { self.inference_reachable = false; }
         }
         self.inference_reachable = previous_reachable;
+        let bindings = self.scopes.iter().flat_map(|scope| scope.iter()).map(|(name, binding)| (*name, binding.clone())).collect();
+        self.block_exit_bindings.insert(block_id, bindings);
         if self.block_definitely_exits_arena(arena, block_id) {
             self.definitely_exiting_block_spans.insert(arena.arena.span(block.span));
         }
@@ -2034,6 +2102,7 @@ impl Checker {
             let expected = matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ValueBlock(_)).then_some(Type::Unit);
             let ty = self.check_expr_arena(arena, source, expr_id, expected.as_ref());
             self.record_statement_error(&ty, stmt.span);
+            if ty == Type::Bool { let facts = self.infer_condition_narrowings_arena(arena, expr_id); self.apply_narrowings(&facts.when_true); }
             if expr_ty_auto_propagates(&ty) {
                 return;
             }

@@ -677,6 +677,7 @@ fn lint_workspace_root(
         let mut options = module.config.lint_options.clone();
         options.function_return_types = checked.function_return_types.clone();
         options.expr_types = checked.expr_types.clone();
+        options.proven_nonnull_fallback_receivers = checked.proven_nonnull_fallback_receivers.clone();
         options.statement_positions = checked.statement_positions.clone();
         options.callable_effects = checked.callable_effects.clone();
         options.function_effect_facts = checked.function_effect_facts.clone();
@@ -1159,6 +1160,7 @@ fn lint_config_for_file(
         interactive_command_replacement: None,
         function_return_types: Default::default(),
         expr_types: Default::default(),
+        proven_nonnull_fallback_receivers: Default::default(),
         statement_positions: Default::default(),
         callable_effects: Default::default(),
         function_effect_facts: Default::default(),
@@ -1225,6 +1227,7 @@ fn lint_one_file_with_fixes(
     let mut lint_options = config.lint_options.clone();
     lint_options.function_return_types = checked.function_return_types.clone();
     lint_options.expr_types = checked.expr_types.clone();
+    lint_options.proven_nonnull_fallback_receivers = checked.proven_nonnull_fallback_receivers.clone();
     lint_options.statement_positions = checked.statement_positions.clone();
     lint_options.callable_effects = checked.callable_effects.clone();
     lint_options.function_effect_facts = checked.function_effect_facts.clone();
@@ -1437,6 +1440,7 @@ fn apply_cst_fixes(
         let mut options = config.lint_options.clone();
         options.function_return_types = checked.function_return_types.clone();
         options.expr_types = checked.expr_types.clone();
+        options.proven_nonnull_fallback_receivers = checked.proven_nonnull_fallback_receivers.clone();
         options.statement_positions = checked.statement_positions.clone();
         options.callable_effects = checked.callable_effects.clone();
         options.function_effect_facts = checked.function_effect_facts.clone();

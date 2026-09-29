@@ -872,3 +872,25 @@ and compact type parity and declaration spans. The indexed plan pool, verifier
 boundaries, and both execution routes use
 `cargo test -p xsh --lib cli_descriptor_plans --features native-tests`; broaden
 with the filtered indexed runtime gate.
+Record projection and Boolean alias provenance is owned by
+`src/sema/check/proof.rs::BindingProof` and `ConditionNarrowings`. Full and compact
+checkers share subject identities, bounded mutation stamps, path overlap rules,
+and continuation intersections. Immutable aliases retain shared proof sets;
+`condition_proofs` records when predicates were checked so later mutations cannot
+revive stale evidence. Both routes publish precise expression types and proved
+Optional fallback receivers. Indexed lowering reads those facts and inserts no
+casts or runtime proof checks.
+
+## Record proof provenance
+
+`target/debug/xsht test --jobs 1 tests/xsh/proof-provenance.xsh` covers nested
+projections, bounded alias DAGs, short circuit scopes, assertion success,
+continuation intersections, snapshots, sibling updates, mutation, shadowing,
+capture invalidation, recovery joins, and unreachable fallback calls.
+`cargo test -p xsh --test integration checker_record_proof_types` checks exact
+full/compact facts. The indexed verifier gate includes
+`record_proof_precise_types_and_unreachable_fallback_survive_frontend_drop` for
+both executor routes without retained frontend state. `cargo test -p xsht --test integration record_proof_fallback_fix`
+uses tooling library APIs to check proof-only fixes, refusal, and convergence.
+Broaden with semantic integration tests, Boolean guard and pattern native modules,
+and indexed verifier tests.

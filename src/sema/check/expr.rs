@@ -172,6 +172,7 @@ impl Checker {
             self.check_expr_arena(arena, source, record, None);
         }
         if let Some(ty) = self.argument_projection_types.get(&id) { return ty.clone(); }
+        self.condition_proofs.remove(&id);
         let expr = arena.arena.expr(id);
         if let Some(ty) = self.prepared_constants.types.get(&id) {
             let ty = ty.clone();
@@ -319,7 +320,9 @@ impl Checker {
                 let diagnostics_before = self.diagnostics.len();
                 let result = self.check_call_arena(arena, source, *callee, *args, expr.span, expected);
                 if self.diagnostics.len() == diagnostics_before && self.stage_callable_is_static(arena, *callee) { self.statically_resolved_call_spans.insert(expr.span); }
-                if may_mutate { self.invalidate_mutable_narrowings(); }
+                let erased_proc_call = matches!(arena.arena.expr(*callee).kind, ArenaExprKind::Field { base, name } if name == "call"
+                    && self.expr_types.get(&arena.arena.expr(base).span) == Some(&Type::Proc));
+                if may_mutate || erased_proc_call { self.invalidate_mutable_narrowings(); }
                 result
             }
             ArenaExprKind::PatternCondition { value, arms } => {
@@ -359,6 +362,10 @@ impl Checker {
             }
         };
         self.expr_types.insert(expr.span, ty.clone());
+        if ty == Type::Bool {
+            let proof = self.infer_condition_proof_arena(arena, id);
+            self.condition_proofs.insert(id, std::sync::Arc::new(proof));
+        }
         ty
     }
 
@@ -1159,6 +1166,12 @@ impl Checker {
                     ok_ty
                 } else if let Some(inner) = left_ty.optional_inner().cloned() {
                     inner
+                } else if self.proof_subject_arena(arena, left).is_some_and(|(name, path, _)| {
+                    self.lookup(name).and_then(|binding| binding.unrefined_ty.as_ref())
+                        .and_then(|ty| super::proof::projected_type(ty, &path)).is_some_and(|ty| matches!(ty, Type::Optional(_)))
+                }) {
+                    self.proven_nonnull_fallback_receivers.insert(left_span);
+                    left_ty.clone()
                 } else {
                     self.error(
                         left_span,
@@ -1168,17 +1181,24 @@ impl Checker {
                     self.check_expr_arena(arena, source, right, None);
                     return Type::Unknown;
                 };
+                // The unreachable fallback is checked, but cannot mutate its success continuation.
+                let saved_scopes = self.proven_nonnull_fallback_receivers.contains(&left_span).then(|| self.scopes.clone());
                 let right_ty = self.check_expr_arena(arena, source, right, Some(&value_ty));
+                if let Some(scopes) = saved_scopes { self.scopes = scopes; }
                 self.expect_type(&value_ty, &right_ty, right_span);
                 value_ty
             }
             BinaryOp::Or => {
                 let left_ty = self.check_expr_arena(arena, source, left, None);
+                let facts = self.infer_condition_narrowings_arena(arena, left);
+                self.push_scope();
+                self.apply_narrowings(&facts.when_false);
                 let right_ty = if left_ty.is_result() {
                     self.check_expr_arena(arena, source, right, None)
                 } else {
                     self.check_expr_arena(arena, source, right, Some(&Type::Bool))
                 };
+                self.pop_scope();
                 if left_ty.is_result() || right_ty.is_result() {
                     self.error(
                         left_span,
@@ -1193,7 +1213,11 @@ impl Checker {
             }
             BinaryOp::And => {
                 let left_ty = self.check_expr_arena(arena, source, left, Some(&Type::Bool));
+                let facts = self.infer_condition_narrowings_arena(arena, left);
+                self.push_scope();
+                self.apply_narrowings(&facts.when_true);
                 let right_ty = self.check_expr_arena(arena, source, right, Some(&Type::Bool));
+                self.pop_scope();
                 self.expect_type(&Type::Bool, &left_ty, left_span);
                 self.expect_type(&Type::Bool, &right_ty, right_span);
                 Type::Bool

@@ -3863,5 +3863,22 @@ fn checker_accept_policy_requires_bounded_int_codes_on_every_plan_route() {
     ] {
         let output = check(source);
         assert!(has_code(&output, "check.type-mismatch"), "{source}: {output:?}");
+}
+
+#[test]
+fn checker_record_proof_types_agree_on_full_and_compact_routes() {
+    let source = "type Inner = {value: Str?}\ntype Outer = {inner: Inner}\npure select(report: Outer) -> Str {\n  let available = report.inner.value != null\n  let retained = available\n  if !retained { return \"missing\" }\n  report.inner.value\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let full = Checker::check_arena(&parsed.arena, source);
+    assert!(full.diagnostics.is_empty(), "{:?}", full.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    for (id, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(id).span;
+        if &source[span.range()] == "report.inner.value" && span.start() > source.find("return").unwrap() {
+            assert_eq!(ty, xsh::frontend::check::Type::Str);
+            assert_eq!(full.expr_types.get(&span), Some(&ty));
+        }
     }
 }
