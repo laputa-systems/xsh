@@ -519,3 +519,35 @@ fn duration_arithmetic_grep_preserves_units_and_operand_order() {
     assert!(!stdout.contains("3 * 250ms"), "{stdout}");
     assert!(!stdout.contains("250s * 3"), "{stdout}");
 }
+
+#[test]
+fn grep_and_refactor_visit_named_spread_operands() {
+    let source = "pure sum(first: Int, second: Int) -> Int { first + second }\npure options() -> Pair { Pair(first: 2, second: 3) }\ntype Pair = {first: Int, second: Int}\nprint ${sum(...options())}\n";
+    let file = temp_xsh("named_spread_operand", source);
+    let found = grep_scripts("options()", &paths(&file));
+    assert_eq!(found.status, 0, "{}", output_text(&found.stderr));
+    assert!(output_text(&found.stdout).contains("options()"));
+    let replaced = refactor_scripts("options()", "Pair(first: 4, second: 5)", &paths(&file), false);
+    assert_eq!(replaced.status, 0, "{}", output_text(&replaced.stderr));
+    let changed = fs::read_to_string(&file).unwrap();
+    assert!(changed.contains("sum(...Pair(first: 4, second: 5))"), "{changed}");
+    fs::remove_file(file).unwrap();
+}
+
+#[test]
+fn named_argument_spread_matching_retains_splice_and_label_identity() {
+    let file = temp_xsh("spread_arg_identity", "let options = {first: 1}\nf(...options)\nf(@options)\nf(options)\nf(first: options)\n");
+    let spread = grep_scripts("f(...EXPR)", &paths(&file));
+    assert_eq!(spread.status, 0);
+    let text = output_text(&spread.stdout);
+    assert!(text.contains("f(...options)"));
+    assert!(!text.contains("f(@options)"));
+    assert!(!text.contains("f(first: options)"));
+    let changed = refactor_scripts("f(...EXPR)", "g(...EXPR)", &paths(&file), false);
+    assert_eq!(changed.status, 0);
+    let text = fs::read_to_string(&file).unwrap();
+    assert!(text.contains("g(...options)"));
+    assert!(text.contains("f(@options)"));
+    assert!(text.contains("f(first: options)"));
+    fs::remove_file(file).unwrap();
+}

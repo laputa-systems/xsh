@@ -950,7 +950,7 @@ postfix_op   = "." FIELD_LABEL | "." "require" "(" type_expr ")" | "?." FIELD_LA
              | "[" expr "]" | "[" expr? ".." expr? "]" | call_args | "?" ;
 call_args    = "(" arg_list? ")" ;
 arg_list     = arg ("," arg)* ","? ;
-arg          = expr | named_arg ;
+arg          = expr | named_arg | "..." expr | "@" expr ;
 named_arg    = FIELD_LABEL ":" expr | IDENT ":" ;
 primary      = literal | IDENT | list_lit | record_lit | map_comp | if_expr | match_expr
              | capture_expr | retry_expr | run_form | spawn_form | wait_form | "(" expr ")" ;
@@ -978,6 +978,29 @@ mixed with puns wherever the ordinary call rules permit them.
 Formatting retains `name:`. `lint.prefer-named-argument-pun` replaces a checked
 `name: name` whose value resolves as the same lexical identifier, and retains
 comments by withholding fixes that would remove them.
+
+`...record_expression` in an expression call supplies named arguments from
+exactly the fields visible in its checked finite `Record` type. Runtime fields
+hidden by a checked schema boundary are excluded. `Any`, open `Record`, `Map`,
+`Optional`, and `Result` operands require an explicit checked narrowing or
+unwrapping first. The callee must have a statically checked callable signature.
+Multiple disjoint spreads can mix with positional, explicit named, and punned
+arguments. Unknown names and duplicate names, including parameters already
+occupied by positional arguments, are errors. A null field is supplied and does
+not select the parameter's default. Overload selection, rest parameters,
+parameter types, omitted defaults, and effects retain their ordinary contracts.
+
+The receiver is evaluated before argument entries. Entries evaluate once in
+written order; a spread evaluates its operand once and projects its visible
+fields before the following entry. Static parameter slots retain this order
+even when named arguments are written in a different parameter order. `@list`
+remains positional rest splicing and does not supply names.
+
+`lint.prefer-named-argument-spread` recognizes contiguous forwarding of every
+visible field from one stable immutable binding. It withholds fixes for partial
+coverage, extra visible fields, mutable or effectful receivers, comments, type
+conversions, and candidates that fail parsing or checking. Formatting preserves
+spreads and the fixed form converges.
 
 Literals:
 

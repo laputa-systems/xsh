@@ -807,7 +807,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "procs" => (
             "Defines procedure declarations and calls.",
-            "Procedure calls preserve lexical scope, declared effects, return types, and runtime trace containment. In expression calls, `name:` before a comma or closing parenthesis passes the ordinary lexical value `name`, with the same named-argument checks as `name: name`.",
+            "Procedure calls preserve lexical scope, declared effects, return types, and runtime trace containment. In expression calls, `name:` before a comma or closing parenthesis passes the ordinary lexical value `name`, with the same named-argument checks as `name: name`. `...options` supplies exactly the checked finite Record fields to static parameter slots; hidden runtime fields are excluded. Unknown or duplicate names are errors, null is supplied, and entries evaluate once in written order before ordinary defaults fill omitted parameters.",
         ),
         "pure-functions" => (
             "Defines effect-free function declarations.",

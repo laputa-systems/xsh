@@ -3882,3 +3882,34 @@ fn parser_and_formatter_retain_bare_bytes_stdin_as_one_typed_operand() {
     assert_eq!(formatted.formatted, source);
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, source);
 }
+
+#[test]
+fn named_argument_spread_preserves_source_spans_and_formatter_round_trips() {
+    use xsh::frontend::syntax::arena::{ArenaCallArgKind, ExprId};
+    let source = include_str!("fixtures/syntax/valid/named-argument-spreads.xsh");
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_parse_and_check(SourceId::new(0), source);
+    let arena = &parsed.arena.arena;
+    let mut spreads = 0;
+    for index in 0..arena.expr_tags.len() {
+        let ArenaExprKind::Call { args, .. } = arena.expr(ExprId::from_index(index)).kind else { continue; };
+        for argument in arena.call_args(args) {
+            if let ArenaCallArgKind::NamedSpread { value, span } = argument.kind {
+                spreads += 1;
+                let span = arena.span(span);
+                assert!(source[span.range()].starts_with("..."));
+                assert!(span.start() < arena.expr(value).span.start());
+                assert_eq!(span.end(), arena.expr(value).span.end());
+            }
+        }
+    }
+    assert_eq!(spreads, 3);
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("...options"));
+    assert!(formatted.formatted.contains("# Keep the spread entry comment."));
+    assert_parse_and_check(SourceId::new(0), &formatted.formatted);
+    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(second.formatted, formatted.formatted);
+}

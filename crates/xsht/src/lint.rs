@@ -731,7 +731,7 @@ impl<'a> Linter<'a> {
                         && args.len() == 1
                         && matches!(
                             &self.arena.call_args(args)[0].kind,
-                            ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } if matches!(self.arena.expr(*value).kind, ArenaExprKind::Ident(n) if n == "args")
+                            ArenaCallArgKind::Splice { value, .. } if matches!(self.arena.expr(*value).kind, ArenaExprKind::Ident(n) if n == "args")
                         )
                 }
                 _ => false,
@@ -4074,7 +4074,56 @@ impl<'a> Linter<'a> {
         self.diagnostics.push(diagnostic);
     }
 
+    fn lint_named_argument_forwarding(&mut self, args: ArenaRange, call_span: Span) {
+        if self.expr_types.get(&call_span).is_none_or(|ty| matches!(ty, Type::Unknown | Type::Invalid)) { return; }
+        let args = self.arena.call_args(args).to_vec();
+        let mut start = 0;
+        while start < args.len() {
+            let ArenaCallArgKind::Named { name, value, span } = args[start].kind else { start += 1; continue; };
+            let ArenaExprKind::Field { base, name: field } = self.arena.expr(value).kind else { start += 1; continue; };
+            if field != name { start += 1; continue; }
+            let ArenaExprKind::Ident(receiver) = self.arena.expr(base).kind else { start += 1; continue; };
+            let Some(Type::Record(fields)) = self.expr_types.get(&self.arena.expr(base).span).cloned() else { start += 1; continue; };
+            if fields.len() < 2 { start += 1; continue; }
+            let mut supplied = FxHashSet::default();
+            let mut end = start;
+            let mut edit_end = self.arena.span(span).end();
+            let mut exact_types = true;
+            while let Some(arg) = args.get(end) {
+                let ArenaCallArgKind::Named { name, value, span } = arg.kind else { break; };
+                let ArenaExprKind::Field { base, name: field } = self.arena.expr(value).kind else { break; };
+                if name != field || !matches!(self.arena.expr(base).kind, ArenaExprKind::Ident(found) if found == receiver) { break; }
+                if !supplied.insert(name) { exact_types = false; }
+                exact_types &= self.expr_types.get(&self.arena.expr(value).span) == fields.get(&field);
+                edit_end = self.arena.span(span).end();
+                end += 1;
+            }
+            let edit_span = Span::new(call_span.source_id, self.arena.span(span).start(), edit_end);
+            let stable = !self.assigned_names.contains(&receiver)
+                && self.scopes.iter().rev().find_map(|scope| scope.get(receiver.as_str().as_str()))
+                    .is_some_and(|binding| !binding.mutable);
+            if exact_types && supplied.len() == fields.len() && fields.keys().all(|field| supplied.contains(field)) {
+                let mut diagnostic = Diagnostic::new(Severity::Warning, "record fields can forward through a named argument spread")
+                    .with_code("lint.prefer-named-argument-spread")
+                    .with_label(Label::secondary(edit_span, "forward exactly the checked visible fields"));
+                if stable && !self.source[edit_span.range()].contains('#') {
+                    let replacement = format!("...{receiver}");
+                    let mut candidate = self.source.to_string();
+                    candidate.replace_range(edit_span.range(), &replacement);
+                    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(call_span.source_id, &candidate);
+                    if parsed.diagnostics.is_empty()
+                        && xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate).diagnostics.is_empty() {
+                        diagnostic = diagnostic.with_fix_hint(FixHint::replacement(edit_span, "spread the checked record fields", replacement));
+                    }
+                }
+                self.diagnostics.push(diagnostic);
+            }
+            start = end.max(start + 1);
+        }
+    }
+
     fn lint_call_style(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
+        self.lint_named_argument_forwarding(args, span);
         self.lint_path_constructor(callee, args, span);
         self.lint_duration_conversion(callee, args, span);
         self.lint_redundant_defaults(callee, args);

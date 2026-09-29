@@ -271,7 +271,8 @@ impl Checker {
             }
             if let ArenaExprKind::Ident(module) = base_kind {
                 if module.as_str() == "error" && name.as_str() == "fail" {
-                    self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
+                    let params = [super::FunctionParamSig { name: Name::intern("message"), ty: Type::Str, defaulted: false, rest: false }];
+                    self.check_function_arg_list_arena(arena, source, args, &params, span);
                     return Type::Result(Box::new(Type::Unit), Box::new(Type::Error));
                 }
                 if self.error_families.contains_key(&module) {
@@ -530,56 +531,10 @@ impl Checker {
         params: &[CallableParamType],
         span: Span,
     ) {
-        let has_splice = args
-            .iter()
-            .any(|arg| matches!(arg.kind, ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. }));
-        let required = params
-            .iter()
-            .filter(|param| !param.defaulted && !param.rest)
-            .count();
-        let max = if params.iter().any(|param| param.rest) {
-            usize::MAX
-        } else {
-            params.len()
-        };
-        if !has_splice && (args.len() < required || args.len() > max) {
-            self.error(span, "incorrect function arity", "check.arity");
-        }
-
-        let mut index = 0;
-        for param in params {
-            if param.rest {
-                let item_ty = match &param.ty {
-                    Type::List(item) => item.as_ref().clone(),
-                    Type::Any | Type::Unknown => param.ty.clone(),
-                    _ => {
-                        self.error(span, "rest parameter requires List", "check.rest-type");
-                        Type::Unknown
-                    }
-                };
-                for arg in &args[index..] {
-                    let actual =
-                        self.check_call_arg_arena(arena, source, &arg.kind, Some(&item_ty));
-                    self.expect_type(&item_ty, &actual, call_arg_span_arena(arena, &arg.kind));
-                }
-                return;
-            }
-            let Some(arg) = args.get(index) else {
-                continue;
-            };
-            if let ArenaCallArgKind::Named { name, .. } = &arg.kind
-                && *name != param.name
-            {
-                self.error(
-                    call_arg_span_arena(arena, &arg.kind),
-                    "unexpected named parameter",
-                    "check.named-arg",
-                );
-            }
-            let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&param.ty));
-            self.expect_type(&param.ty, &actual, call_arg_span_arena(arena, &arg.kind));
-            index += 1;
-        }
+        let params = params.iter().map(|param| super::FunctionParamSig {
+            name: param.name, ty: param.ty.clone(), defaulted: param.defaulted, rest: param.rest,
+        }).collect::<Vec<_>>();
+        self.check_function_arg_list_arena(arena, source, args, &params, span);
     }
 
     fn check_spread_call_arena(
@@ -589,11 +544,18 @@ impl Checker {
         use crate::sema::arguments::{ArgumentValueSource, expand_named_arguments};
         use crate::syntax::arena::ArenaCallArgInput;
         let args = arena.arena.call_args(args_range);
+        // Discover finite field sets without applying argument flow changes
+        // to the real checker. Actual checks run at each source entry below.
+        let mut probe = self.clone();
+        let receiver_type = match arena.arena.expr(callee).kind {
+            ArenaExprKind::Field { base, .. } => Some(probe.check_expr_arena(arena, source, base, None)),
+            _ => None,
+        };
         let mut checked = super::FxHashMap::default();
         for arg in args {
-            if let ArenaCallArgKind::NamedSpread { value, .. } = arg.kind {
-                checked.insert(value, self.check_expr_arena(arena, source, value, None));
-            }
+            let value = call_arg_expr_id_arena(&arg.kind);
+            let ty = probe.check_expr_arena(arena, source, value, None);
+            checked.insert(value, ty);
         }
         let expanded = match expand_named_arguments(arena, args, |id| checked.get(&id).cloned()) {
             Ok(expanded) => expanded,
@@ -601,9 +563,20 @@ impl Checker {
         };
         let statically_named = match arena.arena.expr(callee).kind {
             ArenaExprKind::Ident(name) => self.procs.contains_key(&name) || self.pures.contains_key(&name)
-                || self.streams.contains_key(&name) || self.tag_variants.contains_key(&name)
+                || self.streams.contains_key(&name)
                 || self.record_constructors.resolve_call(&arena.arena, callee, self.current_namespace).is_some(),
-            ArenaExprKind::Field { base, .. } => !matches!(self.check_expr_arena(arena, source, base, None), Type::Any | Type::Unknown | Type::DynamicModule),
+            ArenaExprKind::Field { base, name } => {
+                let static_namespace = matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(namespace)
+                    if api_spec().module(&namespace.as_str()).is_some() || self.error_families.contains_key(&namespace))
+                    || self.record_constructors.resolve_call(&arena.arena, callee, self.current_namespace).is_some();
+                let positional_tag = matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(namespace)
+                    if self.tag_variants.contains_key(&Name::intern(format!("{namespace}.{name}"))));
+                !positional_tag && (static_namespace || match receiver_type.clone().unwrap_or(Type::Unknown) {
+                    Type::Module(exports) => exports.get(&name).is_some_and(|export| matches!(export, ModuleExportType::Pure { .. } | ModuleExportType::Proc { .. })),
+                    Type::Any | Type::Unknown | Type::DynamicModule | Type::Pure | Type::Proc | Type::Optional(_) | Type::Result(_, _) => false,
+                    _ => true,
+                })
+            },
             _ => false,
         };
         if !statically_named {
@@ -614,6 +587,7 @@ impl Checker {
         let mut inputs = Vec::new();
         let mut projections = Vec::new();
         let mut supplied = super::FxHashSet::default();
+        let mut checked_entries = super::FxHashSet::default();
         for arg in expanded {
             if let Some(name) = arg.name && !supplied.insert(name) {
                 self.error(arg.span, &format!("parameter `{name}` supplied more than once"), "check.named-arg");
@@ -623,6 +597,7 @@ impl Checker {
                 ArgumentValueSource::RecordField { record, field } => {
                     let id = temporary.arena.append_argument_projection(record, field, arg.span);
                     self.argument_projection_types.insert(id, arg.ty);
+                    if checked_entries.insert(arg.entry_index) { self.argument_projection_sources.insert(id, record); }
                     projections.push(id); id
                 }
             };
@@ -634,7 +609,7 @@ impl Checker {
         }
         let args = temporary.arena.append_call_arguments(&inputs);
         let result = self.check_call_arena(&temporary, source, callee, args, span);
-        for id in projections { self.argument_projection_types.remove(&id); }
+        for id in projections { self.argument_projection_types.remove(&id); self.argument_projection_sources.remove(&id); }
         result
     }
 

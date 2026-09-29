@@ -1897,6 +1897,30 @@ impl Evaluator {
         result
     }
 
+    fn indexed_argument_default(&self, callee: &LoweredValue, slot: usize, span: Span) -> Result<LoweredValue, RuntimeError> {
+        let (function, kind) = match callee {
+            LoweredValue::Pure(function) => (function, LoweredFunctionKind::Pure),
+            LoweredValue::Proc(function) => (function, LoweredFunctionKind::Proc),
+            _ => return Err(RuntimeError::new("type-error", "argument default requires a prepared callable").with_span(span)),
+        };
+        let key = function.as_name().map(LoweredFunctionKey::Name)
+            .or_else(|| function.as_qualified().map(LoweredFunctionKey::Qualified)).expect("callable identity is interned");
+        self.indexed_argument_default_for(key, kind, slot, span)
+    }
+
+    fn indexed_argument_default_for(&self, key: LoweredFunctionKey, kind: LoweredFunctionKind, slot: usize, span: Span) -> Result<LoweredValue, RuntimeError> {
+        let program = self.indexed_program.as_ref().expect("indexed call retains its program");
+        let view = if let Some(view) = program.function_view(key, kind).map_err(|error| indexed_error(error, span))? { view }
+            else {
+                let LoweredFunctionKey::Qualified(qualified) = key else { return Err(RuntimeError::new("unresolved-call", "argument default callable is not prepared").with_span(span)); };
+                let dynamic = self.indexed_dynamic_functions.get(&qualified).ok_or_else(|| RuntimeError::new("unresolved-call", "argument default callable is not prepared").with_span(span))?;
+                dynamic.program.function_view(dynamic.function, dynamic.kind).map_err(|error| indexed_error(error, span))?
+                    .ok_or_else(|| RuntimeError::new("unresolved-call", "argument default callable is not prepared").with_span(span))?
+            };
+        view.header().map_err(|error| indexed_error(error, span))?.param_defaults.get(slot).and_then(Clone::clone)
+            .ok_or_else(|| RuntimeError::new("indexed-ir", "checked omitted argument has no prepared default").with_span(span))
+    }
+
     pub(in crate::runtime::eval) fn call_indexed_direct(
         &mut self,
         function: LoweredFunctionKey,
@@ -6213,13 +6237,16 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 let mut values = Vec::with_capacity(len);
                 for _ in 0..len {
-                    let arg = indexed_raw(&mut args, span)?;
-                    match self.eval_indexed_expr(execution, arg, slots, span)? {
-                        ControlFlow::Continue(value) => values.push(value),
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    }
+                    let arg = indexed_optional_raw(&mut args, span)?;
+                    if let Some(arg) = arg {
+                        match self.eval_indexed_expr(execution, arg, slots, span)? {
+                            ControlFlow::Continue(value) => values.push(Some(value)),
+                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        }
+                    } else { values.push(None); }
                 }
                 indexed_finish(args, span)?;
+                let values = super::NativeArgumentValues::new(values);
                 if !self.trace_enabled {
                     return self.eval_lowered_module_call_values(op, values, span);
                 }
@@ -6960,6 +6987,12 @@ impl Evaluator {
                 for _ in 0..len {
                     let kind = indexed_raw(&mut args, span)?;
                     let arg = indexed_raw(&mut args, span)?;
+                    if kind == 2 {
+                        let default = self.indexed_argument_default_for(function, LoweredFunctionKind::Pure, arg as usize, span)
+                            .or_else(|_| self.indexed_argument_default_for(function, LoweredFunctionKind::Proc, arg as usize, span))?;
+                        values.push(default);
+                        continue;
+                    }
                     let value = match self.eval_indexed_expr(execution, arg, slots, span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
@@ -6994,6 +7027,12 @@ impl Evaluator {
                 for _ in 0..len {
                     let kind = indexed_raw(&mut args, span)?;
                     let arg = indexed_raw(&mut args, span)?;
+                    if kind == 2 {
+                        let key = LoweredFunctionKey::Qualified(qualified);
+                        let default = self.indexed_argument_default_for(key, LoweredFunctionKind::Pure, arg as usize, span)
+                            .or_else(|_| self.indexed_argument_default_for(key, LoweredFunctionKind::Proc, arg as usize, span))?;
+                        values.push(default); continue;
+                    }
                     let value = match self.eval_indexed_expr(execution, arg, slots, span)? {
                         ControlFlow::Continue(value) => value,
                         ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
@@ -7066,7 +7105,13 @@ impl Evaluator {
                 };
                 let mut values = Vec::with_capacity(arg_count);
                 for _ in 0..arg_count {
-                    let splice = match indexed_raw(&mut args, span)? {
+                    let argument_kind = indexed_raw(&mut args, span)?;
+                    if argument_kind == 2 {
+                        let slot = indexed_raw(&mut args, span)? as usize;
+                        values.push(self.indexed_argument_default(&callee, slot, span)?.into_value());
+                        continue;
+                    }
+                    let splice = match argument_kind {
                         0 => false,
                         1 => true,
                         _ => {

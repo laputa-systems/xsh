@@ -1551,7 +1551,7 @@ impl CompactBodyProbe<'_> {
             if let Some(sig) = self.declarations.pures.get(&name).or_else(|| self.declarations.procs.get(&name)) {
                 let result = match &sig.return_ty {
                     Type::Unknown => self.type_from_arena(sig.return_type_expr),
-                    Type::Result(_, error) if **error == Type::Unknown => self.type_from_arena(sig.return_type_expr),
+                    Type::Result(ok, error) if **ok == Type::Unknown || **error == Type::Unknown => self.type_from_arena(sig.return_type_expr),
                     _ => sig.return_ty.clone(),
                 };
                 if self.declarations.procs.contains_key(&name) {

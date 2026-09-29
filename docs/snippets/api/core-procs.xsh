@@ -3,5 +3,8 @@ proc greet(name: Str) -> Str {
 }
 
 let name = "world"
-let greeting = greet(name:)
+let options = {name: name}
+let greeting = greet(...options)
+let punned = greet(name:)
 print $greeting
+print $punned

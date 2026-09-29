@@ -695,3 +695,26 @@ position and reparses the retained body before offering a CST prefix deletion.
 Structural grep distinguishes value blocks from literal records and local Result
 capture. Expression-only block replacements substitute captures at child source
 spans, retaining parentheses and surrounding block trivia.
+
+### Static argument expansion
+
+`sema::arguments::expand_named_arguments` exposes only checked finite record
+fields and retains each source entry's index. `bind_static_arguments` resolves
+those fields and ordinary arguments to callable parameter slots before runtime
+lowering; absent slots continue to select ordinary defaults. Expression calls
+and structured stages share these facts. `lower_expanded_argument_values`
+creates source-ordered hygienic slots and projects each spread before the next
+entry. `wrap_argument_bindings` sequences the initialization around existing
+call and operation rows. Compiler-generated projection IDs are transient and
+leave the original source argument ranges and CST unchanged. A checked omitted
+parameter of a loaded module call uses `LoweredCallArg::Default`, a parameter
+index in the existing call argument codec. Execution selects that exact
+prepared callable's immutable default; it is distinct from a caller frame slot
+and introduces no runtime name binding.
+
+Native `ModuleCall` argument vectors retain optional expression slots in static
+parameter order. `NativeArgumentValues` exposes an omitted slot as absence to
+the operation's existing default accessors; a supplied null remains a value.
+The checker probes finite field sets without committing flow changes, then
+checks each spread operand at its original source position alongside ordinary
+arguments and their expected type contexts.

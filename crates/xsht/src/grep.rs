@@ -416,9 +416,12 @@ fn build_replacement_text(
                 let value = build_replacement_text(arena, e, m, target_source, pattern_source)?;
                 arg_parts.push(match arg.kind {
                     ArenaCallArgKind::Positional(_) => value,
-                    ArenaCallArgKind::Named { name, .. } => format!("{name}: {value}"),
+                    ArenaCallArgKind::Named { name, value: expr, span } => {
+                        if arena.expr(expr).span.start() == arena.span(span).start() { format!("{name}:") }
+                        else { format!("{name}: {value}") }
+                    }
                     ArenaCallArgKind::Splice { .. } => format!("@({value})"),
-                    ArenaCallArgKind::NamedSpread { .. } => format!("...({value})"),
+                    ArenaCallArgKind::NamedSpread { .. } => format!("...{value}"),
                 });
             }
             Some(format!("{callee_text}({})", arg_parts.join(", ")))

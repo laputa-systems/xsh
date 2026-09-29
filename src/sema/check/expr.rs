@@ -143,6 +143,9 @@ impl Checker {
         id: ExprId,
         expected: Option<&Type>,
     ) -> Type {
+        if let Some(record) = self.argument_projection_sources.remove(&id) {
+            self.check_expr_arena(arena, source, record, None);
+        }
         if let Some(ty) = self.argument_projection_types.get(&id) { return ty.clone(); }
         let expr = arena.arena.expr(id);
         if let Some(ty) = self.prepared_constants.types.get(&id) {

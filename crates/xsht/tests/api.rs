@@ -904,3 +904,13 @@ fn api_process_commands_document_exact_bytes_stdin_ownership() {
         assert!(stdout.contains(text), "missing {text}: {stdout}");
     }
 }
+
+#[test]
+fn api_core_procs_demonstrates_static_named_argument_spreading() {
+    let output = xsht(&["api", "language:core.procs"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("checked finite Record fields"), "{stdout}");
+    assert!(stdout.contains("greet(...options)"), "{stdout}");
+    assert!(output.stderr.is_empty());
+}

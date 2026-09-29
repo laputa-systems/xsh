@@ -119,8 +119,9 @@ proc main(...argv: List[Str]) [fs, error, io] {
   let match_pattern = if opts.ignore_case { pattern.lower() } else { pattern }
   let re = if opts.glob or match_pattern == "" { rx".*" } else { regex.compile(match_pattern)? }
 
+  let walk_options = {gitignore: opts.ignore, hidden: opts.hidden}
   for root in roots {
-    for entry in fs.walk(root, gitignore: opts.ignore, hidden: opts.hidden)? |> sort-by .path {
+    for entry in fs.walk(root, ...walk_options)? |> sort-by .path {
       let name = entry.path.name()
       let comparable = if opts.ignore_case { name.lower() } else { name }
       let rel = entry.path.relative_to(root)

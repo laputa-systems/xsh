@@ -3366,6 +3366,30 @@ fn lowered_param_type_name(lowered: &FunctionHeader, index: usize, kind: Lowered
     lowered_param_check(lowered, index).map_or_else(|| lowered_type_name(kind), |check| &check.name)
 }
 
+/// Native parameter slots retain omission independently of a supplied null.
+/// Optional accessors see an omitted slot as absent; required accesses are
+/// reached only after static signature binding has supplied those slots.
+struct NativeArgumentValues(Vec<Option<LoweredValue>>);
+
+impl NativeArgumentValues {
+    fn new(values: Vec<Option<LoweredValue>>) -> Self { Self(values) }
+    fn len(&self) -> usize { self.0.len() }
+    fn is_empty(&self) -> bool { self.0.is_empty() }
+    fn get(&self, index: usize) -> Option<&LoweredValue> { self.0.get(index).and_then(Option::as_ref) }
+    fn first(&self) -> Option<&LoweredValue> { self.get(0) }
+    fn pop(&mut self) -> Option<LoweredValue> { self.0.pop().flatten() }
+    fn remove(&mut self, index: usize) -> LoweredValue {
+        self.0.remove(index).expect("required native argument was not supplied")
+    }
+}
+
+impl std::ops::Index<usize> for NativeArgumentValues {
+    type Output = LoweredValue;
+    fn index(&self, index: usize) -> &Self::Output {
+        self.0[index].as_ref().expect("required native argument was not supplied")
+    }
+}
+
 impl Evaluator {
     fn lowered_stream_list_result(
         &mut self,
@@ -3529,7 +3553,7 @@ impl Evaluator {
     fn eval_lowered_module_call_values(
         &mut self,
         op: RuntimeOp,
-        mut values: Vec<LoweredValue>,
+        mut values: NativeArgumentValues,
         span: Span,
     ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
         let value = match op {
@@ -4472,16 +4496,8 @@ impl Evaluator {
                 }
             }
             RuntimeOp::FsRootMkdir if (2..=4).contains(&values.len()) => {
-                let (mode, parents) = match (values.get(2).cloned(), values.get(3).cloned()) {
-                    (Some(LoweredValue::Bool(parents)), None) => (0o777, parents),
-                    (mode, parents) => (
-                        match mode {
-                            Some(value) => lowered_int_arg(Some(value), "fs.root_mkdir", span)?,
-                            None => 0o777,
-                        },
-                        lowered_bool_arg_or(parents, false, "fs.root_mkdir", span)?,
-                    ),
-                };
+                let mode = lowered_int_arg_or(values.get(2).cloned(), 0o777, "fs.root_mkdir", span)?;
+                let parents = lowered_bool_arg_or(values.get(3).cloned(), false, "fs.root_mkdir", span)?;
                 let path = lowered_path_arg(
                     values.get(1).cloned().expect("checked value length"),
                     "fs.root_mkdir",
@@ -4542,18 +4558,8 @@ impl Evaluator {
                 }
             }
             RuntimeOp::FsRootSymlink if (3..=5).contains(&values.len()) => {
-                let (parents, overwrite) = match (values.get(3).cloned(), values.get(4).cloned()) {
-                    (Some(value), Some(overwrite)) => (
-                        lowered_bool_arg_or(Some(value), true, "fs.root_symlink", span)?,
-                        lowered_bool_arg_or(Some(overwrite), false, "fs.root_symlink", span)?,
-                    ),
-                    (Some(value), None) => (
-                        true,
-                        lowered_bool_arg_or(Some(value), false, "fs.root_symlink", span)?,
-                    ),
-                    (None, None) => (true, false),
-                    (None, Some(_)) => unreachable!("checked value length"),
-                };
+                let parents = lowered_bool_arg_or(values.get(3).cloned(), true, "fs.root_symlink", span)?;
+                let overwrite = lowered_bool_arg_or(values.get(4).cloned(), false, "fs.root_symlink", span)?;
                 let path = lowered_path_arg(
                     values.get(2).cloned().expect("checked value length"),
                     "fs.root_symlink",
@@ -4588,18 +4594,8 @@ impl Evaluator {
                 )
             }
             RuntimeOp::FsRootInstallFile if (5..=7).contains(&values.len()) => {
-                let (parents, overwrite) = match (values.get(5).cloned(), values.get(6).cloned()) {
-                    (Some(value), Some(overwrite)) => (
-                        lowered_bool_arg_or(Some(value), true, "fs.root_install_file", span)?,
-                        lowered_bool_arg_or(Some(overwrite), false, "fs.root_install_file", span)?,
-                    ),
-                    (Some(value), None) => (
-                        true,
-                        lowered_bool_arg_or(Some(value), false, "fs.root_install_file", span)?,
-                    ),
-                    (None, None) => (true, false),
-                    (None, Some(_)) => unreachable!("checked value length"),
-                };
+                let parents = lowered_bool_arg_or(values.get(5).cloned(), true, "fs.root_install_file", span)?;
+                let overwrite = lowered_bool_arg_or(values.get(6).cloned(), false, "fs.root_install_file", span)?;
                 let mode = lowered_int_arg(values.get(4).cloned(), "fs.root_install_file", span)?;
                 let dest = lowered_path_arg(
                     values.get(3).cloned().expect("checked value length"),
@@ -7759,7 +7755,7 @@ impl Evaluator {
     fn eval_lowered_unix_call(
         &mut self,
         op: RuntimeOp,
-        values: Vec<LoweredValue>,
+        values: NativeArgumentValues,
         span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
         let out = self.eval_unix_call_value(op, values, span)?;
@@ -7775,7 +7771,7 @@ impl Evaluator {
     fn eval_unix_call_value(
         &mut self,
         op: RuntimeOp,
-        values: Vec<LoweredValue>,
+        values: NativeArgumentValues,
         span: Span,
     ) -> Result<Value, RuntimeError> {
         match op {
@@ -8076,7 +8072,7 @@ impl Evaluator {
     fn eval_unix_dry_run_call(
         &mut self,
         op: RuntimeOp,
-        values: Vec<LoweredValue>,
+        values: NativeArgumentValues,
         span: Span,
     ) -> Result<Value, RuntimeError> {
         match op {
@@ -8577,7 +8573,7 @@ impl Evaluator {
     fn eval_lowered_linux_call(
         &mut self,
         op: RuntimeOp,
-        values: Vec<LoweredValue>,
+        values: NativeArgumentValues,
         span: Span,
     ) -> Result<LoweredValue, RuntimeError> {
         let out = self.eval_linux_call_value(op, values, span)?;
@@ -8593,7 +8589,7 @@ impl Evaluator {
     fn eval_linux_call_value(
         &mut self,
         op: RuntimeOp,
-        values: Vec<LoweredValue>,
+        values: NativeArgumentValues,
         span: Span,
     ) -> Result<Value, RuntimeError> {
         if !self.linux_dry_run() && !self.linux_real() {

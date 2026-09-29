@@ -1646,7 +1646,7 @@ enum BuildExprRow {
     },
     ModuleCall {
         op: RuntimeOp,
-        args: Vec<BuildExprId>,
+        args: Vec<Option<BuildExprId>>,
         span: Span,
     },
     // Boxed because this cold command-construction payload otherwise makes
@@ -1705,6 +1705,8 @@ enum BuildExprRow {
 
 #[derive(Clone, Debug)]
 enum LoweredCallArg {
+    /// A checked omitted slot selects the prepared callable's lexical default.
+    Default(usize),
     Single(BuildExprId),
     Splice(BuildExprId),
 }
@@ -6937,8 +6939,8 @@ fn compact_is_main_spliced_args_expr(program: &ArenaProgram, id: ExprId) -> bool
 
 fn compact_is_args_call_arg(program: &ArenaProgram, arg: &ArenaCallArg) -> bool {
     let value = match arg.kind {
-        ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Splice { value, .. } | ArenaCallArgKind::NamedSpread { value, .. } => value,
-        ArenaCallArgKind::Named { .. } => return false,
+        ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Splice { value, .. } => value,
+        ArenaCallArgKind::Named { .. } | ArenaCallArgKind::NamedSpread { .. } => return false,
     };
     matches!(program.arena.expr(value).kind, ArenaExprKind::Ident(name) if name == Name::intern("args"))
 }

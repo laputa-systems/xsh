@@ -3884,3 +3884,39 @@ fn prepared_constant_fix_preserves_comments_and_converges() {
     let output = Linter::lint(&second.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
     assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-const")));
 }
+
+#[test]
+fn linter_named_argument_spread_requires_exact_stable_visible_fields_and_converges() {
+    let source = include_str!("../../../tests/fixtures/syntax/valid/named-argument-forwarding.xsh");
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    let forwards = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-named-argument-spread")).collect::<Vec<_>>();
+    assert_eq!(forwards.len(), 3, "partial records and effectful receivers must not forward");
+    assert_eq!(forwards[0].fix_hints.len(), 1);
+    assert!(forwards[1].fix_hints.is_empty(), "comments remain intact");
+    assert!(forwards[2].fix_hints.is_empty(), "mutable receivers retain repeated reads");
+    let fix = &forwards[0].fix_hints[0];
+    assert_eq!(fix.replacement.as_deref(), Some("...options"));
+    let mut candidate = source.to_string();
+    candidate.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+    assert_parse_check_standalone("named argument spreading", &candidate);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &candidate);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(again.formatted, formatted.formatted);
+    let parsed = parse_lint_source(&formatted.formatted);
+    let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
+    let second = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    assert!(second.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-named-argument-spread")).all(|diagnostic| diagnostic.fix_hints.is_empty()));
+}
+
+#[test]
+fn linter_named_argument_spread_requires_checked_record_facts() {
+    let source = include_str!("../../../tests/fixtures/syntax/valid/named-argument-forwarding.xsh");
+    let parsed = parse_lint_source(source);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-named-argument-spread")));
+}

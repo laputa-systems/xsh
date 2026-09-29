@@ -258,8 +258,10 @@ pub(super) struct UserModuleSig {
     error_families: BTreeMap<Name, ErrorFamilyInfo>,
 }
 
+#[derive(Clone)]
 pub struct Checker {
     argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
+    argument_projection_sources: FxHashMap<crate::syntax::arena::ExprId, crate::syntax::arena::ExprId>,
     record_constructors: RecordConstructors,
     prepared_constants: super::constants::PreparedConstants,
     current_namespace: Option<Name>,
@@ -461,6 +463,7 @@ impl Checker {
             qualified_streams: FxHashMap::default(),
             type_defs: FxHashMap::default(),
             argument_projection_types: FxHashMap::default(),
+            argument_projection_sources: FxHashMap::default(),
             record_constructors: RecordConstructors::default(),
             prepared_constants: super::constants::PreparedConstants::default(),
             current_namespace: None,

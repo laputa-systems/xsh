@@ -5555,6 +5555,7 @@ const BLOCK_SEQUENCE_KIND_MASK: u8 = 1;
 impl_vec_codec!(BuildStmtId, BLOCK_STATEMENTS);
 impl_vec_codec!(BuildExprId, BLOCK_LIST);
 impl_vec_codec!((usize, BuildExprId), BLOCK_LIST);
+impl_vec_codec!(Option<BuildExprId>, BLOCK_LIST);
 impl_vec_codec!((bool, BuildExprId, Span), BLOCK_LIST);
 impl_vec_codec!(BuildPatternId, BLOCK_LIST);
 impl_vec_codec!(LoweredPipelineStage, BLOCK_LIST);
@@ -5811,6 +5812,11 @@ impl FullCodec for LoweredRecordEntry {
 impl FullCodec for LoweredCallArg {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         match self {
+            Self::Default(slot) => {
+                // This is a callable parameter index, not a caller frame slot.
+                output.push(2);
+                u32::try_from(*slot).map_err(|_| IrBuildError::format("argument_slot_overflow", None, 0, 0))?.encode(builder, output)
+            }
             Self::Single(value) => {
                 output.push(0);
                 value.encode(builder, output)
@@ -5829,6 +5835,7 @@ impl FullCodec for LoweredCallArg {
         match input.raw()? {
             0 => Ok(Self::Single(BuildExprId::decode(decoder, input)?)),
             1 => Ok(Self::Splice(BuildExprId::decode(decoder, input)?)),
+            2 => Ok(Self::Default(u32::decode(decoder, input)? as usize)),
             _ => Err(IrVerifyError::new("call argument tag is invalid")),
         }
     }
@@ -7376,7 +7383,7 @@ impl_node_codec! {
         } => BuildExprRow::ArchiveTarExtract { path, dest, span },
         BuildExprRow::ModuleCall { op, args, span } => ExprModuleCall {
             op: RuntimeOp,
-            args: Vec<BuildExprId>,
+            args: Vec<Option<BuildExprId>>,
             span: Span,
         } => BuildExprRow::ModuleCall { op, args, span },
         BuildExprRow::ProcessCommandArgv(value) => ExprProcessCommandArgv {

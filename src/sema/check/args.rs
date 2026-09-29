@@ -184,8 +184,8 @@ impl Checker {
                 Ok(binding) => for (arg, slot) in args.iter().zip(binding.argument_slots) {
                     let param = &params[slot];
                     let expected = if param.rest { match &param.ty { Type::List(item) => item.as_ref(), other => other } } else { &param.ty };
-                    if matches!(arg.kind, ArenaCallArgKind::Splice { .. }) {
-                        let actual = self.check_call_arg_arena(arena, source, &arg.kind, None);
+                    if let ArenaCallArgKind::Splice { value, .. } = arg.kind {
+                        let actual = self.check_expr_arena(arena, source, value, None);
                         self.expect_type(&Type::List(Box::new(expected.clone())), &actual, call_arg_span_arena(arena, &arg.kind));
                     } else {
                         let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(expected));
