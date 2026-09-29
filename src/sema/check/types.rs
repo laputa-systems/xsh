@@ -81,7 +81,7 @@ impl Checker {
         if matches!(ty, Type::Any) {
             return Type::Any;
         }
-        let Some((ok, _)) = result_types(ty) else {
+        let Some((ok, err)) = result_types(ty) else {
             self.error(
                 span,
                 "`?` can be applied only to Result values",
@@ -89,7 +89,38 @@ impl Checker {
             );
             return Type::Unknown;
         };
+        if let Some(errors) = self.error_boundary_errors.last_mut() { errors.push((err, span)); }
         ok
+    }
+
+    pub(super) fn begin_error_boundary(&mut self) {
+        self.retry_attempt_depth += 1;
+        self.error_boundary_errors.push(Vec::new());
+    }
+
+    pub(super) fn end_error_boundary(&mut self, expected: Option<&Type>) -> Type {
+        self.retry_attempt_depth -= 1;
+        let errors = self.error_boundary_errors.pop().expect("checked error boundary");
+        let mut inferred = expected.cloned();
+        for (error, span) in errors {
+            if let Some(current) = &inferred {
+                if error.matches_expected(current) { continue; }
+                if expected.is_none() && current.matches_expected(&error) { inferred = Some(error); continue; }
+                if expected.is_none() { inferred = Some(Type::Error); }
+                else { self.expect_type(current, &error, span); }
+            } else { inferred = Some(error); }
+        }
+        inferred.unwrap_or(Type::Error)
+    }
+
+    pub(super) fn record_statement_error(&mut self, ty: &Type, span: Span) {
+        if self.retry_attempt_depth == 0 { return; }
+        let error = match ty {
+            Type::Result(_, error) => Some(error.as_ref().clone()),
+            Type::Bool => Some(Type::Error),
+            _ => None,
+        };
+        if let (Some(errors), Some(error)) = (self.error_boundary_errors.last_mut(), error) { errors.push((error, span)); }
     }
 
     pub(super) fn reject_ignored_result(&mut self, ty: &Type, span: Span) {

@@ -1500,6 +1500,7 @@ enum BuildExprRow {
         target: BuildExprId,
         span: Span,
     },
+    Capture { body: Vec<BuildStmtId>, span: Span },
     ValueBlock { body: Vec<BuildStmtId>, span: Span },
     Loop {
         body: Vec<BuildStmtId>,

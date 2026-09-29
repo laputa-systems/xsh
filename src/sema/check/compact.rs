@@ -1132,6 +1132,14 @@ impl CompactBodyProbe<'_> {
                 self.check_compact_block(block);
                 Type::Unknown
             }
+            ArenaExprKind::Capture(block) => {
+                self.push_scope();
+                self.check_compact_block_in_current_scope(block);
+                let ty = self.compact_block_tail_type(block);
+                self.mark_tail_position(block, true);
+                self.pop_scope();
+                Type::Result(Box::new(ty), Box::new(Type::Error))
+            }
             ArenaExprKind::Retry { delays, block } => {
                 for delay in self.program.arena.expr_ids(delays) {
                     self.check_compact_expr(delay);

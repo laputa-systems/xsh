@@ -276,6 +276,7 @@ impl Checker {
             ArenaExprKind::Loop { block } => {
                 self.check_loop_arena(arena, source, *block, expr.span)
             }
+            ArenaExprKind::Capture(block) => self.check_capture_arena(arena, source, *block, expected, expr.span),
             ArenaExprKind::Retry { delays, block } => {
                 self.check_retry_arena(arena, source, *delays, *block, expr.span)
             }
@@ -722,6 +723,26 @@ impl Checker {
         Type::Unknown
     }
 
+    fn check_capture_arena(
+        &mut self, arena: &ArenaProgram, source: &str, block: BlockId,
+        expected: Option<&Type>, span: Span,
+    ) -> Type {
+        let (expected_ok, expected_error) = match expected {
+            Some(Type::Result(ok, error)) => (Some(ok.as_ref()), Some(error.as_ref())),
+            _ => (None, None),
+        };
+        self.push_scope();
+        self.begin_error_boundary();
+        let body = self.check_tail_block_arena(arena, source, block, expected_ok);
+        let error = self.end_error_boundary(expected_error);
+        self.pop_scope();
+        let body = if let Some(expected_ok) = expected_ok { if body == Type::Unknown { expected_ok.clone() } else { body } } else { body };
+        if matches!(body, Type::Unknown) {
+            self.error(span, "cannot infer try success type; annotate Result success type", "check.try-success-type");
+        }
+        Type::Result(Box::new(body), Box::new(error))
+    }
+
     fn check_retry_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -755,15 +776,15 @@ impl Checker {
         }
 
         self.push_scope();
-        self.retry_attempt_depth += 1;
+        self.begin_error_boundary();
         let body_ty = self.check_tail_block_arena(arena, source, block, None);
-        self.retry_attempt_depth -= 1;
+        let error_ty = self.end_error_boundary(None);
         self.pop_scope();
 
         match body_ty {
             Type::Result(ok, err) => Type::Result(ok, err),
             Type::Invalid | Type::Unknown => Type::Result(Box::new(body_ty), Box::new(Type::Error)),
-            ty => Type::Result(Box::new(ty), Box::new(Type::Error)),
+            ty => Type::Result(Box::new(ty), Box::new(error_ty)),
         }
     }
 

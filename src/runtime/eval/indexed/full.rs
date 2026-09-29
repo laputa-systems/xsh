@@ -160,6 +160,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprSpawnRun,
     ExprSpawnCommand,
     ExprWait,
+    ExprCapture,
     ExprValueBlock,
     ExprLoop,
     ExprRetry,
@@ -6979,6 +6980,9 @@ impl_node_codec! {
             target: BuildExprId,
             span: Span,
         } => BuildExprRow::Wait { target, span },
+        BuildExprRow::Capture { body, span } => ExprCapture {
+            body: Vec<BuildStmtId>, span: Span,
+        } => BuildExprRow::Capture { body, span },
         BuildExprRow::ValueBlock { body, span } => ExprValueBlock {
             body: Vec<BuildStmtId>, span: Span,
         } => BuildExprRow::ValueBlock { body, span },

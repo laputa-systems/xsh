@@ -1771,6 +1771,10 @@ impl<'a> Writer<'a> {
                 self.write_type(*schema, output);
                 output.push(')');
             }
+            ArenaExprKind::Capture(block) => {
+                output.push_str("try ");
+                self.write_block(*block, indent_for_expr(output), output);
+            }
             ArenaExprKind::ValueBlock(block) => self.write_block_contents(*block, indent_for_expr(output), output, true),
             ArenaExprKind::Loop { block } => {
                 output.push_str("loop ");

@@ -810,6 +810,12 @@ impl<'a> Parser<'a> {
                     bare_ident: None,
                 })
             }
+            (TokenTag::Keyword, Some(Keyword::Try)) => {
+                self.bump();
+                let block = self.parse_block_arena_only(arena)?;
+                let span = self.span(span.start(), self.previous_end());
+                Some(ArenaOnlyExpr { id: arena.push_capture_expr(block, span), span, bare_ident: None })
+            }
             (TokenTag::Keyword, Some(Keyword::Retry)) => {
                 self.parse_retry_expr_arena_only(span.start(), arena)
             }

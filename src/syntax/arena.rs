@@ -3099,6 +3099,10 @@ impl<'a> ArenaProgramBuilder<'a> {
         )
     }
 
+    pub fn push_capture_expr(&mut self, block: BlockId, span: Span) -> ExprId {
+        self.lowerer.push_expr_kind(ArenaExprKind::Capture(block), span)
+    }
+
     pub fn push_retry_expr(&mut self, delays: ArenaRange, block: BlockId, span: Span) -> ExprId {
         self.lowerer
             .push_expr_kind(ArenaExprKind::Retry { delays, block }, span)
@@ -4036,6 +4040,7 @@ impl AstArena {
                 value: ExprId::new(data.lhs as usize),
                 schema: TypeExprId::new(data.rhs as usize),
             },
+            ArenaExprTag::Capture => ArenaExprKind::Capture(BlockId::new(data.lhs as usize)),
             ArenaExprTag::ValueBlock => ArenaExprKind::ValueBlock(BlockId::new(data.lhs as usize)),
             ArenaExprTag::Loop => ArenaExprKind::Loop {
                 block: BlockId::new(data.lhs as usize),
@@ -5104,6 +5109,7 @@ pub enum ArenaExprTag {
     Wait,
     BuilderCall,
     Try,
+    Capture,
     Require,
     Loop,
     Retry,
@@ -5247,6 +5253,7 @@ pub enum ArenaExprKind {
         block: BuilderBlockId,
     },
     Try(ExprId),
+    Capture(BlockId),
     Require {
         value: ExprId,
         schema: TypeExprId,
@@ -6388,6 +6395,7 @@ impl ArenaLowerer<'_> {
                 ArenaExprTag::Require,
                 ArenaExprData::new(raw_expr_id(value), raw_type_expr_id(schema)),
             ),
+            ArenaExprKind::Capture(block) => (ArenaExprTag::Capture, ArenaExprData::new(raw_block_id(block), 0)),
             ArenaExprKind::ValueBlock(block) => (ArenaExprTag::ValueBlock, ArenaExprData::new(raw_block_id(block), 0)),
             ArenaExprKind::Loop { block } => (
                 ArenaExprTag::Loop,

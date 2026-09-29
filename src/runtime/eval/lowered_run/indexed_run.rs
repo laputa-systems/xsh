@@ -5293,6 +5293,21 @@ impl Evaluator {
                     },
                 )
             }
+            FullTag::ExprCapture => {
+                let body = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let header = Self::indexed_block_header(slots.len());
+                match self.eval_indexed_error_boundary_block(execution, body, &header, slots, span)? {
+                    StmtFlow::Value(value) => ControlFlow::Continue(LoweredValue::ResultOk(Box::new(value))),
+                    StmtFlow::None => ControlFlow::Continue(LoweredValue::ResultOk(Box::new(LoweredValue::Unit))),
+                    StmtFlow::Propagate(value) => {
+                        self.pending_traceback = None;
+                        ControlFlow::Continue(value)
+                    }
+                    flow => self.preserve_lexical_expression_flow(flow),
+                }
+            }
             FullTag::ExprValueBlock => {
                 let body = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
@@ -5371,7 +5386,7 @@ impl Evaluator {
                         }
                     }
                     let attempt_flow =
-                        self.eval_indexed_statement_block(execution, body, &header, slots, span)?;
+                        self.eval_indexed_error_boundary_block(execution, body, &header, slots, span)?;
                     if matches!(attempt_flow, StmtFlow::Continue | StmtFlow::Break(_)) {
                         self.pending_value_block_flow = Some(attempt_flow);
                         return Ok(ControlFlow::Break(LoweredValue::Unit));
@@ -7173,6 +7188,18 @@ impl Evaluator {
             (Err(error), _) => Err(error),
             (Ok(_), Err(error)) => Err(error),
             (Ok(flow), Ok(())) => Ok(flow),
+        }
+    }
+
+    fn eval_indexed_error_boundary_block(
+        &mut self, execution: &FullExecution<'_>, block: u32, header: &FunctionHeader,
+        slots: &mut [LoweredValue], span: Span,
+    ) -> Result<StmtFlow, RuntimeError> {
+        match self.eval_indexed_statement_block(execution, block, header, slots, span) {
+            Err(error) if error.abort.is_none() && error.kind == "assertion-failed" => {
+                Ok(StmtFlow::Propagate(LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))))
+            }
+            result => result,
         }
     }
 

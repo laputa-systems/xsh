@@ -482,6 +482,7 @@ impl Checker {
             ArenaStmtKind::Expr(expr_id) => {
                 let expected = matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ValueBlock(_)).then_some(Type::Unit);
                 let ty = self.check_expr_arena(arena, source, expr_id, expected.as_ref());
+                self.record_statement_error(&ty, stmt.span);
                 if !expr_ty_auto_propagates(&ty) {
                     let expr_span = arena.arena.expr(expr_id).span;
                     self.reject_ignored_result(&ty, expr_span);
@@ -1903,6 +1904,7 @@ impl Checker {
         if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
             let expected = matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ValueBlock(_)).then_some(Type::Unit);
             let ty = self.check_expr_arena(arena, source, expr_id, expected.as_ref());
+            self.record_statement_error(&ty, stmt.span);
             if expr_ty_auto_propagates(&ty) {
                 return;
             }
@@ -1936,6 +1938,7 @@ impl Checker {
                     if expr_ty_auto_propagates(&actual) { return Type::Unit; }
                     self.reject_ignored_result(&actual, arena.arena.expr(expr_id).span);
                 }
+                self.record_statement_error(&actual, stmt.span);
                 self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
                 return Type::Unit;
             }

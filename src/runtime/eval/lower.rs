@@ -2295,7 +2295,7 @@ fn compact_collect_expr_call_edges(
             compact_collect_expr_call_edges(program, key, namespace, index_of, edges);
             compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
         }
-        ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } | ArenaExprKind::Retry { block, .. } => {
+        ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } | ArenaExprKind::Retry { block, .. } => {
             compact_collect_block_call_edges(program, block, namespace, index_of, edges);
         }
         ArenaExprKind::BuilderCall { call, .. } => {
@@ -2692,6 +2692,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::Try(_) => 35,
         ArenaExprKind::Require { .. } => 36,
         ArenaExprKind::Loop { .. } => 37,
+        ArenaExprKind::Capture(_) => 42,
         ArenaExprKind::Retry { .. } => 38,
         ArenaExprKind::ValueBlock(_) => 39,
         ArenaExprKind::Regex(_) => 41,
@@ -2741,6 +2742,7 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
         ArenaExprKind::Try(_) => "try",
         ArenaExprKind::Require { .. } => "require",
         ArenaExprKind::Loop { .. } => "loop",
+        ArenaExprKind::Capture(_) => "try",
         ArenaExprKind::Retry { .. } => "retry",
         ArenaExprKind::ValueBlock(_) => "value_block",
         ArenaExprKind::Regex(_) => "regex_literal",
@@ -6034,7 +6036,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                     item_slot,
                 )?);
             }
-            let tail_stmt = if let Some(value) = self.lower_tail_stmt_as_expr(tail, slots, current_function, item_slot) {
+            let tail_stmt = if self.bodies.statement_positions.get(&tail) == Some(&crate::sema::check::StatementPosition::Statement) {
+                self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?
+            } else if let Some(value) = self.lower_tail_stmt_as_expr(tail, slots, current_function, item_slot) {
                 push_build_row!(self, stmt, BuildStmtRow::Value { value })
             } else {
                 self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?
@@ -8315,6 +8319,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                 item_slot,
                 span,
             ),
+            ArenaExprKind::Capture(block) => Some(push_build_row!(self, expr, BuildExprRow::Capture {
+                body: self.lower_retry_block(block, slots, current_function, item_slot)?, span,
+            })),
             ArenaExprKind::ValueBlock(block) => self.lower_block_value_expr(block, slots, current_function, item_slot),
             ArenaExprKind::Loop { block } => Some(push_build_row!(
                 self,
