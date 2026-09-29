@@ -297,42 +297,43 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
-        range: ArenaRange,
+        range: crate::syntax::arena::ArenaListElementRange,
         expected: Option<&Type>,
         _span: Span,
     ) -> Type {
-        let items: Vec<ExprId> = arena.arena.expr_ids(range).collect();
-        if items.is_empty() {
-            if let Some(Type::List(item)) = expected {
-                return Type::List(item.clone());
-            }
-            if let Some(Type::Any) = expected {
-                return Type::List(Box::new(Type::Any));
-            }
-            // Defer to context — empty list type is refined by later checks.
-            return Type::List(Box::new(Type::Unknown));
+        if range.is_empty() && matches!(expected, Some(Type::Any)) {
+            return Type::List(Box::new(Type::Any));
         }
-
-        if let Some(Type::List(item_ty)) = expected {
-            for &item in &items {
-                let actual = self.check_expr_arena(arena, source, item, Some(item_ty));
-                let item_span = arena.arena.expr(item).span;
-                self.expect_type(item_ty, &actual, item_span);
-            }
-            return Type::List(item_ty.clone());
-        }
-
-        let mut first = self.check_expr_arena(arena, source, items[0], None);
-        for &item in &items[1..] {
-            let item_ty = self.check_expr_arena(arena, source, item, None);
-            let item_span = arena.arena.expr(item).span;
-            if let Some(merged) = merge_list_literal_item_ty(&first, &item_ty) {
-                first = merged;
+        let expected_item = match expected { Some(Type::List(item)) => Some(item.as_ref()), _ => None };
+        let mut inferred = expected_item.cloned().unwrap_or(Type::Unknown);
+        for item in arena.arena.list_elements(range) {
+            let item_expected = expected_item;
+            let span = item.splice_span.map(|span| arena.arena.span(span)).unwrap_or(arena.arena.expr(item.value).span);
+            let actual = if item.splice_span.is_some() {
+                let list_expected = item_expected.cloned().map(|ty| Type::List(Box::new(ty)));
+                let actual = self.check_expr_arena(arena, source, item.value, list_expected.as_ref());
+                match actual {
+                    Type::List(ty) => *ty,
+                    Type::Unknown => Type::Unknown,
+                    _ => {
+                        self.error(span, "list literal splice requires List; handle Results explicitly and collect Streams explicitly", "check.list-splice-type");
+                        Type::Unknown
+                    }
+                }
             } else {
-                self.expect_type(&first, &item_ty, item_span);
+                self.check_expr_arena(arena, source, item.value, item_expected)
+            };
+            if inferred == Type::Unknown {
+                inferred = actual;
+            } else if let Some(expected_item) = expected_item {
+                self.expect_type(expected_item, &actual, span);
+            } else if let Some(merged) = merge_list_literal_item_ty(&inferred, &actual) {
+                inferred = merged;
+            } else {
+                self.expect_type(&inferred, &actual, span);
             }
         }
-        Type::List(Box::new(first))
+        Type::List(Box::new(inferred))
     }
 
     fn check_record_arena(

@@ -178,14 +178,15 @@ fn match_expr_structural(
             match_expr(p, *pe, t, *te, source, bindings)
         }
         (ArenaExprKind::List(pi), ArenaExprKind::List(ti)) => {
-            let pitems: Vec<ExprId> = p.expr_ids(*pi).collect();
-            let titems: Vec<ExprId> = t.expr_ids(*ti).collect();
+            let pitems: Vec<_> = p.list_elements(*pi).collect();
+            let titems: Vec<_> = t.list_elements(*ti).collect();
             if pitems.len() != titems.len() {
                 return false;
             }
             let mut b2 = bindings.clone();
             for (pe, te) in pitems.into_iter().zip(titems) {
-                if !match_expr(p, pe, t, te, source, &mut b2) {
+                if pe.splice_span.is_some() != te.splice_span.is_some()
+                    || !match_expr(p, pe.value, t, te.value, source, &mut b2) {
                     return false;
                 }
             }

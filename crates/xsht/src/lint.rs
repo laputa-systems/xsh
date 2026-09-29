@@ -23,12 +23,20 @@ use xsh::frontend::syntax::node::{
     parse_command_word_reference,
 };
 
+fn list_splice_element_type_is_precise(ty: &Type) -> bool {
+    match ty {
+        Type::Bool | Type::Int | Type::Float | Type::Duration | Type::Str | Type::Bytes | Type::Path => true,
+        Type::List(item) => list_splice_element_type_is_precise(item),
+        _ => false,
+    }
+}
+
 fn list_update_argument_stable(arena: &AstArena, expr: ExprId) -> bool {
     match arena.expr(expr).kind {
         ArenaExprKind::Ident(_) | ArenaExprKind::Int(_) | ArenaExprKind::Str(_)
         | ArenaExprKind::Bool(_) | ArenaExprKind::Null | ArenaExprKind::PathStr(_)
         | ArenaExprKind::Float(_) | ArenaExprKind::Bytes(_) => true,
-        ArenaExprKind::List(items) => arena.expr_ids(items).all(|item| list_update_argument_stable(arena, item)),
+        ArenaExprKind::List(items) => arena.list_element_exprs(items).all(|item| list_update_argument_stable(arena, item)),
         _ => false,
     }
 }
@@ -3270,6 +3278,69 @@ impl<'a> Linter<'a> {
         );
     }
 
+    fn collect_list_splice_parts(&self, expr: ExprId, expected: &Type, parts: &mut Vec<(bool, ExprId)>, links: &mut usize, literal: &mut bool) -> Option<()> {
+        let node = self.arena.expr(expr);
+        if self.expr_types.get(&node.span)? != expected { return None; }
+        match node.kind {
+            ArenaExprKind::Binary { op: BinaryOp::Add, left, right } => {
+                *links += 1;
+                self.collect_list_splice_parts(left, expected, parts, links, literal)?;
+                self.collect_list_splice_parts(right, expected, parts, links, literal)?;
+            }
+            ArenaExprKind::Call { callee, args } => {
+                if let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind
+                    && name == "extend" && args.len() == 1
+                    && let ArenaCallArgKind::Positional(value) = self.arena.call_args(args)[0].kind
+                {
+                    *links += 1;
+                    self.collect_list_splice_parts(base, expected, parts, links, literal)?;
+                    self.collect_list_splice_parts(value, expected, parts, links, literal)?;
+                } else { parts.push((true, expr)); }
+            }
+            ArenaExprKind::List(items) => {
+                *literal = true;
+                let Type::List(element) = expected else { return None; };
+                for item in self.arena.list_elements(items) {
+                    let item_expected = if item.splice_span.is_some() { expected } else { element.as_ref() };
+                    if self.expr_types.get(&self.arena.expr(item.value).span)? != item_expected { return None; }
+                    parts.push((item.splice_span.is_some(), item.value));
+                }
+            }
+            _ => parts.push((true, expr)),
+        }
+        Some(())
+    }
+
+    fn lint_list_splicing(&mut self, expr: ExprId) {
+        let node = self.arena.expr(expr);
+        if !matches!(node.kind, ArenaExprKind::Binary { op: BinaryOp::Add, .. } | ArenaExprKind::Call { .. }) { return; }
+        let Some(expected @ Type::List(element)) = self.expr_types.get(&node.span) else { return; };
+        if !list_splice_element_type_is_precise(element) { return; }
+        let mut parts = Vec::new();
+        let mut links = 0;
+        let mut literal = false;
+        if self.collect_list_splice_parts(expr, expected, &mut parts, &mut links, &mut literal).is_none()
+            || links == 0 || (links == 1 && !literal)
+        { return; }
+        // A simple receiver update already has a compound-assignment spelling.
+        if links == 1 && matches!(node.kind, ArenaExprKind::Call { .. }) { return; }
+        let Some(source) = self.source.get(node.span.range()) else { return; };
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "prefer one list literal with explicit splices for list construction")
+            .with_code("lint.prefer-list-splicing")
+            .with_label(Label::secondary(node.span, "build the elements in one literal"));
+        if source.contains('#') {
+            diagnostic = diagnostic.with_note("comments in the construction require a manual rewrite");
+        } else {
+            let mut entries = Vec::with_capacity(parts.len());
+            for (splice, value) in parts {
+                let Some(source) = self.source.get(self.arena.expr(value).span.range()) else { return; };
+                entries.push(if splice { format!("@{source}") } else { source.to_string() });
+            }
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(node.span, "build one spliced list literal", format!("[{}]", entries.join(", "))));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
     fn lint_join_to_concat(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
         let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
             return;
@@ -3280,6 +3351,7 @@ impl<'a> Linter<'a> {
         let ArenaExprKind::List(items) = self.arena.expr(base).kind else {
             return;
         };
+        if self.arena.list_elements(items).any(|item| item.splice_span.is_some()) { return; }
         let separator_is_empty = args.is_empty()
             || {
                 match self.arena.call_args(args).first().map(|a| a.kind.clone()) {
@@ -3297,7 +3369,7 @@ impl<'a> Linter<'a> {
         }
         let replacement = self
             .arena
-            .expr_ids(items)
+            .list_element_exprs(items)
             .map(|item| {
                 let s = self.arena.expr(item).span;
                 &self.source[s.start()..s.end()]
@@ -4199,7 +4271,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
                 }
             }
         }
-        ArenaExprKind::List(items) => out.extend(arena.expr_ids(items)),
+        ArenaExprKind::List(items) => out.extend(arena.list_element_exprs(items)),
         ArenaExprKind::ListComp { expr, qualifiers } => { out.extend(arena.comp_qualifiers(qualifiers).iter().map(|q| q.expr())); out.push(expr); }
         ArenaExprKind::MapComp { key, value, qualifiers } => { out.extend(arena.comp_qualifiers(qualifiers).iter().map(|q| q.expr())); out.push(key); out.push(value); }
         ArenaExprKind::Record(fields) => {
@@ -4612,7 +4684,7 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
     let refs = |id: ExprId| expr_references_name(arena, id, name);
     match arena.expr(expr).kind {
         ArenaExprKind::Ident(candidate) => candidate == name,
-        ArenaExprKind::List(items) => arena.expr_ids(items).any(refs),
+        ArenaExprKind::List(items) => arena.list_element_exprs(items).any(refs),
         ArenaExprKind::ListComp { expr, qualifiers } => refs(expr) || arena.comp_qualifiers(qualifiers).iter().any(|q| refs(q.expr())),
         ArenaExprKind::MapComp { key, value, qualifiers } => refs(key) || refs(value) || arena.comp_qualifiers(qualifiers).iter().any(|q| refs(q.expr())),
         ArenaExprKind::Record(fields) => {
@@ -4980,7 +5052,7 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
                             .is_some_and(|block| block_contains_read_text_lines_call(arena, block))
                 })
         }
-        ArenaExprKind::List(items) => arena.expr_ids(items).any(rec),
+        ArenaExprKind::List(items) => arena.list_element_exprs(items).any(rec),
         ArenaExprKind::ListComp { expr, qualifiers } => rec(expr) || arena.comp_qualifiers(qualifiers).iter().any(|q| rec(q.expr())),
         ArenaExprKind::MapComp { key, value, qualifiers } => rec(key) || rec(value) || arena.comp_qualifiers(qualifiers).iter().any(|q| rec(q.expr())),
         ArenaExprKind::Record(fields) => {
@@ -5223,6 +5295,7 @@ impl LintExprVisitor<'_, '_> {
 
     fn visit_expr(&mut self, expr: ExprId) {
         if !self.suppress_expr_autofixes {
+            self.linter.lint_list_splicing(expr);
             self.linter.lint_comparison_chain(expr);
 
             self.linter.lint_optional_postfix(expr);
@@ -5255,7 +5328,7 @@ impl LintExprVisitor<'_, '_> {
                 }
             }
             ArenaExprKind::List(items) => {
-                for item in arena.expr_ids(items).collect::<Vec<_>>() {
+                for item in arena.list_element_exprs(items).collect::<Vec<_>>() {
                     self.visit_expr(item);
                 }
             }
@@ -5974,7 +6047,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::GlobStr(_)
         | ArenaExprKind::Bytes(_) => true,
         ArenaExprKind::List(items) => arena
-            .expr_ids(items)
+            .list_element_exprs(items)
             .all(|item| is_safe_const_expr(arena, item)),
         ArenaExprKind::Record(fields) => {
             arena
@@ -6054,7 +6127,7 @@ fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => arena
             .fmt_parts(parts)
             .any(|part| matches!(part, ArenaFmtPart::Expr(expr, _) if expr_may_have_effects(arena, expr))),
-        ArenaExprKind::List(items) => arena.expr_ids(items).any(|item| expr_may_have_effects(arena, item)),
+        ArenaExprKind::List(items) => arena.list_element_exprs(items).any(|item| expr_may_have_effects(arena, item)),
         ArenaExprKind::Record(fields) => arena.record_fields(fields).iter().any(|field| match field.kind {
             ArenaRecordFieldKind::Named { value, .. } => expr_may_have_effects(arena, value),
             ArenaRecordFieldKind::Spread { expr, .. } => expr_may_have_effects(arena, expr),
@@ -6402,7 +6475,7 @@ fn collect_expr_effects(
             collect_expr_effects(arena, index, effects, proc_effects);
         }
         ArenaExprKind::List(items) => {
-            for item in arena.expr_ids(items).collect::<Vec<_>>() {
+            for item in arena.list_element_exprs(items).collect::<Vec<_>>() {
                 collect_expr_effects(arena, item, effects, proc_effects);
             }
         }
@@ -7174,7 +7247,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             }
             ArenaExprKind::Ident(name) => self.add_dynamic_unqualified(name),
             ArenaExprKind::List(items) => {
-                for item in self.arena().expr_ids(items).collect::<Vec<_>>() {
+                for item in self.arena().list_element_exprs(items).collect::<Vec<_>>() {
                     self.scan_expr(item);
                 }
             }
@@ -7872,7 +7945,7 @@ fn expr_flow(
                 ArenaFmtPart::Text(_) => flow,
             }),
         ArenaExprKind::List(items) => arena
-            .expr_ids(items)
+            .list_element_exprs(items)
             .fold(FlowSummary::fallthrough(), |flow, item| {
                 flow.then(expr_flow(arena, item, terminating_call_spans))
             }),

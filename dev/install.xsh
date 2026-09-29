@@ -87,7 +87,7 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
     let source = fp"${ctx.target_dir}/${ctx.target.triple}/release/${product}"
     let destination = fp"${destination_dir}/${product}"
     fs.install(source, destination, 0o755, parents: true, overwrite: true)?
-    let codesign_argv = ["codesign", "-fs", "-"].extend(signing_flags).push(destination.display())
+    let codesign_argv = ["codesign", "-fs", "-", @signing_flags, destination.display()]
     stages.execute(
       stages.command(
         "install-darwin-codesign",

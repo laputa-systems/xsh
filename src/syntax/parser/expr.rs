@@ -6,7 +6,7 @@ use super::{
     Parser, StreamStageKind, TokenKindMatch, TokenTag, UnaryOp, decode_bytes_literal_for, literal,
 };
 use crate::syntax::arena::{
-    ArenaCompQualifier, ArenaCallArgInput, ArenaExprKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgramBuilder,
+    ArenaCompQualifier, ArenaCallArgInput, ArenaListElementInput, ArenaExprKind, ArenaPipeStage, ArenaPipeStageKind, ArenaProgramBuilder,
     ArenaRange, ArenaRecordFieldInput, ArenaStreamStage, BlockId, ExprId,
 };
 use std::sync::Arc;
@@ -928,6 +928,7 @@ impl<'a> Parser<'a> {
             (TokenTag::LBrace, _) => self.parse_record_arena_only(arena),
             (TokenTag::LParen, _) => {
                 self.bump();
+                self.skip_newlines();
                 // A grouped expression owns its closing delimiter, including run argv.
                 self.parenthesized_expr_depth += 1;
                 let expr = self.parse_precedence_arena_only(0, arena);
@@ -1019,37 +1020,41 @@ impl<'a> Parser<'a> {
                 bare_ident: None,
             });
         }
+        let first_start = self.current_start();
+        let first_splice = self.consume(TokenKindMatch::At).is_some();
+        self.skip_comp_layout();
         let first = self.parse_precedence_arena_only(0, arena)?;
         self.skip_comp_layout();
-        if self.at_keyword(Keyword::For) {
+        if self.at_keyword(Keyword::For) && !first_splice {
             return self.parse_list_comp_arena_only(arena, start, first.id);
         }
-        arena.begin_expr_ids();
-        arena.push_expr_id_input(first.id);
+        arena.begin_list_elements();
+        arena.push_list_element_input(ArenaListElementInput {
+            value: first.id,
+            splice_span: first_splice.then(|| self.span(first_start, first.span.end())),
+        });
         while self.consume(TokenKindMatch::Comma).is_some() {
             self.skip_comp_layout();
-            if self.at(TokenKindMatch::RBracket) || self.at(TokenKindMatch::Eof) {
-                break;
-            }
+            if self.at(TokenKindMatch::RBracket) || self.at(TokenKindMatch::Eof) { break; }
+            let item_start = self.current_start();
+            let splice = self.consume(TokenKindMatch::At).is_some();
+            self.skip_comp_layout();
             let Some(item) = self.parse_precedence_arena_only(0, arena) else {
-                arena.discard_expr_ids();
+                arena.discard_list_elements();
                 return None;
             };
-            arena.push_expr_id_input(item.id);
+            arena.push_list_element_input(ArenaListElementInput {
+                value: item.id,
+                splice_span: splice.then(|| self.span(item_start, item.span.end())),
+            });
             self.skip_comp_layout();
         }
         self.skip_comp_layout();
-        let end = self
-            .expect(TokenKindMatch::RBracket, "expected `]` after list")
-            .map(|span| span.end())
-            .unwrap_or_else(|| self.previous_end());
-        let items = arena.finish_expr_ids();
+        let end = self.expect(TokenKindMatch::RBracket, "expected `]` after list")
+            .map(|span| span.end()).unwrap_or_else(|| self.previous_end());
+        let items = arena.finish_list_elements();
         let span = self.span(start, end);
-        Some(ArenaOnlyExpr {
-            id: arena.push_list_expr_range(items, span),
-            span,
-            bare_ident: None,
-        })
+        Some(ArenaOnlyExpr { id: arena.push_list_elements(items, span), span, bare_ident: None })
     }
 
     fn parse_list_comp_arena_only(

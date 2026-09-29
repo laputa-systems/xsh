@@ -212,6 +212,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "pure-functions",
     "records",
     "list-concatenation",
+    "list-splicing",
     "slicing",
     "results",
     "pattern-tests",
@@ -776,6 +777,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "list-concatenation" => (
             "Concatenates lists while preserving value semantics.",
             "`left + right` concatenates compatible List values in encounter order. `items += more` updates a mutable target; append one item with `items += [item]`. Empty lists use the expected element type, selectors and operands evaluate once, and earlier aliases retain their contents. The push and extend methods remain available for expression chains.",
+        ),
+        "list-splicing" => (
+            "Builds lists from ordinary elements and explicit List splices.",
+            "`[head, @middle, tail, @more]` inserts each spliced List in encounter order; an ordinary List-valued element remains nested. Elements and splice operands evaluate once from left to right, and propagation stops before later elements. Empty lists retain contextual element types and earlier aliases remain independent. Results require explicit handling such as `@(flags()?)`; Streams require explicit collect. Str, Bytes, Map, Any, comprehension clauses, and call argument unpacking are not splice operands.",
         ),
         "slicing" => (
             "Selects half-open List, Str, and Bytes ranges.",

@@ -1064,10 +1064,14 @@ impl CompactBodyProbe<'_> {
         ty
     }
 
-    fn check_compact_list(&mut self, range: crate::syntax::arena::ArenaRange) -> Type {
+    fn check_compact_list(&mut self, range: crate::syntax::arena::ArenaListElementRange) -> Type {
         let mut item_ty = None;
-        for item in self.program.arena.expr_ids(range) {
-            item_ty = Some(merge_types(item_ty, self.check_compact_expr(item)));
+        for item in self.program.arena.list_elements(range) {
+            let ty = self.check_compact_expr(item.value);
+            let ty = if item.splice_span.is_some() {
+                match ty { Type::List(inner) => *inner, _ => Type::Unknown }
+            } else { ty };
+            item_ty = Some(merge_types(item_ty, ty));
         }
         Type::List(Box::new(item_ty.unwrap_or(Type::Unknown)))
     }

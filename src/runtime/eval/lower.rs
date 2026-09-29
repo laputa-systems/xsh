@@ -2177,7 +2177,7 @@ fn compact_collect_expr_call_edges(
             }
         }
         ArenaExprKind::List(items) => {
-            for item in program.arena.expr_ids(items) {
+            for item in program.arena.list_element_exprs(items) {
                 compact_collect_expr_call_edges(program, item, namespace, index_of, edges);
             }
         }
@@ -3005,8 +3005,15 @@ fn lower_const_param_default(
         ArenaExprKind::Bytes(value) => LoweredValue::Bytes(arena.bytes_literal(value).clone()),
         ArenaExprKind::List(items) => {
             let mut values = Vec::new();
-            for item in arena.expr_ids(items) {
-                values.push(lower_const_param_default(arena, item, LoweredType::Any)?);
+            for item in arena.list_elements(items) {
+                let value = lower_const_param_default(arena, item.value, LoweredType::Any)?;
+                if item.splice_span.is_some() {
+                    match value {
+                        LoweredValue::List(items) => values.extend(items),
+                        LoweredValue::SharedList(items) => values.extend(items.iter().cloned()),
+                        _ => return None,
+                    }
+                } else { values.push(value); }
             }
             LoweredValue::List(values)
         }
@@ -4673,9 +4680,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let item_types: Vec<Type> = self
                     .program
                     .arena
-                    .expr_ids(items)
-                    .filter_map(|item| self.infer_checked_expr_type_with_slots(item, slots))
-                    .map(|ty| ty.result_ok().cloned().unwrap_or(ty))
+                    .list_elements(items)
+                    .filter_map(|item| {
+                        let ty = self.infer_checked_expr_type_with_slots(item.value, slots)?;
+                        if item.splice_span.is_some() {
+                            match ty { Type::List(inner) => Some(*inner), _ => None }
+                        } else { Some(ty.result_ok().cloned().unwrap_or(ty)) }
+                    })
                     .collect();
                 let Some(first) = item_types.first().cloned() else {
                     return Some(Type::List(Box::new(Type::Any)));
@@ -7672,12 +7683,22 @@ impl CompactLowerConstructProbe<'_, '_> {
                 self.lower_record(fields, slots, current_function, item_slot)
             }
             ArenaExprKind::List(items) => {
-                let items = self.program.arena.expr_ids(items).collect::<Vec<_>>();
-                let mut lowered = Vec::with_capacity(items.len());
-                for item in items {
-                    lowered.push(self.lower_expr(item, slots, current_function, item_slot)?);
+                let items = self.program.arena.list_elements(items).collect::<Vec<_>>();
+                if items.iter().any(|item| item.splice_span.is_some()) {
+                    let mut lowered = Vec::with_capacity(items.len());
+                    for item in items {
+                        let item_span = item.splice_span.map(|span| self.program.arena.span(span))
+                            .unwrap_or(self.program.arena.expr(item.value).span);
+                        lowered.push((item.splice_span.is_some(), self.lower_expr(item.value, slots, current_function, item_slot)?, item_span));
+                    }
+                    Some(push_build_row!(self, expr, BuildExprRow::ListBuild(lowered)))
+                } else {
+                    let mut lowered = Vec::with_capacity(items.len());
+                    for item in items {
+                        lowered.push(self.lower_expr(item.value, slots, current_function, item_slot)?);
+                    }
+                    Some(push_build_row!(self, expr, BuildExprRow::List(lowered)))
                 }
-                Some(push_build_row!(self, expr, BuildExprRow::List(lowered)))
             }
             ArenaExprKind::ListComp { expr: body, qualifiers } => {
                 let saved = slots.enter();
@@ -11251,7 +11272,8 @@ impl CompactLowerConstructProbe<'_, '_> {
             let ArenaExprKind::List(items) = self.program.arena.expr(*value).kind else {
                 return None;
             };
-            for item in self.program.arena.expr_ids(items) {
+            if self.program.arena.list_elements(items).any(|item| item.splice_span.is_some()) { return None; }
+            for item in self.program.arena.list_element_exprs(items) {
                 let ArenaExprKind::Str(s) = self.program.arena.expr(item).kind else {
                     return None;
                 };

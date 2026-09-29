@@ -3371,3 +3371,13 @@ fn checker_map_iteration_preserves_entry_types_and_error_boundaries() {
         assert!(has_code(&diagnostics, code), "{source}: {diagnostics:?}");
     }
 }
+
+#[test]
+fn checker_list_splice_errors_cover_the_original_splice_span() {
+    let source = "let values = [@\"wrong\"]\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty());
+    let checked = Checker::check_arena(&parsed.arena, source);
+    let diagnostic = checked.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.list-splice-type")).expect("splice domain diagnostic");
+    assert!(diagnostic.labels.iter().any(|label| &source[label.span.range()] == "@\"wrong\""));
+}

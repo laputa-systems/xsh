@@ -228,3 +228,17 @@ fn guarded_postfix_structural_matching_retains_each_guard() {
         assert!(!stdout.contains(excluded), "{stdout}");
     }
 }
+
+#[test]
+fn grep_list_splicing_distinguishes_spliced_and_nested_elements() {
+    let root = TempDir::new().expect("create temp root");
+    let file = root.path().join("list-splicing.xsh");
+    fs::write(&file, "let source = [1]\nlet nested = [source]\nlet spliced = [@source]\n").expect("write list fixture");
+    for (pattern, expected, excluded) in [("[@EXPR]", "[@source]", "[source]"), ("[EXPR]", "[source]", "[@source]")] {
+        let output = grep_scripts(pattern, &paths(&file));
+        let stdout = output_text(&output.stdout);
+        assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+        assert!(stdout.contains(expected), "{stdout}");
+        assert!(!stdout.contains(excluded), "{stdout}");
+    }
+}

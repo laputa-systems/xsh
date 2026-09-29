@@ -125,6 +125,15 @@ OS-facing operations remain explicit indexed host-operation boundaries. The
 normal script runner and native-test harness execute the same verified indexed
 representation. There is no arena execution mode or compatibility interpreter.
 
+List literals retain typed `ArenaListElementRange` entries with a child expression
+and optional splice span. Traversal-only owners use `list_element_exprs`; owners
+that interpret elements use `list_elements` so scalar nesting cannot be lost.
+Mixed literals lower to `BuildExprRow::ListBuild` and `FullTag::ExprListBuild`.
+The indexed executor appends each evaluated scalar or List into one output vector,
+checks capacity before extending, and stops before subsequent elements on failure.
+Ordinary literals keep their existing indexed representation and singleton update
+optimization.
+
 List and map comprehensions retain one ordered `ArenaCompQualifier` range.
 `LoweredCompQualifiers` verifies that the sequence starts with a loop;
 `explicit_run.rs::ListCompState` holds nested iterators and resumes clauses in

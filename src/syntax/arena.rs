@@ -205,6 +205,28 @@ impl ArenaRange {
     }
 }
 
+/// List elements have their own range so expression walkers must account for
+/// splicing rather than treating a spliced list as one nested element.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ArenaListElementRange(ArenaRange);
+
+impl ArenaListElementRange {
+    pub fn len(self) -> usize { self.0.len() / 2 }
+    pub fn is_empty(self) -> bool { self.0.is_empty() }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ArenaListElement {
+    pub value: ExprId,
+    pub splice_span: Option<SpanId>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ArenaListElementInput {
+    pub value: ExprId,
+    pub splice_span: Option<Span>,
+}
+
 // Keep the cold collection at one pointer wide when absent; boxing the Vec
 // preserves that layout and avoids allocating storage for the common empty case.
 #[allow(clippy::box_collection)]
@@ -744,6 +766,8 @@ pub struct ArenaProgramBuilder<'a> {
     call_arg_input_starts: Vec<usize>,
     if_expr_branch_inputs: Vec<ArenaIfExprBranch>,
     if_expr_branch_input_starts: Vec<usize>,
+    list_element_inputs: Vec<ArenaListElementInput>,
+    list_element_input_starts: Vec<usize>,
     expr_id_inputs: Vec<ExprId>,
     expr_id_input_starts: Vec<usize>,
     match_arm_inputs: Vec<ArenaMatchArm>,
@@ -803,6 +827,8 @@ impl<'a> ArenaProgramBuilder<'a> {
             call_arg_input_starts: Vec::new(),
             if_expr_branch_inputs: Vec::with_capacity(tokens / 64 + 1),
             if_expr_branch_input_starts: Vec::new(),
+            list_element_inputs: Vec::with_capacity(tokens / 32 + 1),
+            list_element_input_starts: Vec::new(),
             expr_id_inputs: Vec::with_capacity(tokens / 32 + 1),
             expr_id_input_starts: Vec::new(),
             match_arm_inputs: Vec::with_capacity(tokens / 64 + 1),
@@ -863,6 +889,8 @@ impl<'a> ArenaProgramBuilder<'a> {
             call_arg_input_starts: Vec::new(),
             if_expr_branch_inputs: Vec::with_capacity(tokens / 64 + 1),
             if_expr_branch_input_starts: Vec::new(),
+            list_element_inputs: Vec::with_capacity(tokens / 32 + 1),
+            list_element_input_starts: Vec::new(),
             expr_id_inputs: Vec::with_capacity(tokens / 32 + 1),
             expr_id_input_starts: Vec::new(),
             match_arm_inputs: Vec::with_capacity(tokens / 64 + 1),
@@ -1165,6 +1193,26 @@ impl<'a> ArenaProgramBuilder<'a> {
             .pop()
             .expect("discard_if_expr_branches called without begin_if_expr_branches");
         self.if_expr_branch_inputs.truncate(start);
+    }
+
+    pub fn begin_list_elements(&mut self) {
+        self.list_element_input_starts.push(self.list_element_inputs.len());
+    }
+
+    pub fn push_list_element_input(&mut self, element: ArenaListElementInput) {
+        self.list_element_inputs.push(element);
+    }
+
+    pub fn finish_list_elements(&mut self) -> ArenaListElementRange {
+        let start = self.list_element_input_starts.pop().expect("list element scope");
+        let range = self.lowerer.lower_list_element_range(&self.list_element_inputs[start..]);
+        self.list_element_inputs.truncate(start);
+        range
+    }
+
+    pub fn discard_list_elements(&mut self) {
+        let start = self.list_element_input_starts.pop().expect("list element scope");
+        self.list_element_inputs.truncate(start);
     }
 
     pub fn begin_expr_ids(&mut self) {
@@ -2833,8 +2881,14 @@ impl<'a> ArenaProgramBuilder<'a> {
     }
 
     pub fn push_list_expr_range(&mut self, items: ArenaRange, span: Span) -> ExprId {
-        self.lowerer
-            .push_expr_kind(ArenaExprKind::List(items), span)
+        let items = self.lowerer.arena.expr_ids(items)
+            .map(|value| ArenaListElementInput { value, splice_span: None }).collect::<Vec<_>>();
+        let range = self.lowerer.lower_list_element_range(&items);
+        self.push_list_elements(range, span)
+    }
+
+    pub fn push_list_elements(&mut self, items: ArenaListElementRange, span: Span) -> ExprId {
+        self.lowerer.push_expr_kind(ArenaExprKind::List(items), span)
     }
 
     pub fn push_comp_qualifiers(&mut self, qualifiers: Vec<ArenaCompQualifier>) -> ArenaRange {
@@ -3739,7 +3793,7 @@ impl AstArena {
             }
             ArenaExprTag::Item => ArenaExprKind::Item,
             ArenaExprTag::LastStatus => ArenaExprKind::LastStatus,
-            ArenaExprTag::List => ArenaExprKind::List(range_from_data(data)),
+            ArenaExprTag::List => ArenaExprKind::List(ArenaListElementRange(range_from_data(data))),
             ArenaExprTag::ListComp => {
                 let raw = range_slice(&self.extra, range_from_data(data));
                 ArenaExprKind::ListComp {
@@ -4007,6 +4061,19 @@ impl AstArena {
             .iter()
             .copied()
             .map(|index| StmtId::new(index as usize))
+    }
+
+    pub fn list_elements(&self, range: ArenaListElementRange) -> impl Iterator<Item = ArenaListElement> + '_ {
+        self.extra_range(range.0).chunks_exact(2).map(|words| ArenaListElement {
+            value: ExprId::new(words[0] as usize),
+            splice_span: (words[1] != 0).then(|| SpanId::new(words[1] as usize - 1)),
+        })
+    }
+
+    /// Visits the expressions evaluated by a literal, retaining their order.
+    /// Use `list_elements` when the operation depends on whether an item splices.
+    pub fn list_element_exprs(&self, range: ArenaListElementRange) -> impl Iterator<Item = ExprId> + '_ {
+        self.list_elements(range).map(|item| item.value)
     }
 
     pub fn expr_ids(&self, range: ArenaRange) -> impl Iterator<Item = ExprId> + '_ {
@@ -4987,7 +5054,7 @@ pub enum ArenaExprKind {
     Ident(Name),
     Item,
     LastStatus,
-    List(ArenaRange),
+    List(ArenaListElementRange),
     ListComp {
         expr: ExprId,
         qualifiers: ArenaRange,
@@ -5714,6 +5781,17 @@ impl ArenaLowerer<'_> {
         Self::pushed_range(&mut self.arena.match_arms, start)
     }
 
+    fn lower_list_element_range(&mut self, items: &[ArenaListElementInput]) -> ArenaListElementRange {
+        let start = self.arena.extra.len();
+        for item in items {
+            let splice_span = item.splice_span.map(|span| {
+                u32::try_from(self.span(span).index() + 1).expect("AST splice span exceeds u32")
+            }).unwrap_or(0);
+            self.arena.extra.extend_from_slice(&[item.value.index() as u32, splice_span]);
+        }
+        ArenaListElementRange(self.pushed_extra_range(start))
+    }
+
     fn lower_expr_id_range(&mut self, exprs: &[ExprId]) -> ArenaRange {
         let start = self.arena.extra.len();
         self.arena
@@ -6058,7 +6136,7 @@ impl ArenaLowerer<'_> {
             ),
             ArenaExprKind::Item => (ArenaExprTag::Item, ArenaExprData::ZERO),
             ArenaExprKind::LastStatus => (ArenaExprTag::LastStatus, ArenaExprData::ZERO),
-            ArenaExprKind::List(range) => (ArenaExprTag::List, range_data(range)),
+            ArenaExprKind::List(range) => (ArenaExprTag::List, range_data(range.0)),
             ArenaExprKind::ListComp {
                 expr,
                 qualifiers,

@@ -194,7 +194,7 @@ proc main(name: Str) [fs, error] -> Result[Unit] {
         kind => panic!("expected nums let, got {kind:?}"),
     };
     let item_ids: Vec<_> = match &arena.expr(nums_expr).kind {
-        ArenaExprKind::List(range) => arena.expr_ids(*range).collect(),
+        ArenaExprKind::List(range) => arena.list_element_exprs(*range).collect(),
         kind => panic!("expected list expression, got {kind:?}"),
     };
     let values: Vec<_> = item_ids
@@ -824,7 +824,7 @@ let spaced = 1 / 2
             };
             assert!(
                 arena
-                    .expr_ids(items)
+                    .list_element_exprs(items)
                     .all(|id| matches!(arena.expr(id).kind, ArenaExprKind::PathStr(_)))
             );
         } else {
@@ -1333,7 +1333,7 @@ let commands = [1, run true ?, wait h?]
     let ArenaExprKind::List(values) = arena.expr(root_let_init_expr(&output, 1)).kind else {
         panic!("expected list literal");
     };
-    let values: Vec<_> = arena.expr_ids(values).collect();
+    let values: Vec<_> = arena.list_element_exprs(values).collect();
     assert_eq!(values.len(), 5);
     assert!(matches!(
         arena.expr(values[1]).kind,
@@ -1355,7 +1355,7 @@ let commands = [1, run true ?, wait h?]
     let ArenaExprKind::List(commands) = arena.expr(root_let_init_expr(&output, 2)).kind else {
         panic!("expected list literal");
     };
-    let commands: Vec<_> = arena.expr_ids(commands).collect();
+    let commands: Vec<_> = arena.list_element_exprs(commands).collect();
     assert_eq!(commands.len(), 3);
     assert!(matches!(
         arena.expr(commands[1]).kind,
@@ -3498,4 +3498,22 @@ fn parser_keeps_type_pattern_match_arms_after_unbraced_values() {
     let source = "pure describe(failure: Error) -> Str {\n  match failure {\n    is PermissionDenied => return \"permission_denied\"\n    is NotFound => return \"not_found\"\n    _ => return \"other\"\n  }\n}\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+}
+
+#[test]
+fn list_literal_splices_retain_element_and_splice_spans() {
+    let source = "let values = [1, @more, @[2],]\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let arena = &parsed.arena.arena;
+    let ArenaExprKind::List(items) = arena.expr(root_let_init_expr(&parsed, 0)).kind else { panic!("list"); };
+    let items: Vec<_> = arena.list_elements(items).collect();
+    assert_eq!(items.len(), 3);
+    assert!(items[0].splice_span.is_none());
+    assert_eq!(&source[arena.span(items[1].splice_span.unwrap()).range()], "@more");
+    assert_eq!(&source[arena.span(items[2].splice_span.unwrap()).range()], "@[2]");
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty());
+    assert!(formatted.formatted.contains("@more"));
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
 }

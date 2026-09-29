@@ -25,6 +25,24 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+/// Appends one literal element or the elements of an explicitly spliced list.
+/// Capacity failures retain the splice's source attribution.
+pub(super) fn append_lowered_list_element(output: &mut Vec<LoweredValue>, value: LoweredValue, splice: bool, span: Span) -> Result<(), RuntimeError> {
+    if splice {
+        let items = match value {
+            LoweredValue::List(items) => items,
+            LoweredValue::SharedList(items) => take_shared(items),
+            other => return Err(RuntimeError::new("type-error", format!("list literal splice requires List, found {}", other.type_name())).with_span(span)),
+        };
+        output.try_reserve(items.len()).map_err(|_| RuntimeError::new("list-capacity", "list literal exceeds available capacity").with_span(span))?;
+        output.extend(items);
+    } else {
+        output.try_reserve(1).map_err(|_| RuntimeError::new("list-capacity", "list literal exceeds available capacity").with_span(span))?;
+        output.push(value);
+    }
+    Ok(())
+}
+
 pub(super) fn lowered_binary_op(op: BinaryOp) -> bool {
     matches!(
         op,

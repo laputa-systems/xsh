@@ -132,6 +132,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprLastStatus,
     ExprRecord,
     ExprList,
+    ExprListBuild,
     ExprEmptyMap,
     ExprBytesConcat,
     ExprRange,
@@ -5386,6 +5387,7 @@ const BLOCK_SEQUENCE_KIND_MASK: u8 = 1;
 
 impl_vec_codec!(BuildStmtId, BLOCK_STATEMENTS);
 impl_vec_codec!(BuildExprId, BLOCK_LIST);
+impl_vec_codec!((bool, BuildExprId, Span), BLOCK_LIST);
 impl_vec_codec!(BuildPatternId, BLOCK_LIST);
 impl_vec_codec!(LoweredPipelineStage, BLOCK_LIST);
 impl_vec_codec!(LoweredValue, BLOCK_LIST);
@@ -6670,6 +6672,9 @@ impl_node_codec! {
         BuildExprRow::List(values) => ExprList {
             values: Vec<BuildExprId>,
         } => BuildExprRow::List(values),
+        BuildExprRow::ListBuild(values) => ExprListBuild {
+            values: Vec<(bool, BuildExprId, Span)>,
+        } => BuildExprRow::ListBuild(values),
         BuildExprRow::EmptyMap => ExprEmptyMap {} => BuildExprRow::EmptyMap,
         BuildExprRow::BytesConcat { arg, span } => ExprBytesConcat {
             arg: BuildExprId,
@@ -8237,6 +8242,35 @@ proc main() [error] {
         let mut bad_location = program;
         bad_location.store.locations[0].start = u32::MAX;
         assert!(FullVerifier::verify(&bad_location).is_err());
+    }
+
+    #[test]
+    fn list_splicing_verifies_payload_and_executes_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = "pure spliced() -> Int {\n  let middle = [2, 3]\n  let result = [1, @[], @middle, 4]\n  return result[0] + result[3]\n}\n";
+            let program = fixture("list-splicing.xsh", source);
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprListBuild).expect("mixed list instruction");
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let block = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
+            let elements = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let mut malformed = program.clone();
+            malformed.store.extra[elements.start + 1] = 2;
+            assert!(FullVerifier::verify(&malformed).unwrap_err().message.contains("boolean payload"));
+            let mut bad_child = program.clone();
+            bad_child.store.extra[elements.start + 2] = u32::MAX;
+            assert!(FullVerifier::verify(&bad_child).is_err());
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "spliced")),
+                    LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("splice function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(5));
+            }
+        });
     }
 
     #[test]

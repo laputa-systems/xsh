@@ -1791,11 +1791,11 @@ impl<'a> Writer<'a> {
     fn write_list(
         &mut self,
         expr_id: ExprId,
-        items: xsh::frontend::syntax::arena::ArenaRange,
+        items: xsh::frontend::syntax::arena::ArenaListElementRange,
         output: &mut String,
     ) {
         let item_count = items.len();
-        let inline = self.render_inline(|writer, inline| writer.write_list_inline(items, inline));
+        let inline = self.render_inline(|writer, inline| writer.write_list_literal_inline(items, inline));
         let original_multiline = self.expr_source_is_multiline(expr_id);
         if self.inline_only
             || item_count == 0
@@ -1809,16 +1809,26 @@ impl<'a> Writer<'a> {
 
         let indent = indent_for_expr(output);
         output.push_str("[\n");
-        for index in 0..item_count {
-            let item = ExprId::from_index(self.arena.extra_range(items)[index] as usize);
+        for item in self.arena.list_elements(items).collect::<Vec<_>>() {
             self.write_indent(indent + 1, output);
             let previous_force = self.force_collection_expanded;
             self.force_collection_expanded = true;
-            self.write_expr_safe(item, output);
+            if item.splice_span.is_some() { output.push('@'); }
+            self.write_expr_safe(item.value, output);
             self.force_collection_expanded = previous_force;
             output.push_str(",\n");
         }
         self.write_indent(indent, output);
+        output.push(']');
+    }
+
+    fn write_list_literal_inline(&mut self, items: xsh::frontend::syntax::arena::ArenaListElementRange, output: &mut String) {
+        output.push('[');
+        for (index, item) in self.arena.list_elements(items).collect::<Vec<_>>().into_iter().enumerate() {
+            if index > 0 { output.push_str(", "); }
+            if item.splice_span.is_some() { output.push('@'); }
+            self.write_expr_safe(item.value, output);
+        }
         output.push(']');
     }
 

@@ -1361,6 +1361,8 @@ enum BuildExprRow {
     },
     Record(Vec<LoweredRecordEntry>),
     List(Vec<BuildExprId>),
+    // Each element records whether it splices, its value, and its source span.
+    ListBuild(Vec<(bool, BuildExprId, Span)>),
     // The `map.empty()` builtin constructor (empty list literals already lower via `List`).
     EmptyMap,
     // The `bytes.concat(<List[Bytes]>)` builtin constructor.

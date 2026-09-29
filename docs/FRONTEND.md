@@ -132,6 +132,14 @@ sequence is a range into a shared table, not a nested allocation. A finalized
 `FullProgram` is self-contained for execution: it does not retain CST, arena,
 checker-output, or construction-body references.
 
+List literal children use `ArenaListElementRange`, whose entries retain the
+value expression and optional original splice span. `AstArena::list_elements`
+exposes that distinction; `list_element_exprs` is the ordered traversal API.
+Mixed literals encode `(splice, child, span)` entries in `ExprListBuild`; the
+verifier checks boolean flags, child ownership, and location references before
+execution. Pure scalar literals retain `ExprList` to preserve existing specialized
+lowering.
+
 ### Semantic and Runtime Identities
 
 `SemanticPoolBuilder` assigns program-owned IDs to executable types,

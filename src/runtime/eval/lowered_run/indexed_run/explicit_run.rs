@@ -10,7 +10,7 @@ use super::{
     TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, indexed_decode, indexed_error,
     comparison_chain_assertion_failure, indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
-    apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
+    append_lowered_list_element, apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
     lowered_freeze_large_slot_list, lowered_match_no_arm,
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
     lowered_result_err_value, lowered_result_ok, lowered_return_value, lowered_splice_arg_items,
@@ -220,7 +220,7 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     ListItems {
-        items: Vec<u32>,
+        items: Vec<(u32, bool, Span)>,
         index: usize,
         values: Vec<LoweredValue>,
         next: Box<FrameContinuation>,
@@ -1508,36 +1508,29 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     },
                 );
             }
-            FullTag::ExprList => {
-                let (_, mut values) = self.calls[index]
-                    .execution
-                    .block(&mut payload, BLOCK_LIST)
+            FullTag::ExprList | FullTag::ExprListBuild => {
+                let (_, mut elements) = self.calls[index].execution.block(&mut payload, BLOCK_LIST)
                     .map_err(|error| indexed_error(error, span))?;
-                let len = indexed_raw(&mut values, span)? as usize;
+                let len = indexed_raw(&mut elements, span)? as usize;
                 let mut items = Vec::with_capacity(len);
                 for _ in 0..len {
-                    items.push(indexed_raw(&mut values, span)?);
+                    let splice = if tag == FullTag::ExprListBuild {
+                        indexed_decode::<bool>(&mut elements, &self.calls[index].execution, span)?
+                    } else { false };
+                    let value = indexed_raw(&mut elements, span)?;
+                    let item_span = if tag == FullTag::ExprListBuild {
+                        indexed_decode::<Span>(&mut elements, &self.calls[index].execution, span)?
+                    } else { span };
+                    items.push((value, splice, item_span));
                 }
-                indexed_finish(values, span)?;
+                indexed_finish(elements, span)?;
                 indexed_finish(payload, span)?;
-                if let Some(&instruction) = items.first() {
-                    self.push_expr(
-                        index,
-                        instruction,
-                        span,
-                        FrameContinuation::ListItems {
-                            items,
-                            index: 0,
-                            values: Vec::with_capacity(len),
-                            next: Box::new(next),
-                        },
-                    );
+                if let Some(&(instruction, _, item_span)) = items.first() {
+                    self.push_expr(index, instruction, item_span, FrameContinuation::ListItems {
+                        items, index: 0, values: Vec::with_capacity(len), next: Box::new(next),
+                    });
                 } else {
-                    self.push_value(
-                        index,
-                        FrameValue::Value(LoweredValue::List(Vec::new())),
-                        next,
-                    );
+                    self.push_value(index, FrameValue::Value(LoweredValue::List(Vec::new())), next);
                 }
             }
             FullTag::ExprRecord => {
@@ -2442,9 +2435,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 next,
             } => match value {
                 FrameValue::Value(value) => {
-                    values.push(value);
-                    if let Some(&instruction) = items.get(item_index + 1) {
-                        let span = self.calls[index].call_span;
+                    let (_, splice, item_span) = items[item_index];
+                    append_lowered_list_element(&mut values, value, splice, item_span)?;
+                    if let Some(&(instruction, _, span)) = items.get(item_index + 1) {
                         self.push_expr(
                             index,
                             instruction,

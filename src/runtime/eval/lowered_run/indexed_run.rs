@@ -12,7 +12,7 @@ use super::{
     btree_map, bytes_contains, bytes_module, check_env_name, checked_int_binary,
     compare_lowered_sort_keys, compound_assignment_value, error_constructor,
     execute_run_with_policy, exit_status, fs_module, fs_root_record, json_module,
-    lowered_assign_value, lowered_binary_value, lowered_bool_arg_or, lowered_bool_builder_field,
+    append_lowered_list_element, lowered_assign_value, lowered_binary_value, lowered_bool_arg_or, lowered_bool_builder_field,
     lowered_bytes_or_str_owned, lowered_bytes_parts, lowered_bytes_value,
     lowered_command_plan_value, lowered_command_redirections, lowered_contains_value,
     lowered_count_key, lowered_duration_arg, lowered_encode_json, lowered_env_record_arg,
@@ -2907,6 +2907,25 @@ impl Evaluator {
                     }
                 }
                 indexed_finish(values, call_span)?;
+                ControlFlow::Continue(LoweredValue::List(result))
+            }
+            FullTag::ExprListBuild => {
+                let (_, mut elements) = execution.block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let len = indexed_raw(&mut elements, call_span)? as usize;
+                indexed_finish(payload, call_span)?;
+                let mut result = Vec::new();
+                for _ in 0..len {
+                    let splice = indexed_decode::<bool>(&mut elements, execution, call_span)?;
+                    let expr = indexed_raw(&mut elements, call_span)?;
+                    let span = indexed_decode::<Span>(&mut elements, execution, call_span)?;
+                    let value = match self.eval_indexed_expr(execution, expr, slots, span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                    append_lowered_list_element(&mut result, value, splice, span)?;
+                }
+                indexed_finish(elements, call_span)?;
                 ControlFlow::Continue(LoweredValue::List(result))
             }
             FullTag::ExprEmptyMap => {

@@ -293,3 +293,104 @@ proc main() [io, error] {
   test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "close inner\nclose outer\nfailure\n")?
 }
+
+pure list_splice_default(values: List[Int] = [1, @[2, 3]]) -> List[Int] {
+  return values
+}
+
+proc test_list_literal_splicing_preserves_types_nesting_and_aliases() [error] {
+  var middle = [2, 3]
+  let source_alias = middle
+  var combined = [1, @middle, 4, @[], @[5, 6]]
+  let combined_alias = combined
+  middle += [9]
+  combined += [7]
+  test.eq(source_alias, [2, 3])?
+  test.eq(middle, [2, 3, 9])?
+  test.eq(combined_alias, [1, 2, 3, 4, 5, 6])?
+  test.eq(combined, [1, 2, 3, 4, 5, 6, 7])?
+  let nested = [[1], @[[2], [3]], [4]]
+  test.eq(nested, [[1], [2], [3], [4]])?
+  let empty: List[Str] = [@[], @[]]
+  test.eq(empty, [])?
+  let inferred = [@[], 8, @[]]
+  test.eq(inferred, [8])?
+  let typed: List[Int] = [
+    @(
+      [1] + [2]
+    ),
+    3,
+  ]
+  test.eq(typed, [1, 2, 3])?
+  let rows: List[Entry] = [{name: "first", score: 1}, @[{name: "second", score: 2}]]
+  test.eq(rows[1].name, "second")?
+  test.eq(list_splice_default(), [1, 2, 3])?
+  let declared: List[Path] = [p"first", @[p"second"]]
+  test.eq(declared, [p"first", p"second"])?
+}
+
+proc test_list_literal_splicing_evaluates_left_to_right_once(ctx: TestContext) [error] {
+  let result = test.run_script(
+    ctx,
+    r"""proc item(value: Int) [io] -> Int {
+  print f"item $value"
+  return value
+}
+proc items(value: Int) [io] -> List[Int] {
+  print f"splice $value"
+  return [value, value + 1]
+}
+let result = [item(1), @items(2), item(4), @items(5)]
+print result.len()
+""",
+  )?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "item 1\nsplice 2\nitem 4\nsplice 5\n6\n")?
+}
+
+proc test_list_literal_splicing_propagates_before_later_elements(ctx: TestContext) [error] {
+  let result = test.run_script(
+    ctx,
+    r"""error SpliceFailure = Stopped(message: Str)
+proc item(value: Int) [io] -> Int {
+  print f"item $value"
+  return value
+}
+proc flags() [io] -> Result[List[Int], SpliceFailure] {
+  print "flags"
+  return Err(SpliceFailure.Stopped(message: "stop building"))
+}
+let values = [item(1), @(flags()?), item(9)]
+print values.len()
+""",
+  )?
+  test.ok(! result.success, result.stderr)?
+  test.contains(result.stderr, "stop building")?
+  test.eq(result.stdout, "item 1\nflags\n")?
+}
+
+proc test_list_literal_splicing_rejects_non_lists_and_incompatible_elements(ctx: TestContext) [error] {
+  for source in [
+    "let value = [@\"text\"]\n",
+    "let value = [@b\"bytes\"]\n",
+    "let value = [@map.empty()]\n",
+    "let value = [@Ok([1])]\n",
+    "let items: Any = [1]\nlet value = [@items]\n",
+    "stream rows() -> Stream[Int] { yield 1 }\nlet value = [@rows()]\n",
+    "let value = [1, @[\"wrong\"]]\n",
+  ] {
+    let result = test.run_script(ctx, source)?
+    test.ok(! result.success, result.stderr)?
+    test.contains(result.stderr, "check.")?
+  }
+  let ambiguous = test.run_script(ctx, "let value = [@[1] for x in [2]]\n")?
+  test.ok(! ambiguous.success, ambiguous.stderr)?
+  test.contains(ambiguous.stderr, "parse.")?
+}
+
+proc test_list_literal_splicing_handles_results_explicitly_and_composes_with_argv() [error] {
+  let loaded: Result[List[Str]] = Ok(["-O2", "-g"])
+  let argv = ["cc", @(loaded?), "-o", "app"]
+  let _ = process.command_argv("true", ["true", @argv])
+  test.eq(argv, ["cc", "-O2", "-g", "-o", "app"])?
+}

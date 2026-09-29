@@ -106,6 +106,16 @@ their concrete element type from the expected context. If an element is truly
 dynamic, the inferred container becomes `List[Any]` or `Map[Any]`; strict mode
 warns when that dynamic container is used as a concrete container.
 
+For a list literal, ordinary elements contribute their value type while
+`@expression` contributes the element type of its checked `List[T]`. The
+expected `List[T]` context reaches both ordinary elements and splice operands,
+including empty literals and named record annotation conversions. Inference
+uses the same homogeneous merge as ordinary list literals; `@` adds no `Any`
+widening or display conversion. A dynamic `Any` operand is not a known List and
+must first be checked explicitly. `Result` and `Stream` wrappers require explicit
+handling before they can be spliced. Invalid operand diagnostics cover the
+original `@expression` span (`check.list-splice-type`).
+
 Half-open slices preserve their checked receiver type: `List[T]` becomes
 `List[T]`, `Str` becomes `Str`, and `Bytes` becomes `Bytes`. Each supplied bound
 must be `Int`; omitted bounds introduce no new expression or dynamic conversion.

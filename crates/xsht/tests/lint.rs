@@ -2828,3 +2828,63 @@ fn linter_map_entry_iteration_keeps_mutation_annotations_comments_and_unknown_me
         assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-map-entry-iteration")), "{source}");
     }
 }
+
+#[test]
+fn linter_list_splicing_rechecks_preserves_unicode_and_converges() {
+    let source = "# café\nlet flags = [\"-g\"]\nlet names = [\"main.xsh\"]\nlet argv = [\"cc\"].extend(flags).extend([\"-o\", \"app\"]).extend(names)\nprint argv.len()\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let hint = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-splicing"))
+        .flat_map(|diagnostic| &diagnostic.fix_hints).max_by_key(|hint| hint.span.unwrap().range().len()).expect("list construction fix");
+    let mut fixed = source.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+    assert!(fixed.contains("[\"cc\", @flags, \"-o\", \"app\", @names]"));
+    assert_parse_check_standalone("spliced construction", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty());
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+    let parsed = parse_lint_source(&formatted.formatted);
+    let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
+    let second = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-splicing")));
+}
+
+#[test]
+fn linter_list_splicing_retains_nested_elements_and_local_update_policy() {
+    let source = "let groups = [[1]].extend([[2]]).extend([[3]])\nvar values = [1]\nvalues = values.extend([2])\nlet nested = groups.push([4])\nprint groups.len() nested.len()\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty());
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let updates: Vec<_> = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-splicing")).collect();
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0].fix_hints[0].replacement.as_deref(), Some("[[1], [2], [3]]"));
+    let unchecked = Linter::lint(&parsed.arena, source, LintOptions::default());
+    assert!(!unchecked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-splicing")));
+}
+
+#[test]
+fn linter_list_splicing_refuses_annotation_conversions() {
+    let source = "type Row = {value: Int}\nlet left: List[Row] = [{value: 1}]\nlet right: List[Row] = [{value: 2}]\nlet combined = left.extend(right).extend(left)\nprint combined.len()\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-splicing")));
+}
+
+#[test]
+fn linter_list_splicing_preserves_comments_without_a_fix() {
+    let source = "let argv = [\"head\"] + (if true { # retain this explanation\n  [\"tail\"]\n} else { [\"other\"] })\nprint argv.len()\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-list-splicing")).expect("construction warning");
+    assert!(diagnostic.fix_hints.is_empty());
+}

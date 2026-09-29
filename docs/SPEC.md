@@ -853,6 +853,26 @@ accumulators, extra statements, transfers, and comments prevent an autofix.
 Empty `{}` remains an empty record unless it appears in a context that expects
 `Map[T]`; in a map-typed context, `{}` is sugar for an empty map.
 
+Ordinary list literals admit explicit spliced elements: `["cc", @flags,
+"-o", output_name, @source_names]`. A splice requires `List[T]` and inserts
+its elements in place; a list-valued element without `@` remains one nested
+list. Several splices, empty lists, multiline expressions, and trailing commas
+are supported. Element compatibility and expected types are the same as for
+ordinary list elements, including contextual empty lists; no additional Any
+widening or argv conversion occurs.
+
+Literal elements and splice expressions evaluate once in source order. A
+failure stops construction before later elements run. A Result requires
+explicit handling, such as `@(load_flags()?)`; Streams require `.collect()`.
+Map, Str, and Bytes do not splice. The builder preserves earlier aliases and
+uses one list construction path with checked capacity growth. Splicing does
+not add mixed comprehension clauses or unpack call keywords.
+`lint.prefer-list-splicing` rewrites checked compatible concatenation and
+extension chains when element types and conversions are preserved. Ordinary
+nested elements stay ordinary elements; uncertain annotation conversions and
+comment-bearing constructions prevent fixes. Simple mutable updates retain
+`+=` as their canonical spelling.
+
 Operators:
 
 - `or`, `and`, and `!` operate on `Bool`. `!` also accepts `Status`, using the

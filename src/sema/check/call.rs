@@ -1137,8 +1137,7 @@ impl Checker {
         let expr = arena.arena.expr(expr_id);
 
         if let ArenaExprKind::List(items) = expr.kind {
-            let mut items = arena.arena.expr_ids(items);
-            if items.next().is_none() {
+            if items.is_empty() {
                 self.diagnostics.push(
                     Diagnostic::error(
                         "process.command_argv argv must include argv[0], the child program name",
@@ -1149,14 +1148,20 @@ impl Checker {
                 );
                 return;
             }
-            for item in items {
-                let item_ty = self.check_expr_arena(arena, source, item, None);
+            for (index, item) in arena.arena.list_elements(items).enumerate() {
+                if index == 0 && item.splice_span.is_none() { continue; }
+                let actual = self.check_expr_arena(arena, source, item.value, None);
+                let item_ty = if item.splice_span.is_some() {
+                    match actual {
+                        Type::List(ty) => *ty,
+                        _ => {
+                            self.error(arena.arena.span(item.splice_span.unwrap()), "list literal splice requires List", "check.list-splice-type");
+                            Type::Unknown
+                        }
+                    }
+                } else { actual };
                 if !process_command_argv_item_type_is_valid(&item_ty) {
-                    self.error(
-                        arena.arena.expr(item).span,
-                        "process.command_argv argv items must be Str or Path",
-                        "check.type-mismatch",
-                    );
+                    self.error(arena.arena.expr(item.value).span, "process.command_argv argv items must be Str or Path", "check.type-mismatch");
                 }
             }
             return;
