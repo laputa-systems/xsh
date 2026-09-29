@@ -3393,43 +3393,62 @@ impl<'a> Linter<'a> {
             return;
         };
         let keyword = match self.arena.stmt(*only_stmt).kind {
-            ArenaStmtKind::Break { value: None } => "break",
+            ArenaStmtKind::Break { .. } => "break",
             ArenaStmtKind::Continue => "continue",
+            ArenaStmtKind::Return(_) => "return",
+            ArenaStmtKind::Yield(_) => "yield",
             _ => return,
         };
-        // The full condition spelling includes grouping that the expression's
-        // arena span can omit, including a pipeline's closing parenthesis.
-        let cond_text = self
-            .source
-            .get(span.start() + 2..self.arena.span(self.arena.block(branch.block).span).start())
-            .map(str::trim);
-        let (guard_word, replacement_cond) = match self.arena.expr(branch.condition).kind {
-            ArenaExprKind::Unary {
-                op: UnaryOp::Not,
-                expr: inner,
-            } => {
-                let inner_span = self.arena.expr(inner).span;
-                let inner_text = self.source.get(inner_span.start()..inner_span.end());
-                ("unless", inner_text)
-            }
-            _ => ("when", cond_text),
+        let Some(original) = self.source.get(span.range()) else {
+            return;
         };
-        if let Some(cond) = replacement_cond {
-            let replacement = format!("{keyword} {guard_word} {cond}");
-            self.diagnostics.push(
-                Diagnostic::new(
-                    Severity::Warning,
-                    format!("use `{keyword} {guard_word}` instead of `if {{ {keyword} }}`"),
-                )
-                .with_code("lint.prefer-guard")
-                .with_label(Label::secondary(span, "replace with postfix guard"))
-                .with_fix_hint(FixHint::replacement(
-                    span,
-                    format!("use `{keyword} {guard_word}`"),
-                    replacement,
-                )),
-            );
+        // Replacing the whole branch would discard comments attached to its body.
+        if original.contains('#') {
+            return;
         }
+        // Preserve grouping that expression spans can omit around pipelines and runs.
+        let Some(condition) = self.source
+            .get(span.start() + 2..self.arena.span(self.arena.block(branch.block).span).start())
+            .map(str::trim)
+        else {
+            return;
+        };
+        let (guard_word, condition) = if matches!(
+            self.arena.expr(branch.condition).kind,
+            ArenaExprKind::Unary { op: UnaryOp::Not, .. }
+        ) && condition.starts_with('!') {
+            ("unless", condition[1..].trim())
+        } else {
+            ("when", condition)
+        };
+        let Some(action) = self.source.get(self.arena.stmt(*only_stmt).span.range()) else {
+            return;
+        };
+        let action = action.trim().trim_end_matches(';').trim_end();
+        let payload = action.strip_prefix(keyword).unwrap_or_default().trim_start();
+        let action = if payload.starts_with("run ") || payload.starts_with("run.") {
+            format!("{keyword} ({payload})")
+        } else {
+            action.to_string()
+        };
+        let replacement = format!("{action} {guard_word} {condition}");
+        // Keep blocks whose condition or payload needs a readable multiline layout.
+        if replacement.contains('\n') || replacement.chars().count() > 88 {
+            return;
+        }
+        self.diagnostics.push(
+            Diagnostic::new(
+                Severity::Warning,
+                format!("use `{keyword} {guard_word}` instead of a single-action `if`"),
+            )
+            .with_code("lint.prefer-guard")
+            .with_label(Label::secondary(span, "replace with postfix guard"))
+            .with_fix_hint(FixHint::replacement(
+                span,
+                format!("use `{keyword} {guard_word}`"),
+                replacement,
+            )),
+        );
     }
 
     fn lint_prefer_fs_files(&mut self, input: ExprId, stages: ArenaRange) {

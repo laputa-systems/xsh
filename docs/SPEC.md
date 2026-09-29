@@ -477,7 +477,7 @@ module_contract_kind = ("let")? IDENT ":" type_expr
              | "pure" IDENT param_list "->" type_expr ;
 type_ann     = ":" type_expr ;
 defer_stmt   = "defer" expr_or_run terminator ;
-yield_stmt   = "yield" expr_or_run terminator ;
+yield_stmt   = "yield" expr_or_run (("when" | "unless") expr)? terminator ;
 ```
 
 Module path segments accept hyphenated identifiers (proc-ident form) in addition
@@ -521,8 +521,6 @@ Control flow:
 ```ebnf
 while_stmt   = "while" expr block ;
 for_stmt     = "for" binding_target "in" expr block ;
-break_stmt   = "break" terminator ;
-continue_stmt = "continue" terminator ;
 match_stmt   = "match" expr "{" match_arm* "}" ;
 match_arm    = pattern guard? "=>" (statement | block) ","? ;
 guard        = "if" expr ;
@@ -1199,17 +1197,31 @@ with_binding = IDENT "=" expr ;
 guard_stmt   = "guard" "let" binding_target (":" type_expr)? "=" expr_or_run
                "else" ("|" IDENT "|")? block ;
 loop_stmt    = "loop" block ;
-break_stmt   = "break" expr? terminator
-             | "break" ("when" | "unless") expr terminator ;
+break_stmt   = "break" expr? (("when" | "unless") expr)? terminator ;
 continue_stmt = "continue" terminator
               | "continue" ("when" | "unless") expr terminator ;
-return_stmt  = "return" expr? terminator
-             | "return" ("when" | "unless") expr terminator ;
+return_stmt  = "return" expr_or_run? (("when" | "unless") expr)? terminator ;
+yield_stmt   = "yield" expr_or_run (("when" | "unless") expr)? terminator ;
 match_stmt   = "match" expr "{" match_arm* "}" ;
 ```
 
 Conditions evaluate to `Bool` or `Status`. A `Status` condition is true when
 `status.ok` is true. `while` repeats until its condition is false.
+Postfix `when` and `unless` apply to `return`, `break`, `continue`, and
+`yield`. The condition executes first, and the payload executes only if the
+selected branch is reached; an unselected guard continues at the next statement.
+Selected-branch narrowing applies to the payload: `return cached when cached != null`
+can return a non-null value. Return wrapping, loop targets, stream
+ownership, effects, and deferred cleanup follow the ordinary control statement.
+A guarded return does not make subsequent statements unreachable. A break payload
+follows the existing break rules; only a `loop` expression consumes it as a loop
+result. `while` and `for` retain statement semantics.
+
+Group a run-valued payload: `return (run.status /usr/bin/true) when ready`.
+Ungrouped `return run.status /usr/bin/true when ready` passes `when` and `ready`
+as external argv words, preserving the ordinary command boundary. The same
+explicit grouping applies to guarded `yield` and run-valued `break` expressions.
+
 Each `if`, `else if`, and `else` block has its own lexical scope. A local
 declared in one branch is unavailable in sibling branches; the same spelling
 in two branches denotes separate bindings, including when the `if` is the
@@ -3561,6 +3573,11 @@ It removes provably needless local binding annotations and rewrites simple
 `value not in receiver` for negated calls) when the checker proves that
 membership syntax has the same semantics and the rewrite does not move
 effectful expressions.
+
+`lint.prefer-guard` rewrites a single-action `if` without `else` to a guarded
+`return`, `break`, `continue`, or `yield`. It preserves condition-first payload
+laziness and groups run payloads. Comments, multiple actions, multiline payloads,
+and long proposed one-liners keep their readable blocks.
 
 During `xsht check`, `reveal_type(expr)` is a checker-only builtin that accepts
 one positional argument, reports the inferred type as a note, and has type

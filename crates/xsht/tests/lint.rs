@@ -2593,3 +2593,95 @@ fn formatter_comparison_chain_preserves_grouping_and_precedence() {
     let stable = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
     assert_eq!(stable.formatted, formatted.formatted);
 }
+
+#[test]
+fn linter_prefer_guard_supports_value_actions_and_converges() {
+    let source = r#"pure cached(value: Str?) -> Str {
+  if value != null {
+    return value
+  }
+  return "missing"
+}
+stream items() [] -> Stream[Int] {
+  if !(false or false) {
+    yield 1
+  }
+}
+let value = loop {
+  if true {
+    break 2
+  }
+}
+"#;
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+    let mut edits = diagnostics.iter()
+        .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-guard"))
+        .flat_map(|diagnostic| diagnostic.fix_hints.iter())
+        .map(|hint| (hint.span.unwrap(), hint.replacement.as_ref().unwrap()))
+        .collect::<Vec<_>>();
+    assert_eq!(edits.len(), 3);
+    edits.sort_by_key(|(span, _)| std::cmp::Reverse(span.start()));
+    let mut fixed = source.to_string();
+    for (span, replacement) in edits {
+        fixed.replace_range(span.range(), replacement);
+    }
+    assert!(fixed.contains("return value when value != null"));
+    assert!(fixed.contains("yield 1 unless (false or false)"));
+    assert!(fixed.contains("break 2 when true"));
+    assert_parse_check_standalone("guarded value fixes", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_parse_check_standalone("formatted guards", &formatted.formatted);
+    let reparsed = parse_lint_source(&formatted.formatted);
+    let second = Linter::lint(&reparsed.arena, &formatted.formatted, LintOptions::default()).diagnostics;
+    assert!(!second.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-guard")));
+}
+
+#[test]
+fn linter_prefer_guard_preserves_comments_else_and_multiple_actions() {
+    for source in [
+        "pure value() -> Int { if true { # keep\n return 1 }; return 2 }\n",
+        "pure value() -> Int { if true { return 1 } else { return 2 } }\n",
+        "proc value() [] -> Int { if true { print 1; return 1 }; return 2 }\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-guard")), "{diagnostics:?}");
+    }
+}
+
+#[test]
+fn linter_prefer_guard_groups_external_run_payload() {
+    let source = "proc value(selected: Bool) [process] -> Status { if selected { return run.status /usr/bin/true }; return run.status /usr/bin/true }\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+    let hint = diagnostics.iter()
+        .find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-guard"))
+        .unwrap().fix_hints.first().unwrap();
+    assert_eq!(hint.replacement.as_deref(), Some("return (run.status /usr/bin/true) when selected"));
+    let mut fixed = source.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
+    assert_parse_check_standalone("grouped run guard", &fixed);
+}
+
+#[test]
+fn linter_prefer_guard_keeps_unwieldy_payload_blocks() {
+    let source = format!("pure value(selected: Bool) -> Str {{ if selected {{ return \"{}\" }}; return \"fallback\" }}\n", "x".repeat(120));
+    let parsed = parse_lint_source(&source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, &source, LintOptions::default()).diagnostics;
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-guard")));
+}
+
+#[test]
+fn linter_guarded_return_keeps_following_statements_reachable() {
+    let source = "pure value(selected: Bool) -> Int { return 1 when selected; return 2 }\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.dead-code")), "{diagnostics:?}");
+}

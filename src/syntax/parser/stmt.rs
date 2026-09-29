@@ -1180,6 +1180,10 @@ impl<'a> Parser<'a> {
             return Some(());
         }
         let value = self.parse_expr_or_run_arena_only(arena)?;
+        if self.at_keyword(Keyword::When) || self.at_keyword(Keyword::Unless) {
+            let inner = arena.push_return(Some(value), self.span(start, self.previous_end()));
+            return self.parse_guarded_stmt_arena_only(start, inner, arena);
+        }
         let end = self.expect_terminator();
         arena.push_return(Some(value), self.span(start, end));
         Some(())
@@ -1197,6 +1201,10 @@ impl<'a> Parser<'a> {
             return None;
         }
         let value = self.parse_expr_or_run_arena_only(arena)?;
+        if self.at_keyword(Keyword::When) || self.at_keyword(Keyword::Unless) {
+            let inner = arena.push_yield(value, self.span(start, self.previous_end()));
+            return self.parse_guarded_stmt_arena_only(start, inner, arena);
+        }
         let end = self.expect_terminator();
         arena.push_yield(value, self.span(start, end));
         Some(())
@@ -1240,6 +1248,10 @@ impl<'a> Parser<'a> {
             return Some(());
         }
         let value = self.parse_expr_id_arena_only(arena)?;
+        if self.at_keyword(Keyword::When) || self.at_keyword(Keyword::Unless) {
+            let inner = arena.push_break(Some(value), self.span(start, self.previous_end()));
+            return self.parse_guarded_stmt_arena_only(start, inner, arena);
+        }
         let end = self.expect_terminator();
         arena.push_break(Some(value), self.span(start, end));
         Some(())

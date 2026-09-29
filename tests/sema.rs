@@ -3285,3 +3285,37 @@ fn checker_keeps_selected_nested_record_field_types() {
     let discards = check("let {a: _, b: {c: _, ..}, ..} = {a: 1, b: {c: 2}}\n");
     assert!(discards.is_empty(), "{:?}", discards);
 }
+
+#[test]
+fn checker_guarded_value_control_narrows_only_the_selected_payload() {
+    let output = check(r#"
+pure cached(value: Str?) -> Str {
+  return value when value != null
+  return value unless value == null
+  return "missing"
+}
+"#);
+    assert!(output.is_empty(), "{output:?}");
+    let invalid = check(r#"
+pure cached(value: Str?) -> Str {
+  return value when value == null
+  return value
+}
+"#);
+    assert!(invalid.iter().any(|code| code.as_deref() == Some("check.type-mismatch")), "{invalid:?}");
+    let invalid_condition = check("pure value() -> Int { return 1 when 2; return 3 }\n");
+    assert!(invalid_condition.iter().any(|code| code.as_deref() == Some("check.guarded-stmt-condition")), "{invalid_condition:?}");
+}
+
+#[test]
+fn checker_guarded_value_control_retains_lexical_targets_and_effects() {
+    for source in [
+        "break 1 when false\n",
+        "yield 1 when false\n",
+        "pure value(selected: Bool) -> Int { return 1 when selected }\n",
+        "pure value() -> Int { return \"bad\" when false; return 1 }\n",
+        "proc value() [] -> Status { return (run.status /usr/bin/true) when false; return (run.status /usr/bin/true) }\n",
+    ] {
+        assert!(!check(source).is_empty(), "unexpected acceptance: {source}");
+    }
+}

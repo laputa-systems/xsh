@@ -176,9 +176,7 @@ export pure can_execute_natively(target: Target, os: HostOs, arch: HostArch) -> 
 
 ## Returns Cargo's directory name for a selected profile.
 export pure profile_directory(profile: Str) -> Str {
-  if profile == "release" {
-    return "release"
-  }
+  return "release" when profile == "release"
 
   return profile
 }

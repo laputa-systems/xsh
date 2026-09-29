@@ -49,6 +49,7 @@ pub struct Parser<'a> {
     trailing_statement_try: bool,
     command_arg_expr: bool,
     block_depth: usize,
+    parenthesized_expr_depth: usize,
     diagnostics: Vec<Diagnostic>,
 }
 
@@ -141,6 +142,7 @@ impl<'a> Parser<'a> {
             trailing_statement_try: true,
             command_arg_expr: false,
             block_depth: 0,
+            parenthesized_expr_depth: 0,
             diagnostics: Vec::new(),
         }
     }
@@ -283,6 +285,7 @@ impl<'a> Parser<'a> {
             || self.at(TokenKindMatch::LBrace)
             || self.at(TokenKindMatch::Pipe)
             || self.at(TokenKindMatch::PipeGt)
+            || (self.parenthesized_expr_depth > 0 && self.at(TokenKindMatch::RParen))
     }
 
     pub(in crate::syntax::parser) fn at_pipe_stage_end(&mut self) -> bool {
@@ -291,6 +294,9 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn is_word_part_start(&self) -> bool {
+        if self.parenthesized_expr_depth > 0 && self.current_tag() == TokenTag::RParen {
+            return false;
+        }
         !matches!(
             self.current_tag(),
             TokenTag::Eof

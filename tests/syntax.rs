@@ -3353,3 +3353,64 @@ fn parser_retains_nested_renamed_record_binding_targets_and_spans() {
     assert_eq!(&source[arena.span(renamed.span).range()], "target: target_name");
     assert!(matches!(arena.binding_target(renamed.target).kind, ArenaBindingTargetKind::Name(name) if name.as_str() == "target_name"));
 }
+
+#[test]
+fn guarded_value_controls_round_trip_without_absorbing_guard_into_run_argv() {
+    let source = r#"proc cached(value: Str?) [] -> Str {
+  return value when value != null
+  return "missing"
+}
+proc command(selected: Bool) [process] -> Status {
+  return (run.status /usr/bin/true) unless !selected
+  return run.status /usr/bin/true when unless
+}
+stream items() [] -> Stream[Int] {
+  yield 1 when true
+  yield 2 unless false
+}
+let value = loop {
+  break 4 when false
+  break 5 unless false
+}
+"#;
+    let source_id = SourceId::new(0);
+    assert_parse_and_check(source_id, source);
+    let formatted = Formatter::new().format_source(source_id, source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("return (run.status /usr/bin/true) unless ! selected"), "{}", formatted.formatted);
+    assert!(formatted.formatted.contains("return run.status /usr/bin/true when unless"));
+    assert_parse_and_check(source_id, &formatted.formatted);
+    let second = Formatter::new().format_source(source_id, &formatted.formatted);
+    assert_eq!(formatted.formatted, second.formatted);
+}
+
+#[test]
+fn guarded_value_control_keeps_payload_and_condition_source_spans() {
+    let source = "return \"é\" when false\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let root = parsed.arena.statement_ids().next().unwrap();
+    let arena = &parsed.arena.arena;
+    let ArenaStmtKind::GuardedStmt { stmt, condition, negate } = arena.stmt(root).kind else {
+        panic!("expected guarded return");
+    };
+    assert!(!negate);
+    assert_eq!(&source[arena.stmt(stmt).span.range()], "return \"é\"");
+    assert_eq!(&source[arena.expr(condition).span.range()], "false");
+}
+
+#[test]
+fn grouped_run_payload_preserves_adjacent_propagation_before_guard() {
+    let source = r#"proc capture(selected: Bool) [process, error] -> Str {
+  return (run.text /usr/bin/printf "selected")? when selected
+  return "fallback"
+}
+"#;
+    let source_id = SourceId::new(0);
+    assert_parse_and_check(source_id, source);
+    let formatted = Formatter::new().format_source(source_id, source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_parse_and_check(source_id, &formatted.formatted);
+    let second = Formatter::new().format_source(source_id, &formatted.formatted);
+    assert_eq!(formatted.formatted, second.formatted);
+}

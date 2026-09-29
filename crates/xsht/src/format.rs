@@ -545,7 +545,7 @@ impl<'a> Writer<'a> {
                 negate,
                 condition,
             } => {
-                self.write_stmt_inline(*inner, indent, output);
+                self.write_guarded_action(*inner, indent, output);
                 if *negate {
                     output.push_str(" unless ");
                 } else {
@@ -1246,6 +1246,30 @@ impl<'a> Writer<'a> {
         match value {
             ArenaExprOrRun::Expr(expr) => self.write_expr(*expr, 0, output),
             ArenaExprOrRun::Run(run) => self.write_run(*run, output),
+        }
+    }
+
+    fn write_guarded_action(&mut self, stmt: StmtId, indent: usize, output: &mut String) {
+        let (keyword, value) = match self.arena.stmt(stmt).kind {
+            ArenaStmtKind::Return(Some(value)) => ("return", value),
+            ArenaStmtKind::Yield(value) => ("yield", value),
+            ArenaStmtKind::Break { value: Some(value) } => ("break", ArenaExprOrRun::Expr(value)),
+            _ => {
+                self.write_stmt_inline(stmt, indent, output);
+                return;
+            }
+        };
+        output.push_str(keyword);
+        output.push(' ');
+        // Group the payload so command argv cannot consume the postfix guard.
+        let mut payload = String::new();
+        self.write_expr_or_run_safe(&value, &mut payload);
+        if payload.starts_with("run ") || payload.starts_with("run.") {
+            output.push('(');
+            output.push_str(&payload);
+            output.push(')');
+        } else {
+            output.push_str(&payload);
         }
     }
 

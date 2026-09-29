@@ -206,6 +206,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "source-files",
     "comments",
     "statements",
+    "guarded-control",
     "bindings",
     "procs",
     "pure-functions",
@@ -752,6 +753,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "statements" => (
             "Defines statement sequencing and result propagation.",
             "Checked statement position asserts Bool values and propagates Result[Unit] failures. Value position preserves Bool values; exhaustive if/match tails and their lexical multi-statement branches can supply function and callback values.",
+        ),
+        "guarded-control" => (
+            "Defines condition-first guarded return, break, continue, and yield.",
+            "`return value when condition`, `break value unless condition`, and `yield value when condition` evaluate the Bool/Status condition first and evaluate the payload only in the selected branch. Branch-local narrowing, existing lexical targets, effects, return wrapping, and deferred cleanup are preserved. Group command payloads, for example `return (run.status /usr/bin/true) when ready`; ungrouped run argv retain literal when/unless words. Valueless return/break/continue remain available, and guarded return can fall through.",
         ),
         "bindings" => (
             "Defines typed bindings and assignment scope.",

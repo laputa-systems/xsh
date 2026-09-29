@@ -862,10 +862,15 @@ impl<'a> Parser<'a> {
             (TokenTag::LBrace, _) => self.parse_record_arena_only(arena),
             (TokenTag::LParen, _) => {
                 self.bump();
-                let expr = self.parse_precedence_arena_only(0, arena)?;
+                // A grouped expression owns its closing delimiter, including run argv.
+                self.parenthesized_expr_depth += 1;
+                let expr = self.parse_precedence_arena_only(0, arena);
+                self.parenthesized_expr_depth -= 1;
+                let expr = expr?;
                 self.skip_newlines();
                 self.expect(TokenKindMatch::RParen, "expected `)` after expression");
                 Some(ArenaOnlyExpr {
+                    span: self.span(span.start(), self.previous_end()),
                     bare_ident: None,
                     span: self.span(span.start(), self.previous_end()),
                     ..expr

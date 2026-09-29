@@ -226,6 +226,14 @@ Flow-sensitive narrowing is local and lexical. A refinement shadows the original
 binding only inside the branch, loop body, guarded statement, match arm, `with`
 body, or `guard let` continuation where the condition proved it.
 
+For `return payload when condition`, `break payload when condition`, and
+`yield payload when condition`, check the condition before the payload and apply
+its true-branch refinements inside the payload. `unless` uses false-branch
+refinements. The payload retains ordinary return/break/yield type and effect
+requirements even when the condition is a constant that skips it at runtime.
+These guarded statements can fall through, so they do not establish an
+unconditional return for the enclosing body.
+
 Supported refinements:
 
 - `value.require(Schema)?`, `with name = value.require(...)`, and `guard let

@@ -1,16 +1,10 @@
 #!/bin/xsh
 pure delimiter(raw: Str) -> Str {
-  if raw == "\\t" {
-    return "\t"
-  }
+  return "\t" when raw == "\\t"
 
-  if raw == "\\n" {
-    return "\n"
-  }
+  return "\n" when raw == "\\n"
 
-  if raw == "" {
-    return "\t"
-  }
+  return "\t" when raw == ""
 
   return raw
 }

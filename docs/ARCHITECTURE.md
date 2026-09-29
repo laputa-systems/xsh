@@ -105,6 +105,15 @@ are `NetRuntimeOwner`, `NetOperation`, `request_many_with_runtime`,
 `native_xsh_net_single_calls_force_https_http1`. Tokio, `hyper-util`, and
 `hyper-rustls` are intentionally absent from this boundary.
 
+Guarded control statements use `ArenaStmtKind::GuardedStmt` around ordinary
+return/break/continue/yield statements. `Checker::check_condition_arena` checks
+the Bool/Status guard before applying selected-branch narrowing to the payload.
+`CompactLowerConstructProbe::lower_stmt_with_blocker_guard` lowers this wrapper
+through ordinary conditional statement rows, preserving lazy payload evaluation
+and lexical cleanup ownership.
+The parser retains ungrouped run argv boundaries; grouped expressions own their
+closing delimiter so a run-valued payload can precede a postfix guard.
+
 There is no JIT, green-thread scheduler, or async task runtime in the execution
 path. The checked arena is lowered into a compact verified indexed store before
 execution. `src/runner.rs` shares the owned parsed arena between the full

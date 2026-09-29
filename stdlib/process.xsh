@@ -73,15 +73,9 @@ pure whitespace_width(text: Str, index: Int) -> Int {
 # start a character reports width one, keeping the scan moving forward.
 pure character_width(text: Str, index: Int) -> Int {
   let first = text.byte_at(index, -1)
-  if first < 194 {
-    return 1
-  }
-  if first < 224 {
-    return 2
-  }
-  if first < 240 {
-    return 3
-  }
+  return 1 when first < 194
+  return 2 when first < 224
+  return 3 when first < 240
   return 4
 }
 

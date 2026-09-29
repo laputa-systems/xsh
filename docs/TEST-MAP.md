@@ -555,3 +555,11 @@ Nested and renamed record binding behavior is covered by
 bindings from one checked record identifier; annotations, comments, effectful
 receivers, dynamic schemas, and retained intermediate bindings require manual
 review. Its focused tooling tests verify formatter preservation and convergence.
+
+Guarded value control uses `tests/xsh/guarded-control.xsh` for condition-first
+payload laziness, selected-branch narrowing, stream yields, and deferred cleanup.
+`tests/syntax.rs::guarded_value_controls_round_trip_without_absorbing_guard_into_run_argv`
+and `guarded_value_control_keeps_payload_and_condition_source_spans` cover the
+parser/formatter boundary; `tests/sema.rs::checker_guarded_value_control_*` retain
+ordinary target/type/effect rejection. `crates/xsht/tests/lint.rs::linter_prefer_guard_*`
+cover safe fixes, refusal cases, grouping, and convergence.
