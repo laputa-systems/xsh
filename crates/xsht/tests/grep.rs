@@ -210,3 +210,21 @@ fn grep_comparison_chain_matches_adjacent_operator_structure() {
     let different = grep_scripts("A > B >= C", &paths(&file));
     assert_eq!(different.status, 1, "{}", output_text(&different.stderr));
 }
+
+#[test]
+fn guarded_postfix_structural_matching_retains_each_guard() {
+    let root = TempDir::new().unwrap();
+    let path = root.path().join("guarded.xsh");
+    fs::write(&path, "let a = value?[0]\nlet b = value[0]\nlet c = value?[1..]\nlet d = value[1..]\nlet e = value?.trim()\nlet f = value.trim()\n").unwrap();
+    for (pattern, expected, excluded) in [
+        ("EXPR?[0]", "value?[0]", "value[0]"),
+        ("EXPR?[1..]", "value?[1..]", "value[1..]"),
+        ("EXPR?.trim()", "value?.trim()", "value.trim()"),
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["grep", pattern]).arg(&path).output().unwrap();
+        let stdout = output_text(&output.stdout);
+        assert_eq!(output.status.code(), Some(0), "{}", output_text(&output.stderr));
+        assert!(stdout.contains(expected), "{stdout}");
+        assert!(!stdout.contains(excluded), "{stdout}");
+    }
+}

@@ -915,25 +915,31 @@ impl CompactBodyProbe<'_> {
             ArenaExprKind::Call { callee, args } => self.check_compact_call(callee, args),
             ArenaExprKind::Field { base, name } => self.check_compact_field(base, name),
             ArenaExprKind::NullSafeField { base, name } => {
-                Type::Optional(Box::new(self.check_compact_field(base, name)))
+                let receiver = self.check_compact_expr(base);
+                let (receiver, lift) = compact_postfix_receiver(receiver, true);
+                let field = compact_field_type(receiver, name);
+                compact_postfix_result(field, lift)
             }
-            ArenaExprKind::Index { base, index } => {
+            ArenaExprKind::Index { base, index, guarded } => {
                 let base = self.check_compact_expr(base);
+                let (base, lift) = compact_postfix_receiver(base, guarded);
                 self.check_compact_expr(index);
-                index_type(&base)
+                compact_postfix_result(index_type(&base), lift)
             }
-            ArenaExprKind::Slice { base, start, end } => {
+            ArenaExprKind::Slice { base, start, end, guarded } => {
                 let ty = self.check_compact_expr(base);
+                let (ty, lift) = compact_postfix_receiver(ty, guarded);
                 if let Some(start) = start {
                     self.check_compact_expr(start);
                 }
                 if let Some(end) = end {
                     self.check_compact_expr(end);
                 }
-                match ty {
+                let result = match ty {
                     Type::List(_) | Type::Str | Type::Path | Type::Bytes => ty,
                     _ => Type::Unknown,
-                }
+                };
+                compact_postfix_result(result, lift)
             }
             ArenaExprKind::EnvGet { kind, .. } => match kind {
                 EnvGetKind::Str => Type::Str,
@@ -1119,7 +1125,7 @@ impl CompactBodyProbe<'_> {
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
                 numeric_result_type(left, right)
             }
-            BinaryOp::ResultFallback => left.result_ok().cloned().unwrap_or(left),
+            BinaryOp::ResultFallback => match left { Type::Optional(inner) | Type::Result(inner, _) => *inner, other => other },
         }
     }
 
@@ -1659,6 +1665,43 @@ fn collection_item_type(ty: &Type) -> Type {
         Type::Str => Type::Str,
         Type::Bytes => Type::Int,
         Type::Unknown | Type::Invalid | Type::Any => ty.clone(),
+        _ => Type::Unknown,
+    }
+}
+
+fn compact_postfix_receiver(ty: Type, guarded: bool) -> (Type, bool) {
+    if !guarded {
+        return (ty, false);
+    }
+    match ty {
+        Type::Optional(inner) => (*inner, true),
+        Type::Result(inner, _) => (*inner, false),
+        other => (other, false),
+    }
+}
+
+fn compact_postfix_result(ty: Type, lift: bool) -> Type {
+    if lift && !matches!(ty, Type::Optional(_)) {
+        Type::Optional(Box::new(ty))
+    } else {
+        ty
+    }
+}
+
+fn compact_field_type(ty: Type, name: Name) -> Type {
+    match ty {
+        Type::Record(fields) => fields.get(&name).cloned().unwrap_or(Type::Unknown),
+        Type::Module(exports) => exports.get(&name).map(ModuleExportType::field_type).unwrap_or(Type::Unknown),
+        Type::ProcessHandle => match name.as_str().as_str() {
+            "pid" => Type::Int,
+            "command" => Type::Str,
+            "argv" => Type::List(Box::new(Type::Str)),
+            "detached" => Type::Bool,
+            _ => Type::Unknown,
+        },
+        Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError
+            if name == "message" => Type::Str,
+        Type::Any => Type::Any,
         _ => Type::Unknown,
     }
 }

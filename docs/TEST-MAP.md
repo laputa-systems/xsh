@@ -563,3 +563,11 @@ and `guarded_value_control_keeps_payload_and_condition_source_spans` cover the
 parser/formatter boundary; `tests/sema.rs::checker_guarded_value_control_*` retain
 ordinary target/type/effect rejection. `crates/xsht/tests/lint.rs::linter_prefer_guard_*`
 cover safe fixes, refusal cases, grouping, and convergence.
+
+Optional postfix evaluation, layer preservation, and strict receiver boundaries
+are covered by `tests/xsh/optional-postfix.xsh`. Run
+`xsht test --jobs 1 tests/xsh/optional-postfix.xsh` and the focused xsht
+`optional_postfix`/`guarded_postfix` integration filters before the ordinary
+syntax, semantic, tooling, and native stdlib gates. The null-branch migration
+rule is `lint.prefer-optional-postfix`; it refuses mutation, lost comments,
+and results whose null value would change fallback behavior.

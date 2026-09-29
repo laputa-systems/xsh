@@ -10,9 +10,6 @@ pure missing_info() -> MimeInfo {
   return {mime: "missing", exts: ["missing"]}
 }
 
-# `lookup_path` reports its declared optional type but keeps the baseline
-# runtime boundary of `Ok`/`Err`, so `??` is the one form that observes both
-# spellings correctly.
 # The `type` field of a successful parse, or `rejected` when it was refused.
 pure parsed_type(result: Result[MimeParse]) -> Str {
   match result {
@@ -34,11 +31,9 @@ proc test_mime_lookup_and_parse() [fs, error] {
   test.eq(info.mime, "application/tar+gzip")?
   test.eq(info.exts[0], "tar.gz")?
 
-  # `lookup_path` keeps the baseline runtime boundary: a hit is `Ok`, a miss is
-  # an error, even though the declared result type is a plain optional.
-  # and a present one is read with `?.` or `??`, never with `?`.
   test.eq(mime.lookup_path(p"archive.tar.gz")?.mime, "application/tar+gzip")?
   test.eq(mime.lookup_ext("definitelymissingxsh"), null)?
+  test.eq(mime.lookup_path(p"no-extension"), null)?
   let parsed = mime.parse("Text/Plain; Charset=UTF-8")?
   test.eq(parsed.type, "text/plain")?
   test.eq(parsed.params.get("charset", ""), "UTF-8")?
@@ -110,14 +105,14 @@ proc test_mime_lookup_path_uses_only_the_final_component() [fs, error] {
   test.eq((mime.lookup_path(p"dir.d/file.txt") ?? missing_info()).mime, "text/plain")?
 
   # A path with no extension at all, and one whose extension no row carries.
-  test.error_kind(mime.lookup_path(p"noext"), "mime-lookup")?
-  test.error_kind(mime.lookup_path(p"a/b/README"), "mime-lookup")?
-  test.error_kind(mime.lookup_path(p"dir/"), "mime-lookup")?
+  test.eq(mime.lookup_path(p"noext"), null)?
+  test.eq(mime.lookup_path(p"a/b/README"), null)?
+  test.eq(mime.lookup_path(p"dir/"), null)?
 
   # A dot that ends the name, and a leading dot, offer no usable suffix.
-  test.error_kind(mime.lookup_path(p"file."), "mime-lookup")?
-  test.error_kind(mime.lookup_path(p".hidden"), "mime-lookup")?
-  test.error_kind(mime.lookup_path(p".."), "mime-lookup")?
+  test.eq(mime.lookup_path(p"file."), null)?
+  test.eq(mime.lookup_path(p".hidden"), null)?
+  test.eq(mime.lookup_path(p".."), null)?
 }
 
 proc test_mime_parse_lowercases_the_type_and_parameter_names() [error] {

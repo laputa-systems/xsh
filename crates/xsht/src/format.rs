@@ -1620,14 +1620,16 @@ impl<'a> Writer<'a> {
                 output.push_str("?.");
                 output.push_str(name.as_str().as_str());
             }
-            ArenaExprKind::Index { base, index } => {
+            ArenaExprKind::Index { base, index, guarded } => {
                 self.write_expr(*base, precedence, output);
+                if *guarded { output.push('?'); }
                 output.push('[');
                 self.write_expr(*index, 0, output);
                 output.push(']');
             }
-            ArenaExprKind::Slice { base, start, end } => {
+            ArenaExprKind::Slice { base, start, end, guarded } => {
                 self.write_expr(*base, precedence, output);
+                if *guarded { output.push('?'); }
                 output.push('[');
                 if let Some(start) = start {
                     self.write_expr(*start, 0, output);
@@ -3024,7 +3026,7 @@ impl<'a> Writer<'a> {
             | ArenaExprKind::PathStr(_)
             | ArenaExprKind::GlobStr(_) => true,
             ArenaExprKind::Call { callee, .. } => self.command_chain_base_can_be_bare(callee),
-            ArenaExprKind::Index { base, index } => {
+            ArenaExprKind::Index { base, index, .. } => {
                 self.command_chain_base_can_be_bare(base)
                     && matches!(self.arena.expr(index).kind, ArenaExprKind::Int(_))
             }
@@ -3051,7 +3053,7 @@ impl<'a> Writer<'a> {
                 self.command_chain_base_can_be_bare(base)
             }
             ArenaExprKind::Call { callee, .. } => self.command_chain_base_can_be_bare(callee),
-            ArenaExprKind::Index { base, index } => {
+            ArenaExprKind::Index { base, index, .. } => {
                 self.command_chain_base_can_be_bare(base)
                     && matches!(self.arena.expr(index).kind, ArenaExprKind::Int(_))
             }

@@ -88,16 +88,22 @@ fn match_expr_structural(
             ArenaExprKind::Field { base: tb, name: tn },
         ) => pn == tn && match_expr(p, *pb, t, *tb, source, bindings),
         (
+            ArenaExprKind::NullSafeField { base: pb, name: pn },
+            ArenaExprKind::NullSafeField { base: tb, name: tn },
+        ) => pn == tn && match_expr(p, *pb, t, *tb, source, bindings),
+        (
             ArenaExprKind::Index {
                 base: pb,
                 index: pi,
+                guarded: pg,
             },
             ArenaExprKind::Index {
                 base: tb,
                 index: ti,
+                guarded: tg,
             },
         ) => {
-            match_expr(p, *pb, t, *tb, source, bindings)
+            pg == tg && match_expr(p, *pb, t, *tb, source, bindings)
                 && match_expr(p, *pi, t, *ti, source, bindings)
         }
         (
@@ -105,14 +111,16 @@ fn match_expr_structural(
                 base: pb,
                 start: ps,
                 end: pe,
+                guarded: pg,
             },
             ArenaExprKind::Slice {
                 base: tb,
                 start: ts,
                 end: te,
+                guarded: tg,
             },
         ) => {
-            match_expr(p, *pb, t, *tb, source, bindings)
+            pg == tg && match_expr(p, *pb, t, *tb, source, bindings)
                 && match ps.zip(*ts) {
                     Some((ps, ts)) => match_expr(p, ps, t, ts, source, bindings),
                     None => ps.is_none() && ts.is_none(),

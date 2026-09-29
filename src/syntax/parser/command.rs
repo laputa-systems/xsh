@@ -618,6 +618,13 @@ impl<'a> Parser<'a> {
                 None => return false,
             };
             match tag {
+                TokenTag::Question
+                    if self.start_at(pos) == self.end_at(pos - 1)
+                        && self.start_at(pos + 1) == self.end_at(pos)
+                        && matches!(self.token_table.tag_at(pos + 1), Some(TokenTag::Dot | TokenTag::LBracket)) =>
+                {
+                    pos += 1;
+                }
                 TokenTag::Dot => {
                     if self.start_at(pos + 1) != self.end_at(pos)
                         || self.token_table.tag_at(pos + 1) != Some(TokenTag::Ident)

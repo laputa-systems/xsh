@@ -386,7 +386,9 @@ impl<'a> Parser<'a> {
             if !continues_pipeline && let Some(pending) = pending_pipeline.take() {
                 left.id = pending.seal(arena, left.span);
             }
-            if self.at(TokenKindMatch::Question) && self.peek_tag(1) == Some(TokenTag::Dot) {
+            if self.at(TokenKindMatch::Question) && self.peek_tag(1) == Some(TokenTag::Dot)
+                && self.peek_start(1) == Some(self.current_end())
+            {
                 let try_end = self.current_end();
                 self.bump();
                 self.bump();
@@ -413,6 +415,9 @@ impl<'a> Parser<'a> {
                     };
                 }
             } else if self.at(TokenKindMatch::Question)
+                && !(self.current_start() == left.span.end()
+                    && self.peek_tag(1) == Some(TokenTag::LBracket)
+                    && self.peek_start(1) == Some(self.current_end()))
                 && (self.current_start() == left.span.end()
                     || (self.trailing_statement_try && self.question_is_trailing_statement_try()))
             {
@@ -472,7 +477,14 @@ impl<'a> Parser<'a> {
                         bare_ident: None,
                     };
                 }
-            } else if self.consume(TokenKindMatch::LBracket).is_some() {
+            } else if self.at(TokenKindMatch::LBracket)
+                || (self.at(TokenKindMatch::Question)
+                    && self.current_start() == left.span.end()
+                    && self.peek_tag(1) == Some(TokenTag::LBracket)
+                    && self.peek_start(1) == Some(self.current_end()))
+            {
+                let guarded = self.consume(TokenKindMatch::Question).is_some();
+                self.expect(TokenKindMatch::LBracket, "expected `[` after `?`");
                 let (start, end) = if self.consume_dot_dot() {
                     let end = if self.at(TokenKindMatch::RBracket) {
                         None
@@ -495,7 +507,7 @@ impl<'a> Parser<'a> {
                             "expected `]` after index expression",
                         );
                         let span = self.span(left.span.start(), self.previous_end());
-                        let id = arena.push_index_expr(left.id, first.id, span);
+                        let id = if guarded { arena.push_guarded_index_expr(left.id, first.id, span) } else { arena.push_index_expr(left.id, first.id, span) };
                         left = ArenaOnlyExpr {
                             id,
                             span,
@@ -509,7 +521,7 @@ impl<'a> Parser<'a> {
                     "expected `]` after index expression",
                 );
                 let span = self.span(left.span.start(), self.previous_end());
-                let id = arena.push_slice_expr(left.id, start, end, span);
+                let id = if guarded { arena.push_guarded_slice_expr(left.id, start, end, span) } else { arena.push_slice_expr(left.id, start, end, span) };
                 left = ArenaOnlyExpr {
                     id,
                     span,

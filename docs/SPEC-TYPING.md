@@ -175,9 +175,23 @@ type.
 `T?` accepts either `Null` or `T`. It is a type-level optional shape, not a
 separate runtime value kind.
 
-`?.` accesses a field through an optional or result value. For `Optional[T]`,
-the result type is optional. For `Result[T]`, the result type is the accessed
-field type from `T`.
+`?.` guards fields and methods; adjacent `?[...]` guards indexing and
+half-open slicing over the ordinary supported domains. Resolve the outer
+receiver type before checking the ordinary operation. `Optional[T]` lifts
+that operation's result into Optional and skips all arguments/bounds on null;
+`Result[T, E]` propagates one outer Result with the usual error effect and
+error-type checks. Guard each nullable hop explicitly. New method/index
+operations require enough checked receiver information to select their domain;
+Bare Any retains its established dynamic field behavior. A known outer
+`Result[Any]` may propagate once before an ordinary supported dynamic operation.
+
+An Optional method returning Result has type `Optional[Result[T, E]]`.
+Optional lifting flattens only redundant Optional layers; no mixed wrapper is
+recursively unwrapped. `(text?.parse_int() ?? Ok(0))?` handles the Optional and
+Result layers at separate boundaries. A guarded Bool-producing method returns
+Optional[Bool], which is not a Bool assertion. `?.require(Type)` retains its
+Result propagation and schema validation path; it does not validate an
+Optional receiver.
 
 `??` unwraps `Optional[T]` by returning the contained `T` when present or the
 fallback when the value is `null`. The fallback must match `T`.

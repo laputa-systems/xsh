@@ -886,9 +886,27 @@ Operators:
   record fields are validated recursively inside lists, maps, and optional
   values; a nested missing or mistyped field rejects the entire value before
   typed field access.
-- `?.` is a null-safe field access: if the base is `null`, the expression
-  evaluates to `null` without accessing the field; otherwise it accesses the
-  field normally. The result type is `Optional[FieldType]`.
+- `?.` guards Optional field access and method calls; `?[index]` and
+  `?[start..end]` guard the ordinary indexing and half-open slicing domains.
+  Evaluate the receiver once. A null receiver returns null without evaluating
+  the field operation, method arguments, index, or explicit bounds. A present
+  receiver performs the ordinary operation and lifts its result into Optional,
+  flattening redundant Optional layers. Every nullable hop needs its own guard:
+  `config?.server?.host?.trim()`. Missing fields, missing keys, invalid indices,
+  and method failures retain their ordinary behavior.
+- On a checked Result receiver, `?.` and `?[...]` propagate exactly the outer
+  Result before performing the ordinary operation, with the ordinary error
+  effect and error-type checks. `result?.require(Type)` preserves its dedicated
+  propagation and validation route. Optional schema validation is unsupported.
+  Optional methods returning Result produce `Optional[Result[T, E]]`;
+  `(text?.parse_int() ?? Ok(0))?` handles the Optional layer before the Result.
+  `?` accepts only a Result. Mixed Optional/Result layers are never recursively
+  unwrapped. New guarded method and index overloads require a checked receiver
+  domain; bare Any retains only its existing dynamic field route. A known
+  outer `Result[Any]` may propagate once and use the ordinary dynamic operation.
+- `?[` is adjacent postfix syntax. Command argument expressions preserve their
+  usual boundaries; group a guarded operation and its fallback together when
+  passing them as one command argument.
 - `[]` indexes lists by integer and records by string key.
 - Pure function calls use expression syntax.
 - Postfix `?` propagates `Err` from a `Result`.

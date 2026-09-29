@@ -342,3 +342,12 @@ through lowering and tooling. Compact `block_types` retain inferred tail types
 before branch scopes disappear. The indexed value-block instruction evaluates its
 selected tail before defers and resource cleanup; lexical transfers keep their
 original targets.
+
+Guarded index and slice expressions retain a `guarded` flag in
+`ArenaExprKind::Index` and `ArenaExprKind::Slice`, with distinct arena tags.
+Formatting preserves adjacent `?[` syntax, and structural matching compares
+the flag so ordinary and guarded operations never match interchangeably.
+`lint.prefer-optional-postfix` uses checked receiver/result types and source
+spans to replace equivalent immutable null branches. It preserves precedence
+with grouping and declines comments, mutation, dynamic receiver domains, and
+present results whose own null value would change fallback selection.

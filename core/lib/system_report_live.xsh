@@ -1243,7 +1243,7 @@ proc collect_storage(
       )
     }
 
-    let target = if target_path == null { "" } else { target_path.display() }
+    let target = target_path?.display() ?? ""
     let kind = if is_partition {
       "partition"
     } else if target_path == null {

@@ -2872,7 +2872,7 @@ impl<'a> ArenaProgramBuilder<'a> {
 
     pub fn push_index_expr(&mut self, base: ExprId, index: ExprId, span: Span) -> ExprId {
         self.lowerer
-            .push_expr_kind(ArenaExprKind::Index { base, index }, span)
+            .push_expr_kind(ArenaExprKind::Index { base, index, guarded: false }, span)
     }
 
     pub fn push_slice_expr(
@@ -2883,7 +2883,15 @@ impl<'a> ArenaProgramBuilder<'a> {
         span: Span,
     ) -> ExprId {
         self.lowerer
-            .push_expr_kind(ArenaExprKind::Slice { base, start, end }, span)
+            .push_expr_kind(ArenaExprKind::Slice { base, start, end, guarded: false }, span)
+    }
+
+    pub fn push_guarded_index_expr(&mut self, base: ExprId, index: ExprId, span: Span) -> ExprId {
+        self.lowerer.push_expr_kind(ArenaExprKind::Index { base, index, guarded: true }, span)
+    }
+
+    pub fn push_guarded_slice_expr(&mut self, base: ExprId, start: Option<ExprId>, end: Option<ExprId>, span: Span) -> ExprId {
+        self.lowerer.push_expr_kind(ArenaExprKind::Slice { base, start, end, guarded: true }, span)
     }
 
     pub fn push_call_expr(&mut self, callee: ExprId, args: ArenaRange, span: Span) -> ExprId {
@@ -3785,16 +3793,18 @@ impl AstArena {
                 base: ExprId::new(data.lhs as usize),
                 name: Name::from_symbol(Symbol::from_raw(data.rhs)),
             },
-            ArenaExprTag::Index => ArenaExprKind::Index {
+            ArenaExprTag::Index | ArenaExprTag::NullSafeIndex => ArenaExprKind::Index {
                 base: ExprId::new(data.lhs as usize),
                 index: ExprId::new(data.rhs as usize),
+                guarded: self.expr_tags[id.index()] == ArenaExprTag::NullSafeIndex,
             },
-            ArenaExprTag::Slice => {
+            ArenaExprTag::Slice | ArenaExprTag::NullSafeSlice => {
                 let raw = range_slice(&self.extra, range_from_data(data));
                 ArenaExprKind::Slice {
                     base: ExprId::new(raw[0] as usize),
                     start: optional_expr_id(raw[1]),
                     end: optional_expr_id(raw[2]),
+                    guarded: self.expr_tags[id.index()] == ArenaExprTag::NullSafeSlice,
                 }
             }
             ArenaExprTag::EnvGetStr => ArenaExprKind::EnvGet {
@@ -4873,6 +4883,8 @@ pub enum ArenaExprTag {
     Call,
     Field,
     NullSafeField,
+    NullSafeIndex,
+    NullSafeSlice,
     Index,
     Slice,
     EnvGetStr,
@@ -4990,11 +5002,13 @@ pub enum ArenaExprKind {
     Index {
         base: ExprId,
         index: ExprId,
+        guarded: bool,
     },
     Slice {
         base: ExprId,
         start: Option<ExprId>,
         end: Option<ExprId>,
+        guarded: bool,
     },
     EnvGet {
         kind: EnvGetKind,
@@ -6072,17 +6086,17 @@ impl ArenaLowerer<'_> {
                 ArenaExprTag::NullSafeField,
                 ArenaExprData::new(raw_expr_id(base), name.symbol().raw()),
             ),
-            ArenaExprKind::Index { base, index } => (
-                ArenaExprTag::Index,
+            ArenaExprKind::Index { base, index, guarded } => (
+                if guarded { ArenaExprTag::NullSafeIndex } else { ArenaExprTag::Index },
                 ArenaExprData::new(raw_expr_id(base), raw_expr_id(index)),
             ),
-            ArenaExprKind::Slice { base, start, end } => {
+            ArenaExprKind::Slice { base, start, end, guarded } => {
                 let data = self.push_expr_extra(&[
                     raw_expr_id(base),
                     optional_raw_expr_id(start),
                     optional_raw_expr_id(end),
                 ]);
-                (ArenaExprTag::Slice, data)
+                (if guarded { ArenaExprTag::NullSafeSlice } else { ArenaExprTag::Slice }, data)
             }
             ArenaExprKind::EnvGet { kind, name } => {
                 let tag = match kind {

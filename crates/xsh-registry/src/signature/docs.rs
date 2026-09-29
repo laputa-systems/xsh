@@ -967,7 +967,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("mime", "lookup_path") => Some((
             "Looks up a MIME type from a path's extension.",
-            "Only the path spelling is inspected; the file need not exist and its bytes are not read.",
+            "A matching extension returns MimeInfo; a missing extension or unknown row returns null. Only the path spelling is inspected; the file need not exist and its bytes are not read.",
             &["mime", "lookup", "path"],
         )),
         ("mime", "parse") => Some((

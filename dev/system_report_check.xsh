@@ -7540,7 +7540,7 @@ export proc capture_cpu_set_bundle(source: FsRoot, bundle: FsRoot, origin: Str) 
       complete = false
     }
 
-    let byte_count = if raw.data == null { 0 } else { (raw.data ?? b"").len() }
+    let byte_count = raw.data?.len() ?? 0
     if raw.data != null {
       fs.root_write(bundle, relative, raw.data ?? b"")?
     }
@@ -9065,7 +9065,7 @@ export proc capture_vulnerabilities_bundle(
         truncated: raw.truncated,
         errno: raw.errno,
         error_kind: raw.error_kind,
-        byte_count: if raw.data == null { 0 } else { (raw.data ?? b"").len() },
+        byte_count: raw.data?.len() ?? 0,
         sha256_hex: digest,
       })
       if raw.state != "observed" or raw.truncated or raw.errno != null or raw.error_kind != null or raw.data == null {
@@ -14191,12 +14191,12 @@ export pure parse_lsblk_queue_json(output: Str) -> Result[List[BlockQueueReferen
     devices = devices.push({
       name: name,
       kind: kind,
-      scheduler: if scheduler == null { null } else { scheduler.trim() },
+      scheduler: scheduler?.trim(),
       read_ahead_kb: read_ahead,
       discard_granularity_bytes: discard_granularity,
       discard_max_bytes: discard_max,
-      model: if model == null { null } else { model.trim() },
-      revision_hint: if revision == null { null } else { revision.trim() },
+      model: model?.trim(),
+      revision_hint: revision?.trim(),
     })
   }
 

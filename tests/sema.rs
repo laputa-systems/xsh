@@ -3335,3 +3335,24 @@ fn checker_multi_clause_comprehensions_reject_invalid_inner_domains_and_filters(
     let output = check("let by_key = {entry.key: inner for entry in [{key: \"a\"}] for inner in 1}\n");
     assert!(has_code(&output, "check.mapcomp-iterator"), "{output:?}");
 }
+
+#[test]
+fn guarded_postfix_preserves_outer_result_effect_checks() {
+    let output = check("proc value(input: Result[List[Int]]) [io] -> Int {\n  return input?[0]\n}\n");
+    assert!(output.iter().any(|code| code.as_deref() == Some("check.effect-violation")), "{:?}", output);
+    let output = check("proc value(input: Result[Str]) [io] -> Str {\n  return input?.trim()\n}\n");
+    assert!(output.iter().any(|code| code.as_deref() == Some("check.effect-violation")), "{:?}", output);
+}
+
+#[test]
+fn guarded_postfix_rejects_guessed_wrappers_and_unguarded_nullable_hops() {
+    for source in [
+        "let value: Any = null\nlet item = value?[0]\n",
+        "let value: Any? = null\nlet item = value?.trim()\n",
+        "let value: Str? = null\nlet item = value?.trim().trim()\n",
+        "let value: Result[Str?] = Ok(null)\nlet item = value?.trim()\n",
+    ] {
+        let output = check(source);
+        assert!(!output.is_empty(), "accepted {source}: {:?}", output);
+    }
+}

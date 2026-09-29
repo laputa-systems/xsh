@@ -349,6 +349,18 @@ impl Checker {
                 }
             }
             let base_ty = self.check_expr_arena(arena, source, base, None);
+            let guarded_base = match arena.arena.expr(base).kind {
+                ArenaExprKind::NullSafeField { .. }
+                | ArenaExprKind::Index { guarded: true, .. }
+                | ArenaExprKind::Slice { guarded: true, .. } => true,
+                ArenaExprKind::Call { callee, .. } => matches!(arena.arena.expr(callee).kind, ArenaExprKind::NullSafeField { .. }),
+                _ => false,
+            };
+            if guarded_base && matches!(base_ty, Type::Optional(_)) {
+                self.error(span, "a nullable postfix result needs its own `?.` method hop", "check.optional-method");
+                return Type::Unknown;
+            }
+
             if let Type::Module(exports) = &base_ty
                 && let Some(export) = exports.get(&name)
             {
@@ -403,9 +415,8 @@ impl Checker {
         if let ArenaExprKind::NullSafeField { base, name } = callee_kind {
             let base_ty = self.check_expr_arena(arena, source, base, None);
             let (inner_ty, wrap_optional) = match base_ty {
-                Type::Optional(inner) => (*inner, true),
-                Type::Result(ok, _) => (*ok, false),
-                Type::Unknown => return Type::Unknown,
+                Type::Optional(inner) if !matches!(*inner, Type::Any | Type::Unknown) => (*inner, true),
+                Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
                 _ => {
                     self.error(
                         span,
@@ -415,6 +426,10 @@ impl Checker {
                     return Type::Unknown;
                 }
             };
+            if matches!(inner_ty, Type::Optional(_)) {
+                self.error(span, "Result propagation leaves an Optional receiver; guard the next hop explicitly", "check.optional-method");
+                return Type::Unknown;
+            }
             let return_ty = self.check_method_dispatch_arena(
                 arena,
                 source,
@@ -423,7 +438,7 @@ impl Checker {
                 args,
                 span,
             );
-            return if wrap_optional {
+            return if wrap_optional && !matches!(return_ty, Type::Optional(_)) {
                 Type::Optional(Box::new(return_ty))
             } else {
                 return_ty

@@ -583,7 +583,7 @@ export proc capture_smbios_bundle(
     truncated: first.truncated,
     errno: first.errno,
     error_kind: first.error_kind,
-    byte_count: if first.data == null { 0 } else { (first.data ?? b"").len() },
+    byte_count: first.data?.len() ?? 0,
     sha256_hex: if first.data == null { null } else { hash.sha256(first.data ?? b"").hex() },
   }
   let entry_observation: SmbiosCaptureSource = {
@@ -592,7 +592,7 @@ export proc capture_smbios_bundle(
     truncated: entry_first.truncated,
     errno: entry_first.errno,
     error_kind: entry_first.error_kind,
-    byte_count: if entry_first.data == null { 0 } else { (entry_first.data ?? b"").len() },
+    byte_count: entry_first.data?.len() ?? 0,
     sha256_hex: if entry_first.data == null { null } else { hash.sha256(entry_first.data ?? b"").hex() },
   }
   let captured_unix_ms = time.now()

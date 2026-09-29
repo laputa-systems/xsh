@@ -215,6 +215,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "slicing",
     "results",
     "postfix-question",
+    "optional-postfix",
     "fallback",
     "run",
     "captures",
@@ -790,6 +791,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "postfix-question" => (
             "Defines postfix ? error propagation.",
             "? unwraps a Result or returns its error and requires the declared error effect outside retry attempt blocks.",
+        ),
+        "optional-postfix" => (
+            "Guards Optional field, method, index, and slice operations.",
+            "?. and adjacent ?[ skip the whole operation on null, including arguments and bounds. Result receivers propagate one outer Result with ordinary error checks. Optional methods returning Result retain both layers; ?? removes only the checked outer Optional layer. Any supports its existing dynamic fields, but new method/index overloads require checked receiver information.",
         ),
         "fallback" => (
             "Defines fallback expressions for recoverable values.",

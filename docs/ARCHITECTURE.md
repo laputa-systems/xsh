@@ -131,6 +131,11 @@ List and map comprehensions retain one ordered `ArenaCompQualifier` range.
 textual order. Active stream ownership is shared with a work-stack cleanup
 entry, so propagation and runtime failure cancel suspended producers without
 collecting their remaining values.
+
+Optional postfix receiver absence and Optional fallback lower through verified `MatchExpr` instructions
+with a hidden receiver slot. The null arm skips the whole selected operation;
+the present arm retains Result values. Result postfix receivers instead lower
+through one `Try` instruction before the ordinary operation.
 Runtime changes should preserve source-visible order, explicit boundaries, and
 traceable failure paths before pursuing cleverness. List compound assignment
 uses the ordinary indexed assignment route. A singleton list right side is

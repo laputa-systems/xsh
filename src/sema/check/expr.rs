@@ -212,11 +212,11 @@ impl Checker {
             ArenaExprKind::NullSafeField { base, name } => {
                 self.check_null_safe_field_arena(arena, source, *base, *name, expr.span)
             }
-            ArenaExprKind::Index { base, index } => {
-                self.check_index_arena(arena, source, *base, *index, expr.span)
+            ArenaExprKind::Index { base, index, guarded } => {
+                self.check_index_arena(arena, source, *base, *index, *guarded, expr.span)
             }
-            ArenaExprKind::Slice { base, start, end } => {
-                self.check_slice_arena(arena, source, *base, *start, *end, expr.span)
+            ArenaExprKind::Slice { base, start, end, guarded } => {
+                self.check_slice_arena(arena, source, *base, *start, *end, *guarded, expr.span)
             }
             ArenaExprKind::EnvGet { kind, .. } => self.check_env_get(*kind, expr.span),
             ArenaExprKind::EnvPathList => Type::EnvPathList,
@@ -1094,7 +1094,7 @@ impl Checker {
         let base_ty = self.check_expr_arena(arena, source, base, None);
         let (inner, wrap_optional) = match base_ty {
             Type::Optional(inner) => (*inner, true),
-            Type::Result(ok, _) => (*ok, false),
+            Type::Result(_, _) => (self.check_propagation(&base_ty, span), false),
             Type::Any => return Type::Any,
             Type::Unknown => return Type::Unknown,
             _ => {
@@ -1150,7 +1150,7 @@ impl Checker {
             Type::Any => Type::Any,
             _ => Type::Unknown,
         };
-        if wrap_optional {
+        if wrap_optional && !matches!(field_ty, Type::Optional(_)) {
             Type::Optional(Box::new(field_ty))
         } else {
             field_ty
@@ -1202,17 +1202,41 @@ impl Checker {
         })
     }
 
+    fn checked_postfix_receiver(&mut self, ty: Type, guarded: bool, span: Span) -> (Type, bool) {
+        if !guarded {
+            return (ty, false);
+        }
+        match ty {
+            Type::Optional(inner) if !matches!(*inner, Type::Any | Type::Unknown) => (*inner, true),
+            Type::Result(_, _) => (self.check_propagation(&ty, span), false),
+            _ => {
+                self.error(span, "guarded indexing requires a checked Optional or Result receiver", "check.null-safe-index");
+                (Type::Unknown, false)
+            }
+        }
+    }
+
+    fn lift_postfix_type(ty: Type, lift: bool) -> Type {
+        if lift && !matches!(ty, Type::Optional(_)) {
+            Type::Optional(Box::new(ty))
+        } else {
+            ty
+        }
+    }
+
     fn check_index_arena(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
         base: ExprId,
         index: ExprId,
+        guarded: bool,
         span: Span,
     ) -> Type {
         let base_ty = self.check_expr_arena(arena, source, base, None);
         let index_span = arena.arena.expr(index).span;
-        match base_ty {
+        let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
+        let result = match base_ty {
             Type::List(item) => {
                 let index_ty = self.check_expr_arena(arena, source, index, Some(&Type::Int));
                 self.expect_type(&Type::Int, &index_ty, index_span);
@@ -1235,7 +1259,8 @@ impl Checker {
                 self.error(span, "indexing requires List or Record", "check.index-type");
                 Type::Unknown
             }
-        }
+        };
+        Self::lift_postfix_type(result, lift)
     }
 
     fn check_slice_arena(
@@ -1245,9 +1270,11 @@ impl Checker {
         base: ExprId,
         start: Option<ExprId>,
         end: Option<ExprId>,
+        guarded: bool,
         span: Span,
     ) -> Type {
         let base_ty = self.check_expr_arena(arena, source, base, None);
+        let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         if let Some(start) = start {
             let ty = self.check_expr_arena(arena, source, start, Some(&Type::Int));
             let start_span = arena.arena.expr(start).span;
@@ -1258,7 +1285,7 @@ impl Checker {
             let end_span = arena.arena.expr(end).span;
             self.expect_type(&Type::Int, &ty, end_span);
         }
-        match base_ty {
+        let result = match base_ty {
             Type::List(_) => base_ty,
             Type::Str => Type::Str,
             Type::Bytes => Type::Bytes,
@@ -1268,7 +1295,8 @@ impl Checker {
                 self.error(span, "slicing requires List, Str, or Bytes", "check.slice-type");
                 Type::Unknown
             }
-        }
+        };
+        Self::lift_postfix_type(result, lift)
     }
 }
 

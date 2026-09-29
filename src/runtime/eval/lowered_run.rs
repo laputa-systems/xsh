@@ -6170,12 +6170,7 @@ impl Evaluator {
                     "mime.lookup_path",
                     span,
                 )?;
-                match mime_module::lookup_path(&path.display()) {
-                    Some(value) => lowered_runtime_value(Value::ok(value), span)?,
-                    None => lowered_result_err_value(
-                        RuntimeError::new("mime-lookup", "no MIME entry for path").with_span(span),
-                    ),
-                }
+                lowered_runtime_value(mime_module::lookup_path(&path.display()).unwrap_or(Value::Null), span)?
             }
             RuntimeOp::ModuleLoad if values.len() == 1 => {
                 let path = lowered_path_arg(

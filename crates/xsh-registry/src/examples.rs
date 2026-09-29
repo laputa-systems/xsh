@@ -88,6 +88,9 @@ pub(crate) fn source(id: &str) -> Option<String> {
         "language.core.comprehensions" => {
             include_str!("../../../docs/snippets/api/core-comprehensions.xsh")
         }
+        "language.core.optional-postfix" => {
+            include_str!("../../../docs/snippets/api/core-optional-postfix.xsh")
+        }
         "language.core.records" => include_str!("../../../docs/snippets/api/core-records.xsh"),
         "language.core.statements" => {
             include_str!("../../../docs/snippets/api/core-statements.xsh")

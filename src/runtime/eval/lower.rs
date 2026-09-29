@@ -40,6 +40,9 @@ use super::{
 #[derive(Clone, Default)]
 pub(super) struct SlotScope {
     indices: FxHashMap<Name, usize>,
+    // A guarded postfix binds its receiver once before lowering the selected arm.
+    postfix_receivers: FxHashMap<ExprId, BuildExprId>,
+    guarded_postfixes: FxHashSet<ExprId>,
     types: FxHashMap<Name, Type>,
     captures: FxHashSet<Name>,
     // (name, previous slot) for each block-local declaration, so `exit` can
@@ -176,6 +179,8 @@ fn lowered_method_call_args(name: Name, args: &[ArenaCallArg]) -> Option<Vec<Exp
         return Some(positional);
     }
     match name.as_str().as_str() {
+        "replace" => named_method_call_args(args, &["from", "to"], &[])
+            .or_else(|| named_method_call_args(args, &["text", "replacement"], &[])),
         "format" => named_method_call_args(args, &[], &["precision"]),
         "squeeze" => named_method_call_args(args, &[], &["chars"]),
         "fields" => named_method_call_args(args, &[], &["delimiter"]),
@@ -1369,6 +1374,8 @@ impl SlotScope {
         let high_water = indices.len();
         Self {
             indices,
+            postfix_receivers: FxHashMap::default(),
+            guarded_postfixes: FxHashSet::default(),
             types: FxHashMap::default(),
             captures: FxHashSet::default(),
             declared: Vec::new(),
@@ -2226,11 +2233,12 @@ fn compact_collect_expr_call_edges(
         | ArenaExprKind::Index {
             base: left,
             index: right,
+            ..
         } => {
             compact_collect_expr_call_edges(program, left, namespace, index_of, edges);
             compact_collect_expr_call_edges(program, right, namespace, index_of, edges);
         }
-        ArenaExprKind::Slice { base, start, end } => {
+        ArenaExprKind::Slice { base, start, end, .. } => {
             compact_collect_expr_call_edges(program, base, namespace, index_of, edges);
             if let Some(start) = start {
                 compact_collect_expr_call_edges(program, start, namespace, index_of, edges);
@@ -4492,6 +4500,24 @@ impl CompactLowerConstructProbe<'_, '_> {
     }
 
     fn infer_checked_expr_type_with_slots(&self, value: ExprId, slots: &SlotScope) -> Option<Type> {
+        let base = match self.program.arena.expr(value).kind {
+            ArenaExprKind::NullSafeField { base, .. }
+            | ArenaExprKind::Index { base, guarded: true, .. }
+            | ArenaExprKind::Slice { base, guarded: true, .. } => Some(base),
+            ArenaExprKind::Call { callee, .. } => match self.program.arena.expr(callee).kind {
+                ArenaExprKind::NullSafeField { base, .. } => Some(base),
+                _ => None,
+            },
+            _ => None,
+        };
+        let lift = base.and_then(|base| self.infer_checked_expr_type_with_slots(base, slots)
+            .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known)))
+            .is_some_and(|ty| matches!(ty, Type::Optional(_)));
+        let result = self.infer_checked_expr_type_with_slots_inner(value, slots)?;
+        Some(if lift && !matches!(result, Type::Optional(_)) { Type::Optional(Box::new(result)) } else { result })
+    }
+
+    fn infer_checked_expr_type_with_slots_inner(&self, value: ExprId, slots: &SlotScope) -> Option<Type> {
         match self.program.arena.expr(value).kind {
             ArenaExprKind::Ident(name) => slots.binding_type(name).cloned(),
             ArenaExprKind::Bool(_) => Some(Type::Bool),
@@ -4538,14 +4564,20 @@ impl CompactLowerConstructProbe<'_, '_> {
                     .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known))?;
                 self.infer_checked_field_type_from_type(&base_ty, name)
             }
-            ArenaExprKind::Index { base, .. } => {
+            ArenaExprKind::Index { base, guarded, .. } => {
                 let base_ty = self
                     .infer_checked_expr_type_with_slots(base, slots)
                     .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known))?;
+                let base_ty = if guarded { match base_ty { Type::Optional(inner) | Type::Result(inner, _) => *inner, other => other } } else { base_ty };
                 match base_ty {
                     Type::List(item) | Type::Map(item) => Some(*item),
                     _ => None,
                 }
+            }
+            ArenaExprKind::Slice { base, guarded, .. } => {
+                let ty = self.infer_checked_expr_type_with_slots(base, slots)
+                    .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known))?;
+                Some(if guarded { match ty { Type::Optional(inner) | Type::Result(inner, _) => *inner, other => other } } else { ty })
             }
             ArenaExprKind::Call { callee, args } => {
                 let args_vec = self.program.arena.call_args(args);
@@ -5063,6 +5095,15 @@ impl CompactLowerConstructProbe<'_, '_> {
             Type::Record(fields) => fields.get(&name).cloned(),
             Type::Module(exports) => exports.get(&name).map(ModuleExportType::field_type),
             Type::DynamicModule => Some(Type::Any),
+            Type::ProcessHandle => match name.as_str().as_str() {
+                "pid" => Some(Type::Int),
+                "command" => Some(Type::Str),
+                "argv" => Some(Type::List(Box::new(Type::Str))),
+                "detached" => Some(Type::Bool),
+                _ => None,
+            },
+            Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError
+                if name == "message" => Some(Type::Str),
             Type::Path => match name.as_str().as_str() {
                 "display" | "name" | "ext" => Some(Type::Str),
                 "normalize" | "parent" => Some(Type::Path),
@@ -7472,6 +7513,51 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
     }
 
+    fn lower_postfix_receiver(
+        &mut self,
+        base: ExprId,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        if let Some(receiver) = slots.postfix_receivers.get(&base) {
+            return Some(*receiver);
+        }
+        let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
+        Some(push_build_row!(self, expr, BuildExprRow::Try(receiver)))
+    }
+
+    fn lower_optional_postfix(
+        &mut self,
+        id: ExprId,
+        base: ExprId,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<BuildExprId> {
+        let span = self.program.arena.expr(id).span;
+        let receiver = self.lower_expr(base, slots, current_function, item_slot)?;
+        let slot = slots.reserve("optional receiver");
+        let bound = push_build_row!(self, expr, BuildExprRow::Param(slot));
+        let previous = slots.postfix_receivers.insert(base, bound);
+        slots.guarded_postfixes.insert(id);
+        let selected = self.lower_expr(id, slots, current_function, item_slot);
+        slots.guarded_postfixes.remove(&id);
+        match previous {
+            Some(previous) => { slots.postfix_receivers.insert(base, previous); }
+            None => { slots.postfix_receivers.remove(&base); }
+        }
+        let selected = selected?;
+        let absent = push_build_row!(self, expr, BuildExprRow::Null);
+        let null_pattern = push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Null));
+        let present_pattern = push_build_row!(self, pattern, BuildPatternRow::Bind { slot });
+        Some(push_build_row!(self, expr, BuildExprRow::MatchExpr {
+            value: receiver,
+            arms: vec![(null_pattern, None, absent), (present_pattern, None, selected)],
+            span,
+        }))
+    }
+
     fn lower_expr(
         &mut self,
         id: ExprId,
@@ -7479,6 +7565,29 @@ impl CompactLowerConstructProbe<'_, '_> {
         current_function: Option<Name>,
         item_slot: Option<usize>,
     ) -> Option<BuildExprId> {
+        if let Some(receiver) = slots.postfix_receivers.get(&id) {
+            return Some(*receiver);
+        }
+        if !slots.guarded_postfixes.contains(&id) {
+            let base = match self.program.arena.expr(id).kind {
+                ArenaExprKind::NullSafeField { base, .. }
+                | ArenaExprKind::Index { base, guarded: true, .. }
+                | ArenaExprKind::Slice { base, guarded: true, .. } => Some(base),
+                ArenaExprKind::Call { callee, .. } => match self.program.arena.expr(callee).kind {
+                    ArenaExprKind::NullSafeField { base, .. } => Some(base),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(base) = base {
+                let ty = self.infer_checked_expr_type_with_slots(base, slots)
+                    .or_else(|| self.bodies.expr_types.get(&base).filter(|ty| compact_checked_type_is_concrete(ty)).cloned())
+                    .or_else(|| self.infer_checked_expr_type(base, &self.top_level_known));
+                if matches!(ty, Some(Type::Optional(_))) {
+                    return self.lower_optional_postfix(id, base, slots, current_function, item_slot);
+                }
+            }
+        }
         self.output.expressions += 1;
         let span = self.program.arena.expr(id).span;
         let lowered = match self.program.arena.expr(id).kind {
@@ -7719,18 +7828,24 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                 ))
             }
-            ArenaExprKind::Binary {
-                op: BinaryOp::ResultFallback,
-                left,
-                right,
-            } => Some(push_build_row!(
-                self,
-                expr,
-                BuildExprRow::ResultFallback {
-                    left: self.lower_expr(left, slots, current_function, item_slot)?,
-                    right: self.lower_expr(right, slots, current_function, item_slot)?,
+            ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, right } => {
+                let left_ty = self.infer_checked_expr_type_with_slots(left, slots)
+                    .or_else(|| self.bodies.expr_types.get(&left).filter(|ty| compact_checked_type_is_concrete(ty)).cloned())
+                    .or_else(|| self.infer_checked_expr_type(left, &self.top_level_known));
+                let left = self.lower_expr(left, slots, current_function, item_slot)?;
+                let right = self.lower_expr(right, slots, current_function, item_slot)?;
+                if matches!(left_ty, Some(Type::Optional(_))) {
+                    let slot = slots.reserve("optional fallback");
+                    let null_pattern = push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Null));
+                    let present_pattern = push_build_row!(self, pattern, BuildPatternRow::Bind { slot });
+                    let present = push_build_row!(self, expr, BuildExprRow::Param(slot));
+                    Some(push_build_row!(self, expr, BuildExprRow::MatchExpr {
+                        value: left, arms: vec![(null_pattern, None, right), (present_pattern, None, present)], span,
+                    }))
+                } else {
+                    Some(push_build_row!(self, expr, BuildExprRow::ResultFallback { left, right }))
                 }
-            )),
+            }
             ArenaExprKind::If {
                 branches,
                 else_value,
@@ -7828,38 +7943,24 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                 ))
             }
-            ArenaExprKind::NullSafeField { base, name } => Some(push_build_row!(
-                self,
-                expr,
-                BuildExprRow::Field {
-                    base: push_build_row!(
-                        self,
-                        expr,
-                        BuildExprRow::Try(self.lower_expr(
-                            base,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )?)
-                    ),
-                    name: name.as_str(),
-                    span,
-                }
-            )),
-            ArenaExprKind::Index { base, index } => Some(push_build_row!(
+            ArenaExprKind::NullSafeField { base, name } => {
+                let base = self.lower_postfix_receiver(base, slots, current_function, item_slot)?;
+                Some(push_build_row!(self, expr, BuildExprRow::Field { base, name: name.as_str(), span }))
+            }
+            ArenaExprKind::Index { base, index, guarded } => Some(push_build_row!(
                 self,
                 expr,
                 BuildExprRow::Index {
-                    base: self.lower_expr(base, slots, current_function, item_slot)?,
+                    base: if guarded { self.lower_postfix_receiver(base, slots, current_function, item_slot)? } else { self.lower_expr(base, slots, current_function, item_slot)? },
                     index: self.lower_expr(index, slots, current_function, item_slot)?,
                     span,
                 }
             )),
-            ArenaExprKind::Slice { base, start, end } => Some(push_build_row!(
+            ArenaExprKind::Slice { base, start, end, guarded } => Some(push_build_row!(
                 self,
                 expr,
                 BuildExprRow::Slice {
-                    base: self.lower_expr(base, slots, current_function, item_slot)?,
+                    base: if guarded { self.lower_postfix_receiver(base, slots, current_function, item_slot)? } else { self.lower_expr(base, slots, current_function, item_slot)? },
                     start: match start {
                         Some(start) =>
                             Some(self.lower_expr(start, slots, current_function, item_slot,)?),
@@ -9782,16 +9883,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::PathReadText {
-                            path: push_build_row!(
-                                self,
-                                expr,
-                                BuildExprRow::Try(self.lower_expr(
-                                    base,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)
-                            ),
+                            path: self.lower_postfix_receiver(base, slots, current_function, item_slot)?,
                             span,
                         }
                     ));
@@ -9801,16 +9893,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::PathReadBytes {
-                            path: push_build_row!(
-                                self,
-                                expr,
-                                BuildExprRow::Try(self.lower_expr(
-                                    base,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)
-                            ),
+                            path: self.lower_postfix_receiver(base, slots, current_function, item_slot)?,
                             span,
                         }
                     ));
@@ -9820,16 +9903,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::PathExists {
-                            path: push_build_row!(
-                                self,
-                                expr,
-                                BuildExprRow::Try(self.lower_expr(
-                                    base,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)
-                            ),
+                            path: self.lower_postfix_receiver(base, slots, current_function, item_slot)?,
                             span,
                         }
                     ));
@@ -9839,16 +9913,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::PathExecutable {
-                            path: push_build_row!(
-                                self,
-                                expr,
-                                BuildExprRow::Try(self.lower_expr(
-                                    base,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)
-                            ),
+                            path: self.lower_postfix_receiver(base, slots, current_function, item_slot)?,
                             span,
                         }
                     ));
@@ -9858,16 +9923,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::PathDu {
-                            path: push_build_row!(
-                                self,
-                                expr,
-                                BuildExprRow::Try(self.lower_expr(
-                                    base,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)
-                            ),
+                            path: self.lower_postfix_receiver(base, slots, current_function, item_slot)?,
                             span,
                         }
                     ));
@@ -9877,16 +9933,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::PathMetadata {
-                            path: push_build_row!(
-                                self,
-                                expr,
-                                BuildExprRow::Try(self.lower_expr(
-                                    base,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)
-                            ),
+                            path: self.lower_postfix_receiver(base, slots, current_function, item_slot)?,
                             span,
                         }
                     ));
@@ -9896,16 +9943,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::PathReadlink {
-                            path: push_build_row!(
-                                self,
-                                expr,
-                                BuildExprRow::Try(self.lower_expr(
-                                    base,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)
-                            ),
+                            path: self.lower_postfix_receiver(base, slots, current_function, item_slot)?,
                             span,
                         }
                     ));
@@ -9915,16 +9953,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::PathResolve {
-                            path: push_build_row!(
-                                self,
-                                expr,
-                                BuildExprRow::Try(self.lower_expr(
-                                    base,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)
-                            ),
+                            path: self.lower_postfix_receiver(base, slots, current_function, item_slot)?,
                             span,
                         }
                     ));
@@ -9935,16 +9964,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::PathWrite {
-                            path: push_build_row!(
-                                self,
-                                expr,
-                                BuildExprRow::Try(self.lower_expr(
-                                    base,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)
-                            ),
+                            path: self.lower_postfix_receiver(base, slots, current_function, item_slot)?,
                             data: self.lower_expr(
                                 options.data,
                                 slots,
@@ -9962,16 +9982,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::PathMkdir {
-                            path: push_build_row!(
-                                self,
-                                expr,
-                                BuildExprRow::Try(self.lower_expr(
-                                    base,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)
-                            ),
+                            path: self.lower_postfix_receiver(base, slots, current_function, item_slot)?,
                             parents: match options.parents {
                                 Some(expr) => Some(self.lower_expr(
                                     expr,
@@ -9992,16 +10003,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         expr,
                         BuildExprRow::PathRemove {
-                            path: push_build_row!(
-                                self,
-                                expr,
-                                BuildExprRow::Try(self.lower_expr(
-                                    base,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?)
-                            ),
+                            path: self.lower_postfix_receiver(base, slots, current_function, item_slot)?,
                             missing_ok: match options.missing_ok {
                                 Some(expr) => Some(self.lower_expr(
                                     expr,
@@ -10063,16 +10065,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     self,
                     expr,
                     BuildExprRow::Method {
-                        receiver: push_build_row!(
-                            self,
-                            expr,
-                            BuildExprRow::Try(self.lower_expr(
-                                base,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )?)
-                        ),
+                        receiver: self.lower_postfix_receiver(base, slots, current_function, item_slot)?,
                         name: name.as_str(),
                         args: lowered_args,
                         span,

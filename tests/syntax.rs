@@ -3463,3 +3463,20 @@ fn formatter_multi_clause_comprehensions_retain_unicode_comments() {
     let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
     assert_eq!(second.formatted, first.formatted);
 }
+
+#[test]
+fn guarded_postfix_records_index_and_slice_flags_and_byte_spans() {
+    let source = "let text: Str? = \"αβ\"\nlet a = text?[0]\nlet b = text?[..2]\nlet c = text[1..]\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let statements: Vec<_> = parsed.arena.arena.stmt_ids(parsed.arena.statements).collect();
+    for (stmt, guarded, spelling) in [(statements[1], true, "text?[0]"), (statements[2], true, "text?[..2]"), (statements[3], false, "text[1..]")] {
+        let xsh::frontend::syntax::arena::ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(expr), .. } = parsed.arena.arena.stmt(stmt).kind else { panic!("binding"); };
+        let expression = parsed.arena.arena.expr(expr);
+        assert_eq!(&source[expression.span.start()..expression.span.end()], spelling);
+        match expression.kind {
+            ArenaExprKind::Index { guarded: actual, .. } | ArenaExprKind::Slice { guarded: actual, .. } => assert_eq!(actual, guarded),
+            _ => panic!("guarded postfix"),
+        }
+    }
+}

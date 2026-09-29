@@ -2729,3 +2729,60 @@ fn linter_multi_clause_accumulators_keep_uncertain_loops() {
         assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-list-comp")), "unsafe fix for {source}: {:?}", output.diagnostics);
     }
 }
+
+#[test]
+fn optional_postfix_fix_preserves_null_fallback_and_converges() {
+    let source = "let name: Str? = null\nlet label = if name == null { \"default\" } else { name.trim() }\nprint $label\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty());
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types, ..LintOptions::default()
+    }).diagnostics;
+    let diagnostic = diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-optional-postfix")).expect("optional postfix lint");
+    let fix = &diagnostic.fix_hints[0];
+    let span = fix.span.unwrap();
+    let mut fixed = source.to_string();
+    fixed.replace_range(span.start()..span.end(), fix.replacement.as_ref().unwrap());
+    assert_parse_check_standalone("optional postfix", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty());
+    assert!(formatted.formatted.contains("name?.trim() ??"));
+    let reparsed = parse_lint_source(&formatted.formatted);
+    let rechecked = Checker::check_arena(&reparsed.arena, &formatted.formatted);
+    let second = Linter::lint(&reparsed.arena, &formatted.formatted, LintOptions {
+        expr_types: rechecked.expr_types, ..LintOptions::default()
+    });
+    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-optional-postfix")));
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+}
+
+#[test]
+fn optional_postfix_fix_refuses_mutation_comments_and_optional_results() {
+    for source in [
+        "var name: Str? = null\nname = \"x\"\nlet label = if name == null { \"default\" } else { name.trim() }\nprint $label\n",
+        "let name: Str? = null\nlet label = if name == null {\n  # retain explanation\n  \"default\"\n} else { name.trim() }\nprint $label\n",
+        "type Item = {name: Str?}\nlet item: Item? = null\nlet name: Str? = if item == null { \"default\" } else { item.name }\nprint (name ?? \"\")\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
+            expr_types: checked.expr_types, ..LintOptions::default()
+        }).diagnostics;
+        assert!(!diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-optional-postfix")), "{source}");
+    }
+}
+
+#[test]
+fn formatter_retains_guarded_postfix_and_unicode_spans() {
+    let source = "let text: Str? = null\nlet prefix = text?[..2] ?? \"α\"\nlet suffix = text?[1..] ?? \"β\"\nlet whole = text?[..] ?? \"γ\"\nlet values: List[Int]? = null\nlet item = values?[0] ?? 3\nprint (text?.trim() ?? prefix) $suffix $whole $item\n";
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("text?[..2]"));
+    assert!(formatted.formatted.contains("values?[0]"));
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+    assert_parse_check_standalone("guarded postfix round trip", &formatted.formatted);
+}
