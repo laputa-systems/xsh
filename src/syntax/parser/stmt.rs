@@ -234,9 +234,13 @@ impl<'a> Parser<'a> {
             };
             self.expect(TokenKindMatch::Colon, "expected `:` after schema field");
             let ty_id = self.parse_type_expr(arena)?;
-            let ty_end = self.previous_end();
-            let span = self.span(start, ty_end);
-            fields.push(arena.build_schema_field(name, ty_id, span));
+            let default = if self.consume(TokenKindMatch::Equals).is_some() {
+                Some(self.parse_expr_id_arena_only(arena)?)
+            } else {
+                None
+            };
+            let span = self.span(start, self.previous_end());
+            fields.push(arena.build_schema_field(name, ty_id, default, span));
             self.skip_newlines();
             if self.consume(TokenKindMatch::Comma).is_none() {
                 break;

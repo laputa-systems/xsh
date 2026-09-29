@@ -3151,3 +3151,55 @@ fn error_fallback_flow_keeps_success_path_reachable() {
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
     assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.unreachable")), "{:?}", output.diagnostics);
 }
+
+#[test]
+fn linter_record_constructor_preserves_annotation_comments_and_converges() {
+    let source = include_str!("../../../tests/fixtures/syntax/valid/record-constructor-explicit.xsh");
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    let constructors: Vec<_> = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-record-constructor")).collect();
+    assert_eq!(constructors.len(), 4);
+    assert_eq!(constructors[0].fix_hints.len(), 1);
+    assert!(constructors[1].fix_hints.is_empty());
+    let fix = &constructors[0].fix_hints[0];
+    assert_eq!(fix.replacement.as_deref(), Some("Config(name:)"));
+    let mut fixed = source.to_string();
+    for diagnostic in constructors.iter().rev() {
+        for fix in &diagnostic.fix_hints {
+            fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+        }
+    }
+    assert!(fixed.contains("let config: Config = Config("));
+    assert!(fixed.contains("enabled: observed_default()"));
+    assert!(fixed.contains("let lookup: Lookup = Lookup(value: empty)"));
+    assert_parse_check_standalone("record constructor", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert_eq!(formatted.formatted, fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let second = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    let constructors: Vec<_> = second.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-record-constructor")).collect();
+    assert_eq!(constructors.len(), 1);
+    assert!(constructors[0].fix_hints.is_empty());
+}
+
+#[test]
+fn linter_record_constructor_requires_static_schema_and_preserves_constant_bits() {
+    let source = "type Signed = {value: Float = -0.0}\nlet same: Signed = {value: -0.0}\nlet different: Signed = {value: 0.0}\nlet source = {value: -0.0}\nlet spread: Signed = {...source}\ntype Lookup = {value: Map[Int]}\nlet contextual: Lookup = {value: {}}\nlet dynamic: Record = {value: -0.0}\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let unchecked = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+    assert!(!unchecked.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-record-constructor")));
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    let constructors: Vec<_> = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-record-constructor")).collect();
+    assert_eq!(constructors.len(), 4);
+    assert_eq!(constructors[0].fix_hints[0].replacement.as_deref(), Some("Signed()"));
+    assert_eq!(constructors[1].fix_hints[0].replacement.as_deref(), Some("Signed(value: 0.0)"));
+    assert!(constructors[2].fix_hints.is_empty());
+    assert!(constructors[3].fix_hints.is_empty());
+}

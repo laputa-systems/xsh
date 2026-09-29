@@ -1,4 +1,5 @@
-type Config = {name: Str, enabled: Bool}
+type Config = {name: Str, enabled: Bool = true}
 
-let config: Config = {name: "demo", enabled: true}
+let name = "demo"
+let config = Config(name:)
 print $config.name

@@ -197,6 +197,8 @@ impl Checker {
         let saved_pure = self.in_pure;
         let saved_exported = self.current_exported;
         let saved_module_depth = self.module_depth;
+        let saved_namespace = self.current_namespace;
+        self.current_namespace = Some(module.name);
         let saved_scopes = self.scopes.clone();
         self.scopes = vec![FxHashMap::default()];
         self.module_depth += 1;
@@ -421,6 +423,7 @@ impl Checker {
         self.in_pure = saved_pure;
         self.current_exported = saved_exported;
         self.module_depth = saved_module_depth;
+        self.current_namespace = saved_namespace;
         self.scopes = saved_scopes;
         exports
     }
@@ -822,7 +825,7 @@ impl Checker {
     pub(super) fn check_type_def_arena(
         &mut self,
         arena: &ArenaProgram,
-        _source: &str,
+        source: &str,
         def: &ArenaTypeDef,
         span: Span,
     ) {
@@ -842,7 +845,19 @@ impl Checker {
                             "check.duplicate-record-field",
                         );
                     }
-                    self.type_from_arena(arena, field.ty);
+                    let expected = self.type_from_arena(arena, field.ty);
+                    if let Some(default) = field.default {
+                        let definition = self.record_constructors.definition(self.current_namespace, def.name);
+                        let allowed = definition.and_then(|id| self.record_constructors.defaults(id))
+                            .is_some_and(|defaults| defaults.contains_key(&field.name));
+                        if !allowed {
+                            self.error(arena.arena.expr(default).span,
+                                "record default must be a literal or a previously declared immutable literal constant",
+                                "check.record-default");
+                        }
+                        let actual = self.check_expr_arena(arena, source, default, Some(&expected));
+                        self.expect_type(&expected, &actual, arena.arena.expr(default).span);
+                    }
                 }
                 if field_list.is_empty() {
                     self.error(

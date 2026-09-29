@@ -393,6 +393,12 @@ Focused semantic rules live beside it:
   this registry and `runtime/eval.rs` — no traversal files need touching.
 - `src/modules` contains shared host helpers for standard modules.
 - `src/sema/records.rs` contains shared record schemas.
+- `src/sema/constants.rs::RecordConstructors` resolves user schema constructors
+  and aliases in lexical module namespaces. `LiteralConstant` admits bounded
+  literal trees and earlier immutable literal bindings; checker, parameter-default
+  lowering, constructor lowering, and conservative constructor fixes share this
+  analysis. Constructor lowering emits existing record and schema-check rows,
+  preserving supplied field order and independent aggregate values.
 - `src/sema/check/stream.rs` checks structured stream pipelines.
 - `crates/xsht/src/lint.rs` reports non-fatal quality issues. Its `LintExprVisitor`
   implements `syntax::visitor::Visitor`; add new lint rules by adding methods

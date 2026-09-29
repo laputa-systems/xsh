@@ -260,6 +260,11 @@ when a conditional or fallback would be parsed as a statement or command.
 `lint.prefer-guard` preserves the complete condition spelling, including the
 closing parentheses around pipelines.
 
+`lint.prefer-record-constructor` replaces checked schema-typed record literals
+with static named-field construction while retaining the annotation. It preserves
+field evaluation order and omits explicit defaults only for identical bounded
+literal values. Comments and record spreads prevent an automatic replacement.
+
 `lint.prefer-named-argument-pun` shortens checked `name: name` expression-call
 arguments to `name:`. The value must be that lexical identifier; another binding
 or a field selection does not qualify. Existing puns are stable, and an argument

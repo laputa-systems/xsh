@@ -474,7 +474,7 @@ assign_op    = "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
 type_def     = "type" IDENT "=" type_body terminator ;
 type_body    = type_expr | record_schema | module_contract ;
 record_schema = "{" schema_field ("," schema_field)* ","? "}" ;
-schema_field = IDENT ":" type_expr ;
+schema_field = IDENT ":" type_expr ("=" expr)? ;
 
 Record schema and literal field names are normally identifiers. A reserved word
 used as a field name is rejected with a diagnostic that names the word. Use a
@@ -802,6 +802,29 @@ combining displayable values into a path. Accepted path promotion is limited to
 source string literals at statically known path boundaries, such as typed module
 arguments, proc arguments, typed bindings, and redirection targets. Runtime
 `Str` values still require explicit checked conversion.
+
+Named user record schemas support static construction with named fields,
+including puns and qualified imported schema names: `BuildOptions(root:)`.
+Aliases resolve to the defining schema's constructor and defaults. Constructors
+accept no positional arguments; unknown, duplicate, and missing required fields
+are errors. Supplied values evaluate once in source order. A schema name is not
+a first-class callable value, and callable/type name collisions are errors.
+
+Schema field defaults are bounded immutable constants: `null`, `Bool`, `Int`,
+`Float`, `Duration`, `Str`, `Bytes`, and `Path` literals, signed numeric literals,
+recursively literal lists and records, and references to previous immutable
+constants composed from those forms. Constants resolve in the
+schema declaration's lexical module. Calls, ambient state, mutable captures,
+field dependencies, and propagation are forbidden. Defaults are checked once
+against field types, including contextual empty containers; each constructed
+value retains independent value semantics under mutation.
+
+Defaults apply exclusively to explicit constructor calls. They neither make
+schema fields optional nor fill missing fields in record literals, JSON, or
+`.require(Schema)`. `lint.prefer-record-constructor` rewrites proven schema-typed
+record initializers while retaining annotations and field evaluation order. It
+omits an explicit default only when the value is the identical bounded constant;
+comments and uncertain conversions retain the original spelling.
 
 ## 6. Expressions
 

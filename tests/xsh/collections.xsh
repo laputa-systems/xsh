@@ -39,10 +39,10 @@ proc test_nominal_error_payload_and_facet_patterns() [error] {
   }
 }
 
-type Stats = {blanks: Int, code: Int, comments: Int}
+type Stats = {blanks: Int = 0, code: Int = 0, comments: Int = 0}
 
 pure count_lines(lines: List[Str]) -> Stats {
-  var stats: Stats = {blanks: 0, code: 0, comments: 0}
+  var stats: Stats = Stats()
 
   for line in lines {
     if line.trim() == "" {

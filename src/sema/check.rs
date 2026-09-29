@@ -49,6 +49,8 @@ use self::command::{
     command_arg_can_be_path_like_arena, command_bool_flag_name_arena,
     command_stmt_asserts_success_arena, command_ty_auto_propagates,
 };
+pub use super::constants::RecordConstructors;
+
 pub use self::compact::{
     CompactBodyProbeOutput, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
 };
@@ -248,6 +250,8 @@ pub(super) struct UserModuleSig {
 }
 
 pub struct Checker {
+    record_constructors: RecordConstructors,
+    current_namespace: Option<Name>,
     scopes: Vec<FxHashMap<Name, Binding>>,
     procs: FxHashMap<Name, FunctionSig>,
     pures: FxHashMap<Name, FunctionSig>,
@@ -430,6 +434,8 @@ impl Checker {
             qualified_pures: FxHashMap::default(),
             qualified_streams: FxHashMap::default(),
             type_defs: FxHashMap::default(),
+            record_constructors: RecordConstructors::default(),
+            current_namespace: None,
             type_namespaces: FxHashMap::default(),
             tag_variants: FxHashMap::default(),
             error_families: FxHashMap::default(),
@@ -519,6 +525,7 @@ impl Checker {
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
     ) {
         self.diagnostics.extend(Self::prepare_regex_literals(program));
+        self.record_constructors = RecordConstructors::collect(program);
         self.collect_user_modules_arena(program, type_program.clone(), source);
         self.collect_type_imports_arena(program, program.statement_ids());
         self.collect_definitions_arena(program, type_program, source, program.statement_ids());

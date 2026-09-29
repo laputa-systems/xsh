@@ -2331,8 +2331,8 @@ impl<'a> Writer<'a> {
         output: &mut String,
     ) {
         let schema_fields = self.arena.schema_fields(fields).to_vec();
-        let field_ids: Vec<(Name, TypeExprId)> =
-            schema_fields.iter().map(|f| (f.name, f.ty)).collect();
+        let field_ids: Vec<(Name, TypeExprId, Option<ExprId>)> =
+            schema_fields.iter().map(|f| (f.name, f.ty, f.default)).collect();
         let original_multiline = schema_fields
             .first()
             .zip(schema_fields.last())
@@ -2369,11 +2369,11 @@ impl<'a> Writer<'a> {
         fields: xsh::frontend::syntax::arena::ArenaRange,
         output: &mut String,
     ) {
-        let field_ids: Vec<(Name, TypeExprId)> = self
+        let field_ids: Vec<(Name, TypeExprId, Option<ExprId>)> = self
             .arena
             .schema_fields(fields)
             .iter()
-            .map(|f| (f.name, f.ty))
+            .map(|f| (f.name, f.ty, f.default))
             .collect();
         output.push('{');
         for (index, field) in field_ids.iter().enumerate() {
@@ -2385,10 +2385,14 @@ impl<'a> Writer<'a> {
         output.push('}');
     }
 
-    fn write_schema_field(&mut self, field: &(Name, TypeExprId), output: &mut String) {
+    fn write_schema_field(&mut self, field: &(Name, TypeExprId, Option<ExprId>), output: &mut String) {
         output.push_str(field.0.as_str().as_str());
         output.push_str(": ");
         self.write_type(field.1, output);
+        if let Some(default) = field.2 {
+            output.push_str(" = ");
+            self.write_expr_safe(default, output);
+        }
     }
 
     fn write_module_contract(

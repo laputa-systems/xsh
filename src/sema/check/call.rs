@@ -188,6 +188,22 @@ impl Checker {
         let callee_kind = arena.arena.expr(callee).kind;
         let args = arena.arena.call_args(args_range);
 
+        if let Some(definition) = self.record_constructors.resolve_call(
+            &arena.arena, callee, self.current_namespace,
+        ) {
+            let expected = match callee_kind {
+                ArenaExprKind::Ident(name) => self.type_from_name(name, span),
+                ArenaExprKind::Field { base, name } => {
+                    let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind else {
+                        unreachable!("static constructor receiver is a namespace");
+                    };
+                    self.type_from_qualified_name(namespace, name, span)
+                }
+                _ => unreachable!("constructor resolution accepts static names"),
+            };
+            return self.check_record_constructor_arena(arena, source, definition, args, expected, span);
+        }
+
         if let ArenaExprKind::Ident(name) = callee_kind {
             if name == "reveal_type" {
                 return self.check_reveal_type_call_arena(arena, source, args, span);
@@ -550,6 +566,48 @@ impl Checker {
             self.expect_type(&param.ty, &actual, call_arg_span_arena(arena, &arg.kind));
             index += 1;
         }
+    }
+
+    fn check_record_constructor_arena(
+        &mut self,
+        arena: &ArenaProgram,
+        source: &str,
+        definition: crate::syntax::arena::TypeDefId,
+        args: &[ArenaCallArg],
+        expected: Type,
+        span: Span,
+    ) -> Type {
+        let Type::Record(fields) = &expected else { return Type::Invalid; };
+        let defaults = self.record_constructors.defaults(definition).cloned().unwrap_or_default();
+        let mut supplied = super::FxHashSet::default();
+        for arg in args {
+            let ArenaCallArgKind::Named { name, .. } = arg.kind else {
+                self.error(call_arg_span_arena(arena, &arg.kind),
+                    "record constructors require named fields", "check.record-constructor");
+                self.check_call_arg_arena(arena, source, &arg.kind, None);
+                continue;
+            };
+            if !supplied.insert(name) {
+                self.error(call_arg_span_arena(arena, &arg.kind),
+                    "duplicate constructor field", "check.record-constructor");
+            }
+            let field_type = fields.get(&name);
+            if field_type.is_none() {
+                self.error(call_arg_span_arena(arena, &arg.kind),
+                    "unknown constructor field", "check.record-constructor");
+            }
+            let actual = self.check_call_arg_arena(arena, source, &arg.kind, field_type);
+            if let Some(field_type) = field_type {
+                self.expect_type(field_type, &actual, call_arg_span_arena(arena, &arg.kind));
+            }
+        }
+        for name in fields.keys() {
+            if !supplied.contains(name) && !defaults.contains_key(name) {
+                self.error(span, &format!("missing required constructor field `{name}`"),
+                    "check.record-constructor");
+            }
+        }
+        expected
     }
 
     pub(super) fn check_constructor_call_arena(

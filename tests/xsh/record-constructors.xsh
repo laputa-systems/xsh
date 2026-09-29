@@ -1,0 +1,165 @@
+let record_default_names = ["initial"]
+type ConstructorConfig = {name: Str, enabled: Bool = true, names: List[Str] = record_default_names, options: Map[Str] = {}}
+type ConstructorAlias = ConstructorConfig
+pure constructor_config(name: Str) -> ConstructorConfig { ConstructorConfig(name:) }
+
+proc test_record_constructors_defaults_aliases_and_puns() [error] {
+  let name = "demo"
+  let config = ConstructorAlias(name:)
+  test.eq(constructor_config("pure").name, "pure")?
+  test.eq(config.name, "demo")?
+  test.eq(config.enabled, true)?
+  test.eq(config.names, ["initial"])?
+  test.eq(config.options.len(), 0)?
+  test.eq(ConstructorConfig(name: "explicit", options: {}).options.len(), 0)?
+  var first = ConstructorConfig(name: "first")
+  let second = ConstructorConfig(name: "second")
+  first.names += ["changed"]
+  var options = first.options
+  options["changed"] = "value"
+  test.eq(second.names, ["initial"])?
+  test.eq(second.options.len(), 0)?
+  test.eq(record_default_names, ["initial"])?
+}
+
+proc test_record_constructors_evaluate_supplied_arguments_in_source_order(ctx: TestContext) [error] {
+  let executed = test.run_script(ctx, r"""type Pair = {first: Int = 0, second: Int = 0}
+proc marked(value: Int) -> Int {
+  print $value
+  return value
+}
+let pair = Pair(second: marked(2), first: marked(1))
+print $pair.first
+print $pair.second
+""")?
+  test.ok(executed.success, executed.stderr)?
+  test.eq(executed.stdout, "2\n1\n1\n2\n")?
+}
+
+proc test_record_constructors_reject_invalid_calls_and_defaults(ctx: TestContext) [error] {
+  for source in [
+    "type Config = {name: Str}\nlet config = Config()\n",
+    "type Config = {name: Str}\nlet config = Config(\"demo\")\n",
+    "type Config = {name: Str}\nlet config = Config(name: \"demo\", other: 1)\n",
+    "type Config = {name: Str}\nlet config = Config(name: \"demo\", name: \"again\")\n",
+  ] {
+    let rejected = test.run_script(ctx, source)?
+    test.ok(! rejected.success, rejected.stderr)?
+    test.contains(rejected.stderr, "check.record-constructor")?
+  }
+  for source in [
+    "type Config = {name: Str = env.get(\"HOME\")}\n",
+    "var name = \"demo\"\ntype Config = {name: Str = name}\n",
+    "type Config = {first: Int = 1, second: Int = first}\n",
+  ] {
+    let rejected = test.run_script(ctx, source)?
+    test.ok(! rejected.success, rejected.stderr)?
+    test.contains(rejected.stderr, "check.record-default")?
+  }
+  let missing = test.run_script(ctx, "type Config = {name: Str = \"demo\"}\nlet config: Config = {}\n")?
+  test.ok(! missing.success, missing.stderr)?
+}
+
+proc test_record_constructors_resolve_defaults_in_defining_module(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "record-constructor-module")?
+  fp"${root}/config.xsh".write_atomic("""##! Constructor defaults and aliases.
+let name = "module"
+## A configuration with lexical immutable defaults.
+export type Config = {name: Str = name, nested: List[Int] = [1, 2]}
+## An alias shares constructor defaults.
+export type Alias = Config
+## Uses the owning schema in parameter checks.
+export pure render(value: Config) -> Str { value.name.upper() }
+""")?
+  fp"${root}/other.xsh".write_atomic("""##! Another schema with the same local name.
+## Defaults belong to this schema.
+export type Config = {name: Int = 5, values: List[Str] = ["other"]}
+""")?
+  let executed = test.run_script(ctx, r"""use config as c
+use other as o
+let name = "caller"
+type Local = c.Alias
+let first: c.Config = c.Config()
+let second = c.Alias()
+let third = Local()
+let fourth = o.Config()
+print ${fourth.values[0].upper()}
+print $fourth.name
+print ${first.name.upper()}
+print ${c.render(first)}
+let maybe: c.Config? = first
+print ${maybe?.name ?? "none"}
+let raw: Record = {name: "required", nested: [9]}
+let checked = raw.require(c.Config)?
+print ${checked.name.upper()}
+print ${checked.nested[0]}
+print $first.name
+print $second.name
+print $third.name
+""", [], {XSH_MODULE_PATH: root.display()})?
+  test.ok(executed.success, executed.stderr)?
+  test.eq(executed.stdout, "OTHER\n5\nMODULE\nMODULE\nmodule\nREQUIRED\n9\nmodule\nmodule\nmodule\n")?
+}
+
+proc test_record_constructor_defaults_do_not_change_require_or_json_validation(ctx: TestContext) [error] {
+  let executed = test.run_script(ctx, r"""type Config = {name: Str = "demo"}
+let raw: Record = {}
+match raw.require(Config) {
+  Err(_) => print "missing-record"
+  Ok(_) => print "unexpected"
+}
+let decoded = json.decode("{}")?
+match decoded.require(Config) {
+  Err(_) => print "missing-json"
+  Ok(_) => print "unexpected"
+}
+""")?
+  test.ok(executed.success, executed.stderr)?
+  test.eq(executed.stdout, "missing-record\nmissing-json\n")?
+}
+
+proc test_record_constructor_tooling_preserves_behavior_and_converges(ctx: TestContext) [fs, process, error] {
+  let source = p"tests/fixtures/syntax/valid/record-constructor-explicit.xsh".read_text()?
+  let before = test.run_script(ctx, source)?
+  test.ok(before.success, before.stderr)?
+  let candidate = test.temp_file(ctx, name: "record-constructor-fix.xsh", contents: bytes.from_text(source))?
+  let applied = run.capture --text "xsht" lint --fix $candidate ?
+  test.ok(applied.status.exited_with(0), applied.stderr)?
+  let fixed = candidate.read_text()?
+  test.contains(fixed, "let config: Config = Config(name:)")?
+  test.contains(fixed, "# Keep this field explanation.")?
+  let after = test.run_script(ctx, fixed)?
+  test.ok(after.success, after.stderr)?
+  test.eq(after.stdout, before.stdout)?
+  let repeated = run.capture --text "xsht" lint --fix $candidate ?
+  test.ok(repeated.status.exited_with(1), repeated.stderr)?
+  test.contains(repeated.stderr, "lint.prefer-record-constructor")?
+  test.eq(candidate.read_text()?, fixed)?
+}
+
+proc test_record_constructors_bound_scalar_defaults_and_static_identity(ctx: TestContext) [error] {
+  let accepted = test.run_script(ctx, r"""let base_path: Path = p"base"
+type Paths = {root: Path = base_path}
+print ${Paths().root.display()}
+type Defaults = {integer: Int = -3, fraction: Float = -1.5, elapsed: Duration = 2s, data: Bytes = b"ok", location: Path = p"demo", maybe: Str? = null, items: List[Int] = []}
+let value = Defaults()
+let supplied = Defaults(location: p"supplied")
+print ${supplied.location.display()}
+print $value.integer
+print ${value.fraction.format(precision: 1)}
+print ${value.data.utf8()?}
+print ${value.location.display()}
+print ${value.items.len()}
+""")?
+  test.ok(accepted.success, accepted.stderr)?
+  test.eq(accepted.stdout, "base\nsupplied\n-3\n-1.5\nok\ndemo\n0\n")?
+  let first_class = test.run_script(ctx, "type Config = {name: Str = \"demo\"}\nlet factory = Config\n")?
+  test.ok(! first_class.success, first_class.stderr)?
+  test.contains(first_class.stderr, "check.unresolved-name")?
+  let collision = test.run_script(ctx, "type Config = {name: Str}\npure Config(name: Str) -> Str { name }\n")?
+  test.ok(! collision.success, collision.stderr)?
+  test.contains(collision.stderr, "check.duplicate-name")?
+  let wrong_default = test.run_script(ctx, "type Config = {name: Str = 1}\n")?
+  test.ok(! wrong_default.success, wrong_default.stderr)?
+  test.contains(wrong_default.stderr, "check.type-mismatch")?
+}

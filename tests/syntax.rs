@@ -3606,3 +3606,24 @@ fn error_fallback_blocks_round_trip_without_record_ambiguity() {
     assert_eq!(formatted.formatted, source);
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, source);
 }
+
+#[test]
+fn parser_record_defaults_preserve_spans_and_stable_formatting() {
+    let source = "let names = [\"é\"]\ntype Config = {name: Str = \"é\", names: List[Str] = names, nested: Map[Int] = {}}\nlet config = Config()\nprint $config.name\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let ArenaStmtKind::TypeDef(definition) = parsed.arena.arena.stmt(parsed.arena.statement_ids().nth(1).unwrap()).kind else { panic!("schema"); };
+    let ArenaTypeDefBody::RecordSchema(fields) = parsed.arena.arena.type_def(definition).body else { panic!("record schema"); };
+    let defaults: Vec<_> = parsed.arena.arena.schema_fields(fields).iter().map(|field| {
+        let span = parsed.arena.arena.expr(field.default.unwrap()).span;
+        &source[span.range()]
+    }).collect();
+    assert_eq!(defaults, ["\"é\"", "names", "{}"]);
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(first.formatted, second.formatted);
+    assert_parse_and_check(SourceId::new(0), &first.formatted);
+}

@@ -771,3 +771,13 @@ fn api_streams_explains_yield_delegation_and_cleanup_order() {
         assert!(stdout.contains(fragment), "missing {fragment}: {stdout}");
     }
 }
+
+#[test]
+fn api_core_records_demonstrates_schema_owned_defaults_and_constructor_puns() {
+    let output = xsht(&["api", "language:core.records"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("bounded literal constants"), "{stdout}");
+    assert!(stdout.contains("enabled: Bool = true"), "{stdout}");
+    assert!(stdout.contains("Config(name:)"), "{stdout}");
+}

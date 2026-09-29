@@ -799,7 +799,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "records" => (
             "Defines structural and named record values.",
-            "Named records are checked at their boundary; dynamic record access must be narrowed before typed field use.",
+            "Named record schemas have static named-field constructors, including aliases and qualified imports. Schema-owned defaults are bounded literal constants from the defining module; they apply only to constructors. Supplied arguments run once in source order, and each constructed value has independent value semantics. Named records are checked at their boundary; dynamic record access must be narrowed before typed field use.",
         ),
         "results" => (
             "Defines Result values and error families.",

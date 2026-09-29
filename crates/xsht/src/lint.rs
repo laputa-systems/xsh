@@ -94,6 +94,7 @@ struct Binding {
 
 pub struct Linter<'a> {
     arena: &'a AstArena,
+    record_constructors: xsh::frontend::check::RecordConstructors,
     source: &'a str,
     runless: bool,
     runless_except: Vec<String>,
@@ -187,6 +188,7 @@ impl<'a> Linter<'a> {
         include_reachability: bool,
     ) -> LintOutput {
         let mut linter = Self {
+            record_constructors: xsh::frontend::check::RecordConstructors::collect(program),
             arena: &program.arena,
             source,
             runless: options.runless,
@@ -576,6 +578,9 @@ impl<'a> Linter<'a> {
             ArenaTypeDefBody::RecordSchema(fields) => {
                 for field in self.arena.schema_fields(*fields).to_vec() {
                     self.collect_type_expr_refs(field.ty);
+                    if let Some(default) = field.default {
+                        self.lint_expr(default);
+                    }
                 }
             }
             ArenaTypeDefBody::ModuleContract(entries) => {
@@ -666,6 +671,7 @@ impl<'a> Linter<'a> {
                 ty,
                 initializer,
             } => {
+                self.lint_record_constructor(ty, &initializer);
                 self.lint_empty_map_initializer(ty, &initializer);
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
@@ -684,6 +690,7 @@ impl<'a> Linter<'a> {
                 ty,
                 initializer,
             } => {
+                self.lint_record_constructor(ty, &initializer);
                 self.lint_empty_map_initializer(ty, &initializer);
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
@@ -3413,6 +3420,59 @@ impl<'a> Linter<'a> {
         .visit_call_arg(arg);
     }
 
+    fn lint_record_constructor(&mut self, ty: Option<TypeExprId>, initializer: &ArenaExprOrRun) {
+        let (Some(ty), ArenaExprOrRun::Expr(expr)) = (ty, initializer) else { return; };
+        let Some(definition) = self.record_constructors.resolve_annotation(self.arena, ty, None) else { return; };
+        let value = self.arena.expr(*expr);
+        let ArenaExprKind::Record(fields) = value.kind else { return; };
+        if !matches!(self.expr_types.get(&value.span), Some(Type::Record(_))) { return; }
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "schema record can use its named constructor")
+            .with_code("lint.prefer-record-constructor")
+            .with_label(Label::secondary(value.span, "construct the declared schema"));
+        let mut arguments = Vec::new();
+        let mut safe = !self.source[value.span.range()].contains('#');
+        let Type::Record(schema_fields) = self.record_constructors.schema_type(self.arena, definition) else { return; };
+        let Some(Type::Record(checked_fields)) = self.expr_types.get(&value.span) else { return; };
+        safe &= checked_fields.keys().eq(schema_fields.keys())
+            && checked_fields.values().all(|ty| !matches!(ty, Type::Unknown | Type::Invalid));
+        let mut supplied = FxHashSet::default();
+        let defaults = self.record_constructors.defaults(definition);
+        for field in self.arena.record_fields(fields) {
+            match field.kind {
+                ArenaRecordFieldKind::Shorthand { name, .. } => {
+                    safe &= supplied.insert(name);
+                    arguments.push(format!("{name}:"));
+                }
+                ArenaRecordFieldKind::Named { name, value, .. } => {
+                    safe &= supplied.insert(name);
+                    if matches!(self.arena.expr(value).kind, ArenaExprKind::Run(_)) { safe = false; }
+                    let constant = xsh::frontend::check::LiteralConstant::analyze(self.arena, value, &FxHashMap::default());
+                    if let Some(constant) = &constant
+                        && let Some(expected) = schema_fields.get(&name)
+                        && constant.clone().in_type(expected) != *constant
+                    { safe = false; }
+                    if constant.as_ref().is_some_and(|constant| defaults.and_then(|values| values.get(&name)) == Some(constant)) { continue; }
+                    // Each expression remains in its original field order,
+                    // with the binding annotation retaining schema validation.
+                    let span = self.arena.expr(value).span;
+                    let text = &self.source[span.range()];
+                    if text.contains('#') { safe = false; }
+                    if matches!(self.arena.expr(value).kind, ArenaExprKind::Ident(identifier) if identifier == name) {
+                        arguments.push(format!("{name}:"));
+                    } else {
+                        arguments.push(format!("{name}: {text}"));
+                    }
+                }
+                ArenaRecordFieldKind::Spread { .. } => safe = false,
+            }
+        }
+        if safe {
+            let name = &self.source[self.arena.type_expr_span(ty).range()];
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(value.span, "use the schema constructor", format!("{name}({})", arguments.join(", "))));
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
     fn lint_named_argument_pun(&mut self, arg: &ArenaCallArg) {
         let ArenaCallArgKind::Named { name, value, span } = arg.kind else {
             return;
@@ -5722,6 +5782,11 @@ impl LintExprVisitor<'_, '_> {
         match arena_expr.kind {
             ArenaExprKind::Ident(name) => self.linter.mark_used(name.as_str().as_str()),
             ArenaExprKind::Call { callee, args } => {
+                if self.linter.record_constructors.resolve_call(self.linter.arena, callee, None).is_some()
+                    && let ArenaExprKind::Ident(name) = self.linter.arena.expr(callee).kind
+                {
+                    self.linter.used_type_names.insert(name.as_str().to_string());
+                }
                 self.linter.lint_call_style(callee, args, arena_expr.span);
                 self.walk_expr(expr);
             }

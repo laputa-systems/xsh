@@ -19,6 +19,7 @@ use crate::syntax::node::{Effect, EnvGetKind};
 
 #[derive(Clone, Debug, Default)]
 pub struct CompactDeclOutput {
+    pub record_constructors: super::RecordConstructors,
     pub diagnostics: Vec<Diagnostic>,
     pub types: FxHashMap<Name, CompactTypeDefInfo>,
     pub record_schema_fields: FxHashMap<Name, BTreeMap<Name, TypeExprId>>,
@@ -101,6 +102,7 @@ impl Checker {
             collector.diagnostics.extend(Self::prepare_regex_literals(program));
             collector.collect_program(program);
             let mut output = collector.output;
+            output.record_constructors = super::RecordConstructors::collect(program);
             output.diagnostics = collector.diagnostics;
             output
         })
@@ -123,6 +125,7 @@ impl Checker {
                 output,
                 scopes: vec![FxHashMap::default()],
                 stream_items: Vec::new(),
+                current_namespace: None,
             };
             probe.seed_declarations();
             probe.check_compact_program();
@@ -143,20 +146,13 @@ impl CompactDeclCollector {
             self.collect_decl_stmt(program, stmt, None);
         }
         for module in &program.modules {
-            if module.internal {
-                // Embedded implementations carry their own reserved namespace.
-                // Their helper spellings are private to that module, so they
-                // neither collide with nor shadow user top-level names.
-                let user_names = std::mem::take(&mut self.names);
-                for stmt in program.module_statements(module) {
-                    self.collect_decl_stmt(program, stmt, Some(module.name));
-                }
-                self.names = user_names;
-                continue;
-            }
+            // Declaration collisions belong to one lexical module. Separate
+            // modules may export distinct schemas with the same local name.
+            let entry_names = std::mem::take(&mut self.names);
             for stmt in program.module_statements(module) {
                 self.collect_decl_stmt(program, stmt, Some(module.name));
             }
+            self.names = entry_names;
         }
     }
 
@@ -539,6 +535,7 @@ enum CompactFunctionKind {
 /// Checks executable bodies directly from arena rows. The `check_compact_*`
 /// method family distinguishes this probe from the general `Checker` paths.
 struct CompactBodyProbe<'a> {
+    current_namespace: Option<Name>,
     program: &'a ArenaProgram,
     declarations: &'a CompactDeclOutput,
     output: CompactBodyProbeOutput,
@@ -560,6 +557,8 @@ impl CompactBinding {
 
 impl CompactBodyProbe<'_> {
     fn type_from_arena(&self, id: TypeExprId) -> Type {
+        let resolved = self.declarations.record_constructors.resolve_type(&self.program.arena, id, self.current_namespace);
+        if !matches!(resolved, Type::Unknown | Type::Invalid) { return resolved; }
         compact_probe_type_from_arena(&self.program.arena, id, self.declarations, 0)
     }
 
@@ -590,10 +589,12 @@ impl CompactBodyProbe<'_> {
             self.check_compact_stmt(stmt);
         }
         for module in &self.program.modules {
+            self.current_namespace = Some(module.name);
             for stmt in self.program.module_statements(module) {
                 self.check_compact_stmt(stmt);
             }
         }
+        self.current_namespace = None;
     }
 
     fn check_compact_stmt(&mut self, id: StmtId) {
@@ -1175,6 +1176,11 @@ impl CompactBodyProbe<'_> {
                     self.check_compact_expr(*value);
                 }
             }
+        }
+        if let Some(definition) = self.declarations.record_constructors.resolve_call(
+            &self.program.arena, callee, self.current_namespace,
+        ) {
+            return self.declarations.record_constructors.schema_type(&self.program.arena, definition);
         }
         if let ArenaExprKind::Ident(name) = callee_expr.kind {
             if name == "env" { return Type::Result(Box::new(Type::Str), Box::new(Type::Error)); }

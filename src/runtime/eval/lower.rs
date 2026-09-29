@@ -2984,11 +2984,32 @@ fn compact_module_exports_for_use(
     Some(exports)
 }
 
+fn lower_literal_constant(value: &crate::sema::constants::LiteralConstant) -> Option<LoweredValue> {
+    use crate::sema::constants::LiteralConstant as C;
+    Some(match value {
+        C::Null => LoweredValue::Null,
+        C::Bool(value) => LoweredValue::Bool(*value),
+        C::Int(value) => LoweredValue::Int(*value),
+        C::Float(value) => LoweredValue::Float(crate::runtime::value::FloatValue::new(f64::from_bits(*value))),
+        C::Duration(millis) => LoweredValue::Duration(DurationValue { millis: *millis }),
+        C::Str(value) => LoweredValue::Str(value.clone()),
+        C::Bytes(value) => LoweredValue::Bytes(value.clone()),
+        C::Path(value) => LoweredValue::Path(PathValue::from_text(value).ok()?),
+        C::EmptyMap => LoweredValue::Map(Arc::new(BTreeMap::new())),
+        C::List(values) => LoweredValue::List(values.iter().map(lower_literal_constant).collect::<Option<Vec<_>>>()?),
+        C::Record(values) => LoweredValue::Record(Arc::new(values.iter().map(|(name, value)| Some((Arc::<str>::from(name.as_str().as_str()), lower_literal_constant(value)?))).collect::<Option<BTreeMap<_, _>>>()?)),
+    })
+}
+
 fn lower_const_param_default(
     arena: &AstArena,
     expr: ExprId,
     kind: LoweredType,
 ) -> Option<LoweredValue> {
+    if let Some(constant) = crate::sema::constants::LiteralConstant::analyze(arena, expr, &FxHashMap::default()) {
+        let value = lower_literal_constant(&constant)?;
+        return lowered_value_matches(kind, &value).then_some(value);
+    }
     let value = match arena.expr(expr).kind {
         ArenaExprKind::Null => LoweredValue::Null,
         ArenaExprKind::Bool(value) => LoweredValue::Bool(value),
@@ -3524,6 +3545,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 &self.program.arena,
                 param.ty,
                 self.declarations,
+                self.current_namespace,
             ));
             param_rest.push(param.rest);
             param_defaults.push(default);
@@ -3913,7 +3935,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         }
                         (
                             Some(lowered),
-                            compact_type_check(lowered, &self.program.arena, ty, self.declarations),
+                            compact_type_check(lowered, &self.program.arena, ty, self.declarations, self.current_namespace),
                         )
                     }
                     None => (None, None),
@@ -3981,7 +4003,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         }
                         (
                             Some(lowered),
-                            compact_type_check(lowered, &self.program.arena, ty, self.declarations),
+                            compact_type_check(lowered, &self.program.arena, ty, self.declarations, self.current_namespace),
                         )
                     }
                     None => (None, None),
@@ -4361,7 +4383,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         value: ExprId,
         known: &FxHashMap<Name, LoweredTopLevelBinding>,
     ) -> Option<Type> {
-        ty.map(|ty| compact_runtime_type(&self.program.arena, ty, self.declarations))
+        ty.map(|ty| compact_runtime_type_in_namespace(&self.program.arena, ty, self.declarations, self.current_namespace))
             .or_else(|| self.infer_checked_expr_type(value, known))
     }
 
@@ -4414,7 +4436,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         slots: &SlotScope,
     ) -> Option<Type> {
         let expected =
-            ty.map(|ty| compact_runtime_type(&self.program.arena, ty, self.declarations));
+            ty.map(|ty| compact_runtime_type_in_namespace(&self.program.arena, ty, self.declarations, self.current_namespace));
         let table_type = self
             .bodies
             .expr_types
@@ -4461,7 +4483,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         if lowered_type_needs_static_check(kind) {
             let check = LoweredTypeCheck {
                 ty: checked_ty.cloned().unwrap_or_else(|| {
-                    compact_runtime_type(&self.program.arena, ty, self.declarations)
+                    compact_runtime_type_in_namespace(&self.program.arena, ty, self.declarations, self.current_namespace)
                 }),
                 name: compact_type_expr_name(&self.program.arena, ty),
             };
@@ -4612,6 +4634,9 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Some(if guarded { match ty { Type::Optional(inner) | Type::Result(inner, _) => *inner, other => other } } else { ty })
             }
             ArenaExprKind::Call { callee, args } => {
+                if let Some(definition) = self.declarations.record_constructors.resolve_call(&self.program.arena, callee, self.current_namespace) {
+                    return Some(self.declarations.record_constructors.schema_type(&self.program.arena, definition));
+                }
                 let args_vec = self.program.arena.call_args(args);
                 if let ArenaExprKind::Ident(name) = self.program.arena.expr(callee).kind {
                     if name == "Path" && single_positional_arena_call_arg(args_vec).is_some() {
@@ -4690,7 +4715,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaExprKind::Require { schema, .. } => {
                 // Validation retains the full schema type. Runtime storage
                 // categories cannot represent Optional or nested Result layers.
-                let contract_ty = compact_runtime_type(&self.program.arena, schema, self.declarations);
+                let contract_ty = compact_runtime_type_in_namespace(&self.program.arena, schema, self.declarations, self.current_namespace);
                 Some(Type::Result(Box::new(contract_ty), Box::new(Type::Error)))
             }
             ArenaExprKind::List(items) => {
@@ -5002,6 +5027,9 @@ impl CompactLowerConstructProbe<'_, '_> {
         known: &FxHashMap<Name, LoweredTopLevelBinding>,
     ) -> Option<Type> {
         let args_vec = self.program.arena.call_args(args);
+        if let Some(definition) = self.declarations.record_constructors.resolve_call(&self.program.arena, callee, self.current_namespace) {
+            return Some(self.declarations.record_constructors.schema_type(&self.program.arena, definition));
+        }
         if let ArenaExprKind::Ident(name) = self.program.arena.expr(callee).kind
             && name == "Path"
             && single_positional_arena_call_arg(args_vec).is_some()
@@ -5214,7 +5242,7 @@ impl CompactLowerConstructProbe<'_, '_> {
         ty: Option<TypeExprId>,
         run: crate::syntax::arena::RunFormId,
     ) -> Option<Type> {
-        ty.map(|ty| compact_runtime_type(&self.program.arena, ty, self.declarations))
+        ty.map(|ty| compact_runtime_type_in_namespace(&self.program.arena, ty, self.declarations, self.current_namespace))
             .or_else(|| match self.infer_lowered_run_binding_type(run)? {
                 LoweredType::Status => Some(Type::Status),
                 LoweredType::Str => Some(Type::Str),
@@ -5427,6 +5455,9 @@ impl CompactLowerConstructProbe<'_, '_> {
         args: crate::syntax::arena::ArenaRange,
         known: &FxHashMap<Name, LoweredTopLevelBinding>,
     ) -> Option<LoweredType> {
+        if self.declarations.record_constructors.resolve_call(&self.program.arena, callee, self.current_namespace).is_some() {
+            return Some(LoweredType::Record);
+        }
         let args_vec = self.program.arena.call_args(args);
         if let ArenaExprKind::Ident(name) = self.program.arena.expr(callee).kind
             && name == "Path"
@@ -6172,7 +6203,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let value =
                     self.lower_run_binding_value(run, slots, current_function, item_slot)?;
                 let binding_ty = ty
-                    .map(|ty| compact_runtime_type(&self.program.arena, ty, self.declarations))
+                    .map(|ty| compact_runtime_type_in_namespace(&self.program.arena, ty, self.declarations, self.current_namespace))
                     .or_else(|| {
                         self.infer_lowered_run_binding_type(run)
                             .and_then(type_for_lowered_type)
@@ -7860,10 +7891,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                     BuildExprRow::Require {
                         value: self.lower_expr(value, slots, current_function, item_slot)?,
                         check: LoweredTypeCheck {
-                            ty: compact_runtime_type(
+                            ty: compact_runtime_type_in_namespace(
                                 &self.program.arena,
                                 schema,
-                                self.declarations
+                                self.declarations,
+                                self.current_namespace,
                             ),
                             name: compact_type_expr_name(&self.program.arena, schema),
                         },
@@ -8947,6 +8979,24 @@ impl CompactLowerConstructProbe<'_, '_> {
         self.lower_call_args(args, slots, current_function, item_slot)
     }
 
+    fn lower_record_default(&mut self, value: &crate::sema::constants::LiteralConstant) -> Option<BuildExprId> {
+        use crate::sema::constants::LiteralConstant as C;
+        let row = match value {
+            C::Null => BuildExprRow::Null,
+            C::Bool(value) => BuildExprRow::Bool(*value),
+            C::Int(value) => BuildExprRow::Int(*value),
+            C::Float(value) => BuildExprRow::Float(crate::runtime::value::FloatValue::new(f64::from_bits(*value))),
+            C::Duration(millis) => BuildExprRow::Duration(DurationValue { millis: *millis }),
+            C::Str(value) => BuildExprRow::Str(value.clone()),
+            C::Bytes(value) => BuildExprRow::Bytes(value.clone()),
+            C::Path(value) => BuildExprRow::Path(PathValue::from_text(value).ok()?),
+            C::EmptyMap => BuildExprRow::EmptyMap,
+            C::List(values) => BuildExprRow::List(values.iter().map(|value| self.lower_record_default(value)).collect::<Option<Vec<_>>>()?),
+            C::Record(values) => BuildExprRow::Record(values.iter().map(|(name, value)| Some(LoweredRecordEntry::Field(*name, self.lower_record_default(value)?))).collect::<Option<Vec<_>>>()?),
+        };
+        Some(push_build_row!(self, expr, row))
+    }
+
     fn lower_call(
         &mut self,
         id: ExprId,
@@ -8958,6 +9008,37 @@ impl CompactLowerConstructProbe<'_, '_> {
     ) -> Option<BuildExprId> {
         let span = self.program.arena.expr(id).span;
         let args_vec = self.program.arena.call_args(args).to_vec();
+        if let Some(definition) = self.declarations.record_constructors.resolve_call(
+            &self.program.arena, callee, self.current_namespace,
+        ) {
+            let defaults = self.declarations.record_constructors.defaults(definition).cloned().unwrap_or_default();
+            let schema = self.declarations.record_constructors.schema_type(&self.program.arena, definition);
+            let mut supplied = FxHashSet::default();
+            let mut fields = Vec::new();
+            for arg in &args_vec {
+                let ArenaCallArgKind::Named { name, value, .. } = arg.kind else { return None; };
+                supplied.insert(name);
+                let literal = crate::sema::constants::LiteralConstant::analyze(&self.program.arena, value, &FxHashMap::default());
+                let lowered = if let (Some(literal), Type::Record(schema_fields)) = (literal, &schema) {
+                    let contextual = literal.clone().in_type(schema_fields.get(&name)?);
+                    if contextual != literal { self.lower_record_default(&contextual)? }
+                    else { self.lower_expr(value, slots, current_function, item_slot)? }
+                } else { self.lower_expr(value, slots, current_function, item_slot)? };
+                fields.push(LoweredRecordEntry::Field(name, lowered));
+            }
+            for (name, value) in &defaults {
+                if !supplied.contains(name) {
+                    fields.push(LoweredRecordEntry::Field(*name, self.lower_record_default(value)?));
+                }
+            }
+            let value = push_build_row!(self, expr, BuildExprRow::Record(fields));
+            let check = LoweredTypeCheck {
+                ty: schema,
+                name: self.program.arena.type_def(definition).name.as_str().to_string().into(),
+            };
+            let checked = push_build_row!(self, expr, BuildExprRow::Require { value, check, span });
+            return Some(push_build_row!(self, expr, BuildExprRow::Try(checked)));
+        }
         if let Some(error) =
             self.lower_compact_error_expr(callee, &args_vec, slots, current_function, item_slot)
         {
@@ -12327,7 +12408,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 binding: Some(name),
                 ty,
             } if slots.can_bind_pattern(*name) => {
-                let lowered_ty = compact_runtime_type(&self.program.arena, *ty, self.declarations);
+                let lowered_ty = compact_runtime_type_in_namespace(&self.program.arena, *ty, self.declarations, self.current_namespace);
                 let slot = slots.declare(*name);
                 Some((
                     push_build_row!(
@@ -12342,7 +12423,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ))
             }
             ArenaPatternKind::Type { binding: None, ty } => {
-                let lowered_ty = compact_runtime_type(&self.program.arena, *ty, self.declarations);
+                let lowered_ty = compact_runtime_type_in_namespace(&self.program.arena, *ty, self.declarations, self.current_namespace);
                 Some((
                     push_build_row!(
                         self,
@@ -12842,6 +12923,17 @@ fn compact_runtime_type(
     ty: TypeExprId,
     declarations: &CompactDeclOutput,
 ) -> Type {
+    compact_runtime_type_in_namespace(arena, ty, declarations, None)
+}
+
+fn compact_runtime_type_in_namespace(
+    arena: &AstArena,
+    ty: TypeExprId,
+    declarations: &CompactDeclOutput,
+    namespace: Option<Name>,
+) -> Type {
+    let resolved = declarations.record_constructors.resolve_type(arena, ty, namespace);
+    if !matches!(resolved, Type::Unknown | Type::Invalid) { return resolved; }
     compact_runtime_type_inner(arena, ty, declarations, 0)
 }
 
@@ -12966,9 +13058,10 @@ fn compact_type_check(
     arena: &AstArena,
     ty: TypeExprId,
     declarations: &CompactDeclOutput,
+    namespace: Option<Name>,
 ) -> Option<LoweredTypeCheck> {
     lowered_type_needs_static_check(kind).then(|| LoweredTypeCheck {
-        ty: compact_runtime_type(arena, ty, declarations),
+        ty: compact_runtime_type_in_namespace(arena, ty, declarations, namespace),
         name: compact_type_expr_name(arena, ty),
     })
 }

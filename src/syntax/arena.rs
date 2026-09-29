@@ -2664,11 +2664,13 @@ impl<'a> ArenaProgramBuilder<'a> {
         &mut self,
         name: Name,
         ty: TypeExprId,
+        default: Option<ExprId>,
         span: Span,
     ) -> ArenaSchemaField {
         ArenaSchemaField {
             name,
             ty,
+            default,
             span: self.lowerer.span(span),
         }
     }
@@ -4816,6 +4818,7 @@ pub enum ArenaTypeDefBody {
 pub struct ArenaSchemaField {
     pub name: Name,
     pub ty: TypeExprId,
+    pub default: Option<ExprId>,
     pub span: SpanId,
 }
 
