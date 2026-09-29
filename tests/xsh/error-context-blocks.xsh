@@ -173,7 +173,7 @@ test test_ctx_secondary_cleanup_diagnostics_keep_enclosing_region [error] { |ctx
   test.contains(output.stderr, "cleanup (ctx: inner) (ctx: outer)")?
 }
 
-proc test_ctx_callee_cleanup_failures_keep_callers_regions(ctx: TestContext) [error] {
+test test_ctx_callee_cleanup_failures_keep_callers_regions [error] { |ctx|
   let output = test.run_script(ctx, r"""proc fail() [error] -> Result[Unit] {
   defer { error.fail("cleanup")? }
   return error.fail("primary")?
@@ -185,7 +185,7 @@ ctx "outer" { ctx "inner" { fail()? } }
   test.contains(output.stderr, "cleanup (ctx: inner) (ctx: outer)")?
 }
 
-proc test_ctx_suspended_call_cleanup_keeps_regions(ctx: TestContext) [error] {
+test test_ctx_suspended_call_cleanup_keeps_regions [error] { |ctx|
   let output = test.run_script(ctx, r"""proc fail() [error] -> Result[Unit] {
   defer { error.fail("cleanup")? }
   return error.fail("primary")?

@@ -138,7 +138,7 @@ test test_block_string_lint_preserves_literal_bytes_and_converges [fs, process, 
   let applied = run.capture --text "xsht" lint --fix $candidate ?
   test.ok(applied.status.exited_with(0), applied.stderr)?
   let fixed = candidate.read_text()?
-  test.contains(fixed, "let value = \"\"\"\n")?
+  test.contains(fixed, "value = \"\"\"\n")?
   let after = test.run_script(ctx, fixed)?
   test.ok(after.success, after.stderr)?
   test.eq(after.stdout, before.stdout)?

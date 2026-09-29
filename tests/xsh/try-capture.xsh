@@ -247,7 +247,7 @@ print (value is Err(_))
   test.eq(output.stdout, "true\n")?
 }
 
-proc test_try_producer_capture_and_cancellation_run_cleanup_once(ctx: TestContext) [error] {
+test test_try_producer_capture_and_cancellation_run_cleanup_once [error] { |ctx|
   let output = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
 proc cleanup() -> Result[Unit, LocalError] { print "cleanup" }
@@ -270,7 +270,7 @@ print "finished"
   test.eq(output.stdout, "cleanup\ntrue\ncleanup\nfinished\n")?
 }
 
-proc test_try_recursive_calls_use_frames_and_err_return_stays_lexical(ctx: TestContext) [error] {
+test test_try_recursive_calls_use_frames_and_err_return_stays_lexical [error] { |ctx|
   let output = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
 proc descend(n: Int) [] -> Result[Int] {

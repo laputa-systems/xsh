@@ -503,7 +503,7 @@ fn selective_retry_grep_and_refactor_preserve_filter_order_and_body() {
     let output = refactor_scripts(pattern, "retry [DELAY] on (FetchError.Busy | FetchError.Timeout) { load(ARG)? }", &paths(&file), false);
     assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
     let fixed = fs::read_to_string(&file).unwrap();
-    assert!(fixed.contains("load(\"café\")?"));
+    assert!(fixed.contains("(load(\"café\"))?"));
     assert!(fixed.contains("retry [0ms] { fetch(\"all\")? }"));
     let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);

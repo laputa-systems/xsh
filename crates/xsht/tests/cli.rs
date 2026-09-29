@@ -345,8 +345,8 @@ fn lint_explicit_directory_lints_xsh_files() {
     let root = TempDir::new().expect("create temp root");
     let project = root.path().join("project");
     fs::create_dir_all(project.join("nested")).expect("create project dirs");
-    fs::write(project.join("main.xsh"), "let value = 1\n").expect("write main script");
-    fs::write(project.join("nested").join("helper.xsh"), "let value = 2\n")
+    fs::write(project.join("main.xsh"), "const value = 1\n").expect("write main script");
+    fs::write(project.join("nested").join("helper.xsh"), "const value = 2\n")
         .expect("write helper script");
 
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
@@ -648,7 +648,7 @@ fn test_reports_compact_lowerability_without_panicking() {
     fs::create_dir(&tests).expect("create tests directory");
     fs::write(
         tests.join("lowering.xsh"),
-        "pure helper(x: Int = 1 + 1) -> Int {\n  return x\n}\n\ntest test_lowering {\n  let _ = helper()\n}\n",
+        "pure helper(x: Int = 1 / 0) -> Int {\n  return x\n}\n\ntest test_lowering {\n  let _ = helper()\n}\n",
     )
     .expect("write test script");
 
@@ -714,7 +714,7 @@ fn check_attributes_lowering_blocker_to_imported_source_with_embedded_module_loa
     .expect("write main script");
     fs::write(
         root.path().join("helper.xsh"),
-        "##! Helper.\n## Returns a value.\nexport pure scan(x: Int = 1 + 1) -> Int {\n  return x\n}\n",
+        "##! Helper.\n## Returns a value.\nexport pure scan(x: Int = 1 / 0) -> Int {\n  return x\n}\n",
     )
     .expect("write imported module");
 
@@ -946,7 +946,7 @@ fn check_compact_lowerability_reports_dependency_blocker() {
     let script = root.path().join("main.xsh");
     fs::write(
         &script,
-        "pure helper(x: Int = 1 + 1) -> Int {
+        "pure helper(x: Int = 1 / 0) -> Int {
   return x
 }
 
@@ -984,7 +984,7 @@ fn check_top_level_lowerability_reports_first_nested_call_blocker() {
     let script = root.path().join("main.xsh");
     fs::write(
         &script,
-        "pure scan_corpus(x: Int = 1 + 1) -> Int {
+        "pure scan_corpus(x: Int = 1 / 0) -> Int {
   return x
 }
 

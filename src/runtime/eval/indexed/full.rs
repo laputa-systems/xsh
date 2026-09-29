@@ -8548,9 +8548,9 @@ proc main() [error] {
                 let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
                 let Value::Command(plan) = result.unwrap() else { panic!("command plan"); };
                 assert_eq!(plan.argv.last().unwrap(), b"--target=raw\xff name");
-                let crate::runtime::value::CommandRedirection::File { path, .. } = &plan.redirections[0];
+                let crate::runtime::value::CommandRedirection::File { path, .. } = &plan.redirections[0] else { panic!("file input redirection"); };
                 assert_eq!(path.bytes, b"before/raw\xff name");
-                let crate::runtime::value::CommandRedirection::File { path, .. } = &plan.redirections[1];
+                let crate::runtime::value::CommandRedirection::File { path, .. } = &plan.redirections[1] else { panic!("file output redirection"); };
                 assert_eq!(path.bytes, b"raw\xff name/after");
             }
         });

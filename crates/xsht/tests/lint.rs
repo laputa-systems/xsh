@@ -3511,7 +3511,7 @@ fn linter_nested_record_update_retains_unstable_reads_comments_and_new_fields() 
 
 #[test]
 fn pattern_alternatives_adjacent_arm_fix_is_checked_and_idempotent() {
-    let source = "type Event = Added(Str) | Changed(Str) | Deleted(Str)\nlet event = Added(\"café\")\nlet selected = match event {\n  Added(name) => name.upper()\n  Changed(name) => name.upper()\n  Deleted(name) => name.upper()\n}\nprint $selected\n";
+    let source = "enum Event { Added(Str), Changed(Str), Deleted(Str) }\nlet event = Added(\"café\")\nlet selected = match event {\n  Added(name) => name.upper()\n  Changed(name) => name.upper()\n  Deleted(name) => name.upper()\n}\nprint $selected\n";
     let parsed = parse_lint_source(source);
     let checked = Checker::check_arena(&parsed.arena, source);
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
@@ -3532,7 +3532,7 @@ fn pattern_alternatives_adjacent_arm_fix_is_checked_and_idempotent() {
 #[test]
 fn pattern_alternatives_adjacent_arm_fix_retains_guards_comments_and_capture_types() {
     for source in [
-        "type Event = Number(Int) | Text(Str)\nlet result = match Number(1) { Number(value) => 0 Text(value) => 0 }\n",
+        "enum Event { Number(Int), Text(Str) }\nlet result = match Number(1) { Number(value) => 0 Text(value) => 0 }\n",
         "let result = match [1] {\n [left] => 0\n [right, ..] => 0\n _ => 1\n}\n",
         "let result = match 1 { 1 if false => 0 2 => 0 _ => 1 }\n",
         "let result = match 1 { 1 => 0 # keep reason\n 2 => 0 _ => 1 }\n",
