@@ -30,6 +30,22 @@ fn assert_parse_and_check(source_id: SourceId, source: &str) {
     );
 }
 
+#[test]
+fn identifier_subtraction_preserves_negative_command_arguments() {
+    let source = "value - 1\nemit -1\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let statements = parsed.arena.statement_ids().collect::<Vec<_>>();
+    let arena = &parsed.arena.arena;
+    for statement in &statements[..1] {
+        let ArenaStmtKind::Expr(expr) = arena.stmt(*statement).kind else {
+            panic!("expected subtraction expression");
+        };
+        assert!(matches!(arena.expr(expr).kind, ArenaExprKind::Binary { op: BinaryOp::Sub, .. }));
+    }
+    assert!(matches!(arena.stmt(statements[1]).kind, ArenaStmtKind::Command(_)));
+}
+
 /// The expression initializer of the `index`-th root `let` statement, via the
 /// arena. Panics if that statement is not a `let`-with-expression.
 fn root_let_init_expr(output: &ArenaParseOutput, index: usize) -> ExprId {
