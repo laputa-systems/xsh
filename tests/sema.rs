@@ -3801,3 +3801,45 @@ fn signature_cli_compact_metadata_keeps_typed_frames_without_callable_entries() 
         assert_eq!(checked.expr_types.get(&parsed.arena.arena.expr(expression).span), Some(&ty));
     }
 }
+
+#[test]
+fn typed_cause_full_and_compact_inference_retains_only_outer_error() {
+    use xsh::frontend::check::Type;
+    let source = "error Outer = Failed(message: Str)\nerror Inner = Failed(message: Str)\nlet value = Err(cause: Inner.Failed(message: \"inner\"), Outer.Failed(message: \"outer\"))\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let full = Checker::check_arena(&parsed.arena, source);
+    assert!(full.diagnostics.is_empty(), "{:?}", full.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let (span, full_type) = full.expr_types.iter().find(|(span, _)| source[span.range()].starts_with("Err(")).unwrap();
+    let Type::Result(_, error) = full_type else { panic!("Err produces Result data") };
+    parsed.arena.symbol_owner().with_current(|| {
+        assert!(matches!(error.as_ref(), Type::ErrorVariant { family, .. } if family.as_str().as_str() == "Outer"));
+    });
+    let compact_type = compact.expr_types.iter().find_map(|(id, ty)| (parsed.arena.arena.expr(*id).span == *span).then_some(ty)).unwrap();
+    assert_eq!(compact_type, full_type);
+}
+
+#[test]
+fn typed_cause_flattened_handler_guidance_has_no_automatic_fix() {
+    let source = "error Input = Failed(message: Str)\nerror Outer = Failed(message: Str)\nproc translate(input: Result[Int, Input]) -> Result[Int, Outer] {\n match input { Ok(value) => return value; Err(failure) => return Err(Outer.Failed(message: failure.message)) }\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    let checked = Checker::check_arena_with_options(&parsed.arena, source, CheckOptions {
+        migration_diagnostics: true, ..CheckOptions::default()
+    });
+    let guidance = checked.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("check.error-cause")).collect::<Vec<_>>();
+    assert_eq!(guidance.len(), 1, "{:?}", checked.diagnostics);
+    assert!(guidance[0].fix_hints.is_empty());
+    for replacement in [
+        "Err(Outer.Failed(message: failure.message), cause: failure)",
+        "Err(Outer.Failed(message: \"custom\"))",
+    ] {
+        let improved = source.replace("Err(Outer.Failed(message: failure.message))", replacement);
+        assert!(!check_with_migration(&improved).contains(&Some("check.error-cause".to_string())));
+    }
+    let richer = source.replace("Outer = Failed(message: Str)", "Outer = Failed(message: Str, code: Int)")
+        .replace("Outer.Failed(message: failure.message)", "Outer.Failed(message: failure.message, code: 7)");
+    assert!(!check_with_migration(&richer).contains(&Some("check.error-cause".to_string())));
+}

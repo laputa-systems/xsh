@@ -1682,7 +1682,7 @@ enum BuildExprRow {
         span: Span,
     },
     Ok(BuildExprId),
-    Err(BuildExprId),
+    Err { value: BuildExprId, cause: Option<BuildExprId> },
     // Boxed: `LoweredErrorExpr::Structured` inlines two `String`s plus two
     // `Vec`s (~96 bytes) that would otherwise size every `BuildExprId` variant
     // for the sake of the comparatively rare structured-error-literal case.
@@ -4345,7 +4345,7 @@ impl Evaluator {
                         Some(error.span.unwrap_or(span)),
                         None,
                         TracePayload::RuntimeError {
-                            error: TraceError::new(&error.kind, &error.message),
+                            error: TraceError::from_runtime_error(&error),
                         },
                     );
                     diagnostics.push(runtime_diagnostic(
@@ -4836,7 +4836,7 @@ impl Evaluator {
                         Some(error.span.unwrap_or(span)),
                         None,
                         TracePayload::RuntimeError {
-                            error: TraceError::new(&error.kind, &error.message),
+                            error: TraceError::from_runtime_error(&error),
                         },
                     );
                     diagnostics.push(runtime_diagnostic(
@@ -4932,7 +4932,7 @@ impl Evaluator {
                     Some(span),
                     None,
                     TracePayload::RuntimeError {
-                        error: TraceError::new(&error.kind, &error.message),
+                        error: TraceError::from_runtime_error(&error),
                     },
                 );
                 let diagnostic = runtime_diagnostic(span, &error.message, "runtime.error");
@@ -5001,15 +5001,12 @@ impl Evaluator {
             Value::Result(ResultValue::Err(error)) => {
                 let error = *error;
                 let kind = error.error_kind().unwrap_or("error").to_string();
-                let message = error
-                    .error_message()
-                    .unwrap_or("propagated error")
-                    .to_string();
                 self.trace_leaf(
                     TraceKind::ResultPropagate,
                     Some(span),
                     None,
                     TracePayload::ResultPropagate {
+                        error: TraceError::caused_from_value(&error),
                         error_kind: kind.clone(),
                     },
                 );
@@ -5017,10 +5014,7 @@ impl Evaluator {
                     failing_span: Some(span),
                     exe_path: self.exe_path_for_traceback(),
                     operation_kind: "result.propagate".to_string(),
-                    error: TraceError {
-                        kind: kind.clone(),
-                        message: message.clone(),
-                    },
+                    error: TraceError::from_propagated_value(&error),
                     frames: self.call_stack.clone(),
                 });
                 Flow::Propagate(Propagation { error, traceback })
@@ -5053,10 +5047,7 @@ impl Evaluator {
             failing_span: Some(span),
             exe_path: self.exe_path_for_traceback(),
             operation_kind: operation.to_string(),
-            error: TraceError::new(
-                value.error_kind().unwrap_or("runtime-error"),
-                value.error_message().unwrap_or("runtime error"),
-            ),
+            error: TraceError::from_value(value),
             frames: self.call_stack.clone(),
         }
     }
@@ -5702,15 +5693,9 @@ fn default_signal_status(signal: &HookSignal) -> u8 {
 
 fn signal_hook_error(result: &Result<Flow, RuntimeError>) -> Option<TraceError> {
     match result {
-        Err(error) if error.abort.is_none() => Some(TraceError::new(&error.kind, &error.message)),
-        Ok(Flow::Continue(Value::Result(ResultValue::Err(error)))) => Some(TraceError::new(
-            error.error_kind().unwrap_or("runtime-error"),
-            error.error_message().unwrap_or("runtime error"),
-        )),
-        Ok(Flow::Propagate(propagation)) => Some(TraceError::new(
-            propagation.error.error_kind().unwrap_or("runtime-error"),
-            propagation.error.error_message().unwrap_or("runtime error"),
-        )),
+        Err(error) if error.abort.is_none() => Some(TraceError::from_runtime_error(&error)),
+        Ok(Flow::Continue(Value::Result(ResultValue::Err(error)))) => Some(TraceError::from_value(error)),
+        Ok(Flow::Propagate(propagation)) => Some(TraceError::from_value(&propagation.error)),
         Ok(Flow::Return(_) | Flow::Break(_) | Flow::ContinueLoop) => {
             Some(TraceError::new("signal-hook", "invalid control flow"))
         }
@@ -5730,25 +5715,23 @@ pub fn apply_question(
         Value::Result(ResultValue::Err(error)) => {
             let error = *error;
             let kind = error.error_kind().unwrap_or("error").to_string();
-            let message = error
-                .error_message()
-                .unwrap_or("propagated error")
-                .to_string();
             trace_events.push(
                 TraceEvent::new(next_event_id(trace_events), TraceKind::ResultPropagate)
                     .with_span(question_span)
                     .with_timing(TraceTiming::new(Some(trace_epoch_us()), None))
                     .with_payload(TracePayload::ResultPropagate {
+                        error: TraceError::caused_from_value(&error),
                         error_kind: kind.clone(),
                     }),
             );
+            let trace_error = TraceError::from_propagated_value(&error);
             EvalFlow::Propagate(Propagation {
                 error,
                 traceback: Traceback {
                     failing_span: Some(question_span),
                     exe_path,
                     operation_kind: "result.propagate".to_string(),
-                    error: TraceError { kind, message },
+                    error: trace_error,
                     frames,
                 },
             })
@@ -5928,6 +5911,7 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
                 facets,
                 span: error.span.or(Some(span)),
                 contexts: error.contexts,
+                cause: error.cause,
                 abort: None,
                 propagated: false,
                 propagated_run_error: Some(original),
@@ -6740,7 +6724,9 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
         Type::ProcessHandle => matches!(value, LoweredValue::ProcessHandle(_)),
         Type::NetJob => matches!(value, LoweredValue::NetJob(_)),
         Type::FsRoot => matches!(value, LoweredValue::FsRoot(_)),
-        Type::ProcessError => false,
+        Type::ProcessError => {
+            matches!(value, LoweredValue::Error(value) if matches!(value.as_ref(), Value::RunError(_)))
+        },
         Type::Pure => matches!(value, LoweredValue::Pure(_)),
         Type::Proc => matches!(value, LoweredValue::Proc(_)),
         Type::Unit => matches!(value, LoweredValue::Unit),

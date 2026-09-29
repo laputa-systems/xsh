@@ -619,3 +619,17 @@ fn scalar_iteration_structural_tools_keep_loop_and_comprehension_sources() {
     assert_eq!(output.status, 1);
     assert_eq!(fs::read_to_string(&file).unwrap(), fixed);
 }
+
+#[test]
+fn typed_cause_grep_and_refactor_keep_named_operand() {
+    let source = "error Outer = Failed(message: Str)\nerror Inner = Failed(message: Str)\nlet value = Err(Outer.Failed(message: \"outer\"), cause: Inner.Failed(message: \"inner\"))\n";
+    let file = temp_xsh("typed_cause", source);
+    let found = grep_scripts("Err(OUTER, cause: CAUSE)", &paths(&file));
+    assert_eq!(found.status, 0, "{}", output_text(&found.stderr));
+    assert!(output_text(&found.stdout).contains("cause: Inner.Failed"));
+    let fixed = refactor_scripts("Inner.Failed(message: VALUE)", "Inner.Failed(message: VALUE)", &paths(&file), false);
+    assert_eq!(fixed.status, 0, "{}", output_text(&fixed.stderr));
+    let updated = fs::read_to_string(&file).unwrap();
+    assert!(updated.contains("cause: Inner.Failed(message: \"inner\")"));
+    let _ = fs::remove_file(file);
+}

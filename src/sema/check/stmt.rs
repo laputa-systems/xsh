@@ -929,6 +929,9 @@ impl Checker {
         for arm in arm_list {
             self.push_scope();
             self.check_pattern_arena(arena, source, arm.pattern, &value_ty);
+            if let Some(value) = Self::single_error_handler_value_arena(arena, arm.block) {
+                self.warn_flattened_error_handler_arena(arena, value, arm.pattern, &value_ty);
+            }
             if let Some(guard) = arm.guard {
                 let guard_ty = self.check_expr_arena(arena, source, guard, Some(&Type::Bool));
                 let guard_span = arena.arena.expr(guard).span;
@@ -2182,6 +2185,9 @@ impl Checker {
         for arm in arm_list {
             self.push_scope();
             self.check_pattern_arena(arena, source, arm.pattern, &value_ty);
+            if let Some(value) = Self::single_error_handler_value_arena(arena, arm.block) {
+                self.warn_flattened_error_handler_arena(arena, value, arm.pattern, &value_ty);
+            }
             if let Some(guard) = arm.guard {
                 let guard_ty = self.check_expr_arena(arena, source, guard, Some(&Type::Bool));
                 let guard_span = arena.arena.expr(guard).span;

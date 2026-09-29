@@ -15,7 +15,7 @@ use xsh::host::json::{
 };
 pub use xsh::trace::model::TracebackRenderer;
 use xsh::trace::model::{
-    TraceArg, TraceEnv, TraceError, TraceEvent, TraceKind, TracePayload, TraceStatus, TraceTiming,
+    TraceArg, TraceEnv, TraceError, TraceErrorDetail, TraceEvent, TraceKind, TracePayload, TraceStatus, TraceTiming,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -524,6 +524,7 @@ fn render_payload_text(payload: &TracePayload, output: &mut String) {
                     quote_text(&error.kind),
                     quote_text(&error.message)
                 );
+                render_error_causes_text(error, output);
             }
         }
         TracePayload::SpawnStart {
@@ -593,6 +594,7 @@ fn render_payload_text(payload: &TracePayload, output: &mut String) {
                     quote_text(&error.kind),
                     quote_text(&error.message)
                 );
+                render_error_causes_text(error, output);
             }
         }
         TracePayload::SpawnCancel {
@@ -617,6 +619,7 @@ fn render_payload_text(payload: &TracePayload, output: &mut String) {
                     quote_text(&error.kind),
                     quote_text(&error.message)
                 );
+                render_error_causes_text(error, output);
             }
         }
         TracePayload::NetJob {
@@ -664,6 +667,7 @@ fn render_payload_text(payload: &TracePayload, output: &mut String) {
                     quote_text(&error.kind),
                     quote_text(&error.message)
                 );
+                render_error_causes_text(error, output);
             }
         }
         TracePayload::PipelineEnd { status, error } => {
@@ -685,6 +689,7 @@ fn render_payload_text(payload: &TracePayload, output: &mut String) {
                     quote_text(&error.kind),
                     quote_text(&error.message)
                 );
+                render_error_causes_text(error, output);
             }
         }
         TracePayload::PipelineSegmentStart {
@@ -731,6 +736,7 @@ fn render_payload_text(payload: &TracePayload, output: &mut String) {
                     quote_text(&error.kind),
                     quote_text(&error.message)
                 );
+                render_error_causes_text(error, output);
             }
         }
         TracePayload::Redirection {
@@ -753,6 +759,7 @@ fn render_payload_text(payload: &TracePayload, output: &mut String) {
                     quote_text(&error.kind),
                     quote_text(&error.message)
                 );
+                render_error_causes_text(error, output);
             }
         }
         TracePayload::StreamStage {
@@ -771,6 +778,7 @@ fn render_payload_text(payload: &TracePayload, output: &mut String) {
                     quote_text(&error.kind),
                     quote_text(&error.message)
                 );
+                render_error_causes_text(error, output);
             }
         }
         TracePayload::StreamItem {
@@ -795,6 +803,7 @@ fn render_payload_text(payload: &TracePayload, output: &mut String) {
                     quote_text(&error.kind),
                     quote_text(&error.message)
                 );
+                render_error_causes_text(error, output);
             }
         }
         TracePayload::RetryAttempt {
@@ -818,6 +827,7 @@ fn render_payload_text(payload: &TracePayload, output: &mut String) {
                     quote_text(&error.kind),
                     quote_text(&error.message)
                 );
+                render_error_causes_text(error, output);
             }
         }
         TracePayload::Cwd { previous, current } => {
@@ -864,9 +874,11 @@ fn render_payload_text(payload: &TracePayload, output: &mut String) {
                     quote_text(&error.kind),
                     quote_text(&error.message)
                 );
+                render_error_causes_text(error, output);
             }
         }
-        TracePayload::ResultPropagate { error_kind } => {
+        TracePayload::ResultPropagate { error_kind, error } => {
+            if let Some(error) = error { render_error_causes_text(error, output); }
             let _ = write!(output, " error_kind={}", quote_text(error_kind));
         }
         TracePayload::RuntimeError { error } => {
@@ -876,8 +888,17 @@ fn render_payload_text(payload: &TracePayload, output: &mut String) {
                 quote_text(&error.kind),
                 quote_text(&error.message)
             );
+            render_error_causes_text(error, output);
         }
     }
+}
+
+fn render_error_causes_text(error: &TraceError, output: &mut String) {
+    for cause in &error.causes {
+        let _ = write!(output, " cause={{family:{} variant:{} kind:{} message:{}}}",
+            quote_text(&cause.family), quote_text(&cause.variant), quote_text(&cause.kind), quote_text(&cause.message));
+    }
+    if error.causes_truncated { output.push_str(" causes_truncated=true"); }
 }
 
 fn render_args_text(args: &[TraceArg], output: &mut String) {
@@ -1066,7 +1087,7 @@ impl TraceEventJson {
             api_id: event.api_id.clone(),
             start_time_us: event.timing.start_time_us,
             duration_us: event.timing.duration_us,
-            payload: TracePayloadJson::from_payload(&event.payload),
+            payload: TracePayloadJson::from_payload(&event.payload, sources),
         }
     }
 }
@@ -1218,6 +1239,7 @@ enum TracePayloadJson {
     },
     ResultPropagate {
         error_kind: String,
+        error: Option<TraceErrorJson>,
     },
     RuntimeError {
         error: TraceErrorJson,
@@ -1225,7 +1247,7 @@ enum TracePayloadJson {
 }
 
 impl TracePayloadJson {
-    fn from_payload(payload: &TracePayload) -> Self {
+    fn from_payload(payload: &TracePayload, sources: &SourceMap) -> Self {
         match payload {
             TracePayload::None => Self::None,
             TracePayload::Core { argv } => Self::Core {
@@ -1245,7 +1267,7 @@ impl TracePayloadJson {
             TracePayload::RunEnd { pid, status, error } => Self::RunEnd {
                 pid: *pid,
                 status: status.as_ref().map(TraceStatusJson::from_status),
-                error: error.as_ref().map(TraceErrorJson::from_error),
+                error: error.as_ref().map(|error| TraceErrorJson::from_error(error, sources)),
             },
             TracePayload::SpawnStart {
                 handle_id,
@@ -1278,7 +1300,7 @@ impl TracePayloadJson {
                 handle_id: *handle_id,
                 pid: *pid,
                 status: status.as_ref().map(TraceStatusJson::from_status),
-                error: error.as_ref().map(TraceErrorJson::from_error),
+                error: error.as_ref().map(|error| TraceErrorJson::from_error(error, sources)),
             },
             TracePayload::SpawnCancel {
                 handle_id,
@@ -1291,7 +1313,7 @@ impl TracePayloadJson {
                 pid: *pid,
                 signal: signal.clone(),
                 kill_after_ms: *kill_after_ms,
-                error: error.as_ref().map(TraceErrorJson::from_error),
+                error: error.as_ref().map(|error| TraceErrorJson::from_error(error, sources)),
             },
             TracePayload::NetJob {
                 job_id,
@@ -1316,11 +1338,11 @@ impl TracePayloadJson {
                 transport_duration_us: *transport_duration_us,
                 status: *status,
                 terminal_error_kind: terminal_error_kind.clone(),
-                error: error.as_ref().map(TraceErrorJson::from_error),
+                error: error.as_ref().map(|error| TraceErrorJson::from_error(error, sources)),
             },
             TracePayload::PipelineEnd { status, error } => Self::PipelineEnd {
                 status: status.as_ref().map(TraceStatusJson::from_status),
-                error: error.as_ref().map(TraceErrorJson::from_error),
+                error: error.as_ref().map(|error| TraceErrorJson::from_error(error, sources)),
             },
             TracePayload::PipelineSegmentStart {
                 index,
@@ -1344,7 +1366,7 @@ impl TracePayloadJson {
                 index: *index,
                 pid: *pid,
                 status: status.as_ref().map(TraceStatusJson::from_status),
-                error: error.as_ref().map(TraceErrorJson::from_error),
+                error: error.as_ref().map(|error| TraceErrorJson::from_error(error, sources)),
             },
             TracePayload::Redirection {
                 op,
@@ -1355,7 +1377,7 @@ impl TracePayloadJson {
                 op: op.clone(),
                 target: target.as_ref().map(TraceArgJson::from_arg),
                 fd: *fd,
-                error: error.as_ref().map(TraceErrorJson::from_error),
+                error: error.as_ref().map(|error| TraceErrorJson::from_error(error, sources)),
             },
             TracePayload::StreamStage {
                 stage,
@@ -1364,7 +1386,7 @@ impl TracePayloadJson {
             } => Self::StreamStage {
                 stage: stage.clone(),
                 item_count: *item_count,
-                error: error.as_ref().map(TraceErrorJson::from_error),
+                error: error.as_ref().map(|error| TraceErrorJson::from_error(error, sources)),
             },
             TracePayload::StreamItem {
                 stage,
@@ -1373,7 +1395,7 @@ impl TracePayloadJson {
             } => Self::StreamItem {
                 stage: stage.clone(),
                 item_index: *item_index,
-                error: error.as_ref().map(TraceErrorJson::from_error),
+                error: error.as_ref().map(|error| TraceErrorJson::from_error(error, sources)),
             },
             TracePayload::ParallelJob {
                 stage,
@@ -1382,7 +1404,7 @@ impl TracePayloadJson {
             } => Self::ParallelJob {
                 stage: stage.clone(),
                 item_index: *item_index,
-                error: error.as_ref().map(TraceErrorJson::from_error),
+                error: error.as_ref().map(|error| TraceErrorJson::from_error(error, sources)),
             },
             TracePayload::RetryAttempt {
                 attempt,
@@ -1395,7 +1417,7 @@ impl TracePayloadJson {
                 attempt: *attempt,
                 max_attempts: *max_attempts,
                 next_delay_ms: *next_delay_ms,
-                error: error.as_ref().map(TraceErrorJson::from_error),
+                error: error.as_ref().map(|error| TraceErrorJson::from_error(error, sources)),
                 selected: *selected,
                 stop_reason: stop_reason.map(|reason| reason.as_str().to_string()),
             },
@@ -1422,13 +1444,14 @@ impl TracePayloadJson {
                 pre_cancel_ms: *pre_cancel_ms,
                 escalation_signal_name: escalation_signal_name.clone(),
                 escalation_signal_number: *escalation_signal_number,
-                hook_error: hook_error.as_ref().map(TraceErrorJson::from_error),
+                hook_error: hook_error.as_ref().map(|error| TraceErrorJson::from_error(error, sources)),
             },
-            TracePayload::ResultPropagate { error_kind } => Self::ResultPropagate {
+            TracePayload::ResultPropagate { error_kind, error } => Self::ResultPropagate {
+                error: error.as_ref().map(|error| TraceErrorJson::from_error(error, sources)),
                 error_kind: error_kind.clone(),
             },
             TracePayload::RuntimeError { error } => Self::RuntimeError {
-                error: TraceErrorJson::from_error(error),
+                error: TraceErrorJson::from_error(error, sources),
             },
         }
     }
@@ -1472,13 +1495,19 @@ impl TraceStatusJson {
 struct TraceErrorJson {
     kind: String,
     message: String,
+    detail: Option<JsonValue>,
+    causes: Vec<JsonValue>,
+    causes_truncated: bool,
 }
 
 impl TraceErrorJson {
-    fn from_error(error: &TraceError) -> Self {
+    fn from_error(error: &TraceError, sources: &SourceMap) -> Self {
         Self {
             kind: error.kind.clone(),
             message: error.message.clone(),
+            detail: error.detail.as_ref().map(|detail| trace_error_detail_json_value(detail, sources)),
+            causes: error.causes.iter().map(|detail| trace_error_detail_json_value(detail, sources)).collect(),
+            causes_truncated: error.causes_truncated,
         }
     }
 }
@@ -2073,10 +2102,11 @@ fn trace_payload_json_value(data: TracePayloadJson) -> JsonValue {
                 ),
             ],
         ),
-        TracePayloadJson::ResultPropagate { error_kind } => typed_payload_json_value(
-            "result.propagate",
-            vec![("error_kind".to_string(), raw_json_string(error_kind))],
-        ),
+        TracePayloadJson::ResultPropagate { error_kind, error } => {
+            let mut fields = vec![("error_kind".to_string(), raw_json_string(error_kind))];
+            if let Some(error) = error { fields.push(("error".into(), trace_error_json_value(error))); }
+            typed_payload_json_value("result.propagate", fields)
+        },
         TracePayloadJson::RuntimeError { error } => typed_payload_json_value(
             "runtime.error",
             vec![("error".to_string(), trace_error_json_value(error))],
@@ -2120,9 +2150,41 @@ fn trace_status_json_value(data: TraceStatusJson) -> JsonValue {
 }
 
 fn trace_error_json_value(data: TraceErrorJson) -> JsonValue {
-    raw_json_object([
+    let mut fields = vec![
         ("kind".to_string(), raw_json_string(data.kind)),
         ("message".to_string(), raw_json_string(data.message)),
+    ];
+    if let Some(detail) = data.detail { fields.push(("detail".into(), detail)); }
+    if !data.causes.is_empty() || data.causes_truncated {
+        fields.push(("causes".into(), raw_json_array(data.causes)));
+        fields.push(("causes_truncated".into(), raw_json_bool(data.causes_truncated)));
+    }
+    raw_json_object(fields)
+}
+
+fn trace_error_span_json(span: Option<Span>, sources: &SourceMap) -> Option<TraceSpanJson> {
+    let mut span = TraceSpanJson::from_span(span, sources)?;
+    let mut characters = span.file.chars();
+    let mut file: String = characters.by_ref().take(4096).collect();
+    if characters.next().is_some() { file.push('…'); }
+    span.file = file;
+    Some(span)
+}
+
+fn trace_error_detail_json_value(detail: &TraceErrorDetail, sources: &SourceMap) -> JsonValue {
+    raw_json_object([
+        ("family".into(), raw_json_string(&detail.family)),
+        ("variant".into(), raw_json_string(&detail.variant)),
+        ("kind".into(), raw_json_string(&detail.kind)),
+        ("message".into(), raw_json_string(&detail.message)),
+        ("facets".into(), raw_json_array(detail.facets.iter().map(raw_json_string))),
+        ("span".into(), option_json_value(trace_error_span_json(detail.span, sources).map(trace_span_json_value))),
+        ("contexts".into(), raw_json_array(detail.contexts.iter().map(|context| raw_json_object([
+            ("kind".into(), raw_json_string(&context.kind)),
+            ("message".into(), option_json_value(context.message.as_ref().map(raw_json_string))),
+            ("span".into(), option_json_value(trace_error_span_json(context.span, sources).map(trace_span_json_value))),
+        ])))),
+        ("status".into(), option_json_value(detail.status.as_ref().map(TraceStatusJson::from_status).map(trace_status_json_value))),
     ])
 }
 
@@ -2622,7 +2684,7 @@ fn summary_event_name(event: &TraceEvent, names_by_id: &FxHashMap<u64, String>) 
         TracePayload::PipelineSegmentEnd { index, .. } => format!("segment {index}"),
         TracePayload::Redirection { op, .. } => op.clone(),
         TracePayload::RetryAttempt { attempt, .. } => format!("attempt {attempt}"),
-        TracePayload::ResultPropagate { error_kind } => error_kind.clone(),
+        TracePayload::ResultPropagate { error_kind, .. } => error_kind.clone(),
         TracePayload::RuntimeError { error } => error.kind.clone(),
         _ => event.kind.as_str().to_string(),
     }

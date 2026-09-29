@@ -4353,7 +4353,7 @@ impl<'a> Linter<'a> {
         let receiver = self.arena.expr(base);
         let Some(ty) = self.expr_types.get(&receiver.span) else { return; };
         let expected = match (ty, name.as_str().as_str()) {
-            (Type::List(item) | Type::Map(item), "get") => item.as_ref(),
+            (Type::List(item) | Type::Map(_, item), "get") => item.as_ref(),
             (Type::Str | Type::Bytes, "byte_at") => &Type::Int,
             _ => return,
         };

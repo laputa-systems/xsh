@@ -98,7 +98,7 @@ impl Evaluator {
                 handle_id,
                 pid,
                 status,
-                error: error.map(|error| TraceError::new(&error.kind, &error.message)),
+                error: error.map(TraceError::from_run_error),
             },
         );
     }
@@ -121,7 +121,7 @@ impl Evaluator {
                 pid,
                 signal: signal.to_string(),
                 kill_after_ms: kill_after.as_millis().try_into().unwrap_or(u64::MAX),
-                error: error.map(|error| TraceError::new(&error.kind, &error.message)),
+                error: error.map(TraceError::from_run_error),
             },
         );
     }

@@ -556,6 +556,19 @@ difference.
 
 ## Tracing And Errors
 
+`RuntimeError` and `RunError` retain immutable diagnostic causes through
+`ErrorCause` in `src/runtime/value/error_cause.rs`. Each link owns a shared typed
+`Value`; attachment copies only the outer metadata and replaces its immediate
+cause. Link destruction consumes uniquely owned suffixes iteratively. Payload
+fields, nominal matching, Result typing, and internal abort transfers remain
+separate from this metadata.
+
+`TraceError::from_value` snapshots causes into a flat bounded sequence of
+`TraceErrorDetail` values in `src/trace/error_causes.rs`. Rendering never walks an
+unbounded recursive diagnostic tree, and process status and lexical context spans
+remain structured. Checked error boundaries restore the original `RunError`
+including its cause when runtime-error transport was required.
+
 `TraceEvent` and `TracePayload` in `src/trace.rs` define trace events, payloads,
 and traceback data. Together
 these events are the runtime graph projection: source spans anchor nodes back to

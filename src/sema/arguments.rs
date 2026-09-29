@@ -69,6 +69,24 @@ pub struct StaticArgumentBinding {
     pub omitted_slots: Vec<usize>,
 }
 
+/// Err retains a positional outer value and an optional named diagnostic cause.
+/// Binding uses ordinary slot occupancy so written argument order is independent
+/// of the constructor's value/cause order.
+pub(crate) fn bind_err_arguments(args: &[ExpandedArgument]) -> Result<StaticArgumentBinding, ArgumentExpansionError> {
+    let params = [
+        CallableParamType { name: Name::intern("error"), ty: Type::Any, defaulted: false, rest: false },
+        CallableParamType { name: Name::intern("cause"), ty: Type::Error, defaulted: true, rest: false },
+    ];
+    let binding = bind_static_arguments(&params, args)?;
+    for (arg, slot) in args.iter().zip(&binding.argument_slots) {
+        if (*slot == 1 && arg.name.is_none()) || (*slot == 0 && arg.name.is_some()) {
+            return Err(ArgumentExpansionError { span: arg.span,
+                message: "Err requires a positional error and an optional named `cause`".into() });
+        }
+    }
+    Ok(binding)
+}
+
 /// Resolve names and positional occupancy before lowering. A record field is
 /// supplied even when its value is null; omission is solely a missing slot.
 pub fn bind_static_arguments(

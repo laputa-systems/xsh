@@ -214,7 +214,8 @@ enum FrameContinuation {
         next: Box<FrameContinuation>,
     },
     WrapOk(Box<FrameContinuation>),
-    WrapErr(Box<FrameContinuation>),
+    WrapErr { cause: Option<u32>, span: Span, next: Box<FrameContinuation> },
+    AttachErrCause { error: crate::runtime::value::Value, span: Span, next: Box<FrameContinuation> },
     Try {
         span: Span,
         next: Box<FrameContinuation>,
@@ -329,8 +330,9 @@ fn with_initializer_handler(mut continuation: &FrameContinuation) -> Option<(Opt
             | FrameContinuation::ListCompCondition { next, .. }
             | FrameContinuation::ListCompKey { next, .. }
             | FrameContinuation::ListCompValue { next, .. }
-            | FrameContinuation::WrapOk(next)
-            | FrameContinuation::WrapErr(next) => next,
+            | FrameContinuation::WrapErr { next, .. }
+            | FrameContinuation::AttachErrCause { next, .. }
+            | FrameContinuation::WrapOk(next) => next,
             _ => return None,
         };
     }
@@ -1951,13 +1953,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             }
             FullTag::ExprErr => {
                 let value = indexed_raw(&mut payload, span)?;
+                let cause = indexed_optional_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
-                self.push_expr(
-                    index,
-                    value,
-                    span,
-                    FrameContinuation::WrapErr(Box::new(next)),
-                );
+                self.push_expr(index, value, span,
+                    FrameContinuation::WrapErr { cause, span, next: Box::new(next) });
             }
             FullTag::ExprTry => {
                 let value = indexed_raw(&mut payload, span)?;
@@ -2627,12 +2626,25 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::WrapErr(next) => match value {
-                FrameValue::Value(value) => self.push_value(
-                    index,
-                    FrameValue::Value(LoweredValue::ResultErr(Box::new(value.into_value()))),
-                    *next,
-                ),
+            FrameContinuation::WrapErr { cause, span, next } => match value {
+                FrameValue::Value(value) => {
+                    let error = value.into_value();
+                    if let Some(cause) = cause {
+                        self.push_expr(index, cause, span,
+                            FrameContinuation::AttachErrCause { error, span, next });
+                    } else {
+                        self.push_value(index, FrameValue::Value(LoweredValue::ResultErr(Box::new(error))), *next);
+                    }
+                }
+                FrameValue::Break(value) => {
+                    return self.complete_call(index, StmtFlow::Propagate(value));
+                }
+            },
+            FrameContinuation::AttachErrCause { error, span, next } => match value {
+                FrameValue::Value(cause) => {
+                    let error = error.with_error_cause(cause.into_value()).map_err(|error| error.with_span(span))?;
+                    self.push_value(index, FrameValue::Value(LoweredValue::ResultErr(Box::new(error))), *next);
+                }
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
@@ -3891,7 +3903,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                         first_error = Some(contextualize_runtime_error(error, context));
                     }
                     if let Some(error) = &self.pending_error {
-                        if let Some(traceback) = &mut self.evaluator.pending_traceback { traceback.error.message = error.message.clone(); }
+                        if let Some(traceback) = &mut self.evaluator.pending_traceback { traceback.error = crate::trace::TraceError::from_runtime_error(error); }
                     }
                     Ok(())
                 }
@@ -3932,7 +3944,7 @@ fn contextualize_runtime_error(error: RuntimeError, context: crate::runtime::val
 fn update_context_traceback(evaluator: &mut Evaluator, value: &LoweredValue) {
     if let Some(traceback) = &mut evaluator.pending_traceback {
         let error = match value { LoweredValue::ResultErr(error) | LoweredValue::Error(error) => error.as_ref(), _ => return };
-        if let Some(message) = error.error_message() { traceback.error.message = message.to_string(); }
+        traceback.error = crate::trace::TraceError::from_value(error);
     }
 }
 

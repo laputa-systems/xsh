@@ -764,10 +764,7 @@ enum LoweredRetryAttemptValue {
 }
 
 fn lowered_trace_error_from_value(value: &Value) -> TraceError {
-    TraceError::new(
-        value.error_kind().unwrap_or("runtime-error"),
-        value.error_message().unwrap_or("runtime error"),
-    )
+    TraceError::from_value(value)
 }
 
 fn lowered_elf_info_value(path: PathValue, info: elf_module::ElfInfo) -> LoweredValue {
@@ -10156,7 +10153,7 @@ impl Evaluator {
             TracePayload::StreamItem {
                 stage: stage.to_string(),
                 item_index,
-                error: Some(TraceError::new(&error.kind, &error.message)),
+                error: Some(TraceError::from_runtime_error(&error)),
             },
         );
         error.message = format!(
@@ -10202,7 +10199,7 @@ impl Evaluator {
                     op: "failure".to_string(),
                     target: None,
                     fd: None,
-                    error: Some(TraceError::new(&error.kind, &error.message)),
+                    error: Some(TraceError::from_run_error(error)),
                 },
             );
         }
@@ -10216,7 +10213,7 @@ impl Evaluator {
                 error: end
                     .error
                     .as_ref()
-                    .map(|error| TraceError::new(&error.kind, &error.message)),
+                    .map(|error| TraceError::from_run_error(error)),
             },
         );
     }
@@ -10262,7 +10259,7 @@ impl Evaluator {
                 error: end
                     .error
                     .as_ref()
-                    .map(|error| TraceError::new(&error.kind, &error.message)),
+                    .map(|error| TraceError::from_run_error(error)),
             },
         );
     }

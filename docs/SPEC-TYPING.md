@@ -223,6 +223,20 @@ attempt's inferred error type. Nominal variants from an unrelated family are
 impossible; error identity is retained through selection. The pattern adds no
 captures, effects, conversion, or dynamic widening.
 
+`Err(error, cause: failure)` retains precisely the first operand's error type
+`E`; the cause does not join or widen `E`. Both operands must be assignable to
+`Error` when the named cause is supplied. The one-argument constructor preserves
+its existing generic `E` inference. Extra positional operands, duplicate causes,
+unknown labels, and non-Error causes are errors under ordinary static argument
+binding. A cause contributes neither facets nor payload fields to outer patterns.
+
+`xsht check` emits `check.error-cause` guidance for a directly bound Err handler
+that translates only `failure.message` into a declared error's sole message
+argument. It suggests deliberately retaining the original diagnostic cause and
+has no automatic fix. Richer payload construction and shadowing scopes are
+outside this narrow guidance; custom messages and error contracts remain choices
+owned by the application.
+
 Postfix `?` may be applied only to `Result` values. It produces the `Ok` type
 and propagates the `Err` value from a `Result`-returning context. In effectful
 procs, `?` also requires the `error` effect unless the context is unrestricted.

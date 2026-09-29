@@ -10867,7 +10867,25 @@ impl CompactLowerConstructProbe<'_, '_> {
                         }
                     ));
                 }
-                if (name == "Ok" || name == "Err")
+                if name == "Err" {
+                    use crate::sema::arguments::{expand_named_arguments, bind_err_arguments};
+                    let expanded = expand_named_arguments(self.program, &args_vec, |_| None).ok()?;
+                    let binding = bind_err_arguments(&expanded).ok()?;
+                    if expanded.len() == 1 {
+                        let crate::sema::arguments::ArgumentValueSource::Expression(value) = expanded[0].value else { return None; };
+                        let value = self.lower_expr(value, slots, current_function, item_slot)?;
+                        return Some(push_build_row!(self, expr, BuildExprRow::Err { value, cause: None }));
+                    }
+                    let lowered = self.lower_expanded_argument_values(&expanded, slots, current_function, item_slot)?;
+                    let mut value = None;
+                    let mut cause = None;
+                    for (argument, slot) in lowered.values.into_iter().zip(binding.argument_slots) {
+                        if slot == 0 { value = Some(argument); } else { cause = Some(argument); }
+                    }
+                    let result = push_build_row!(self, expr, BuildExprRow::Err { value: value?, cause });
+                    return Some(self.wrap_argument_bindings(result, lowered.bindings, span));
+                }
+                if name == "Ok"
                     && let Some(positional) = positional.as_ref()
                 {
                     let value = match positional.as_slice() {
@@ -10875,11 +10893,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         [value] => self.lower_expr(*value, slots, current_function, item_slot)?,
                         _ => return None,
                     };
-                    return if name == "Ok" {
-                        Some(push_build_row!(self, expr, BuildExprRow::Ok(value)))
-                    } else {
-                        Some(push_build_row!(self, expr, BuildExprRow::Err(value)))
-                    };
+                    return Some(push_build_row!(self, expr, BuildExprRow::Ok(value)));
                 }
                 if name == "range"
                     && let Some(positional) = positional.as_ref()
@@ -13653,7 +13667,7 @@ fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
         Type::FsRoot => Some(LoweredType::FsRoot),
         Type::Pure => Some(LoweredType::Pure),
         Type::Proc => Some(LoweredType::Proc),
-        Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => Some(LoweredType::Error),
+        Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError => Some(LoweredType::Error),
         Type::Record(_) => Some(LoweredType::Record),
         Type::Module(_) | Type::DynamicModule => Some(LoweredType::Module),
         Type::List(_) => Some(LoweredType::List),
@@ -13950,14 +13964,13 @@ fn lowered_builtin_type_name(name: &str) -> Option<LoweredType> {
         BuiltinTypeName::FsRoot => Some(LoweredType::FsRoot),
         BuiltinTypeName::Pure => Some(LoweredType::Pure),
         BuiltinTypeName::Proc => Some(LoweredType::Proc),
-        BuiltinTypeName::Error => Some(LoweredType::Error),
+        BuiltinTypeName::Error | BuiltinTypeName::ProcessError => Some(LoweredType::Error),
         BuiltinTypeName::Record => Some(LoweredType::Record),
         BuiltinTypeName::Module => Some(LoweredType::Module),
         BuiltinTypeName::Result => Some(LoweredType::Result),
         BuiltinTypeName::Null
         | BuiltinTypeName::Map
-        | BuiltinTypeName::EnvPathList
-        | BuiltinTypeName::ProcessError => None,
+        | BuiltinTypeName::EnvPathList => None,
     }
 }
 

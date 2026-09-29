@@ -1746,6 +1746,29 @@ tail-produce or return either a `Result[T]` value or a plain non-`Result` `T`
 value; plain `T` is wrapped as `Ok(value)`. `Ok(value)` and `Err(error)` remain
 valid when the result shape should be visible at the call site.
 
+`Err(error, cause: failure)` deliberately translates an `Error` into another
+nominal error while retaining `failure` as diagnostic metadata. The outer error
+and the cause must both be assignable to `Error` for this overload. Generic
+one-argument `Err(value)` remains available for every Result error type. The
+optional cause is named; both operands are evaluated once in written order,
+including a finite named argument spread. Construction produces Result data;
+propagation still requires the usual `?` or statement Result boundary.
+
+Cause attachment copies the outer error's metadata without changing its nominal
+family, facets, payload, or Result error type, and leaves other aliases unchanged.
+An explicit cause replaces the copy's immediate cause and preserves the supplied
+cause's chain, spans, contexts, and process status. Matching inspects the outer
+error only. A declared payload field named `cause` remains an ordinary field;
+metadata has no script introspection API. `ctx` adds context to the same failure,
+whereas `cause` records a translation into a different failure.
+
+Tracebacks and structured traces retain actual nominal identities and render at
+most 32 causes. Cause messages are limited to 4096 Unicode scalars, with bounded
+facets and contexts, and human output escapes control characters. Omitted suffixes
+are marked as truncated. Shared immutable links avoid copying all descendants
+at each propagation. Abort and cancellation control transfers do not become
+ordinary constructor values.
+
 Signatures support default parameters, rest parameters, type aliases, richer
 module signatures, overloads, and known record shapes. Overloads are selected
 from argument names and argument types; return type alone does not

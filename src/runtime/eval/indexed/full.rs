@@ -7549,9 +7549,10 @@ impl_node_codec! {
         BuildExprRow::Ok(value) => ExprOk {
             value: BuildExprId,
         } => BuildExprRow::Ok(value),
-        BuildExprRow::Err(value) => ExprErr {
+        BuildExprRow::Err { value, cause } => ExprErr {
             value: BuildExprId,
-        } => BuildExprRow::Err(value),
+            cause: Option<BuildExprId>,
+        } => BuildExprRow::Err { value, cause },
         BuildExprRow::Error(value) => ExprError {
             value: Box<LoweredErrorExpr>,
         } => BuildExprRow::Error(value),
@@ -8082,6 +8083,40 @@ run true
                 }
             }
         });
+    }
+
+    #[test]
+    fn typed_cause_indexed_codec_preserves_metadata_and_verifies_optional_child() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/typed-causes.xsh");
+        let program = fixture("typed-causes.xsh", source);
+        FullVerifier::verify(&program).unwrap();
+        let row = program.store.tags.iter().position(|tag| *tag == FullTag::ExprErr).unwrap();
+        let range = program.store.data[row].range().bounds(program.store.extra.len()).unwrap();
+        assert_eq!(program.store.extra[range.start + 1], 1);
+        for (offset, value) in [(1, 2), (2, u32::MAX)] {
+            let mut invalid = program.clone();
+            invalid.store.extra[range.start + offset] = value;
+            assert!(FullVerifier::verify(&invalid).is_err());
+        }
+        let mut cycle = program.clone();
+        cycle.store.extra[range.start + 2] = row as u32;
+        assert!(FullVerifier::verify(&cycle).is_err());
+        let program = Arc::new(program);
+        for recursive in [false, true] {
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            evaluator.indexed_program = Some(Arc::clone(&program));
+            let mut call = || evaluator.call_indexed_direct(
+                LoweredFunctionKey::Name(program_name(&program, "translated_cause")), LoweredFunctionKind::Pure,
+                &[], Span::at(program.store.source_id, 0),
+            ).expect("typed constructor function exists");
+            let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() }.unwrap();
+            let Value::Result(crate::runtime::value::ResultValue::Err(error)) = result else { panic!("constructor returns Result data") };
+            let Value::Error(outer) = error.as_ref() else { panic!("nominal outer error") };
+            assert_eq!(outer.family, "OuterCauseError");
+            let Value::Error(inner) = outer.cause.as_ref().unwrap().as_value() else { panic!("typed cause") };
+            assert_eq!(inner.family, "InnerCauseError");
+            assert_eq!(inner.span, None);
+        }
     }
 
     /// A loop reuses its statement list rather than allocating per iteration.

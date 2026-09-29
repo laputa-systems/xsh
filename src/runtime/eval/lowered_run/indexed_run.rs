@@ -181,6 +181,7 @@ fn capture_checked_error(mut error: RuntimeError) -> Result<LoweredValue, Runtim
     error.propagated = false;
     let value = if let Some(mut original) = error.propagated_run_error.take() {
         original.contexts = error.contexts;
+        original.cause = error.cause;
         Value::RunError(original)
     } else { Value::Error(Box::new(error)) };
     Ok(LoweredValue::ResultErr(Box::new(value)))
@@ -5311,7 +5312,7 @@ impl Evaluator {
                     let trace_error = stage_result
                         .as_ref()
                         .err()
-                        .map(|error| TraceError::new(&error.kind, &error.message));
+                        .map(TraceError::from_runtime_error);
                     self.trace_exit(
                         TraceKind::StreamStageExit,
                         Some(span),
@@ -5587,7 +5588,7 @@ impl Evaluator {
                         };
                         if let Some(traceback) = &mut self.pending_traceback {
                             let error = match &contextual { LoweredValue::ResultErr(error) => error.as_ref(), other => &other.clone().into_value() };
-                            if let Some(message) = error.error_message() { traceback.error.message = message.to_string(); }
+                            traceback.error = TraceError::from_value(error);
                         }
                         self.preserve_lexical_expression_flow(StmtFlow::Propagate(contextual))
                     }
@@ -5597,7 +5598,7 @@ impl Evaluator {
                     Err(error) if error.abort.is_some() => return Err(error),
                     Err(error) => {
                         let Value::Error(error) = super::super::add_error_context(Value::Error(Box::new(error)), context) else { unreachable!() };
-                        if let Some(traceback) = &mut self.pending_traceback { traceback.error.message = error.message.clone(); }
+                        if let Some(traceback) = &mut self.pending_traceback { traceback.error = TraceError::from_runtime_error(&error); }
                         return Err(*error);
                     }
                 }
@@ -6878,12 +6879,20 @@ impl Evaluator {
             }
             FullTag::ExprErr => {
                 let value = indexed_raw(&mut payload, call_span)?;
+                let cause = indexed_optional_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Continue(value) => value.into_value(),
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                ControlFlow::Continue(LoweredValue::ResultErr(Box::new(value.into_value())))
+                let value = if let Some(cause) = cause {
+                    let cause = match self.eval_indexed_expr(execution, cause, slots, call_span)? {
+                        ControlFlow::Continue(value) => value.into_value(),
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                    value.with_error_cause(cause).map_err(|error| error.with_span(call_span))?
+                } else { value };
+                ControlFlow::Continue(LoweredValue::ResultErr(Box::new(value)))
             }
             FullTag::ExprError => {
                 let error = match indexed_raw(&mut payload, call_span)? {
@@ -7541,16 +7550,11 @@ impl Evaluator {
                         .with_span(call_span),
                     )),
                 };
-                let kind = error.error_kind().unwrap_or("error").to_string();
-                let message = error
-                    .error_message()
-                    .unwrap_or("signal hook error")
-                    .to_string();
                 let traceback = self.pending_traceback.take().unwrap_or_else(|| Traceback {
                     failing_span: Some(call_span),
                     exe_path: self.exe_path_for_traceback(),
                     operation_kind: "signal.hook".to_string(),
-                    error: TraceError { kind, message },
+                    error: TraceError::from_value(&error),
                     frames: self.call_stack.clone(),
                 });
                 Ok(Flow::Propagate(Propagation { error, traceback }))
@@ -8826,15 +8830,12 @@ impl Evaluator {
                         LoweredValue::ResultOk(_) => Ok(StmtFlow::None),
                         LoweredValue::ResultErr(error) => {
                             let kind = error.error_kind().unwrap_or("error").to_string();
-                            let message = error
-                                .error_message()
-                                .unwrap_or("propagated error")
-                                .to_string();
                             self.trace_leaf(
                                 TraceKind::ResultPropagate,
                                 Some(span),
                                 None,
                                 TracePayload::ResultPropagate {
+                                    error: TraceError::caused_from_value(&error),
                                     error_kind: kind.clone(),
                                 },
                             );
@@ -8843,7 +8844,7 @@ impl Evaluator {
                                     failing_span: Some(span),
                                     exe_path: self.exe_path.clone(),
                                     operation_kind: "result.propagate".to_string(),
-                                    error: TraceError { kind, message },
+                                    error: TraceError::from_propagated_value(&error),
                                     frames: self.call_stack.clone(),
                                 });
                             Ok(StmtFlow::Propagate(LoweredValue::ResultErr(error)))

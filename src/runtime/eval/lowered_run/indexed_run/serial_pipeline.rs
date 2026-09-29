@@ -509,7 +509,7 @@ impl IndexedSerialPipeline {
         let cancel_result = self.items.cancel(evaluator, self.span);
         let trace_error = error
             .or_else(|| cancel_result.as_ref().err())
-            .map(|error| TraceError::new(&error.kind, &error.message));
+            .map(TraceError::from_runtime_error);
         for stage in self.stages.iter().rev() {
             let name = Evaluator::indexed_stage_name(stage.tag());
             evaluator.trace_exit(

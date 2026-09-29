@@ -1,6 +1,8 @@
 #![allow(clippy::single_call_fn)]
 
 pub use crate::map_key::{MapKey, MapKeyRef};
+mod error_cause;
+pub use error_cause::ErrorCause;
 
 use crate::runtime::process::ProcessStatus;
 use crate::source::Span;
@@ -1412,6 +1414,7 @@ pub struct RuntimeError {
     pub facets: Vec<String>,
     pub span: Option<Span>,
     pub contexts: Vec<ErrorContext>,
+    pub cause: Option<ErrorCause>,
     pub abort: Option<AbortSignal>,
     // Checked propagation may cross runtime-error transport before local capture.
     pub(crate) propagated: bool,
@@ -1436,6 +1439,7 @@ impl RuntimeError {
             facets: Vec::new(),
             span: None,
             contexts: Vec::new(),
+            cause: None,
             abort: None,
             propagated: false,
             propagated_run_error: None,
@@ -1473,6 +1477,7 @@ impl RuntimeError {
             facets,
             span: None,
             contexts: Vec::new(),
+            cause: None,
             abort: None,
             propagated: false,
             propagated_run_error: None,
@@ -1495,6 +1500,7 @@ impl RuntimeError {
             contexts: Vec::new(),
             propagated: false,
             propagated_run_error: None,
+            cause: None,
             abort: Some(AbortSignal { status, force }),
             family_name: Name::ERROR,
             variant_name: symbols.intern("Abort"),
@@ -1541,6 +1547,7 @@ pub struct RunError {
     pub span: Option<Span>,
     pub status: Option<Box<ProcessStatus>>,
     pub contexts: Vec<ErrorContext>,
+    pub cause: Option<ErrorCause>,
 }
 
 impl RunError {
@@ -1551,6 +1558,7 @@ impl RunError {
             span: None,
             status: None,
             contexts: Vec::new(),
+            cause: None,
         }
     }
 
@@ -1561,6 +1569,7 @@ impl RunError {
             span: None,
             status: status.map(Box::new),
             contexts: Vec::new(),
+            cause: None,
         }
     }
 
@@ -1572,6 +1581,7 @@ impl RunError {
             span: None,
             status: Some(Box::new(status)),
             contexts: Vec::new(),
+            cause: None,
         }
     }
 

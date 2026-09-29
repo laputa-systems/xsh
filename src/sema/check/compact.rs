@@ -1608,7 +1608,7 @@ impl CompactBodyProbe<'_> {
             if name == "env" { return Type::Result(Box::new(Type::Str), Box::new(Type::Error)); }
             if name == "Path" && self.program.arena.call_args(args).len() == 1 { return Type::Path; }
             if name == "Ok" || name == "Err" {
-                let value = self.program.arena.call_args(args).first().and_then(|arg| match arg.kind {
+                let value = self.program.arena.call_args(args).iter().find_map(|arg| match arg.kind {
                     crate::syntax::arena::ArenaCallArgKind::Positional(value) => self.output.expr_types.get(&value).cloned(),
                     _ => None,
                 }).unwrap_or(Type::Unit);

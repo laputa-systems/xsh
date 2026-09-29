@@ -100,6 +100,60 @@ fn contract_split_types(text: &str) -> Vec<&str> {
 
 #[allow(dead_code)]
 impl Checker {
+    pub(super) fn warn_flattened_error_handler_arena(
+        &mut self, arena: &ArenaProgram, value: ExprId, pattern: crate::syntax::arena::PatternId,
+        subject: &Type,
+    ) {
+        use crate::syntax::arena::ArenaPatternKind;
+        if !self.options.migration_diagnostics { return; }
+        let Type::Result(_, error) = subject else { return; };
+        if !matches!(error.as_ref(), Type::Error | Type::ProcessError | Type::ErrorFamily(_) | Type::ErrorVariant { .. }) { return; }
+        let ArenaPatternKind::Constructor { name, arg: Some(arg) } = arena.arena.pattern(pattern).kind else { return; };
+        if name != "Err" { return; }
+        let ArenaPatternKind::Binding(failure) = arena.arena.pattern(arg).kind else { return; };
+        self.warn_flattened_error_translation_arena(arena, value, failure);
+    }
+
+    pub(super) fn single_error_handler_value_arena(arena: &ArenaProgram, block: crate::syntax::arena::BlockId) -> Option<ExprId> {
+        use crate::syntax::arena::{ArenaStmtKind, ArenaExprOrRun};
+        let mut statements = arena.arena.stmt_ids(arena.arena.block(block).statements);
+        let statement = statements.next()?;
+        if statements.next().is_some() { return None; }
+        match arena.arena.stmt(statement).kind {
+            ArenaStmtKind::Expr(value) | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(value))) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub(super) fn warn_flattened_error_translation_arena(&mut self, arena: &ArenaProgram, value: ExprId, failure: Name) {
+        if !self.options.migration_diagnostics { return; }
+        let value = match arena.arena.expr(value).kind {
+            ArenaExprKind::ValueBlock(block) => match Self::single_error_handler_value_arena(arena, block) {
+                Some(value) => value, None => return,
+            },
+            _ => value,
+        };
+        let ArenaExprKind::Call { callee, args } = arena.arena.expr(value).kind else { return; };
+        if !matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Err") { return; }
+        let [arg] = arena.arena.call_args(args) else { return; };
+        let ArenaCallArgKind::Positional(outer) = arg.kind else { return; };
+        let ArenaExprKind::Call { callee, args } = arena.arena.expr(outer).kind else { return; };
+        let ArenaExprKind::Field { base, name: variant } = arena.arena.expr(callee).kind else { return; };
+        let ArenaExprKind::Ident(family) = arena.arena.expr(base).kind else { return; };
+        if !self.error_families.get(&family).is_some_and(|family| family.variants.contains_key(&variant)) { return; }
+        let [arg] = arena.arena.call_args(args) else { return; };
+        let message = match arg.kind {
+            ArenaCallArgKind::Positional(value) => value,
+            ArenaCallArgKind::Named { name, value, .. } if name == "message" => value,
+            _ => return,
+        };
+        let ArenaExprKind::Field { base, name } = arena.arena.expr(message).kind else { return; };
+        if name != "message" || !matches!(arena.arena.expr(base).kind, ArenaExprKind::Ident(name) if name == failure) { return; }
+        self.warning(arena.arena.expr(value).span,
+            &format!("error translation retains only `{failure}.message`; consider `cause: {failure}` to preserve its typed diagnostic chain (no automatic fix)"),
+            "check.error-cause");
+    }
+
     fn check_module_callable_effects(
         &mut self,
         caller_effs: &[Effect],
@@ -500,7 +554,7 @@ impl Checker {
             Err(error) => { self.error(error.span, &error.message, "check.named-spread"); return Type::Invalid; }
         };
         let statically_named = self.resolve_callable_alias_call(arena, callee).is_some() || match arena.arena.expr(callee).kind {
-            ArenaExprKind::Ident(name) => self.procs.contains_key(&name) || self.pures.contains_key(&name)
+            ArenaExprKind::Ident(name) => name == "Err" || self.procs.contains_key(&name) || self.pures.contains_key(&name)
                 || self.streams.contains_key(&name)
                 || self.record_constructors.resolve_call(&arena.arena, callee, self.current_namespace).is_some(),
             ArenaExprKind::Field { base, name } => {
@@ -672,11 +726,32 @@ impl Checker {
                 Type::Result(Box::new(ty), Box::new(Type::Error))
             }
             "Err" => {
+                use crate::sema::arguments::{expand_named_arguments, bind_err_arguments};
                 let expected = match expected_context { Some(Type::Result(_, error)) => Some(error.as_ref()), _ => None };
                 let previous = std::mem::replace(&mut self.expected_schema, None);
-                let err = args.first().map_or(Type::Error, |arg| self.check_call_arg_arena(arena, source, &arg.kind, expected));
+                let types = args.iter().map(|arg| {
+                    let outer = !matches!(arg.kind, ArenaCallArgKind::Named { name, .. } if name == "cause");
+                    self.check_call_arg_arena(arena, source, &arg.kind, if outer { expected } else { None })
+                }).collect::<Vec<_>>();
                 self.expected_schema = previous;
-                Type::Result(Box::new(Type::Unknown), Box::new(err))
+                let expanded = expand_named_arguments(arena, args, |expr| args.iter().zip(&types).find_map(|(arg, ty)| {
+                    let value = match arg.kind {
+                        ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => value,
+                        _ => return None,
+                    };
+                    (value == expr).then(|| ty.clone())
+                })).expect("named spreads are expanded before constructor checking");
+                let binding = match bind_err_arguments(&expanded) {
+                    Ok(binding) => binding,
+                    Err(error) => { self.error(error.span, &error.message, "check.err-arguments"); return Type::Invalid; }
+                };
+                let mut outer = Type::Error;
+                let has_cause = binding.argument_slots.contains(&1);
+                for (arg, slot) in expanded.iter().zip(binding.argument_slots) {
+                    if slot == 0 { outer = arg.ty.clone(); }
+                    if slot == 1 || has_cause { self.expect_type(&Type::Error, &arg.ty, arg.span); }
+                }
+                Type::Result(Box::new(Type::Unknown), Box::new(outer))
             }
             "Error" => {
                 self.error(
