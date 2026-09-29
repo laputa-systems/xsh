@@ -1,0 +1,64 @@
+== frame stderr_duplicated_first cursor=6,20
+|testuser@<HOST> ~ $ sh -c 'echo out; echo err >&2' 2>&1 > first.txt | cat
+|err
+|
+|testuser@<HOST> ~ $ cat first.txt
+|out
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sh
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame stdout_redirected_first cursor=12,20
+|testuser@<HOST> ~ $ sh -c 'echo out; echo err >&2' 2>&1 > first.txt | cat
+|err
+|
+|testuser@<HOST> ~ $ cat first.txt
+|out
+|
+|testuser@<HOST> ~ $ sh -c 'echo out; echo err >&2' > second.txt 2>&1 | cat
+|
+|testuser@<HOST> ~ $ cat second.txt
+|out
+|err
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sh
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sh
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame substitution_captures_stderr cursor=15,20
+|testuser@<HOST> ~ $ sh -c 'echo out; echo err >&2' 2>&1 > first.txt | cat
+|err
+|
+|testuser@<HOST> ~ $ cat first.txt
+|out
+|
+|testuser@<HOST> ~ $ sh -c 'echo out; echo err >&2' > second.txt 2>&1 | cat
+|
+|testuser@<HOST> ~ $ cat second.txt
+|out
+|err
+|
+|testuser@<HOST> ~ $ echo [$(sh -c 'echo out; echo err >&2' 2>&1)]
+|[out err]
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sh
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sh
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

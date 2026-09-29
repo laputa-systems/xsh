@@ -1,0 +1,74 @@
+== frame stopped cursor=4,20
+|testuser@<HOST> ~ $ ./bin/job
+|ready
+|^Z<SHELL>: stopped: ./bin/job (pgid=<N>)
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./bin/job
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame resumed cursor=6,0
+|testuser@<HOST> ~ $ ./bin/job
+|ready
+|^Z<SHELL>: stopped: ./bin/job (pgid=<N>)
+|
+|testuser@<HOST> ~ $ fg
+|<SHELL>: resuming: ./bin/job
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./bin/job
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fg
+== frame after_interrupt cursor=6,20
+|testuser@<HOST> ~ $ ./bin/job
+|ready
+|^Z<SHELL>: stopped: ./bin/job (pgid=<N>)
+|
+|testuser@<HOST> ~ $ fg
+|<SHELL>: resuming: ./bin/job
+|^Ctestuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./bin/job
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fg
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame alive cursor=9,20
+|testuser@<HOST> ~ $ ./bin/job
+|ready
+|^Z<SHELL>: stopped: ./bin/job (pgid=<N>)
+|
+|testuser@<HOST> ~ $ fg
+|<SHELL>: resuming: ./bin/job
+|testuser@<HOST> ~ $ echo alive
+|alive
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./bin/job
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fg
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=12,20
+|testuser@<HOST> ~ $ ./bin/job
+|ready
+|^Z<SHELL>: stopped: ./bin/job (pgid=<N>)
+|
+|testuser@<HOST> ~ $ fg
+|<SHELL>: resuming: ./bin/job
+|testuser@<HOST> ~ $ echo alive
+|alive
+|
+|testuser@<HOST> ~ $ echo $?
+|0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./bin/job
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 fg
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

@@ -1,0 +1,12 @@
+== frame home cursor=0,21
+|testuser@<HOST> ~ $ Xhello world
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 Xhello
+== frame end cursor=0,33
+|testuser@<HOST> ~ $ Xhello worldY
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 Xhello
+== frame ctrl_a_e cursor=0,35
+|testuser@<HOST> ~ $ AXhello worldYE
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 AXhello

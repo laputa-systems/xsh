@@ -1,156 +1,279 @@
-#![allow(clippy::single_call_fn)]
-
 use super::complete::CompletionState;
-use super::edit::LineBuffer;
 use super::history::{FuzzyMatch, History};
-use rustix::{stdio as rstdio, termios};
-use std::io::{self, Write};
+use super::line::LineBuffer;
+use super::term::TermWriter;
+use std::fmt::Write as _;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(super) struct RenderedRegion {
-    pub(super) anchored: bool,
-    pub(super) painted_rows: u16,
-    pub(super) cursor_row: u16,
-    pub(super) cursor_col: u16,
+/// Geometry for a rendered region, relative to the region's top row.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RenderedRegion {
+    pub anchored: bool,
+    pub painted_rows: u16,
+    pub cursor_row: u16,
+    pub cursor_col: u16,
+}
+impl RenderedRegion {
+    pub fn clear(self, tw: &mut TermWriter) {
+        if !self.anchored {
+            return;
+        }
+        tw.restore_cursor();
+        tw.clear_to_end_of_screen();
+    }
+
+    /// Clear from the cursor position currently left by the renderer.
+    ///
+    /// This is safer than restoring the DEC saved cursor when leaving a
+    /// pager: terminal scrolling can reflow the live cursor and the saved
+    /// anchor differently, while the pager's relative cursor row remains
+    /// known.
+    pub fn clear_from_cursor(self, tw: &mut TermWriter) {
+        if !self.anchored {
+            return;
+        }
+        clear_region_from_cursor(tw, self);
+    }
 }
 
-#[derive(Clone, Debug, Default)]
-pub(super) struct RenderOpts<'a> {
-    pub(super) suggestion: &'a str,
+fn reserve_rows_below(tw: &mut TermWriter, rows_below: u16) {
+    if rows_below == 0 {
+        return;
+    }
+    for _ in 0..rows_below {
+        tw.write_str("\n");
+    }
+    tw.move_cursor_up(rows_below);
+    tw.carriage_return();
 }
 
+fn clear_region_from_cursor(tw: &mut TermWriter, region: RenderedRegion) {
+    if region.cursor_row > 0 {
+        tw.move_cursor_up(region.cursor_row);
+    }
+    tw.carriage_return();
+    tw.clear_to_end_of_screen();
+}
+
+fn begin_region_render(tw: &mut TermWriter, prev: RenderedRegion, region: RenderedRegion) {
+    tw.hide_cursor();
+    if prev.anchored {
+        let prev_rows_below = prev.painted_rows.saturating_sub(1);
+        let new_rows_below = region.painted_rows.saturating_sub(1);
+        if new_rows_below <= prev_rows_below {
+            clear_region_from_cursor(tw, prev);
+        } else {
+            prev.clear(tw);
+            if prev_rows_below > 0 {
+                tw.move_cursor_down(prev_rows_below);
+            }
+            reserve_rows_below(tw, new_rows_below - prev_rows_below);
+            if prev_rows_below > 0 {
+                tw.move_cursor_up(prev_rows_below);
+                tw.carriage_return();
+            }
+        }
+    } else {
+        reserve_rows_below(tw, region.painted_rows.saturating_sub(1));
+    }
+    tw.save_cursor();
+}
+
+fn restore_cursor_from_end(tw: &mut TermWriter, rows_up: u16, cursor_col: u16) {
+    if rows_up > 0 {
+        tw.move_cursor_up(rows_up);
+    }
+    tw.carriage_return();
+    if cursor_col > 0 {
+        tw.move_cursor_right(cursor_col);
+    }
+}
+
+fn restore_cursor_from_anchor(tw: &mut TermWriter, region: RenderedRegion) {
+    tw.restore_cursor();
+    if region.cursor_row > 0 {
+        tw.move_cursor_down(region.cursor_row);
+    }
+    tw.carriage_return();
+    if region.cursor_col > 0 {
+        tw.move_cursor_right(region.cursor_col);
+    }
+}
+
+fn cursor_move_seq_len(n: u16) -> usize {
+    if n == 0 {
+        return 0;
+    }
+    let mut digits = 1;
+    let mut value = n;
+    while value >= 10 {
+        value /= 10;
+        digits += 1;
+    }
+    3 + digits
+}
+
+fn restore_cursor_smart(tw: &mut TermWriter, region: RenderedRegion, rows_up_from_end: u16) {
+    let anchor_cost = 2 + cursor_move_seq_len(region.cursor_row);
+    let end_cost = cursor_move_seq_len(rows_up_from_end);
+    if anchor_cost < end_cost {
+        restore_cursor_from_anchor(tw, region);
+    } else {
+        restore_cursor_from_end(tw, rows_up_from_end, region.cursor_col);
+    }
+}
+
+fn write_history_row(
+    tw: &mut TermWriter,
+    text: &str,
+    m: &FuzzyMatch,
+    max_width: usize,
+    is_selected: bool,
+) {
+    let mut col = 0;
+    let mut pi = 0;
+    let mut in_match = false;
+    for (ci, ch) in text.chars().enumerate() {
+        let w = super::line::char_width(ch);
+        if col + w > max_width {
+            break;
+        }
+        col += w;
+        let is_match = pi < m.match_count as usize && m.match_positions[pi] == ci as u16;
+        if is_match {
+            pi += 1;
+        }
+        if !is_selected {
+            if is_match && !in_match {
+                tw.write_str("\x1b[1;33m"); // bold yellow
+                in_match = true;
+            } else if !is_match && in_match {
+                tw.write_str("\x1b[0m");
+                in_match = false;
+            }
+        }
+        let mut buf = [0u8; 4];
+        tw.write_str(ch.encode_utf8(&mut buf));
+    }
+    if in_match {
+        tw.write_str("\x1b[0m");
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HistoryHeaderKey {
+    query_hash: u64,
+    query_len: usize,
+    query_cursor: usize,
+    term_rows: u16,
+    term_cols: u16,
+    header_rows: u16,
+    needs_forced_wrap: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct HistoryRowKey {
+    entry_idx: usize,
+    selected: bool,
+    match_positions: [u16; 32],
+    match_count: u8,
+}
+
+#[derive(Default)]
+pub struct HistoryPagerCache {
+    header: Option<HistoryHeaderKey>,
+    rows: Vec<HistoryRowKey>,
+}
+
+impl HistoryPagerCache {
+    pub fn clear(&mut self) {
+        self.header = None;
+        self.rows.clear();
+    }
+}
+
+fn hash_text(text: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn history_header_key(query: &str, query_cursor: usize, layout: &PagerLayout) -> HistoryHeaderKey {
+    HistoryHeaderKey {
+        query_hash: hash_text(query),
+        query_len: query.len(),
+        query_cursor,
+        term_rows: layout.term_rows,
+        term_cols: layout.term_cols,
+        header_rows: layout.header_rows,
+        needs_forced_wrap: layout.needs_forced_wrap,
+    }
+}
+
+fn history_row_key(m: &FuzzyMatch, selected: bool) -> HistoryRowKey {
+    HistoryRowKey {
+        entry_idx: m.entry_idx,
+        selected,
+        match_positions: m.match_positions,
+        match_count: m.match_count,
+    }
+}
+
+#[derive(Debug)]
 struct PromptLayout {
     region: RenderedRegion,
     rows_up_from_end: u16,
     needs_forced_wrap: bool,
 }
 
-struct CompletionGridLayout {
-    visible_rows: usize,
-    scroll_start: usize,
-    col_widths: [usize; 6],
-}
-
+#[derive(Debug)]
 struct PagerLayout {
     region: RenderedRegion,
     rows_up_from_end: u16,
+    header_rows: u16,
     needs_forced_wrap: bool,
     max_results: usize,
     max_width: usize,
     scroll: usize,
+    term_rows: u16,
+    term_cols: u16,
 }
 
 struct PagerInput {
-    header_cursor_cells: usize,
-    header_full_cells: usize,
+    prefix_width: usize,
+    query_width: usize,
+    suffix_width: usize,
+    query_cursor: usize,
     total_entries: usize,
     selected: usize,
     term_rows: u16,
     term_cols: u16,
 }
 
-pub(super) struct TermWriter {
-    buf: Vec<u8>,
+#[derive(Debug)]
+struct CompletionGridLayout {
+    visible_rows: usize,
+    scroll_start: usize,
+    col_widths: [usize; 6],
 }
 
-impl TermWriter {
-    fn new() -> Self {
-        Self {
-            buf: Vec::with_capacity(2048),
-        }
-    }
-
-    fn write_str(&mut self, s: &str) {
-        self.buf.extend_from_slice(s.as_bytes());
-    }
-
-    fn clear_to_end_of_line(&mut self) {
-        self.write_str("\x1b[K");
-    }
-
-    fn clear_to_end_of_screen(&mut self) {
-        self.write_str("\x1b[J");
-    }
-
-    fn hide_cursor(&mut self) {
-        self.write_str("\x1b[?25l");
-    }
-
-    fn show_cursor(&mut self) {
-        self.write_str("\x1b[?25h");
-    }
-
-    fn carriage_return(&mut self) {
-        self.write_str("\r");
-    }
-
-    fn save_cursor(&mut self) {
-        self.write_str("\x1b[s");
-    }
-
-    fn move_cursor_right(&mut self, n: u16) {
-        if n > 0 {
-            self.push_csi(n, b'C');
-        }
-    }
-
-    fn move_cursor_up(&mut self, n: u16) {
-        if n > 0 {
-            self.push_csi(n, b'A');
-        }
-    }
-
-    fn move_cursor_down(&mut self, n: u16) {
-        if n > 0 {
-            self.push_csi(n, b'B');
-        }
-    }
-
-    fn flush_to(&mut self, out: &mut dyn Write) -> io::Result<()> {
-        out.write_all(&self.buf)?;
-        out.flush()?;
-        self.buf.clear();
-        Ok(())
-    }
-
-    fn push_csi(&mut self, n: u16, suffix: u8) {
-        self.buf.extend_from_slice(b"\x1b[");
-        let mut tmp = [0_u8; 5];
-        let mut i = tmp.len();
-        let mut val = n;
-        loop {
-            i -= 1;
-            tmp[i] = b'0' + (val % 10) as u8;
-            val /= 10;
-            if val == 0 {
-                break;
-            }
-        }
-        self.buf.extend_from_slice(&tmp[i..]);
-        self.buf.push(suffix);
-    }
-}
-
-pub(super) fn term_size() -> (u16, u16) {
-    match termios::tcgetwinsize(rstdio::stdout()) {
-        Ok(size) if size.ws_col > 0 => (size.ws_row, size.ws_col),
-        _ => (24, 80),
-    }
+/// Optional display hints for render_line.
+#[derive(Default)]
+pub struct RenderOpts<'a> {
+    /// Color the command word: Some(true) = green, Some(false) = red, None = no color.
+    pub cmd_color: Option<bool>,
+    /// Autosuggestion ghost text to show after the cursor.
+    pub suggestion: &'a str,
 }
 
 fn layout_single_line_prompt(
-    prompt_cells: usize,
+    prompt_display_len: usize,
     line: &LineBuffer,
-    suggestion: &str,
+    suggestion_display_len: usize,
     cols: usize,
 ) -> PromptLayout {
-    let line_end = advance_display_cells(prompt_cells, &line.text, cols);
-    let total_before_cursor = if line.cursor == line.text.len() {
-        line_end
-    } else {
-        advance_display_cells(prompt_cells, &line.text[..line.cursor], cols)
-    };
-    let total_full = advance_display_cells(line_end, suggestion, cols);
+    let total_before_cursor = prompt_display_len + line.display_cursor_pos();
+    let total_full = prompt_display_len + line.display_len() + suggestion_display_len;
     let cursor_row = total_before_cursor / cols;
     let cursor_col = total_before_cursor % cols;
     let total_rows = total_full / cols;
@@ -168,14 +291,15 @@ fn layout_single_line_prompt(
 }
 
 fn layout_multiline_prompt(
-    prompt_cells: usize,
+    prompt_display_len: usize,
     line: &LineBuffer,
     cols: usize,
 ) -> PromptLayout {
-    let text = &line.text;
-    let cursor_byte = line.cursor;
+    let text = line.text();
+    let cursor_byte = line.cursor();
     let cont_prompt_len = 2;
     let segment_count = text.split('\n').count();
+
     let mut row: usize = 0;
     let mut cursor_row: usize = 0;
     let mut cursor_col: usize = 0;
@@ -185,20 +309,32 @@ fn layout_multiline_prompt(
     for (i, segment) in text.split('\n').enumerate() {
         let seg_start = line_idx;
         let seg_end = seg_start + segment.len();
+
         if cursor_byte >= seg_start && cursor_byte <= seg_end {
-            let prefix = if i == 0 { prompt_cells } else { cont_prompt_len };
+            let prefix = if i == 0 {
+                prompt_display_len
+            } else {
+                cont_prompt_len
+            };
             let cursor_in_seg = cursor_byte - seg_start;
-            let total = advance_display_cells(prefix, &segment[..cursor_in_seg], cols);
+            let display_before = super::line::str_width(&segment[..cursor_in_seg]);
+            let total = prefix + display_before;
             cursor_row = row + total / cols;
             cursor_col = total % cols;
         }
-        let prefix = if i == 0 { prompt_cells } else { cont_prompt_len };
-        let seg_width = advance_display_cells(prefix, segment, cols);
+
+        let prefix = if i == 0 {
+            prompt_display_len
+        } else {
+            cont_prompt_len
+        };
+        let seg_width = prefix + super::line::str_width(segment);
         if seg_width > 0 {
             row += (seg_width - 1) / cols;
         }
         last_seg_width = seg_width;
         line_idx = seg_end + 1;
+
         if i + 1 < segment_count {
             row += 1;
         }
@@ -222,9 +358,9 @@ fn layout_multiline_prompt(
 }
 
 fn layout_pager(input: PagerInput) -> PagerLayout {
-    let cols = input.term_cols.max(1) as usize;
-    let header_before_cursor = input.header_cursor_cells;
-    let header_full = input.header_full_cells;
+    let cols = (input.term_cols as usize).max(1);
+    let header_before_cursor = input.prefix_width + input.query_cursor;
+    let header_full = input.prefix_width + input.query_width + input.suffix_width;
     let header_rows = header_full.saturating_sub(1) / cols + 1;
     let cursor_row = header_before_cursor / cols;
     let cursor_col = header_before_cursor % cols;
@@ -247,362 +383,14 @@ fn layout_pager(input: PagerInput) -> PagerLayout {
             cursor_col: cursor_col as u16,
         },
         rows_up_from_end: last_row.saturating_sub(cursor_row) as u16,
+        header_rows: header_rows as u16,
         needs_forced_wrap: header_full > 0 && header_full.is_multiple_of(cols),
         max_results,
-        max_width: input.term_cols.saturating_sub(2).max(1) as usize,
+        max_width: (input.term_cols as usize).saturating_sub(2),
         scroll,
+        term_rows: input.term_rows,
+        term_cols: input.term_cols,
     }
-}
-
-fn begin_region_render(tw: &mut TermWriter, prev: RenderedRegion, next: RenderedRegion) {
-    tw.hide_cursor();
-    if prev.anchored {
-        let prev_rows_below = prev.painted_rows.saturating_sub(1);
-        let next_rows_below = next.painted_rows.saturating_sub(1);
-        if next_rows_below <= prev_rows_below {
-            clear_from_cursor(tw, prev);
-        } else {
-            clear_from_cursor(tw, prev);
-            if prev_rows_below > 0 {
-                tw.move_cursor_down(prev_rows_below);
-            }
-            reserve_rows_below(tw, next_rows_below - prev_rows_below);
-            if prev_rows_below > 0 {
-                tw.move_cursor_up(prev_rows_below);
-                tw.carriage_return();
-            }
-        }
-    } else {
-        reserve_rows_below(tw, next.painted_rows.saturating_sub(1));
-    }
-    tw.save_cursor();
-}
-
-fn reserve_rows_below(tw: &mut TermWriter, rows_below: u16) {
-    if rows_below == 0 {
-        return;
-    }
-    for _ in 0..rows_below {
-        tw.write_str("\n");
-    }
-    tw.move_cursor_up(rows_below);
-    tw.carriage_return();
-}
-
-fn clear_from_cursor(tw: &mut TermWriter, region: RenderedRegion) {
-    if region.cursor_row > 0 {
-        tw.move_cursor_up(region.cursor_row);
-    }
-    tw.carriage_return();
-    tw.clear_to_end_of_screen();
-}
-
-fn restore_cursor_from_end(tw: &mut TermWriter, rows_up: u16, cursor_col: u16) {
-    if rows_up > 0 {
-        tw.move_cursor_up(rows_up);
-    }
-    tw.carriage_return();
-    tw.move_cursor_right(cursor_col);
-}
-
-pub(super) fn render_line(
-    stdout: &mut dyn Write,
-    prompt: &str,
-    line: &LineBuffer,
-    term_cols: u16,
-    prev: RenderedRegion,
-    opts: &RenderOpts<'_>,
-) -> io::Result<RenderedRegion> {
-    let mut tw = TermWriter::new();
-    let cols = term_cols.max(1) as usize;
-    let prompt_cells = display_cells_without_ansi(prompt, cols);
-    let region = if line.text.contains('\n') {
-        render_line_multiline(
-            &mut tw,
-            prompt,
-            prompt_cells,
-            line,
-            cols,
-            prev,
-        )
-    } else {
-        render_line_single(
-            &mut tw,
-            prompt,
-            prompt_cells,
-            line,
-            cols,
-            prev,
-            opts,
-        )
-    };
-    tw.flush_to(stdout)?;
-    Ok(region)
-}
-
-fn render_line_single(
-    tw: &mut TermWriter,
-    prompt: &str,
-    prompt_cells: usize,
-    line: &LineBuffer,
-    cols: usize,
-    prev: RenderedRegion,
-    opts: &RenderOpts<'_>,
-) -> RenderedRegion {
-    let layout = layout_single_line_prompt(prompt_cells, line, opts.suggestion, cols);
-    begin_region_render(tw, prev, layout.region);
-    tw.write_str(prompt);
-    tw.write_str(&line.text);
-    if !opts.suggestion.is_empty() {
-        tw.write_str("\x1b[38;5;8m");
-        tw.write_str(opts.suggestion);
-        tw.write_str("\x1b[0m");
-    }
-    if layout.needs_forced_wrap {
-        tw.write_str(" \r");
-    }
-    restore_cursor_from_end(tw, layout.rows_up_from_end, layout.region.cursor_col);
-    tw.show_cursor();
-    RenderedRegion {
-        anchored: true,
-        ..layout.region
-    }
-}
-
-fn render_line_multiline(
-    tw: &mut TermWriter,
-    prompt: &str,
-    prompt_cells: usize,
-    line: &LineBuffer,
-    cols: usize,
-    prev: RenderedRegion,
-) -> RenderedRegion {
-    let layout = layout_multiline_prompt(prompt_cells, line, cols);
-    begin_region_render(tw, prev, layout.region);
-    for (index, segment) in line.text.split('\n').enumerate() {
-        if index == 0 {
-            tw.write_str(prompt);
-        } else {
-            tw.write_str("\r\n  ");
-        }
-        tw.write_str(segment);
-    }
-    if layout.needs_forced_wrap {
-        tw.write_str(" \r");
-    }
-    restore_cursor_from_end(tw, layout.rows_up_from_end, layout.region.cursor_col);
-    tw.show_cursor();
-    RenderedRegion {
-        anchored: true,
-        ..layout.region
-    }
-}
-
-pub(super) fn render_completions(
-    stdout: &mut dyn Write,
-    state: &CompletionState,
-    info: RenderedRegion,
-    initial: bool,
-    previous_visible_rows: usize,
-) -> io::Result<usize> {
-    let mut tw = TermWriter::new();
-    let visible_rows = render_completion_grid(&mut tw, state, info, initial, previous_visible_rows);
-    tw.flush_to(stdout)?;
-    Ok(visible_rows)
-}
-
-pub(super) fn render_history_search(
-    stdout: &mut dyn Write,
-    query: &LineBuffer,
-    matches: &[FuzzyMatch],
-    history: &History,
-    selected: usize,
-    term_size: (u16, u16),
-    prev: RenderedRegion,
-) -> io::Result<RenderedRegion> {
-    let mut tw = TermWriter::new();
-    let prefix = "search: ";
-    let (term_rows, term_cols) = term_size;
-    let cols = term_cols.max(1) as usize;
-    let prefix_cells = advance_display_cells(0, prefix, cols);
-    let layout = layout_pager(PagerInput {
-        header_cursor_cells: advance_display_cells(
-            prefix_cells,
-            &query.text[..query.cursor],
-            cols,
-        ),
-        header_full_cells: advance_display_cells(prefix_cells, &query.text, cols),
-        total_entries: matches.len(),
-        selected,
-        term_rows,
-        term_cols,
-    });
-    begin_region_render(&mut tw, prev, layout.region);
-
-    tw.write_str("\x1b[1m");
-    tw.write_str(prefix);
-    tw.write_str("\x1b[0m");
-    tw.write_str(&query.text);
-    if layout.needs_forced_wrap {
-        tw.write_str(" \r");
-        tw.clear_to_end_of_line();
-    } else {
-        tw.write_str("\n");
-    }
-
-    let displayed = matches.len().min(layout.max_results);
-    for (visible_idx, m) in matches
-        .iter()
-        .skip(layout.scroll)
-        .take(layout.max_results)
-        .enumerate()
-    {
-        tw.carriage_return();
-        tw.clear_to_end_of_line();
-        let row_idx = layout.scroll + visible_idx;
-        let is_selected = row_idx == selected;
-        if is_selected {
-            tw.write_str("\x1b[7m");
-        }
-        write_history_row(
-            &mut tw,
-            history.get(m.entry_idx),
-            m,
-            layout.max_width,
-            is_selected,
-        );
-        if is_selected {
-            tw.write_str("\x1b[0m");
-        }
-        tw.clear_to_end_of_line();
-        if visible_idx + 1 < displayed {
-            tw.write_str("\n");
-        }
-    }
-
-    tw.clear_to_end_of_screen();
-    restore_cursor_from_end(&mut tw, layout.rows_up_from_end, layout.region.cursor_col);
-    tw.show_cursor();
-    tw.flush_to(stdout)?;
-    Ok(RenderedRegion {
-        anchored: true,
-        ..layout.region
-    })
-}
-
-fn write_history_row(
-    tw: &mut TermWriter,
-    text: &str,
-    m: &FuzzyMatch,
-    max_width: usize,
-    is_selected: bool,
-) {
-    let mut col = 0;
-    let mut pos_idx = 0;
-    let mut in_match = false;
-    for (char_idx, ch) in text.chars().enumerate() {
-        let width = super::complete::char_width(ch);
-        if col + width > max_width {
-            break;
-        }
-        col += width;
-        let is_match =
-            pos_idx < m.match_count as usize && m.match_positions[pos_idx] == char_idx as u16;
-        if is_match {
-            pos_idx += 1;
-        }
-        if !is_selected {
-            if is_match && !in_match {
-                tw.write_str("\x1b[1;33m");
-                in_match = true;
-            } else if !is_match && in_match {
-                tw.write_str("\x1b[0m");
-                in_match = false;
-            }
-        }
-        let mut buf = [0_u8; 4];
-        tw.write_str(ch.encode_utf8(&mut buf));
-    }
-    if in_match {
-        tw.write_str("\x1b[0m");
-    }
-}
-
-pub(super) fn clear_completions(
-    stdout: &mut dyn Write,
-    info: RenderedRegion,
-    visible_rows: usize,
-) -> io::Result<()> {
-    if visible_rows == 0 {
-        return Ok(());
-    }
-    let mut tw = TermWriter::new();
-    tw.hide_cursor();
-    let down_to_grid = info.painted_rows.saturating_sub(info.cursor_row);
-    if down_to_grid > 0 {
-        tw.move_cursor_down(down_to_grid);
-    }
-    for row in 0..visible_rows {
-        if row > 0 {
-            tw.write_str("\n");
-        }
-        tw.carriage_return();
-        tw.clear_to_end_of_line();
-    }
-    restore_cursor_from_end(
-        &mut tw,
-        down_to_grid + visible_rows.saturating_sub(1) as u16,
-        info.cursor_col,
-    );
-    tw.show_cursor();
-    tw.flush_to(stdout)
-}
-
-fn render_completion_grid(
-    tw: &mut TermWriter,
-    state: &CompletionState,
-    info: RenderedRegion,
-    initial: bool,
-    previous_visible_rows: usize,
-) -> usize {
-    let layout = layout_completion_grid(state);
-    if layout.visible_rows == 0 {
-        return 0;
-    }
-    tw.hide_cursor();
-
-    if initial {
-        let rows_below = info.painted_rows.saturating_sub(1 + info.cursor_row);
-        if rows_below > 0 {
-            tw.move_cursor_down(rows_below);
-        }
-        for _ in 0..layout.visible_rows {
-            tw.write_str("\n");
-        }
-        restore_cursor_from_end(tw, rows_below + layout.visible_rows as u16, info.cursor_col);
-    }
-
-    let down_to_grid = info.painted_rows.saturating_sub(info.cursor_row);
-    if down_to_grid > 0 {
-        tw.move_cursor_down(down_to_grid);
-    }
-    tw.carriage_return();
-    draw_grid(tw, state, &layout);
-    let painted_rows = layout.visible_rows.max(previous_visible_rows);
-    if previous_visible_rows > layout.visible_rows {
-        for _ in layout.visible_rows..previous_visible_rows {
-            tw.write_str("\n");
-            tw.carriage_return();
-            tw.clear_to_end_of_line();
-        }
-    }
-    restore_cursor_from_end(
-        tw,
-        down_to_grid + painted_rows.saturating_sub(1) as u16,
-        info.cursor_col,
-    );
-    tw.show_cursor();
-    layout.visible_rows
 }
 
 fn layout_completion_grid(state: &CompletionState) -> CompletionGridLayout {
@@ -614,7 +402,7 @@ fn layout_completion_grid(state: &CompletionState) -> CompletionGridLayout {
             col_widths: [0; 6],
         };
     }
-    let mut col_widths = [0_usize; 6];
+    let mut col_widths = [0usize; 6];
     for (i, entry) in state.comp.entries.iter().enumerate() {
         let col = i / state.rows;
         if col < state.cols {
@@ -642,7 +430,233 @@ fn layout_completion_grid(state: &CompletionState) -> CompletionGridLayout {
     }
 }
 
-fn grid_visible_rows(state: &CompletionState) -> usize {
+/// Dump the computed prompt geometry without writing terminal control sequences.
+/// This is kept next to the layout functions so diagnostics describe the same
+/// values that the renderer uses.
+pub fn debug_dump_prompt_layout(
+    out: &mut String,
+    prompt_display_len: usize,
+    line: &LineBuffer,
+    suggestion_display_len: usize,
+    term_cols: u16,
+) {
+    let cols = (term_cols as usize).max(1);
+    if line.has_newlines() {
+        let layout = layout_multiline_prompt(prompt_display_len, line, cols);
+        let _ = writeln!(out, "prompt_layout: {layout:?}");
+        return;
+    }
+    // Reveal the intermediate arithmetic so a single-line layout bug can be
+    // traced without re-running the terminal. These are exactly the values
+    // `layout_single_line_prompt` and `render_line` derive from the same inputs.
+    let before_cursor = prompt_display_len + line.display_cursor_pos();
+    let full = prompt_display_len + line.display_len() + suggestion_display_len;
+    let layout = layout_single_line_prompt(prompt_display_len, line, suggestion_display_len, cols);
+    let _ = writeln!(
+        out,
+        "prompt.layout_math: before_cursor={before_cursor} full={full} cols={cols} forced_wrap={}",
+        full > 0 && full.is_multiple_of(cols),
+    );
+    let _ = writeln!(out, "prompt_layout: {layout:?}");
+}
+
+/// Dump the computed pager geometry used by history and directory picker.
+pub fn debug_dump_pager_layout(
+    out: &mut String,
+    prefix_width: usize,
+    query_width: usize,
+    suffix_width: usize,
+    query_cursor: usize,
+    total_entries: usize,
+    selected: usize,
+    term_rows: u16,
+    term_cols: u16,
+) {
+    let layout = layout_pager(PagerInput {
+        prefix_width,
+        query_width,
+        suffix_width,
+        query_cursor,
+        total_entries,
+        selected,
+        term_rows,
+        term_cols,
+    });
+    let _ = writeln!(out, "pager_layout: {layout:?}");
+}
+
+/// Dump the computed completion grid geometry.
+pub fn debug_dump_completion_layout(out: &mut String, state: &CompletionState) {
+    let layout = layout_completion_grid(state);
+    let _ = writeln!(out, "completion_grid_layout: {layout:?}");
+}
+
+/// Dump cached history-search layout keys used to decide whether a row redraw is safe.
+pub fn debug_dump_history_cache(out: &mut String, cache: &HistoryPagerCache) {
+    let _ = writeln!(out, "history_cache.header: {:?}", cache.header);
+    let _ = writeln!(out, "history_cache.rows: {:?}", cache.rows);
+}
+
+/// Render the prompt + line buffer. Positions cursor correctly.
+/// `prev` is the geometry from the previous render of this region. It lets us
+/// move back to the top before clearing.
+/// Returns prompt geometry so completion rendering can restore cursor.
+pub fn render_line(
+    tw: &mut TermWriter,
+    prompt: &str,
+    prompt_display_len: usize,
+    line: &LineBuffer,
+    term_cols: u16,
+    prev: RenderedRegion,
+    opts: &RenderOpts,
+) -> RenderedRegion {
+    let text = line.text();
+    let cols = (term_cols as usize).max(1);
+
+    // Multiline path: buffer contains explicit newlines
+    if text.contains('\n') {
+        return render_line_multiline(tw, prompt, prompt_display_len, line, cols, prev, opts);
+    }
+
+    let layout = layout_single_line_prompt(
+        prompt_display_len,
+        line,
+        super::line::str_width(opts.suggestion),
+        cols,
+    );
+    begin_region_render(tw, prev, layout.region);
+
+    tw.write_str(prompt);
+
+    // Write line text with optional command-word coloring
+    match opts.cmd_color {
+        Some(valid) => {
+            let color = if valid { "\x1b[32m" } else { "\x1b[31m" };
+            let first_end = text.find(|c: char| c.is_whitespace()).unwrap_or(text.len());
+            tw.write_str(color);
+            tw.write_str(&text[..first_end]);
+            tw.write_str("\x1b[0m");
+            tw.write_str(&text[first_end..]);
+        }
+        None => tw.write_str(text),
+    }
+
+    // Autosuggestion ghost text (dim gray, after line content)
+    if !opts.suggestion.is_empty() {
+        tw.write_str("\x1b[38;5;8m");
+        tw.write_str(opts.suggestion);
+        tw.write_str("\x1b[0m");
+    }
+
+    if layout.needs_forced_wrap {
+        tw.write_str(" \r");
+    }
+
+    restore_cursor_from_end(tw, layout.rows_up_from_end, layout.region.cursor_col);
+
+    tw.show_cursor();
+    RenderedRegion {
+        anchored: true,
+        ..layout.region
+    }
+}
+
+/// Render a multiline buffer (contains `\n`). First line gets the main prompt,
+/// subsequent lines get a continuation prompt "  ".
+fn render_line_multiline(
+    tw: &mut TermWriter,
+    prompt: &str,
+    prompt_display_len: usize,
+    line: &LineBuffer,
+    cols: usize,
+    prev: RenderedRegion,
+    opts: &RenderOpts,
+) -> RenderedRegion {
+    let text = line.text();
+    let cont_prompt = "  ";
+    let layout = layout_multiline_prompt(prompt_display_len, line, cols);
+    begin_region_render(tw, prev, layout.region);
+
+    for (i, segment) in text.split('\n').enumerate() {
+        if i == 0 {
+            tw.write_str(prompt);
+
+            // Command-word coloring on first line
+            match opts.cmd_color {
+                Some(valid) => {
+                    let color = if valid { "\x1b[32m" } else { "\x1b[31m" };
+                    let first_end = segment
+                        .find(|c: char| c.is_whitespace())
+                        .unwrap_or(segment.len());
+                    tw.write_str(color);
+                    tw.write_str(&segment[..first_end]);
+                    tw.write_str("\x1b[0m");
+                    tw.write_str(&segment[first_end..]);
+                }
+                None => tw.write_str(segment),
+            }
+        } else {
+            tw.write_str("\r\n");
+            tw.write_str(cont_prompt);
+            tw.write_str(segment);
+        }
+    }
+
+    if layout.needs_forced_wrap {
+        tw.write_str(" \r");
+    }
+
+    restore_cursor_from_end(tw, layout.rows_up_from_end, layout.region.cursor_col);
+
+    tw.show_cursor();
+    RenderedRegion {
+        anchored: true,
+        ..layout.region
+    }
+}
+
+/// Render the completion grid below the current line.
+/// `initial`: true for first render (adds newline), false for repaint.
+/// Cursor should be on the prompt line. Leaves cursor on the prompt line.
+pub fn render_completions(
+    tw: &mut TermWriter,
+    state: &CompletionState,
+    info: RenderedRegion,
+    initial: bool,
+) {
+    let layout = layout_completion_grid(state);
+    if layout.visible_rows == 0 {
+        return;
+    }
+    tw.hide_cursor();
+
+    if initial {
+        let rows_below = info.painted_rows.saturating_sub(1 + info.cursor_row);
+        if rows_below > 0 {
+            tw.move_cursor_down(rows_below);
+        }
+        for _ in 0..layout.visible_rows {
+            tw.write_str("\n");
+        }
+        restore_cursor_from_end(tw, rows_below + layout.visible_rows as u16, info.cursor_col);
+    }
+
+    let down_to_grid = info.painted_rows.saturating_sub(info.cursor_row);
+    if down_to_grid > 0 {
+        tw.move_cursor_down(down_to_grid);
+    }
+    tw.carriage_return();
+    draw_grid(tw, state, &layout);
+    restore_cursor_from_end(
+        tw,
+        down_to_grid + layout.visible_rows.saturating_sub(1) as u16,
+        info.cursor_col,
+    );
+
+    tw.show_cursor();
+}
+
+pub fn grid_visible_rows(state: &CompletionState) -> usize {
     if state.comp.is_empty() || state.rows == 0 {
         return 0;
     }
@@ -654,6 +668,8 @@ fn draw_grid(tw: &mut TermWriter, state: &CompletionState, layout: &CompletionGr
         let row = layout.scroll_start + vr;
         tw.carriage_return();
         tw.clear_to_end_of_line();
+        // Avoid writing into the terminal's last column: exact-edge writes can
+        // leave the cursor in a terminal-dependent pending-wrap state.
         let mut remaining_width = state.term_cols.saturating_sub(1) as usize;
 
         for (col, &col_w) in layout.col_widths[..state.cols].iter().enumerate() {
@@ -663,9 +679,12 @@ fn draw_grid(tw: &mut TermWriter, state: &CompletionState, layout: &CompletionGr
             }
             let entry = &state.comp.entries[idx];
             let is_selected = idx == state.selected;
+
             if is_selected {
-                tw.write_str("\x1b[7m");
+                tw.write_str("\x1b[7m"); // reverse video
             }
+
+            // Color: symlink=cyan, dir=blue, exec=green, host=magenta
             if entry.is_host() {
                 tw.write_str("\x1b[35m");
             } else if entry.is_link() {
@@ -685,6 +704,7 @@ fn draw_grid(tw: &mut TermWriter, state: &CompletionState, layout: &CompletionGr
             if entry.is_host() || entry.is_link() || entry.is_dir() || entry.is_exec() {
                 tw.write_str("\x1b[0m");
             }
+
             if is_selected {
                 tw.write_str("\x1b[0m");
             }
@@ -700,6 +720,7 @@ fn draw_grid(tw: &mut TermWriter, state: &CompletionState, layout: &CompletionGr
             }
             remaining_width = remaining_width.saturating_sub(written_width + pad);
         }
+
         if vr + 1 < layout.visible_rows {
             tw.write_str("\n");
         }
@@ -715,18 +736,21 @@ fn write_completion_name(
     if max_width == 0 {
         return 0;
     }
+
     let entry = &state.comp.entries[idx];
     let name = state.comp.entry_name(entry);
     let mut written = 0;
+
     for ch in name.chars() {
-        let w = super::complete::char_width(ch);
+        let w = super::line::char_width(ch);
         if written + w > max_width {
             break;
         }
-        let mut buf = [0_u8; 4];
+        let mut buf = [0u8; 4];
         tw.write_str(ch.encode_utf8(&mut buf));
         written += w;
     }
+
     let suffix = if entry.is_dir() {
         Some('/')
     } else if entry.is_host() {
@@ -737,338 +761,629 @@ fn write_completion_name(
     if let Some(ch) = suffix
         && written < max_width
     {
-        let mut buf = [0_u8; 4];
+        let mut buf = [0u8; 4];
         tw.write_str(ch.encode_utf8(&mut buf));
         written += 1;
     }
+
     written
 }
 
-fn advance_display_width(mut cells: usize, width: usize, cols: usize) -> usize {
-    let width = width.min(cols);
-    if width > 0 {
-        let col = cells % cols;
-        if col + width > cols {
-            cells += cols - col;
+/// Render the Ctrl+R history search pager.
+#[allow(clippy::too_many_arguments)]
+pub fn render_history_pager(
+    tw: &mut TermWriter,
+    query: &str,
+    matches: &[FuzzyMatch],
+    history: &History,
+    selected: usize,
+    term_rows: u16,
+    term_cols: u16,
+    query_cursor: usize,
+    prev: RenderedRegion,
+) -> RenderedRegion {
+    let mut cache = HistoryPagerCache::default();
+    render_history_pager_cached(
+        tw,
+        query,
+        matches,
+        history,
+        selected,
+        term_rows,
+        term_cols,
+        query_cursor,
+        prev,
+        &mut cache,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn render_history_pager_cached(
+    tw: &mut TermWriter,
+    query: &str,
+    matches: &[FuzzyMatch],
+    history: &History,
+    selected: usize,
+    term_rows: u16,
+    term_cols: u16,
+    query_cursor: usize,
+    prev: RenderedRegion,
+    cache: &mut HistoryPagerCache,
+) -> RenderedRegion {
+    let prefix = "search: ";
+    let layout = layout_pager(PagerInput {
+        prefix_width: super::line::str_width(prefix),
+        query_width: super::line::str_width(query),
+        suffix_width: 0,
+        query_cursor,
+        total_entries: matches.len(),
+        selected,
+        term_rows,
+        term_cols,
+    });
+    let displayed = matches.len().min(layout.max_results);
+    let header_key = history_header_key(query, query_cursor, &layout);
+    let can_diff = prev.anchored
+        && prev.painted_rows == layout.region.painted_rows
+        && cache.header == Some(header_key)
+        && cache.rows.len() == displayed;
+
+    if can_diff {
+        tw.hide_cursor();
+        for (i, m) in matches
+            .iter()
+            .skip(layout.scroll)
+            .take(layout.max_results)
+            .enumerate()
+        {
+            let abs_idx = layout.scroll + i;
+            let row_key = history_row_key(m, abs_idx == selected);
+            if cache.rows[i] == row_key {
+                continue;
+            }
+            tw.restore_cursor();
+            let row = layout.header_rows + i as u16;
+            if row > 0 {
+                tw.move_cursor_down(row);
+            }
+            tw.carriage_return();
+            tw.clear_to_end_of_line();
+            if row_key.selected {
+                tw.write_str("\x1b[7m"); // reverse video
+            }
+            let text = history.get(m.entry_idx);
+            write_history_row(tw, text, m, layout.max_width, row_key.selected);
+            if row_key.selected {
+                tw.write_str("\x1b[0m");
+            }
+            tw.clear_to_end_of_line();
+            cache.rows[i] = row_key;
         }
-        cells += width;
+        // Row diffs leave the terminal cursor on the last changed row, not at
+        // the pager's bottom edge, so restore from the saved anchor.
+        restore_cursor_from_anchor(tw, layout.region);
+        tw.show_cursor();
+        return RenderedRegion {
+            anchored: true,
+            ..layout.region
+        };
     }
-    cells
+
+    begin_region_render(tw, prev, layout.region);
+
+    tw.write_str("\x1b[1m"); // bold
+    tw.write_str(prefix);
+    tw.write_str("\x1b[0m");
+    tw.write_str(query);
+
+    if layout.needs_forced_wrap {
+        tw.write_str(" \r");
+        tw.clear_to_end_of_line();
+    } else {
+        tw.write_str("\n");
+    }
+
+    cache.rows.clear();
+    for (i, m) in matches
+        .iter()
+        .skip(layout.scroll)
+        .take(layout.max_results)
+        .enumerate()
+    {
+        let abs_idx = layout.scroll + i;
+        tw.carriage_return();
+        tw.clear_to_end_of_line();
+
+        let row_key = history_row_key(m, abs_idx == selected);
+        if row_key.selected {
+            tw.write_str("\x1b[7m"); // reverse video
+        }
+
+        let text = history.get(m.entry_idx);
+        write_history_row(tw, text, m, layout.max_width, row_key.selected);
+        if row_key.selected {
+            tw.write_str("\x1b[0m");
+        }
+        tw.clear_to_end_of_line();
+        if i + 1 < displayed {
+            tw.write_str("\n");
+        }
+        cache.rows.push(row_key);
+    }
+
+    // Clear remaining lines
+    tw.clear_to_end_of_screen();
+
+    // Position cursor in search field
+    restore_cursor_from_end(tw, layout.rows_up_from_end, layout.region.cursor_col);
+    tw.show_cursor();
+    cache.header = Some(header_key);
+
+    RenderedRegion {
+        anchored: true,
+        ..layout.region
+    }
 }
 
-fn advance_display_cells(mut cells: usize, text: &str, cols: usize) -> usize {
-    if text.bytes().all(|byte| (b' '..=b'~').contains(&byte)) {
-        return cells + text.len();
-    }
-    for ch in text.chars() {
-        cells = advance_display_width(cells, super::complete::char_width(ch), cols);
-    }
-    cells
-}
+/// Render the directory picker pager.
+pub fn render_dir_picker(
+    tw: &mut TermWriter,
+    entries: &[String],
+    selected: usize,
+    home: &str,
+    term_rows: u16,
+    term_cols: u16,
+    prev: RenderedRegion,
+) -> RenderedRegion {
+    let prefix = "dirs:";
+    let layout = layout_pager(PagerInput {
+        prefix_width: super::line::str_width(prefix),
+        query_width: 0,
+        suffix_width: 0,
+        query_cursor: 0,
+        total_entries: entries.len(),
+        selected,
+        term_rows,
+        term_cols,
+    });
+    begin_region_render(tw, prev, layout.region);
 
-fn display_cells_without_ansi(text: &str, cols: usize) -> usize {
-    if text.bytes().all(|byte| (b' '..=b'~').contains(&byte)) {
-        return text.len();
+    tw.write_str("\x1b[1mdirs:\x1b[0m");
+    if layout.needs_forced_wrap {
+        tw.write_str(" \r");
+        tw.clear_to_end_of_line();
+    } else {
+        tw.write_str("\n");
     }
-    let mut cells = 0;
-    let mut chars = text.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' && chars.peek() == Some(&'[') {
-            chars.next();
-            for ch in chars.by_ref() {
-                if ('@'..='~').contains(&ch) {
+
+    let displayed = entries.len().min(layout.max_results);
+    let visible = entries
+        .iter()
+        .skip(layout.scroll)
+        .take(layout.max_results)
+        .enumerate();
+    for (i, dir) in visible {
+        let abs_idx = layout.scroll + i;
+        tw.carriage_return();
+        tw.clear_to_end_of_line();
+
+        if abs_idx == selected {
+            tw.write_str("\x1b[7m");
+        }
+
+        let mut col = 0;
+        if let Some(rest) = dir.strip_prefix(home) {
+            if col < layout.max_width {
+                tw.write_str("~");
+                col += 1;
+            }
+            for ch in rest.chars() {
+                let w = super::line::char_width(ch);
+                if col + w > layout.max_width {
                     break;
                 }
+                col += w;
+                let mut buf = [0u8; 4];
+                tw.write_str(ch.encode_utf8(&mut buf));
             }
         } else {
-            cells = advance_display_width(cells, super::complete::char_width(ch), cols);
+            for ch in dir.chars() {
+                let w = super::line::char_width(ch);
+                if col + w > layout.max_width {
+                    break;
+                }
+                col += w;
+                let mut buf = [0u8; 4];
+                tw.write_str(ch.encode_utf8(&mut buf));
+            }
+        }
+
+        if abs_idx == selected {
+            tw.write_str("\x1b[0m");
+        }
+        tw.clear_to_end_of_line();
+        if i + 1 < displayed {
+            tw.write_str("\n");
         }
     }
-    cells
+
+    tw.clear_to_end_of_screen();
+    restore_cursor_smart(tw, layout.region, layout.rows_up_from_end);
+    tw.show_cursor();
+
+    RenderedRegion {
+        anchored: true,
+        ..layout.region
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        History, LineBuffer, RenderOpts, RenderedRegion, clear_completions, render_completions,
-        render_history_search, render_line,
-    };
-    use crate::xshi::interactive::complete::{CompletionState, Completions, compute_grid};
+    use super::*;
 
+    fn make_line(s: &str) -> LineBuffer {
+        let mut lb = LineBuffer::new();
+        for c in s.chars() {
+            lb.insert_char(c);
+        }
+        lb
+    }
+
+    fn render_simple(prompt: &str, text: &str, cols: u16) -> (RenderedRegion, Vec<u8>) {
+        render_with_suggestion(prompt, text, "", cols)
+    }
+
+    fn render_with_suggestion(
+        prompt: &str,
+        text: &str,
+        suggestion: &str,
+        cols: u16,
+    ) -> (RenderedRegion, Vec<u8>) {
+        let mut tw = TermWriter::new();
+        let line = make_line(text);
+        let pdl = crate::xshi::interactive::line::str_width(prompt);
+        let opts = RenderOpts {
+            suggestion,
+            ..Default::default()
+        };
+        let info = render_line(
+            &mut tw,
+            prompt,
+            pdl,
+            &line,
+            cols,
+            RenderedRegion::default(),
+            &opts,
+        );
+        let buf = tw.as_bytes().to_vec();
+        (info, buf)
+    }
+
+    fn render_history_query(
+        query: &str,
+        cols: u16,
+        query_cursor: usize,
+    ) -> (RenderedRegion, Vec<u8>) {
+        let mut tw = TermWriter::new();
+        let hist = History::from_entries(Vec::new());
+        let info = render_history_pager(
+            &mut tw,
+            query,
+            &[],
+            &hist,
+            0,
+            24,
+            cols,
+            query_cursor,
+            RenderedRegion::default(),
+        );
+        (info, tw.as_bytes().to_vec())
+    }
+
+    fn render_dir_entries(
+        entries: &[&str],
+        cols: u16,
+        selected: usize,
+    ) -> (RenderedRegion, Vec<u8>) {
+        let mut tw = TermWriter::new();
+        let entries = entries.iter().map(|s| (*s).to_string()).collect::<Vec<_>>();
+        let info = render_dir_picker(
+            &mut tw,
+            &entries,
+            selected,
+            "/tmp/home",
+            24,
+            cols,
+            RenderedRegion::default(),
+        );
+        (info, tw.as_bytes().to_vec())
+    }
+
+    fn completion_state(
+        entries: &[&str],
+        cols: usize,
+        rows: usize,
+        term_cols: u16,
+    ) -> CompletionState {
+        let mut comp = crate::xshi::interactive::complete::Completions::new();
+        for entry in entries {
+            comp.push(entry, false, false, false);
+        }
+        CompletionState {
+            comp,
+            selected: usize::MAX,
+            cols,
+            rows,
+            scroll: 0,
+            term_cols,
+            dir_prefix: String::new(),
+            in_quote: false,
+        }
+    }
+
+    // When total display width is NOT a multiple of cols, no force-wrap needed.
     #[test]
-    fn render_line_single_forced_wrap_keeps_cursor_before_suggestion() {
-        let line = LineBuffer::from_text("abcdef");
-        let mut out = Vec::new();
+    fn prompt_info_no_wrap() {
+        // "$ " (2) + "hi" (2) = 4 in 10-col terminal → row 0
+        let (info, buf) = render_simple("$ ", "hi", 10);
+        assert_eq!(info.painted_rows, 1);
+        assert_eq!(info.cursor_row, 0);
+        assert_eq!(info.cursor_col, 4);
+        assert!(
+            !buf.windows(2).any(|w| w == b" \r"),
+            "should not force-wrap"
+        );
+    }
 
-        let region = render_line(
-            &mut out,
+    // When total display width wraps but doesn't land on exact boundary.
+    #[test]
+    fn prompt_info_partial_wrap() {
+        // "$ " (2) + 9 chars = 11 in 10-col terminal → rows 0-1
+        let (info, _) = render_simple("$ ", "123456789", 10);
+        assert_eq!(info.painted_rows, 2);
+        assert_eq!(info.cursor_row, 1);
+        assert_eq!(info.cursor_col, 1);
+    }
+
+    // Exact multiple of cols → force-wrap triggers, painted_rows accounts for it.
+    #[test]
+    fn prompt_info_exact_boundary() {
+        // "$ " (2) + "12345678" (8) = 10 in 10-col terminal → fills row 0 exactly
+        let (info, buf) = render_simple("$ ", "12345678", 10);
+        // Force-wrap adds an extra row for the cursor
+        assert_eq!(info.painted_rows, 2);
+        assert_eq!(info.cursor_row, 1);
+        assert_eq!(info.cursor_col, 0);
+        assert!(buf.windows(2).any(|w| w == b" \r"), "should force-wrap");
+    }
+
+    // Exact multiple with suggestion — cursor in the middle, not at pending-wrap.
+    #[test]
+    fn prompt_info_exact_boundary_with_suggestion() {
+        // "$ " (2) + "ab" (2) = 4 before cursor; + suggestion "123456" (6) → 10 total
+        let (info, buf) = render_with_suggestion("$ ", "ab", "123456", 10);
+        assert_eq!(info.painted_rows, 2);
+        // Cursor at position 4 → row 0, col 4
+        assert_eq!(info.cursor_row, 0);
+        assert_eq!(info.cursor_col, 4);
+        assert!(buf.windows(2).any(|w| w == b" \r"), "should force-wrap");
+    }
+
+    // Two full rows (2 * cols) — force-wrap triggers.
+    #[test]
+    fn prompt_info_two_full_rows() {
+        // "$ " (2) + 18 chars = 20, cols = 10 → 2 full rows
+        let (info, buf) = render_simple("$ ", "abcdefghijklmnopqr", 10);
+        assert_eq!(info.painted_rows, 3); // 2 content rows + 1 cursor row from force-wrap
+        assert_eq!(info.cursor_row, 2);
+        assert_eq!(info.cursor_col, 0);
+        assert!(buf.windows(2).any(|w| w == b" \r"), "should force-wrap");
+    }
+
+    // Multiline buffer with last segment filling exact boundary.
+    #[test]
+    fn multiline_exact_boundary() {
+        // First segment: "$ " (2) + "ab" (2) = 4, then newline
+        // Second segment: "  " (2) + "12345678" (8) = 10 fills cols exactly
+        let mut tw = TermWriter::new();
+        let mut line = LineBuffer::new();
+        for c in "ab\n12345678".chars() {
+            line.insert_char(c);
+        }
+        let info = render_line(
+            &mut tw,
             "$ ",
+            2,
             &line,
             10,
             RenderedRegion::default(),
-            &RenderOpts { suggestion: "gh" },
-        )
-        .expect("render line");
-        let rendered = String::from_utf8(out).expect("utf8 render");
-
-        assert_eq!(region.painted_rows, 2);
-        assert_eq!(region.cursor_row, 0);
-        assert_eq!(region.cursor_col, 8);
-        assert!(rendered.contains("\x1b[38;5;8mgh\x1b[0m"), "{rendered:?}");
-        assert!(rendered.contains(" \r"), "{rendered:?}");
+            &RenderOpts::default(),
+        );
+        let buf = tw.as_bytes();
+        // Row 0: "$ ab" (4 cols), row 1: "  12345678" (10 cols, exact boundary)
+        // Force-wrap adds row 2 for the cursor
+        assert_eq!(info.painted_rows, 3);
+        assert!(buf.windows(2).any(|w| w == b" \r"), "should force-wrap");
     }
 
+    // Multiline buffer where last segment does NOT hit exact boundary → no force-wrap.
     #[test]
-    fn render_line_wide_character_wraps_before_last_column() {
-        let line = LineBuffer::from_text("ab界");
-        let mut out = Vec::new();
-
-        let region = render_line(
-            &mut out,
+    fn multiline_no_force_wrap() {
+        let mut tw = TermWriter::new();
+        let mut line = LineBuffer::new();
+        for c in "ab\n1234567".chars() {
+            line.insert_char(c);
+        }
+        let info = render_line(
+            &mut tw,
             "$ ",
+            2,
             &line,
-            5,
+            10,
             RenderedRegion::default(),
             &RenderOpts::default(),
-        )
-        .expect("render wide line");
-
-        assert_eq!(region.painted_rows, 2);
-        assert_eq!(region.cursor_row, 1);
-        assert_eq!(region.cursor_col, 2);
+        );
+        let buf = tw.as_bytes();
+        // Row 0: "$ ab" (4), row 1: "  1234567" (9) — no exact boundary
+        assert_eq!(info.painted_rows, 2);
+        assert!(
+            !buf.windows(2).any(|w| w == b" \r"),
+            "should not force-wrap"
+        );
     }
 
     #[test]
-    fn render_line_combining_mark_and_colored_prompt_preserve_pending_wrap() {
-        let line = LineBuffer::from_text("e\u{301}界");
-        let mut out = Vec::new();
-
-        let region = render_line(
-            &mut out,
+    fn multiline_trailing_newline_keeps_cursor_on_empty_continuation() {
+        let mut tw = TermWriter::new();
+        let mut line = LineBuffer::new();
+        for c in "ab\n".chars() {
+            line.insert_char(c);
+        }
+        let info = render_line(
+            &mut tw,
             "$ ",
+            2,
             &line,
-            6,
-            RenderedRegion::default(),
-            &RenderOpts { suggestion: "x" },
-        )
-        .expect("render combining line");
-        let rendered = String::from_utf8(out).expect("UTF-8 terminal output");
-        assert_eq!(region.painted_rows, 2);
-        assert_eq!((region.cursor_row, region.cursor_col), (0, 5));
-        assert!(rendered.contains(" \r"), "{rendered:?}");
-
-        let mut colored = Vec::new();
-        let region = render_line(
-            &mut colored,
-            "\x1b[32m界\x1b[0m ",
-            &LineBuffer::from_text("a"),
-            4,
+            10,
             RenderedRegion::default(),
             &RenderOpts::default(),
-        )
-        .expect("render colored prompt");
-        assert_eq!((region.cursor_row, region.cursor_col), (1, 0));
-        assert_eq!(region.painted_rows, 2);
+        );
+        assert_eq!(info.painted_rows, 2);
+        assert_eq!(info.cursor_row, 1);
+        assert_eq!(info.cursor_col, 2);
     }
 
     #[test]
-    fn render_line_multiline_places_cursor_after_wide_character_wrap() {
-        let mut line = LineBuffer::from_text("ab界\nx\u{301}");
-        line.cursor = "ab界".len();
-        let mut out = Vec::new();
-
-        let region = render_line(
-            &mut out,
+    fn multiline_cursor_accounts_for_wrapped_first_segment() {
+        let mut tw = TermWriter::new();
+        let mut line = LineBuffer::new();
+        for c in "123456789\nx".chars() {
+            line.insert_char(c);
+        }
+        let info = render_line(
+            &mut tw,
             "$ ",
+            2,
             &line,
-            5,
+            10,
             RenderedRegion::default(),
             &RenderOpts::default(),
-        )
-        .expect("render multiline wide line");
-        let rendered = String::from_utf8(out).expect("UTF-8 terminal output");
-        assert_eq!(region.painted_rows, 3);
-        assert_eq!((region.cursor_row, region.cursor_col), (1, 2));
-        assert!(rendered.contains("\r\n  x\u{301}"), "{rendered:?}");
+        );
+        assert_eq!(info.painted_rows, 3);
+        assert_eq!(info.cursor_row, 2);
+        assert_eq!(info.cursor_col, 3);
     }
 
     #[test]
-    fn render_line_multiline_uses_continuation_prompt_and_clears_previous() {
-        let mut line = LineBuffer::from_text("one\ntwo");
-        line.cursor = "one\n".len();
-        let mut out = Vec::new();
+    fn history_pager_tracks_wrapped_query_cursor_row() {
+        let (info, _) = render_history_query("abc", 10, 3);
+        assert_eq!(info.cursor_row, 1);
+        assert_eq!(info.cursor_col, 1);
+    }
 
-        let region = render_line(
-            &mut out,
-            "$ ",
-            &line,
-            8,
+    #[test]
+    fn history_pager_clears_from_top_on_wrapped_rerender() {
+        let mut tw = TermWriter::new();
+        let hist = History::from_entries(Vec::new());
+        let info = render_history_pager(
+            &mut tw,
+            "abc",
+            &[],
+            &hist,
+            0,
+            24,
+            10,
+            3,
             RenderedRegion {
                 anchored: true,
-                painted_rows: 3,
-                cursor_row: 2,
-                cursor_col: 1,
+                painted_rows: 2,
+                cursor_row: 1,
+                cursor_col: 0,
             },
-            &RenderOpts::default(),
-        )
-        .expect("render multiline");
-        let rendered = String::from_utf8(out).expect("utf8 render");
-
-        assert_eq!(region.painted_rows, 2);
-        assert_eq!(region.cursor_row, 1);
-        assert_eq!(region.cursor_col, 2);
-        assert!(
-            rendered.starts_with("\x1b[?25l\x1b[2A\r\x1b[J"),
-            "{rendered:?}"
         );
-        assert!(rendered.contains("\r\n  two"), "{rendered:?}");
-    }
-
-    #[test]
-    fn render_and_clear_completion_grid_restores_editor_cursor() {
-        let mut comp = Completions::new();
-        for name in ["alpha", "beta", "gamma"] {
-            comp.push(name, false, false, false);
-        }
-        let state = CompletionState {
-            comp,
-            selected: 1,
-            cols: 1,
-            rows: 3,
-            term_cols: 40,
-            ..CompletionState::default()
-        };
-        let info = RenderedRegion {
-            anchored: true,
-            painted_rows: 1,
-            cursor_row: 0,
-            cursor_col: 4,
-        };
-        let mut rendered_grid = Vec::new();
-
-        let rows = render_completions(&mut rendered_grid, &state, info, true, 0)
-            .expect("render completions");
-        assert_eq!(rows, 3);
-        let rendered = String::from_utf8(rendered_grid).expect("utf8 render");
-        assert!(rendered.contains("alpha"), "{rendered:?}");
-        assert!(rendered.contains("\x1b[7mbeta\x1b[0m"), "{rendered:?}");
-
-        let mut cleared = Vec::new();
-        clear_completions(&mut cleared, info, rows).expect("clear completions");
-        let clear = String::from_utf8(cleared).expect("utf8 clear");
-        assert!(clear.contains("\x1b[K"), "{clear:?}");
-        assert!(clear.ends_with("\x1b[?25h"), "{clear:?}");
-    }
-
-    #[test]
-    fn narrow_completion_grid_clips_by_display_width() {
-        let mut comp = Completions::new();
-        for name in ["界a", "e\u{301}b", "long"] {
-            comp.push(name, false, false, false);
-        }
-        let (cols, rows) = compute_grid(&comp.entries, 4);
-        assert_eq!((cols, rows), (1, 3));
-        let state = CompletionState {
-            comp,
-            selected: 2,
-            cols,
-            rows,
-            term_cols: 4,
-            ..CompletionState::default()
-        };
-        let info = RenderedRegion {
-            anchored: true,
-            painted_rows: 1,
-            cursor_row: 0,
-            cursor_col: 2,
-        };
-        let mut out = Vec::new();
-        let visible = render_completions(&mut out, &state, info, true, 0)
-            .expect("render narrow completions");
-        assert_eq!(visible, 3);
-        let rendered = String::from_utf8(out).expect("UTF-8 terminal output");
-        assert!(rendered.contains("界a"), "{rendered:?}");
-        assert!(rendered.contains("e\u{301}b"), "{rendered:?}");
-        assert!(rendered.contains("\x1b[7mlon\x1b[0m"), "{rendered:?}");
-        assert!(!rendered.contains("long"), "{rendered:?}");
-
-        let mut cleared = Vec::new();
-        clear_completions(&mut cleared, info, visible).expect("clear narrow grid");
-        assert!(cleared.ends_with(b"\x1b[?25h"));
-    }
-
-    #[test]
-    fn history_search_wrapped_query_places_cursor_in_header() {
-        let history = History::from_entries(Vec::new());
-        let query = LineBuffer::from_text("abcd");
-        let mut out = Vec::new();
-
-        let region = render_history_search(
-            &mut out,
-            &query,
-            &[],
-            &history,
-            0,
-            (24, 10),
-            RenderedRegion::default(),
-        )
-        .expect("render history search");
-
-        assert_eq!(region.cursor_row, 1);
-        assert_eq!(region.cursor_col, 2);
-        assert_eq!(region.painted_rows, 2);
-    }
-
-    #[test]
-    fn history_search_wide_query_wraps_before_last_column() {
-        let history = History::from_entries(Vec::new());
-        let query = LineBuffer::from_text("界");
-        let mut out = Vec::new();
-
-        let region = render_history_search(
-            &mut out,
-            &query,
-            &[],
-            &history,
-            0,
-            (24, 9),
-            RenderedRegion::default(),
-        )
-        .expect("render wide search query");
-        assert_eq!((region.cursor_row, region.cursor_col), (1, 2));
-        assert_eq!(region.painted_rows, 2);
-    }
-
-    #[test]
-    fn history_search_rerender_after_wrapped_query_clears_from_top() {
-        let history = History::from_entries(Vec::new());
-        let wrapped = LineBuffer::from_text("abcd");
-        let short = LineBuffer::from_text("a");
-        let mut out = Vec::new();
-
-        let prev = render_history_search(
-            &mut out,
-            &wrapped,
-            &[],
-            &history,
-            0,
-            (24, 10),
-            RenderedRegion::default(),
-        )
-        .expect("render wrapped history search");
-        out.clear();
-
-        render_history_search(&mut out, &short, &[], &history, 0, (24, 10), prev)
-            .expect("rerender history search");
-        let rendered = String::from_utf8(out).expect("utf8 render");
-
-        assert!(rendered.starts_with("\x1b[?25l\x1b[1A\r"), "{rendered:?}");
+        let buf = tw.as_bytes();
+        assert_eq!(info.cursor_row, 1);
         assert!(
-            rendered
-                .as_bytes()
-                .windows(8)
-                .any(|w| w == b"\x1b[1A\r\x1b[J"),
-            "{rendered:?}"
+            buf.windows(8).any(|w| w == b"\x1b[1A\r\x1b[J"),
+            "expected rerender to move to the top row and clear from there"
         );
+    }
+
+    #[test]
+    fn smart_restore_prefers_anchor_when_query_stays_on_first_row() {
+        let mut tw = TermWriter::new();
+        restore_cursor_smart(
+            &mut tw,
+            RenderedRegion {
+                anchored: true,
+                painted_rows: 6,
+                cursor_row: 0,
+                cursor_col: 4,
+            },
+            5,
+        );
+        assert!(tw.as_bytes().starts_with(b"\x1b8\r\x1b[4C"));
+    }
+
+    #[test]
+    fn smart_restore_prefers_end_when_cursor_is_deeper_in_region() {
+        let mut tw = TermWriter::new();
+        restore_cursor_smart(
+            &mut tw,
+            RenderedRegion {
+                anchored: true,
+                painted_rows: 6,
+                cursor_row: 3,
+                cursor_col: 2,
+            },
+            2,
+        );
+        assert!(tw.as_bytes().starts_with(b"\x1b[2A\r\x1b[2C"));
+    }
+
+    #[test]
+    fn history_row_groups_contiguous_match_highlights() {
+        let mut tw = TermWriter::new();
+        let mut positions = [0u16; 32];
+        positions[..5].copy_from_slice(&[0, 1, 3, 4, 5]);
+        let m = FuzzyMatch {
+            entry_idx: 0,
+            match_positions: positions,
+            match_count: 5,
+            score: 0,
+        };
+        write_history_row(&mut tw, "gh api", &m, 80, false);
+        let buf = tw.as_bytes();
+        let opens = buf.windows(7).filter(|w| *w == b"\x1b[1;33m").count();
+        assert_eq!(opens, 2);
+    }
+
+    #[test]
+    fn dir_picker_places_cursor_after_header() {
+        let (info, buf) = render_dir_entries(&["/tmp/home/project", "/tmp/home/other"], 20, 0);
+        assert_eq!(info.cursor_row, 0);
+        assert_eq!(info.cursor_col, 5);
+        assert!(buf.windows(5).any(|w| w == b"dirs:"));
+    }
+
+    #[test]
+    fn completion_grid_does_not_pad_last_column() {
+        let state = completion_state(&["12345678"], 1, 1, 80);
+        let mut tw = TermWriter::new();
+        let layout = layout_completion_grid(&state);
+        draw_grid(&mut tw, &state, &layout);
+        assert!(
+            tw.as_bytes().ends_with(b"12345678"),
+            "last column should not add trailing padding"
+        );
+    }
+
+    #[test]
+    fn completion_grid_truncates_entry_to_terminal_width() {
+        let state = completion_state(&["123456789"], 1, 1, 8);
+        let mut tw = TermWriter::new();
+        let layout = layout_completion_grid(&state);
+        draw_grid(&mut tw, &state, &layout);
+        assert_eq!(tw.as_bytes(), b"\r\x1b[K1234567");
     }
 }

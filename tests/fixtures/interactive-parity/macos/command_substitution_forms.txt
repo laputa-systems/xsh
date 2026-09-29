@@ -1,0 +1,90 @@
+== frame basic cursor=3,20
+|testuser@<HOST> ~ $ echo a$(echo b)c `echo d`e
+|abc de
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame nested cursor=6,20
+|testuser@<HOST> ~ $ echo a$(echo b)c `echo d`e
+|abc de
+|
+|testuser@<HOST> ~ $ echo $(echo $(echo nested))
+|nested
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame word_splitting cursor=9,20
+|testuser@<HOST> ~ $ echo a$(echo b)c `echo d`e
+|abc de
+|
+|testuser@<HOST> ~ $ echo $(echo $(echo nested))
+|nested
+|
+|testuser@<HOST> ~ $ echo "$(echo   spaced   out)" $(echo   spaced   out)
+|spaced out spaced out
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame failing_substitution cursor=12,20
+|testuser@<HOST> ~ $ echo a$(echo b)c `echo d`e
+|abc de
+|
+|testuser@<HOST> ~ $ echo $(echo $(echo nested))
+|nested
+|
+|testuser@<HOST> ~ $ echo "$(echo   spaced   out)" $(echo   spaced   out)
+|spaced out spaced out
+|
+|testuser@<HOST> ~ $ echo $(sh -c 'exit 3') after
+|after
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=15,20
+|testuser@<HOST> ~ $ echo a$(echo b)c `echo d`e
+|abc de
+|
+|testuser@<HOST> ~ $ echo $(echo $(echo nested))
+|nested
+|
+|testuser@<HOST> ~ $ echo "$(echo   spaced   out)" $(echo   spaced   out)
+|spaced out spaced out
+|
+|testuser@<HOST> ~ $ echo $(sh -c 'exit 3') after
+|after
+|
+|testuser@<HOST> ~ $ echo $?
+|0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

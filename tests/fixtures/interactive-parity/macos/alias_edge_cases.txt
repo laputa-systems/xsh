@@ -1,0 +1,140 @@
+== frame alias_of_alias cursor=5,20
+|testuser@<HOST> ~ $ alias a echo one
+|testuser@<HOST> ~ $ alias b a two
+|testuser@<HOST> ~ $ b
+|a: not found
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 b
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame spacing cursor=9,20
+|testuser@<HOST> ~ $ alias a echo one
+|testuser@<HOST> ~ $ alias b a two
+|testuser@<HOST> ~ $ b
+|a: not found
+|
+|testuser@<HOST> ~ $ alias e echo
+|testuser@<HOST> ~ $ echo   spaced    args
+|spaced args
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 b
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame quoted_alias cursor=13,20
+|testuser@<HOST> ~ $ alias a echo one
+|testuser@<HOST> ~ $ alias b a two
+|testuser@<HOST> ~ $ b
+|a: not found
+|
+|testuser@<HOST> ~ $ alias e echo
+|testuser@<HOST> ~ $ echo   spaced    args
+|spaced args
+|
+|testuser@<HOST> ~ $ alias q 'echo quoted words'
+|testuser@<HOST> ~ $ q
+|echo quoted words: not found
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 b
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 q
+@13 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame show_one cursor=15,20
+|testuser@<HOST> ~ $ alias a echo one
+|testuser@<HOST> ~ $ alias b a two
+|testuser@<HOST> ~ $ b
+|a: not found
+|
+|testuser@<HOST> ~ $ alias e echo
+|testuser@<HOST> ~ $ echo   spaced    args
+|spaced args
+|
+|testuser@<HOST> ~ $ alias q 'echo quoted words'
+|testuser@<HOST> ~ $ q
+|echo quoted words: not found
+|
+|testuser@<HOST> ~ $ alias ll
+|<SHELL>: alias: not found: ll
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 b
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 q
+@13 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame alias_over_builtin cursor=17,20
+|testuser@<HOST> ~ $ alias a echo one
+|testuser@<HOST> ~ $ alias b a two
+|testuser@<HOST> ~ $ b
+|a: not found
+|
+|testuser@<HOST> ~ $ alias e echo
+|testuser@<HOST> ~ $ echo   spaced    args
+|spaced args
+|
+|testuser@<HOST> ~ $ alias q 'echo quoted words'
+|testuser@<HOST> ~ $ q
+|echo quoted words: not found
+|
+|testuser@<HOST> ~ $ alias ll
+|<SHELL>: alias: not found: ll
+|testuser@<HOST> ~ $ alias cd echo redefined
+|testuser@<HOST> ~ $ cd
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 b
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 q
+@13 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@17 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

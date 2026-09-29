@@ -1,0 +1,242 @@
+== frame open cursor=10,8
+|fill06
+|fill07
+|fill08
+|fill09
+|fill10
+|fill11
+|fill12
+|fill13
+|fill14
+|
+|search:
+|echo fill01; echo
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api orgs/openai
+|gh api notificatio
+|gh api rate_limit
+|gh pr status
+|gh api user
+|gh api repos/opena
+|gh auth login
+@10 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@11 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo fill01; echo
+== frame g cursor=10,9
+|fill06
+|fill07
+|fill08
+|fill09
+|fill10
+|fill11
+|fill12
+|fill13
+|fill14
+|
+|search: g
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api orgs/openai
+|gh api notificatio
+|gh api rate_limit
+|gh pr status
+|gh api user
+|gh api repos/opena
+|gh auth login
+@10 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@11 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 gh api repos/opena
+@12 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+@13 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+@14 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+@15 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+@16 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+@17 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+@18 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+@19 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+@20 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+@21 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+@22 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+== frame h cursor=10,10
+|fill06
+|fill07
+|fill08
+|fill09
+|fill10
+|fill11
+|fill12
+|fill13
+|fill14
+|
+|search: gh
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api orgs/openai
+|gh api notificatio
+|gh api rate_limit
+|gh pr status
+|gh api user
+|gh api repos/opena
+|gh auth login
+@10 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@11 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 gh api repos/opena
+@12 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@13 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@14 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@15 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@16 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@17 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@18 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@19 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@20 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@21 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@22 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+== frame space cursor=10,11
+|fill06
+|fill07
+|fill08
+|fill09
+|fill10
+|fill11
+|fill12
+|fill13
+|fill14
+|
+|search: gh
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api orgs/openai
+|gh api notificatio
+|gh api rate_limit
+|gh pr status
+|gh api user
+|gh api repos/opena
+|gh auth login
+@10 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@11 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 gh api repos/opena
+@12 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@13 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@14 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@15 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@16 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@17 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@18 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@19 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@20 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@21 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@22 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+== frame a cursor=10,12
+|fill06
+|fill07
+|fill08
+|fill09
+|fill10
+|fill11
+|fill12
+|fill13
+|fill14
+|
+|search: gh a
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api orgs/openai
+|gh api notificatio
+|gh api rate_limit
+|gh api user
+|gh api repos/opena
+|gh auth login
+|gh pr status
+@10 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@11 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 gh api repos/opena
+@12 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh a
+@13 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh a
+@14 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh a
+@15 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh a
+@16 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh a
+@17 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh a
+@18 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh a
+@19 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh a
+@20 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh a
+@21 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh a
+@22 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh
+@22 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 a
+== frame p cursor=10,13
+|fill06
+|fill07
+|fill08
+|fill09
+|fill10
+|fill11
+|fill12
+|fill13
+|fill14
+|
+|search: gh ap
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api orgs/openai
+|gh api notificatio
+|gh api rate_limit
+|gh api user
+|gh api repos/opena
+@10 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@11 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 gh api repos/opena
+@12 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh ap
+@13 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh ap
+@14 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh ap
+@15 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh ap
+@16 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh ap
+@17 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh ap
+@18 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh ap
+@19 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh ap
+@20 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh ap
+== frame i cursor=10,14
+|fill06
+|fill07
+|fill08
+|fill09
+|fill10
+|fill11
+|fill12
+|fill13
+|fill14
+|
+|search: gh api
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api repos/opena
+|gh api orgs/openai
+|gh api notificatio
+|gh api rate_limit
+|gh api user
+|gh api repos/opena
+@10 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@11 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 gh api repos/opena
+@12 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh api
+@13 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh api
+@14 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh api
+@15 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh api
+@16 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh api
+@17 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh api
+@18 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh api
+@19 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh api
+@20 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 gh api

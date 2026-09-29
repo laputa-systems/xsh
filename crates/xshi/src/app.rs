@@ -8,19 +8,21 @@ use xsh::process::{
 };
 
 const HELP: &str = "\
-xshi 0.0.1
+xshi 0.0.1 \u{2014} interactive shell for XSH
 
-Usage:
-  xshi
-  xshi -c COMMAND
-  xshi --no-config
-  xshi --no-config -c COMMAND
-  xshi --help
+usage: xshi [-c COMMAND] [--config PATH] [--no-config] [-V|--version] [-h|--help]
 
-Options:
-  --help, -h              Show this help.
-  --no-config             Start without ~/.config/xshi/config.xsh.
-  -c COMMAND              Execute COMMAND and exit.
+options:
+  -c COMMAND      Run COMMAND and exit
+  --config PATH   Use PATH instead of ~/.config/xshi/config.ish
+  --no-config     Skip loading the config file
+  -V, --version   Show version
+  -h, --help      Show this help message
+";
+
+const REFUSAL: &str = "\
+xshi: this shell is interactive-only and does not run scripts
+usage: xshi [-c COMMAND] [--config PATH] [--no-config] [-V|--version] [-h|--help]
 ";
 
 pub fn main() -> ExitCode {
@@ -46,7 +48,15 @@ pub fn main() -> ExitCode {
             print!("{HELP}");
             ExitCode::SUCCESS
         }
-        Ok(Command::Run { load_config }) => {
+        Ok(Command::Version) => {
+            println!("xshi {}", env!("CARGO_PKG_VERSION"));
+            ExitCode::SUCCESS
+        }
+        Ok(Command::Refuse) => {
+            eprint!("{REFUSAL}");
+            ExitCode::from(1)
+        }
+        Ok(Command::Run { config }) => {
             let _signal_guard = match install_interactive_signal_handlers() {
                 Ok(guard) => guard,
                 Err(error) => {
@@ -56,16 +66,19 @@ pub fn main() -> ExitCode {
             };
             clear_cancellation_request();
             let allow_non_tty = std::env::var_os("XSHI_ALLOW_NON_TTY_FOR_TESTS").is_some();
-            ExitCode::from(interactive::run_with_options(interactive::RunOptions {
-                load_config,
+            // `exit N` hands the value to exit(3) unchanged; the kernel keeps
+            // its low eight bits, as a script that calls exit(N) would see.
+            std::process::exit(interactive::run_with_options(interactive::RunOptions {
+                load_config: config.loads_default(),
+                config_path: match config {
+                    ConfigChoice::Path(path) => Some(path),
+                    _ => None,
+                },
                 load_profile: true,
                 require_tty: !allow_non_tty,
-            }) as u8)
+            }))
         }
-        Ok(Command::Eval {
-            source,
-            load_config,
-        }) => {
+        Ok(Command::Eval { source, config }) => {
             let _signal_guard = match install_cancellation_signal_handlers() {
                 Ok(guard) => guard,
                 Err(error) => {
@@ -77,7 +90,11 @@ pub fn main() -> ExitCode {
             ExitCode::from(interactive::run_one_command_with_options(
                 &source,
                 interactive::OneCommandOptions {
-                    load_config,
+                    load_config: config.loads_default(),
+                    config_path: match config {
+                        ConfigChoice::Path(path) => Some(path),
+                        _ => None,
+                    },
                     load_profile: login_shell,
                 },
             ) as u8)
@@ -97,8 +114,24 @@ fn login_shell_argv0() -> bool {
 
 enum Command {
     Help,
-    Run { load_config: bool },
-    Eval { source: String, load_config: bool },
+    Version,
+    Run { config: ConfigChoice },
+    Eval { source: String, config: ConfigChoice },
+    Refuse,
+}
+
+/// Which configuration file to load.
+#[derive(Clone)]
+enum ConfigChoice {
+    Default,
+    None,
+    Path(std::path::PathBuf),
+}
+
+impl ConfigChoice {
+    fn loads_default(&self) -> bool {
+        matches!(self, Self::Default)
+    }
 }
 
 #[allow(clippy::single_call_fn)]
@@ -109,21 +142,27 @@ fn parse_interactive(args: Vec<String>) -> Result<Command, String> {
         [sep, _arg0, rest @ ..] if sep == "--" => rest.to_vec(),
         _ => args,
     };
-    match args.as_slice() {
-        [] => Ok(Command::Run { load_config: true }),
-        [arg] if arg == "--help" || arg == "-h" => Ok(Command::Help),
-        [arg] if arg == "--no-config" => Ok(Command::Run { load_config: false }),
-        [flag, source] if flag == "-c" => Ok(Command::Eval {
-            source: source.clone(),
-            load_config: true,
-        }),
-        [no_config, flag, source] if no_config == "--no-config" && flag == "-c" => {
-            Ok(Command::Eval {
-                source: source.clone(),
-                load_config: false,
-            })
+    let mut config = ConfigChoice::Default;
+    let mut command = None;
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "-h" | "--help" => return Ok(Command::Help),
+            "-V" | "--version" => return Ok(Command::Version),
+            "--no-config" => config = ConfigChoice::None,
+            "--config" => match iter.next() {
+                Some(path) => config = ConfigChoice::Path(path.into()),
+                None => return Err("--config requires a config file path".to_string()),
+            },
+            "-c" => match iter.next() {
+                Some(source) => command = Some(source),
+                None => return Err("-c requires a command".to_string()),
+            },
+            _ => return Ok(Command::Refuse),
         }
-        [arg] => Err(format!("unexpected argument '{arg}'")),
-        _ => Err("xshi does not accept script paths or script arguments".to_string()),
     }
+    Ok(match command {
+        Some(source) => Command::Eval { source, config },
+        None => Command::Run { config },
+    })
 }

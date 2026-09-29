@@ -1,0 +1,16 @@
+== frame typed cursor=0,32
+|testuser@<HOST> ~ $ café 👍🏽 ok
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 café
+== frame cursor_over_emoji cursor=0,29
+|testuser@<HOST> ~ $ café 👍🏽 ok
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 café
+== frame backspace_over_modifier cursor=0,27
+|testuser@<HOST> ~ $ café 👍 ok
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 café
+== frame backspace_into_combining_mark cursor=0,25
+|testuser@<HOST> ~ $ café
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 café

@@ -1,0 +1,91 @@
+== frame after_backslash cursor=1,2
+|testuser@<HOST> ~ $ echo one \
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame joined cursor=4,20
+|testuser@<HOST> ~ $ echo one \
+|  two
+|one two
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_and cursor=5,2
+|testuser@<HOST> ~ $ echo one \
+|  two
+|one two
+|
+|testuser@<HOST> ~ $ true &&
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame and_done cursor=8,20
+|testuser@<HOST> ~ $ echo one \
+|  two
+|one two
+|
+|testuser@<HOST> ~ $ true &&
+|  echo and-done
+|and-done
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame or_done cursor=12,20
+|testuser@<HOST> ~ $ echo one \
+|  two
+|one two
+|
+|testuser@<HOST> ~ $ true &&
+|  echo and-done
+|and-done
+|
+|testuser@<HOST> ~ $ false ||
+|  echo or-done
+|or-done
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_open_quote cursor=13,2
+|testuser@<HOST> ~ $ echo one \
+|  two
+|one two
+|
+|testuser@<HOST> ~ $ true &&
+|  echo and-done
+|and-done
+|
+|testuser@<HOST> ~ $ false ||
+|  echo or-done
+|or-done
+|
+|testuser@<HOST> ~ $ echo "open
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame quote_done cursor=16,20
+|testuser@<HOST> ~ $ echo one \
+|  two
+|one two
+|
+|testuser@<HOST> ~ $ true &&
+|  echo and-done
+|and-done
+|
+|testuser@<HOST> ~ $ false ||
+|  echo or-done
+|or-done
+|
+|testuser@<HOST> ~ $ echo "open
+|  close"
+|open close
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

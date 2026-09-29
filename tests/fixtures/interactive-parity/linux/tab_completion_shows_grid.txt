@@ -1,0 +1,10 @@
+== frame grid cursor=0,27
+|testuser@<HOST> ~ $ echo aa
+|aaa.txt  aab.txt  aac.txt
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_escape cursor=0,27
+|testuser@<HOST> ~ $ echo aa
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_kill cursor=0,20
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

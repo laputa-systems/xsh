@@ -1,0 +1,20 @@
+== frame expanded cursor=0,22
+|testuser@<HOST> ~ $ l
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+== frame argument_not_expanded cursor=0,28
+|testuser@<HOST> ~ $ echo ll
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame after_semicolon cursor=0,29
+|testuser@<HOST> ~ $ true; gs
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 true;
+== frame after_pipe cursor=0,33
+|testuser@<HOST> ~ $ echo hi | ll
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame quoted_not_expanded cursor=0,25
+|testuser@<HOST> ~ $ 'll'
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 'll'

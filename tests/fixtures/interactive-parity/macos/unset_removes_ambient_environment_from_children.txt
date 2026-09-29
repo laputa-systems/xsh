@@ -1,0 +1,23 @@
+== frame before_unset cursor=4,20
+|testuser@<HOST> ~ $ env | grep AMBIENT
+|1ISH_AMBIENT=invalid-name
+|TMP_AMBIENT_VAR=ambient
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_unset cursor=7,20
+|testuser@<HOST> ~ $ env | grep AMBIENT
+|1ISH_AMBIENT=invalid-name
+|TMP_AMBIENT_VAR=ambient
+|
+|testuser@<HOST> ~ $ unset TMP_AMBIENT_VAR; env | grep AMBIENT
+|1ISH_AMBIENT=invalid-name
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 unset
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

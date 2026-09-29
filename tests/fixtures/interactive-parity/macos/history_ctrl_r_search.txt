@@ -1,0 +1,22 @@
+== frame search_open cursor=0,8
+|search:
+|echo gamma
+|echo beta
+|echo alpha
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo gamma
+== frame query_beta cursor=0,12
+|search: beta
+|echo beta
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo beta
+== frame accepted cursor=0,29
+|testuser@<HOST> ~ $ echo beta
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame executed cursor=3,20
+|testuser@<HOST> ~ $ echo beta
+|beta
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

@@ -1,0 +1,242 @@
+== frame l_default cursor=11,20
+|testuser@<HOST> ~ $ l
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 .config/
+|-rw-r--r-- 1 <USER> <GROUP>   0B Nov 14  2023 .dotfile
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 .local/
+|-rw-r--r-- 1 <USER> <GROUP>   1B Nov 14  2023 alpha.txt
+|-rw-r--r-- 1 <USER> <GROUP>   2B Nov 14  2023 Beta.txt
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 dirlink/ -> sub
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 link -> alpha.txt
+|-rwxr-xr-x 1 <USER> <GROUP>  10B Nov 14  2023 run.sh
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 sub/
+|-rw-r--r-- 1 <USER> <GROUP>   1B Nov 14  2023 Zeta.txt
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .config/
+@3 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .local/
+@6 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 dirlink/
+@7 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 link
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 run.sh
+@9 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sub/
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame l_dir cursor=13,20
+|testuser@<HOST> ~ $ l
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 .config/
+|-rw-r--r-- 1 <USER> <GROUP>   0B Nov 14  2023 .dotfile
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 .local/
+|-rw-r--r-- 1 <USER> <GROUP>   1B Nov 14  2023 alpha.txt
+|-rw-r--r-- 1 <USER> <GROUP>   2B Nov 14  2023 Beta.txt
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 dirlink/ -> sub
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 link -> alpha.txt
+|-rwxr-xr-x 1 <USER> <GROUP>  10B Nov 14  2023 run.sh
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 sub/
+|-rw-r--r-- 1 <USER> <GROUP>   1B Nov 14  2023 Zeta.txt
+|testuser@<HOST> ~ $ l sub
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 inner.txt
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .config/
+@3 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .local/
+@6 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 dirlink/
+@7 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 link
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 run.sh
+@9 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sub/
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame l_file cursor=15,20
+|testuser@<HOST> ~ $ l
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 .config/
+|-rw-r--r-- 1 <USER> <GROUP>   0B Nov 14  2023 .dotfile
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 .local/
+|-rw-r--r-- 1 <USER> <GROUP>   1B Nov 14  2023 alpha.txt
+|-rw-r--r-- 1 <USER> <GROUP>   2B Nov 14  2023 Beta.txt
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 dirlink/ -> sub
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 link -> alpha.txt
+|-rwxr-xr-x 1 <USER> <GROUP>  10B Nov 14  2023 run.sh
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 sub/
+|-rw-r--r-- 1 <USER> <GROUP>   1B Nov 14  2023 Zeta.txt
+|testuser@<HOST> ~ $ l sub
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 inner.txt
+|testuser@<HOST> ~ $ l alpha.txt
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 alpha.txt
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .config/
+@3 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .local/
+@6 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 dirlink/
+@7 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 link
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 run.sh
+@9 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sub/
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame l_two cursor=21,20
+|testuser@<HOST> ~ $ l
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 .config/
+|-rw-r--r-- 1 <USER> <GROUP>   0B Nov 14  2023 .dotfile
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 .local/
+|-rw-r--r-- 1 <USER> <GROUP>   1B Nov 14  2023 alpha.txt
+|-rw-r--r-- 1 <USER> <GROUP>   2B Nov 14  2023 Beta.txt
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 dirlink/ -> sub
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 link -> alpha.txt
+|-rwxr-xr-x 1 <USER> <GROUP>  10B Nov 14  2023 run.sh
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 sub/
+|-rw-r--r-- 1 <USER> <GROUP>   1B Nov 14  2023 Zeta.txt
+|testuser@<HOST> ~ $ l sub
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 inner.txt
+|testuser@<HOST> ~ $ l alpha.txt
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 alpha.txt
+|testuser@<HOST> ~ $ l sub alpha.txt
+|sub:
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 inner.txt
+|
+|alpha.txt:
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 alpha.txt
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .config/
+@3 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .local/
+@6 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 dirlink/
+@7 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 link
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 run.sh
+@9 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sub/
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@21 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame l_missing cursor=23,20
+|testuser@<HOST> ~ $ l
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 .config/
+|-rw-r--r-- 1 <USER> <GROUP>   0B Nov 14  2023 .dotfile
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 .local/
+|-rw-r--r-- 1 <USER> <GROUP>   1B Nov 14  2023 alpha.txt
+|-rw-r--r-- 1 <USER> <GROUP>   2B Nov 14  2023 Beta.txt
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 dirlink/ -> sub
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 link -> alpha.txt
+|-rwxr-xr-x 1 <USER> <GROUP>  10B Nov 14  2023 run.sh
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 sub/
+|-rw-r--r-- 1 <USER> <GROUP>   1B Nov 14  2023 Zeta.txt
+|testuser@<HOST> ~ $ l sub
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 inner.txt
+|testuser@<HOST> ~ $ l alpha.txt
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 alpha.txt
+|testuser@<HOST> ~ $ l sub alpha.txt
+|sub:
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 inner.txt
+|
+|alpha.txt:
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 alpha.txt
+|testuser@<HOST> ~ $ l nonexistent
+|<SHELL>: l: nonexistent: No such file or directory (os error 2)
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .config/
+@3 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .local/
+@6 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 dirlink/
+@7 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 link
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 run.sh
+@9 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sub/
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@21 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@21 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@23 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=23,20
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 .local/
+|-rw-r--r-- 1 <USER> <GROUP>   1B Nov 14  2023 alpha.txt
+|-rw-r--r-- 1 <USER> <GROUP>   2B Nov 14  2023 Beta.txt
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 dirlink/ -> sub
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 link -> alpha.txt
+|-rwxr-xr-x 1 <USER> <GROUP>  10B Nov 14  2023 run.sh
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 sub/
+|-rw-r--r-- 1 <USER> <GROUP>   1B Nov 14  2023 Zeta.txt
+|testuser@<HOST> ~ $ l sub
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 inner.txt
+|testuser@<HOST> ~ $ l alpha.txt
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 alpha.txt
+|testuser@<HOST> ~ $ l sub alpha.txt
+|sub:
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 inner.txt
+|
+|alpha.txt:
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 alpha.txt
+|testuser@<HOST> ~ $ l nonexistent
+|<SHELL>: l: nonexistent: No such file or directory (os error 2)
+|testuser@<HOST> ~ $ echo $?
+|0
+|
+|testuser@<HOST> ~ $
+@0 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .local/
+@3 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 dirlink/
+@4 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 link
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 run.sh
+@6 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sub/
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@20 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame l_symlink cursor=23,20
+|-rw-r--r-- 1 <USER> <GROUP>   2B Nov 14  2023 Beta.txt
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 dirlink/ -> sub
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 link -> alpha.txt
+|-rwxr-xr-x 1 <USER> <GROUP>  10B Nov 14  2023 run.sh
+|drwxr-xr-x 3 <USER> <GROUP> <SIZE> Nov 14  2023 sub/
+|-rw-r--r-- 1 <USER> <GROUP>   1B Nov 14  2023 Zeta.txt
+|testuser@<HOST> ~ $ l sub
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 inner.txt
+|testuser@<HOST> ~ $ l alpha.txt
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 alpha.txt
+|testuser@<HOST> ~ $ l sub alpha.txt
+|sub:
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 inner.txt
+|
+|alpha.txt:
+|-rw-r--r-- 1 <USER> <GROUP>  1B Nov 14  2023 alpha.txt
+|testuser@<HOST> ~ $ l nonexistent
+|<SHELL>: l: nonexistent: No such file or directory (os error 2)
+|testuser@<HOST> ~ $ echo $?
+|0
+|
+|testuser@<HOST> ~ $ l link
+|lrwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 link -> alpha.txt
+|testuser@<HOST> ~ $
+@1 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 dirlink/
+@2 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 link
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 run.sh
+@4 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 sub/
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@18 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@21 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@21 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@22 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 link
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

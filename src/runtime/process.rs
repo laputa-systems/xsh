@@ -337,6 +337,16 @@ pub enum ProcessRedirection {
         stream: RedirectionStream,
         fd: i32,
     },
+    /// Makes `stream` a copy of the child's own descriptor `fd` (the shell's
+    /// `2>&1`), resolved in the child at this point of the list: redirections
+    /// before it have taken effect, those after it have not. The list up to
+    /// the first `ChildDup` is applied by the parent as usual; from there on it
+    /// is applied in the child, in order. `Dup` instead copies the descriptor
+    /// as the parent process holds it.
+    ChildDup {
+        stream: RedirectionStream,
+        fd: i32,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1675,6 +1685,46 @@ fn apply_redirections(
     command: &mut Command,
     redirections: &[ProcessRedirection],
 ) -> Result<(), RunError> {
+    // A `ChildDup` copies whatever its source descriptor is at that point in
+    // the list, so it and everything after it must run in the child, in order,
+    // on top of the streams the parent has already set up. Files are opened
+    // here so a failure is still reported as a redirection error.
+    let split = redirections
+        .iter()
+        .position(|redirection| matches!(redirection, ProcessRedirection::ChildDup { .. }))
+        .unwrap_or(redirections.len());
+    let (parent_side, child_side) = redirections.split_at(split);
+    apply_parent_redirections(command, parent_side)?;
+    for redirection in child_side {
+        match redirection {
+            ProcessRedirection::File { stream, mode, path } => {
+                let file = file_redirection_file(path, *mode)?;
+                child_dup_owned(command, *stream, rustix::fd::OwnedFd::from(file));
+            }
+            ProcessRedirection::Dup { stream, fd } => {
+                if *fd < 0 {
+                    return Err(RunError::new(
+                        "redirection",
+                        "fd duplication target must be non-negative",
+                    ));
+                }
+                let borrowed = unsafe { BorrowedFd::borrow_raw(*fd) };
+                let owned = rio::fcntl_dupfd_cloexec(borrowed, 0)
+                    .map_err(|error| map_redirection_error(error.into()))?;
+                child_dup_owned(command, *stream, owned);
+            }
+            ProcessRedirection::ChildDup { stream, fd } => {
+                child_dup(command, *stream, *fd)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn apply_parent_redirections(
+    command: &mut Command,
+    redirections: &[ProcessRedirection],
+) -> Result<(), RunError> {
     let mut index = 0;
     while index < redirections.len() {
         if let (
@@ -1711,10 +1761,68 @@ fn apply_redirections(
                 let stdio = duplicate_fd(*fd)?;
                 apply_file_stdio(command, *stream, stdio);
             }
+            ProcessRedirection::ChildDup { .. } => {
+                unreachable!("child-side redirections are applied by apply_redirections")
+            }
         }
         index += 1;
     }
     Ok(())
+}
+
+fn stream_fd(stream: RedirectionStream) -> i32 {
+    match stream {
+        RedirectionStream::Stdin => libc::STDIN_FILENO,
+        RedirectionStream::Stdout => libc::STDOUT_FILENO,
+        RedirectionStream::Stderr => libc::STDERR_FILENO,
+    }
+}
+
+/// Registers a `dup2(fd, stream)` to run in the child once its standard streams
+/// are in place. Duplications run in the order they were registered.
+fn child_dup(command: &mut Command, stream: RedirectionStream, fd: i32) -> Result<(), RunError> {
+    use std::os::unix::process::CommandExt;
+    if fd < 0 {
+        return Err(RunError::new(
+            "redirection",
+            "fd duplication target must be non-negative",
+        ));
+    }
+    let target = stream_fd(stream);
+    // SAFETY: the closure only calls dup2, which is async-signal-safe.
+    unsafe {
+        command.pre_exec(move || {
+            if libc::dup2(fd, target) < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    Ok(())
+}
+
+/// Like `child_dup`, for a descriptor the parent opened: the closure owns it
+/// until the command is dropped, so it stays open across the spawn.
+fn child_dup_owned(command: &mut Command, stream: RedirectionStream, source: rustix::fd::OwnedFd) {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::process::CommandExt;
+    let target = stream_fd(stream);
+    // SAFETY: the closure only calls dup2 and fcntl, both async-signal-safe.
+    unsafe {
+        command.pre_exec(move || {
+            let fd = source.as_raw_fd();
+            if fd == target {
+                // Already in place, but opened close-on-exec.
+                let flags = libc::fcntl(fd, libc::F_GETFD);
+                if flags < 0 || libc::fcntl(fd, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
+                    return Err(io::Error::last_os_error());
+                }
+            } else if libc::dup2(fd, target) < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
 }
 
 fn stdout_stderr_pair(first: RedirectionStream, second: RedirectionStream) -> bool {
@@ -1912,6 +2020,51 @@ mod tests {
             b"redirected"
         );
         std::fs::remove_file(output_path).expect("remove redirected output");
+    }
+
+    #[test]
+    fn child_dup_follows_the_childs_own_redirections() {
+        let output_path = std::env::temp_dir().join(format!(
+            "xsh-process-child-dup-{}",
+            std::process::id()
+        ));
+        let env = std::env::vars_os()
+            .map(|(name, value)| (name.as_bytes().to_vec(), value.as_bytes().to_vec()))
+            .collect();
+        let dup_stderr_onto_stdout = ProcessRedirection::ChildDup {
+            stream: RedirectionStream::Stderr,
+            fd: 1,
+        };
+        let stdout_to_file = ProcessRedirection::File {
+            stream: RedirectionStream::Stdout,
+            mode: FileRedirectionMode::Write,
+            path: output_path.clone(),
+        };
+        let run = |redirections: Vec<ProcessRedirection>| {
+            let invocation = ProcessInvocation {
+                target: b"sh".to_vec(),
+                argv: vec![b"-c".to_vec(), b"printf out; printf err >&2".to_vec()],
+                cwd: std::env::current_dir().expect("current directory"),
+                env: BTreeMap::clone(&env),
+                env_overlay: BTreeMap::new(),
+                redirections,
+                timeout: None,
+                cpu_max: None,
+            };
+            run_capture_with_stderr(&invocation).expect("capture process")
+        };
+
+        // `> file 2>&1`: the duplicate sees the file, so both streams land in it.
+        let output = run(vec![stdout_to_file.clone(), dup_stderr_onto_stdout.clone()]);
+        assert!(output.stdout.is_empty() && output.stderr.is_empty());
+        assert_eq!(std::fs::read(&output_path).expect("read output"), b"outerr");
+
+        // `2>&1 > file`: the duplicate happened first, so stderr stays on the
+        // original standard output.
+        let output = run(vec![dup_stderr_onto_stdout, stdout_to_file]);
+        assert_eq!(output.stdout, b"err");
+        assert_eq!(std::fs::read(&output_path).expect("read output"), b"out");
+        std::fs::remove_file(output_path).expect("remove output");
     }
 
     #[test]

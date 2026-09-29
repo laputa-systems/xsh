@@ -79,3 +79,9 @@ RUN host_libdir="$(rustc --print target-libdir)" \
     && ln -sf /usr/lib/libgcc_s.so.1 "${host_libdir}/libgcc_s.so" \
     && ln -sf /usr/lib/libgcc_s.so.1 "${host_libdir}/libgcc_s.so.1" \
     && ln -sf /usr/lib/libc.so "${host_libdir}/libc.so"
+# The PTY test harness (`laputa-ptytest`) links `-lutil` on Linux. musl keeps
+# `openpty` in libc and Rust's musl sysroots ship no libutil, so give each target
+# an empty archive, as Alpine's musl-dev does for its own libc.
+RUN for target in aarch64-unknown-linux-musl x86_64-unknown-linux-musl; do \
+        llvm-ar rc "$(rustc --print target-libdir --target "$target")/libutil.a"; \
+    done

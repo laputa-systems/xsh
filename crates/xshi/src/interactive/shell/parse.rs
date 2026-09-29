@@ -1,7 +1,18 @@
 use super::lex::lex_shell;
 use super::syntax::{
-    Chain, ChainOp, PipeOp, Pipeline, Redirection, ShellLine, ShellToken, SimpleCommand,
+    Chain, ChainOp, PipeOp, Pipeline, Redirection, RedirectionKind, ShellLine, ShellToken,
+    ShellWord, ShellWordPart, SimpleCommand,
 };
+
+fn literal_descriptor(descriptor: &str) -> ShellWord {
+    ShellWord {
+        parts: vec![ShellWordPart::Text {
+            text: descriptor.to_string(),
+            expand: false,
+            glob: false,
+        }],
+    }
+}
 
 pub(crate) struct ShellParser<'a> {
     source: &'a str,
@@ -78,6 +89,14 @@ impl<'a> ShellParser<'a> {
                 ShellToken::Word(word) => {
                     self.index += 1;
                     words.push(word);
+                }
+                ShellToken::Redir(kind) if kind.is_dup() => {
+                    self.index += 1;
+                    let descriptor = if kind == RedirectionKind::StdoutToStderr { "2" } else { "1" };
+                    redirections.push(Redirection {
+                        kind,
+                        target: literal_descriptor(descriptor),
+                    });
                 }
                 ShellToken::Redir(kind) => {
                     self.index += 1;

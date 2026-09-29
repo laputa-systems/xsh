@@ -1,0 +1,10 @@
+== frame after_w cursor=3,20
+|testuser@<HOST> ~ $ alias g git
+|testuser@<HOST> ~ $ w g
+|alias: g git
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

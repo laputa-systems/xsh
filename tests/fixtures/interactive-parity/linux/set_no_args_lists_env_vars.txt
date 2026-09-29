@@ -1,0 +1,8 @@
+== frame after_set cursor=3,20
+|testuser@<HOST> ~ $ set | grep '^PATH='
+|PATH=/usr/bin:/bin:/usr/sbin:/sbin
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

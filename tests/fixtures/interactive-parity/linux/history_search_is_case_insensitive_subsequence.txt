@@ -1,0 +1,30 @@
+== frame uppercase_query cursor=0,11
+|search: GST
+|echo gst
+|grep -rn status src
+|git status
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo gst
+@2 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+@2 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 st
+@3 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+@3 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 st
+== frame shorter_query cursor=0,10
+|search: GS
+|echo gst
+|grep -rn status src
+|git status
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo gst
+@2 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+@2 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 s
+@3 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 g
+@3 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 s
+== frame empty_query_lists_recent_first cursor=0,8
+|search:
+|echo gst
+|grep -rn status src
+|GIT DIFF
+|git status
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo gst

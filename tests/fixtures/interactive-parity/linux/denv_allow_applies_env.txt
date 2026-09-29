@@ -1,0 +1,67 @@
+== frame blocked cursor=2,30
+|testuser@<HOST> ~ $ cd project
+|denv: <HOME>/project/.envrc is blocked. Run `denv allow` to trust it.
+|testuser@<HOST> ~/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== frame dirty cursor=5,30
+|testuser@<HOST> ~ $ cd project
+|denv: <HOME>/project/.envrc is blocked. Run `denv allow` to trust it.
+|testuser@<HOST> ~/project * $ echo =$__DENV_DIRTY=
+|=1=
+|
+|testuser@<HOST> ~/project * $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+== frame after_allow cursor=9,28
+|testuser@<HOST> ~ $ cd project
+|denv: <HOME>/project/.envrc is blocked. Run `denv allow` to trust it.
+|testuser@<HOST> ~/project * $ echo =$__DENV_DIRTY=
+|=1=
+|
+|testuser@<HOST> ~/project * $ denv allow
+|denv: allowed <HOME>/project/.envrc
+|denv: loading .envrc
+|denv: +DENV_TEST_VAR
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+== frame var_loaded cursor=12,28
+|testuser@<HOST> ~ $ cd project
+|denv: <HOME>/project/.envrc is blocked. Run `denv allow` to trust it.
+|testuser@<HOST> ~/project * $ echo =$__DENV_DIRTY=
+|=1=
+|
+|testuser@<HOST> ~/project * $ denv allow
+|denv: allowed <HOME>/project/.envrc
+|denv: loading .envrc
+|denv: +DENV_TEST_VAR
+|testuser@<HOST> ~/project $ echo $DENV_TEST_VAR
+|allowed
+|
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  *
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project

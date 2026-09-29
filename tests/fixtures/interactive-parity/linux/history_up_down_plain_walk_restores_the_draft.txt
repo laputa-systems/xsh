@@ -1,0 +1,15 @@
+== frame prefix_no_match_keeps_draft cursor=0,25
+|testuser@<HOST> ~ $ draft
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 draft
+== frame oldest cursor=0,28
+|testuser@<HOST> ~ $ echo one
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame stays_at_oldest cursor=0,28
+|testuser@<HOST> ~ $ echo one
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame past_newest_is_empty cursor=0,20
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

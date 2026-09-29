@@ -1,0 +1,20 @@
+== frame before_resize cursor=4,63
+|testuser@<HOST> ~ $ printf '\n\n'
+|
+|
+|
+|testuser@<HOST> ~ $ echo resize-test-abcdefghijklmnopqrstuvwxyz
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 printf
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame after_resize cursor=1,11
+|testuser@<HOST> ~ $ echo resize-test-abcdefghijklmno
+|pqrstuvwxyz
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame after_x cursor=1,12
+|testuser@<HOST> ~ $ echo resize-test-abcdefghijklmno
+|pqrstuvwxyzx
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo

@@ -51,6 +51,17 @@ pub(crate) enum RedirectionKind {
     StderrAppend,
     StdoutToStderr,
     StderrToStdout,
+    /// `&>file`: both output streams to a file, truncating.
+    BothWrite,
+    /// `&>>file`: both output streams to a file, appending.
+    BothAppend,
+}
+
+impl RedirectionKind {
+    /// Duplications name their target descriptor in the operator itself.
+    pub(crate) fn is_dup(self) -> bool {
+        matches!(self, Self::StdoutToStderr | Self::StderrToStdout)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

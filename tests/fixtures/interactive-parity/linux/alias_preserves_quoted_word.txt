@@ -1,0 +1,11 @@
+== frame after_alias cursor=4,20
+|testuser@<HOST> ~ $ alias greet echo "hello world"
+|testuser@<HOST> ~ $ greet
+|hello world
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 greet
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

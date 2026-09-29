@@ -1,0 +1,8 @@
+== frame after_and cursor=3,20
+|testuser@<HOST> ~ $ true && echo yes
+|yes
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 true
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

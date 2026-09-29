@@ -1,0 +1,5 @@
+== frame newest_first cursor=0,25
+|testuser@<HOST> ~ $ cat f
+|f-newest-dir/  f-newest.txt  f-middle.txt  f-oldest.txt
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 f-newest-dir/

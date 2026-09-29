@@ -1,0 +1,13 @@
+== frame selected cursor=0,26
+|testuser@<HOST> ~ $ cat aa
+|aa  ab  ac
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 aa
+== frame after_ctrl_l cursor=0,25
+|testuser@<HOST> ~ $ cat a
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_ctrl_c cursor=1,20
+|testuser@<HOST> ~ $ cat a^C
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

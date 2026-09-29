@@ -1,0 +1,30 @@
+== frame grid cursor=2,2
+|testuser@sen
+|try ~ $ echo
+| a
+|aaa.txt
+|aab.txt
+|aac.txt
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame filtered cursor=2,3
+|testuser@sen
+|try ~ $ echo
+| aa
+|aaa.txt
+|aab.txt
+|aac.txt
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame navigated cursor=2,8
+|testuser@sen
+|try ~ $ echo
+| aaa.txt
+|aaa.txt
+|aab.txt
+|aac.txt
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 aaa.txt
+== frame after_escape cursor=2,3
+|testuser@sen
+|try ~ $ echo
+| aa
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

@@ -1,0 +1,19 @@
+== frame grid cursor=1,6
+|testuser@<HOST> ~ $
+|echo a
+|aaa.txt  aac.txt
+|aab.txt
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_resize cursor=2,2
+|testuser@sen
+|try ~ $ echo
+| a
+|aaa.txt
+|aab.txt
+|aac.txt
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_escape cursor=2,2
+|testuser@sen
+|try ~ $ echo
+| a
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

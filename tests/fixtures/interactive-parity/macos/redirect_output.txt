@@ -1,0 +1,14 @@
+== frame after_cat cursor=5,20
+|testuser@<HOST> ~ $ /bin/echo file_content > out.txt
+|
+|testuser@<HOST> ~ $ cat out.txt
+|file_content
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect out.txt
+|file_content

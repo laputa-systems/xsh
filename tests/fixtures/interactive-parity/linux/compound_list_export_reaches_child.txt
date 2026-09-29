@@ -1,0 +1,8 @@
+== frame after_compound cursor=3,20
+|testuser@<HOST> ~ $ cd / && export TMP_COMPOUND=value; env | grep TMP_COMPOUND
+|TMP_COMPOUND=value
+|
+|testuser@<HOST> / $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /

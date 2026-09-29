@@ -1,0 +1,11 @@
+== frame after_pwd cursor=4,30
+|testuser@<HOST> ~ $ 'space dir'
+|testuser@<HOST> ~/space dir $ pwd
+|<HOME>/space dir
+|
+|testuser@<HOST> ~/space dir $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 'space
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/space dir
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/space dir

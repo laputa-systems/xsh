@@ -1,0 +1,34 @@
+== frame pasted cursor=2,8
+|testuser@<HOST> ~ $ echo 'one
+|  two
+|  three'
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame up cursor=1,5
+|testuser@<HOST> ~ $ echo 'one
+|  two
+|  three'
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame up_again cursor=0,23
+|testuser@<HOST> ~ $ echo 'one
+|  two
+|  three'
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame edit_middle_line cursor=0,24
+|testuser@<HOST> ~ $ echXo 'one
+|  two
+|  three'
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame down_to_last cursor=2,5
+|testuser@<HOST> ~ $ echXo 'one
+|  two
+|  three'
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame submitted cursor=5,20
+|testuser@<HOST> ~ $ echXo 'one
+|  two
+|  three'
+|echXo: not found
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

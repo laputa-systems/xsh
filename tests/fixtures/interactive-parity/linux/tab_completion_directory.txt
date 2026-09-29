@@ -1,0 +1,15 @@
+== frame after_tab cursor=0,29
+|testuser@<HOST> ~ $ cd mydir/
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+== frame after_pwd cursor=4,26
+|testuser@<HOST> ~ $ cd mydir/
+|testuser@<HOST> ~/mydir $ pwd
+|<HOME>/mydir
+|
+|testuser@<HOST> ~/mydir $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/mydir
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/mydir

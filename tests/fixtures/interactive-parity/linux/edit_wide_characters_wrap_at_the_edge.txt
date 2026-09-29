@@ -1,0 +1,24 @@
+== frame wrapped cursor=1,15
+|testuser@<HOST> ~ $ 日本語日
+|本語日本語日本語
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 日本語日
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 本語日本語日本語
+== frame up_one_row cursor=0,20
+|testuser@<HOST> ~ $ 日本語日
+|本語日本語日本語
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 日本語日
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 本語日本語日本語
+== frame down_one_row cursor=1,15
+|testuser@<HOST> ~ $ 日本語日
+|本語日本語日本語
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 日本語日
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 本語日本語日本語
+== frame home cursor=0,20
+|testuser@<HOST> ~ $ 日本語日
+|本語日本語日本語
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 日本語日
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 本語日本語日本語

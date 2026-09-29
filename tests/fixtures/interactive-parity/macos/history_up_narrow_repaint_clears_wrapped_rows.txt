@@ -1,0 +1,31 @@
+== frame oldest cursor=20,8
+|testuser@sen
+|try ~ $ echo
+| ok
+|ok
+|
+|testuser@sen
+|try ~ $ echo
+| WRAPMARK123
+|456789012345
+|67890
+|WRAPMARK1234
+|567890123456
+|7890
+|
+|testuser@sen
+|try ~ $ echo
+| newer
+|newer
+|
+|testuser@sen
+|try ~ $ echo
+| ok
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo

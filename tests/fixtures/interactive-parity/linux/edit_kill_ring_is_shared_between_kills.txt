@@ -1,0 +1,19 @@
+== frame kill_to_end cursor=0,27
+|testuser@<HOST> ~ $ one two
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 one
+== frame kill_to_start cursor=0,20
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame yank_last_kill cursor=0,27
+|testuser@<HOST> ~ $ one two
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 one
+== frame yank_twice cursor=0,34
+|testuser@<HOST> ~ $ one twoone two
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 one
+== frame yank_after_empty_kills cursor=0,34
+|testuser@<HOST> ~ $ one twoone two
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 one

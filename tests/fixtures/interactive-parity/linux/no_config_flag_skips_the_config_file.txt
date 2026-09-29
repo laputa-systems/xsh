@@ -1,0 +1,21 @@
+== frame alias_not_defined cursor=3,20
+|testuser@<HOST> ~ $ ll
+|ll: not found
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ll
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame variable_not_set cursor=6,20
+|testuser@<HOST> ~ $ ll
+|ll: not found
+|
+|testuser@<HOST> ~ $ echo [$FROM_CONFIG]
+|[]
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ll
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

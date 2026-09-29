@@ -1,0 +1,15 @@
+== frame newest_match cursor=0,28
+|testuser@<HOST> ~ $ echo one banana
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@0 fg=8 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  banana
+== frame narrowed cursor=0,30
+|testuser@<HOST> ~ $ echo one apple
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@0 fg=8 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pple
+== frame widened_again cursor=0,29
+|testuser@<HOST> ~ $ echo one banana
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@0 fg=8 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 banana

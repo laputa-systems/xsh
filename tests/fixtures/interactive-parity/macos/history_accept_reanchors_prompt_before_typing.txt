@@ -1,0 +1,52 @@
+== frame open_search cursor=4,8
+|fill04
+|fill05
+|fill06
+|
+|search:
+|echo fill01; echo
+|echo history-two-a
+|echo history-one-a
+@4 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@5 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo fill01; echo
+== frame query cursor=4,15
+|fill04
+|fill05
+|fill06
+|
+|search: history
+|echo history-two-a
+|echo history-one-a
+@4 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@5 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo history-two-a
+@6 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 history
+== frame select_second cursor=4,15
+|fill04
+|fill05
+|fill06
+|
+|search: history
+|echo history-two-a
+|echo history-one-a
+@4 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@5 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 history
+@6 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo history-one-a
+== frame accept cursor=6,13
+|fill04
+|fill05
+|fill06
+|
+|testuser@<HOST> ~ $
+|echo history-one-abc
+|defghijklmnop
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame type_after_accept cursor=6,14
+|fill04
+|fill05
+|fill06
+|
+|testuser@<HOST> ~ $
+|echo history-one-abc
+|defghijklmnopx
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo

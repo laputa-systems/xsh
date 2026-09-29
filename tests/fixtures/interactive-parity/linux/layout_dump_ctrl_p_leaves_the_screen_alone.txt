@@ -1,0 +1,107 @@
+== frame before cursor=0,36
+|testuser@<HOST> ~ $ echo hello world
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame after_prompt_dump cursor=0,36
+|testuser@<HOST> ~ $ echo hello world
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame completion_open cursor=0,25
+|testuser@<HOST> ~ $ cat a
+|aa  ab
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_completion_dump cursor=0,25
+|testuser@<HOST> ~ $ cat a
+|aa  ab
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_history_dump cursor=0,8
+|search:
+|echo two
+|echo one
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo two
+== effect dumps
+|ish layout dump
+|version: <VERSION>
+|terminal.rows: 24
+|terminal.cols: 80
+|prompt.text: "testuser@<HOST> \u{1b}[38;5;10m~\u{1b}[0m $ "
+|prompt.display_len: 20
+|line.text: "echo hello world"
+|line.bytes: 16
+|line.cursor_byte: 16
+|line.cursor_display_col: 16
+|line.display_len: 16
+|suggestion.text: None
+|suggestion.display_len: 0
+|line.has_newlines: false
+|rendered_region: RenderedRegion { anchored: true, painted_rows: 1, cursor_row: 0, cursor_col: 36 }
+|mode: normal
+|prompt.layout_math: before_cursor=36 full=36 cols=80 forced_wrap=false
+|prompt_layout: PromptLayout { region: RenderedRegion { anchored: false, painted_rows: 1, cursor_row: 0, cursor_col: 36 }, rows_up_from_end: 0, needs_forced_wrap: false }
+|history_cache.header: None
+|history_cache.rows: []
+|--- next dump ---
+|ish layout dump
+|version: <VERSION>
+|terminal.rows: 24
+|terminal.cols: 80
+|prompt.text: "testuser@<HOST> \u{1b}[38;5;10m~\u{1b}[0m $ "
+|prompt.display_len: 20
+|line.text: "cat a"
+|line.bytes: 5
+|line.cursor_byte: 5
+|line.cursor_display_col: 5
+|line.display_len: 5
+|suggestion.text: None
+|suggestion.display_len: 0
+|line.has_newlines: false
+|rendered_region: RenderedRegion { anchored: true, painted_rows: 1, cursor_row: 0, cursor_col: 25 }
+|mode: completion
+|prompt.layout_math: before_cursor=25 full=25 cols=80 forced_wrap=false
+|prompt_layout: PromptLayout { region: RenderedRegion { anchored: false, painted_rows: 1, cursor_row: 0, cursor_col: 25 }, rows_up_from_end: 0, needs_forced_wrap: false }
+|completion.base_line.text: "cat a"
+|completion.base_line.cursor_byte: 5
+|completion.selected: 18446744073709551615
+|completion.cols: 2
+|completion.rows: 1
+|completion.scroll: 0
+|completion.term_cols: 80
+|completion.dir_prefix: ""
+|completion.in_quote: false
+|completion.names: "aaab"
+|completion.entries: [CompletionEntry { mtime: 1700000000, name_start: 0, name_len: 2, name_display_width: 2, flags: 0 }, CompletionEntry { mtime: 1700000000, name_start: 2, name_len: 2, name_display_width: 2, flags: 0 }]
+|completion_grid_layout: CompletionGridLayout { visible_rows: 1, scroll_start: 0, col_widths: [2, 2, 0, 0, 0, 0] }
+|history_cache.header: None
+|history_cache.rows: []
+|--- next dump ---
+|ish layout dump
+|version: <VERSION>
+|terminal.rows: 24
+|terminal.cols: 80
+|prompt.text: "testuser@<HOST> \u{1b}[38;5;10m~\u{1b}[0m $ "
+|prompt.display_len: 20
+|line.text: "cat a"
+|line.bytes: 5
+|line.cursor_byte: 5
+|line.cursor_display_col: 5
+|line.display_len: 5
+|suggestion.text: None
+|suggestion.display_len: 0
+|line.has_newlines: false
+|rendered_region: RenderedRegion { anchored: true, painted_rows: 3, cursor_row: 0, cursor_col: 8 }
+|mode: history_search
+|prompt.layout_math: before_cursor=25 full=25 cols=80 forced_wrap=false
+|prompt_layout: PromptLayout { region: RenderedRegion { anchored: false, painted_rows: 1, cursor_row: 0, cursor_col: 25 }, rows_up_from_end: 0, needs_forced_wrap: false }
+|history.query.text: ""
+|history.query.cursor_byte: 0
+|history.query.cursor_display_col: 0
+|history.matches: [FuzzyMatch { entry_idx: 1, match_positions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], match_count: 0, score: 0 }, FuzzyMatch { entry_idx: 0, match_positions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], match_count: 0, score: 0 }]
+|history.candidates: [1, 0]
+|history.scratch: [1, 0]
+|history.candidate_stack: []
+|history.selected: 0
+|history.saved_line: "cat a"
+|pager_layout: PagerLayout { region: RenderedRegion { anchored: false, painted_rows: 3, cursor_row: 0, cursor_col: 8 }, rows_up_from_end: 2, header_rows: 1, needs_forced_wrap: false, max_results: 20, max_width: 78, scroll: 0, term_rows: 24, term_cols: 80 }
+|history_cache.header: Some(HistoryHeaderKey { query_hash: 3476900567878811119, query_len: 0, query_cursor: 0, term_rows: 24, term_cols: 80, header_rows: 1, needs_forced_wrap: false })
+|history_cache.rows: [HistoryRowKey { entry_idx: 1, selected: true, match_positions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], match_count: 0 }, HistoryRowKey { entry_idx: 0, selected: false, match_positions: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], match_count: 0 }]

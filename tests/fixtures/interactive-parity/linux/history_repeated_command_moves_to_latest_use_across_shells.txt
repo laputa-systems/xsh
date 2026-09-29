@@ -1,0 +1,16 @@
+== frame third/newest cursor=0,28
+|testuser@<HOST> ~ $ echo dup
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame third/older cursor=0,30
+|testuser@<HOST> ~ $ echo other
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame third/nothing_older cursor=0,30
+|testuser@<HOST> ~ $ echo other
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== effect first/first_exit
+|Code(0)
+== effect second/second_exit
+|Code(0)

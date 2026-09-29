@@ -1,0 +1,11 @@
+== frame after_l cursor=6,20
+|testuser@<HOST> ~ $ l *tool*
+|rust-toolchain.toml:
+|-rw-r--r-- 1 <USER> <GROUP>  0B Nov 14  2023 rust-toolchain.toml
+|
+|toolbox.txt:
+|-rw-r--r-- 1 <USER> <GROUP>  0B Nov 14  2023 toolbox.txt
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

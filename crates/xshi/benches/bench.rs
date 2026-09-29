@@ -11,7 +11,7 @@ use std::sync::OnceLock;
 
 use rustybench::{AllocProfiler, Bencher};
 use xshi::interactive::bench::{
-    BenchSession, HistorySearchRenderBench, RenderBench, synthetic_history_45k,
+    BenchSession, HistorySearchRenderBench, HistoryStoreBench, RenderBench, synthetic_history_45k,
 };
 
 #[global_allocator]
@@ -126,6 +126,36 @@ fn xshi_dynamic_name_session(bencher: Bencher) {
         index += 1;
         output
     });
+}
+
+#[rustybench::bench]
+fn xshi_history_load_45000_entries(bencher: Bencher) {
+    let store = HistoryStoreBench::compacted(45_000);
+    bench_operation(bencher, || store.load_len());
+}
+
+#[rustybench::bench]
+fn xshi_history_load_uncompacted_log_45000_entries(bencher: Bencher) {
+    let store = HistoryStoreBench::with_log(45_000);
+    bench_operation(bencher, || store.load_len());
+}
+
+#[rustybench::bench]
+fn xshi_history_sync_idle_45000_entries(bencher: Bencher) {
+    let mut store = HistoryStoreBench::compacted(45_000);
+    bench_operation(bencher, || store.sync_idle_len());
+}
+
+#[rustybench::bench]
+fn xshi_history_add_command_45000_entries(bencher: Bencher) {
+    let mut store = HistoryStoreBench::compacted(45_000);
+    bench_operation(bencher, || store.add_len());
+}
+
+#[rustybench::bench]
+fn xshi_history_compact_45000_entries(bencher: Bencher) {
+    let mut store = HistoryStoreBench::compacted(45_000);
+    bench_operation(bencher, || store.compact_len());
 }
 
 fn main() {

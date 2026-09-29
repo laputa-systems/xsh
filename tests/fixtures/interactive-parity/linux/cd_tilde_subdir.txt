@@ -1,0 +1,11 @@
+== frame after_pwd cursor=4,27
+|testuser@<HOST> ~ $ cd ~/subdir
+|testuser@<HOST> ~/subdir $ pwd
+|<HOME>/subdir
+|
+|testuser@<HOST> ~/subdir $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/subdir
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 pwd
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/subdir

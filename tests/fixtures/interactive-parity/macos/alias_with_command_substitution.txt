@@ -1,0 +1,18 @@
+== frame expanded cursor=1,47
+|testuser@<HOST> ~ $ alias grt echo "$(echo hello_subst)"
+|testuser@<HOST> ~ $ echo "$(echo hello_subst)"
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame after_enter cursor=4,20
+|testuser@<HOST> ~ $ alias grt echo "$(echo hello_subst)"
+|testuser@<HOST> ~ $ echo "$(echo hello_subst)"
+|hello_subst
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alias
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

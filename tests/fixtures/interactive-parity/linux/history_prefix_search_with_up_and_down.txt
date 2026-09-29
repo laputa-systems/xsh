@@ -1,0 +1,25 @@
+== frame newest_git cursor=0,40
+|testuser@<HOST> ~ $ git push origin main
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 git
+== frame older_git cursor=0,37
+|testuser@<HOST> ~ $ git commit -m one
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 git
+== frame oldest_git cursor=0,30
+|testuser@<HOST> ~ $ git status
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 git
+== frame no_more_matches cursor=0,30
+|testuser@<HOST> ~ $ git status
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 git
+== frame back_one cursor=0,37
+|testuser@<HOST> ~ $ git commit -m one
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 git
+== frame back_to_typed_prefix cursor=0,23
+|testuser@<HOST> ~ $ git push origin main
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 git
+@0 fg=8 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0  push origin main

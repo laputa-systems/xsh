@@ -1,0 +1,13 @@
+== frame boosted_by_directory cursor=0,18
+|search: make build
+|make build src
+|make build home
+|make build project
+|make build other again
+|make build other
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 make build src
+@2 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 make build
+@3 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 make build
+@4 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 make build
+@5 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 make build

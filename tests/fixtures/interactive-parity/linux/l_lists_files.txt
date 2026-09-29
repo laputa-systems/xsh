@@ -1,0 +1,14 @@
+== frame after_l cursor=6,20
+|testuser@<HOST> ~ $ l
+|drwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 .config/
+|drwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 .local/
+|-rw-r--r-- 1 <USER> <GROUP>   3B Nov 14  2023 file_a.txt
+|-rw-r--r-- 1 <USER> <GROUP>   3B Nov 14  2023 file_b.txt
+|drwxr-xr-x 1 <USER> <GROUP> <SIZE> Nov 14  2023 subdir/
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .config/
+@2 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .local/
+@5 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 subdir/
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

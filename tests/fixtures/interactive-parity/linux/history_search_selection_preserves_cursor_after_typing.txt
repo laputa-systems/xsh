@@ -1,0 +1,115 @@
+== frame open_search cursor=12,8
+|fill04
+|fill05
+|fill06
+|fill07
+|fill08
+|fill09
+|fill10
+|fill11
+|fill12
+|fill13
+|fill14
+|
+|search:
+|echo fil
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+@12 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@13 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo fil
+== frame type_abc cursor=13,1
+|fill04
+|fill05
+|fill06
+|fill07
+|fill08
+|fill09
+|fill10
+|fill11
+|fill12
+|fill13
+|fill14
+|
+|search: ab
+|c
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+@12 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@14 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 abcdefgh
+@15 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@16 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@17 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@18 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@19 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@20 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@21 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@22 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@23 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+== frame select_next cursor=13,1
+|fill04
+|fill05
+|fill06
+|fill07
+|fill08
+|fill09
+|fill10
+|fill11
+|fill12
+|fill13
+|fill14
+|
+|search: ab
+|c
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+|abcdefgh
+@12 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@14 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@15 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 abcdefgh
+@16 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@17 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@18 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@19 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@20 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@21 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@22 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@23 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+== frame type_x cursor=13,2
+|fill04
+|fill05
+|fill06
+|fill07
+|fill08
+|fill09
+|fill10
+|fill11
+|fill12
+|fill13
+|fill14
+|
+|search: ab
+|cx
+@12 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:

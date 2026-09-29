@@ -1,0 +1,7 @@
+== frame after_w cursor=2,20
+|testuser@<HOST> ~ $ w echo
+|builtin
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

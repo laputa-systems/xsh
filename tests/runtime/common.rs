@@ -2,18 +2,16 @@
 
 pub(crate) use std::collections::BTreeMap;
 pub(crate) use std::io::{BufRead, BufReader, Read, Write};
-pub(crate) use std::os::fd::FromRawFd;
 pub(crate) use std::os::unix::ffi::{OsStrExt, OsStringExt};
 pub(crate) use std::os::unix::fs::{MetadataExt, PermissionsExt};
 pub(crate) use std::path::{Path, PathBuf};
 pub(crate) use std::process::{Child, Command, Stdio};
 pub(crate) use std::sync::OnceLock;
 pub(crate) use std::sync::{
-    Arc, Mutex,
+    Arc,
     atomic::{AtomicUsize, Ordering},
 };
 pub(crate) use std::time::{Duration, Instant};
-pub(crate) static PTY_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 struct WorkspaceBinaries {
     xshi: String,
@@ -163,12 +161,6 @@ fn explicit_target(target_dir: &Path, profile_dir: &Path) -> Option<String> {
 }
 
 pub(crate) type JsonValue = miniserde::json::Value;
-
-pub(crate) fn pty_test_guard() -> std::sync::MutexGuard<'static, ()> {
-    PTY_TEST_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
 
 pub(crate) fn xsh<const N: usize>(args: [&str; N]) -> std::process::Output {
     let mut cmd = Command::new(cargo_env!("CARGO_BIN_EXE_xsh"));

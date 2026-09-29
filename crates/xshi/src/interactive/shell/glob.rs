@@ -6,9 +6,35 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub(crate) fn has_glob_meta(text: &str) -> bool {
-    text.as_bytes()
-        .iter()
-        .any(|byte| matches!(byte, b'*' | b'?'))
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => index += 1,
+            b'*' | b'?' => return true,
+            // A bracket is a pattern only when it forms a class.
+            b'[' if parse_bracket(&bytes[index..]).is_some() => return true,
+            _ => {}
+        }
+        index += 1;
+    }
+    false
+}
+
+/// The characters a pattern component matches literally, with escapes removed.
+fn unescape(component: &str) -> String {
+    let mut out = String::with_capacity(component.len());
+    let mut chars = component.chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            if let Some(next) = chars.next() {
+                out.push(next);
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    out
 }
 
 pub(crate) fn expand_glob(session: &Session, pattern: &str) -> Result<Vec<String>, ExpansionError> {
@@ -96,11 +122,12 @@ fn expand_glob_components(
         return Ok(());
     }
 
-    let next = base.join(component);
+    let literal = unescape(component);
+    let next = base.join(&literal);
     if next.exists() {
         expand_glob_components(
             &next,
-            &output.join(component),
+            &output.join(&literal),
             components,
             index + 1,
             matches,
@@ -143,9 +170,61 @@ fn glob_component_matches_inner(pattern: &[u8], name: &[u8]) -> bool {
                 || (!name.is_empty() && glob_component_matches_inner(pattern, &name[1..]))
         }
         Some(b'?') => !name.is_empty() && glob_component_matches_inner(&pattern[1..], &name[1..]),
+        Some(b'\\') if pattern.len() > 1 => {
+            name.first().copied() == Some(pattern[1])
+                && glob_component_matches_inner(&pattern[2..], &name[1..])
+        }
+        Some(b'[') => match parse_bracket(pattern) {
+            Some((class, consumed)) => {
+                name.first().is_some_and(|byte| class.contains(*byte))
+                    && glob_component_matches_inner(&pattern[consumed..], &name[1..])
+            }
+            None => {
+                name.first().copied() == Some(b'[')
+                    && glob_component_matches_inner(&pattern[1..], &name[1..])
+            }
+        },
         Some(byte) => {
             name.first().copied() == Some(byte)
                 && glob_component_matches_inner(&pattern[1..], &name[1..])
+        }
+    }
+}
+
+/// A bracket expression such as `[a-c]` or `[!x]`.
+struct ByteClass {
+    negated: bool,
+    ranges: Vec<(u8, u8)>,
+}
+
+impl ByteClass {
+    fn contains(&self, byte: u8) -> bool {
+        self.ranges.iter().any(|(low, high)| (*low..=*high).contains(&byte)) != self.negated
+    }
+}
+
+/// Parses `[...]` at the start of `pattern`, returning the class and how many
+/// bytes it spans, or `None` when the bracket never closes.
+fn parse_bracket(pattern: &[u8]) -> Option<(ByteClass, usize)> {
+    let mut index = 1;
+    let negated = matches!(pattern.get(index), Some(b'!' | b'^'));
+    if negated {
+        index += 1;
+    }
+    let mut ranges = Vec::new();
+    let mut first = true;
+    loop {
+        let byte = *pattern.get(index)?;
+        if byte == b']' && !first {
+            return Some((ByteClass { negated, ranges }, index + 1));
+        }
+        first = false;
+        if pattern.get(index + 1) == Some(&b'-') && pattern.get(index + 2).is_some_and(|next| *next != b']') {
+            ranges.push((byte, pattern[index + 2]));
+            index += 3;
+        } else {
+            ranges.push((byte, byte));
+            index += 1;
         }
     }
 }

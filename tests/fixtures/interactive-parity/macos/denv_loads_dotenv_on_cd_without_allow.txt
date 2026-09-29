@@ -1,0 +1,21 @@
+== frame after_cd cursor=3,28
+|testuser@<HOST> ~ $ cd project
+|denv: loading .env
+|denv: +DENV_TEST_VAR
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+== frame var_loaded cursor=6,28
+|testuser@<HOST> ~ $ cd project
+|denv: loading .env
+|denv: +DENV_TEST_VAR
+|testuser@<HOST> ~/project $ echo $DENV_TEST_VAR
+|loaded
+|
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project

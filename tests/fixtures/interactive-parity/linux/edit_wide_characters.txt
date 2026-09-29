@@ -1,0 +1,20 @@
+== frame typed cursor=0,30
+|testuser@<HOST> ~ $ 日本語text
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 日本語text
+== frame cursor_after_wide_run cursor=0,24
+|testuser@<HOST> ~ $ 日本語text
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 日本語text
+== frame backspace_removes_one_wide_character cursor=0,22
+|testuser@<HOST> ~ $ 日語text
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 日語text
+== frame insert_wide cursor=0,24
+|testuser@<HOST> ~ $ 日字語text
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 日字語text
+== frame kill_wide_tail cursor=0,24
+|testuser@<HOST> ~ $ 日字
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 日字

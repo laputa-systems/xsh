@@ -196,6 +196,19 @@ should first identify their owner, checkpoint behavior, cleanup responsibility,
 signal interaction, public status/error shape, and trace evidence before adding
 new API surface.
 
+### Child-side redirections
+
+`ProcessRedirection` values are applied in list order. `File` and `Dup` set up
+the child's standard streams from the parent, which is enough until a
+descriptor has to be copied from another one. `ChildDup { stream, fd }` (the
+shell's `2>&1`) copies the child's own descriptor `fd` at that point of the
+list, so it and every redirection after the first `ChildDup` are applied in the
+child, in order, on top of what the parent set up: `> f 2>&1` sends both
+streams to `f`, while `2>&1 > f` leaves stderr on the original stdout. Files
+are still opened by the parent, so a failure is a `redirection` error, not an
+exec failure. Only the interactive frontend constructs `ChildDup`; scripts
+cannot express it.
+
 ## 2.1 Surface Syntax Examples
 
 This file specifies runtime behavior, but the OS-facing features are easier to

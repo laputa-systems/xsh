@@ -1,0 +1,11 @@
+== frame after_unset_env cursor=4,20
+|testuser@<HOST> ~ $ export TMP_SAME_LINE=present
+|
+|testuser@<HOST> ~ $ unset TMP_SAME_LINE; env | grep TMP_SAME_LINE
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 unset
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

@@ -1,0 +1,12 @@
+== frame first_space cursor=0,44
+|testuser@<HOST> ~ $ rg --hidden -S -g !.git
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 rg
+== frame second_space cursor=0,45
+|testuser@<HOST> ~ $ rg --hidden -S -g !.git
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 rg
+== frame third_space cursor=0,46
+|testuser@<HOST> ~ $ rg --hidden -S -g !.git
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 rg

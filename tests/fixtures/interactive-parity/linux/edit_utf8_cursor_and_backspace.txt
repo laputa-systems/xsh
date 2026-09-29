@@ -1,0 +1,24 @@
+== frame typed cursor=0,31
+|testuser@<HOST> ~ $ héllo wörld
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 héllo
+== frame inserted_before_ö cursor=0,29
+|testuser@<HOST> ~ $ héllo wöérld
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 héllo
+== frame backspaced cursor=0,27
+|testuser@<HOST> ~ $ héllo wrld
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 héllo
+== frame deleted_h cursor=0,20
+|testuser@<HOST> ~ $ éllo wrld
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 éllo
+== frame submitted cursor=3,20
+|testuser@<HOST> ~ $ éllo wrld
+|éllo: not found
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 éllo
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

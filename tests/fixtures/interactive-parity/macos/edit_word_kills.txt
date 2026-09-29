@@ -1,0 +1,19 @@
+== frame ctrl_w cursor=0,31
+|testuser@<HOST> ~ $ alpha beta
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alpha
+== frame ctrl_backspace cursor=0,31
+|testuser@<HOST> ~ $ alpha beta
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alpha
+== frame alt_d cursor=0,37
+|testuser@<HOST> ~ $ alpha beta delta  zeta
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alpha
+== frame yank cursor=0,44
+|testuser@<HOST> ~ $ alpha beta delta epsilon zeta
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alpha
+== frame kill_past_start cursor=0,20
+|testuser@<HOST> ~ $  zeta
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

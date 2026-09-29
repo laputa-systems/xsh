@@ -1,0 +1,15 @@
+== frame startup cursor=2,28
+|denv: loading .env
+|denv: +DENV_TEST_VAR
+|testuser@<HOST> ~/project $
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+== frame var_loaded cursor=5,28
+|denv: loading .env
+|denv: +DENV_TEST_VAR
+|testuser@<HOST> ~/project $ echo $DENV_TEST_VAR
+|from_startup
+|
+|testuser@<HOST> ~/project $
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project

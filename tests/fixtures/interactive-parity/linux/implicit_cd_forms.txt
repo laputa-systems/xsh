@@ -1,0 +1,122 @@
+== frame implicit_cd cursor=1,22
+|testuser@<HOST> ~ $ a
+|testuser@<HOST> ~/a $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 a
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+== frame dotdot cursor=2,20
+|testuser@<HOST> ~ $ a
+|testuser@<HOST> ~/a $ ..
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 a
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ..
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame three_dots cursor=4,22
+|testuser@<HOST> ~ $ a
+|testuser@<HOST> ~/a $ ..
+|testuser@<HOST> ~ $ a/b/c
+|testuser@<HOST> ~/a/b/c $ ...
+|testuser@<HOST> ~/a $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 a
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ..
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 a/b/c
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b/c
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ...
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+== frame four_dots cursor=5,23
+|testuser@<HOST> ~ $ a
+|testuser@<HOST> ~/a $ ..
+|testuser@<HOST> ~ $ a/b/c
+|testuser@<HOST> ~/a/b/c $ ...
+|testuser@<HOST> ~/a $ ....
+|testuser@<HOST> /tmp $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 a
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ..
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 a/b/c
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b/c
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ...
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ....
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /tmp
+== frame tilde_alone cursor=6,20
+|testuser@<HOST> ~ $ a
+|testuser@<HOST> ~/a $ ..
+|testuser@<HOST> ~ $ a/b/c
+|testuser@<HOST> ~/a/b/c $ ...
+|testuser@<HOST> ~/a $ ....
+|testuser@<HOST> /tmp $ ~
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 a
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ..
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 a/b/c
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b/c
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ...
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ....
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /tmp
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame relative cursor=7,22
+|testuser@<HOST> ~ $ a
+|testuser@<HOST> ~/a $ ..
+|testuser@<HOST> ~ $ a/b/c
+|testuser@<HOST> ~/a/b/c $ ...
+|testuser@<HOST> ~/a $ ....
+|testuser@<HOST> /tmp $ ~
+|testuser@<HOST> ~ $ ./a
+|testuser@<HOST> ~/a $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 a
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ..
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 a/b/c
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b/c
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ...
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ....
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /tmp
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./a
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+== frame not_a_dir cursor=10,22
+|testuser@<HOST> ~ $ a
+|testuser@<HOST> ~/a $ ..
+|testuser@<HOST> ~ $ a/b/c
+|testuser@<HOST> ~/a/b/c $ ...
+|testuser@<HOST> ~/a $ ....
+|testuser@<HOST> /tmp $ ~
+|testuser@<HOST> ~ $ ./a
+|testuser@<HOST> ~/a $ nonexistent_dir_xyz
+|nonexistent_dir_xyz: not found
+|
+|testuser@<HOST> ~/a $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 a
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@1 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ..
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 a/b/c
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b/c
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ...
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ....
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /tmp
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./a
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 nonexistent_dir_xyz
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a

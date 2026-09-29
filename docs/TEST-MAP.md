@@ -145,12 +145,15 @@ early-return cases as passed, so record whether a privileged case actually ran.
 | Migrated API parity across `xsh` profiles | `cargo test -p xsht --test profile_parity -- --nocapture` after building the four debug/release and default/no-default products | Run the same test and builds in the pinned `Dockerfile.test` ARM64 musl image using `dev/targets.xsh::docker_test_env`; missing products print their build commands |
 | Copied product and packaged core smoke | `tools/copied-product-smoke.py` with all three debug binaries and a `dev/release.xsh::package_core` archive | Repeat with the pinned Linux ARM64 musl debug products and `--linux`; `bench/stdlib-port/README.md` gives the commands |
 | Benchmark workload | `cargo bench -p xshi --bench bench --features benchmark BENCHMARK -- --sample-count 1 --sample-size 1` | `cargo dev bench --fast` (memory/regression) or `cargo dev bench` (latency) |
-| `xshi` editor input and repaint | `cargo test -p xshi --lib interactive::edit::tests` | `cargo test -p xshi` |
-| `xshi` terminal geometry | `cargo test -p xshi --lib interactive::render::tests` | `cargo test -p xshi` and `cargo test --test integration runtime::interactive:: -- --test-threads=1` |
-| `xshi` completion cache invalidation | `cargo test -p xshi --lib path_completion_refreshes` and `cargo test -p xshi --lib completion_refreshes_cwd_snapshot` | `cargo test -p xshi` |
-| `xshi` remote completion | `cargo test -p xshi --lib remote_completion` | `cargo test -p xshi` |
-| `xshi` PTY terminal lifecycle | `cargo test --test integration runtime::interactive::xshi_pty_restores_terminal_mode_on_exit -- --exact --test-threads=1` | `cargo test --test integration runtime::interactive:: -- --test-threads=1` |
-| `xshi` single-job state | `cargo test -p xshi --lib single_background_job_rejects_second_slot` and `cargo test -p xshi --lib stopped_background_job_resumes_then_foregrounds` | `cargo test -p xshi` and the interactive PTY gate for foreground process-group signals |
+| `xshi` editing, input decoding, line buffer, prompt, listing, aliases, config, denv | `cargo test -p xshi --lib interactive::ported_tests` (ports of `ish`'s tests) or the module's own `tests` | `cargo test -p xshi` |
+| `xshi` terminal geometry and repaint | `cargo test -p xshi --lib interactive::render::tests` | `cargo test -p xshi` and `cargo test --test integration runtime::interactive:: -- --test-threads=1` |
+| `xshi` completion candidates and remote completion | `cargo test -p xshi --lib interactive::complete::tests` and `cargo test -p xshi --lib remote_completion` | `cargo test -p xshi` |
+| `xshi` history storage: log, cache, lock, sync, reset, recovery | `cargo test -p xshi --lib interactive::history::tests` (real files; includes concurrent-shell and 200,000-line cases) | `cargo test -p xshi` and the interactive gate for cross-shell scenarios |
+| `xshi` shell semantics (statuses, redirection order, globs, substitution, variables) | `cargo test --test integration runtime::interactive::NAME -- --exact` (piped session tests) | `cargo test --test integration runtime::interactive:: -- --test-threads=1` |
+| `xshi` screen behavior against the reference shell | `cargo test --test integration runtime::interactive::parity::scenarios::NAME -- --exact` (or `::extended::NAME`) | `cargo test --test integration runtime::interactive::parity` |
+| `xshi` PTY terminal lifecycle and descriptor hygiene | `cargo test --test integration runtime::interactive::xshi_pty_master_does_not_survive_exec -- --exact` | `cargo test --test integration runtime::interactive:: -- --test-threads=1` |
+| `xshi` job control (`Ctrl-Z`, `fg` continuing lists, forced exit) | `cargo test --test integration runtime::interactive::fg_resumes_the_rest_of_an_and_or_list -- --exact` and `cargo test -p xshi --lib stopped_background_job_resumes_then_foregrounds` | `cargo test -p xshi` and the interactive gate |
+| `ProcessRedirection::ChildDup` ordering | `cargo test --lib runtime::process::tests::child_dup_follows_the_childs_own_redirections` | `cargo test --test integration runtime::interactive::redirections_apply_left_to_right` |
 | Non-Tokio archive/network dependency update | `cargo tree -i tokio` and `cargo tree -p xsh-net -e features` | focused archive or network runtime gate |
 | Arena or indexed-IR layout | `scripts/ir-layout.py` (or `--only TYPE` for a focused report) | focused rustybench workload plus the applicable behavior tests |
 | Frontend retained/peak accounting | `cargo test -p xsh --lib frontend_stats::tests` and `cargo run --bin xsh-frontend-stats -- --json tests/fixtures/frontend-indexed` | `cargo dev bench --fast` after the applicable syntax/checker gate |
@@ -232,11 +235,49 @@ also rejects environment, command-line, memory, credential, and open-path
 fields on serialized process records. These parser checks do not replace a
 trace of the rebuilt applet on the pinned Linux target.
 
-The PTY fixture keeps a master descriptor open while it spawns `xshi` and
-other runtime tests may spawn children in parallel. Its master and duplicated
-slave descriptors must have close-on-exec set at creation;
+The PTY harness (`laputa-ptytest`) keeps a master descriptor open while it
+spawns `xshi` and other runtime tests may spawn children in parallel. Its master
+and duplicated slave descriptors must have close-on-exec set at creation;
 `runtime::interactive::xshi_pty_master_does_not_survive_exec` checks the
-inherited-descriptor boundary in a child process.
+inherited-descriptor boundary in a child process. A forked child also holds any
+`flock` descriptor its parent had open until it execs, so tests that take a
+history lock in one thread while another spawns processes must wait for the
+lock rather than expect it to be free.
+
+### Interactive differential gate
+
+`tests/runtime/interactive/parity/` replays each scenario against the real
+`xshi` in an isolated `HOME` and compares the transcript with a golden recorded
+from `ish` (`tests/fixtures/interactive-parity/<os>/`, one set per operating
+system because the programs scenarios run word their diagnostics differently on
+macOS and Linux). The gate needs no `ish` install. Related environment variables:
+
+| Variable | Effect |
+| --- | --- |
+| `XSHI_PARITY_ISH_BIN=/path/to/ish` | also run each scenario against `ish`; require `ish` == golden == `xshi` |
+| `XSHI_PARITY_RECORD=1` | with the above, rewrite the goldens from `ish` |
+| `XSHI_PARITY_FULL=1` | print whole transcripts on a mismatch |
+
+The scenarios pin every input that changes a screen: the terminal locale
+(ASCII on Linux, whose images have no `locale` tool to list UTF-8 locales),
+`/etc/profile` (`XSHI_PROFILE_PATH=/dev/null`), and the prompt's host name.
+Narrow-terminal scenarios wrap the prompt, so the host name's length decides
+what lands on each row; `xshi` is started with `XSHI_HOSTNAME=sentry` and `ish`,
+which cannot be told, must run where its short name is also six characters
+(the macOS host, or `docker run --hostname sentry`). Linux goldens are recorded
+by building `ish` for `aarch64-unknown-linux-musl` (its sibling checkouts
+mounted read-only, its target directory on a volume) and running the gate in the
+`Dockerfile.test` image with `XSHI_PARITY_ISH_BIN` pointing at that binary.
+`Dockerfile.test` gives each musl target an empty `libutil.a` because the PTY
+harness links `-lutil`.
+
+Goldens record terminal text, styles, cursor state, and persisted effects, not
+implementation details. Record on the platform being tested only when the output
+is platform-independent; scenarios that print machine data pin it in the
+fixture (fixed mtimes, fixed terminal width) or normalize it in the harness.
+`ish` itself is only needed to add or refresh a scenario; scenarios for
+behavior `ish` lacks (`$` completion, `fg` continuing a list, forced exit) are
+`xshi`-only tests in `tests/runtime/interactive.rs`.
 
 As of 2026-09-25, `cargo dev bench --fast` stops while compiling the sibling
 `../../rustybench` crate: its `allocator_api` use lacks the feature gate on the
@@ -272,11 +313,12 @@ The source inventory snapshot had 23 PTY `#[ignore]` attributes in
 `tests/runtime/interactive.rs`, one intentionally ignored cold-start diagnostic
 in `src/stdlib.rs`, and 35 `test.skip` call sites in tracked XSH tests. The
 commented-out stress probe in `tests/runtime/os.rs` is not a registered test.
-The current PTY suite has five active lifecycle cases and 17 opt-in cases;
-the snapshot predates that change. Each opt-in case names its host requirement
-at its `#[ignore]`. The cold-start probe is a manual measurement. Native
-skips are conditional on platform, installed paths, and network fixtures, so
-the JSON records observed counts separately for each host.
+The interactive gate has since been replaced: `runtime::interactive::` now
+holds the differential scenarios and `xshi`-only tests with no `#[ignore]`, so
+that part of the snapshot is stale until the report is regenerated. The
+cold-start probe is a manual measurement. Native skips are conditional on
+platform, installed paths, and network fixtures, so the JSON records observed
+counts separately for each host.
 
 For the Linux native gate, bind the container-built
 `target/aarch64-unknown-linux-musl/debug/xsh` over `/work/target/debug/xsh`.

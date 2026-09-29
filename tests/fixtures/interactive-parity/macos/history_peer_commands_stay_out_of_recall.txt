@@ -1,0 +1,11 @@
+== frame up_shows_only_startup_history cursor=1,32
+|testuser@<HOST> ~ $
+|testuser@<HOST> ~ $ echo startup
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame search_finds_nothing_from_peer cursor=1,12
+|testuser@<HOST> ~ $
+|search: peer
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:

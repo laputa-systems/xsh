@@ -1,0 +1,16 @@
+== frame after_false cursor=2,20
+|testuser@<HOST> ~ $ false
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 false
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_enter cursor=3,20
+|testuser@<HOST> ~ $ false
+|
+|testuser@<HOST> ~ $
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 false
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

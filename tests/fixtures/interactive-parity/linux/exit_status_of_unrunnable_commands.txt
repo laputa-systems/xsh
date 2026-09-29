@@ -1,0 +1,72 @@
+== frame not_executable cursor=3,20
+|testuser@<HOST> ~ $ ./notexec.sh
+|./notexec.sh: permission denied
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./notexec.sh
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status_126 cursor=6,20
+|testuser@<HOST> ~ $ ./notexec.sh
+|./notexec.sh: permission denied
+|
+|testuser@<HOST> ~ $ echo $?
+|126
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./notexec.sh
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status_127 cursor=12,20
+|testuser@<HOST> ~ $ ./notexec.sh
+|./notexec.sh: permission denied
+|
+|testuser@<HOST> ~ $ echo $?
+|126
+|
+|testuser@<HOST> ~ $ nosuchcommand_xyz
+|nosuchcommand_xyz: not found
+|
+|testuser@<HOST> ~ $ echo $?
+|127
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./notexec.sh
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 nosuchcommand_xyz
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame missing_path cursor=15,20
+|testuser@<HOST> ~ $ ./notexec.sh
+|./notexec.sh: permission denied
+|
+|testuser@<HOST> ~ $ echo $?
+|126
+|
+|testuser@<HOST> ~ $ nosuchcommand_xyz
+|nosuchcommand_xyz: not found
+|
+|testuser@<HOST> ~ $ echo $?
+|127
+|
+|testuser@<HOST> ~ $ ./nosuchdir/cmd
+|./nosuchdir/cmd: not found
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./notexec.sh
+@3 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 nosuchcommand_xyz
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./nosuchdir/cmd
+@15 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

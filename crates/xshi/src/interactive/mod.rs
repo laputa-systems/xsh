@@ -1,19 +1,29 @@
 #![allow(dead_code, unused_imports)]
 
+mod alias;
 mod app;
 #[doc(hidden)]
 #[cfg(feature = "benchmark")]
 pub mod bench;
+mod builtin;
 mod complete;
 mod config;
 mod denv;
-mod edit;
 mod history;
+mod input;
+mod line;
 mod listing;
+mod path;
+#[cfg(test)]
+mod ported_tests;
 mod prompt;
 mod render;
+mod repl;
 mod session;
 mod shell;
+mod signal;
+mod sys;
+mod term;
 mod z;
 
 pub use app::{

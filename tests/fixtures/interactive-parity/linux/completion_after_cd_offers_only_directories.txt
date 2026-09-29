@@ -1,0 +1,20 @@
+== frame directories_only cursor=0,23
+|testuser@<HOST> ~ $ cd
+|alink/  alpha/  beta/
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alink/
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alpha/
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 beta/
+== frame prefix_a cursor=0,24
+|testuser@<HOST> ~ $ cd a
+|alink/  alpha/
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alink/
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alpha/
+== frame dot_shows_hidden cursor=0,24
+|testuser@<HOST> ~ $ cd .
+|.config/  .hidden-dir/  .local/
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .config/
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .hidden-dir/
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 .local/

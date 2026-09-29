@@ -1,0 +1,21 @@
+== frame grid cursor=0,24
+|testuser@<HOST> ~ $ ls a
+|adir/  aexec.sh  alink/  aplain.txt
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 adir/
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 aexec.sh
+@1 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alink/
+== frame first_selected cursor=0,28
+|testuser@<HOST> ~ $ ls adir/
+|adir/  aexec.sh  alink/  aplain.txt
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 adir/
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 aexec.sh
+@1 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alink/
+== frame second_selected cursor=0,31
+|testuser@<HOST> ~ $ ls aexec.sh
+|adir/  aexec.sh  alink/  aplain.txt
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 adir/
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 aexec.sh
+@1 fg=6 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alink/

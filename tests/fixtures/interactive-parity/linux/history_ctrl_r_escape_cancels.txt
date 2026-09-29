@@ -1,0 +1,13 @@
+== frame query_secret cursor=0,14
+|search: secret
+|echo secret
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo secret
+== frame after_escape cursor=0,20
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_enter cursor=1,20
+|testuser@<HOST> ~ $
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

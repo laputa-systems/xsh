@@ -1,0 +1,23 @@
+== frame after_failed_redirect cursor=4,20
+|testuser@<HOST> ~ $ echo hi > /nonexistent-dir/file
+|/nonexistent-dir/file: No such file or directory (os error 2)
+|<SHELL>: No such file or directory (os error 2)
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=7,20
+|testuser@<HOST> ~ $ echo hi > /nonexistent-dir/file
+|/nonexistent-dir/file: No such file or directory (os error 2)
+|<SHELL>: No such file or directory (os error 2)
+|
+|testuser@<HOST> ~ $ echo $?
+|2
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

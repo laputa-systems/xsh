@@ -1,0 +1,16 @@
+== frame search_open cursor=0,8
+|search:
+|echo startup
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo startup
+== frame query_later cursor=0,13
+|search: later
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+== frame enter_without_match cursor=0,20
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_enter cursor=1,20
+|testuser@<HOST> ~ $
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

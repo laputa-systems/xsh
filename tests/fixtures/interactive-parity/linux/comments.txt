@@ -1,0 +1,60 @@
+== frame trailing_comment cursor=3,20
+|testuser@<HOST> ~ $ echo a # b c
+|a
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame hash_inside_word cursor=6,20
+|testuser@<HOST> ~ $ echo a # b c
+|a
+|
+|testuser@<HOST> ~ $ echo a#b
+|a#b
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame comment_only cursor=8,20
+|testuser@<HOST> ~ $ echo a # b c
+|a
+|
+|testuser@<HOST> ~ $ echo a#b
+|a#b
+|
+|testuser@<HOST> ~ $ # only a comment
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 #
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame hash_in_quotes cursor=11,20
+|testuser@<HOST> ~ $ echo a # b c
+|a
+|
+|testuser@<HOST> ~ $ echo a#b
+|a#b
+|
+|testuser@<HOST> ~ $ # only a comment
+|
+|testuser@<HOST> ~ $ echo 'a # b' "c # d"
+|a # b c # d
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 #
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

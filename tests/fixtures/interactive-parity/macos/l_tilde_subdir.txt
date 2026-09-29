@@ -1,0 +1,7 @@
+== frame after_l cursor=2,20
+|testuser@<HOST> ~ $ l ~/subdir
+|-rw-r--r-- 1 <USER> <GROUP>  5B Nov 14  2023 file.txt
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 l
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

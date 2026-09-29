@@ -1,0 +1,47 @@
+== frame tilde cursor=3,20
+|testuser@<HOST> ~ $ echo ~ ~/sub ~x
+|<HOME> <HOME>/sub ~x
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame variables cursor=8,20
+|testuser@<HOST> ~ $ echo ~ ~/sub ~x
+|<HOME> <HOME>/sub ~x
+|
+|testuser@<HOST> ~ $ set NAME world
+|
+|testuser@<HOST> ~ $ echo hello-$NAME ${NAME} $NAME-x $NOPE| cat
+|hello-world world world-x
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame arithmetic cursor=11,20
+|testuser@<HOST> ~ $ echo ~ ~/sub ~x
+|<HOME> <HOME>/sub ~x
+|
+|testuser@<HOST> ~ $ set NAME world
+|
+|testuser@<HOST> ~ $ echo hello-$NAME ${NAME} $NAME-x $NOPE| cat
+|hello-world world world-x
+|
+|testuser@<HOST> ~ $ echo $((1 + 2 * 3)) $(( (1+2) * 3 ))
+|7 9
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

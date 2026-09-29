@@ -1,0 +1,49 @@
+== frame after_allow cursor=5,28
+|testuser@<HOST> ~ $ cd project
+|denv: loading .env
+|denv: +DENV_TEST_VAR
+|testuser@<HOST> ~/project $ denv allow
+|denv: no .envrc found
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+== frame usage cursor=7,28
+|testuser@<HOST> ~ $ cd project
+|denv: loading .env
+|denv: +DENV_TEST_VAR
+|testuser@<HOST> ~/project $ denv allow
+|denv: no .envrc found
+|testuser@<HOST> ~/project $ denv bogus
+|usage: denv <allow|deny|reload>
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+== frame status cursor=10,28
+|testuser@<HOST> ~ $ cd project
+|denv: loading .env
+|denv: +DENV_TEST_VAR
+|testuser@<HOST> ~/project $ denv allow
+|denv: no .envrc found
+|testuser@<HOST> ~/project $ denv bogus
+|usage: denv <allow|deny|reload>
+|testuser@<HOST> ~/project $ echo $?
+|0
+|
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 denv
+@7 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project

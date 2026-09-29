@@ -1,0 +1,14 @@
+== frame after_cd_minus cursor=5,20
+|testuser@<HOST> ~ $ cd /
+|testuser@<HOST> / $ unset OLDPWD
+|
+|testuser@<HOST> / $ cd -
+|<SHELL>: cd: no previous directory
+|testuser@<HOST> / $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 unset
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@5 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /

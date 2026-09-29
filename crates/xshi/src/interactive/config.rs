@@ -1,15 +1,15 @@
 #![allow(clippy::single_call_fn)]
 
-use super::app::{valid_env_name, validate_alias_source};
+use super::alias;
+use super::app::{expand_word_to_string, valid_env_name};
+use super::shell::{ShellToken, lex_shell};
 use super::session::{Session, set_env_bytes};
 use std::env;
 use std::fs;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use xsh::execution::value::Value;
-use xsh::frontend::source::{SourceId, Span};
 
-const CONFIG_PATH: &str = ".config/xshi/config.ini";
+const CONFIG_PATH: &str = ".config/xshi/config.ish";
 const PROFILE_PATH: &str = "/etc/profile";
 
 pub(super) fn load_profile(session: &mut Session, stderr: &mut dyn Write) {
@@ -59,9 +59,6 @@ fn apply_profile_line(session: &mut Session, line: &str) {
 
     let value = expand_config_vars(session, unquote_profile_value(value.trim()));
     set_env_bytes(&mut session.env, name.as_bytes(), value.as_bytes());
-    if name == "PATH" {
-        session.refresh_path_commands();
-    }
 }
 
 fn unquote_profile_value(value: &str) -> &str {
@@ -82,78 +79,6 @@ fn unquote_profile_value(value: &str) -> &str {
     }
 
     value
-}
-
-pub(super) fn load_config(session: &mut Session, stderr: &mut dyn Write) {
-    let Some(home) = &session.home else {
-        return;
-    };
-    let path = home.join(CONFIG_PATH);
-    let text = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(err) if err.kind() == io::ErrorKind::NotFound => return,
-        Err(err) => {
-            writeln!(
-                stderr,
-                "xshi: failed to read config {}: {err}",
-                path.display()
-            )
-            .ok();
-            return;
-        }
-    };
-    let span = Span::new(SourceId::new(0), 0, 0);
-    let value = match xsh::host::ini::decode(&text, span) {
-        Ok(value) => value,
-        Err(err) => {
-            writeln!(stderr, "xshi: failed to parse config: {}", err.message).ok();
-            return;
-        }
-    };
-    let Value::Record(fields) = value else {
-        writeln!(stderr, "xshi: config must be an INI record").ok();
-        return;
-    };
-    apply_config_record(session, &fields, stderr);
-}
-
-fn apply_config_record(
-    session: &mut Session,
-    fields: &xsh::execution::value::RecordMap,
-    stderr: &mut dyn Write,
-) {
-    for (name, value) in fields {
-        match name {
-            "env" => apply_config_env(session, value, stderr),
-            "aliases" => apply_config_aliases(session, value, stderr),
-            other => {
-                writeln!(stderr, "xshi: ignoring unknown config field '{other}'").ok();
-            }
-        }
-    }
-}
-
-fn apply_config_env(session: &mut Session, value: &Value, stderr: &mut dyn Write) {
-    let Value::Record(env_section) = value else {
-        writeln!(stderr, "xshi: config [env] must be a section").ok();
-        return;
-    };
-    for (name, value) in env_section {
-        let Value::Str(value) = value else {
-            writeln!(stderr, "xshi: skipping invalid env entry").ok();
-            continue;
-        };
-        let name = name.to_ascii_uppercase();
-        if !valid_env_name(&name) {
-            writeln!(stderr, "xshi: skipping invalid env entry").ok();
-            continue;
-        }
-        let expanded = expand_config_vars(session, value);
-        set_env_bytes(&mut session.env, name.as_bytes(), expanded.as_bytes());
-        if name == "PATH" {
-            session.refresh_path_commands();
-        }
-    }
 }
 
 fn expand_config_vars(session: &Session, value: &str) -> String {
@@ -190,56 +115,193 @@ fn expand_config_vars(session: &Session, value: &str) -> String {
     out
 }
 
-fn apply_config_aliases(session: &mut Session, value: &Value, stderr: &mut dyn Write) {
-    let Value::Record(aliases_section) = value else {
-        writeln!(stderr, "xshi: config [aliases] must be a section").ok();
+/// Loads `~/.config/xshi/config.ish`, or `path` when one is given explicitly.
+///
+/// Two directives are understood: `set NAME value` and `alias name word...`.
+/// Values expand like any command word (tilde, variables, substitutions).
+/// Blank lines and `#` comments are skipped; a bad line warns and loading
+/// continues. A missing default config is not an error; a missing explicit one
+/// is.
+pub(super) fn load_config(session: &mut Session, stderr: &mut dyn Write) {
+    let Some(home) = &session.home else {
         return;
     };
-    for (name, source) in aliases_section {
-        let Value::Str(source) = source else {
-            writeln!(stderr, "xshi: skipping invalid alias entry").ok();
+    let path = config_path_for(home);
+    load_config_path(session, &path, false, stderr);
+}
+
+fn config_path_for(home: &Path) -> PathBuf {
+    home.join(CONFIG_PATH)
+}
+
+pub(super) fn load_config_path(
+    session: &mut Session,
+    path: &Path,
+    explicit: bool,
+    stderr: &mut dyn Write,
+) {
+    let text = match fs::read_to_string(path) {
+        Ok(text) => text,
+        Err(err) => {
+            if explicit || err.kind() != io::ErrorKind::NotFound {
+                writeln!(stderr, "xshi: {}: {err}", path.display()).ok();
+            }
+            return;
+        }
+    };
+
+    for (index, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
             continue;
-        };
-        let name = name.to_string();
-        let source = source.to_string();
-        if validate_alias_source(&name, &source).is_ok() {
-            session.aliases.insert(name, source);
+        }
+        let lineno = index + 1;
+        if let Some(rest) = line.strip_prefix("set ") {
+            apply_set(session, rest.trim(), lineno, path, stderr);
+        } else if let Some(rest) = line.strip_prefix("alias ") {
+            apply_alias(session, rest.trim(), lineno, path, stderr);
         } else {
-            writeln!(stderr, "xshi: skipping invalid alias entry").ok();
+            writeln!(
+                stderr,
+                "xshi: {}:{lineno}: unrecognized directive: {line}",
+                path.display()
+            )
+            .ok();
         }
     }
 }
 
+fn apply_set(session: &mut Session, rest: &str, lineno: usize, path: &Path, stderr: &mut dyn Write) {
+    let (name, value_source) = match rest.split_once(char::is_whitespace) {
+        Some((name, value)) => (name.trim(), value.trim()),
+        None => (rest, ""),
+    };
+    if name.is_empty() {
+        writeln!(
+            stderr,
+            "xshi: {}:{lineno}: set: missing variable name",
+            path.display()
+        )
+        .ok();
+        return;
+    }
+
+    let expanded = if value_source.is_empty() {
+        String::new()
+    } else {
+        // The value is one shell word: quotes, tilde, variables, and
+        // substitutions behave as they do at the prompt.
+        let word = match lex_shell(value_source) {
+            Ok(tokens) => match tokens.into_iter().next() {
+                Some(ShellToken::Word(word)) => Some(word),
+                _ => None,
+            },
+            Err(_) => None,
+        };
+        match word {
+            Some(word) => match expand_word_to_string(session, &word) {
+                Ok(text) => text,
+                Err(error) => {
+                    writeln!(
+                        stderr,
+                        "xshi: {}:{lineno}: set {name}: expansion error: {}",
+                        path.display(),
+                        error.message()
+                    )
+                    .ok();
+                    return;
+                }
+            },
+            None => value_source.to_string(),
+        }
+    };
+
+    set_env_bytes(&mut session.env, name.as_bytes(), expanded.as_bytes());
+    if name == "HOME" || name == "USER" {
+        session.sync_prompt_identity();
+    }
+}
+
+fn apply_alias(
+    session: &mut Session,
+    rest: &str,
+    lineno: usize,
+    path: &Path,
+    stderr: &mut dyn Write,
+) {
+    let mut words = alias::lex_words(rest);
+    if words.is_empty() {
+        writeln!(stderr, "xshi: {}:{lineno}: alias: missing name", path.display()).ok();
+        return;
+    }
+    let name = words.remove(0);
+    if words.is_empty() {
+        writeln!(
+            stderr,
+            "xshi: {}:{lineno}: alias: missing expansion for '{name}'",
+            path.display()
+        )
+        .ok();
+        return;
+    }
+    session.aliases.set(name, words);
+}
+
 #[cfg(test)]
 mod tests {
-    use super::super::session::set_env_bytes;
     use super::*;
-    use std::sync::Arc;
-    use xsh::execution::value::RecordMap;
+
+    fn load(text: &str) -> (Session, String) {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("config.ish");
+        fs::write(&path, text).expect("write config");
+        let mut session = Session::for_test();
+        set_env_bytes(&mut session.env, b"HOME", b"/home/user");
+        let mut stderr = Vec::new();
+        load_config_path(&mut session, &path, true, &mut stderr);
+        (session, String::from_utf8(stderr).expect("utf8 diagnostics"))
+    }
 
     #[test]
-    fn apply_config_env_uppercases_lowered_ini_keys() {
-        let mut session = Session::new();
-        set_env_bytes(&mut session.env, b"PATH", b"/usr/bin");
-        set_env_bytes(&mut session.env, b"HOME", b"/home/user");
-
-        let mut section = RecordMap::new();
-        section.insert(
-            Arc::from("path"),
-            Value::Str("$HOME/.cargo/bin:$PATH".into()),
+    fn set_and_alias_directives_expand_values_and_keep_words() {
+        let (session, stderr) = load(
+            "# comment\n\nset EDITOR nvim\nset PAGER \"less -R\"\nset BIN $HOME/bin\nalias ll l\nalias gs git status -sb\n",
         );
-        let value = Value::Record(section);
-
-        apply_config_env(&mut session, &value, &mut Vec::new());
-
-        assert_eq!(
+        assert_eq!(stderr, "");
+        let get = |name: &str| {
             session
                 .env
-                .get(b"PATH".as_slice())
-                .map(|v| String::from_utf8_lossy(v).to_string()),
-            Some("/home/user/.cargo/bin:/usr/bin".to_string()),
-            "config key 'path' must be stored as uppercase 'PATH' \
-             so standard tools and $PATH expansion see it",
+                .get(name.as_bytes())
+                .map(|value| String::from_utf8_lossy(value).into_owned())
+        };
+        assert_eq!(get("EDITOR").as_deref(), Some("nvim"));
+        assert_eq!(get("PAGER").as_deref(), Some("less -R"));
+        assert_eq!(get("BIN").as_deref(), Some("/home/user/bin"));
+        assert_eq!(session.aliases.get("ll"), Some(&["l".to_string()][..]));
+        assert_eq!(
+            session.aliases.get("gs"),
+            Some(&["git".to_string(), "status".to_string(), "-sb".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn config_path_uses_non_utf8_home() {
+        use std::os::unix::ffi::OsStringExt;
+        let raw = std::ffi::OsString::from_vec(vec![b'/', b't', b'm', b'p', b'/', 0xf0, 0x80, 0x80, b'x']);
+        let path = config_path_for(Path::new(&raw));
+        assert_eq!(path, PathBuf::from(raw).join(".config/xshi/config.ish"));
+    }
+
+    #[test]
+    fn bad_lines_warn_with_position_and_loading_continues() {
+        let (session, stderr) = load("bogus line\nalias\nalias lonely\nset\nset OK yes\n");
+        assert!(stderr.contains(":1: unrecognized directive: bogus line"), "{stderr}");
+        assert!(stderr.contains("unrecognized directive: alias"), "{stderr}");
+        assert!(stderr.contains(":3: alias: missing expansion for 'lonely'"), "{stderr}");
+        assert!(stderr.contains("unrecognized directive: set"), "{stderr}");
+        assert_eq!(
+            session.env.get(b"OK".as_slice()).map(Vec::as_slice),
+            Some(&b"yes"[..])
         );
     }
 }

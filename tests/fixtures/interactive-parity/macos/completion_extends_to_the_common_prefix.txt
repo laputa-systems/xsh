@@ -1,0 +1,12 @@
+== frame grid_for_m cursor=0,29
+|testuser@<HOST> ~ $ cat src/m
+|main.rs  mod.rs  module_two.rs
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_od cursor=0,31
+|testuser@<HOST> ~ $ cat src/mod
+|mod.rs  module_two.rs
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame unique cursor=0,35
+|testuser@<HOST> ~ $ cat src/main.rs
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat

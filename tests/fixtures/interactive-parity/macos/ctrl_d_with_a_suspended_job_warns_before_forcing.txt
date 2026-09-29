@@ -1,0 +1,4 @@
+== frame first_ctrl_d cursor=0,0
+|<SHELL>: there is a suspended job. Press Ctrl+D again to force quit.
+== effect exit_status
+|Code(0)

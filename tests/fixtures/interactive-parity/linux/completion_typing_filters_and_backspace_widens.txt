@@ -1,0 +1,16 @@
+== frame all_files cursor=0,25
+|testuser@<HOST> ~ $ cat f
+|file-a1  file-a2  file-b1
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame filtered_to_a cursor=0,30
+|testuser@<HOST> ~ $ cat file-a
+|file-a1  file-a2
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame widened cursor=0,29
+|testuser@<HOST> ~ $ cat file-
+|file-a1  file-a2  file-b1
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame single_candidate cursor=0,30
+|testuser@<HOST> ~ $ cat file-b
+|file-b1
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

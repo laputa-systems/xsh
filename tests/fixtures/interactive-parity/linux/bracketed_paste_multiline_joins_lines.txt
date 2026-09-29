@@ -1,0 +1,12 @@
+== frame after_paste cursor=1,13
+|testuser@<HOST> ~ $ echo first
+|  echo second
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_enter cursor=4,20
+|testuser@<HOST> ~ $ echo first
+|  echo second
+|first echo second
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

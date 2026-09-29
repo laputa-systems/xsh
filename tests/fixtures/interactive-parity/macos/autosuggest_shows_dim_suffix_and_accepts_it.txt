@@ -1,0 +1,27 @@
+== frame suggested cursor=0,27
+|testuser@<HOST> ~ $ echo autosuggest here
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@0 fg=8 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 tosuggest here
+== frame accepted_with_right cursor=0,41
+|testuser@<HOST> ~ $ echo autosuggest here
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame accepted_with_end cursor=0,28
+|testuser@<HOST> ~ $ echo autosuggest here
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@0 fg=8 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 osuggest here
+== frame accepted_with_ctrl_e cursor=0,28
+|testuser@<HOST> ~ $ echo autosuggest here
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@0 fg=8 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 osuggest here
+== frame no_suggestion cursor=0,23
+|testuser@<HOST> ~ $ zzz
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 zzz
+== frame no_suggestion_when_cursor_moved_back cursor=0,27
+|testuser@<HOST> ~ $ echo aut
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo

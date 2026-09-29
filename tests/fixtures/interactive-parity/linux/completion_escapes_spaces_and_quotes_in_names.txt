@@ -1,0 +1,8 @@
+== frame space_escaped cursor=0,37
+|testuser@<HOST> ~ $ cat 'my file.txt'
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat
+== frame quote_escaped cursor=0,38
+|testuser@<HOST> ~ $ cat 'it'\''s here'
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cat

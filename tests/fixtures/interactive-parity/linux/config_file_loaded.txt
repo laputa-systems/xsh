@@ -1,0 +1,8 @@
+== frame after_alias cursor=3,20
+|testuser@<HOST> ~ $ echo hello_from_config world
+|hello_from_config world
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

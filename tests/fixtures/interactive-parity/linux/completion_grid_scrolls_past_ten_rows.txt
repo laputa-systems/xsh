@@ -1,0 +1,55 @@
+== frame first_page cursor=0,28
+|testuser@<HOST> ~ $ cat file
+|file-89.dat  file-66.dat  file-43.dat  file-20.dat
+|file-88.dat  file-65.dat  file-42.dat  file-19.dat
+|file-87.dat  file-64.dat  file-41.dat  file-18.dat
+|file-86.dat  file-63.dat  file-40.dat  file-17.dat
+|file-85.dat  file-62.dat  file-39.dat  file-16.dat
+|file-84.dat  file-61.dat  file-38.dat  file-15.dat
+|file-83.dat  file-60.dat  file-37.dat  file-14.dat
+|file-82.dat  file-59.dat  file-36.dat  file-13.dat
+|file-81.dat  file-58.dat  file-35.dat  file-12.dat
+|file-80.dat  file-57.dat  file-34.dat  file-11.dat
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame scrolled_down cursor=0,35
+|testuser@<HOST> ~ $ cat file-78.dat
+|file-87.dat  file-64.dat  file-41.dat  file-18.dat
+|file-86.dat  file-63.dat  file-40.dat  file-17.dat
+|file-85.dat  file-62.dat  file-39.dat  file-16.dat
+|file-84.dat  file-61.dat  file-38.dat  file-15.dat
+|file-83.dat  file-60.dat  file-37.dat  file-14.dat
+|file-82.dat  file-59.dat  file-36.dat  file-13.dat
+|file-81.dat  file-58.dat  file-35.dat  file-12.dat
+|file-80.dat  file-57.dat  file-34.dat  file-11.dat
+|file-79.dat  file-56.dat  file-33.dat  file-10.dat
+|file-78.dat  file-55.dat  file-32.dat  file-09.dat
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 file-78.dat
+== frame moved_right cursor=0,35
+|testuser@<HOST> ~ $ cat file-09.dat
+|file-87.dat  file-64.dat  file-41.dat  file-18.dat
+|file-86.dat  file-63.dat  file-40.dat  file-17.dat
+|file-85.dat  file-62.dat  file-39.dat  file-16.dat
+|file-84.dat  file-61.dat  file-38.dat  file-15.dat
+|file-83.dat  file-60.dat  file-37.dat  file-14.dat
+|file-82.dat  file-59.dat  file-36.dat  file-13.dat
+|file-81.dat  file-58.dat  file-35.dat  file-12.dat
+|file-80.dat  file-57.dat  file-34.dat  file-11.dat
+|file-79.dat  file-56.dat  file-33.dat  file-10.dat
+|file-78.dat  file-55.dat  file-32.dat  file-09.dat
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 file-09.dat
+== frame scrolled_back_up cursor=0,35
+|testuser@<HOST> ~ $ cat file-24.dat
+|file-79.dat  file-56.dat  file-33.dat  file-10.dat
+|file-78.dat  file-55.dat  file-32.dat  file-09.dat
+|file-77.dat  file-54.dat  file-31.dat  file-08.dat
+|file-76.dat  file-53.dat  file-30.dat  file-07.dat
+|file-75.dat  file-52.dat  file-29.dat  file-06.dat
+|file-74.dat  file-51.dat  file-28.dat  file-05.dat
+|file-73.dat  file-50.dat  file-27.dat  file-04.dat
+|file-72.dat  file-49.dat  file-26.dat  file-03.dat
+|file-71.dat  file-48.dat  file-25.dat  file-02.dat
+|file-70.dat  file-47.dat  file-24.dat  file-01.dat
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 file-24.dat

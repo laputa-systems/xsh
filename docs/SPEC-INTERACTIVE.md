@@ -1,727 +1,444 @@
 # XSHI Interactive Specification
 
-This is the authoritative implementation contract for `xshi`. `xsh` remains a
-strict script runner and `xsht` remains tooling-only. Interactive conveniences
-exist only inside `xshi`; they must not change `.xsh` script syntax, normal
-checking, normal runtime behavior, examples, docs generation, or tooling.
+This is the authoritative contract for `xshi`. `xsh` remains a strict script
+runner and `xsht` remains tooling-only. Interactive conveniences exist only
+inside `xshi`; they must not change `.xsh` script syntax, checking, runtime
+behavior, examples, docs generation, or tooling.
 
-The target user experience is the existing `ish` shell at `~/d/ish`. For
-terminal rendering and completion UI, `xshi` should borrow the `ish`
-implementation as directly as practical. In particular, rendering code from
-`ish/src/render.rs` and completion code from `ish/src/complete.rs` are
-correctness baselines, not loose inspiration. Do not replace them with a new
-terminal abstraction or third-party library. `ish` handles this with Rust and
-`libc`; `xshi` should do the same.
+## 1. Reference Shell And Deviations
 
-## 1. Boundaries
+`xshi` is behaviorally the `ish` shell (`~/d/ish`) built on XSH's process,
+filesystem, and stdlib facilities. What an `ish` user sees or gets from a
+keystroke is the contract: rendered screens and cursor positions, command
+results and statuses, and the files a session leaves behind. `xshi` ported
+`ish`'s algorithms (input decoding, line buffer, rendering, completion, history
+ranking, listing, denv); it does not embed `ish` or its shell engine and does
+not shell out for work the shell owns.
 
-`xshi` is an adapter layer over XSH facilities plus an interactive shell-subset
-frontend. It is not a second script language.
+The differential PTY scenarios in §14 are the executable form of this section.
+A behavior that differs from `ish` is either a bug or one of the deviations
+below; every deviation is covered by an `xshi`-only test.
 
-Required separation:
+Where `ish`'s README documents behavior its implementation lacks, `xshi`
+follows the README:
 
-- `xsh` does not accept shell-subset syntax such as bare `git status`.
-- `xsht check`, formatting, docs generation, examples, and tests do not read
-  `~/.config/xshi/config.xsh` or `~/.local/share/xshi/history`.
-- Aliases, prompt state, denv trust, history search, completion, and
-  autosuggestions are unavailable to scripts.
-- Interactive compatibility commands are enabled only through explicit
-  checker/runtime options.
-- Any reusable library API added outside `crates/xshi/src/interactive/` must be neutral for
-  existing scripts unless an interactive option is explicitly passed.
+- `&>` and `&>>` redirect both streams; `|&` pipes both (`ish` runs `&>` as a
+  background marker and rejects `|&`);
+- `**` matches recursively, and a pattern that matches nothing is an error with
+  status `2` (`ish` passes the pattern through literally);
+- quoted and escaped glob characters are literal (`ish` globs them anyway);
+- `$NAME<Tab>` completes shell variables (`ish` completes files);
+- `fg` continues an AND-OR list that was stopped while running one of its
+  commands (`ish` drops the rest of the list);
+- typing `exit` a second time forces the exit past a suspended job (`ish`
+  clears the warning before it looks at the line, so only Ctrl-D forces it),
+  and the forced exit sends the job `SIGTERM` then `SIGCONT`.
 
-The expected source layout is:
+Other deliberate differences:
 
-```text
-crates/xshi/src/main.rs
-crates/xshi/src/interactive/
-  mod.rs
-  app.rs
-  session.rs
-  shell/
-    lex.rs
-    parse.rs
-    ast.rs
-    lower.rs
-    glob.rs
-  config.rs
-  denv.rs
-  edit.rs
-  render.rs
-  complete.rs
-  history.rs
-  prompt.rs
-  listing.rs
-  z.rs
-```
+- history is safe under concurrent shells (§8): `ish` can lose entries when
+  shells exit around one another, treats a torn record as a command, and can
+  stop syncing on an invalid-UTF-8 line;
+- `ssh`/`scp` remote path completion passes the host as one process argument;
+  `ish` interpolates it into a local `sh -c` string;
+- `-c COMMAND` runs one command line; `--config PATH` replaces `ish`'s `-c PATH`;
+- `eval` and `exec` exist; `exec COMMAND` runs the command and then leaves the
+  shell (a command that cannot start leaves the shell running);
+- shell functions, `trap`, `readonly`, `shift`, `local`, and `init.sh` are not
+  implemented, and option forms such as `set -e` are accepted and ignored;
+- messages are prefixed `xshi:` instead of `ish:`, state lives under `xshi`
+  (`~/.config/xshi`, `~/.local/share/xshi`, `~/.cache/xshi/dump-<hex>`), and the
+  layout-dump builtin is `xshi-dump`;
+- `xshi`-only additions that leave `ish`-shaped input alone: XSH source at the
+  prompt (§5), trailing `&` for one simple command, `bg`, `z`, `:`, and
+  `history` subcommands.
 
-`edit.rs` decodes keys and mutates the line buffer. `render.rs` owns terminal
-geometry and repainting. `complete.rs` owns completion classification,
-candidates, metadata, and grid state. These modules may depend on `Session`;
-normal parser/checker/runtime modules must not depend on them.
+There is no compatibility layer for earlier `xshi` behavior: its history
+records, `XH` cache, `config.ini`/`config.xsh`, and pipefail statuses are gone.
 
-## 2. Startup And Session State
+## 2. Boundaries
 
-Normal `xshi` startup requires both stdin and stdout to be TTYs. Non-TTY startup
-exits `2` with a clear diagnostic. `xshi --help` works without a TTY. `xshi
---no-config` starts without reading config.
+`xshi` is an adapter over XSH facilities plus an interactive shell frontend. It
+is not a second script language.
 
-When attached to a TTY, `xshi` initializes shell-style job-control state for
-itself only: it owns a shell process group, takes terminal foreground control,
-ignores or safely handles job-control signals in the shell, and restores default
-signal dispositions in external children. This policy must not make `xsh` or
-`xsht` ignore Ctrl-C.
+- `xsh` does not accept shell syntax such as bare `git status`.
+- `xsht check`, formatting, docs generation, examples, and tests never read
+  `~/.config/xshi/config.ish` or `~/.local/share/xshi/history`.
+- Aliases, prompt state, denv trust, history, completion, and autosuggestions
+  are unavailable to scripts.
+- Library changes outside `crates/xshi` must stay neutral for existing scripts
+  unless an interactive option is passed. The one such change so far is
+  `ProcessRedirection::ChildDup` (`docs/SPEC-OS.md`).
 
-Persistent prompt-to-prompt state:
+Source layout under `crates/xshi/src/interactive/`:
 
-- current working directory, always absolute;
-- a current-directory snapshot refreshed after successful cwd changes, containing
-  entry names, metadata, symlink targets, and the snapshot time for immediate
-  `l` rendering and cwd-root completion;
-- environment as byte strings, with `PWD` and `OLDPWD` maintained on cwd
-  changes;
-- PATH executable names cached from the session environment for command-position
-  completion and refreshed after config, denv, `set`, `unset`, assignment-only
-  `PATH=...`, and cwd-triggered denv changes;
-- aliases loaded from config and defined during the session;
-- denv trust and dirty state;
-- in-memory and on-disk history;
-- last shell status as `i32`;
-- previous process status for `$?` seeding;
-- one optional interactive job slot for a running-background or stopped job;
-- prompt cache inputs such as user, host, cwd, git branch, denv marker, and
-  color mode.
+| Module | Owns |
+| --- | --- |
+| `repl.rs` | the read loop, key handling per mode, layout dump |
+| `input.rs`, `line.rs` | key decoding, bracketed paste, the line buffer and kill ring |
+| `render.rs`, `term.rs`, `prompt.rs` | repainting geometry, terminal control, prompt text |
+| `complete.rs`, `path.rs` | candidates, grid layout, PATH executable cache |
+| `history.rs`, `history/store.rs` | in-memory history and search, on-disk log, cache, lock, reset |
+| `app.rs`, `session.rs`, `builtin.rs`, `alias.rs`, `config.rs` | line execution, session state, builtins, aliases, config |
+| `shell/` | lexer, parser, syntax tree, glob expansion |
+| `denv.rs`, `z.rs`, `listing.rs` | directory environments, frecency jumps, `l` |
+| `signal.rs`, `sys.rs` | SIGWINCH self-pipe and small descriptor helpers |
 
-Not persistent across prompt entries:
+Tests live beside the code (`ported_tests.rs` holds the ports of `ish`'s unit
+and integration tests; `history/tests.rs` holds the history store's).
 
-- top-level `let` or `var`;
-- `proc`, `pure`, `type`, and `use`;
-- imported modules;
-- local values and checker scopes.
-
-Each XSH prompt submission starts with a fresh program and symbol owner. After
-parse and check, it prepares reachable embedded standard-library implementations
-before execution. The program and symbols are discarded afterward; a failed
-parse, check, or execution leaves no program for the next submission to reuse.
-
-The process cwd may be updated for compatibility, but runtime calls should also
-receive cwd explicitly. All successful cwd changes use one shared path so `cd`,
-`z`, and denv hooks update `PWD`, `OLDPWD`, prompt inschema checks, and denv state
-consistently.
-
-After successful cwd changes, `xshi` eagerly reads the new directory once. The
-snapshot is used for no-argument `l` and for completion of entries directly
-under the cwd, including a new first token. `l` from this snapshot must not
-perform directory, metadata, symlink-target, username, or clock reads while
-rendering. The snapshot is invalidated before executing XSH prompt code,
-interactive compatibility commands, or external commands, because those may
-change filesystem state.
-
-## 3. Status Model
-
-`xshi` tracks:
-
-- `last_status: i32`, the shell-compatible prompt status;
-- `last_process_status: Option[ProcessStatus]`, the structured value exposed to
-  XSH `$?`.
-
-Status mapping:
-
-- successful session builtin: `0`;
-- session builtin usage error: `2`;
-- failed `cd`, `z`, denv operation, or utility command: `1` unless documented
-  otherwise;
-- command not found: `127`;
-- found but not executable or exec failure other than not-found: `126`;
-- external command exit code: that code;
-- external command signal: `128 + signal`;
-- XSH parse/check error at prompt: `2`;
-- XSH runtime traceback at prompt: runtime output status;
-- Ctrl-C canceled prompt buffer: `130`;
-- EOF/Ctrl-D on an empty buffer: exit with `last_status`;
-- `exit`: exit with `last_status`;
-- `exit N`: exit with `N` clamped to `0..255`; invalid `N` exits `2`.
-- successful `cmd &` background spawn: `0`;
-- foreground external command stopped by Ctrl-Z and auto-backgrounded: `148`;
-- `fg` with no job: `1`;
-- `bg` with no job or an already-running job: `1`;
-- successful `bg` resume: `0`.
-
-Pipelines use pipefail: the status is the rightmost nonzero segment status, or
-`0` if every segment succeeds.
-
-## 4. Input Classification
-
-Each submitted buffer is classified before execution. Classification is lexical
-and conservative; it should not require full XSH parsing to decide whether shell
-fallback is forbidden.
-
-Always XSH, with no shell-subset retry:
-
-- declaration/control starts: `let`, `var`, `proc`, `pure`, `use`, `export`,
-  `if`, `for`, `while`, `match`, `return`, `defer`, `guard`;
-- `type NAME = ...`;
-- expression-looking starts: `{`, `[`, `(`, string/path/fmt literals, numeric
-  literals, `null`;
-- XSH command forms: `run`, `print`, `eprint`;
-- module-qualified starts such as `fs.write`, `json.decode`, or
-  `process.which`.
-
-Reserved session commands are handled before alias expansion or external
-execution:
+## 3. Process And Command Line
 
 ```text
-exit cd set unset alias z denv c l w which history fg bg :
+xshi [-c COMMAND] [--config PATH] [--no-config] [-V|--version] [-h|--help]
 ```
 
-`true` and `false` are ambiguous:
+- Normal startup requires stdin and stdout to be terminals; otherwise it exits
+  `2` naming the requirement. `--help` and `--version` need no terminal.
+- Any positional argument is refused with exit `1`: the shell is
+  interactive-only.
+- `-c COMMAND` runs one line, without a terminal, and exits with its status.
+  Standard input passes through to the command, so `xshi -c 'cat > file'` works
+  as an `ssh host command` target. `/etc/profile` is read for `-c` only when
+  argv0 begins with `-`.
+- Interactive startup reads the profile, then the config (§7), then starts
+  denv for the initial directory.
+- `XSHI_HOSTNAME` replaces the machine's short name in the prompt.
+- `XSHI_ALLOW_NON_TTY_FOR_TESTS=1` runs the read-eval loop from piped stdin
+  with no terminal control. It exists for tests of shell semantics that need no
+  screen and is not a supported interface.
+- Exit codes reach the parent unmasked to the OS's range (`exit 300` exits
+  `44`).
 
-- bare `true` and bare `false` at command position are interactive command
-  forms with statuses `0` and `1`;
-- expression-shaped uses such as `false or true`, `let x = false`, `[false]`,
-  and `{ok: true}` are XSH;
-- chain/pipeline uses such as `true && echo ok`, `false || echo ok`, and
-  `true | wc -l` are shell-subset.
+With a terminal, the shell puts itself in its own process group, takes the
+foreground, handles job-control signals itself, and resets dispositions in
+children. Raw mode and bracketed paste are on only while the editor is reading
+and are restored on every exit path.
 
-Assignment-looking input:
+## 4. Session State And Statuses
 
-- `NAME=value` updates the session environment if `NAME` is valid;
-- `NAME=value cmd` is a per-command environment assignment;
-- invalid assignment-looking input such as `BAD-NAME=value` is a syntax error
-  with status `2`, not a plain shell word.
+Session state that survives from prompt to prompt: the working directory
+(absolute, with `PWD`/`OLDPWD` kept in step), exported variables, unexported
+shell variables, aliases, denv state, history, the prompt status, `$?`, and one
+job slot. XSH bindings (`let`, `proc`, `use`, …) do not persist: each XSH
+submission starts fresh.
 
-## 5. Shell-Subset Frontend
+Variables:
 
-The shell-subset lexer/parser/lowerer lives only under `crates/xshi/src/interactive/shell/`.
-It lowers to normal XSH run/process structures or narrow runtime APIs. It must
-not teach the core parser shell syntax.
+- exported variables are the environment children inherit; nothing else is;
+- `NAME=value` alone updates an exported variable in place, otherwise sets an
+  unexported shell variable; `NAME=value command` scopes the value to that
+  command; `export`, `set NAME value...`, and `unset` manage exported ones;
+- `$NAME`, `${NAME}`, `$?`, and `$$` expand; an invalid assignment prefix such
+  as `BAD-NAME=value` reports `invalid environment assignment`.
 
-Required shell-subset behavior:
+Two statuses exist. The prompt status (its color, and Ctrl-D's exit) reflects
+the last line, including commands the shell answers itself. `$?` is the status
+of the last command that ran a program or ordinary builtin; `cd`, `fg`, `w`,
+`history`, and the other session commands leave it alone.
 
-- bare external commands run without `run`;
-- chains support `;`, `&&`, and `||`;
-- pipelines support `|` and `|&`;
-- redirections support `<`, `>`, `>>`, `2>`, `2>>`, `2>&1`, and `1>&2`;
-- a single trailing `&` is accepted only for one simple external command;
-- assignment-only env updates and per-command env assignments work;
-- tilde, variables, arithmetic expansion, command substitution, quotes, sorted globs, `**`, and
-  no-match glob errors follow the documented expansion order;
-- session builtins inside pipelines are rejected before any segment runs;
-- `sudo` argv are not rewritten; delegated commands resolve through the normal
-  PATH rules of the invoked privilege tool;
-- nonzero external exits are ordinary statuses, not XSH tracebacks.
+| Situation | Status |
+| --- | --- |
+| program exits `N` / dies of signal `S` | `N` / `128 + S` |
+| command not found / not executable / bad interpreter | `127` / `126` / `126` |
+| syntax error, glob with no match, session-builtin usage | `2` |
+| pipeline | the last stage's |
+| `cmd $(failing)` | the substitution's status is ignored |
+| Ctrl-C at the prompt | `130` |
+| foreground command stopped by Ctrl-Z | `148` |
+| `exit [N]` | `N` (garbage or missing: `0`) |
+| Ctrl-D on an empty line | success |
 
-Expansion order:
+Exec failures print `NAME: not found`, `NAME: permission denied`, or
+`NAME: INTERPRETER: bad interpreter: …`.
 
-1. alias expansion in command position only;
-2. tilde expansion for `~` and `~/...`;
-3. variable expansion;
-4. arithmetic expansion;
-5. command substitution;
-6. quote removal;
-7. glob expansion.
+## 5. Input Classification
 
-Arithmetic expansion uses `$((EXPR))`, evaluates signed integer arithmetic,
-and produces a single decimal word fragment. Supported operators are unary
-`+`, `-`, `!`, binary `+`, `-`, `*`, `/`, `%`, and parentheses. Bare variable
-names and `$NAME` read integer values from the session environment; unset or
-empty variables evaluate as `0`.
+A submitted line is shell input unless it is lexically XSH. Always XSH:
+declaration and control starts (`let var proc pure use if for while match
+return defer guard`), `run`, `print`, `eprint`, `type NAME = …`, `export
+let|var|proc|pure|stream|type …` and `export name: Type`, module-qualified
+starts (`fs.write …`), and expression starts (`{`, `(`, a `[` not followed by
+a space, string/path/format literals, `null`, digits). Ambiguous words go to the
+shell form: `export NAME=v`, `type ls`, `set …`, `source f`, `alias name cmd`.
+`true` and `false` are shell builtins unless the line is an expression
+(`false or true`, `[false]`).
 
-Single quotes disable variable expansion, arithmetic expansion, command substitution, tilde
-expansion, and glob expansion. `~user` is deferred.
+XSH source runs through the normal parser, checker, and runtime with the
+session's environment and directory. A parse or check error prints the
+diagnostic and the session continues.
 
-Background execution is deliberately narrow in v1. `sleep 10 &` and
-`FOO=bar sleep 10 &` may start an external command in the single job slot.
-Chains, pipelines, session builtins, assignment-only input, and non-trailing
-`&` are rejected. This syntax is xshi-only and does not affect `.xsh`, `xsh`,
-or `xsht`.
+## 6. Shell Language
 
-## 6. Config
+Lines are tokenized as a POSIX-like interactive subset:
 
-Config path: `~/.config/xshi/config.xsh`. Missing config is not an error.
-`--no-config` skips config entirely.
+- words with `'…'`, `"…"`, and `\` quoting; `#` starts a comment at a word
+  start; an unterminated quote, trailing `\`, or trailing `|`, `&&`, `||`
+  continues the line on a new prompt;
+- lists with `;`, `&&`, `||`; pipelines with `|` and `|&`; a single trailing
+  `&` for one simple external command;
+- redirections `<`, `>`, `>>`, `2>`, `2>>`, `>&2`, `2>&1`, `&>`, `&>>`,
+  applied left to right (`> f 2>&1` and `2>&1 > f` differ, as in a POSIX
+  shell), relative to the session directory;
+- a builtin in a pipeline runs against a copy of the session, so `cd d | cat`
+  leaves the shell where it was.
 
-Interactive `xshi` startup reads `/etc/profile` before user config. `xshi -c`
-also reads `/etc/profile` when argv0 begins with `-`. The supported profile
-subset is `NAME=value` and `export NAME=value`; unsupported lines are ignored.
+Expansion order: alias, tilde, parameters, arithmetic `$((…))`, command
+substitution (`$(…)` and backticks), field splitting, pathname expansion, quote
+removal.
 
-V1 config is a data record:
+- Aliases expand only the first word of a line, on the space that follows it in
+  the editor and again when the line is submitted. They do not expand after
+  `;` or `|`, in quotes, or in arguments.
+- Substitution output has trailing newlines removed. Unquoted, it splits into
+  fields and is then globbed; quoted, it is neither.
+- Globs are sorted, skip dot files unless the pattern starts with `.`, support
+  `*`, `?`, `[…]` (with `!`/`^` negation and ranges), and `**`. Quoted or
+  escaped metacharacters are literal. A pattern that matches nothing is an
+  error with status `2`.
+- `sudo` and other wrappers receive their argv unchanged; command names resolve
+  through the session `PATH`.
 
-```xsh
-{
-  env: [
-    {name: "EDITOR", value: "/usr/bin/vim"},
-  ],
-  aliases: [
-    {name: "gs", source: "git status -sb"},
-  ],
-}
-```
+Command substitution runs against a detached copy of the session: it sees the
+directory, environment, and aliases, and its side effects do not reach the
+parent.
 
-Schema:
+## 7. Config And Profile
 
-- `env: List[{name: Str, value: Str}]`;
-- `aliases: List[{name: Str, source: Str}]`.
-
-Unknown fields warn and are ignored. Invalid env entries or aliases warn and
-are skipped. Alias sources are validated at load time for parseability,
-recursion, and invalid pipeline/session-builtin contexts. Config warnings go to
-stderr before the first prompt and do not prevent startup unless terminal
-initialization itself fails.
-
-Config never affects scripts or tooling.
-
-## 7. History
-
-History path: `~/.local/share/xshi/history`.
-
-On-disk records are one entry per line:
+`~/.config/xshi/config.ish`, or `--config PATH`, is read once at startup unless
+`--no-config`. A missing default file is silent; a missing explicit file warns.
+It is a list of directives, one per line, with `#` comments:
 
 ```text
-TIMESTAMP_MS COMMAND
+set NAME value...
+alias name command...
 ```
 
-`TIMESTAMP_MS` is an epoch-millisecond integer. `COMMAND` is the command source
-with embedded newlines collapsed to spaces. Readers accept this compact format,
-legacy plain command lines, temporary three-field `TIMESTAMP_MS 0 COMMAND`
-records, and `ish` `:ish-history:v1` records for migration. Writers emit only
-the two-field compact format.
-
-For prompt-entry performance, `xshi` reads wall-clock time only when a command
-is accepted into persistent history. Editing, prompt rendering, completion,
-autosuggestion, history navigation, and history search must not read the clock.
-The timestamp read is intentionally adjacent to the existing history append I/O,
-so it is paid once per stored command and can reconcile ordering across multiple
-`xshi` instances.
-
-History rules:
-
-- append submitted prompt entries after successful classification/lowering;
-- do not store empty, whitespace-only, canceled, or EOF buffers;
-- suppress consecutive duplicates;
-- store in-memory history as one command arena plus compact offset and metadata
-  arrays so prefix search, autosuggestions, history navigation, and fuzzy
-  search return borrowed entries or entry indices rather than cloned commands;
-- maintain a hash-to-index map so adding or syncing a duplicate command removes
-  the older in-memory entry before appending the newer one;
-- keep an implementation-private binary cache next to the text history file;
-  startup loads the cache, syncs only the appended text tail, and compaction
-  rewrites the cache atomically before truncating the text tail;
-- synchronize history from other `xshi` instances with one file-size metadata
-  check per prompt; when the file grew, read only bytes after the previous
-  offset;
-- protect cache compaction with a non-blocking lock and skip compaction if
-  another shell is already compacting;
-- store the expanded source that actually ran where the lowering path can
-  provide it;
-- support prefix navigation and fuzzy search;
-- keep fuzzy search result buffers reusable and index-based; search results
-  carry entry indices, fixed match-position storage, and score metadata;
-- history lookup must not block prompt rendering on large files.
-
-Autosuggestions use session history only. They are described in §10 because
-they are rendered as prompt ghost text.
-
-## 8. Prompt
-
-The prompt displays user, host, shortened cwd, git branch, denv dirty marker,
-and success/failure marker. Color mode follows TTY and `NO_COLOR`.
-
-Rendering requirements:
-
-- prompt width calculations ignore ANSI color sequences;
-- deleted cwd must not panic prompt rendering;
-- git branch lookup is cached outside prompt rendering and refreshed after cwd
-  changes and after each accepted command, so local git metadata changes become
-  visible on the next prompt without doing git filesystem reads during render;
-- status color and marker use `last_status`;
-- denv dirty marker is visible before the command marker.
-
-## 9. Editing
-
-The editor runs in raw mode only after CLI, TTY, and config preflight succeed.
-Bracketed paste is enabled while raw mode is active and disabled on every exit
-path.
-
-Required key behavior:
-
-- UTF-8 insertion and cursor movement use byte-safe character boundaries;
-- Left/Right move by character;
-- Alt/Control Left/Right move by word;
-- Home/Ctrl-A and End/Ctrl-E move to start/end;
-- Backspace/Delete delete backward/forward;
-- Ctrl-K, Ctrl-U, Ctrl-W, and Ctrl-Y implement kill/yank;
-- Ctrl-C cancels the current buffer, sets status `130`, and does not add
-  history;
-- Ctrl-D on an empty buffer exits with `last_status`;
-- Ctrl-L clears the visible screen;
-- Ctrl-R enters interactive fuzzy history search with a separate query buffer
-  and does not commit history text into the prompt until the search is accepted;
-- in history search, Enter accepts the selected history entry into the prompt,
-  while Escape and Ctrl-C cancel the search and restore the original buffer;
-- bracketed paste inserts text and does not execute until Enter outside paste;
-- multiline continuation handles trailing shell operators, trailing backslash,
-  and unterminated shell quotes/substitutions.
-
-## 10. Rendering And Autosuggestions
-
-Terminal rendering is correctness-sensitive. `xshi` should port the `ish`
-rendering model directly:
-
-- `RenderedRegion` tracks whether the previous prompt render is anchored, how
-  many rows were painted, and the cursor row/column;
-- prompt repainting begins by returning to the top of the previous rendered
-  region and clearing the larger of previous/new row counts;
-- single-line layout accounts for prompt display width, line display width,
-  cursor display column, autosuggestion width, terminal width, and exact
-  terminal-edge pending wrap; a wide character with one column left wraps
-  before drawing, while combining marks consume no column;
-- multiline layout gives subsequent lines a continuation prompt and computes
-  cursor row/column by segment;
-- cursor restoration moves from the rendered region end back to the logical
-  cursor position;
-- rendering must avoid writing into the terminal’s last column when drawing
-  completion grids;
-- all terminal size, raw mode, cursor movement, polling, and subprocess helper
-  behavior uses standard library plus `libc`, matching `ish`.
-- terminal size is sampled once per input/render cycle and threaded through
-  completion and repaint helpers; tight edit loops must not perform separate
-  size ioctls for completion classification, autosuggestion rendering, and final
-  repaint in the same cycle.
-
-Autosuggestion ghost text:
-
-- source is the most recent history entry with the current buffer as a prefix;
-- shown only when the buffer length is at least 3, the buffer is single-line,
-  and the cursor is at end of line;
-- rendered in dim gray after the line content;
-- does not become part of the buffer until accepted;
-- Right Arrow at end of line accepts the full suggestion;
-- ghost text is absent during completion menus, history search, command
-  submission, cancellation, and child-process handoff.
-
-History search UI:
-
-- renders a transient `search: ` header containing the query, with fuzzy matches
-  listed below it;
-- highlights the selected result with reverse video and matched characters in
-  unselected rows;
-- accepts a result into the prompt on Enter but does not submit it until a later
-  Enter in normal editing mode;
-- suppresses autosuggestions and completion menus while active.
-
-## 11. Completion
-
-Completion is scoped to the current buffer. It must not rely on XSH top-level
-bindings from previous prompt entries because those do not persist.
-
-Candidate sources:
-
-- XSH keywords, current-buffer local names, standard modules/APIs, methods,
-  fields where checker context is available, and type names in XSH contexts;
-- aliases;
-- xshi session builtins;
-- shell command positions;
-- PATH executables;
-- paths and directories;
-- `$` environment variables;
-- SSH hosts and remote paths in ssh-like command contexts.
-
-Completion state and rendering should follow `ish/src/complete.rs`:
-
-- `Completions` stores names in one arena string plus compact entry offsets;
-- `CompEntry` stores mtime, name offset/length, display width, and flags for
-  directory, symlink, executable, and host;
-- sorting is deterministic, with mtime sorting for path entries and
-  case-insensitive alphabetical tie-breakers;
-- display width is computed locally, including combining marks and wide CJK or
-  emoji ranges; do not add a unicode-width dependency;
-- `compute_grid(entries, term_cols)` tries up to 6 columns and returns the
-  widest column-major layout that fits the terminal;
-- the selected candidate is highlighted with reverse video;
-- directories, symlinks, executables, and hosts use distinct styles when color
-  is enabled;
-- visible grid rows are capped and scrolled around the selected row.
-
-Path completion:
-
-- `~` and `~/...` expand against the session home for lookup while preserving
-  the user-facing tilde prefix on insertion/display;
-- `~user` is not completed in V1;
-- `cd` and `z` argument contexts complete only directories and symlinks to
-  directories;
-- hidden entries are omitted unless the typed prefix starts with `.`;
-- `.` and `..`, invalid UTF-8 names, and names containing control characters
-  are omitted;
-- prefix matches win; only when no prefix matches exist may completion fall
-  back to case-insensitive substring matches;
-- directory completions append `/`;
-- quoted insertions keep `~/` outside quotes so tilde expansion remains valid.
-- non-cwd directory completion results are cached by directory path and directory
-  mtime/nanosecond stamp; repeated completions in an unchanged directory reuse
-  cached names and metadata, while mtime changes force a refresh. The eager cwd
-  snapshot remains the source for entries directly under the current directory.
-
-Partial path completion:
-
-- `complete_partial_path` treats unresolved intermediate components as
-  directory prefixes, fish-style;
-- if the literal directory prefix already exists, ordinary path completion owns
-  the result;
-- expansion is capped to avoid combinatorial explosions;
-- relative, absolute, and `~/` roots preserve their user-facing prefix.
-
-Examples:
-
-```text
-cd ~/<Tab>             -> list directories under HOME, inserted as ~/name/
-cd ~/d/pr/xs<Tab>     -> may resolve d -> d, pr -> projects, xs -> xsh
-ls tom<Tab>           -> may find Cargo.toml only if no prefix matches exist
-```
-
-SSH completion:
-
-- command contexts: `ssh`, `scp`, `rsync`, `sftp`, and `mosh`;
-- host candidates come from `~/.ssh/config` `Host` entries and
-  `~/.ssh/known_hosts`;
-- wildcard hosts, `?` hosts, `.`, comments, empty lines, and hashed known-host
-  lines are skipped;
-- `host:path-prefix` invokes bounded remote path completion using
-  `ssh -o BatchMode=yes -o ConnectTimeout=2`;
-- remote output is parsed from `ls -dp`, strips the already typed remote
-  directory prefix, and appends `/` for directories;
-- timeout, auth failure, ssh failure, malformed output, or unavailable ssh
-  returns no candidates rather than blocking or printing prompt noise.
-- the typed host is one process argument, not local shell source; the remote
-  path prefix is quoted before appending the wildcard. Completion accepts only
-  successful, UTF-8, prefix-matching `ls -dp` output within 64 KiB and the
-  three-second deadline.
-
-Completion UI:
-
-- Tab inserts a single unambiguous candidate or a longer common prefix;
-- ambiguous Tab opens the completion grid;
-- opening an ambiguous grid does not immediately accept or preview a candidate;
-- repeated Tab and arrow keys navigate the selected candidate when a completion
-  grid is active and preview that candidate in the prompt buffer;
-- Enter accepts the selected candidate and closes the grid without submitting
-  the command; a second Enter submits after completion mode has ended;
-- Escape/Ctrl-C cancels the grid;
-- typing while the grid is open filters/recomputes candidates;
-- completion UI text must not explain shortcuts inside the prompt.
-
-## 12. Session Builtins And Utilities
-
-Builtins:
-
-- `exit [N]`;
-- `cd [PATH]`;
-- `set NAME=VALUE`;
-- `unset NAME`;
-- `alias NAME=SOURCE`;
-- `z QUERY`;
-- `denv allow|deny|reload|status`;
-- `c`;
-- `l [PATH...]`;
-- `w NAME` and `which NAME`;
-- `fg`;
-- `bg`;
-- `:`.
-
-`cd` with no path changes to `HOME`. `cd -` changes to `OLDPWD`. `cd` in a
-pipeline is rejected. `cd src && git status` runs as a shell-subset chain with
-session cwd mutation before the second segment.
-
-`:` is the shell no-op builtin. It succeeds with no output and exists so
-`xshi -c` can serve as the bootstrap `/bin/sh` for command chains such as
-`: && cc ... && :`.
-
-`l` renders deterministic listings and does not shell out to `ls`. Multiple
-targets are rendered in argument order. The default long listing omits hardlink
-count and group name, uses a uid-to-username map cached at `xshi` startup, and
-aligns metadata columns so all filenames in the rendered listing start at the
-same column.
-
-Core utilities are ordinary PATH commands. `xshi` does not promote a separate
-compatibility-builtin command set.
-
-`history [N]` is a session builtin, not a compatibility builtin. It prints
-numbered entries from the current `xshi` history, optionally limited to the last
-`N` entries, and remains unavailable to normal `.xsh` scripts.
-
-External tools whose value is their existing interactive process behavior, such
-as `less`, `man`, `ssh`, and `git`, are not promoted as native compatibility
-builtins. Invoke them as external commands in `xshi` or through explicit `run`
-in scripts.
-
-`du` reports apparent sizes and supports `-h`, `-s`, `-a`, `-c`, default path
-`.`, and deterministic recursive output.
-
-`tree` supports path operands, `-a`, `-d`, `-L N`, symlink target display,
-final counts, `-I`/`--no-ignore` as a compatibility no-op, and
-`--color=auto|always|never` as a compatibility no-op.
-
-`pstree` uses `process.list()` data. On macOS, its default view delegates to the
-host `pstree -w` implementation so the output, process visibility, command
-arguments, root selection, and tree glyphs have host-tool parity. Other
-platforms use the XSH renderer, which defaults to psmisc-style `-Gatlp` output:
-command arguments, VT100-style tree drawing, long lines, full process names,
-and PID display. The XSH renderer accepts `-a`/`--arguments`, `-A`/`--ascii`,
-`-c`/`--compact-not`, `-G`/`--vt100`, `-l`/`--long`, `-h`/`--help`,
-`-p`/`--show-pids`, `-s`/`--show-parents`, `-t`/`--thread-names`, and
-`-T`/`--hide-threads`, plus optional `PID` or `USER` selection, cycle
-protection, and deterministic child ordering by pid.
-Thread-oriented utilities can use `process.threads()` for per-thread records on
-Linux and macOS.
-
-`rg` supports pattern plus paths, `-e`, `-i`, `-F`, `-w`, `-x`, `-v`, `-n`,
-`-H`, `-h`, `-l`, `-c`, `-q`, `--hidden`, `-I`/`--no-ignore`, `-g`/`--glob`,
-and `--color=auto|always|never`. A match returns `0`; no matches return `1`;
-usage errors return `2`.
-
-`fd` supports optional pattern and roots, `-H`/`--hidden`,
-`-I`/`--no-ignore`, `-d`/`--max-depth`, `-t`/`--type`, `-e`/`--extension`,
-`-g`/`--glob`, `-i`/`--ignore-case`, `-a`/`--absolute-path`, `-0`/`--print0`,
-and repeated `-E`/`--exclude`. No matches are still status `0`.
-
-## 13. Single-Job Control
-
-`xshi` has exactly one managed job slot. A job stores the managed child, pid,
-process group, display command, state (`RunningBackground` or `Stopped`), saved
-child terminal attributes when available, last known status, and whether a
-notification has already been printed. This is an interactive-only feature; it
-does not add shell job syntax to `.xsh` files.
-
-Foreground external commands temporarily leave raw mode and bracketed paste,
-spawn the child in a new process group with default child signal dispositions,
-give the terminal foreground to the child process group, wait with stopped
-status reporting enabled, reclaim terminal foreground for the shell, then
-resume raw mode before prompting. Ctrl-C during a foreground job is delivered by
-the terminal to the child process group and maps to `128 + signal`.
-
-`cmd &` starts one simple external command without giving it terminal
-foreground. The child inherits stdio, enters a new process group, and is stored
-as `RunningBackground`. On success, `xshi` prints a short job notification,
-sets prompt status to `0`, and invalidates the cwd snapshot. If the slot is
-already occupied, the command is rejected with status `1`.
-
-When a foreground external command stops due to Ctrl-Z, `xshi` captures the
-child terminal attributes when possible, reclaims terminal foreground, stores
-the job, immediately sends SIGCONT, marks it `RunningBackground`, prints
-`xshi: backgrounded: ...`, and returns prompt status `148`. If the job slot is
-already occupied, `xshi` must not silently drop either process; the
-implementation reports the conflict and leaves the newly stopped process
-unmanaged rather than replacing the existing slot.
-
-`fg` is a session builtin. With no job it prints `xshi: fg: no background job`
-and returns status `1`. Otherwise it polls the job first; an already-complete
-job is reported, cleared, and returns its job status. A running-background job
-is foregrounded and waited. A stopped job is foregrounded, restored terminal
-attributes are applied when available, SIGCONT is sent, and the job is waited.
-Exit or signal completion clears the slot and sets prompt status from the job.
-Stopping again uses the same Ctrl-Z auto-background policy.
-
-`bg` is a session builtin. With no job it returns status `1`. If the job is
-stopped, `bg` sends SIGCONT to the process group, marks it
-`RunningBackground`, prints a resume notification, and returns status `0`. If
-the job is already running in background, it prints `xshi: bg: job already
-running` and returns status `1`. `bg` never takes terminal foreground and never
-waits for completion.
-
-Before each prompt render, `xshi` polls the job slot without blocking. Exited
-or signaled background jobs are reported and cleared without overwriting
-`last_status`; stopped background jobs are marked `Stopped` and reported.
-Actual reaping happens in normal code, not in a signal handler. `exit` with a
-live job is rejected with status `1`; the user must `fg` it, let it finish, or
-kill it externally.
-
-## 14. Denv And z
-
-`z` derives scoring from xshi history only, using `cd` and `z` entries.
-Successful jumps route through the same cwd-change path as `cd`.
-
-Denv hooks run on startup, after cwd changes, and before each prompt render.
-Denv uses a git-root directory snapshot cache to avoid filesystem reads while
-the current directory stays inside the cached repository and no prompt command
-has invalidated directory snapshots. Added or removed `.env` and `.envrc` files
-at the git root are picked up after commands that may mutate the filesystem.
-Trust state is explicit. Untrusted hooks warn and do not run. Dirty state is
-visible in the prompt. Hook execution mutates only the xshi session environment.
-
-## 15. Tests
-
-Required unit coverage:
-
-- classification ambiguity for XSH starts, `true`/`false`, `type`, and
-  assignment-looking input;
-- shell lexing/parsing/lowering, expansion order, aliases, globbing,
-  redirections, status mapping, and config checks;
-- shell parser and validation coverage for trailing `&`, `&&`, bare `&`,
-  rejected background chains, rejected background pipelines, and rejected
-  background builtins;
-- session builtin detection for `fg` and `bg`, including aliases not
-  overriding them;
-- completion path behavior for `~/`, hidden files, directory-only contexts,
-  prefix-vs-substring fallback, partial paths, host parsing, remote output
-  parsing, and `compute_grid`;
-- rendering geometry for ANSI prompt width, wrapped lines, multiline input,
-  pending-wrap boundaries, completion grids, and autosuggestion ghost text;
-- denv source appearance after snapshot invalidation, dirty prompt state, and
-  clearing that state after `denv allow`;
-- history prefix/fuzzy lookup and duplicate suppression.
-
-Required PTY coverage:
-
-- TTY-gated startup and `--help` on non-TTY;
-- prompt loop execution;
-- backspace and UTF-8 editing;
-- Ctrl-C status and cancellation;
-- bracketed paste;
-- `cd ~/<Tab>` path completion;
-- completion grid cursor preservation in narrow terminals;
-- Right Arrow accepting autosuggestion;
-- external commands run with terminal mode restored.
-- `sleep 1 &` returns a prompt immediately and reports completion before a
-  later prompt;
-- a second background job is rejected while the single slot is occupied;
-- `fg` can foreground a background job, and Ctrl-C then returns a prompt and
-  clears the slot;
-- Ctrl-Z on a foreground external command auto-backgrounds it, `bg` reports an
-  already-running job, and `fg` can foreground it again;
-- unsupported `cmd | cmd &`, `cmd && cmd &`, `cd /tmp &`, and compatibility
-  builtin background forms are rejected.
-
-Required separation coverage:
-
-- `xsh -i` and `xsh --interactive` fail with status `2` and mention `xshi`;
-- `xsh script.xsh` with `git status` fails unless explicit `run` is used;
-- `xsht check` ignores xshi config aliases;
-- docs generation and examples do not read xshi config/history;
-- xshi denv/env/session changes do not leak into scripts except through the
-  inherited OS environment of the launched process.
-
-Verification gates for broad interactive changes:
-
-```sh
-cargo test --lib interactive
-cargo test --test runtime xshi
-cargo dev check
-cargo test
-```
-
-Never build release binaries, run pre-commit hooks, or push.
-
-## 16. Explicit Deferrals
-
-The following are not V1 behavior unless this spec is updated:
-
-- POSIX shell compatibility as a goal;
-- multi-job control, job spec grammar, `%1`, `%+`, `jobs`, `disown`, and
-  `kill %1`;
-- background pipelines, background chains, and background session builtins;
-- shell functions;
-- shell arithmetic syntax;
-- arrays as shell syntax;
-- process substitution;
-- `~user`;
-- persistence of aliases/env changes back to config.
+Variables in values expand. An unrecognized directive warns as
+`xshi: PATH:LINE: unrecognized directive: …` and is skipped; warnings print
+before the first prompt.
+
+The profile (`/etc/profile`, overridable with `XSHI_PROFILE_PATH`) contributes
+only `NAME=value` and `export NAME=value` lines and is read before the config.
+
+## 8. History
+
+Files, all beside each other under `~/.local/share/xshi/`:
+
+| File | Content |
+| --- | --- |
+| `history` | append-only log, one record per line |
+| `history.bin` | compacted cache, format `ISH\x05` |
+| `history.lock` | advisory `flock` target |
+| `history.reset` | generation written by `history reset` |
+| `history.bin.corrupt` | an unreadable cache set aside by `history rebuild` |
+
+Log records are `:ish-history:v2\tTIMESTAMP_MS\tSESSION\tCWD\tCOMMAND`
+(`v1` has no cwd). `CWD` escapes `\\`, tab, newline, and carriage return. A plain
+line is a legacy command with unknown time, session, and directory. A line that
+carries the record prefix but does not parse is a torn record and is dropped.
+The cache holds `[magic][count][arena size][cwd arena size]`, one little-endian
+`u64` timestamp per entry (milliseconds since 1998-01-01), then NUL-terminated
+command and directory arenas. Any structural inconsistency makes the whole
+cache unreadable.
+
+Entries: commands are trimmed, embedded newlines become spaces, and a command
+that is empty, longer than 65,535 bytes, or contains NUL is not recorded. Each
+command appears once, at the position of its latest use.
+
+Every recorded command is appended to the log in one write before anything else
+happens, so the log plus the cache always hold the whole history. Compaction is
+a disk-to-disk merge that never trusts a shell's memory: under an exclusive
+lock it reads the cache and the whole log, lets a log record replace a cached
+entry only when strictly newer (a log left by a crashed compaction therefore
+cannot reorder anything), writes the cache through a temporary file and an
+atomic rename, then truncates the log. It runs when a shell exits and on
+`history compact`, and yields quietly when another shell holds the lock,
+because nothing is lost by skipping it.
+
+Locking: appenders and readers hold the lock shared, compaction and reset hold
+it exclusive, and every wait is bounded so a stuck peer cannot hang a prompt.
+Loading never writes.
+
+Sync, run before every prompt and every Ctrl-R, costs three `stat` calls when
+nothing changed. It reads only the new complete lines of the log; a line still
+being written is left for the next sync and a line that is not valid UTF-8 is
+skipped. A shell recognizes its own records by session id. If the cache's or
+log's identity changed (another shell compacted or replaced them) it re-reads
+both. Entries other shells add after this shell started are merged into memory
+but stay out of Up-arrow recall, Ctrl-R, and autosuggestions until the next
+shell starts, so a session's own history does not shift under the user.
+
+Reset: `history reset` deletes the log, cache, and quarantined cache and writes
+a new generation. Running shells see the marker change at their next sync or
+add, clear their memory, and cannot resurrect old entries at exit.
+
+Recovery: an unreadable cache is announced once at startup; the shell loads the
+log only and refuses to overwrite the cache until `history rebuild`, which sets
+the file aside as `history.bin.corrupt` and writes a new cache from what is
+recoverable. A torn tail on the log is closed with a newline before the next
+record is appended.
+
+Search ranks by tier (prefix, word-boundary substring, substring,
+subsequence), then recency, with a boost for entries recorded in the current
+directory or an ancestor. Autosuggestions use the most recent session-visible
+entry having the buffer as a prefix.
+
+`history` prints entries; `history compact`, `history rebuild`, `history reset`,
+and `history -h` manage storage.
+
+## 9. Prompt, Editing, Rendering
+
+The prompt is `user@host cwd git-branch [*] $`: the cwd is shortened in the
+middle (`~/.config/fish` → `~/.c/fish`), the branch comes from `.git/HEAD`
+without a subprocess, a red `*` marks a denv with pending changes, and the
+prompt is green after success and red after failure. Every prompt is preceded by
+an OSC 7 working-directory report.
+
+Keys:
+
+| Key | Action |
+| --- | --- |
+| Ctrl-A / Home, Ctrl-E / End | line start / end |
+| Left, Right | one character |
+| Ctrl-Left, Alt-B / Ctrl-Right, Alt-F | one word |
+| Backspace, Delete, Ctrl-D | delete before / after the cursor; Ctrl-D on an empty line exits |
+| Ctrl-K, Ctrl-U, Ctrl-W / Ctrl-Delete, Alt-D | kill to end, to start, word back, word forward |
+| Ctrl-Backspace | pick from the directories this shell has visited, most recent first |
+| Ctrl-Y | yank the kill ring (one ring, shared by all kills) |
+| Ctrl-C | discard the line, status `130` |
+| Ctrl-L | clear the screen, keep the line |
+| Ctrl-P | write a layout dump to `~/.cache/xshi/dump-<hex>` without touching the screen; the `xshi-dump` builtin does the same |
+| Up, Down | move by visual row; at the first or last row, prefix search through session history |
+| Tab, Ctrl-R | completion (§10), history search |
+
+Text is UTF-8 throughout: cursor motion and deletion work on characters, widths
+account for wide characters and combining marks, and a wide character with one
+column left wraps before drawing. Long lines wrap as a grid; pasted multi-line
+input keeps its lines and Up/Down move between them. Bracketed paste inserts
+text without executing it and is rejected above 8,192 bytes.
+
+The autosuggestion ghost text shows the rest of the newest matching history
+entry after the cursor when the buffer is at least three characters, single
+line, and the cursor is at its end; Right, End, or Ctrl-E accepts it.
+
+Repainting returns to the top of the previous region and clears the larger of
+the old and new row counts, so output never stacks across resizes or wrapped
+lines. SIGWINCH reaches the read loop through a self-pipe and repaints.
+
+History search (Ctrl-R) is a pager: a `search:` header, matches below it with
+matched characters highlighted, Up/Down to move, Enter to accept into the
+prompt, Escape or Ctrl-C to cancel.
+
+## 10. Completion
+
+Tab classifies the word at the cursor:
+
+| Context | Candidates |
+| --- | --- |
+| empty line | inserts `cd ` |
+| `$NAME` (also inside double quotes) | variable names, exported or not |
+| first word, or after `\|`, `&&`, `;` | builtins, aliases, PATH executables, directories |
+| after `cd` | directories only |
+| `ssh scp rsync sftp mosh` | hosts from `~/.ssh/config` and `known_hosts`, then files; `host:path` lists remote paths |
+| anything else | files and directories |
+
+Path candidates are sorted by modification time, newest first, and colored
+(directories blue, symlinks cyan, executables green). Hidden names appear only
+for a prefix that starts with `.`; prefix matches win over substring matches;
+`~/` is preserved; a path whose intermediate components are prefixes resolves
+fish-style. Names needing quoting are single-quoted on insertion.
+
+A single candidate or a longer common prefix is inserted. Otherwise a column-major
+grid of up to six columns and ten visible rows opens with no selection; Tab and
+the arrows move the selection and preview it, typing filters live, Enter
+accepts without submitting, Escape and Ctrl-C cancel.
+
+Remote path completion runs `ssh -o BatchMode=yes -o ConnectTimeout=2 HOST ls
+-dp PATH*` with the host as one argument, a three-second deadline, and a 64 KiB
+output cap; any failure yields no candidates.
+
+## 11. Builtins
+
+Answered by the shell itself: `cd` (`cd -`, `~`), `exit`, `fg`, `bg`, `export`,
+`set`, `unset`, `alias`, `source`/`.`, `eval`, `exec`, `history`, `z`, `denv`,
+`l`, `c`, `w`/`which`/`type`, `copy-scrollback`, `xshi-dump`, and `:`. `echo`
+(`-n`, `-e`, `-E`), `pwd`, `true`, and `false` are internal so they work in
+pipelines. `w`, `which`, and `type` also report `command`, `test`, `printf`,
+and the other POSIX names as builtins; those that are not internal resolve on
+`PATH`.
+
+- A one-word line naming a directory becomes `cd`, and `..`, `...`, … climb.
+  Relative `cd` and `z` targets are recorded in history as absolute paths.
+- `l [path…]` is the native `ls -plAhG`: no fork, owner and group by name,
+  sizes as `B/K/M/G`, symlink targets, colors on names only.
+- `copy-scrollback` copies the session's typed lines to the clipboard with
+  OSC 52.
+- `z QUERY` jumps to the best frecency match among directories recorded by
+  `cd` and `z` in history and announces the destination on stderr.
+- Builtin output may be redirected and piped like a program's.
+
+## 12. Jobs And Signals
+
+One job slot. Ctrl-Z on a foreground command leaves it stopped, prints
+`xshi: stopped: CMD (pgid=N)`, and gives status `148`. `fg` prints
+`xshi: resuming: CMD`, gives the job the terminal, restores its saved terminal
+modes, and waits; `fg` with no job is an error. If the command was stopped in
+the middle of a list (`a && b`, `a || b`, `a; b`), the rest of the list waits
+in the job and runs when `fg` sees the command finish, using its status.
+`bg` continues a stopped job without the terminal (the rest of its list is
+dropped); `cmd &` starts one simple external command in the slot.
+
+Before each prompt the slot is polled without blocking and completions are
+reported. `exit` and Ctrl-D with a live job warn once
+(`xshi: there is a suspended job. Exit again to force quit.`); repeating the
+same gesture exits and sends the job's process group `SIGTERM` then `SIGCONT`,
+so a stopped job actually terminates. Any other line re-arms the warning.
+
+## 13. Denv And z
+
+Denv loads a directory's environment from the git root (or the current
+directory): `.envrc` (bash-style, evaluated by `bash`, `sh`, or `xsh` for `.xsh`
+files) and `.env` (dotenv). Both apply on startup, after every directory
+change, and after `denv reload`; leaving the tree restores previous values.
+`.envrc` requires trust: `denv allow` records the file's path and mtime under
+`~/.local/share/xshi/denv/allow`, editing the file invalidates the trust, and
+`denv deny` removes it and marks the environment dirty. `.env` needs no trust.
+The state is exported as `__DENV_*` variables; `__DENV_DIRTY=1` shows the red
+prompt marker.
+
+`z` reads its scores from the same history (§11).
+
+## 14. Tests
+
+| Layer | Where | Runs |
+| --- | --- | --- |
+| units: line buffer, input, render math, completion, prompt, listing, denv, aliases, config, history store | `crates/xshi/src/**` (`ported_tests.rs`, `history/tests.rs`) | `cargo test -p xshi` |
+| CLI boundary | `crates/xshi/tests/cli.rs` | `cargo test -p xshi` |
+| differential PTY scenarios | `tests/runtime/interactive/parity/{scenarios,extended}.rs`, goldens in `tests/fixtures/interactive-parity/<os>/` | `cargo test --test integration runtime::interactive::` |
+| `xshi`-only behavior and the piped session | `tests/runtime/interactive.rs` | same |
+
+A scenario drives a real shell through a PTY (`laputa-ptytest`: a `vt100` screen
+model, event-driven waits, no sleeps), records frames — visible rows, styled
+runs, cursor position and visibility — and effects (files, history, directory
+listings, exit status), and compares the transcript with the golden recorded
+from `ish`. Each run uses an isolated `HOME`; normalization is limited to the
+scratch path, host name, shell name in messages, process-group ids, and the
+timestamps, session ids, and random suffixes of persisted files.
+
+- `XSHI_PARITY_ISH_BIN=/path/to/ish` also runs every scenario against `ish` and
+  requires `ish` == golden == `xshi`.
+- `XSHI_PARITY_RECORD=1` (with the variable above) rewrites goldens.
+- `XSHI_PARITY_FULL=1` prints whole transcripts on a mismatch.
+- A second shell sharing the `HOME` (`spawn_peer`) covers cross-session history.
+
+`xshi`-only tests use the same harness through `run_xshi_only` or the piped
+session. History concurrency (many shells appending, syncing, compacting, and
+resetting), torn and stale files, and 200,000-line logs are exercised in
+`history/tests.rs` against real files.
+
+## 15. Deferrals
+
+`~user` expansion, brace expansion, here-documents, process substitution,
+shell functions, `trap`, `readonly`, `shift`, `local`, job specs (`%1`), more
+than one job, and background pipelines or lists are not implemented.

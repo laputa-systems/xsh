@@ -1,0 +1,42 @@
+== frame picker cursor=3,5
+|testuser@<HOST> ~ $ cd one
+|testuser@<HOST> ~/one $ cd ../two
+|testuser@<HOST> ~/two $ cd ../three
+|dirs:
+|~/two
+|~/one
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/one
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/two
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 dirs:
+@4 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 ~/two
+== frame navigated cursor=3,5
+|testuser@<HOST> ~ $ cd one
+|testuser@<HOST> ~/one $ cd ../two
+|testuser@<HOST> ~/two $ cd ../three
+|dirs:
+|~/two
+|~/one
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/one
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/two
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 dirs:
+@4 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 ~/two
+== frame after_escape cursor=3,26
+|testuser@<HOST> ~ $ cd one
+|testuser@<HOST> ~/one $ cd ../two
+|testuser@<HOST> ~/two $ cd ../three
+|testuser@<HOST> ~/three $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/one
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/two
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/three

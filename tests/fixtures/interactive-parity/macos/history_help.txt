@@ -1,0 +1,22 @@
+== frame after_help cursor=4,20
+|testuser@<HOST> ~ $ history -h
+|Usage: history [compact|rebuild|reset]
+|
+|Show history, compact its storage, rebuild its cache, or reset it.
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_unknown cursor=6,20
+|testuser@<HOST> ~ $ history -h
+|Usage: history [compact|rebuild|reset]
+|
+|Show history, compact its storage, rebuild its cache, or reset it.
+|testuser@<HOST> ~ $ history bogus
+|<SHELL>: history: unknown subcommand: bogus
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

@@ -1,0 +1,24 @@
+== frame ctrl_left_twice cursor=0,30
+|testuser@<HOST> ~ $ one two  Xthree-four five
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 one
+== frame alt_b cursor=0,30
+|testuser@<HOST> ~ $ one two  YXthree-four five
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 one
+== frame ctrl_right cursor=0,43
+|testuser@<HOST> ~ $ one two  YXthree-four Zfive
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 one
+== frame alt_f cursor=0,48
+|testuser@<HOST> ~ $ one two  YXthree-four ZfiveW
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 one
+== frame ctrl_right_stops_at_end cursor=0,49
+|testuser@<HOST> ~ $ one two  YXthree-four ZfiveW!
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 one
+== frame ctrl_left_stops_at_start cursor=0,21
+|testuser@<HOST> ~ $ ^one two  YXthree-four ZfiveW!
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ^one

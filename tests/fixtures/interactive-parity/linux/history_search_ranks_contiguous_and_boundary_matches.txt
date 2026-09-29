@@ -1,0 +1,29 @@
+== frame deb cursor=0,11
+|search: deb
+|echo debug output
+|grep deb file
+|ls target/debug/
+|docker exec -it bash
+|cd d-e-b-u-g
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo debug output
+@2 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 deb
+@3 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 deb
+@4 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 d
+@4 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 e
+@4 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 b
+@5 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 d
+@5 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 e
+@5 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 b
+== frame test cursor=0,12
+|search: test
+|cargo test --release
+|echo the best test
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 cargo test --release
+@2 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 test
+== frame target cursor=0,14
+|search: target
+|ls target/debug/
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 ls target/debug/

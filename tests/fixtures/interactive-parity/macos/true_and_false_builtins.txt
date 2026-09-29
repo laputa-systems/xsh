@@ -1,0 +1,13 @@
+== frame after_lists cursor=6,20
+|testuser@<HOST> ~ $ true && echo ok
+|ok
+|
+|testuser@<HOST> ~ $ false && echo bad || echo good
+|good
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 true
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 false
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

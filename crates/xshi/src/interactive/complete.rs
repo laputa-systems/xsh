@@ -1,27 +1,18 @@
-#![allow(clippy::single_call_fn)]
+use std::os::fd::BorrowedFd;
 
-use super::session::Session;
-use rustix::{event as revent, fs as rfs, io as rio};
-use std::fs;
-use std::os::fd::AsFd;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::MetadataExt;
-use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
-
-#[derive(Clone, Debug)]
-pub(super) struct CompEntry {
-    mtime: i64,
+/// Completion entry — mtime + u32 offset + u8 len + u8 display_width + u8 flags.
+/// name_len is u8: NAME_MAX is 255 on Linux/macOS.
+#[derive(Debug)]
+pub struct CompletionEntry {
+    mtime: i64, // st_mtime from stat(), 0 for non-path entries (hosts, builtins)
     name_start: u32,
     name_len: u8,
     name_display_width: u8,
-    flags: u8,
+    flags: u8, // bit 0: is_dir, bit 1: is_link, bit 2: is_exec, bit 3: is_host
 }
 
-impl CompEntry {
-    pub(super) fn display_width(&self) -> usize {
+impl CompletionEntry {
+    pub fn display_width(&self) -> usize {
         self.name_display_width as usize
             + if self.is_dir() || self.is_host() {
                 1
@@ -30,19 +21,19 @@ impl CompEntry {
             }
     }
 
-    pub(super) fn is_dir(&self) -> bool {
+    pub fn is_dir(&self) -> bool {
         self.flags & 1 != 0
     }
 
-    pub(super) fn is_link(&self) -> bool {
+    pub fn is_link(&self) -> bool {
         self.flags & 2 != 0
     }
 
-    pub(super) fn is_exec(&self) -> bool {
+    pub fn is_exec(&self) -> bool {
         self.flags & 4 != 0
     }
 
-    pub(super) fn is_host(&self) -> bool {
+    pub fn is_host(&self) -> bool {
         self.flags & 8 != 0
     }
 }
@@ -51,54 +42,64 @@ fn pack_flags(is_dir: bool, is_link: bool, is_exec: bool) -> u8 {
     (is_dir as u8) | ((is_link as u8) << 1) | ((is_exec as u8) << 2)
 }
 
-#[derive(Clone, Debug, Default)]
-pub(super) struct Completions {
-    pub(super) names: String,
-    pub(super) entries: Vec<CompEntry>,
+/// Arena-backed completion results. All entry names are stored contiguously
+/// in `names`; each `CompletionEntry` stores an offset+length into it.
+/// Typical completion: 2 heap allocations total (the arena String + entries Vec).
+pub struct Completions {
+    pub names: String,
+    pub entries: Vec<CompletionEntry>,
+}
+
+impl Default for Completions {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Completions {
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             names: String::new(),
             entries: Vec::new(),
         }
     }
 
-    pub(super) fn is_empty(&self) -> bool {
+    pub fn with_capacity(names_cap: usize, entries_cap: usize) -> Self {
+        Self {
+            names: String::with_capacity(names_cap),
+            entries: Vec::with_capacity(entries_cap),
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.names.clear();
+        self.entries.clear();
+    }
+
+    pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
-    pub(super) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.entries.len()
     }
 
-    pub(super) fn name(&self, idx: usize) -> &str {
-        let entry = &self.entries[idx];
-        &self.names[entry.name_start as usize..][..entry.name_len as usize]
+    /// Get the name of an entry by index.
+    pub fn name(&self, idx: usize) -> &str {
+        let e = &self.entries[idx];
+        &self.names[e.name_start as usize..][..e.name_len as usize]
     }
 
-    pub(super) fn entry_name(&self, entry: &CompEntry) -> &str {
-        &self.names[entry.name_start as usize..][..entry.name_len as usize]
+    /// Get the name of an entry reference.
+    pub fn entry_name(&self, e: &CompletionEntry) -> &str {
+        &self.names[e.name_start as usize..][..e.name_len as usize]
     }
 
-    pub(super) fn push(&mut self, name: &str, is_dir: bool, is_link: bool, is_exec: bool) {
+    pub fn push(&mut self, name: &str, is_dir: bool, is_link: bool, is_exec: bool) {
         self.push_with_mtime(name, is_dir, is_link, is_exec, 0);
     }
 
-    fn push_host(&mut self, name: &str) {
-        let start = self.names.len() as u32;
-        self.names.push_str(name);
-        self.entries.push(CompEntry {
-            mtime: 0,
-            name_start: start,
-            name_len: name.len().min(255) as u8,
-            name_display_width: str_width(name).min(255) as u8,
-            flags: 8,
-        });
-    }
-
-    fn push_with_mtime(
+    pub fn push_with_mtime(
         &mut self,
         name: &str,
         is_dir: bool,
@@ -108,37 +109,73 @@ impl Completions {
     ) {
         let start = self.names.len() as u32;
         self.names.push_str(name);
-        self.entries.push(CompEntry {
+        self.entries.push(CompletionEntry {
             mtime,
             name_start: start,
             name_len: name.len().min(255) as u8,
-            name_display_width: str_width(name).min(255) as u8,
+            name_display_width: super::line::str_width(name).min(255) as u8,
             flags: pack_flags(is_dir, is_link, is_exec),
         });
     }
 
-    pub(super) fn begin_entry(&self) -> u32 {
+    /// Begin a name by recording the current arena position.
+    /// Call `finish_entry` after pushing name parts to `names`.
+    pub fn begin_entry(&self) -> u32 {
         self.names.len() as u32
     }
 
-    pub(super) fn finish_entry(&mut self, start: u32, is_dir: bool, is_link: bool, is_exec: bool) {
+    /// Finish an entry whose name starts at `start` in the arena.
+    pub fn finish_entry(&mut self, start: u32, is_dir: bool, is_link: bool, is_exec: bool) {
+        self.finish_entry_with_mtime(start, is_dir, is_link, is_exec, 0);
+    }
+
+    pub fn finish_entry_with_mtime(
+        &mut self,
+        start: u32,
+        is_dir: bool,
+        is_link: bool,
+        is_exec: bool,
+        mtime: i64,
+    ) {
         let name = &self.names[start as usize..];
-        self.entries.push(CompEntry {
-            mtime: 0,
+        let name_len = name.len().min(255) as u8;
+        let name_display_width = super::line::str_width(name).min(255) as u8;
+        self.entries.push(CompletionEntry {
+            mtime,
             name_start: start,
-            name_len: name.len().min(255) as u8,
-            name_display_width: str_width(name).min(255) as u8,
+            name_len,
+            name_display_width,
             flags: pack_flags(is_dir, is_link, is_exec),
         });
     }
 
-    pub(super) fn sort_entries(&mut self) {
+    /// Sort entries case-insensitively by name.
+    pub fn sort_entries(&mut self) {
+        let n = self.entries.len();
+        if n <= 1 {
+            return;
+        }
         let names = self.names.as_bytes();
-        self.entries
-            .sort_unstable_by(|a, b| cmp_icase_arena(names, a, b));
+        if n <= 40 {
+            // Insertion sort — O(n²) but minimal overhead for small N.
+            for i in 1..n {
+                let mut j = i;
+                while j > 0
+                    && cmp_icase_arena(names, &self.entries[j], &self.entries[j - 1])
+                        == std::cmp::Ordering::Less
+                {
+                    self.entries.swap(j, j - 1);
+                    j -= 1;
+                }
+            }
+        } else {
+            self.entries
+                .sort_unstable_by(|a, b| cmp_icase_arena(names, a, b));
+        }
     }
 
-    fn sort_by_mtime(&mut self) {
+    /// Sort entries by modification time (most recent first), alphabetical tiebreaker.
+    pub fn sort_by_mtime(&mut self) {
         let names = self.names.as_bytes();
         self.entries.sort_unstable_by(|a, b| {
             b.mtime
@@ -147,7 +184,8 @@ impl Completions {
         });
     }
 
-    pub(super) fn dedup_sorted(&mut self) {
+    /// Remove duplicate adjacent entries (by exact name). Call after `sort_entries`.
+    pub fn dedup_sorted(&mut self) {
         let mut i = 1;
         while i < self.entries.len() {
             let prev = &self.entries[i - 1];
@@ -163,42 +201,71 @@ impl Completions {
     }
 }
 
-fn cmp_icase_arena(names: &[u8], a: &CompEntry, b: &CompEntry) -> std::cmp::Ordering {
+/// Case-insensitive byte-level comparator for arena-backed entries.
+/// Inlined into sort hot path — no iterator overhead.
+#[inline(always)]
+fn cmp_icase_arena(names: &[u8], a: &CompletionEntry, b: &CompletionEntry) -> std::cmp::Ordering {
     let a_bytes = &names[a.name_start as usize..][..a.name_len as usize];
     let b_bytes = &names[b.name_start as usize..][..b.name_len as usize];
     let len = a_bytes.len().min(b_bytes.len());
-    for i in 0..len {
-        let ab = a_bytes[i].to_ascii_lowercase();
-        let bb = b_bytes[i].to_ascii_lowercase();
+    let mut i = 0;
+    while i < len {
+        let mut ab = a_bytes[i];
+        let mut bb = b_bytes[i];
+        // ASCII lowercase: branchless for the common case
+        ab += (ab.is_ascii_uppercase() as u8) * 32;
+        bb += (bb.is_ascii_uppercase() as u8) * 32;
         if ab != bb {
-            return ab.cmp(&bb);
+            return if ab < bb {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Greater
+            };
         }
+        i += 1;
     }
     a_bytes.len().cmp(&b_bytes.len())
 }
 
-#[derive(Clone, Debug, Default)]
-pub(super) struct CompletionState {
-    pub(super) comp: Completions,
-    pub(super) selected: usize,
-    pub(super) cols: usize,
-    pub(super) rows: usize,
-    pub(super) scroll: usize,
-    pub(super) term_cols: u16,
-    pub(super) dir_prefix: String,
-    pub(super) in_quote: bool,
+pub struct CompletionState {
+    pub comp: Completions,
+    pub selected: usize,
+    pub cols: usize,
+    pub rows: usize,
+    pub scroll: usize,
+    pub term_cols: u16,
+    /// The prefix that was used to generate completions (directory portion).
+    pub dir_prefix: String,
+    /// Whether the user was inside a single-quote when completion started.
+    pub in_quote: bool,
 }
 
 impl CompletionState {
-    pub(super) fn selected_name(&self) -> Option<&str> {
-        (self.selected < self.comp.len()).then(|| self.comp.name(self.selected))
+    pub fn selected_name(&self) -> Option<&str> {
+        if self.selected < self.comp.len() {
+            Some(self.comp.name(self.selected))
+        } else {
+            None
+        }
     }
 
-    pub(super) fn selected_entry(&self) -> Option<&CompEntry> {
+    pub fn selected_entry(&self) -> Option<&CompletionEntry> {
         self.comp.entries.get(self.selected)
     }
 
-    pub(super) fn move_up(&mut self) {
+    /// Write the display name of entry `idx` into a TermWriter — zero allocation.
+    pub fn write_display_name(&self, idx: usize, tw: &mut super::term::TermWriter) {
+        let e = &self.comp.entries[idx];
+        let name = &self.comp.names[e.name_start as usize..][..e.name_len as usize];
+        tw.write_str(name);
+        if e.is_dir() {
+            tw.write_str("/");
+        } else if e.is_host() {
+            tw.write_str(":");
+        }
+    }
+
+    pub fn move_up(&mut self) {
         if self.rows == 0 || self.comp.entries.is_empty() {
             return;
         }
@@ -209,11 +276,13 @@ impl CompletionState {
         let row = self.selected % self.rows;
         let col = self.selected / self.rows;
         if row == 0 {
+            // Wrap to previous column, last row
             if col > 0 {
                 let prev_col = col - 1;
                 let idx = prev_col * self.rows + self.rows - 1;
                 self.selected = idx.min(self.comp.entries.len() - 1);
             } else {
+                // Wrap to last column
                 let last_col = (self.comp.entries.len().saturating_sub(1)) / self.rows;
                 let idx = last_col * self.rows + self.rows - 1;
                 self.selected = idx.min(self.comp.entries.len() - 1);
@@ -223,7 +292,7 @@ impl CompletionState {
         }
     }
 
-    pub(super) fn move_down(&mut self) {
+    pub fn move_down(&mut self) {
         if self.rows == 0 || self.comp.entries.is_empty() {
             return;
         }
@@ -234,6 +303,7 @@ impl CompletionState {
         let row = self.selected % self.rows;
         let col = self.selected / self.rows;
         if row + 1 >= self.rows || self.selected + 1 >= self.comp.entries.len() {
+            // Wrap to next column, first row
             let next_col = col + 1;
             let idx = next_col * self.rows;
             if idx < self.comp.entries.len() {
@@ -246,7 +316,7 @@ impl CompletionState {
         }
     }
 
-    pub(super) fn move_left(&mut self) {
+    pub fn move_left(&mut self) {
         if self.rows == 0 || self.comp.entries.is_empty() {
             return;
         }
@@ -257,6 +327,7 @@ impl CompletionState {
         let col = self.selected / self.rows;
         let row = self.selected % self.rows;
         if col == 0 {
+            // Wrap to last column
             let last_col = (self.comp.entries.len().saturating_sub(1)) / self.rows;
             let idx = last_col * self.rows + row;
             self.selected = idx.min(self.comp.entries.len() - 1);
@@ -265,7 +336,7 @@ impl CompletionState {
         }
     }
 
-    pub(super) fn move_right(&mut self) {
+    pub fn move_right(&mut self) {
         if self.rows == 0 || self.comp.entries.is_empty() {
             return;
         }
@@ -273,521 +344,161 @@ impl CompletionState {
             self.selected = 0;
             return;
         }
+        let col = self.selected / self.rows;
         let row = self.selected % self.rows;
-        let next = (self.selected / self.rows + 1) * self.rows + row;
+        let next = (col + 1) * self.rows + row;
         if next < self.comp.entries.len() {
             self.selected = next;
         } else {
+            // Wrap to first column
             self.selected = row.min(self.comp.entries.len() - 1);
         }
     }
 }
 
-pub(super) struct CompletionRequest<'a> {
-    pub(super) text: &'a str,
-    pub(super) cursor: usize,
-    pub(super) term_cols: u16,
-}
-
-pub(super) fn start_completion(
-    session: &Session,
-    request: CompletionRequest<'_>,
-) -> CompletionState {
+/// Generate file completions for the given partial word.
+/// If `dirs_only` is true, only return directories (and symlinks to directories).
+pub fn complete_path(partial: &str, dirs_only: bool) -> Completions {
+    let (dir, prefix) = split_path(partial);
     let mut comp = Completions::new();
-    let before_cursor = &request.text[..request.cursor];
-    let (word_start, in_single) = find_comp_word_start(before_cursor);
-    let existing = existing_cmd_args(before_cursor, word_start);
-    let raw_word = &before_cursor[word_start..];
-    let (partial, in_quote): (String, bool) = if let Some(rest) = raw_word.strip_prefix("~/'") {
-        let unquoted = rest.strip_suffix('\'').unwrap_or(rest);
-        (format!("~/{unquoted}"), true)
-    } else if in_single {
-        (raw_word.strip_prefix('\'').unwrap_or(raw_word).into(), true)
-    } else if let Some(inner) = raw_word.strip_prefix('\'') {
-        (inner.strip_suffix('\'').unwrap_or(inner).into(), true)
+    complete_in_dir(dir, prefix, dirs_only, &mut comp);
+    comp
+}
+
+/// Like `complete_path` but appends into a caller-owned `Completions` (zero-alloc reuse).
+pub fn complete_path_into(partial: &str, dirs_only: bool, comp: &mut Completions) {
+    let (dir, prefix) = split_path(partial);
+    complete_in_dir(dir, prefix, dirs_only, comp);
+}
+
+/// Complete a caller-provided candidate set without filesystem access.
+/// Used by benchmarks and tests to exercise filtering and sorting deterministically.
+pub fn complete_candidates(
+    entries: &[(&str, bool, bool, bool)],
+    prefix: &str,
+    dirs_only: bool,
+    comp: &mut Completions,
+) {
+    comp.clear();
+    let before = comp.entries.len();
+    let mut prefix_count = 0usize;
+
+    for &(name, is_dir, is_link, is_exec) in entries {
+        if add_candidate(comp, name, is_dir, is_link, is_exec, 0, prefix, dirs_only) {
+            prefix_count += 1;
+        }
+    }
+
+    finish_candidates(comp, before, prefix, prefix_count);
+}
+
+fn add_candidate(
+    comp: &mut Completions,
+    name: &str,
+    is_dir: bool,
+    is_link: bool,
+    is_exec: bool,
+    mtime: i64,
+    prefix: &str,
+    dirs_only: bool,
+) -> bool {
+    let name_bytes = name.as_bytes();
+    let prefix_bytes = prefix.as_bytes();
+    if name_bytes.first() == Some(&b'.') && !prefix_bytes.starts_with(b".") {
+        return false;
+    }
+    let is_prefix = name_bytes.starts_with(prefix_bytes);
+    if !is_prefix && (prefix_bytes.is_empty() || !contains_icase(name_bytes, prefix_bytes)) {
+        return false;
+    }
+    if dirs_only && !is_dir {
+        return false;
+    }
+    comp.push_with_mtime(name, is_dir, is_link, is_exec, mtime);
+    is_prefix
+}
+
+fn finish_candidates(comp: &mut Completions, before: usize, prefix: &str, prefix_count: usize) {
+    let prefix_bytes = prefix.as_bytes();
+    let added = comp.entries.len() - before;
+    if prefix_count > 0 && prefix_count < added {
+        let mut i = before;
+        while i < comp.entries.len() {
+            let e = &comp.entries[i];
+            let name = &comp.names.as_bytes()[e.name_start as usize..][..e.name_len as usize];
+            if name.starts_with(prefix_bytes) {
+                i += 1;
+            } else {
+                comp.entries.remove(i);
+            }
+        }
+    }
+    comp.sort_by_mtime();
+}
+
+/// Complete entries in `dir` matching `prefix`.
+/// Single readdir pass: collects prefix and substring matches together,
+/// preferring prefix matches when any exist. Substring fallback is
+/// case-insensitive (like fish) so "tom" matches "Cargo.toml".
+fn complete_in_dir(dir: &str, prefix: &str, dirs_only: bool, comp: &mut Completions) {
+    // Keep libc directory/stat calls here: rustix::fs::Dir allocates, while
+    // warmed completion must remain zero-allocation.
+    let dir_path = if dir.is_empty() { "." } else { dir };
+
+    // Build NUL-terminated dir path on stack
+    let dir_bytes = dir_path.as_bytes();
+    let mut dir_buf = [0u8; 4096];
+    if dir_bytes.len() >= dir_buf.len() {
+        return;
+    }
+    dir_buf[..dir_bytes.len()].copy_from_slice(dir_bytes);
+    dir_buf[dir_bytes.len()] = 0;
+
+    // SAFETY: dir_buf is NUL-terminated, opendir is safe for valid paths.
+    let dp = unsafe { libc::opendir(dir_buf.as_ptr() as *const libc::c_char) };
+    if dp.is_null() {
+        return;
+    }
+
+    let before = comp.entries.len();
+    let mut prefix_count = 0usize;
+
+    // Stack buffer for "dir/name\0" used by stat/lstat
+    let mut path_buf = [0u8; 4096];
+    let dir_prefix_len = if dir_path == "." {
+        0
     } else {
-        (raw_word.into(), false)
-    };
-
-    if let Some(env_prefix) = partial.strip_prefix('$') {
-        for key in session
-            .env
-            .keys()
-            .filter_map(|key| std::str::from_utf8(key).ok())
-        {
-            if key.starts_with(env_prefix) {
-                comp.push(&format!("${key}"), false, false, false);
-            }
-        }
-        comp.sort_entries();
-        return state(comp, request.term_cols, String::new(), in_quote);
-    }
-
-    if !partial.is_empty()
-        && !partial.contains('/')
-        && is_command_position(before_cursor, word_start)
-    {
-        for builtin in [
-            "cd", "set", "unset", "alias", "z", "denv", "c", "l", "w", "which",
-        ] {
-            if builtin.starts_with(partial.as_str()) {
-                comp.push(builtin, false, false, false);
-            }
-        }
-        for name in session.aliases.keys() {
-            if name.starts_with(partial.as_str()) {
-                comp.push(name, false, false, false);
-            }
-        }
-        complete_commands(session, &partial, &mut comp);
-        complete_path_from_root(session, Path::new("."), &partial, true, &mut comp);
-        comp.sort_entries();
-        comp.dedup_sorted();
-        return state(comp, request.term_cols, String::new(), false);
-    }
-
-    let first_word = request.text.split_whitespace().next().unwrap_or("");
-    let dirs_only = matches!(first_word, "cd" | "z") && word_start > 0;
-
-    const SSH_CMDS: &[&str] = &["ssh", "scp", "rsync", "sftp", "mosh"];
-    if word_start > 0 && SSH_CMDS.contains(&first_word) {
-        if let Some(colon_pos) = partial.find(':') {
-            let host = &partial[..colon_pos];
-            let remote_path = &partial[colon_pos + 1..];
-            complete_remote_path(host, remote_path, &mut comp);
-            if !comp.is_empty() {
-                let dir_prefix = if let Some(slash) = remote_path.rfind('/') {
-                    format!("{}:{}", host, &remote_path[..=slash])
-                } else {
-                    format!("{host}:")
-                };
-                return state(comp, request.term_cols, dir_prefix, in_quote);
-            }
-        } else if !partial.contains('/') {
-            if let Some(home) = session.home.as_deref() {
-                complete_hostnames(&partial, home, &mut comp);
-            }
-            complete_path(session, &partial, false, &mut comp);
-            comp.sort_entries();
-            comp.dedup_sorted();
-            filter_existing_args(&mut comp, &existing, "");
-            if !comp.is_empty() {
-                return state(comp, request.term_cols, String::new(), in_quote);
-            }
-        }
-    }
-
-    let (lookup_root, expanded, user_root) = expand_completion_path(session, &partial);
-    let dir_prefix = partial
-        .rfind('/')
-        .map(|slash_pos| partial[..=slash_pos].to_string())
-        .unwrap_or_default();
-    complete_path_from_root(session, &lookup_root, &expanded, dirs_only, &mut comp);
-    filter_existing_args(&mut comp, &existing, &dir_prefix);
-    if !comp.is_empty() {
-        return state(comp, request.term_cols, dir_prefix, in_quote);
-    }
-
-    let (partial_comp, groups) = complete_partial_path(&lookup_root, &expanded, dirs_only);
-    if !groups.is_empty() {
-        for (resolved_dir, start, count) in &groups {
-            let rel_dir = resolved_dir
-                .strip_prefix(&lookup_root)
-                .ok()
-                .and_then(|path| path.to_str())
-                .unwrap_or_else(|| resolved_dir.to_str().unwrap_or(""));
-            for i in *start..*start + *count {
-                let entry = &partial_comp.entries[i];
-                let mark = comp.begin_entry();
-                comp.names.push_str(rel_dir);
-                if !rel_dir.is_empty() && !rel_dir.ends_with('/') {
-                    comp.names.push('/');
-                }
-                comp.names.push_str(partial_comp.entry_name(entry));
-                comp.finish_entry(mark, entry.is_dir(), entry.is_link(), entry.is_exec());
-            }
-        }
-        filter_existing_args(&mut comp, &existing, &user_root);
-        return state(comp, request.term_cols, user_root, in_quote);
-    }
-
-    CompletionState {
-        term_cols: request.term_cols,
-        ..CompletionState::default()
-    }
-}
-
-fn state(comp: Completions, term_cols: u16, dir_prefix: String, in_quote: bool) -> CompletionState {
-    let (cols, rows) = compute_grid(&comp.entries, term_cols);
-    CompletionState {
-        comp,
-        selected: 0,
-        cols,
-        rows,
-        scroll: 0,
-        term_cols,
-        dir_prefix,
-        in_quote,
-    }
-}
-
-pub(super) fn completion_replacement(state: &CompletionState) -> Option<String> {
-    let entry = state.selected_entry()?;
-    let name = state.selected_name()?;
-    let mut inner = state.dir_prefix.clone();
-    inner.push_str(name);
-    if entry.is_dir() {
-        inner.push('/');
-    } else if entry.is_host() {
-        inner.push(':');
-    }
-    if inner.starts_with('$') {
-        return Some(inner);
-    }
-    if state.in_quote || needs_quoting(&inner) || inner.contains('\'') {
-        let escaped = inner.replace('\'', "'\\''");
-        if let Some(rest) = escaped.strip_prefix("~/") {
-            Some(format!("~/'{rest}'"))
+        let len = dir_bytes.len();
+        path_buf[..len].copy_from_slice(dir_bytes);
+        if dir_bytes.last() != Some(&b'/') {
+            path_buf[len] = b'/';
+            len + 1
         } else {
-            Some(format!("'{escaped}'"))
+            len
         }
-    } else {
-        Some(inner)
-    }
-}
-
-pub(super) fn find_comp_word_start(s: &str) -> (usize, bool) {
-    let mut in_single = false;
-    let mut in_double = false;
-    let mut word_start = 0;
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'\'' if !in_double => {
-                in_single = !in_single;
-                i += 1;
-            }
-            b'"' if !in_single => {
-                in_double = !in_double;
-                i += 1;
-            }
-            b'\\' if !in_single && i + 1 < bytes.len() => i += 2,
-            b' ' | b'\t' | b'\n' if !in_single && !in_double => {
-                i += 1;
-                word_start = i;
-            }
-            _ => i += 1,
-        }
-    }
-    (word_start, in_single)
-}
-
-fn needs_quoting(s: &str) -> bool {
-    s.bytes().any(|b| {
-        matches!(
-            b,
-            b' ' | b'\t'
-                | b'('
-                | b')'
-                | b'$'
-                | b'*'
-                | b'?'
-                | b'['
-                | b']'
-                | b'|'
-                | b'&'
-                | b'>'
-                | b'<'
-                | b';'
-                | b'#'
-                | b'\\'
-                | b'"'
-                | b'`'
-        )
-    })
-}
-
-fn current_cmd_start(s: &str) -> usize {
-    let mut in_single = false;
-    let bytes = s.as_bytes();
-    let mut start = 0;
-    let mut i = 0;
-    while i < bytes.len() {
-        match bytes[i] {
-            b'\'' => {
-                in_single = !in_single;
-                i += 1;
-            }
-            b'|' | b';' if !in_single => {
-                i += 1;
-                start = i;
-            }
-            b'&' if !in_single && i + 1 < bytes.len() && bytes[i + 1] == b'&' => {
-                i += 2;
-                start = i;
-            }
-            _ => i += 1,
-        }
-    }
-    start
-}
-
-fn shell_tokens(s: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut cur = String::new();
-    let mut in_single = false;
-    for ch in s.chars() {
-        match ch {
-            '\'' => in_single = !in_single,
-            ' ' | '\t' if !in_single => {
-                if !cur.is_empty() {
-                    tokens.push(std::mem::take(&mut cur));
-                }
-            }
-            _ => cur.push(ch),
-        }
-    }
-    if !cur.is_empty() {
-        tokens.push(cur);
-    }
-    tokens
-}
-
-fn existing_cmd_args(before_cursor: &str, word_start: usize) -> Vec<String> {
-    let prefix = &before_cursor[..word_start];
-    let cmd_start = current_cmd_start(prefix);
-    let tokens = shell_tokens(&prefix[cmd_start..]);
-    if tokens.len() > 1 {
-        tokens[1..].to_vec()
-    } else {
-        Vec::new()
-    }
-}
-
-fn filter_existing_args(comp: &mut Completions, existing: &[String], dir_prefix: &str) {
-    if existing.is_empty() {
-        return;
-    }
-    let to_remove: Vec<bool> = comp
-        .entries
-        .iter()
-        .map(|entry| {
-            let full = format!("{}{}", dir_prefix, comp.entry_name(entry));
-            existing.iter().any(|arg| {
-                *arg == full || (entry.is_dir() && arg.strip_suffix('/') == Some(full.as_str()))
-            })
-        })
-        .collect();
-    let mut idx = 0;
-    comp.entries.retain(|_| {
-        let remove = to_remove[idx];
-        idx += 1;
-        !remove
-    });
-}
-
-fn is_command_position(before_cursor: &str, word_start: usize) -> bool {
-    if word_start == 0 {
-        return true;
-    }
-    let before_word = before_cursor[..word_start].trim_end();
-    if before_word.ends_with('|') || before_word.ends_with(';') || before_word.ends_with("&&") {
-        return true;
-    }
-    let prev_word = before_word
-        .rsplit_once(|ch: char| ch.is_whitespace() || ch == '|' || ch == ';')
-        .map(|(_, word)| word)
-        .unwrap_or(before_word);
-    matches!(prev_word, "sudo" | "doas" | "su")
-}
-
-fn expand_completion_path(session: &Session, partial: &str) -> (PathBuf, String, String) {
-    if partial == "~" {
-        if let Some(home) = &session.home {
-            return (home.clone(), String::new(), "~/".to_string());
-        }
-    } else if let Some(rest) = partial.strip_prefix("~/")
-        && let Some(home) = &session.home
-    {
-        return (home.clone(), rest.to_string(), "~/".to_string());
-    }
-    (session.cwd.clone(), partial.to_string(), String::new())
-}
-
-fn complete_path(session: &Session, partial: &str, dirs_only: bool, comp: &mut Completions) {
-    let (root, expanded, _) = expand_completion_path(session, partial);
-    complete_path_from_root(session, &root, &expanded, dirs_only, comp);
-}
-
-fn complete_path_from_root(
-    session: &Session,
-    root: &Path,
-    partial: &str,
-    dirs_only: bool,
-    comp: &mut Completions,
-) {
-    let (dir, prefix) = split_path(partial);
-    if dir.is_empty()
-        && (root == Path::new(".") || root == session.cwd)
-        && let Some(snapshot) = &session.cwd_snapshot
-    {
-        complete_from_cwd_snapshot(snapshot, prefix, dirs_only, comp);
-        return;
-    }
-    let dir_path = if dir.is_empty() {
-        root.to_path_buf()
-    } else if Path::new(dir).is_absolute() {
-        PathBuf::from(dir)
-    } else {
-        root.join(dir)
-    };
-    if let Some(snapshot) = session.completion_dir_snapshot(&dir_path) {
-        complete_from_dir_snapshot(&snapshot, prefix, dirs_only, comp);
-        return;
-    }
-    complete_path_into(root, partial, dirs_only, comp);
-}
-
-fn complete_path_into(root: &Path, partial: &str, dirs_only: bool, comp: &mut Completions) {
-    let (dir, prefix) = split_path(partial);
-    let dir_path = if dir.is_empty() {
-        root.to_path_buf()
-    } else if Path::new(dir).is_absolute() {
-        PathBuf::from(dir)
-    } else {
-        root.join(dir)
-    };
-    complete_in_dir(&dir_path, prefix, dirs_only, comp);
-}
-
-#[cfg(test)]
-pub(super) fn completion_test_dir(files: &[&str]) -> tempfile::TempDir {
-    let root = tempfile::tempdir().unwrap();
-    for file in files {
-        fs::write(root.path().join(file), "").unwrap();
-    }
-    root
-}
-
-fn complete_from_cwd_snapshot(
-    snapshot: &super::session::CwdSnapshot,
-    prefix: &str,
-    dirs_only: bool,
-    comp: &mut Completions,
-) {
-    let prefix_bytes = prefix.as_bytes();
-    let before = comp.entries.len();
-    let mut prefix_count = 0_usize;
-    for entry in &snapshot.entries {
-        let name_bytes = entry.name_bytes.as_slice();
-        if name_bytes.first() == Some(&b'.') && !prefix_bytes.starts_with(b".") {
-            continue;
-        }
-        let is_prefix = name_bytes.starts_with(prefix_bytes);
-        if !is_prefix && (prefix_bytes.is_empty() || !contains_icase(name_bytes, prefix_bytes)) {
-            continue;
-        }
-        let is_dir = entry.completion_is_dir();
-        if dirs_only && !is_dir {
-            continue;
-        }
-        let Ok(name) = std::str::from_utf8(name_bytes) else {
-            continue;
-        };
-        comp.push_with_mtime(
-            name,
-            is_dir,
-            entry.metadata.file_type().is_symlink(),
-            entry.completion_is_exec(),
-            entry
-                .target_metadata
-                .as_ref()
-                .unwrap_or(&entry.metadata)
-                .mtime(),
-        );
-        if is_prefix {
-            prefix_count += 1;
-        }
-    }
-    keep_prefix_matches(comp, before, prefix_bytes, prefix_count);
-    comp.sort_by_mtime();
-}
-
-fn complete_from_dir_snapshot(
-    snapshot: &super::session::DirCompletionSnapshot,
-    prefix: &str,
-    dirs_only: bool,
-    comp: &mut Completions,
-) {
-    let prefix_bytes = prefix.as_bytes();
-    let before = comp.entries.len();
-    let mut prefix_count = 0_usize;
-    for entry in &snapshot.entries {
-        let name_bytes = entry.name_bytes.as_slice();
-        if name_bytes.first() == Some(&b'.') && !prefix_bytes.starts_with(b".") {
-            continue;
-        }
-        let is_prefix = name_bytes.starts_with(prefix_bytes);
-        if !is_prefix && (prefix_bytes.is_empty() || !contains_icase(name_bytes, prefix_bytes)) {
-            continue;
-        }
-        if dirs_only && !entry.is_dir {
-            continue;
-        }
-        let Ok(name) = std::str::from_utf8(name_bytes) else {
-            continue;
-        };
-        comp.push_with_mtime(
-            name,
-            entry.is_dir,
-            entry.is_link,
-            entry.is_exec,
-            entry.mtime,
-        );
-        if is_prefix {
-            prefix_count += 1;
-        }
-    }
-    keep_prefix_matches(comp, before, prefix_bytes, prefix_count);
-    comp.sort_by_mtime();
-}
-
-fn complete_in_dir(dir: &Path, prefix: &str, dirs_only: bool, comp: &mut Completions) {
-    let dir_bytes = dir.as_os_str().as_bytes();
-    let Ok(dir_fd) = rfs::open(
-        dir,
-        rfs::OFlags::RDONLY | rfs::OFlags::DIRECTORY,
-        rfs::Mode::empty(),
-    ) else {
-        return;
-    };
-    let Ok(dir_iter) = rfs::Dir::read_from(&dir_fd) else {
-        return;
     };
 
-    let prefix_bytes = prefix.as_bytes();
-    let before = comp.entries.len();
-    let mut prefix_count = 0_usize;
-    let mut path_buf = [0_u8; 4096];
-    let mut dir_prefix_len = dir_bytes.len();
-    if dir_prefix_len >= path_buf.len() {
-        return;
-    }
-    path_buf[..dir_prefix_len].copy_from_slice(dir_bytes);
-    if dir_prefix_len > 0 && path_buf[dir_prefix_len - 1] != b'/' {
-        path_buf[dir_prefix_len] = b'/';
-        dir_prefix_len += 1;
-    }
+    loop {
+        // SAFETY: dp is a valid DIR* from opendir above.
+        let ent = unsafe { libc::readdir(dp) };
+        if ent.is_null() {
+            break;
+        }
 
-    for entry in dir_iter.flatten() {
-        let name_bytes = entry.file_name().to_bytes();
+        // SAFETY: d_name is a NUL-terminated C string within the dirent.
+        let name_cstr = unsafe { std::ffi::CStr::from_ptr((*ent).d_name.as_ptr()) };
+        let name_bytes = name_cstr.to_bytes();
+
+        // Skip . and ..
         if name_bytes == b"." || name_bytes == b".." {
             continue;
         }
+        // Skip filenames with control characters
         if name_bytes.iter().any(|&b| b < b' ' || b == 0x7f) {
             continue;
         }
+
+        let prefix_bytes = prefix.as_bytes();
         if name_bytes.first() == Some(&b'.') && !prefix_bytes.starts_with(b".") {
             continue;
         }
@@ -796,141 +507,231 @@ fn complete_in_dir(dir: &Path, prefix: &str, dirs_only: bool, comp: &mut Complet
             continue;
         }
 
+        // Most filesystems provide d_type. Use it to avoid metadata work for
+        // entries that cannot satisfy a directory-only completion.
+        let d_type = unsafe { (*ent).d_type as u8 };
+        if dirs_only
+            && d_type != libc::DT_DIR
+            && d_type != libc::DT_LNK
+            && d_type != libc::DT_UNKNOWN
+        {
+            continue;
+        }
+
+        // Build full path for stat: "dir/name\0"
         let total = dir_prefix_len + name_bytes.len();
         if total >= path_buf.len() {
             continue;
         }
         path_buf[dir_prefix_len..total].copy_from_slice(name_bytes);
+        path_buf[total] = 0;
 
-        use std::os::unix::ffi::OsStrExt as _;
-        let entry_path = std::ffi::OsStr::from_bytes(&path_buf[..total]);
-        let Ok(st) = rfs::statat(rfs::CWD, entry_path, rfs::AtFlags::empty()) else {
-            continue;
-        };
-        let is_dir = st.st_mode & 0xF000 == 0x4000;
-        if dirs_only && !is_dir {
+        // stat follows symlinks (so symlink-to-dir counts as dir)
+        // SAFETY: path_buf is NUL-terminated, stat writes into stack struct.
+        let mut st: libc::stat = unsafe { std::mem::zeroed() };
+        if unsafe { libc::stat(path_buf.as_ptr() as *const libc::c_char, &mut st) } != 0 {
             continue;
         }
-        let is_link = rfs::statat(rfs::CWD, entry_path, rfs::AtFlags::SYMLINK_NOFOLLOW)
-            .map(|lst| lst.st_mode & 0xF000 == 0xA000)
-            .unwrap_or(false);
-        let is_exec = !is_dir && st.st_mode & 0o111 != 0;
-        let Ok(name) = std::str::from_utf8(name_bytes) else {
-            continue;
+        let is_dir = st.st_mode & libc::S_IFMT == libc::S_IFDIR;
+        let is_link = if d_type == libc::DT_LNK {
+            true
+        } else if d_type == libc::DT_UNKNOWN {
+            let mut lst: libc::stat = unsafe { std::mem::zeroed() };
+            (unsafe { libc::lstat(path_buf.as_ptr() as *const libc::c_char, &mut lst) }) == 0
+                && lst.st_mode & libc::S_IFMT == libc::S_IFLNK
+        } else {
+            false
         };
-        comp.push_with_mtime(name, is_dir, is_link, is_exec, st.st_mtime);
-        if is_prefix {
+
+        let is_exec = !is_dir && st.st_mode & 0o111 != 0;
+
+        let name = match std::str::from_utf8(name_bytes) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        if add_candidate(
+            comp,
+            name,
+            is_dir,
+            is_link,
+            is_exec,
+            st.st_mtime,
+            prefix,
+            dirs_only,
+        ) {
             prefix_count += 1;
         }
     }
 
-    keep_prefix_matches(comp, before, prefix_bytes, prefix_count);
-    comp.sort_by_mtime();
+    // SAFETY: dp is a valid DIR* from opendir.
+    unsafe { libc::closedir(dp) };
+
+    finish_candidates(comp, before, prefix, prefix_count);
 }
 
-fn keep_prefix_matches(
-    comp: &mut Completions,
-    before: usize,
-    prefix_bytes: &[u8],
-    prefix_count: usize,
-) {
-    let added = comp.entries.len() - before;
-    if prefix_count == 0 || prefix_count >= added {
-        return;
-    }
-    let mut i = before;
-    while i < comp.entries.len() {
-        let entry = &comp.entries[i];
-        let name = &comp.names.as_bytes()[entry.name_start as usize..][..entry.name_len as usize];
-        if name.starts_with(prefix_bytes) {
-            i += 1;
-        } else {
-            comp.entries.remove(i);
-        }
-    }
-}
-
-fn complete_partial_path(
-    root: &Path,
+/// Fish-style partial path completion: each intermediate directory component
+/// is treated as a prefix. e.g., "/home/user/de/s" finds entries starting
+/// with "s" in /home/user/dev/, /home/user/Desktop/, etc.
+/// Returns (resolved_dir_with_slash, start_idx, count) tuples indexing into the Completions.
+pub fn complete_partial_path(
     partial: &str,
     dirs_only: bool,
-) -> (Completions, Vec<(PathBuf, usize, usize)>) {
+) -> (Completions, Vec<(String, usize, usize)>) {
     let (dir, prefix) = split_path(partial);
     if dir.is_empty() {
         return (Completions::new(), Vec::new());
     }
-    let dir_path = if Path::new(dir).is_absolute() {
-        PathBuf::from(dir)
-    } else {
-        root.join(dir)
-    };
-    if is_dir(&dir_path) {
+
+    let dir_trimmed = dir.trim_end_matches('/');
+
+    // If dir already exists, complete_path handles it
+    if is_dir(dir_trimmed) {
         return (Completions::new(), Vec::new());
     }
-    let resolved_dirs = resolve_partial_dir(root, dir.trim_end_matches('/'));
+
+    let resolved_dirs = resolve_partial_dir(dir_trimmed);
     let mut comp = Completions::new();
     let mut groups = Vec::new();
-    for resolved_dir in resolved_dirs {
+
+    for rdir in resolved_dirs {
         let start = comp.entries.len();
-        complete_in_dir(&resolved_dir, prefix, dirs_only, &mut comp);
+        complete_in_dir(&rdir, prefix, dirs_only, &mut comp);
         let count = comp.entries.len() - start;
         if count > 0 {
-            groups.push((resolved_dir, start, count));
+            groups.push((format!("{rdir}/"), start, count));
         }
     }
     (comp, groups)
 }
 
-fn is_dir(path: &Path) -> bool {
-    rfs::statat(rfs::CWD, path, rfs::AtFlags::empty())
-        .map(|st| st.st_mode & 0xF000 == 0x4000)
-        .unwrap_or(false)
+/// Check if path is a directory using libc::stat — zero allocation.
+// libc is retained because this helper runs during warm completion.
+fn is_dir(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    let mut buf = [0u8; 4096];
+    if bytes.len() >= buf.len() {
+        return false;
+    }
+    buf[..bytes.len()].copy_from_slice(bytes);
+    buf[bytes.len()] = 0;
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    let rc = unsafe { libc::stat(buf.as_ptr() as *const libc::c_char, &mut st) };
+    rc == 0 && st.st_mode & libc::S_IFMT == libc::S_IFDIR
 }
 
-fn resolve_partial_dir(root: &Path, dir: &str) -> Vec<PathBuf> {
+/// Recursively resolve a directory path where each component is a prefix.
+/// e.g., "/home/user/de" → ["/home/user/dev", "/home/user/Desktop", ...]
+fn resolve_partial_dir(dir: &str) -> Vec<String> {
+    // This picker-side walk also keeps libc to preserve stack-buffer behavior.
     let dir = dir.trim_end_matches('/');
     if dir.is_empty() {
         return Vec::new();
     }
-    let path = if Path::new(dir).is_absolute() {
-        PathBuf::from(dir)
-    } else {
-        root.join(dir)
-    };
-    if is_dir(&path) {
-        return vec![path];
+
+    // Base: if it exists as a directory, return it
+    if is_dir(dir) {
+        return vec![dir.to_string()];
     }
+
+    // Split parent / component
     let (parent, component) = match dir.rfind('/') {
         Some(0) => ("/", &dir[1..]),
-        Some(index) => (&dir[..index], &dir[index + 1..]),
-        None => ("", dir),
+        Some(i) => (&dir[..i], &dir[i + 1..]),
+        None => (".", dir),
     };
+
     if component.is_empty() {
         return Vec::new();
     }
-    let parents = if parent.is_empty() {
-        vec![root.to_path_buf()]
-    } else {
-        resolve_partial_dir(root, parent)
-    };
+
+    let comp_bytes = component.as_bytes();
+
+    // Recursively resolve parent
+    let parents = resolve_partial_dir(parent);
+
     let mut results = Vec::new();
-    for parent in parents {
-        if let Ok(entries) = fs::read_dir(&parent) {
-            for entry in entries.flatten() {
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
-                if !name.starts_with(component) {
-                    continue;
-                }
-                if name.starts_with('.') && !component.starts_with('.') {
-                    continue;
-                }
-                let path = parent.join(name.as_ref());
-                if is_dir(&path) {
-                    results.push(path);
-                }
+    for p in &parents {
+        // Open directory with libc
+        let p_bytes = p.as_bytes();
+        let mut dir_buf = [0u8; 4096];
+        if p_bytes.len() >= dir_buf.len() {
+            continue;
+        }
+        dir_buf[..p_bytes.len()].copy_from_slice(p_bytes);
+        dir_buf[p_bytes.len()] = 0;
+
+        let dp = unsafe { libc::opendir(dir_buf.as_ptr() as *const libc::c_char) };
+        if dp.is_null() {
+            continue;
+        }
+
+        // Stack buffer for "parent/name\0" for stat
+        let mut path_buf = [0u8; 4096];
+        let prefix_len = if p == "." {
+            0
+        } else {
+            let len = p_bytes.len();
+            path_buf[..len].copy_from_slice(p_bytes);
+            if p_bytes.last() != Some(&b'/') {
+                path_buf[len] = b'/';
+                len + 1
+            } else {
+                len
+            }
+        };
+
+        loop {
+            let ent = unsafe { libc::readdir(dp) };
+            if ent.is_null() {
+                break;
+            }
+            let name_cstr = unsafe { std::ffi::CStr::from_ptr((*ent).d_name.as_ptr()) };
+            let name_bytes = name_cstr.to_bytes();
+
+            if name_bytes == b"." || name_bytes == b".." {
+                continue;
+            }
+            if !name_bytes.starts_with(comp_bytes) {
+                continue;
+            }
+            if name_bytes.first() == Some(&b'.') && !comp_bytes.starts_with(b".") {
+                continue;
+            }
+
+            // stat to check if it's a directory
+            let total = prefix_len + name_bytes.len();
+            if total >= path_buf.len() {
+                continue;
+            }
+            path_buf[prefix_len..total].copy_from_slice(name_bytes);
+            path_buf[total] = 0;
+
+            let mut st: libc::stat = unsafe { std::mem::zeroed() };
+            if unsafe { libc::stat(path_buf.as_ptr() as *const libc::c_char, &mut st) } != 0 {
+                continue;
+            }
+            if st.st_mode & libc::S_IFMT != libc::S_IFDIR {
+                continue;
+            }
+
+            let name = match std::str::from_utf8(name_bytes) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+
+            if p == "/" {
+                results.push(format!("/{name}"));
+            } else if p == "." {
+                results.push(name.to_string());
+            } else {
+                results.push(format!("{p}/{name}"));
             }
         }
+
+        unsafe { libc::closedir(dp) };
+
+        // Cap expansion to avoid combinatorial explosion
         if results.len() > 64 {
             results.truncate(64);
             break;
@@ -939,40 +740,75 @@ fn resolve_partial_dir(root: &Path, dir: &str) -> Vec<PathBuf> {
     results
 }
 
+/// Case-insensitive substring search: does `haystack` contain `needle`?
+fn contains_icase(haystack: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    if needle.len() > haystack.len() {
+        return false;
+    }
+    let first = needle[0].to_ascii_lowercase();
+    for i in 0..=(haystack.len() - needle.len()) {
+        if haystack[i].to_ascii_lowercase() == first
+            && haystack[i..i + needle.len()]
+                .iter()
+                .zip(needle)
+                .all(|(a, b)| a.eq_ignore_ascii_case(b))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Split "path/to/pref" into ("path/to/", "pref").
+/// Returns slices — no heap allocation.
 fn split_path(partial: &str) -> (&str, &str) {
     match partial.rfind('/') {
-        Some(index) => (&partial[..=index], &partial[index + 1..]),
+        Some(i) => (&partial[..=i], &partial[i + 1..]),
         None => ("", partial),
     }
 }
 
-pub(super) fn compute_grid(entries: &[CompEntry], term_cols: u16) -> (usize, usize) {
+/// Compute grid layout: (cols, rows) for column-major display.
+pub fn compute_grid(entries: &[CompletionEntry], term_cols: u16) -> (usize, usize) {
     let n = entries.len();
     if n == 0 {
         return (0, 0);
     }
+
     let max_cols = 6.min(n);
     let term_w = term_cols as usize;
+
     for cols in (1..=max_cols).rev() {
         let rows = n.div_ceil(cols);
-        let mut col_widths = [0_usize; 6];
+        // Stack array for col widths — max 6 columns, no heap allocation.
+        let mut col_widths = [0usize; 6];
         for (i, entry) in entries.iter().enumerate() {
             let col = i / rows;
             if col < cols {
                 col_widths[col] = col_widths[col].max(entry.display_width());
             }
         }
-        let total = col_widths[..cols].iter().sum::<usize>() + cols.saturating_sub(1) * 2;
+        // Total width with 2-char gaps between columns
+        let total: usize = col_widths[..cols].iter().sum::<usize>() + cols.saturating_sub(1) * 2;
         if total <= term_w {
             return (cols, rows);
         }
     }
+
     (1, n)
 }
 
-fn parse_ssh_hosts(home: &Path) -> Vec<String> {
+// -- SSH Completion --
+
+/// Parse hostnames from ~/.ssh/config and ~/.ssh/known_hosts.
+fn parse_ssh_hosts(home: &str) -> Vec<String> {
     let mut hosts = Vec::new();
-    if let Ok(data) = fs::read_to_string(home.join(".ssh/config")) {
+
+    // ~/.ssh/config: extract Host directives (skip wildcards)
+    if let Ok(data) = std::fs::read_to_string(format!("{home}/.ssh/config")) {
         for line in data.lines() {
             let trimmed = line.trim();
             if let Some(rest) = trimmed
@@ -987,17 +823,20 @@ fn parse_ssh_hosts(home: &Path) -> Vec<String> {
             }
         }
     }
-    if let Ok(data) = fs::read_to_string(home.join(".ssh/known_hosts")) {
+
+    // ~/.ssh/known_hosts: first field is hostname (skip hashed entries)
+    if let Ok(data) = std::fs::read_to_string(format!("{home}/.ssh/known_hosts")) {
         for line in data.lines() {
             let trimmed = line.trim();
             if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('|') {
                 continue;
             }
             if let Some(host_field) = trimmed.split_whitespace().next() {
+                // May contain comma-separated aliases and [host]:port
                 for entry in host_field.split(',') {
                     let host = entry
                         .strip_prefix('[')
-                        .and_then(|value| value.split(']').next())
+                        .and_then(|s| s.split(']').next())
                         .unwrap_or(entry);
                     if !host.is_empty() && !host.contains('*') {
                         hosts.push(host.to_string());
@@ -1006,48 +845,87 @@ fn parse_ssh_hosts(home: &Path) -> Vec<String> {
             }
         }
     }
-    hosts.sort_unstable();
+
+    hosts.sort();
     hosts.dedup();
     hosts
 }
 
-fn complete_hostnames(prefix: &str, home: &Path, comp: &mut Completions) {
+/// Complete SSH hostnames matching `prefix`.
+pub fn complete_hostnames(prefix: &str, home: &str, comp: &mut Completions) {
     for host in parse_ssh_hosts(home) {
         if host.starts_with(prefix) {
-            comp.push_host(&host);
+            let start = comp.names.len() as u32;
+            comp.names.push_str(&host);
+            comp.entries.push(CompletionEntry {
+                mtime: 0,
+                name_start: start,
+                name_len: host.len().min(255) as u8,
+                name_display_width: host.len().min(255) as u8, // hostnames are ASCII
+                flags: 8,                                      // is_host
+            });
         }
     }
 }
 
-fn complete_remote_path(host: &str, path_prefix: &str, comp: &mut Completions) {
+/// Completes remote paths through `ssh -o BatchMode=yes -o ConnectTimeout=2`,
+/// listing files on the remote host (nearly instant with ControlMaster).
+/// Returns after at most ~3 seconds.
+///
+/// The host is passed as one process argument and never interpreted as local
+/// shell source. Accepted output is successful, UTF-8, prefix-matching `ls -dp`
+/// output of at most 64 KiB; anything else yields no candidates. The child
+/// environment is exactly `env`, matching the contract that children never
+/// inherit the shell's own process environment.
+pub fn complete_remote_path(
+    host: &str,
+    path_prefix: &str,
+    comp: &mut Completions,
+    env: &std::collections::BTreeMap<Vec<u8>, Vec<u8>>,
+) {
     complete_remote_path_with_executable(
-        Path::new("ssh"),
+        std::path::Path::new("ssh"),
         host,
         path_prefix,
-        Duration::from_secs(3),
+        std::time::Duration::from_secs(3),
+        env,
         comp,
     );
 }
 
 fn complete_remote_path_with_executable(
-    executable: &Path,
+    executable: &std::path::Path,
     host: &str,
     path_prefix: &str,
-    timeout: Duration,
+    timeout: std::time::Duration,
+    env: &std::collections::BTreeMap<Vec<u8>, Vec<u8>>,
     comp: &mut Completions,
 ) {
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
     if host.is_empty() || host.starts_with('-') {
         return;
     }
-    let remote_command = format!("ls -dp {}* 2>/dev/null", shell_quote(path_prefix));
+    let remote_command = format!("ls -dp {}* 2>/dev/null", single_quote(path_prefix));
     let mut command = Command::new(executable);
     command
         .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=2", host])
         .arg(remote_command)
+        .env_clear()
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    // xshi ignores these while editing; the ssh child must receive defaults.
+    for (name, value) in env {
+        command.env(
+            std::ffi::OsStr::from_bytes(name),
+            std::ffi::OsStr::from_bytes(value),
+        );
+    }
+    // The shell ignores these while editing; the ssh child must receive defaults.
+    // SAFETY: the pre-exec hook only calls async-signal-safe signal(2).
     unsafe {
         command.pre_exec(|| {
             for signal in [
@@ -1091,7 +969,7 @@ fn complete_remote_path_with_executable(
             stop_remote_completion(&mut child);
             return;
         }
-        match rio::read(&pipe_r, &mut buf) {
+        match rustix::io::read(&pipe_r, &mut buf) {
             Ok(0) => break,
             Ok(n) => {
                 if output.len() + n > 64 * 1024 {
@@ -1100,27 +978,22 @@ fn complete_remote_path_with_executable(
                 }
                 output.extend_from_slice(&buf[..n]);
             }
-            Err(err) => {
-                let err = std::io::Error::from(err);
-                if err.raw_os_error() == Some(rio::Errno::AGAIN.raw_os_error())
-                    || err.raw_os_error() == Some(rio::Errno::WOULDBLOCK.raw_os_error())
-                {
-                    let remaining = deadline.saturating_duration_since(Instant::now());
-                    if remaining.is_zero() {
-                        stop_remote_completion(&mut child);
-                        return;
-                    }
-                    let mut pfd = [revent::PollFd::new(&pipe_r, revent::PollFlags::IN)];
-                    let poll_wait =
-                        revent::Timespec::try_from(remaining.min(Duration::from_millis(100)))
-                            .expect("remote completion timeout fits Timespec");
-                    let _ = revent::poll(&mut pfd, Some(&poll_wait));
-                    continue;
-                }
-                if err.kind() != std::io::ErrorKind::Interrupted {
+            Err(err) if err == rustix::io::Errno::AGAIN => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
                     stop_remote_completion(&mut child);
                     return;
                 }
+                let mut pfd = [rustix::event::PollFd::new(&pipe_r, rustix::event::PollFlags::IN)];
+                let poll_wait =
+                    rustix::event::Timespec::try_from(remaining.min(Duration::from_millis(100)))
+                        .expect("remote completion timeout fits Timespec");
+                let _ = rustix::event::poll(&mut pfd, Some(&poll_wait));
+            }
+            Err(err) if err == rustix::io::Errno::INTR => {}
+            Err(_) => {
+                stop_remote_completion(&mut child);
+                return;
             }
         }
     }
@@ -1146,6 +1019,7 @@ fn complete_remote_path_with_executable(
         return;
     }
 
+    // The directory prefix to strip: everything up to and including the last '/'.
     let dir_prefix = match path_prefix.rfind('/') {
         Some(index) => &path_prefix[..=index],
         None => "",
@@ -1174,154 +1048,65 @@ fn complete_remote_path_with_executable(
     }
 }
 
-fn stop_remote_completion(child: &mut Child) {
+fn stop_remote_completion(child: &mut std::process::Child) {
     let _ = child.kill();
     let _ = child.wait();
 }
 
-fn set_pipe_nonblocking(pipe: &impl AsFd) -> std::io::Result<()> {
-    let mut flags = rfs::fcntl_getfl(pipe).map_err(std::io::Error::from)?;
-    flags.insert(rfs::OFlags::NONBLOCK);
-    rfs::fcntl_setfl(pipe, flags).map_err(std::io::Error::from)
+fn set_pipe_nonblocking(pipe: &impl std::os::fd::AsFd) -> std::io::Result<()> {
+    let mut flags = rustix::fs::fcntl_getfl(pipe).map_err(std::io::Error::from)?;
+    flags.insert(rustix::fs::OFlags::NONBLOCK);
+    rustix::fs::fcntl_setfl(pipe, flags).map_err(std::io::Error::from)
 }
 
-fn shell_quote(s: &str) -> String {
+fn single_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
-}
-
-fn complete_commands(session: &Session, prefix: &str, comp: &mut Completions) {
-    for command in &session.path_commands {
-        if command.name.starts_with(prefix) {
-            comp.push(&command.name, false, false, true);
-        }
-    }
-}
-
-fn contains_icase(haystack: &[u8], needle: &[u8]) -> bool {
-    if needle.is_empty() {
-        return true;
-    }
-    if needle.len() > haystack.len() {
-        return false;
-    }
-    let first = needle[0].to_ascii_lowercase();
-    for i in 0..=(haystack.len() - needle.len()) {
-        if haystack[i].to_ascii_lowercase() == first
-            && haystack[i..i + needle.len()]
-                .iter()
-                .zip(needle)
-                .all(|(a, b)| a.eq_ignore_ascii_case(b))
-        {
-            return true;
-        }
-    }
-    false
-}
-
-pub(super) fn str_width(s: &str) -> usize {
-    s.chars().map(char_width).sum()
-}
-
-pub(super) fn char_width(ch: char) -> usize {
-    let cp = ch as u32;
-    if cp < 0x7f {
-        return if cp >= 0x20 { 1 } else { 0 };
-    }
-    if cp < 0xa0 || cp == 0xad {
-        return 0;
-    }
-    if matches!(cp, 0x200b..=0x200f | 0x2028..=0x202e | 0x2060..=0x2064 | 0xfeff) {
-        return 0;
-    }
-    if matches!(
-        cp,
-        0x0300..=0x036f | 0x1ab0..=0x1aff | 0x1dc0..=0x1dff | 0x20d0..=0x20ff | 0xfe20..=0xfe2f
-    ) {
-        return 0;
-    }
-    if is_wide(cp) { 2 } else { 1 }
-}
-
-fn is_wide(cp: u32) -> bool {
-    matches!(
-        cp,
-        0x1100..=0x115f
-            | 0x231a..=0x231b
-            | 0x2329..=0x232a
-            | 0x23e9..=0x23f3
-            | 0x23f8..=0x23fa
-            | 0x25fd..=0x25fe
-            | 0x2614..=0x2615
-            | 0x2648..=0x2653
-            | 0x267f
-            | 0x2693
-            | 0x26a1
-            | 0x26aa..=0x26ab
-            | 0x26bd..=0x26be
-            | 0x26c4..=0x26c5
-            | 0x26ce
-            | 0x26d4
-            | 0x26ea
-            | 0x26f2..=0x26f3
-            | 0x26f5
-            | 0x26fa
-            | 0x26fd
-            | 0x2702
-            | 0x2705
-            | 0x2708..=0x270d
-            | 0x270f
-            | 0x2712
-            | 0x2714
-            | 0x2716
-            | 0x271d
-            | 0x2721
-            | 0x2728
-            | 0x2733..=0x2734
-            | 0x2744
-            | 0x2747
-            | 0x274c
-            | 0x274e
-            | 0x2753..=0x2755
-            | 0x2757
-            | 0x2763..=0x2764
-            | 0x2795..=0x2797
-            | 0x27a1
-            | 0x27b0
-            | 0x27bf
-            | 0x2934..=0x2935
-            | 0x2b05..=0x2b07
-            | 0x2b1b..=0x2b1c
-            | 0x2b50
-            | 0x2b55
-            | 0x2e80..=0x303e
-            | 0x3040..=0x33bf
-            | 0x3400..=0x4dbf
-            | 0x4e00..=0xa4cf
-            | 0xac00..=0xd7a3
-            | 0xf900..=0xfaff
-            | 0xfe10..=0xfe19
-            | 0xfe30..=0xfe6f
-            | 0xff00..=0xff60
-            | 0xffe0..=0xffe6
-            | 0x1f300..=0x1f64f
-            | 0x1f900..=0x1f9ff
-            | 0x20000..=0x3fffd
-    )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        CompletionRequest, CompletionState, Completions, Session, complete_remote_path_with_executable,
-        completion_replacement, compute_grid, fs, start_completion,
-    };
-    use crate::xshi::interactive::session::set_env_bytes;
-    use std::os::unix::fs::PermissionsExt;
-    use std::path::PathBuf;
-    use std::time::Duration;
+    use super::*;
 
     #[test]
-    fn grid_computation_uses_column_major_layout() {
+    fn host_flag() {
+        let mut comp = Completions::new();
+        // Push a host entry manually
+        let start = comp.names.len() as u32;
+        comp.names.push_str("myhost");
+        comp.entries.push(CompletionEntry {
+            mtime: 0,
+            name_start: start,
+            name_len: 6,
+            name_display_width: 6,
+            flags: 8,
+        });
+        assert!(comp.entries[0].is_host());
+        assert!(!comp.entries[0].is_dir());
+        assert_eq!(comp.entries[0].display_width(), 7); // "myhost" + ":"
+    }
+
+
+
+    #[test]
+    fn single_quote_wraps_and_escapes_embedded_quotes() {
+        assert_eq!(single_quote("hello"), "'hello'");
+        assert_eq!(single_quote("/tmp/foo"), "'/tmp/foo'");
+        assert_eq!(single_quote("it's"), "'it'\\''s'");
+        assert_eq!(single_quote("a b; rm -rf ~"), "'a b; rm -rf ~'");
+    }
+
+    #[test]
+    fn split_path_no_slash() {
+        assert_eq!(split_path("foo"), ("", "foo"));
+    }
+
+    #[test]
+    fn split_path_with_dir() {
+        assert_eq!(split_path("src/ma"), ("src/", "ma"));
+    }
+
+    #[test]
+    fn grid_computation() {
         let mut comp = Completions::new();
         for i in 0..7 {
             comp.push(&format!("file{i}.rs"), false, false, false);
@@ -1329,282 +1114,105 @@ mod tests {
         let (cols, rows) = compute_grid(&comp.entries, 80);
         assert!(cols >= 1);
         assert!(rows >= 1);
-        assert!(cols <= 6);
         assert!(cols * rows >= 7);
     }
 
     #[test]
-    fn tilde_completion_uses_home_but_keeps_user_prefix() {
-        let root =
-            std::env::temp_dir().join(format!("xshi-home-completion-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(root.join("dev")).unwrap();
-        let mut session = Session::new();
-        session.home = Some(root.clone());
-        session.cwd = PathBuf::from("/");
-        let state = start_completion(
-            &session,
-            CompletionRequest {
-                text: "cd ~/d",
-                cursor: "cd ~/d".len(),
-                term_cols: 80,
-            },
-        );
-        assert_eq!(state.dir_prefix, "~/");
-        assert_eq!(state.comp.name(0), "dev");
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn completion_refreshes_cwd_snapshot_and_non_cwd_directory_mtime() {
-        let root = tempfile::tempdir().expect("temporary directory");
-        let first = root.path().join("first");
-        let second = root.path().join("second");
-        let nested = second.join("nested");
-        fs::create_dir(&first).expect("first cwd fixture");
-        fs::create_dir(&second).expect("second cwd fixture");
-        fs::create_dir(&nested).expect("nested fixture");
-        fs::write(first.join("cache_first"), b"").expect("first cwd entry");
-        fs::write(second.join("cache_second"), b"").expect("second cwd entry");
-        fs::write(nested.join("cache_old"), b"").expect("first nested entry");
-
-        let mut session = Session::new();
-        let names = |session: &Session, text: &str| {
-            let state = start_completion(
-                session,
-                CompletionRequest {
-                    text,
-                    cursor: text.len(),
-                    term_cols: 80,
-                },
-            );
-            (0..state.comp.len())
-                .map(|index| state.comp.name(index).to_string())
-                .collect::<Vec<_>>()
-        };
-        session.cwd = first;
-        session.refresh_cwd_snapshot();
-        assert_eq!(names(&session, "cat cache_"), ["cache_first"]);
-        session.cwd = second;
-        session.refresh_cwd_snapshot();
-        assert_eq!(names(&session, "cat cache_"), ["cache_second"]);
-
-        assert_eq!(names(&session, "cat nested/cache_"), ["cache_old"]);
-        assert_eq!(session.completion_dir_cache.borrow().len(), 1);
-        let old_modified = fs::metadata(&nested)
-            .expect("nested metadata")
-            .modified()
-            .expect("nested mtime");
-        fs::remove_file(nested.join("cache_old")).expect("remove old entry");
-        fs::write(nested.join("cache_new"), b"").expect("new nested entry");
-        fs::File::open(&nested)
-            .expect("open nested directory")
-            .set_modified(old_modified + Duration::from_secs(2))
-            .expect("advance nested mtime");
-        assert_eq!(names(&session, "cat nested/cache_"), ["cache_new"]);
-    }
-
-    fn fake_ssh(path: &PathBuf, script: &str) {
-        fs::write(path, format!("#!/bin/sh\n{script}\n")).expect("fake ssh source");
-        fs::set_permissions(path, fs::Permissions::from_mode(0o755))
-            .expect("make fake ssh executable");
-    }
-
-    #[test]
-    fn remote_completion_rejects_denial_malformed_output_and_missing_executable() {
-        let root = tempfile::tempdir().expect("temporary directory");
-        let ssh = root.path().join("ssh");
+    fn candidate_completion_prefers_prefix_matches() {
+        let entries = [
+            ("alpha.txt", false, false, false),
+            ("src/alpha.txt", false, false, false),
+            ("alpine.txt", false, false, false),
+        ];
         let mut comp = Completions::new();
-
-        fake_ssh(&ssh, "printf 'dir/alpha\\n'; exit 255");
-        complete_remote_path_with_executable(&ssh, "host", "dir/al", Duration::from_millis(200), &mut comp);
-        assert!(comp.is_empty(), "denied ssh output became a candidate");
-
-        fake_ssh(&ssh, "printf 'other/path\\n'");
-        complete_remote_path_with_executable(&ssh, "host", "dir/al", Duration::from_millis(200), &mut comp);
-        assert!(comp.is_empty(), "unrelated path became a candidate");
-
-        fake_ssh(&ssh, "printf '\\377'");
-        complete_remote_path_with_executable(&ssh, "host", "dir/al", Duration::from_millis(200), &mut comp);
-        assert!(comp.is_empty(), "invalid UTF-8 became a candidate");
-
-        complete_remote_path_with_executable(
-            &root.path().join("missing-ssh"),
-            "host",
-            "dir/al",
-            Duration::from_millis(200),
-            &mut comp,
-        );
-        assert!(comp.is_empty());
-    }
-
-    #[test]
-    fn remote_completion_passes_host_as_one_argument_and_bounds_timeout() {
-        let root = tempfile::tempdir().expect("temporary directory");
-        let ssh = root.path().join("ssh");
-        let marker = root.path().join("injected");
-        let args = root.path().join("args");
-        let script = format!(
-            "printf '%s\\n' \"$5\" \"$6\" > {}; printf 'dir/alpha/\\ndir/alpine\\n'",
-            args.display()
-        );
-        fake_ssh(&ssh, &script);
-        let host = format!("host; touch {}; #", marker.display());
-        let mut comp = Completions::new();
-        complete_remote_path_with_executable(&ssh, &host, "dir/al", Duration::from_millis(200), &mut comp);
+        complete_candidates(&entries, "alp", false, &mut comp);
         assert_eq!(comp.len(), 2);
-        assert_eq!(comp.name(0), "alpha");
-        assert!(comp.entries[0].is_dir());
-        assert_eq!(comp.name(1), "alpine");
-        assert!(!marker.exists(), "host text ran as a local shell command");
-        let args = fs::read_to_string(args).expect("fake ssh arguments");
-        assert!(args.starts_with(&host));
-        assert!(args.contains("'dir/al'*"));
-
-        fake_ssh(
-            &ssh,
-            &format!(
-                "printf '%s\\n' \"$6\" > {}; printf \"dir/o'kay\\n\"",
-                root.path().join("args").display()
-            ),
-        );
-        comp = Completions::new();
-        complete_remote_path_with_executable(
-            &ssh,
-            "host",
-            "dir/o'k",
-            Duration::from_millis(200),
-            &mut comp,
-        );
-        assert_eq!(comp.len(), 1);
-        assert_eq!(comp.name(0), "o'kay");
-        let quoted_args = fs::read_to_string(root.path().join("args")).expect("quoted arguments");
-        assert!(quoted_args.contains("'dir/o'\\''k'*"));
-
-        fs::remove_file(root.path().join("args")).expect("remove captured arguments");
-        complete_remote_path_with_executable(
-            &ssh,
-            "-oProxyCommand=bad",
-            "dir/al",
-            Duration::from_millis(200),
-            &mut Completions::new(),
-        );
-        assert!(!root.path().join("args").exists(), "option-like host reached ssh");
-
-        fake_ssh(&ssh, "exec sleep 5");
-        comp = Completions::new();
-        let start = std::time::Instant::now();
-        complete_remote_path_with_executable(&ssh, "host", "dir/al", Duration::from_millis(100), &mut comp);
-        assert!(comp.is_empty());
-        assert!(start.elapsed() < Duration::from_secs(2));
-
-        fake_ssh(&ssh, "exec 1>&-; exec sleep 5");
-        let start = std::time::Instant::now();
-        complete_remote_path_with_executable(&ssh, "host", "dir/al", Duration::from_millis(100), &mut comp);
-        assert!(comp.is_empty());
-        assert!(start.elapsed() < Duration::from_secs(2));
+        assert_eq!(comp.name(0), "alpha.txt");
+        assert_eq!(comp.name(1), "alpine.txt");
     }
 
     #[test]
-    fn env_completion_keeps_dollar_prefix() {
-        let mut session = Session::new();
-        session.env.clear();
-        set_env_bytes(&mut session.env, b"EDITOR", b"vim");
-        let state = start_completion(
-            &session,
-            CompletionRequest {
-                text: "$ED",
-                cursor: 3,
-                term_cols: 80,
-            },
+    fn partial_path_resolves_this_repo() {
+        let resolved = resolve_partial_dir("sr");
+        assert!(
+            resolved.iter().any(|d| d == "src"),
+            "expected 'src' in {resolved:?}"
         );
-        assert_eq!(state.comp.name(0), "$EDITOR");
     }
 
     #[test]
-    fn completion_replacement_quotes_paths_and_marks_hosts() {
-        let mut files = Completions::new();
-        files.push("two words.txt", false, false, false);
-        let quoted = CompletionState {
-            comp: files,
-            selected: 0,
-            term_cols: 80,
-            ..CompletionState::default()
-        };
-        assert_eq!(
-            completion_replacement(&quoted).as_deref(),
-            Some("'two words.txt'")
-        );
-
-        let mut hosts = Completions::new();
-        hosts.push_host("buildbox");
-        let host = CompletionState {
-            comp: hosts,
-            selected: 0,
-            term_cols: 80,
-            ..CompletionState::default()
-        };
-        assert_eq!(completion_replacement(&host).as_deref(), Some("buildbox:"));
+    fn partial_path_two_levels() {
+        let resolved = resolve_partial_dir("sr");
+        assert!(!resolved.is_empty());
     }
 
     #[test]
-    fn completion_selection_wraps_by_grid_position() {
-        let mut comp = Completions::new();
-        for name in ["a", "b", "c", "d", "e"] {
-            comp.push(name, false, false, false);
-        }
-        let mut state = CompletionState {
-            comp,
-            selected: 0,
-            cols: 2,
-            rows: 3,
-            term_cols: 80,
-            ..CompletionState::default()
-        };
-
-        state.move_left();
-        assert_eq!(state.selected, 3);
-        state.move_right();
-        assert_eq!(state.selected, 0);
-        state.move_up();
-        assert_eq!(state.selected, 4);
-        state.move_down();
-        assert_eq!(state.selected, 0);
+    fn partial_path_complete_finds_entries() {
+        let (comp, groups) = complete_partial_path("./sr/m", false);
+        let names: Vec<&str> = groups
+            .iter()
+            .flat_map(|(_, start, count)| (*start..*start + *count).map(|i| comp.name(i)))
+            .collect();
+        assert!(
+            names.iter().any(|n| n.starts_with("main")),
+            "expected main.rs in {names:?}"
+        );
     }
 
     #[test]
-    fn ssh_host_completion_reads_config_and_known_hosts() {
-        let root = std::env::temp_dir().join(format!("xshi-ssh-completion-{}", std::process::id()));
-        let ssh = root.join(".ssh");
-        let _ = fs::remove_dir_all(&root);
-        fs::create_dir_all(&ssh).unwrap();
-        fs::write(
-            ssh.join("config"),
-            "Host xsh-buildbox *.ignored\n  HostName example.invalid\n",
-        )
-        .unwrap();
-        fs::write(
-            ssh.join("known_hosts"),
-            "[builder.example]:22 ssh-ed25519 AAAA\n",
-        )
-        .unwrap();
-        let mut session = Session::new();
-        session.home = Some(root.clone());
+    fn partial_path_existing_dir_returns_empty() {
+        let (_comp, groups) = complete_partial_path("./src/m", false);
+        assert!(groups.is_empty());
+    }
 
-        let state = start_completion(
-            &session,
-            CompletionRequest {
-                text: "ssh xsh-bu",
-                cursor: "ssh xsh-bu".len(),
-                term_cols: 80,
-            },
-        );
+    #[test]
+    fn partial_path_nonexistent_returns_empty() {
+        let (_comp, groups) = complete_partial_path("./zzzzz/m", false);
+        assert!(groups.is_empty());
+    }
 
-        assert_eq!(state.comp.name(0), "xsh-buildbox");
-        assert_eq!(
-            completion_replacement(&state).as_deref(),
-            Some("xsh-buildbox:")
+    #[test]
+    fn contains_icase_basic() {
+        assert!(contains_icase(b"Cargo.toml", b"tom"));
+        assert!(contains_icase(b"Cargo.toml", b"TOM"));
+        assert!(contains_icase(b"Cargo.toml", b"cargo"));
+        assert!(contains_icase(b"Cargo.toml", b"Cargo"));
+        assert!(!contains_icase(b"Cargo.toml", b"xyz"));
+        assert!(contains_icase(b"anything", b""));
+        assert!(!contains_icase(b"ab", b"abc"));
+    }
+
+    #[test]
+    fn substring_fallback_finds_toml() {
+        // This repo has Cargo.toml — "tom" should match via substring fallback
+        let comp = complete_path("tom", false);
+        let names: Vec<&str> = (0..comp.len()).map(|i| comp.name(i)).collect();
+        assert!(
+            names.iter().any(|n| n.contains("toml")),
+            "expected Cargo.toml in {names:?}"
         );
-        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn prefix_match_preferred_over_substring() {
+        // "src" prefix-matches "src" directly — should not fall back to substring
+        let comp = complete_path("src", false);
+        let names: Vec<&str> = (0..comp.len()).map(|i| comp.name(i)).collect();
+        assert!(names.contains(&"src"), "expected exact 'src' in {names:?}");
+    }
+
+    #[test]
+    fn partial_path_absolute() {
+        // Use /usr as a stable path that exists on all platforms.
+        // /usr/bi → should resolve to /usr/bin, then find entries starting with "t"
+        let (comp, groups) = complete_partial_path("/usr/bi/t", false);
+        let all_names: Vec<&str> = groups
+            .iter()
+            .flat_map(|(_, start, count)| (*start..*start + *count).map(|i| comp.name(i)))
+            .collect();
+        assert!(
+            all_names.iter().any(|n| n.starts_with("t")),
+            "expected entries starting with 't' in /usr/bin: {all_names:?}"
+        );
     }
 }

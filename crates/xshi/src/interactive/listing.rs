@@ -1,319 +1,320 @@
-#![allow(clippy::single_call_fn)]
+use std::os::unix::fs::{FileTypeExt, MetadataExt};
 
-use super::session::{CwdEntry, Session};
-use std::fs;
-use std::io::Write;
-use std::os::unix::ffi::OsStrExt;
-use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
-use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
-
-pub(super) fn run(
-    session: &Session,
-    args: &[String],
-    stdout: &mut Vec<u8>,
-    stderr: &mut Vec<u8>,
-) -> i32 {
-    let targets = if args.is_empty() {
-        vec![session.cwd.clone()]
-    } else {
-        args.iter()
-            .map(|arg| {
-                let path = PathBuf::from(arg);
-                if path.is_absolute() {
-                    path
-                } else {
-                    session.cwd.join(path)
-                }
-            })
-            .collect()
+/// Native directory listing, equivalent to `ls -plAhG`.
+/// Appends output to `stdout`. Returns 0 on success, 1 on error.
+pub(super) fn list_dir(path: &str, stdout: &mut Vec<u8>, stderr: &mut Vec<u8>) -> i32 {
+    use std::io::Write as _;
+    let entries = match read_entries(path) {
+        Ok(e) => e,
+        Err(e) => {
+            writeln!(stderr, "xshi: l: {path}: {e}").ok();
+            return 1;
+        }
     };
 
-    let mut status = 0;
-    let mut file_entries = Vec::new();
-    let mut dir_entries = Vec::new();
-    let mut cached_now = None;
-    if args.is_empty()
-        && let Some(snapshot) = &session.cwd_snapshot
-    {
-        cached_now = Some(snapshot.captured_at);
-        dir_entries.push((
-            snapshot.path.clone(),
-            snapshot
-                .entries
-                .iter()
-                .map(ListEntry::from_cwd_entry)
-                .collect(),
+    if entries.is_empty() {
+        return 0;
+    }
+
+    // Compute column widths for alignment
+    let max_nlink = entries.iter().map(|e| e.nlink_str.len()).max().unwrap_or(0);
+    let max_owner = entries.iter().map(|e| e.owner.len()).max().unwrap_or(0);
+    let max_group = entries.iter().map(|e| e.group.len()).max().unwrap_or(0);
+    let max_size = entries.iter().map(|e| e.size_str.len()).max().unwrap_or(0);
+
+    let mut out = String::new();
+    for e in &entries {
+        // mode nlink owner group size date — no color
+        out.push_str(&format!(
+            "{} {:>nw$} {:<ow$}  {:<gw$}  {:>sw$} {} ",
+            e.mode_str,
+            e.nlink_str,
+            e.owner,
+            e.group,
+            e.size_str,
+            e.date_str,
+            nw = max_nlink,
+            ow = max_owner,
+            gw = max_group,
+            sw = max_size,
         ));
+        // Color only wraps the name
+        out.push_str(&e.color_start);
+        out.push_str(&e.display_name);
+        if !e.color_start.is_empty() {
+            out.push_str("\x1b[0m");
+        }
+        if let Some(ref target) = e.link_target {
+            out.push_str(&format!(" -> {target}"));
+        }
+        out.push('\n');
+    }
+
+    stdout.extend_from_slice(out.as_bytes());
+    0
+}
+
+/// Account names seen so far: a directory usually has a handful of owners, and
+/// each database lookup costs far more than the rest of an entry.
+#[derive(Default)]
+struct Accounts {
+    users: Vec<(u32, String)>,
+    groups: Vec<(u32, String)>,
+}
+
+impl Accounts {
+    fn user(&mut self, uid: u32) -> String {
+        if let Some((_, name)) = self.users.iter().find(|(known, _)| *known == uid) {
+            return name.clone();
+        }
+        let name = username(uid);
+        self.users.push((uid, name.clone()));
+        name
+    }
+
+    fn group(&mut self, gid: u32) -> String {
+        if let Some((_, name)) = self.groups.iter().find(|(known, _)| *known == gid) {
+            return name.clone();
+        }
+        let name = groupname(gid);
+        self.groups.push((gid, name.clone()));
+        name
+    }
+}
+
+struct Entry {
+    mode_str: String,
+    nlink_str: String,
+    owner: String,
+    group: String,
+    size_str: String,
+    date_str: String,
+    display_name: String,
+    link_target: Option<String>,
+    color_start: String,
+}
+
+fn read_entries(path: &str) -> Result<Vec<Entry>, std::io::Error> {
+    let mut accounts = Accounts::default();
+    let now = unsafe { libc::time(std::ptr::null_mut()) };
+    // If path is a file (or symlink to file), list just that entry.
+    let top_meta = std::fs::symlink_metadata(path)?;
+    let top_is_dir = if top_meta.file_type().is_symlink() {
+        std::fs::metadata(path).map(|m| m.is_dir()).unwrap_or(false)
     } else {
-        for path in targets {
-            match fs::symlink_metadata(&path) {
-                Ok(metadata) if metadata.is_dir() => match read_dir_entries(&path) {
-                    Ok(entries) => dir_entries.push((path, entries)),
-                    Err(err) => {
-                        writeln!(stderr, "l: {}: {err}", path.display()).ok();
-                        status = 1;
-                    }
-                },
-                Ok(metadata) => file_entries.push(ListEntry::new(path, metadata)),
-                Err(err) => {
-                    writeln!(stderr, "l: {}: {err}", path.display()).ok();
-                    status = 1;
-                }
-            }
-        }
-    }
-
-    file_entries.sort_unstable_by(|left, right| left.path.cmp(&right.path));
-    let now = cached_now.unwrap_or_else(SystemTime::now);
-    let widths = ListWidths::from_entries(
-        session,
-        file_entries
-            .iter()
-            .chain(dir_entries.iter().flat_map(|(_, entries)| entries.iter())),
-        now,
-    );
-    for entry in file_entries {
-        render_entry(session, &entry, &widths, now, stdout);
-    }
-
-    let show_headings = !dir_entries.is_empty() && (!args.is_empty() && args.len() > 1);
-    for (index, (dir, mut entries)) in dir_entries.into_iter().enumerate() {
-        if index > 0 || !stdout.is_empty() {
-            stdout.push(b'\n');
-        }
-        if show_headings {
-            writeln!(stdout, "{}:", dir.display()).ok();
-        }
-        entries.sort_unstable_by(|left, right| left.name.cmp(&right.name));
-        for entry in entries {
-            render_entry(session, &entry, &widths, now, stdout);
-        }
-    }
-    status
-}
-
-#[derive(Clone, Debug)]
-struct ListEntry {
-    path: PathBuf,
-    name: String,
-    metadata: fs::Metadata,
-    link_target: Option<PathBuf>,
-}
-
-impl ListEntry {
-    fn new(path: PathBuf, metadata: fs::Metadata) -> Self {
-        let name = path
+        top_meta.is_dir()
+    };
+    if !top_is_dir {
+        let p = std::path::Path::new(path);
+        let name = p
             .file_name()
-            .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path.display().to_string());
-        let link_target = metadata
-            .file_type()
-            .is_symlink()
-            .then(|| fs::read_link(&path).ok())
-            .flatten();
-        Self {
-            path,
-            name,
-            metadata,
-            link_target,
-        }
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string());
+        return Ok(vec![build_entry(&name, p, &top_meta, &mut accounts, now)]);
     }
-}
 
-impl ListEntry {
-    fn from_cwd_entry(entry: &CwdEntry) -> Self {
-        Self {
-            path: entry.path.clone(),
-            name: entry.name.clone(),
-            metadata: entry.metadata.clone(),
-            link_target: entry.link_target.clone(),
-        }
-    }
-}
-
-fn read_dir_entries(path: &Path) -> Result<Vec<ListEntry>, std::io::Error> {
     let mut entries = Vec::new();
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        if name.as_bytes() == b"." || name.as_bytes() == b".." {
+    for dir_entry in std::fs::read_dir(path)? {
+        let dir_entry = dir_entry?;
+        let name = dir_entry.file_name().to_string_lossy().into_owned();
+
+        // Skip . and .. (-A behavior)
+        if name == "." || name == ".." {
             continue;
         }
-        let path = entry.path();
-        entries.push(ListEntry::new(path, fs::symlink_metadata(entry.path())?));
+
+        let full_path = dir_entry.path();
+        let lmeta = match std::fs::symlink_metadata(&full_path) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        entries.push(build_entry(&name, &full_path, &lmeta, &mut accounts, now));
     }
+
+    // Sort case-insensitively
+    entries.sort_by_cached_key(|entry| entry.display_name.to_lowercase());
+
     Ok(entries)
 }
 
-#[derive(Clone, Copy, Debug)]
-struct ListWidths {
-    owner: usize,
-    size: usize,
-    age: usize,
-}
-
-impl ListWidths {
-    fn from_entries<'a>(
-        session: &Session,
-        entries: impl Iterator<Item = &'a ListEntry>,
-        now: SystemTime,
-    ) -> Self {
-        let mut widths = Self {
-            owner: 1,
-            size: 1,
-            age: 1,
-        };
-        for entry in entries {
-            widths.owner = widths
-                .owner
-                .max(owner_name(session, entry.metadata.uid()).len());
-            widths.size = widths.size.max(human_size(entry.metadata.len()).len());
-            widths.age = widths
-                .age
-                .max(age(entry.metadata.modified().ok(), now).len());
-        }
-        widths
-    }
-}
-
-fn render_entry(
-    session: &Session,
-    entry: &ListEntry,
-    widths: &ListWidths,
-    now: SystemTime,
-    out: &mut Vec<u8>,
-) {
-    let mode = mode_string(&entry.metadata);
-    let owner = owner_name(session, entry.metadata.uid());
-    let size = human_size(entry.metadata.len());
-    let age = age(entry.metadata.modified().ok(), now);
-    let mut name = entry.name.clone();
-    if entry.metadata.is_dir() {
-        name.push('/');
-    } else if is_executable(&entry.metadata)
-        && !entry.metadata.file_type().is_symlink()
-        && !session.colors
-    {
-        name.push('*');
-    }
-    let name = if session.colors {
-        color_name(&name, &entry.metadata)
+fn build_entry(
+    name: &str,
+    full_path: &std::path::Path,
+    lmeta: &std::fs::Metadata,
+    accounts: &mut Accounts,
+    now: i64,
+) -> Entry {
+    let mode = lmeta.mode();
+    let file_type = lmeta.file_type();
+    let is_link = file_type.is_symlink();
+    let is_dir = if is_link {
+        std::fs::metadata(full_path)
+            .map(|m| m.is_dir())
+            .unwrap_or(false)
     } else {
-        name
+        lmeta.is_dir()
     };
-    write!(
-        out,
-        "{mode} {owner:<owner_width$} {size:>size_width$} {age:>age_width$} {name}",
-        owner_width = widths.owner,
-        size_width = widths.size,
-        age_width = widths.age,
-    )
-    .ok();
-    if let Some(target) = &entry.link_target {
-        write!(out, " -> {}", target.display()).ok();
-    }
-    out.push(b'\n');
-}
+    let is_exec = !is_dir && mode & 0o111 != 0;
 
-fn owner_name(session: &Session, uid: u32) -> String {
-    session
-        .uid_names
-        .get(&uid)
-        .cloned()
-        .unwrap_or_else(|| uid.to_string())
-}
-
-fn color_name(name: &str, metadata: &fs::Metadata) -> String {
-    if metadata.file_type().is_symlink() {
-        format!("\x1b[36m{name}\x1b[0m")
-    } else if metadata.is_dir() {
-        format!("\x1b[34m{name}\x1b[0m")
-    } else if is_executable(metadata) {
-        format!("\x1b[32m{name}\x1b[0m")
+    let link_target = if is_link {
+        std::fs::read_link(full_path)
+            .ok()
+            .map(|p| sanitize_name(&p.to_string_lossy()))
     } else {
-        name.to_string()
-    }
-}
-
-fn mode_string(metadata: &fs::Metadata) -> String {
-    let file_type = metadata.file_type();
-    let first = if file_type.is_dir() {
-        'd'
-    } else if file_type.is_symlink() {
-        'l'
-    } else if file_type.is_socket() {
-        's'
-    } else if file_type.is_fifo() {
-        'p'
-    } else if file_type.is_char_device() {
-        'c'
-    } else if file_type.is_block_device() {
-        'b'
-    } else {
-        '-'
+        None
     };
-    let mode = metadata.permissions().mode();
-    let mut out = String::with_capacity(10);
-    out.push(first);
-    for shift in [6, 3, 0] {
-        out.push(if mode & (0o4 << shift) != 0 { 'r' } else { '-' });
-        out.push(if mode & (0o2 << shift) != 0 { 'w' } else { '-' });
-        out.push(if mode & (0o1 << shift) != 0 { 'x' } else { '-' });
+
+    let safe_name = sanitize_name(name);
+    let display_name = if is_dir {
+        format!("{safe_name}/")
+    } else {
+        safe_name
+    };
+
+    let color_start = if is_link {
+        "\x1b[36m".to_string() // cyan
+    } else if is_dir {
+        "\x1b[34m".to_string() // blue
+    } else if mode & 0o4000 != 0 {
+        "\x1b[31m".to_string() // red for setuid
+    } else if is_exec {
+        "\x1b[32m".to_string() // green
+    } else {
+        String::new()
+    };
+
+    Entry {
+        mode_str: format_mode(
+            mode,
+            if is_link {
+                'l'
+            } else if is_dir {
+                'd'
+            } else if file_type.is_char_device() {
+                'c'
+            } else if file_type.is_block_device() {
+                'b'
+            } else if file_type.is_fifo() {
+                'p'
+            } else if file_type.is_socket() {
+                's'
+            } else {
+                '-'
+            },
+        ),
+        nlink_str: lmeta.nlink().to_string(),
+        owner: accounts.user(lmeta.uid()),
+        group: accounts.group(lmeta.gid()),
+        size_str: human_size(lmeta.size()),
+        date_str: format_time(lmeta.mtime(), now),
+        display_name,
+        link_target,
+        color_start,
     }
-    out
 }
 
-fn is_executable(metadata: &fs::Metadata) -> bool {
-    metadata.permissions().mode() & 0o111 != 0
+/// Replace control characters (newlines, tabs, etc.) in filenames with
+/// Unicode replacement char to prevent terminal injection and output corruption.
+fn sanitize_name(name: &str) -> String {
+    if name.bytes().all(|b| b >= b' ' && b != 0x7f) {
+        return name.to_string();
+    }
+    name.chars()
+        .map(|c| if c.is_control() { '\u{FFFD}' } else { c })
+        .collect()
+}
+
+fn format_mode(mode: u32, file_type: char) -> String {
+    let mut s = String::with_capacity(10);
+
+    s.push(file_type);
+
+    // (read, write, exec, setbit, set_char, SET_CHAR)
+    const PERMS: [(u32, u32, u32, u32, char, char); 3] = [
+        (0o400, 0o200, 0o100, 0o4000, 's', 'S'),
+        (0o040, 0o020, 0o010, 0o2000, 's', 'S'),
+        (0o004, 0o002, 0o001, 0o1000, 't', 'T'),
+    ];
+    for &(r, w, x, set, sc, tc) in &PERMS {
+        s.push(if mode & r != 0 { 'r' } else { '-' });
+        s.push(if mode & w != 0 { 'w' } else { '-' });
+        s.push(if mode & set != 0 {
+            if mode & x != 0 { sc } else { tc }
+        } else if mode & x != 0 {
+            'x'
+        } else {
+            '-'
+        });
+    }
+
+    s
 }
 
 fn human_size(size: u64) -> String {
-    const UNITS: &[&str] = &["B", "K", "M", "G", "T", "P"];
-    let mut value = size as f64;
-    let mut unit = 0;
-    while value >= 1024.0 && unit + 1 < UNITS.len() {
-        value /= 1024.0;
-        unit += 1;
-    }
-    if unit == 0 {
-        format!("{}{}", size, UNITS[unit])
-    } else if value >= 10.0 {
-        format!("{value:.0}{}", UNITS[unit])
+    if size < 1024 {
+        format!("{size}B")
+    } else if size < 1024 * 1024 {
+        format!("{:.1}K", size as f64 / 1024.0)
+    } else if size < 1024 * 1024 * 1024 {
+        format!("{:.1}M", size as f64 / (1024.0 * 1024.0))
     } else {
-        format!("{value:.1}{}", UNITS[unit])
+        format!("{:.1}G", size as f64 / (1024.0 * 1024.0 * 1024.0))
     }
 }
 
-fn age(modified: Option<SystemTime>, now: SystemTime) -> String {
-    let Some(modified) = modified else {
-        return "?".to_string();
-    };
-    let elapsed = now.duration_since(modified).unwrap_or(Duration::ZERO);
-    let secs = elapsed.as_secs();
-    if secs < 60 {
-        format!("{secs}s ago")
-    } else if secs < 3600 {
-        format!("{}m ago", secs / 60)
-    } else if secs < 86_400 {
-        format!("{}h ago", secs / 3600)
-    } else if secs < 2_592_000 {
-        let days = secs / 86_400;
-        let hours = (secs % 86_400) / 3600;
-        if hours == 0 {
-            format!("{days}d ago")
-        } else {
-            format!("{days}d {hours}h ago")
-        }
-    } else if secs < 31_536_000 {
-        let months = secs / 2_592_000;
-        let days = (secs % 2_592_000) / 86_400;
-        if days == 0 {
-            format!("{months}mo ago")
-        } else {
-            format!("{months}mo {days}d ago")
-        }
+fn format_time(mtime: i64, now: i64) -> String {
+    // rustix has no localtime_r wrapper; retain libc for thread-safe local
+    // timezone conversion in this non-hot-path display helper.
+    // SAFETY: zeroed tm is valid for localtime_r. localtime_r is thread-safe
+    // (unlike localtime) and writes into our stack-allocated tm struct.
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    unsafe {
+        libc::localtime_r(&mtime, &mut tm);
+    }
+
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let month = MONTHS.get(tm.tm_mon as usize).copied().unwrap_or("???");
+
+    let six_months = 180 * 24 * 60 * 60;
+    if (now - mtime).unsigned_abs() < six_months as u64 {
+        format!(
+            "{} {:2} {:02}:{:02}",
+            month, tm.tm_mday, tm.tm_hour, tm.tm_min
+        )
     } else {
-        format!("{}y ago", secs / 31_536_000)
+        format!("{} {:2}  {}", month, tm.tm_mday, tm.tm_year + 1900)
+    }
+}
+
+fn username(uid: u32) -> String {
+    // rustix does not expose passwd database lookups.
+    // SAFETY: getpwuid returns a pointer to a static struct (or NULL).
+    // We immediately copy pw_name into an owned String. Single-threaded
+    // shell so no concurrent getpwuid calls can invalidate the pointer.
+    unsafe {
+        let pw = libc::getpwuid(uid);
+        if pw.is_null() {
+            return uid.to_string();
+        }
+        std::ffi::CStr::from_ptr((*pw).pw_name)
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
+fn groupname(gid: u32) -> String {
+    // rustix does not expose group database lookups.
+    // SAFETY: getgrgid returns a pointer to a static struct (or NULL).
+    // We immediately copy gr_name into an owned String. Single-threaded.
+    unsafe {
+        let gr = libc::getgrgid(gid);
+        if gr.is_null() {
+            return gid.to_string();
+        }
+        std::ffi::CStr::from_ptr((*gr).gr_name)
+            .to_string_lossy()
+            .into_owned()
     }
 }

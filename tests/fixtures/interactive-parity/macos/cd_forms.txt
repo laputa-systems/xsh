@@ -1,0 +1,171 @@
+== frame cd_a cursor=1,22
+|testuser@<HOST> ~ $ cd a
+|testuser@<HOST> ~/a $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+== frame cd_up cursor=3,20
+|testuser@<HOST> ~ $ cd a
+|testuser@<HOST> ~/a $ cd b
+|testuser@<HOST> ~/a/b $ cd ../..
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame cd_dash cursor=5,24
+|testuser@<HOST> ~ $ cd a
+|testuser@<HOST> ~/a $ cd b
+|testuser@<HOST> ~/a/b $ cd ../..
+|testuser@<HOST> ~ $ cd -
+|<HOME>/a/b
+|testuser@<HOST> ~/a/b $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b
+== frame cd_home cursor=6,20
+|testuser@<HOST> ~ $ cd a
+|testuser@<HOST> ~/a $ cd b
+|testuser@<HOST> ~/a/b $ cd ../..
+|testuser@<HOST> ~ $ cd -
+|<HOME>/a/b
+|testuser@<HOST> ~/a/b $ cd
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame cd_missing cursor=8,20
+|testuser@<HOST> ~ $ cd a
+|testuser@<HOST> ~/a $ cd b
+|testuser@<HOST> ~/a/b $ cd ../..
+|testuser@<HOST> ~ $ cd -
+|<HOME>/a/b
+|testuser@<HOST> ~/a/b $ cd
+|testuser@<HOST> ~ $ cd nonexistent
+|<SHELL>: cd: nonexistent: No such file or directory (os error 2)
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame cd_file cursor=10,20
+|testuser@<HOST> ~ $ cd a
+|testuser@<HOST> ~/a $ cd b
+|testuser@<HOST> ~/a/b $ cd ../..
+|testuser@<HOST> ~ $ cd -
+|<HOME>/a/b
+|testuser@<HOST> ~/a/b $ cd
+|testuser@<HOST> ~ $ cd nonexistent
+|<SHELL>: cd: nonexistent: No such file or directory (os error 2)
+|testuser@<HOST> ~ $ cd plain.txt
+|<SHELL>: cd: plain.txt: Not a directory (os error 20)
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame cd_too_many cursor=12,20
+|testuser@<HOST> ~ $ cd a
+|testuser@<HOST> ~/a $ cd b
+|testuser@<HOST> ~/a/b $ cd ../..
+|testuser@<HOST> ~ $ cd -
+|<HOME>/a/b
+|testuser@<HOST> ~/a/b $ cd
+|testuser@<HOST> ~ $ cd nonexistent
+|<SHELL>: cd: nonexistent: No such file or directory (os error 2)
+|testuser@<HOST> ~ $ cd plain.txt
+|<SHELL>: cd: plain.txt: Not a directory (os error 20)
+|testuser@<HOST> ~ $ cd a b
+|<SHELL>: cd: too many arguments
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame cd_variable cursor=14,20
+|testuser@<HOST> ~ $ cd a
+|testuser@<HOST> ~/a $ cd b
+|testuser@<HOST> ~/a/b $ cd ../..
+|testuser@<HOST> ~ $ cd -
+|<HOME>/a/b
+|testuser@<HOST> ~/a/b $ cd
+|testuser@<HOST> ~ $ cd nonexistent
+|<SHELL>: cd: nonexistent: No such file or directory (os error 2)
+|testuser@<HOST> ~ $ cd plain.txt
+|<SHELL>: cd: plain.txt: Not a directory (os error 20)
+|testuser@<HOST> ~ $ cd a b
+|<SHELL>: cd: too many arguments
+|testuser@<HOST> ~ $ cd ~/a
+|testuser@<HOST> ~/a $ cd $HOME
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@1 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a/b
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@10 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@12 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/a
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@14 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

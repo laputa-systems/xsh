@@ -1,0 +1,11 @@
+== frame after_which cursor=4,20
+|testuser@<HOST> ~ $ export PATH=$HOME/bin
+|
+|testuser@<HOST> ~ $ which mytool
+|<HOME>/bin/mytool
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 which
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

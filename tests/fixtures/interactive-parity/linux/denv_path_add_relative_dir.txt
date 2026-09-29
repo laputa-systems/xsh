@@ -1,0 +1,13 @@
+== frame path cursor=6,28
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: +PATH
+|testuser@<HOST> ~/project $ echo $PATH
+|<HOME>/project/bin:/usr/bin:/bin:/usr/sbin:/sbin
+|
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project

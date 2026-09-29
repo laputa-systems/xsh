@@ -1,0 +1,11 @@
+== frame continuation cursor=1,2
+|testuser@<HOST> ~ $ echo hello |
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_enter cursor=4,20
+|testuser@<HOST> ~ $ echo hello |
+|  tr a-z A-Z
+|HELLO
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

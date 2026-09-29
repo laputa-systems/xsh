@@ -1,0 +1,20 @@
+== frame all_hosts cursor=0,24
+|testuser@<HOST> ~ $ ssh
+|192.0.2.1:  alpha-box:  alpha-known:  beta-box:  delta.example.com:  gamma:
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=5 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 192.0.2.1:
+@1 fg=5 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alpha-box:
+@1 fg=5 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alpha-known:
+@1 fg=5 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 beta-box:
+@1 fg=5 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 delta.example.com:
+@1 fg=5 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 gamma:
+== frame prefix_al cursor=0,26
+|testuser@<HOST> ~ $ ssh al
+|alpha-box:  alpha-known:
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@1 fg=5 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alpha-box:
+@1 fg=5 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 alpha-known:
+== frame user_at_host cursor=0,35
+|testuser@<HOST> ~ $ scp file user@g
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 scp

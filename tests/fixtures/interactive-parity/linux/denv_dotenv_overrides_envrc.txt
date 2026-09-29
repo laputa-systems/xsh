@@ -1,0 +1,23 @@
+== frame after_cd cursor=4,28
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: loading .env
+|denv: +DOTENV_ONLY +ENVRC_ONLY +SHARED
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+== frame values cursor=7,28
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: loading .env
+|denv: +DOTENV_ONLY +ENVRC_ONLY +SHARED
+|testuser@<HOST> ~/project $ echo $SHARED $ENVRC_ONLY $DOTENV_ONLY
+|from_dotenv 1 1
+|
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project

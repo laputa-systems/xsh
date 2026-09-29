@@ -1,0 +1,31 @@
+== frame first_exit cursor=6,20
+|testuser@<HOST> ~ $ ./bin/job
+|ready
+|^Z<SHELL>: stopped: ./bin/job (pgid=<N>)
+|
+|testuser@<HOST> ~ $ exit
+|<SHELL>: there is a suspended job. Exit again to force quit.
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./bin/job
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exit
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame status cursor=9,20
+|testuser@<HOST> ~ $ ./bin/job
+|ready
+|^Z<SHELL>: stopped: ./bin/job (pgid=<N>)
+|
+|testuser@<HOST> ~ $ exit
+|<SHELL>: there is a suspended job. Exit again to force quit.
+|testuser@<HOST> ~ $ echo $?
+|0
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ./bin/job
+@4 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 exit
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

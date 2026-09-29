@@ -1,0 +1,35 @@
+== frame inside cursor=6,28
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: +EXISTING
+|testuser@<HOST> ~/project $ echo $EXISTING
+|inside
+|
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+== frame outside cursor=11,20
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: +EXISTING
+|testuser@<HOST> ~/project $ echo $EXISTING
+|inside
+|
+|testuser@<HOST> ~/project $ cd ..
+|denv: -EXISTING
+|testuser@<HOST> ~ $ echo $EXISTING
+|outside
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

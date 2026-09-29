@@ -1,0 +1,25 @@
+== frame recalled cursor=3,46
+|testuser@<HOST> ~ $ /bin/echo unique_cmd_12345
+|unique_cmd_12345
+|
+|testuser@<HOST> ~ $ /bin/echo unique_cmd_12345
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+== frame after_enter cursor=6,20
+|testuser@<HOST> ~ $ /bin/echo unique_cmd_12345
+|unique_cmd_12345
+|
+|testuser@<HOST> ~ $ /bin/echo unique_cmd_12345
+|unique_cmd_12345
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /bin/echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect history
+|v2 <TS> <SESSION> <HOME> /bin/echo unique_cmd_12345
+|v2 <TS> <SESSION> <HOME> /bin/echo unique_cmd_12345

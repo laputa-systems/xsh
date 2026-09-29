@@ -1,0 +1,12 @@
+== frame after_cd cursor=5,20
+|testuser@<HOST> ~ $ set HOME /usr
+|
+|testuser@<HOST> /t/x/home $ cd; pwd
+|/usr
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /t/x/home
+@2 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd;
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

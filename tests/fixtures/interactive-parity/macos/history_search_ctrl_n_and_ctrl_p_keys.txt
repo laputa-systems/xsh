@@ -1,0 +1,31 @@
+== frame newest_selected cursor=0,8
+|search:
+|echo third
+|echo second
+|echo first
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo third
+== frame after_ctrl_n cursor=0,8
+|search:
+|echo third
+|echo second
+|echo first
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@2 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo second
+== frame after_more_ctrl_n cursor=0,8
+|search:
+|echo third
+|echo second
+|echo first
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@3 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo first
+== frame after_ctrl_p cursor=0,8
+|search:
+|echo third
+|echo second
+|echo first
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@3 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo first
+== frame accepted cursor=0,30
+|testuser@<HOST> ~ $ echo first
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

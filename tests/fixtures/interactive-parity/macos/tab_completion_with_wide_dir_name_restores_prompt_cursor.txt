@@ -1,0 +1,41 @@
+== frame typed cursor=1,7
+|testuser@<HOST> ~ $ /Applications/Play.app/Contents/MacOS/play ~/Sync/M/Music/ba
+|ndcamp/
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 /Applications/Play.app/Contents/MacOS/play
+== frame first_tab cursor=1,7
+|testuser@<HOST> ~ $ /Applications/Play.app/Contents/MacOS/play ~/Sync/M/Music/ba
+|ndcamp/
+|Altered States/
+|Another Language/
+|Dreamage/
+|黑馬河的兒子 The Son of Black Horse River/
+|Arigto - Lungs/
+|01 - Charlotte de Witte - Sehnsucht (Original Mix) [56812652].mp3
+|Floating Points, Pharoah Sanders & The London Symphony Orchestra - Promises [Mo
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 Altered States/
+@3 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 Another Language/
+@4 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 Dreamage/
+@5 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 黑馬河的兒子 The Son of Black Horse River/
+@6 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 Arigto - Lungs/
+== frame second_tab cursor=1,24
+|testuser@<HOST> ~ $ /Applications/Play.app/Contents/MacOS/play ~/'Sync/M/Music/b
+|andcamp/Altered States/'
+|Altered States/
+|Another Language/
+|Dreamage/
+|黑馬河的兒子 The Son of Black Horse River/
+|Arigto - Lungs/
+|01 - Charlotte de Witte - Sehnsucht (Original Mix) [56812652].mp3
+|Floating Points, Pharoah Sanders & The London Symphony Orchestra - Promises [Mo
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 Altered States/
+@3 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 Another Language/
+@4 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 Dreamage/
+@5 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 黑馬河的兒子 The Son of Black Horse River/
+@6 fg=4 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 Arigto - Lungs/
+== frame after_escape cursor=1,7
+|testuser@<HOST> ~ $ /Applications/Play.app/Contents/MacOS/play ~/Sync/M/Music/ba
+|ndcamp/
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

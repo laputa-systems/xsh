@@ -1,0 +1,12 @@
+== frame first_row cursor=0,22
+|testuser@<HOST> ~ $ echo 'a
+|  b'
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame history_at_boundary cursor=0,22
+|testuser@<HOST> ~ $ echo 'a
+|  b'
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame back_down cursor=1,4
+|testuser@<HOST> ~ $ echo 'a
+|  b'
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

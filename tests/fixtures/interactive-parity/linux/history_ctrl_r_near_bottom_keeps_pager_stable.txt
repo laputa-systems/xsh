@@ -1,0 +1,27 @@
+== frame search cursor=10,8
+|fill06
+|fill07
+|fill08
+|fill09
+|fill10
+|fill11
+|fill12
+|fill13
+|fill14
+|
+|search:
+|echo fill01; echo
+|hist12
+|hist11
+|hist10
+|hist09
+|hist08
+|hist07
+|hist06
+|hist05
+|hist04
+|hist03
+|hist02
+|hist01
+@10 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@11 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo fill01; echo

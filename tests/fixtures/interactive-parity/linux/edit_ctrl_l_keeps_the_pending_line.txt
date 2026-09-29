@@ -1,0 +1,8 @@
+== frame cleared cursor=0,29
+|testuser@<HOST> ~ $ echo partial
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame cursor_kept cursor=0,30
+|testuser@<HOST> ~ $ echo partXial
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo

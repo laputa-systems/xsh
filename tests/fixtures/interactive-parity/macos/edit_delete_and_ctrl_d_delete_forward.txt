@@ -1,0 +1,12 @@
+== frame after_delete cursor=0,23
+|testuser@<HOST> ~ $ abcef
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 abcef
+== frame after_ctrl_d cursor=0,23
+|testuser@<HOST> ~ $ abcf
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 abcf
+== frame delete_at_end_is_a_no_op cursor=0,24
+|testuser@<HOST> ~ $ abcf
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 abcf

@@ -1,0 +1,10 @@
+== frame typed cursor=0,38
+|testuser@<HOST> ~ $ some partial input
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 some
+== frame after_ctrl_c cursor=1,20
+|testuser@<HOST> ~ $ some partial input^C
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 some
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

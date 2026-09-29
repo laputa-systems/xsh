@@ -376,11 +376,22 @@ or execution shortcuts.
 
 ## Interactive
 
-`xshi` has session builtins for shell state such as `cd`, `set`, aliases, jobs,
-and listings. Core utility names are ordinary PATH commands, including
-XSH-authored scripts under `core/` when that directory is on PATH. The
-interactive shell-subset frontend lowers external commands to normal process
-execution; it does not use a hidden compatibility-builtin registry or sudo shim.
+`xshi` is an interactive frontend: the terminal UI (`crates/xshi/src/interactive/`
+`repl`, `input`, `line`, `render`, `complete`, `prompt`) and a shell-language
+layer (`shell/` lexing, parsing, globbing; `app.rs` execution). Its observable
+behavior is that of the `ish` shell, held in place by differential PTY tests
+(`docs/SPEC-INTERACTIVE.md`, `docs/TEST-MAP.md`). External commands run through
+the same process substrate as `run` in scripts (`src/runtime/process.rs`);
+`xshi` adds no compatibility-builtin registry or sudo shim. Core utility names
+are ordinary PATH commands, including XSH-authored scripts under `core/` when
+that directory is on PATH.
+
+History is `xshi`'s one piece of cross-process state. `history.rs` owns the
+in-memory entries and search; `history/store.rs` owns the log, cache, lock, and
+reset marker, and compaction is a disk-to-disk merge under an exclusive lock, so
+no shell's memory is authoritative. Directory environments (`denv.rs`) evaluate
+`.envrc` files in a child interpreter and record only the environment
+difference.
 
 ## Tracing And Errors
 

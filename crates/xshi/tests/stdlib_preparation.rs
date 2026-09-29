@@ -14,6 +14,7 @@ fn run(source: &str) -> i32 {
         source,
         OneCommandOptions {
             load_config: false,
+            config_path: None,
             load_profile: false,
         },
     )

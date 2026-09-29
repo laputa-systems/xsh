@@ -1,0 +1,52 @@
+== frame loaded cursor=6,28
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: +DENV_TEST_VAR
+|testuser@<HOST> ~/project $ echo $DENV_TEST_VAR
+|active
+|
+|testuser@<HOST> ~/project $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+== frame after_leave cursor=8,20
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: +DENV_TEST_VAR
+|testuser@<HOST> ~/project $ echo $DENV_TEST_VAR
+|active
+|
+|testuser@<HOST> ~/project $ cd ..
+|denv: -DENV_TEST_VAR
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame unloaded cursor=11,20
+|testuser@<HOST> ~ $ cd project
+|denv: loading .envrc
+|denv: +DENV_TEST_VAR
+|testuser@<HOST> ~/project $ echo $DENV_TEST_VAR
+|active
+|
+|testuser@<HOST> ~/project $ cd ..
+|denv: -DENV_TEST_VAR
+|testuser@<HOST> ~ $ echo =$DENV_TEST_VAR=
+|==
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~/project
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 cd
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

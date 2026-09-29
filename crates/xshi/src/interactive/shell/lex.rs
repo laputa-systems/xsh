@@ -19,10 +19,13 @@ pub(crate) fn lex_shell(source: &str) -> Result<Vec<ShellToken>, String> {
                     chars.next();
                     tokens.push(ShellToken::And);
                 } else if chars.peek().is_some_and(|(_, ch)| *ch == '>') {
-                    return Err(
-                        "combined stdout/stderr redirection is not supported in this tranche"
-                            .to_string(),
-                    );
+                    chars.next();
+                    if chars.peek().is_some_and(|(_, ch)| *ch == '>') {
+                        chars.next();
+                        tokens.push(ShellToken::Redir(RedirectionKind::BothAppend));
+                    } else {
+                        tokens.push(ShellToken::Redir(RedirectionKind::BothWrite));
+                    }
                 } else {
                     tokens.push(ShellToken::Background);
                 }
@@ -51,6 +54,13 @@ pub(crate) fn lex_shell(source: &str) -> Result<Vec<ShellToken>, String> {
                 if chars.peek().is_some_and(|(_, ch)| *ch == '>') {
                     chars.next();
                     tokens.push(ShellToken::Redir(RedirectionKind::StdoutAppend));
+                } else if chars.peek().is_some_and(|(_, ch)| *ch == '&') {
+                    chars.next();
+                    match chars.next() {
+                        Some((_, '2')) => tokens.push(ShellToken::Redir(RedirectionKind::StdoutToStderr)),
+                        Some((_, '1')) => {}
+                        _ => return Err("only 2>&1 and 1>&2 are supported".to_string()),
+                    }
                 } else {
                     tokens.push(ShellToken::Redir(RedirectionKind::StdoutWrite));
                 }
@@ -99,7 +109,14 @@ pub(crate) fn lex_shell(source: &str) -> Result<Vec<ShellToken>, String> {
                     tokens.push(ShellToken::Word(read_word(&mut chars)?));
                 }
             }
-            '#' => return Err("shell comments are not supported in this tranche".to_string()),
+            '#' => {
+                // A comment runs to the end of the line.
+                for (_, ignored) in chars.by_ref() {
+                    if ignored == '\n' {
+                        break;
+                    }
+                }
+            }
             _ => tokens.push(ShellToken::Word(read_word(&mut chars)?)),
         }
     }
@@ -129,10 +146,20 @@ fn read_word(
                     }
                     literal.push(inner);
                 }
-                push_shell_text(&mut parts, &mut literal, false, false);
+                // An empty pair of quotes is still a word.
+                if literal.is_empty() {
+                    parts.push(ShellWordPart::Text {
+                        text: String::new(),
+                        expand: false,
+                        glob: false,
+                    });
+                } else {
+                    push_shell_text(&mut parts, &mut literal, false, false);
+                }
             }
             '"' => {
                 push_shell_text(&mut parts, &mut unquoted, true, true);
+                let parts_before = parts.len();
                 chars.next();
                 let mut quoted = String::new();
                 loop {
@@ -174,6 +201,14 @@ fn read_word(
                     }
                 }
                 push_shell_text(&mut parts, &mut quoted, true, false);
+                // An empty pair of quotes is still a word.
+                if parts.len() == parts_before {
+                    parts.push(ShellWordPart::Text {
+                        text: String::new(),
+                        expand: false,
+                        glob: false,
+                    });
+                }
             }
             '\\' => {
                 push_shell_text(&mut parts, &mut unquoted, true, true);

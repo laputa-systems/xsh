@@ -1,0 +1,14 @@
+== frame search cursor=1,1
+|search: ab
+|c
+|abc3
+|abc2
+|abc1
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@2 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 abc3
+@3 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+@4 fg=3 bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 abc
+== frame after_escape cursor=2,0
+|testuser@s
+|entry ~ $
+@1 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

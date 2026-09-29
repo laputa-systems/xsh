@@ -1,0 +1,223 @@
+== frame export_list cursor=6,20
+|testuser@<HOST> ~ $ export A_VAR=1 B_VAR=two
+|
+|testuser@<HOST> ~ $ export | grep _VAR
+|export A_VAR="1"
+|export B_VAR="two"
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame set_empty cursor=11,20
+|testuser@<HOST> ~ $ export A_VAR=1 B_VAR=two
+|
+|testuser@<HOST> ~ $ export | grep _VAR
+|export A_VAR="1"
+|export B_VAR="two"
+|
+|testuser@<HOST> ~ $ set C_VAR
+|
+|testuser@<HOST> ~ $ env | grep C_VAR
+|C_VAR=
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame set_invalid cursor=13,20
+|testuser@<HOST> ~ $ export A_VAR=1 B_VAR=two
+|
+|testuser@<HOST> ~ $ export | grep _VAR
+|export A_VAR="1"
+|export B_VAR="two"
+|
+|testuser@<HOST> ~ $ set C_VAR
+|
+|testuser@<HOST> ~ $ env | grep C_VAR
+|C_VAR=
+|
+|testuser@<HOST> ~ $ set 9bad value
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_unset cursor=17,20
+|testuser@<HOST> ~ $ export A_VAR=1 B_VAR=two
+|
+|testuser@<HOST> ~ $ export | grep _VAR
+|export A_VAR="1"
+|export B_VAR="two"
+|
+|testuser@<HOST> ~ $ set C_VAR
+|
+|testuser@<HOST> ~ $ env | grep C_VAR
+|C_VAR=
+|
+|testuser@<HOST> ~ $ set 9bad value
+|
+|testuser@<HOST> ~ $ unset A_VAR B_VAR C_VAR
+|
+|testuser@<HOST> ~ $ env | grep _VAR
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 unset
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@17 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame export_invalid cursor=19,20
+|testuser@<HOST> ~ $ export A_VAR=1 B_VAR=two
+|
+|testuser@<HOST> ~ $ export | grep _VAR
+|export A_VAR="1"
+|export B_VAR="two"
+|
+|testuser@<HOST> ~ $ set C_VAR
+|
+|testuser@<HOST> ~ $ env | grep C_VAR
+|C_VAR=
+|
+|testuser@<HOST> ~ $ set 9bad value
+|
+|testuser@<HOST> ~ $ unset A_VAR B_VAR C_VAR
+|
+|testuser@<HOST> ~ $ env | grep _VAR
+|
+|testuser@<HOST> ~ $ export 9bad=1
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 unset
+@15 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@15 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@17 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@17 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@19 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame plain_assignment_not_exported cursor=23,20
+|export A_VAR="1"
+|export B_VAR="two"
+|
+|testuser@<HOST> ~ $ set C_VAR
+|
+|testuser@<HOST> ~ $ env | grep C_VAR
+|C_VAR=
+|
+|testuser@<HOST> ~ $ set 9bad value
+|
+|testuser@<HOST> ~ $ unset A_VAR B_VAR C_VAR
+|
+|testuser@<HOST> ~ $ env | grep _VAR
+|
+|testuser@<HOST> ~ $ export 9bad=1
+|
+|testuser@<HOST> ~ $ FOO=bar
+|
+|testuser@<HOST> ~ $ echo $FOO
+|bar
+|
+|testuser@<HOST> ~ $ env | grep FOO
+|
+|testuser@<HOST> ~ $
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@8 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@8 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@10 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@10 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 unset
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@14 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@14 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 FOO=bar
+@18 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@21 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@21 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@23 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame export_existing cursor=23,20
+|testuser@<HOST> ~ $ env | grep C_VAR
+|C_VAR=
+|
+|testuser@<HOST> ~ $ set 9bad value
+|
+|testuser@<HOST> ~ $ unset A_VAR B_VAR C_VAR
+|
+|testuser@<HOST> ~ $ env | grep _VAR
+|
+|testuser@<HOST> ~ $ export 9bad=1
+|
+|testuser@<HOST> ~ $ FOO=bar
+|
+|testuser@<HOST> ~ $ echo $FOO
+|bar
+|
+|testuser@<HOST> ~ $ env | grep FOO
+|
+|testuser@<HOST> ~ $ export FOO
+|
+|testuser@<HOST> ~ $ env | grep FOO
+|FOO=bar
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 unset
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@11 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@11 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 FOO=bar
+@13 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@13 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@16 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@16 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@18 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@18 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@20 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@20 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@23 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

@@ -1,0 +1,45 @@
+== frame after_w cursor=4,20
+|testuser@<HOST> ~ $ export PATH=$HOME/bin
+|
+|testuser@<HOST> ~ $ w mytool
+|<HOME>/bin/mytool
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_missing cursor=6,20
+|testuser@<HOST> ~ $ export PATH=$HOME/bin
+|
+|testuser@<HOST> ~ $ w mytool
+|<HOME>/bin/mytool
+|testuser@<HOST> ~ $ w nosuchtool
+|<SHELL>: w: not found: nosuchtool
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_no_args cursor=8,20
+|testuser@<HOST> ~ $ export PATH=$HOME/bin
+|
+|testuser@<HOST> ~ $ w mytool
+|<HOME>/bin/mytool
+|testuser@<HOST> ~ $ w nosuchtool
+|<SHELL>: w: not found: nosuchtool
+|testuser@<HOST> ~ $ w
+|<SHELL>: w: expected command name
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 export
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@4 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@4 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@6 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 w
+@8 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

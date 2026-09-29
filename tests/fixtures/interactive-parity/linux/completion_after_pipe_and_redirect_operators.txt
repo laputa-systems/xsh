@@ -1,0 +1,16 @@
+== frame command_after_pipe cursor=2,36
+|testuser@<HOST> ~ $ set PATH $HOME/bin
+|
+|testuser@<HOST> ~ $ echo hi | upcase
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame file_after_redirect cursor=2,37
+|testuser@<HOST> ~ $ set PATH $HOME/bin
+|
+|testuser@<HOST> ~ $ echo hi > out.txt
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo

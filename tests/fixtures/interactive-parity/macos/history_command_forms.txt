@@ -1,0 +1,22 @@
+== frame history_list cursor=9,20
+|testuser@<HOST> ~ $ echo one
+|one
+|
+|testuser@<HOST> ~ $ echo two
+|two
+|
+|testuser@<HOST> ~ $ history
+|echo one
+|echo two
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@6 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== effect after_history
+|v2 <TS> <SESSION> <HOME> echo one
+|v2 <TS> <SESSION> <HOME> echo two
+|v2 <TS> <SESSION> <HOME> history

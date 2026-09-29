@@ -1,0 +1,11 @@
+== frame searching cursor=0,11
+|search: one
+|echo remembered one
+@0 fg=default bg=default bold=1 dim=0 italic=0 underline=0 inverse=0 search:
+@1 fg=default bg=default bold=0 dim=0 italic=0 underline=0 inverse=1 echo remembered one
+== frame cancelled_keeps_draft cursor=0,30
+|testuser@<HOST> ~ $ echo draft
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame accepted_replaces_draft cursor=0,39
+|testuser@<HOST> ~ $ echo remembered two
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

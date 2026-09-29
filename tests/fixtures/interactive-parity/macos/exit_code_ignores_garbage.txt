@@ -1,0 +1,2 @@
+== effect exit_garbage
+|Code(0)

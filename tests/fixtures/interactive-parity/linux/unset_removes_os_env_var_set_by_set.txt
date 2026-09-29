@@ -1,0 +1,32 @@
+== frame before_unset cursor=5,20
+|testuser@<HOST> ~ $ set TMP_OS_VAR some_value
+|
+|testuser@<HOST> ~ $ env | grep TMP_OS_VAR
+|TMP_OS_VAR=some_value
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+== frame after_unset cursor=9,20
+|testuser@<HOST> ~ $ set TMP_OS_VAR some_value
+|
+|testuser@<HOST> ~ $ env | grep TMP_OS_VAR
+|TMP_OS_VAR=some_value
+|
+|testuser@<HOST> ~ $ unset TMP_OS_VAR
+|
+|testuser@<HOST> ~ $ env | grep TMP_OS_VAR
+|
+|testuser@<HOST> ~ $
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@5 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@5 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 unset
+@7 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@7 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 env
+@9 fg=1 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~

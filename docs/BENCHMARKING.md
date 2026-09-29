@@ -25,7 +25,10 @@ The suite covers complete interactive operations:
 - navigating completion over 1,000 directory entries;
 - searching and rendering a 45,000-entry history;
 - completing a `cd` workflow over 1,000 entries;
-- executing dynamic-name session commands.
+- executing dynamic-name session commands;
+- history storage at 45,000 entries: starting a shell from the compacted cache
+  and from an uncompacted log, the idle per-prompt sync, recording one command,
+  and compacting at exit.
 
 Generated directory and history fixtures are deterministic. Fixture setup stays
 outside the measured operation where possible. A benchmark belongs here only
@@ -68,6 +71,29 @@ median latency from 108 to 325 ns; the printable-ASCII render path brought it
 to 66 ns. The other four final medians were flat or lower, and median allocation
 count, bytes, and peak live allocation were unchanged for all five workloads.
 Raw per-run values are in `bench/xshi-editor-d10-2026-09-24.json`.
+
+The interactive rewrite that adopted `ish`'s terminal stack and history store
+was compared with the preceding revision on macOS ARM64 (optimized `bench`
+profile, system allocator, 20 samples of 10 iterations, three serial runs per
+revision, medians):
+
+| Workload | Before | After |
+| --- | --- | --- |
+| `xshi_prompt_render_long_command` | 66 ns | 29 ns |
+| `xshi_history_search_render_45000_entries` | 3.0 µs | 3.1 µs |
+| `xshi_dynamic_name_session` | 4.0 ms | 4.1 ms |
+| `xshi_completion_navigation_1000_entries` | 19 µs | 0.6 ms |
+| `xshi_cd_list_complete_1000_entries` | 2.7 ms | 10.7 ms |
+
+The last two regressed by design. The previous frontend cached the directory
+listing between commands; the current one, like `ish`, reads the directory and
+stats each candidate on every completion and every `l` so results are always
+fresh and sorted by current modification time. A profile shows the time in
+`getdirentries` and `stat`, one `stat` per candidate. A 1,000-entry directory
+costs about half a millisecond per Tab. The history workloads have no earlier
+counterpart; their first measurements were a 9 ms start from the cache, 15 ms
+from an uncompacted log, an idle sync bounded by three `stat` calls, 0.2 ms to
+record a command (open, lock, one write), and a 15 ms compaction at exit.
 
 ## Call tracing probe
 

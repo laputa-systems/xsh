@@ -1,0 +1,28 @@
+== frame path_commands cursor=2,22
+|testuser@<HOST> ~ $ set PATH $HOME/bin
+|
+|testuser@<HOST> ~ $ ze
+|zebra  zeta
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 zebra
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 zeta
+== frame builtin_completes cursor=2,27
+|testuser@<HOST> ~ $ set PATH $HOME/bin
+|
+|testuser@<HOST> ~ $ history
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@2 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 history
+== frame z_prefix cursor=2,21
+|testuser@<HOST> ~ $ set PATH $HOME/bin
+|
+|testuser@<HOST> ~ $ z
+|z  zebra  zeta
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 set
+@2 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 zebra
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 zeta

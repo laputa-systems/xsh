@@ -1,0 +1,15 @@
+== frame typed cursor=1,27
+|testuser@<HOST> ~ $ echo 012
+|345678901234567890123456789
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame after_up cursor=0,27
+|testuser@<HOST> ~ $ echo 012
+|345678901234567890123456789
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame after_down cursor=1,27
+|testuser@<HOST> ~ $ echo 012
+|345678901234567890123456789
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo

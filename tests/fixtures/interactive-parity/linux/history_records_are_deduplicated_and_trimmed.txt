@@ -1,0 +1,74 @@
+== frame newest cursor=12,29
+|testuser@<HOST> ~ $ echo same
+|same
+|
+|testuser@<HOST> ~ $ echo same
+|same
+|
+|testuser@<HOST> ~ $    echo padded
+|padded
+|
+|testuser@<HOST> ~ $ echo same
+|same
+|
+|testuser@<HOST> ~ $ echo same
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame padded_is_trimmed cursor=12,31
+|testuser@<HOST> ~ $ echo same
+|same
+|
+|testuser@<HOST> ~ $ echo same
+|same
+|
+|testuser@<HOST> ~ $    echo padded
+|padded
+|
+|testuser@<HOST> ~ $ echo same
+|same
+|
+|testuser@<HOST> ~ $ echo padded
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== frame no_duplicate_of_same cursor=12,31
+|testuser@<HOST> ~ $ echo same
+|same
+|
+|testuser@<HOST> ~ $ echo same
+|same
+|
+|testuser@<HOST> ~ $    echo padded
+|padded
+|
+|testuser@<HOST> ~ $ echo same
+|same
+|
+|testuser@<HOST> ~ $ echo padded
+@0 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@0 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@3 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@3 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@6 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@9 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+@12 fg=10 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 ~
+@12 fg=2 bg=default bold=0 dim=0 italic=0 underline=0 inverse=0 echo
+== effect log
+|v2 <TS> <SESSION> <HOME> echo same
+|v2 <TS> <SESSION> <HOME> echo same
+|v2 <TS> <SESSION> <HOME> echo padded
+|v2 <TS> <SESSION> <HOME> echo same
