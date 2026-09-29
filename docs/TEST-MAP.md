@@ -119,6 +119,13 @@ indexed verifier, collection, and deferred-block gates after cursor changes.
 
 ## Routine CI
 
+`target/debug/xsht test --jobs 1 tests/xsh/stage-functions.xsh` owns statically
+resolved unary stage calls, literal/aggregate defaults, named configuration,
+qualified imports, Result data, effects, cleanup, short-circuiting, and exact
+wrapper fixes. Related gates are native `stdlib/streams.xsh`, syntax and sema,
+`cargo test -p xsht --test integration stage_callable_wrapper`, and
+`cargo test -p xsh --lib runtime::eval::indexed::full::tests`.
+
 `.github/workflows/lint.yml` and `.github/workflows/test.yml` run on pull requests
 and pushes to `master` with read-only repository permission. Both run on
 `ubuntu-24.04-arm` inside the image defined by `Dockerfile.test`, with the

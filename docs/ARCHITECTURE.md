@@ -481,6 +481,13 @@ Focused semantic rules live beside it:
   evaluates supplied entries in source order into checked temporary slots at
   the existing stage boundary; indexed stage opcodes retain their specialized
   configuration and worker machinery.
+  Static unary callable descriptors use the same argument binder with a
+  `block` role. `stage_callable_argument` separates the descriptor from fixed
+  configuration; `append_stage_callable_block` creates a private temporary
+  ordinary call for checking and lowering. Compact `stage_callable_types`
+  retain return types without erasing the descriptor into a function value.
+  The existing verified call and stage rows execute per item, while checker
+  `statically_resolved_call_spans` authorize exact transparent wrapper fixes.
 - `crates/xsht/src/lint.rs` reports non-fatal quality issues. Its `LintExprVisitor`
   implements `syntax::visitor::Visitor`; add new lint rules by adding methods
   there, not by expanding the traversal switch.

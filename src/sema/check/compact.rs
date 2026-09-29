@@ -70,6 +70,8 @@ pub struct CompactFunctionSig {
 
 #[derive(Clone, Debug, Default)]
 pub struct CompactBodyProbeOutput {
+    /// Return types of checked ordinary one-item calls, keyed by their source descriptor.
+    pub stage_callable_types: FxHashMap<ExprId, Type>,
     pub diagnostics: Vec<Diagnostic>,
     pub statements: usize,
     pub supported_statements: usize,
@@ -1334,8 +1336,8 @@ impl CompactBodyProbe<'_> {
                 Type::Unknown
             }
             ArenaExprKind::StructuredPipeline { input, stages } => {
-                self.check_compact_expr(input);
-                self.check_compact_stream_stages(stages);
+                let input = self.check_compact_expr(input);
+                self.check_compact_stream_stages(stages, input);
                 Type::Unknown
             }
             ArenaExprKind::BuilderCall { call, block } => {
@@ -1604,6 +1606,7 @@ impl CompactBodyProbe<'_> {
         }
         if let ArenaExprKind::Ident(name) = callee_expr.kind {
             if name == "env" { return Type::Result(Box::new(Type::Str), Box::new(Type::Error)); }
+            if name == "Path" && self.program.arena.call_args(args).len() == 1 { return Type::Path; }
             if name == "Ok" || name == "Err" {
                 let value = self.program.arena.call_args(args).first().and_then(|arg| match arg.kind {
                     crate::syntax::arena::ArenaCallArgKind::Positional(value) => self.output.expr_types.get(&value).cloned(),
@@ -1876,13 +1879,30 @@ impl CompactBodyProbe<'_> {
         }
     }
 
-    fn check_compact_stream_stages(&mut self, stages: crate::syntax::arena::ArenaRange) {
+    fn check_compact_stream_stages(&mut self, stages: crate::syntax::arena::ArenaRange, mut current: Type) -> Type {
         for stage in self.program.arena.stream_stages(stages) {
-            self.check_compact_stream_stage(stage);
+            let item = match &current { Type::List(item) | Type::Stream(item) => item.as_ref().clone(), _ => Type::Any };
+            self.check_compact_stream_stage_with_item(stage, item);
+            use crate::syntax::node::StreamStageKind;
+            let callback = crate::sema::stage_arguments::stage_callable_argument(self.program, stage, |expr| self.output.expr_types.get(&expr).cloned())
+                .ok().flatten().and_then(|(callee, _)| self.output.stage_callable_types.get(&callee).cloned())
+                .or_else(|| stage.block.and_then(|block| self.output.block_types.get(&block).cloned()));
+            current = match (stage.kind.clone(), callback) {
+                (StreamStageKind::Map, Some(value)) => Type::List(Box::new(value)),
+                (StreamStageKind::FlatMap, Some(Type::List(item) | Type::Stream(item))) => Type::List(item),
+                (StreamStageKind::Any | StreamStageKind::All, _) => Type::Bool,
+                (StreamStageKind::Each, _) => Type::Unit,
+                _ => current,
+            };
         }
+        current
     }
 
     fn check_compact_stream_stage(&mut self, stream: &crate::syntax::arena::ArenaStreamStage) {
+        self.check_compact_stream_stage_with_item(stream, Type::Any);
+    }
+
+    fn check_compact_stream_stage_with_item(&mut self, stream: &crate::syntax::arena::ArenaStreamStage, item: Type) {
         for arg in self.program.arena.call_args(stream.args) {
             match &arg.kind {
                 crate::syntax::arena::ArenaCallArgKind::Positional(expr)
@@ -1892,8 +1912,76 @@ impl CompactBodyProbe<'_> {
                 }
             }
         }
+        match crate::sema::stage_arguments::stage_callable_argument(self.program, stream, |expr| self.output.expr_types.get(&expr).cloned()) {
+            Ok(Some((callee, _))) => {
+                let static_name = match self.program.arena.expr(callee).kind {
+                    ArenaExprKind::Ident(name) => !self.scopes.iter().skip(1).any(|scope| scope.contains_key(&name))
+                        && (self.declarations.pures.contains_key(&name) || self.declarations.procs.contains_key(&name)
+                            || self.current_namespace.is_some_and(|namespace| {
+                                let qualified = QualifiedName::new(namespace, name);
+                                self.declarations.qualified_pures.contains_key(&qualified) || self.declarations.qualified_procs.contains_key(&qualified)
+                            })),
+                    ArenaExprKind::Field { base, name } => matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(namespace)
+                        if !self.scopes.iter().skip(1).any(|scope| scope.contains_key(&namespace))
+                            && (api_spec().module_overloads(&namespace.as_str(), &name.as_str()).is_some()
+                                || crate::sema::stage_arguments::stage_namespace_owner(self.program, namespace, self.current_namespace)
+                                    .is_some_and(|owner| {
+                                        let key = QualifiedName::new(owner, name);
+                                        self.declarations.qualified_pures.contains_key(&key) || self.declarations.qualified_procs.contains_key(&key)
+                                    }))),
+                    _ => false,
+                };
+                if !static_name {
+                    self.error(self.program.arena.expr(callee).span, "stage callable must be a statically resolved named function or proc", "check.stream-callable");
+                    return;
+                }
+                let mut temporary = self.program.clone();
+                let (_, item_expr, call, _) = temporary.arena.append_stage_callable_block(callee, self.program.arena.expr(callee).span);
+                let mut child = CompactBodyProbe {
+                    type_constraints: super::super::constraints::TypeConstraints::default(),
+                    program: &temporary, declarations: self.declarations, output: std::mem::take(&mut self.output),
+                    scopes: self.scopes.clone(), stream_items: vec![item.clone()], return_types: self.return_types.clone(),
+                    pipeline_hole_types: self.pipeline_hole_types.clone(), current_namespace: self.current_namespace,
+                    with_initializer_errors: self.with_initializer_errors.clone(),
+                };
+                let mut ty = child.check_compact_expr(call);
+                match temporary.arena.expr(callee).kind {
+                    ArenaExprKind::Ident(name) => {
+                        if let Some(namespace) = self.current_namespace {
+                            let qualified = QualifiedName::new(namespace, name);
+                            if let Some(sig) = self.declarations.qualified_pures.get(&qualified).or_else(|| self.declarations.qualified_procs.get(&qualified)) { ty = sig.return_ty.clone(); }
+                        }
+                    }
+                    ArenaExprKind::Field { base, name } => {
+                        if let ArenaExprKind::Ident(namespace) = temporary.arena.expr(base).kind {
+                            if let Some(owner) = crate::sema::stage_arguments::stage_namespace_owner(self.program, namespace, self.current_namespace) {
+                                let key = QualifiedName::new(owner, name);
+                                if let Some(sig) = self.declarations.qualified_pures.get(&key).or_else(|| self.declarations.qualified_procs.get(&key)) { ty = sig.return_ty.clone(); }
+                            }
+                            if let Type::Module(exports) = self.lookup_name(namespace)
+                                && let Some(ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. }) = exports.get(&name) { ty = sig.return_ty.as_ref().clone(); }
+                            if let Some(overloads) = api_spec().module_overloads(&namespace.as_str(), &name.as_str()) {
+                                let matches = overloads.iter().filter(|sig| !sig.params.is_empty()
+                                    && sig.params.iter().skip(1).all(|param| param.defaulted)
+                                    && item.matches_expected(&sig.params[0].ty)).collect::<Vec<_>>();
+                                if matches.len() == 1 { ty = matches[0].return_ty.clone(); }
+                                else { ty = Type::Invalid; }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+                child.output.expr_types.remove(&item_expr);
+                child.output.expr_types.remove(&call);
+                self.output = child.output;
+                self.output.stage_callable_types.insert(callee, ty);
+                return;
+            }
+            Err((span, message)) => { self.error(span, &message, "check.stream-callable"); return; }
+            Ok(None) => {}
+        }
         if let Some(block) = stream.block {
-            self.stream_items.push(Type::Any);
+            self.stream_items.push(item);
             self.check_compact_block(block);
             self.mark_tail_position(block, !matches!(stream.kind, crate::syntax::node::StreamStageKind::Each | crate::syntax::node::StreamStageKind::Tee));
             self.stream_items.pop();

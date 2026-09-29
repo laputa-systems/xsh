@@ -3395,6 +3395,19 @@ pub struct AstArena {
 }
 
 impl AstArena {
+    /// Materialize the ordinary one-item call used by a static stage descriptor.
+    /// The temporary block is private to checking/lowering; source syntax stays intact.
+    pub fn append_stage_callable_block(&mut self, callee: ExprId, span: Span) -> (BlockId, ExprId, ExprId, StmtId) {
+        let mut lowerer = ArenaLowerer { arena: std::mem::take(self), source: None };
+        let item = lowerer.push_expr_kind(ArenaExprKind::Item, span);
+        let args = lowerer.commit_call_arg_input_range(&[ArenaCallArgInput::Positional(item)]);
+        let call = lowerer.push_expr_kind(ArenaExprKind::Call { callee, args }, span);
+        let stmt = lowerer.push_stmt_kind(ArenaStmtKind::Expr(call), span);
+        let block = lowerer.push_block_from_stmt_ids(&[], &[stmt], span);
+        *self = lowerer.arena;
+        (block, item, call, stmt)
+    }
+
     /// Append compiler-generated projections while keeping existing expression IDs stable.
     pub fn append_argument_projection(&mut self, base: ExprId, name: Name, span: Span) -> ExprId {
         let mut lowerer = ArenaLowerer { arena: std::mem::take(self), source: None };

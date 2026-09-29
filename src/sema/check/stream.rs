@@ -71,6 +71,37 @@ impl Checker {
             return Type::Unknown;
         };
         let item_ty = *item_ty;
+        for argument in arena.arena.call_args(stage.args) {
+            if let ArenaCallArgKind::NamedSpread { value, .. } = argument.kind {
+                self.check_expr_arena(arena, source, value, None);
+            }
+        }
+        match crate::sema::stage_arguments::stage_callable_argument(arena, stage, |expr| self.expr_types.get(&arena.arena.expr(expr).span).cloned()) {
+            Ok(Some((callee, arguments))) => {
+                if !self.stage_callable_is_static(arena, callee) {
+                    self.error(arena.arena.expr(callee).span, "stage callable must be a statically resolved named function or proc", "check.stream-callable");
+                    return Type::Unknown;
+                }
+                if let ArenaExprKind::Field { base, name } = arena.arena.expr(callee).kind
+                    && let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind
+                    && let Some(overloads) = super::api_spec().module_overloads(&namespace.as_str(), &name.as_str())
+                {
+                    let matches = overloads.iter().filter(|signature| super::args::module_sig_accepts_arity(1, signature)
+                        && signature.params.first().is_some_and(|parameter| item_ty.matches_expected(&parameter.ty))).count();
+                    if matches != 1 {
+                        self.error(arena.arena.expr(callee).span, "stage callable requires a unique checked one-item signature", "check.stream-callable-signature");
+                        return Type::Unknown;
+                    }
+                }
+                let mut temporary = arena.clone();
+                let mut normalized = stage.clone();
+                normalized.args = temporary.arena.append_call_arguments(&arguments);
+                normalized.block = Some(temporary.arena.append_stage_callable_block(callee, arena.arena.expr(callee).span).0);
+                return self.check_stream_stage_arena(&temporary, source, &normalized, Type::Stream(Box::new(item_ty)));
+            }
+            Err((span, message)) => { self.error(span, &message, "check.stream-callable"); return Type::Unknown; }
+            Ok(None) => {}
+        }
         let arguments = self.check_stage_arguments_arena(arena, source, stage);
         match stage.kind {
             StreamStageKind::Where => {
@@ -83,7 +114,7 @@ impl Checker {
             StreamStageKind::Map => {
                 self.check_stage_no_args_arena(arena, stage);
                 let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                let output_ty = result_ok_or_self(&actual);
+                let output_ty = actual;
                 if output_ty == Type::Unit {
                     self.error(stage_span, "map requires a tail value", "check.map-tail");
                 }
@@ -368,6 +399,27 @@ impl Checker {
             item_ty,
             matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee).then_some(&Type::Unit),
         )
+    }
+
+    /// A descriptor must name a declaration, rather than a value whose callable
+    /// type has erased the signature. Lexical value bindings take precedence.
+    pub(super) fn stage_callable_is_static(&self, arena: &ArenaProgram, callee: ExprId) -> bool {
+        match arena.arena.expr(callee).kind {
+            ArenaExprKind::Ident(name) => self.lookup(name).is_none()
+                && (self.pures.contains_key(&name) || self.procs.contains_key(&name)),
+            ArenaExprKind::Field { base, name } => {
+                let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind else { return false; };
+                if self.scopes.iter().skip(1).any(|scope| scope.contains_key(&namespace)) { return false; }
+                let qualified = crate::symbol::QualifiedName::new(namespace, name);
+                self.qualified_pures.contains_key(&qualified) || self.qualified_procs.contains_key(&qualified)
+                    || crate::sema::stage_arguments::stage_namespace_is_imported(arena, namespace, self.current_namespace)
+                    && matches!(self.lookup(namespace).map(|binding| &binding.ty), Some(Type::Module(exports))
+                        if exports.get(&name).is_some_and(|export| matches!(export, crate::sema::types::ModuleExportType::Pure { .. } | crate::sema::types::ModuleExportType::Proc { .. })))
+                    || self.lookup(namespace).is_none() && super::api_spec().module(&namespace.as_str())
+                        .is_some_and(|module| module.functions.iter().any(|function| function.name == name.as_str().as_str()))
+            }
+            _ => false,
+        }
     }
 
     /// `fold`/`reduce` blocks bind the accumulator (typed by the stage's

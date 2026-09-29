@@ -3,6 +3,13 @@
 /// Available CPU count is bounded by this default worker limit.
 pub const DEFAULT_PAR_MAP_WORKERS: usize = 6;
 
+/// These unary bodies can also be supplied as a statically resolved named call.
+/// The callable is a per-item descriptor, separate from fixed configuration.
+pub fn stage_accepts_callable(stage: &str) -> bool {
+    matches!(stage, "map" | "where" | "flat-map" | "each" | "tee" | "sort-by"
+        | "group-by" | "unique-by" | "any" | "all")
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StageParameterType {
     Int,

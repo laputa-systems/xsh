@@ -97,6 +97,53 @@ fn fs_root_receiver_refuses_user_record_methods_and_forged_capabilities() {
         let checked = Checker::check_arena(&parsed.arena, source);
         let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
         assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.fs-root-receiver")));
+}
+
+#[test]
+fn stage_callable_wrapper_fix_rechecks_and_converges() {
+    let source = "pure increment(value: Int) -> Int { value + 1 }\nlet values = [1, 2] |> map { |item| increment(item) }\nprint values.len()\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        statically_resolved_call_spans: checked.statically_resolved_call_spans,
+        ..LintOptions::default()
+    }).diagnostics;
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.stage-callable")).expect("transparent wrapper");
+    let fix = &diagnostic.fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+    assert!(fixed.contains("|> map(increment)"));
+    assert_parse_check_standalone("stage callable", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let diagnostics = Linter::lint(&parsed.arena, &fixed, LintOptions {
+        statically_resolved_call_spans: checked.statically_resolved_call_spans,
+        ..LintOptions::default()
+    }).diagnostics;
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.stage-callable")));
+}
+
+#[test]
+fn stage_callable_wrapper_fix_requires_exact_item_stable_name_and_no_propagation() {
+    for source in [
+        "pure f(value: Int, amount: Int = 1) -> Int { value + amount }\nlet _ = [1] |> map { |item| f(item, 2) }\n",
+        "pure f(value: Int) -> Int { value }\nlet _ = [1] |> map { |item| f(item + 1) }\n",
+        "pure f(value: Int) -> Int { value }\nlet _ = [1] |> map { |item| # preserve explanation\n f(item) }\n",
+        "pure f(value: Int) -> Int { value }\nlet _ = [1] |> map { |item| let copy = item; f(copy) }\n",
+        "pure f(value: Int) -> Result[Int] { Ok(value) }\nproc main() [error] { let _ = [1] |> map { |item| f(item)? } }\n",
+        "pure f(value: Int) -> Int { value }\nproc apply(f: Pure) [] { let _ = [1] |> map { |item| f(item) } }\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
+            statically_resolved_call_spans: checked.statically_resolved_call_spans,
+            ..LintOptions::default()
+        }).diagnostics;
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.stage-callable")), "{source}");
     }
 }
 

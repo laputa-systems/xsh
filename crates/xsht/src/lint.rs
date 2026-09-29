@@ -81,6 +81,7 @@ pub struct LintOptions {
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
     pub function_effect_facts: BTreeMap<xsh::frontend::check::EffectDeclarationId, xsh::frontend::check::FunctionEffectFact>,
     pub terminating_call_spans: BTreeSet<Span>,
+    pub statically_resolved_call_spans: BTreeSet<Span>,
     pub definitely_exiting_block_spans: BTreeSet<Span>,
     pub dead_code: bool,
     pub native_test_file: bool,
@@ -100,6 +101,7 @@ impl Default for LintOptions {
             callable_effects: FxHashMap::default(),
             function_effect_facts: BTreeMap::default(),
             terminating_call_spans: BTreeSet::default(),
+            statically_resolved_call_spans: BTreeSet::default(),
             definitely_exiting_block_spans: BTreeSet::default(),
             dead_code: true,
             native_test_file: false,
@@ -138,6 +140,7 @@ pub struct Linter<'a> {
     function_return_types: Vec<Type>,
     checked_effects: BTreeMap<xsh::frontend::check::EffectDeclarationId, xsh::frontend::check::FunctionEffectFact>,
     terminating_call_spans: BTreeSet<Span>,
+    statically_resolved_call_spans: BTreeSet<Span>,
     definitely_exiting_block_spans: BTreeSet<Span>,
     dead_code: bool,
     tag_variants: FxHashSet<String>,
@@ -249,6 +252,7 @@ impl<'a> Linter<'a> {
             function_return_types: Vec::new(),
             checked_effects,
             terminating_call_spans: options.terminating_call_spans,
+            statically_resolved_call_spans: options.statically_resolved_call_spans,
             definitely_exiting_block_spans: options.definitely_exiting_block_spans,
             dead_code: options.dead_code,
             tag_variants: FxHashSet::default(),
@@ -4119,12 +4123,47 @@ impl<'a> Linter<'a> {
     }
 
     fn lint_stream_stage(&mut self, stage: &ArenaStreamStage) {
+        self.lint_stage_callable_wrapper(stage);
         for arg in self.arena.call_args(stage.args).to_vec() {
             self.lint_call_arg(&arg);
         }
         if let Some(block) = stage.block {
             self.lint_stream_block(block);
         }
+    }
+
+    fn lint_stage_callable_wrapper(&mut self, stage: &ArenaStreamStage) {
+        if !xsh_registry::stream_parameters::stage_accepts_callable(stage.kind.as_str()) { return; }
+        let Some(block_id) = stage.block else { return; };
+        let block = self.arena.block(block_id);
+        let [parameter] = self.arena.block_params(block.params) else { return; };
+        let statements = self.arena.stmt_ids(block.statements).collect::<Vec<_>>();
+        let [statement] = statements.as_slice() else { return; };
+        let ArenaStmtKind::Expr(call) = self.arena.stmt(*statement).kind else { return; };
+        let expression = self.arena.expr(call);
+        let ArenaExprKind::Call { callee, args } = expression.kind else { return; };
+        if !self.statically_resolved_call_spans.contains(&expression.span) { return; }
+        let [argument] = self.arena.call_args(args) else { return; };
+        let ArenaCallArgKind::Positional(item) = argument.kind else { return; };
+        if !matches!(self.arena.expr(item).kind, ArenaExprKind::Ident(name) if name == parameter.name) { return; }
+        let span = self.arena.span(stage.span);
+        if self.source[span.range()].contains('#') { return; }
+        let block_span = self.arena.span(block.span);
+        let name = &self.source[self.arena.expr(callee).span.range()];
+        let arguments = self.arena.call_args(stage.args);
+        let replacement = if arguments.is_empty() {
+            format!("{}({name})", stage.kind.as_str())
+        } else {
+            // Existing configuration remains in its written order. Appending a
+            // descriptor adds no stage-entry evaluation or runtime binding.
+            let prefix = self.source[span.start()..block_span.start()].trim_end();
+            let Some(prefix) = prefix.strip_suffix(')') else { return; };
+            format!("{prefix}, block: {name})")
+        };
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "transparent stream block can name its callable directly")
+            .with_code("lint.stage-callable")
+            .with_label(Label::secondary(span, "use the same checked one-item call"))
+            .with_fix_hint(FixHint::replacement(span, "use named stage callable", replacement)));
     }
 
     fn lint_call_arg(&mut self, arg: &ArenaCallArg) {

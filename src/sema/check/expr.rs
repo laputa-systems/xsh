@@ -316,7 +316,9 @@ impl Checker {
             }
             ArenaExprKind::Call { callee, args } => {
                 let may_mutate = matches!(arena.arena.expr(*callee).kind, ArenaExprKind::Ident(name) if self.lookup(name).is_some_and(|binding| binding.ty == Type::Proc));
+                let diagnostics_before = self.diagnostics.len();
                 let result = self.check_call_arena(arena, source, *callee, *args, expr.span, expected);
+                if self.diagnostics.len() == diagnostics_before && self.stage_callable_is_static(arena, *callee) { self.statically_resolved_call_spans.insert(expr.span); }
                 if may_mutate { self.invalidate_mutable_narrowings(); }
                 result
             }

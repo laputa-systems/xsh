@@ -8061,6 +8061,29 @@ run true
         program.symbol_owner().with_current(|| Name::intern(text))
     }
 
+    #[test]
+    fn stage_callable_ordinary_calls_execute_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = "pure increment(item: Int, amount: Int = 2) -> Int { item + amount }\npure positive(item: Int) -> Bool { item > 3 }\npure result(item: Int) -> Result[Int] { Ok(item) }\npure value() -> Int { [1, 2, 3] |> map(increment) |> where(positive) |> sum }\npure results() -> Bool { let values = [3] |> map(result); values[0] is Ok(3) }\n";
+            let program = fixture("stage-callable.xsh", source);
+            FullVerifier::verify(&program).unwrap();
+            assert!(!program.store.tags.contains(&FullTag::ExprFunctionRef));
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                for (name, expected) in [("value", Value::Int(9)), ("results", Value::Bool(true))] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure, &[],
+                        Span::new(program.store.source_id, 0, 0),
+                    ).expect("stage callable function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    assert_eq!(result.unwrap(), expected);
+                }
+            }
+        });
+    }
+
     /// A loop reuses its statement list rather than allocating per iteration.
     #[test]
     fn loop_iterations_reuse_their_statement_list() {

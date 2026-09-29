@@ -295,6 +295,8 @@ impl<'a> Parser<'a> {
     pub(in crate::syntax::parser) fn at_pipe_stage_end(&mut self) -> bool {
         self.skip_comments();
         self.at_terminator() || self.at(TokenKindMatch::Eof) || self.at(TokenKindMatch::PipeGt)
+            || self.at(TokenKindMatch::RParen) || self.at(TokenKindMatch::RBracket)
+            || self.at(TokenKindMatch::Comma)
     }
 
     pub(in crate::syntax::parser) fn is_word_part_start(&self) -> bool {

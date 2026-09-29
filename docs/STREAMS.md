@@ -35,6 +35,24 @@ its input; `sort-by` evaluates it before pulling a live input. A preceding seria
 map prefix retains its materialization boundary. Old stage flags produce a fatal
 migration diagnostic; external process argv flags retain their usual meaning.
 
+Unary bodies of `map`, `where`, `flat-map`, `each`, `tee`, `sort-by`,
+`group-by`, `unique-by`, `any`, and `all` can name a static callable with
+`map(normalize)` or `sort-by(block: key, desc: true)`. The callable descriptor
+is not evaluated as fixed configuration. It lowers through the ordinary
+checked one-item call inside the same stage body, without a closure or a
+runtime name lookup. Supported defaults and parameter conversions apply on
+each actual invocation. Qualified imports retain their prepared function
+identity; erased callable values and bound methods require explicit blocks.
+`stage_accepts_callable` owns the supported body roles, while
+`stage_parameters` continues to own fixed configuration.
+
+Result-valued `map` calls stay in-band, and Bool predicates stay data.
+`each`/`tee` retain their automatic Unit propagation. `lint.stage-callable`
+only replaces an exact checked `f(item)` wrapper; `f(item)?`, additional
+arguments or statements, and comments retain their explicit blocks.
+`tests/xsh/stage-functions.xsh` covers both forms, defaults, imports,
+short-circuiting, errors, cleanup, and tooling convergence.
+
 The verified indexed pipeline is executed by `FullTag::ExprPipeline` in
 `src/runtime/eval/lowered_run/indexed_run.rs`. Live serial prefixes are driven
 by `src/runtime/eval/lowered_run/indexed_run/serial_pipeline.rs`.

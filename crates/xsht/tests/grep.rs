@@ -478,6 +478,21 @@ fn grep_and_refactor_visit_named_stream_configuration_and_spread_values() {
 }
 
 #[test]
+fn grep_and_refactor_visit_static_stage_callable_descriptors() {
+    let root = TempDir::new().expect("create stage callable fixture");
+    let file = root.path().join("stage-callable.xsh");
+    fs::write(&file, "pure normalize(item: Str) -> Str { item.lower() }\npure canonicalize(item: Str) -> Str { item.upper() }\nlet values = [\"a\"] |> map(block: normalize) # retain descriptor comment\nprint values[0]\n").unwrap();
+    let found = grep_scripts("normalize", &paths(&file));
+    assert_eq!(found.status, 0, "{}", output_text(&found.stderr));
+    assert!(output_text(&found.stdout).contains("1 match"));
+    let changed = refactor_scripts("normalize", "canonicalize", &paths(&file), false);
+    assert_eq!(changed.status, 0, "{}", output_text(&changed.stderr));
+    let rewritten = fs::read_to_string(&file).unwrap();
+    assert!(rewritten.contains("map(block: canonicalize)"), "{rewritten}");
+    assert!(rewritten.contains("# retain descriptor comment"));
+}
+
+#[test]
 fn core_assert_structural_search_finds_condition_and_message_calls() {
     let directory = TempDir::new().unwrap();
     let script = directory.path().join("assert.xsh");

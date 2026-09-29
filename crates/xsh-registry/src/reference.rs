@@ -649,7 +649,11 @@ fn stream_doc(stage: &str) -> ReferenceDoc {
         ),
         _ => panic!("missing stream-stage documentation for {stage}"),
     };
-    reference_doc_full(summary, contract, tags, signature, &[])
+    let mut doc = reference_doc_full(summary, contract, tags, signature, &[]);
+    if crate::stream_parameters::stage_accepts_callable(stage) {
+        doc.contract.push_str(" The block role also accepts a statically resolved named one-item callable, positionally or as block: name. Ordinary conversions, supported defaults, effects, and the stage's error policy apply per actual call; erased callable values and bound methods require an explicit block.");
+    }
+    doc
 }
 
 fn trace_doc(event: &str) -> ReferenceDoc {

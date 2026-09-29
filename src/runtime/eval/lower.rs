@@ -5015,7 +5015,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     _ => return None,
                 };
                 let value = self.infer_checked_pipeline_stage_block_tail(stage, item, slots)?;
-                let item = value.result_ok().cloned().unwrap_or(value);
+                let item = if stage.kind == StreamStageKind::Map { value } else { value.result_ok().cloned().unwrap_or(value) };
                 Some(Type::List(Box::new(item)))
             }
             StreamStageKind::FlatMap => {
@@ -5120,6 +5120,9 @@ impl CompactLowerConstructProbe<'_, '_> {
         item: Type,
         slots: &SlotScope,
     ) -> Option<Type> {
+        if let Some((callee, _)) = crate::sema::stage_arguments::stage_callable_argument(self.program, stage, |expr| self.bodies.expr_types.get(&expr).cloned()).ok().flatten() {
+            return self.bodies.stage_callable_types.get(&callee).cloned();
+        }
         let block = stage.block?;
         let ids = self
             .program
@@ -11485,6 +11488,46 @@ impl CompactLowerConstructProbe<'_, '_> {
         current_function: Option<Name>,
         item_ty: Option<&Type>,
     ) -> Option<LoweredPipelineStage> {
+        if let Some((callee, arguments)) = crate::sema::stage_arguments::stage_callable_argument(self.program, stage, |expr| {
+            self.bodies.expr_types.get(&expr).cloned().or_else(|| self.infer_checked_expr_type_with_slots(expr, slots))
+        }).ok()? {
+            // Only named declarations can reach this path. Runtime callable
+            // values would erase overload, default, and effect information.
+            let stable = match self.program.arena.expr(callee).kind {
+                ArenaExprKind::Ident(name) => slots.resolve(name).is_none() && self.compact_unqualified_function_key(name).is_some(),
+                ArenaExprKind::Field { base, name } => matches!(self.program.arena.expr(base).kind, ArenaExprKind::Ident(namespace)
+                    if (crate::sema::stage_arguments::stage_namespace_owner(self.program, namespace, self.current_namespace).is_some()
+                        || slots.resolve(namespace).is_none()) && (self.compact_qualified_function_available(self.compact_qualified_function_key(namespace, name))
+                        || api_spec().module_overloads(&namespace.as_str(), &name.as_str()).is_some())),
+                _ => false,
+            };
+            if !stable { return None; }
+            let mut temporary = self.program.clone();
+            let mut bodies = self.bodies.clone();
+            let mut normalized = stage.clone();
+            normalized.args = temporary.arena.append_call_arguments(&arguments);
+            let span = self.program.arena.expr(callee).span;
+            let (block, item, call, stmt) = temporary.arena.append_stage_callable_block(callee, span);
+            normalized.block = Some(block);
+            bodies.expr_types.insert(item, item_ty.cloned().unwrap_or(Type::Any));
+            let return_ty = self.bodies.stage_callable_types.get(&callee)?.clone();
+            bodies.expr_types.insert(call, return_ty.clone());
+            let unit = matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee);
+            bodies.statement_positions.insert(stmt, if unit { crate::sema::check::StatementPosition::Statement } else { crate::sema::check::StatementPosition::Value });
+            bodies.block_types.insert(block, if unit { Type::Unit } else { return_ty });
+            let mut child = CompactLowerConstructProbe {
+                program: &temporary, bodies: &bodies, declarations: self.declarations,
+                source: self.source, sources: self.sources, current_namespace: self.current_namespace,
+                functions: self.functions, top_level_known: self.top_level_known.clone(),
+                output: std::mem::take(&mut self.output), last_blocker_detail: self.last_blocker_detail.take(),
+                strict_dynamic_methods: self.strict_dynamic_methods, stdlib_linkage: self.stdlib_linkage,
+                function_defs: Rc::clone(&self.function_defs), scratch: Rc::clone(&self.scratch),
+            };
+            let result = child.lower_pipeline_stage(&normalized, slots, current_function, item_ty);
+            self.output = child.output;
+            self.last_blocker_detail = child.last_blocker_detail;
+            return result;
+        }
         if !xsh_registry::stream_parameters::stage_parameters(stage.kind.as_str()).is_empty() {
             return self.lower_configured_pipeline_stage(stage, slots, current_function, item_ty);
         }

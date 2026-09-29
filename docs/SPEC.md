@@ -3903,6 +3903,32 @@ the block for one item finishes before the next live item is pulled. A block
 may print or run a process directly; its defers run at that item's block exit.
 Use `each` when no accumulated value is needed.
 
+`map`, `where`, `flat-map`, `each`, `tee`, `sort-by`, `group-by`,
+`unique-by`, `any`, and `all` also accept a statically resolved named
+callable: `map(normalize_name)`, `where(block: is_valid)`, or
+`sort-by(key, desc: true)`. The descriptor occupies the ordinary `block`
+argument slot and cannot accompany an explicit block. Configuration arguments
+retain their existing named argument, pun, and static record spread rules.
+The callable itself must retain a direct declaration identity; a function
+value projected from a record spread is not a static descriptor.
+
+The descriptor means the same checked ordinary one-item call as
+`map { |item| normalize_name(item) }`. Qualified imported functions and
+registered standard calls are accepted when that call selects one signature.
+Parameter conversions, supported defaults, effects, and source spans follow
+ordinary calls. Defaults are supplied for each actual call, including fresh
+aggregate defaults; an empty source makes no calls. Erased `Any`, `Pure`, or
+`Proc` values, callable-producing expressions, bound methods, ambiguous
+overloads, and `_` placeholders require an explicit block. Other stage bodies
+retain their existing arity and block syntax.
+
+A Bool predicate remains data. A Result-returning `map` produces
+`List[Result[T, E]]`; it does not propagate errors per item. Side-effecting
+`each` and `tee` retain their Unit-consuming automatic propagation. A block
+ending in `f(item)?` remains explicit because it selects a different error
+policy. `lint.stage-callable` only rewrites a checked single-call wrapper with
+its exact bound item and no comments, extra arguments, cleanup, or propagation.
+
 A tail proc call with `?` unwraps the `Ok` value and propagates errors: if
 any item fails, the entire stage short-circuits with that error. Without
 `?`, the `Result` value flows through as-is — errors stay in-band as
