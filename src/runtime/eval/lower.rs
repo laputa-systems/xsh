@@ -2217,6 +2217,11 @@ fn compact_collect_expr_call_edges(
         | ArenaExprKind::NullSafeField { base: expr, .. } => {
             compact_collect_expr_call_edges(program, expr, namespace, index_of, edges);
         }
+        ArenaExprKind::ComparisonChain(pairs) => {
+            for pair in program.arena.comparison_chain_operands(pairs) {
+                compact_collect_expr_call_edges(program, pair, namespace, index_of, edges);
+            }
+        }
         ArenaExprKind::Binary { left, right, .. }
         | ArenaExprKind::Index {
             base: left,
@@ -2642,6 +2647,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::If { .. } => 18,
         ArenaExprKind::Match { .. } => 19,
         ArenaExprKind::Unary { .. } => 20,
+        ArenaExprKind::ComparisonChain(_) => 41,
         ArenaExprKind::Binary { .. } => 21,
         ArenaExprKind::Call { .. } => 22,
         ArenaExprKind::Field { .. } => 23,
@@ -2687,6 +2693,7 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
         ArenaExprKind::If { .. } => "if",
         ArenaExprKind::Match { .. } => "match",
         ArenaExprKind::Unary { .. } => "unary",
+        ArenaExprKind::ComparisonChain(_) => "comparison-chain",
         ArenaExprKind::Binary { .. } => "binary",
         ArenaExprKind::Call { .. } => "call",
         ArenaExprKind::Field { .. } => "field",
@@ -5270,6 +5277,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 expected
             }
+            ArenaExprKind::ComparisonChain(_) => Some(LoweredType::Bool),
             ArenaExprKind::Binary { op, left, right } => {
                 self.infer_lowered_binary_type(op, left, right, known)
             }
@@ -5426,6 +5434,14 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
         }
         self.infer_lowered_call_type(callee, args_vec)
+    }
+
+    // Conditions and returned Bool values keep ordinary short-circuit behavior;
+    // only a bare assertion asks the chain to retain its failed pair values.
+    fn mark_comparison_chain_assertion(&mut self, value: BuildExprId) {
+        if let BuildExprRow::ComparisonChain { assertion, .. } = &mut self.scratch.borrow_mut().expressions[value.index()] {
+            *assertion = true;
+        }
     }
 
     fn infer_lowered_binary_type(
@@ -7765,6 +7781,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                     span,
                 }
             )),
+            ArenaExprKind::ComparisonChain(pairs) => {
+                let pairs = self.program.arena.expr_ids(pairs).collect::<Vec<_>>();
+                let pairs = pairs.into_iter().map(|pair| self.lower_expr(pair, slots, current_function, item_slot)).collect::<Option<Vec<_>>>()?;
+                Some(push_build_row!(self, expr, BuildExprRow::ComparisonChain { pairs, assertion: false }))
+            }
             ArenaExprKind::Binary { op, left, right } if lowered_binary_op(op) => {
                 Some(push_build_row!(
                     self,

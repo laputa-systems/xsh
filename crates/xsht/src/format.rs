@@ -1575,8 +1575,19 @@ impl<'a> Writer<'a> {
                 });
                 self.write_expr(*expr, precedence, output);
             }
+            ArenaExprKind::ComparisonChain(pairs) => {
+                for (index, pair) in self.arena.expr_ids(*pairs).enumerate() {
+                    let ArenaExprKind::Binary { op, left, right } = self.arena.expr(pair).kind else { unreachable!() };
+                    if index == 0 { self.write_expr(left, precedence + 1, output); }
+                    output.push(' ');
+                    output.push_str(binary_op_text(op));
+                    output.push(' ');
+                    self.write_expr(right, precedence + 1, output);
+                }
+            }
             ArenaExprKind::Binary { op, left, right } => {
-                self.write_expr(*left, precedence, output);
+                let left_precedence = if matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge | BinaryOp::Eq | BinaryOp::Ne | BinaryOp::In | BinaryOp::NotIn) { precedence.max(4) + 1 } else { precedence };
+                self.write_expr(*left, left_precedence, output);
                 output.push(' ');
                 output.push_str(binary_op_text(*op));
                 output.push(' ');
@@ -1585,6 +1596,7 @@ impl<'a> Writer<'a> {
                 } else {
                     precedence + 1
                 };
+                let right_precedence = if matches!(op, BinaryOp::Eq | BinaryOp::Ne | BinaryOp::In | BinaryOp::NotIn) { right_precedence.max(5) } else { right_precedence };
                 self.write_expr(*right, right_precedence, output);
             }
             ArenaExprKind::Call { callee, args } => {
@@ -3101,6 +3113,7 @@ fn is_top_level_section(kind: &ArenaStmtKind) -> bool {
 
 fn expr_precedence(kind: &ArenaExprKind) -> u8 {
     match kind {
+        ArenaExprKind::ComparisonChain(_) => 4,
         ArenaExprKind::Binary { op, .. } => match op {
             BinaryOp::ResultFallback => 1,
             BinaryOp::Or => 1,

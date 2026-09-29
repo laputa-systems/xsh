@@ -81,6 +81,7 @@ struct Binding {
     span: Span,
     used: bool,
     report_unused: bool,
+    comparison_stable: bool,
 }
 
 pub struct Linter<'a> {
@@ -609,6 +610,11 @@ impl<'a> Linter<'a> {
                 }
                 self.lint_expr_or_run(&initializer);
                 self.define_binding_target(target, stmt.span, true);
+                if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind {
+                    if let Some(binding) = self.scopes.last_mut().and_then(|scope| scope.get_mut(name.as_str().as_str())) {
+                        binding.comparison_stable = true;
+                    }
+                }
             }
             ArenaStmtKind::Var {
                 target,
@@ -1358,6 +1364,53 @@ impl<'a> Linter<'a> {
     fn is_empty_collection(&self, init: &ArenaExpr) -> bool {
         matches!(&init.kind, ArenaExprKind::List(items) if items.is_empty())
             || matches!(&init.kind, ArenaExprKind::Record(fields) if fields.is_empty())
+    }
+
+    fn lint_comparison_chain(&mut self, expr: ExprId) {
+        fn ordering(op: BinaryOp) -> bool { matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge) }
+        fn ladder(arena: &AstArena, expr: ExprId, out: &mut Vec<(BinaryOp, ExprId, ExprId)>) -> bool {
+            match arena.expr(expr).kind {
+                ArenaExprKind::Binary { op: BinaryOp::And, left, right } => ladder(arena, left, out) && ladder(arena, right, out),
+                ArenaExprKind::Binary { op, left, right } if ordering(op) => { out.push((op, left, right)); true }
+                _ => false,
+            }
+        }
+        let span = self.arena.expr(expr).span;
+        if self.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-comparison-chain") && diagnostic.labels.iter().any(|label| label.span.source_id == span.source_id && label.span.start() <= span.start() && label.span.end() >= span.end())) { return; }
+        if !matches!(self.arena.expr(expr).kind, ArenaExprKind::Binary { op: BinaryOp::And, .. }) { return; }
+        let mut pairs = Vec::new();
+        if !ladder(self.arena, expr, &mut pairs) || pairs.len() < 2 { return; }
+        let stable = |id| match self.arena.expr(id).kind {
+            ArenaExprKind::Ident(name) => self.scopes.iter().rev().find_map(|scope| scope.get(name.as_str().as_str())).is_some_and(|binding| binding.comparison_stable) && !self.assigned_names.contains(&name),
+            ArenaExprKind::Int(_) | ArenaExprKind::Float(_) | ArenaExprKind::Str(_) => true,
+            _ => false,
+        };
+        for adjacent in pairs.windows(2) {
+            let shared = adjacent[0].2;
+            let repeated = adjacent[1].1;
+            if !stable(shared) || !stable(repeated) || !same_ordering_operand(self.arena, shared, repeated) { return; }
+        }
+        let Some(original) = self.source.get(span.range()) else { return };
+        if original.contains('#') { return; }
+        let operand_text = |id| {
+            let expr = self.arena.expr(id);
+            let text = self.source.get(expr.span.range())?;
+            let needs_grouping = matches!(expr.kind,
+                ArenaExprKind::Binary { op: BinaryOp::ResultFallback | BinaryOp::Or | BinaryOp::And | BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge | BinaryOp::In | BinaryOp::NotIn, .. }
+                | ArenaExprKind::ComparisonChain(_) | ArenaExprKind::If { .. } | ArenaExprKind::Match { .. }
+                | ArenaExprKind::Pipeline { .. } | ArenaExprKind::StructuredPipeline { .. });
+            Some(if needs_grouping { format!("({text})") } else { text.to_string() })
+        };
+        let Some(mut replacement) = operand_text(pairs[0].1) else { return };
+        for (op, _, right) in pairs {
+            let Some(text) = operand_text(right) else { return };
+            replacement.push_str(match op { BinaryOp::Lt => " < ", BinaryOp::Le => " <= ", BinaryOp::Gt => " > ", BinaryOp::Ge => " >= ", _ => unreachable!() });
+            replacement.push_str(&text);
+        }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "prefer an ordering comparison chain")
+            .with_code("lint.prefer-comparison-chain")
+            .with_label(Label::secondary(span, "the repeated adjacent operand is stable"))
+            .with_fix_hint(FixHint::replacement(span, "compare adjacent operands once", replacement)));
     }
 
     fn lint_result_path_parse_roundtrip(&mut self, expr: ExprId) {
@@ -3559,6 +3612,7 @@ impl<'a> Linter<'a> {
                     mutable: false,
                     span,
                     used: false,
+                    comparison_stable: false,
                     report_unused: report_unused && name != "_",
                 },
             );
@@ -4056,6 +4110,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
             }
         }
         ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => out.push(expr),
+        ArenaExprKind::ComparisonChain(pairs) => out.extend(arena.comparison_chain_operands(pairs)),
         ArenaExprKind::Binary { left, right, .. } => {
             out.push(left);
             out.push(right);
@@ -4488,6 +4543,7 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
         ArenaExprKind::Unary { expr, .. }
         | ArenaExprKind::Try(expr)
         | ArenaExprKind::Require { value: expr, .. } => refs(expr),
+        ArenaExprKind::ComparisonChain(pairs) => arena.comparison_chain_operands(pairs).any(refs),
         ArenaExprKind::Binary { left, right, .. } => refs(left) || refs(right),
         ArenaExprKind::Call { callee, args } => {
             refs(callee)
@@ -4858,6 +4914,7 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
                     .any(|arm| arm.guard.is_some_and(rec) || rec(arm.value))
         }
         ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => rec(expr),
+        ArenaExprKind::ComparisonChain(pairs) => arena.comparison_chain_operands(pairs).any(rec),
         ArenaExprKind::Binary { left, right, .. } => rec(left) || rec(right),
         ArenaExprKind::Spawn(form) => match form.target {
             ArenaSpawnTarget::Command(expr) => rec(expr),
@@ -5057,6 +5114,7 @@ struct LintExprVisitor<'a, 'b> {
 impl LintExprVisitor<'_, '_> {
     fn visit_expr(&mut self, expr: ExprId) {
         if !self.suppress_expr_autofixes {
+            self.linter.lint_comparison_chain(expr);
             self.linter.lint_path_roundtrip(expr);
             self.linter.lint_redundant_require(expr);
             self.linter.lint_redundant_single_interpolation(expr);
@@ -5137,6 +5195,9 @@ impl LintExprVisitor<'_, '_> {
                 }
             }
             ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => self.visit_expr(expr),
+            ArenaExprKind::ComparisonChain(pairs) => {
+                for operand in arena.comparison_chain_operands(pairs).collect::<Vec<_>>() { self.visit_expr(operand); }
+            }
             ArenaExprKind::Binary { left, right, .. } => {
                 self.visit_expr(left);
                 self.visit_expr(right);
@@ -5830,6 +5891,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
                 })
         }
         ArenaExprKind::Unary { expr, .. } => is_safe_const_expr(arena, expr),
+        ArenaExprKind::ComparisonChain(pairs) => arena.comparison_chain_operands(pairs).all(|operand| is_safe_const_expr(arena, operand)),
         ArenaExprKind::Binary { left, right, .. } => {
             is_safe_const_expr(arena, left) && is_safe_const_expr(arena, right)
         }
@@ -5904,6 +5966,7 @@ fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => {
             expr_may_have_effects(arena, expr)
         }
+        ArenaExprKind::ComparisonChain(pairs) => arena.comparison_chain_operands(pairs).any(|operand| expr_may_have_effects(arena, operand)),
         ArenaExprKind::Binary { left, right, .. } => {
             expr_may_have_effects(arena, left) || expr_may_have_effects(arena, right)
         }
@@ -6226,6 +6289,9 @@ fn collect_expr_effects(
         }
         ArenaExprKind::Unary { expr, .. } => {
             collect_expr_effects(arena, expr, effects, proc_effects)
+        }
+        ArenaExprKind::ComparisonChain(pairs) => {
+            for operand in arena.comparison_chain_operands(pairs) { collect_expr_effects(arena, operand, effects, proc_effects); }
         }
         ArenaExprKind::Binary { left, right, .. } => {
             collect_expr_effects(arena, left, effects, proc_effects);
@@ -7085,6 +7151,9 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             ArenaExprKind::Unary { expr, .. }
             | ArenaExprKind::Try(expr)
             | ArenaExprKind::Require { value: expr, .. } => self.scan_expr(expr),
+            ArenaExprKind::ComparisonChain(pairs) => {
+                for operand in self.arena().comparison_chain_operands(pairs).collect::<Vec<_>>() { self.scan_expr(operand); }
+            }
             ArenaExprKind::Binary { left, right, .. }
             | ArenaExprKind::Index {
                 base: left,
@@ -7795,6 +7864,14 @@ fn expr_flow(
         ArenaExprKind::Unary { expr, .. } | ArenaExprKind::Try(expr) => {
             expr_flow(arena, expr, terminating_call_spans)
         }
+        ArenaExprKind::ComparisonChain(pairs) => {
+            let mut operands = arena.comparison_chain_operands(pairs);
+            let first = operands.next().map(|operand| expr_flow(arena, operand, terminating_call_spans)).unwrap_or_else(FlowSummary::fallthrough);
+            let second = operands.next().map(|operand| expr_flow(arena, operand, terminating_call_spans)).unwrap_or_else(FlowSummary::fallthrough);
+            let mut flow = first.then(second);
+            for operand in operands { flow = flow.then(FlowSummary::fallthrough().union(expr_flow(arena, operand, terminating_call_spans))); }
+            flow
+        }
         ArenaExprKind::Binary { left, right, .. } => expr_flow(arena, left, terminating_call_spans)
             .then(expr_flow(arena, right, terminating_call_spans)),
         ArenaExprKind::Call { callee, args } => {
@@ -8107,5 +8184,15 @@ fn command_arg_flow(
             expr_flow(arena, *expr, terminating_call_spans)
         }
         ArenaCommandArgKind::SpliceName(_) => FlowSummary::fallthrough(),
+    }
+}
+
+fn same_ordering_operand(arena: &AstArena, left: ExprId, right: ExprId) -> bool {
+    match (arena.expr(left).kind, arena.expr(right).kind) {
+        (ArenaExprKind::Ident(left), ArenaExprKind::Ident(right)) => left == right,
+        (ArenaExprKind::Int(left), ArenaExprKind::Int(right)) => arena.int_literal(left).value().zip(arena.int_literal(right).value()).is_some_and(|(left, right)| left == right),
+        (ArenaExprKind::Float(left), ArenaExprKind::Float(right)) => arena.float_literal(left).value().zip(arena.float_literal(right).value()).is_some_and(|(left, right)| left.to_bits() == right.to_bits()),
+        (ArenaExprKind::Str(left), ArenaExprKind::Str(right)) => arena.string_literal(left) == arena.string_literal(right),
+        _ => false,
     }
 }

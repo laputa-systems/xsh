@@ -2544,3 +2544,52 @@ fn formatter_preserves_comments_inside_nested_record_binding_targets() {
     let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
     assert_eq!(again.formatted, source);
 }
+
+#[test]
+fn linter_comparison_chain_coalesces_stable_operands_and_converges() {
+    let source = include_str!("../../../tests/fixtures/lint/comparison-chain.xsh");
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+    let chains = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-comparison-chain")).collect::<Vec<_>>();
+    assert_eq!(chains.len(), 3);
+    let mut fixed = source.to_string();
+    for diagnostic in chains.into_iter().rev() {
+        let hint = &diagnostic.fix_hints[0];
+        fixed.replace_range(hint.span.expect("replacement span").range(), hint.replacement.as_deref().unwrap());
+    }
+    assert!(fixed.contains("lower <= middle < upper"));
+    assert!(fixed.contains("0 <= middle < upper <= 20"));
+    assert!(fixed.contains("0 < middle <= 10"));
+    assert_parse_check_standalone("comparison chains", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let second = Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics;
+    assert!(!second.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-comparison-chain")));
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, fixed.replace("λ", "\\u{3bb}"));
+    let stable = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(stable.formatted, formatted.formatted);
+}
+
+#[test]
+fn linter_comparison_chain_preserves_calls_mutable_reads_and_comments() {
+    let source = include_str!("../../../tests/fixtures/lint/comparison-chain-unsafe.xsh");
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-comparison-chain")));
+}
+
+#[test]
+fn formatter_comparison_chain_preserves_grouping_and_precedence() {
+    let source = include_str!("../../../tests/fixtures/syntax/comparison-chain.xsh");
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("let adjacent = 1 < 2 <= 3"));
+    assert!(formatted.formatted.contains("let explicit = (1 < 2 <= 3) == true"));
+    assert!(formatted.formatted.contains("let grouped = (1 < 2) < 3"));
+    assert!(formatted.formatted.contains("let arithmetic = (1 + 2) * 3 < 10 <= 12"));
+    let stable = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(stable.formatted, formatted.formatted);
+}

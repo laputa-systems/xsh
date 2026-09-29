@@ -353,15 +353,15 @@ proc find_stanza(config: Config, logical: Str) [error] -> Result[Interface] {
 }
 
 pure hex_nibble(code: Int) -> Int {
-  if code >= 48 and code <= 57 {
+  if 48 <= code <= 57 {
     return code - 48
   }
 
-  if code >= 97 and code <= 102 {
+  if 97 <= code <= 102 {
     return code - 87
   }
 
-  if code >= 65 and code <= 70 {
+  if 65 <= code <= 70 {
     return code - 55
   }
 

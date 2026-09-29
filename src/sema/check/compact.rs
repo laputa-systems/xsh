@@ -889,6 +889,12 @@ impl CompactBodyProbe<'_> {
             ArenaExprKind::List(items) => self.check_compact_list(items),
             ArenaExprKind::Record(fields) => self.check_compact_record(fields),
             ArenaExprKind::Unary { op, expr } => self.check_compact_unary(op, expr),
+            ArenaExprKind::ComparisonChain(pairs) => {
+                for pair in self.program.arena.comparison_chain_operands(pairs).collect::<Vec<_>>() {
+                    self.check_compact_expr(pair);
+                }
+                Type::Bool
+            }
             ArenaExprKind::Binary { op, left, right } => self.check_compact_binary(op, left, right),
             ArenaExprKind::Call { callee, args } => self.check_compact_call(callee, args),
             ArenaExprKind::Field { base, name } => self.check_compact_field(base, name),

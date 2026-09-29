@@ -90,6 +90,15 @@ struct RunSegment {
     cpu_max: Option<u32>,
 }
 
+fn comparison_chain_assertion_failure(op: BinaryOp, left: &LoweredValue, right: &LoweredValue, span: Span) -> Result<RuntimeError, RuntimeError> {
+    let mut left_text = String::new();
+    let mut right_text = String::new();
+    super::push_lowered_display(&mut left_text, left, span)?;
+    super::push_lowered_display(&mut right_text, right, span)?;
+    let operator = match op { BinaryOp::Lt => "<", BinaryOp::Le => "<=", BinaryOp::Gt => ">", BinaryOp::Ge => ">=", _ => unreachable!() };
+    Ok(RuntimeError::new("assertion-failed", format!("ordering comparison failed: {left_text} {operator} {right_text}")).with_span(span))
+}
+
 enum BinaryWork {
     Expr(u32),
     Apply { op: BinaryOp, span: Span },
@@ -2365,6 +2374,43 @@ impl Evaluator {
                 indexed_finish(payload, call_span)?;
                 lowered_freeze_large_slot_list(&mut slots[slot]);
                 ControlFlow::Continue(slots[slot].clone())
+            }
+            FullTag::ExprComparisonChain => {
+                let (_, mut pairs) = execution.block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, call_span))?;
+                let len = indexed_raw(&mut pairs, call_span)? as usize;
+                let assertion = indexed_decode::<bool>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let mut previous = None;
+                for _ in 0..len {
+                    let pair = indexed_raw(&mut pairs, call_span)?;
+                    let (tag, mut pair_payload) = indexed_value(execution.instruction_id(pair), call_span)?;
+                    if tag != FullTag::ExprBinary { return Err(RuntimeError::new("indexed-ir", "comparison chain requires binary pairs").with_span(call_span)); }
+                    let op = indexed_decode::<BinaryOp>(&mut pair_payload, execution, call_span)?;
+                    let left = indexed_raw(&mut pair_payload, call_span)?;
+                    let right = indexed_raw(&mut pair_payload, call_span)?;
+                    let span = indexed_decode::<Span>(&mut pair_payload, execution, call_span)?;
+                    indexed_finish(pair_payload, span)?;
+                    let left = match previous.take() {
+                        Some(value) => value,
+                        None => match self.eval_indexed_expr(execution, left, slots, span)? {
+                            ControlFlow::Continue(value) => value,
+                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        },
+                    };
+                    let right = match self.eval_indexed_expr(execution, right, slots, span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
+                    let result = lowered_binary_value(op, left.clone(), right.clone(), span)?;
+                    if result == LoweredValue::Bool(false) {
+                        if assertion { return Err(comparison_chain_assertion_failure(op, &left, &right, span)?); }
+                        return Ok(ControlFlow::Continue(LoweredValue::Bool(false)));
+                    }
+                    previous = Some(right);
+                }
+                indexed_finish(pairs, call_span)?;
+                ControlFlow::Continue(LoweredValue::Bool(true))
             }
             FullTag::ExprBinary => {
                 let op = indexed_decode::<BinaryOp>(&mut payload, execution, call_span)?;

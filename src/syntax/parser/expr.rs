@@ -563,10 +563,48 @@ impl<'a> Parser<'a> {
                 self.skip_newlines();
                 let right = self.parse_precedence_arena_only(right_min_prec, arena)?;
                 let span = self.span(left.span.start(), right.span.end());
-                let id = arena.push_binary_expr(op, left.id, right.id, span);
+                let ordering = |op| matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge);
+                let comparison_kind = |kind| match kind {
+                    ArenaExprKind::ComparisonChain(_) => Some(true),
+                    ArenaExprKind::Binary { op, .. } if ordering(op) => Some(true),
+                    ArenaExprKind::Binary { op: BinaryOp::Eq | BinaryOp::Ne | BinaryOp::In | BinaryOp::NotIn, .. } => Some(false),
+                    _ => None,
+                };
+                if matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge | BinaryOp::Eq | BinaryOp::Ne | BinaryOp::In | BinaryOp::NotIn) {
+                    for operand in [left, right] {
+                        let inner_span = arena.expr_span(operand.id);
+                        let grouped = operand.span.start() < inner_span.start() && operand.span.end() > inner_span.end();
+                        if !grouped && comparison_kind(arena.expr_kind(operand.id)).is_some_and(|inner_ordering| inner_ordering != ordering(op)) {
+                            self.diagnostics.push(Diagnostic::error("group ordering comparisons explicitly when mixing equality or membership tests")
+                                .with_code("parse.mixed-comparison")
+                                .with_label(Label::primary(span, "add parentheses around the intended comparison")));
+                        }
+                    }
+                }
+                let mut id = arena.push_binary_expr(op, left.id, right.id, span);
+                if matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge) {
+                    let mut pairs = vec![id];
+                    let mut previous = right;
+                    loop {
+                        if self.current_binary_op().is_none() && self.continuation_binary_op().is_some() {
+                            self.skip_newlines();
+                        }
+                        let Some((next_op, next_prec, next_tokens)) = self.current_binary_op() else { break };
+                        if next_prec != prec || !matches!(next_op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge) { break }
+                        for _ in 0..next_tokens { self.bump(); }
+                        self.skip_newlines();
+                        let next = self.parse_precedence_arena_only(prec + 1, arena)?;
+                        let pair_span = self.span(previous.span.start(), next.span.end());
+                        pairs.push(arena.push_binary_expr(next_op, previous.id, next.id, pair_span));
+                        previous = next;
+                    }
+                    if pairs.len() > 1 {
+                        id = arena.push_comparison_chain_expr(&pairs, self.span(left.span.start(), previous.span.end()));
+                    }
+                }
                 left = ArenaOnlyExpr {
                     id,
-                    span,
+                    span: self.span(span.start(), self.previous_end()),
                     bare_ident: None,
                 };
             }
@@ -829,6 +867,7 @@ impl<'a> Parser<'a> {
                 self.expect(TokenKindMatch::RParen, "expected `)` after expression");
                 Some(ArenaOnlyExpr {
                     bare_ident: None,
+                    span: self.span(span.start(), self.previous_end()),
                     ..expr
                 })
             }

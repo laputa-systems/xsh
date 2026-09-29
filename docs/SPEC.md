@@ -900,6 +900,21 @@ side is explicitly converted with `.float()`. Comparisons follow the same rule:
 `Float` may be compared with `Float`, `Int` with `Int`, and mixed numeric
 comparisons require explicit conversion. `%` is integer-only.
 
+Ordering sequences such as `0 <= offset < limit` compare adjacent operands from
+left to right. Each reached operand is evaluated once; a false pair skips all
+later operands. Every pair uses the ordinary ordering type rules, including
+Float/NaN behavior. A single comparison keeps its existing behavior, and
+`(a < b) < c` compares the parenthesized Bool value rather than forming a chain.
+Ordering binds below arithmetic and above equality and `is`; membership (`in`
+and `not in`) shares ordering precedence. `and` binds below equality, while
+`or` and the right-associative `??` bind below `and`. Ungrouped mixtures of
+ordering with equality, membership, or pattern tests are rejected; use
+parentheses to state which Boolean value is being tested.
+
+A failed bare ordering-chain assertion reports the failed adjacent pair and
+its evaluated values. Diagnostics never evaluate the skipped operands.
+
+
 ### Half-open Slicing
 
 Half-open `value[start..end]` slicing accepts `List[T]`, `Str`, and `Bytes`,

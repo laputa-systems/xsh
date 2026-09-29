@@ -145,6 +145,11 @@ fn match_expr_structural(
         (ArenaExprKind::Unary { op: po, expr: pe }, ArenaExprKind::Unary { op: to, expr: te }) => {
             po == to && match_expr(p, *pe, t, *te, source, bindings)
         }
+        (ArenaExprKind::ComparisonChain(pp), ArenaExprKind::ComparisonChain(tp)) => {
+            let pp = p.expr_ids(*pp).collect::<Vec<_>>();
+            let tp = t.expr_ids(*tp).collect::<Vec<_>>();
+            pp.len() == tp.len() && pp.into_iter().zip(tp).all(|(pp, tp)| match_expr(p, pp, t, tp, source, bindings))
+        }
         (
             ArenaExprKind::Binary {
                 op: po,

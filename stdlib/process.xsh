@@ -26,7 +26,7 @@ error ArgvWordsError = Rejected(kind: Str, message: Str)
 # remaining character is either ASCII or not whitespace at all.
 pure whitespace_width(text: Str, index: Int) -> Int {
   let first = text.byte_at(index, -1)
-  if first == 32 or (first >= 9 and first <= 13) {
+  if first == 32 or 9 <= first <= 13 {
     return 1
   }
   if first == 194 {
@@ -49,7 +49,7 @@ pure whitespace_width(text: Str, index: Int) -> Int {
     let next = text.byte_at(index + 1, -1)
     if next == 128 {
       let last = text.byte_at(index + 2, -1)
-      if (last >= 128 and last <= 138) or last == 168 or last == 169 or last == 175 {
+      if 128 <= last <= 138 or last == 168 or last == 169 or last == 175 {
         return 3
       }
     } else if next == 129 and text.byte_at(index + 2, -1) == 159 {

@@ -119,6 +119,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprFunctionRef,
     ExprPathFrom,
     ExprParam,
+    ExprComparisonChain,
     ExprBinary,
     ExprIf,
     ExprMatch,
@@ -3426,6 +3427,22 @@ impl<'a> FullDecoder<'a> {
     }
 
     #[inline(always)]
+    fn verify_comparison_chain_shape(&self, mut payload: FullCursor<'_>) -> Result<(), IrVerifyError> {
+        let id = IrBlockId::from_raw(payload.raw()?).ok_or_else(|| IrVerifyError::new("comparison chain block id is invalid"))?;
+        let block = self.store.blocks.get(id.index()).ok_or_else(|| IrVerifyError::new("comparison chain block is missing"))?;
+        let mut pairs = self.cursor(self.store.payload(block.instructions)?);
+        let len = pairs.raw()? as usize;
+        if len < 2 { return Err(IrVerifyError::new("comparison chain requires at least two pairs")); }
+        for _ in 0..len {
+            let pair = pairs.raw()? as usize;
+            if self.store.tags.get(pair) != Some(&FullTag::ExprBinary) { return Err(IrVerifyError::new("comparison chain requires binary pairs")); }
+            let mut pair_payload = self.cursor(self.store.payload(self.store.data[pair].range())?);
+            let op = BinaryOp::decode(self, &mut pair_payload)?;
+            if !matches!(op, BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge) { return Err(IrVerifyError::new("comparison chain requires ordering operators")); }
+        }
+        pairs.finish()
+    }
+
     fn finish_instruction(&self, index: usize) {
         if let Some(states) = &self.instruction_states {
             states.borrow_mut()[index - self.instruction_range.start] = 2;
@@ -5179,6 +5196,7 @@ macro_rules! impl_node_codec {
                 input: &mut FullCursor<'_>,
             ) -> Result<(), IrVerifyError> {
                 let (instruction, tag, mut payload) = decoder.instruction(input)?;
+                if tag == FullTag::ExprComparisonChain { decoder.verify_comparison_chain_shape(payload)?; }
                 match tag {
                     $(
                         FullTag::$tag => {
@@ -6465,6 +6483,10 @@ impl_node_codec! {
         BuildExprRow::Param(slot) => ExprParam {
             slot: usize,
         } => BuildExprRow::Param(slot),
+        BuildExprRow::ComparisonChain { pairs, assertion } => ExprComparisonChain {
+            pairs: Vec<BuildExprId>,
+            assertion: bool,
+        } => BuildExprRow::ComparisonChain { pairs, assertion },
         BuildExprRow::Binary {
             op,
             left,
@@ -8118,6 +8140,58 @@ proc main() [error] {
         let mut bad_location = program;
         bad_location.store.locations[0].start = u32::MAX;
         assert!(FullVerifier::verify(&bad_location).is_err());
+    }
+
+    #[test]
+    fn comparison_chain_verifier_rejects_short_chains_and_non_ordering_pairs() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/comparison-chain.xsh");
+        let program = fixture("comparison-chain.xsh", source);
+        let chain = program.store.tags.iter().position(|tag| *tag == FullTag::ExprComparisonChain).unwrap();
+        let payload = program.store.data[chain].range().bounds(program.store.extra.len()).unwrap();
+        let block = IrBlockId::from_raw(program.store.extra[payload.start]).unwrap();
+        let pairs = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+        let mut short = program.clone();
+        short.store.extra[pairs.start] = 1;
+        assert!(FullVerifier::verify(&short).unwrap_err().message.contains("at least two pairs"));
+        let first_pair = program.store.extra[pairs.start + 1] as usize;
+        let pair_payload = program.store.data[first_pair].range().bounds(program.store.extra.len()).unwrap();
+        let mut mixed = program;
+        let op = mixed.store.extra[pair_payload.start] as usize;
+        mixed.store.binary_ops[op] = BinaryOp::Eq;
+        assert!(FullVerifier::verify(&mixed).unwrap_err().message.contains("ordering operators"));
+    }
+
+    #[test]
+    fn comparison_chain_assertion_reports_only_evaluated_failed_pair_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/comparison-chain.xsh");
+            let mut program = fixture("comparison-chain.xsh", source);
+            for (index, tag) in program.store.tags.iter().enumerate() {
+                if *tag == FullTag::ExprComparisonChain {
+                    let payload = program.store.data[index].range().bounds(program.store.extra.len()).unwrap();
+                    program.store.extra[payload.start + 1] = 1;
+                }
+            }
+            FullVerifier::verify(&program).unwrap();
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                for (name, message) in [("skipped", "3 < 2"), ("failed_last", "2 < 1")] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)),
+                        LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+                    ).expect("chain function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    let error = result.expect_err("asserted chain fails");
+                    assert_eq!(error.kind, "assertion-failed");
+                    assert!(error.message.contains(message), "{}", error.message);
+                    let failed_source = &source[error.span.unwrap().range()];
+                    assert_eq!(failed_source, message);
+                    assert!(!error.message.contains("division"));
+                }
+            }
+        });
     }
 
     #[test]

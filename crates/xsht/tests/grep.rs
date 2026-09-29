@@ -199,3 +199,14 @@ fn refactor_no_op_when_no_matches() {
         "file should be unchanged when there are no matches"
     );
 }
+
+#[test]
+fn grep_comparison_chain_matches_adjacent_operator_structure() {
+    let source = include_str!("../../../tests/fixtures/frontend-indexed/comparison-chain.xsh");
+    let file = temp_xsh("comparison_chain_structure", source);
+    let matched = grep_scripts("A < B <= C", &paths(&file));
+    assert_eq!(matched.status, 0, "{}", output_text(&matched.stderr));
+    assert!(output_text(&matched.stdout).contains("1 < 2 <= 3"));
+    let different = grep_scripts("A > B >= C", &paths(&file));
+    assert_eq!(different.status, 1, "{}", output_text(&different.stderr));
+}

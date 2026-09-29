@@ -8,7 +8,7 @@ use super::{
     LoweredTypeCheck, LoweredValue, Name, PathValue, RuntimeError, Span, StmtFlow, StreamValue,
     TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, indexed_decode, indexed_error,
-    indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
+    comparison_chain_assertion_failure, indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
     apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
     lowered_freeze_large_slot_list, lowered_match_no_arm,
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
@@ -66,6 +66,18 @@ enum FrameContinuation {
     },
     Return,
     Discard(Span),
+    ComparisonLeft {
+        pairs: Vec<(BinaryOp, u32, Span)>,
+        assertion: bool,
+        next: Box<FrameContinuation>,
+    },
+    ComparisonRight {
+        left: LoweredValue,
+        pairs: Vec<(BinaryOp, u32, Span)>,
+        position: usize,
+        assertion: bool,
+        next: Box<FrameContinuation>,
+    },
     BinaryLeft {
         op: BinaryOp,
         right: u32,
@@ -1363,6 +1375,30 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     next,
                 );
             }
+            FullTag::ExprComparisonChain => {
+                let (_, mut values) = self.calls[index].execution.block(&mut payload, BLOCK_LIST)
+                    .map_err(|error| indexed_error(error, span))?;
+                let len = indexed_raw(&mut values, span)? as usize;
+                let assertion = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                let mut pairs = Vec::with_capacity(len);
+                let mut first = None;
+                for _ in 0..len {
+                    let pair = indexed_raw(&mut values, span)?;
+                    let (tag, mut pair_payload) = indexed_value(self.calls[index].execution.instruction_id(pair), span)?;
+                    if tag != FullTag::ExprBinary { return Err(RuntimeError::new("indexed-ir", "comparison chain requires binary pairs").with_span(span)); }
+                    let op = indexed_decode(&mut pair_payload, &self.calls[index].execution, span)?;
+                    let left = indexed_raw(&mut pair_payload, span)?;
+                    let right = indexed_raw(&mut pair_payload, span)?;
+                    let pair_span = indexed_decode(&mut pair_payload, &self.calls[index].execution, span)?;
+                    indexed_finish(pair_payload, span)?;
+                    first.get_or_insert(left);
+                    pairs.push((op, right, pair_span));
+                }
+                indexed_finish(values, span)?;
+                let first = first.ok_or_else(|| RuntimeError::new("indexed-ir", "comparison chain is empty").with_span(span))?;
+                self.push_expr(index, first, span, FrameContinuation::ComparisonLeft { pairs, assertion, next: Box::new(next) });
+            }
             FullTag::ExprBinary => {
                 let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let left = indexed_raw(&mut payload, span)?;
@@ -1837,7 +1873,29 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Propagate(value));
                 }
             },
-            FrameContinuation::BinaryLeft {
+            FrameContinuation::ComparisonLeft { pairs, assertion, next } => match value {
+                FrameValue::Value(left) => {
+                    let (_, right, span) = pairs[0];
+                    self.push_expr(index, right, span, FrameContinuation::ComparisonRight { left, pairs, position: 0, assertion, next });
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+            },
+            FrameContinuation::ComparisonRight { left, pairs, position, assertion, next } => match value {
+                FrameValue::Value(right) => {
+                    let (op, _, span) = pairs[position];
+                    let result = lowered_binary_value(op, left.clone(), right.clone(), span)?;
+                    if result == LoweredValue::Bool(false) && assertion { return Err(comparison_chain_assertion_failure(op, &left, &right, span)?); }
+                    if result == LoweredValue::Bool(false) || position + 1 == pairs.len() {
+                        self.push_value(index, FrameValue::Value(result), *next);
+                    } else {
+                        let position = position + 1;
+                        let (_, operand, span) = pairs[position];
+                        self.push_expr(index, operand, span, FrameContinuation::ComparisonRight { left: right, pairs, position, assertion, next });
+                    }
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+            },
+                        FrameContinuation::BinaryLeft {
                 op,
                 right,
                 span,

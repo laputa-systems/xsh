@@ -189,6 +189,20 @@ impl Checker {
             ArenaExprKind::Unary { op, expr: inner } => {
                 self.check_unary_arena(arena, source, *op, *inner)
             }
+            ArenaExprKind::ComparisonChain(pairs) => {
+                let mut previous = None;
+                for pair in arena.arena.expr_ids(*pairs) {
+                    let ArenaExprKind::Binary { left, right, .. } = arena.arena.expr(pair).kind else { unreachable!() };
+                    let left_ty = previous.take().unwrap_or_else(|| self.check_expr_arena(arena, source, left, None));
+                    let right_ty = self.check_expr_arena(arena, source, right, Some(&left_ty));
+                    if !matches!(left_ty, Type::Int | Type::Float | Type::Str | Type::Any | Type::Unknown) {
+                        self.error(arena.arena.expr(left).span, "comparison requires Int, Float, or Str", "check.operator-type");
+                    }
+                    self.expect_type(&left_ty, &right_ty, arena.arena.expr(right).span);
+                    previous = Some(right_ty);
+                }
+                Type::Bool
+            }
             ArenaExprKind::Binary { op, left, right } => {
                 self.check_binary_arena(arena, source, *op, *left, *right, expected)
             }
