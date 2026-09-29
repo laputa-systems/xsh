@@ -301,10 +301,13 @@ impl<'a> Parser<'a> {
                 rest = true;
             } else {
                 let field_start = self.current_start();
-                let name = self.expect_ident("expected record pattern field")?;
+                let label_tag = self.current_tag();
+                let label_span = self.current_span();
+                let name = self.expect_label_name("expected record pattern field")?;
                 let pattern = if self.consume(TokenKindMatch::Colon).is_some() {
                     self.parse_pattern_arena_only(arena)?.0
                 } else {
+                    if !self.require_label_binding_name(label_tag, label_span) { return None; }
                     arena.push_pattern_binding(name, self.span(field_start, self.previous_end()))
                 };
                 fields.push((name, pattern, self.span(field_start, self.previous_end())));

@@ -388,22 +388,11 @@ fn parser_rejects_bracketed_map_comprehension_keys() {
 }
 
 #[test]
-fn parser_reports_reserved_record_fields_by_name_without_cascade() {
-    let source =
-        "type Accum = {run: Int, lines: List[Str]}\nlet rec: Accum = {run: 0, lines: []}\n";
+fn parser_accepts_keyword_schema_and_record_field_labels() {
+    let source = "type Accum = {run: Int, lines: List[Str]}\nlet rec: Accum = {run: 0, lines: []}\n";
     let output = Parser::parse_source_arena_only(SourceId::new(0), source);
-
-    assert_eq!(output.diagnostics.len(), 2, "{:?}", output.diagnostics);
-    assert_eq!(
-        output.diagnostics[0].code.as_deref(),
-        Some("parse.reserved-schema-field")
-    );
-    assert!(output.diagnostics[0].message.contains("`run`"));
-    assert_eq!(
-        output.diagnostics[1].code.as_deref(),
-        Some("parse.reserved-record-field")
-    );
-    assert!(output.diagnostics[1].message.contains("`run`"));
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    assert_parse_and_check(SourceId::new(0), source);
 }
 
 #[test]

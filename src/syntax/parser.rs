@@ -322,10 +322,10 @@ impl<'a> Parser<'a> {
         loop {
             match self.peek_tag(offset) {
                 Some(TokenTag::Dot) if self.peek_tag(offset + 1) != Some(TokenTag::Dot) => {
-                    match self.peek_tag(offset + 1) {
-                        Some(TokenTag::Ident | TokenTag::ProcIdent) => offset += 2,
-                        _ => return false,
-                    }
+                    if self.peek_label_name(offset + 1).is_some()
+                        || self.peek_tag(offset + 1) == Some(TokenTag::ProcIdent) {
+                        offset += 2;
+                    } else { return false; }
                 }
                 Some(TokenTag::LBracket) => {
                     offset += 1;
@@ -612,6 +612,37 @@ impl<'a> Parser<'a> {
         Some(name)
     }
 
+    /// Explicit labels retain their token spelling without declaring lexical names.
+    pub(in crate::syntax::parser) fn current_label_name(&self) -> Option<Name> {
+        self.peek_label_name(0)
+    }
+
+    pub(in crate::syntax::parser) fn peek_label_name(&self, distance: usize) -> Option<Name> {
+        let index = self.index + distance;
+        match self.token_table.tag_at(index)? {
+            TokenTag::Ident => self.token_table.name_at(index),
+            TokenTag::Keyword => self.token_table.keyword_at(index).map(|keyword| Name::intern(keyword.as_str())),
+            _ => None,
+        }
+    }
+
+    pub(in crate::syntax::parser) fn expect_label_name(&mut self, message: &str) -> Option<Name> {
+        let Some(name) = self.current_label_name() else {
+            self.diagnostic_here(message, "parse.expected-label");
+            return None;
+        };
+        self.bump();
+        Some(name)
+    }
+
+    pub(in crate::syntax::parser) fn require_label_binding_name(&mut self, tag: TokenTag, span: Span) -> bool {
+        if tag == TokenTag::Ident { return true; }
+        self.diagnostics.push(Diagnostic::error("field labels cannot declare a keyword binding")
+            .with_code("parse.keyword-label-binding")
+            .with_label(Label::primary(span, "supply an explicit value or rename this field to a legal binding name")));
+        false
+    }
+
     pub(in crate::syntax::parser) fn expect_member_name(&mut self, message: &str) -> Option<Name> {
         let Some(name) = self.current_member_name() else {
             self.diagnostic_here(message, "parse.expected-ident");
@@ -622,13 +653,8 @@ impl<'a> Parser<'a> {
     }
 
     pub(in crate::syntax::parser) fn current_member_name(&self) -> Option<Name> {
-        match self.current_tag() {
-            TokenTag::Ident | TokenTag::ProcIdent => self.current_name(),
-            TokenTag::Keyword => self
-                .current_keyword()
-                .map(|keyword| Name::intern(keyword.as_str())),
-            _ => None,
-        }
+        if self.current_tag() == TokenTag::ProcIdent { self.current_name() }
+        else { self.current_label_name() }
     }
 
     pub(in crate::syntax::parser) fn expect_proc_ident(&mut self, message: &str) -> Option<Name> {

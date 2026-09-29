@@ -1154,42 +1154,26 @@ impl<'a> Parser<'a> {
                 self.skip_comp_layout();
                 continue;
             }
-            let name = match self.current_tag() {
-                TokenTag::Ident => self.current_name().expect("record key token has payload"),
-                TokenTag::Keyword => {
-                    let name = self
-                        .current_keyword()
-                        .expect("keyword record key token has payload")
-                        .as_str();
-                    self.diagnostics.push(
-                        Diagnostic::error(format!("record field `{name}` is reserved"))
-                            .with_code("parse.reserved-record-field")
-                            .with_label(Label::primary(
-                                self.current_span(),
-                                "use a non-reserved field name",
-                            )),
-                    );
-                    Name::intern(name)
-                }
-                TokenTag::String => {
-                    let flags = self
-                        .token_table
-                        .string_flags_at(self.index)
-                        .expect("record string key has flags payload");
-                    Name::intern(self.decoded_quoted_text(self.current_span(), flags.raw_literal))
-                }
-                _ => {
-                    self.diagnostic_here("expected record field", "parse.expected-record-field");
-                    break;
-                }
+            let label_tag = self.current_tag();
+            let label_span = self.current_span();
+            let name = if label_tag == TokenTag::String {
+                let flags = self.token_table.string_flags_at(self.index).expect("record string key has flags payload");
+                let name = Name::intern(self.decoded_quoted_text(label_span, flags.raw_literal));
+                self.bump();
+                name
+            } else {
+                let Some(name) = self.expect_label_name("expected record field label") else {
+                    arena.discard_record_fields();
+                    return None;
+                };
+                name
             };
-            self.bump();
             let mut key_id =
                 arena.push_ident_expr(name, self.span(field_start, self.previous_end()));
             let mut dotted_key = false;
             while self.consume(TokenKindMatch::Dot).is_some() {
                 dotted_key = true;
-                let Some(field_name) = self.expect_ident("expected field name") else {
+                let Some(field_name) = self.expect_label_name("expected field name") else {
                     break;
                 };
                 let end = self.previous_end();
@@ -1224,6 +1208,10 @@ impl<'a> Parser<'a> {
                         "parse.expected-map-comprehension",
                     );
                     break;
+                }
+                if !self.require_label_binding_name(label_tag, label_span) {
+                    arena.discard_record_fields();
+                    return None;
                 }
                 arena.push_record_field_input(ArenaRecordFieldInput::Shorthand {
                     name,
@@ -1318,18 +1306,20 @@ impl<'a> Parser<'a> {
                     span: self.span(start, value.span.end()),
                 });
             } else {
-                let named = self.current_tag() == TokenTag::Ident
+                let named = self.current_label_name().is_some()
                     && self.peek_tag(1) == Some(TokenTag::Colon);
                 if named {
                     let start = self.current_start();
                     let name_span = self.current_span();
-                    let name = self.expect_ident("expected named argument").unwrap();
+                    let label_tag = self.current_tag();
+                    let name = self.expect_label_name("expected named argument").unwrap();
                     self.bump();
                     let colon_end = self.previous_end();
                     self.skip_call_argument_trivia();
                     let (value, end) = if self.at(TokenKindMatch::Comma)
                         || self.at(TokenKindMatch::RParen)
                     {
+                        if !self.require_label_binding_name(label_tag, name_span) { break; }
                         // The implied value is an ordinary lexical identifier; its
                         // span stays on the written name for resolution diagnostics.
                         (arena.push_ident_expr(name, name_span), colon_end)

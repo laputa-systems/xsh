@@ -1,7 +1,7 @@
 #![allow(clippy::single_call_fn)]
 
 use super::{
-    AssignOp, BlockParam, Diagnostic, DurationLiteral, Effect, IntLiteral, Keyword, Label, Name,
+    AssignOp, BlockParam, DurationLiteral, Effect, IntLiteral, Keyword, Name,
     Parser, SignalHookOptions, TokenKindMatch, TokenTag, result_unit_type_expr, unknown_type_expr,
 };
 use crate::syntax::arena::{
@@ -214,24 +214,7 @@ impl<'a> Parser<'a> {
         let mut fields = Vec::new();
         while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
             let start = self.current_start();
-            let name = if self.current_tag() == TokenTag::Keyword {
-                let name = self
-                    .current_keyword()
-                    .expect("keyword schema field token has payload")
-                    .as_str();
-                self.diagnostics.push(
-                    Diagnostic::error(format!("schema field `{name}` is reserved"))
-                        .with_code("parse.reserved-schema-field")
-                        .with_label(Label::primary(
-                            self.current_span(),
-                            "use a non-reserved field name",
-                        )),
-                );
-                self.bump();
-                Name::intern(name)
-            } else {
-                self.expect_ident("expected schema field name")?
-            };
+            let name = self.expect_label_name("expected schema field label")?;
             self.expect(TokenKindMatch::Colon, "expected `:` after schema field");
             let ty_id = self.parse_type_expr(arena)?;
             let default = if self.consume(TokenKindMatch::Equals).is_some() {
@@ -485,7 +468,7 @@ impl<'a> Parser<'a> {
                 self.skip_newlines();
                 while !self.at(TokenKindMatch::RParen) && !self.at(TokenKindMatch::Eof) {
                     let field_start = self.current_start();
-                    let field_name = self.expect_ident("expected error payload field")?;
+                    let field_name = self.expect_label_name("expected error payload field")?;
                     self.expect(
                         TokenKindMatch::Colon,
                         "expected `:` after error payload field",
@@ -1112,7 +1095,9 @@ impl<'a> Parser<'a> {
                 rest = true;
             } else {
                 let start = self.current_start();
-                let Some(name) = self.expect_ident("expected destructured field name") else {
+                let label_tag = self.current_tag();
+                let label_span = self.current_span();
+                let Some(name) = self.expect_label_name("expected destructured field label") else {
                     arena.discard_destructure_fields();
                     return None;
                 };
@@ -1126,6 +1111,10 @@ impl<'a> Parser<'a> {
                     };
                     target
                 } else {
+                    if !self.require_label_binding_name(label_tag, label_span) {
+                        arena.discard_destructure_fields();
+                        return None;
+                    }
                     arena.push_binding_target_name(name)
                 };
                 arena.push_destructure_field(name, target, self.span(start, self.previous_end()));

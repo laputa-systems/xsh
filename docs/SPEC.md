@@ -889,8 +889,16 @@ list_body    = (expr ("," expr)* ","?)?
 record_lit   = "{" (record_field ("," record_field)* ","?)? "}" ;
 record_field = IDENT ":" expr | STRING ":" expr | IDENT ;
 
-A reserved word cannot be used as an unquoted record field name. Use a quoted
-string field name, such as `{"run": 0}`, when the record must retain that key.
+Explicit field labels may use keyword spellings such as `type`, `in`, and
+`match`. This applies to record/error schemas and constructors, literal keys,
+member access and update paths, record patterns, renamed destructuring, and
+named arguments. Labels preserve exact key bytes and do not declare lexical
+names. Keywords remain invalid variable, parameter, declaration, or import
+names; keyword labels require an explicit value or renamed binding, such as
+`{type: entry_kind}`, rather than shorthand or puns. Callable labels still
+match the checked signature. Quoted literal keys retain arbitrary text, and a
+quoted key containing a dot remains a single key. Dynamic field access retains
+its existing validation boundary.
 map_comp     = "{" field_path ":" expr comp_qualifiers "}" ;
 comp_qualifiers = "for" binding_target "in" expr comp_qualifier* ;
 comp_qualifier = "for" binding_target "in" expr | "if" expr ;
