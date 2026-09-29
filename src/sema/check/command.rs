@@ -241,6 +241,9 @@ impl Checker {
         if let Some(binding) = self.lookup(name) {
             return binding.ty.clone();
         }
+        if self.tag_variants.get(&name).is_some_and(|info| info.field_count == 0) {
+            return self.lookup_expr_ident(name, span);
+        }
         self.check_proc_command_arena(arena, source, &name.as_str(), ArenaRange::default(), span)
     }
 

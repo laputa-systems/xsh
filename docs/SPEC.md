@@ -1167,7 +1167,10 @@ widening. Expression match arms preserve `{}`, shorthand/explicit record fields,
 record keys, and spreads as record literals. Braces containing ordinary statements
 form value blocks; braces in an expression `if` delimit its branch block.
 Selected values are evaluated before scope cleanup; implicit Ok
-wrapping occurs only at the established Result boundary.
+wrapping occurs only at the established Result boundary. Callback tails share this
+scope rule, including fold and keyed stages. Explicit callback returns retain the
+enclosing function target. Parallel callback transfers are selected in input order;
+started workers finish their cleanup before the transfer reaches its lexical owner.
 
 Function bodies use a contextual tail-value rule. If the final statement in a
 `proc` or `pure` body is an expression statement, that expression produces the

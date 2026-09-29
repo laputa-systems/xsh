@@ -486,7 +486,7 @@ impl Checker {
             std::slice::from_ref(item_ty),
             1,
             item_ty,
-            (stage.kind == StreamStageKind::Each).then_some(&Type::Unit),
+            matches!(stage.kind, StreamStageKind::Each | StreamStageKind::Tee).then_some(&Type::Unit),
         )
     }
 

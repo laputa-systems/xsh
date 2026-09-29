@@ -817,7 +817,11 @@ impl CompactBodyProbe<'_> {
     fn mark_tail_position(&mut self, block: BlockId, consumes_value: bool) {
         let ids = self.program.arena.stmt_ids(self.program.arena.block(block).statements).collect::<Vec<_>>();
         if let Some(&tail) = ids.last() {
-            let position = if consumes_value { super::StatementPosition::Value } else { super::StatementPosition::Statement };
+            let returns_result = match self.program.arena.stmt(tail).kind {
+                ArenaStmtKind::Expr(expr) => self.output.expr_types.get(&expr).is_some_and(Type::is_result),
+                _ => false,
+            };
+            let position = if consumes_value || returns_result { super::StatementPosition::Value } else { super::StatementPosition::Statement };
             self.output.statement_positions.insert(tail, position);
             match self.program.arena.stmt(tail).kind {
                 ArenaStmtKind::If { branches, else_block } => {
@@ -1373,7 +1377,7 @@ impl CompactBodyProbe<'_> {
         if let Some(block) = stream.block {
             self.stream_items.push(Type::Any);
             self.check_compact_block(block);
-            self.mark_tail_position(block, stream.kind != crate::syntax::node::StreamStageKind::Each);
+            self.mark_tail_position(block, !matches!(stream.kind, crate::syntax::node::StreamStageKind::Each | crate::syntax::node::StreamStageKind::Tee));
             self.stream_items.pop();
         }
     }

@@ -268,6 +268,18 @@ impl Evaluator {
         }
     }
 
+    // Expression transport retains the statement target separately from its payload.
+    // In particular, callback returns and loop controls must cross retry and cleanup.
+    fn preserve_lexical_expression_flow<T>(&mut self, flow: StmtFlow) -> ControlFlow<LoweredValue, T> {
+        let value = match &flow {
+            StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => value.clone(),
+            StmtFlow::Break(value) => value.clone().unwrap_or(LoweredValue::Unit),
+            StmtFlow::Continue | StmtFlow::None => LoweredValue::Unit,
+        };
+        self.pending_value_block_flow = Some(flow);
+        ControlFlow::Break(value)
+    }
+
     fn eval_indexed_par_map_item(
         &mut self,
         execution: &FullExecution<'_>,
@@ -282,16 +294,10 @@ impl Evaluator {
         slots[slot] = item;
         let item_result = if let Some(body) = body {
             match self.eval_indexed_statement_block(execution, body, block_header, slots, span) {
-                Ok(StmtFlow::None) | Ok(StmtFlow::Continue) => {
+                Ok(StmtFlow::None) => {
                     self.eval_indexed_expr(execution, value, slots, span)
                 }
-                Ok(StmtFlow::Value(value) | StmtFlow::Return(value)) => Ok(ControlFlow::Break(value)),
-                Ok(StmtFlow::Propagate(value)) => {
-                    Err(runtime_error_from_value(value.into_value(), span))
-                }
-                Ok(StmtFlow::Break(value)) => {
-                    Ok(ControlFlow::Break(value.unwrap_or(LoweredValue::Unit)))
-                }
+                Ok(flow) => Ok(self.preserve_lexical_expression_flow(flow)),
                 Err(error) => Err(error),
             }
         } else {
@@ -302,6 +308,9 @@ impl Evaluator {
             Ok(ControlFlow::Break(value)) => value,
             Err(error) => return Err(error),
         };
+        if self.pending_value_block_flow.is_some() {
+            return Ok(item_result);
+        }
         Ok(match item_result {
             LoweredValue::ResultOk(value) => *value,
             LoweredValue::ResultErr(error) => {
@@ -367,9 +376,7 @@ impl Evaluator {
                             let _items = allocation_stage
                                 .scope(crate::mem_track::WorkerAllocationScope::ParMapItem);
                             for (item_index, item) in chunk {
-                                results.push((
-                                    item_index,
-                                    worker.eval_indexed_par_map_item(
+                                let result = worker.eval_indexed_par_map_item(
                                         &execution,
                                         body,
                                         value,
@@ -378,8 +385,8 @@ impl Evaluator {
                                         slot,
                                         item,
                                         span,
-                                    ),
-                                ));
+                                    );
+                                results.push((item_index, (result, worker.pending_value_block_flow.take())));
                             }
                         }
                         sender
@@ -391,7 +398,7 @@ impl Evaluator {
             }
             drop(sender);
             let mut completed: Vec<
-                Option<(Vec<(usize, Result<LoweredValue, RuntimeError>)>, Vec<u8>)>,
+                Option<(Vec<(usize, (Result<LoweredValue, RuntimeError>, Option<StmtFlow>))>, Vec<u8>)>,
             > = (0..workers.len()).map(|_| None).collect();
             let mut remaining = workers.len();
             while remaining > 0 {
@@ -418,7 +425,7 @@ impl Evaluator {
                     .join()
                     .expect("lowered par-map worker thread panicked");
             }
-            let mut ordered: Vec<Option<Result<LoweredValue, RuntimeError>>> =
+            let mut ordered: Vec<Option<(Result<LoweredValue, RuntimeError>, Option<StmtFlow>)>> =
                 (0..item_count).map(|_| None).collect();
             let mut stderr = Vec::new();
             for completed in completed {
@@ -428,19 +435,16 @@ impl Evaluator {
                 }
                 stderr.extend(worker_stderr);
             }
-            let results = ordered
-                .into_iter()
-                .enumerate()
-                .map(|(item_index, result)| {
-                    let result = result.expect("par-map result missing");
-                    match result {
-                        Ok(value) => Ok(value),
-                        Err(error) => {
-                            Err(self.stream_item_runtime_error("par-map", item_index, error))
-                        }
-                    }
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+            let mut results = Vec::with_capacity(item_count);
+            for (item_index, result) in ordered.into_iter().enumerate() {
+                let (result, flow) = result.expect("par-map result missing");
+                let value = result.map_err(|error| self.stream_item_runtime_error("par-map", item_index, error))?;
+                if let Some(flow) = flow {
+                    self.pending_value_block_flow = Some(flow);
+                    break;
+                }
+                results.push(value);
+            }
             Ok((results, stderr))
         })?;
         self.stderr.extend(stderr);
@@ -477,24 +481,16 @@ impl Evaluator {
                 slots,
                 span,
             )? {
-                StmtFlow::None | StmtFlow::Continue => {}
-                StmtFlow::Propagate(value) | StmtFlow::Value(value) | StmtFlow::Return(value) => {
-                    return Err(
-                        RuntimeError::new("par-map-reduce", lowered_error_message(&value))
-                            .with_span(span),
-                    );
-                }
-                StmtFlow::Break(value) => {
-                    return Err(RuntimeError::new(
-                        "par-map-reduce",
-                        lowered_error_message(&value.unwrap_or(LoweredValue::Unit)),
-                    )
-                    .with_span(span));
+                StmtFlow::None => {}
+                flow => {
+                    self.pending_value_block_flow = Some(flow);
+                    return Ok(());
                 }
             }
             let output = match self.eval_indexed_expr(execution, reduce_value, slots, span)? {
                 ControlFlow::Continue(value) => value,
                 ControlFlow::Break(value) => {
+                    if self.pending_value_block_flow.is_some() { return Ok(()); }
                     return Err(
                         RuntimeError::new("par-map-reduce", lowered_error_message(&value))
                             .with_span(span),
@@ -615,6 +611,7 @@ impl Evaluator {
                                         span,
                                     )?
                                 };
+                                if worker.pending_value_block_flow.is_some() { break; }
                                 {
                                     let _reduce = allocation_stage.scope(
                                         crate::mem_track::WorkerAllocationScope::FusedReduceItem,
@@ -637,10 +634,11 @@ impl Evaluator {
                                         span,
                                     )?;
                                 }
+                                if worker.pending_value_block_flow.is_some() { break; }
                             }
                             Ok::<_, RuntimeError>(groups)
                         })();
-                        (chunk_index, result, std::mem::take(&mut worker.stderr))
+                        (chunk_index, result, std::mem::take(&mut worker.stderr), worker.pending_value_block_flow.take())
                     })
                     .expect("failed to spawn fused par-map worker");
                 workers.push(worker);
@@ -649,6 +647,7 @@ impl Evaluator {
                 Option<(
                     Result<BTreeMap<String, LoweredValue>, RuntimeError>,
                     Vec<u8>,
+                    Option<StmtFlow>,
                 )>,
             > = (0..workers.len()).map(|_| None).collect();
             while !workers.is_empty() {
@@ -657,9 +656,9 @@ impl Evaluator {
                 while index < workers.len() {
                     if workers[index].is_finished() {
                         let worker = workers.swap_remove(index);
-                        let (chunk_index, result, worker_stderr) =
+                        let (chunk_index, result, worker_stderr, flow) =
                             worker.join().expect("fused par-map worker thread panicked");
-                        completed[chunk_index] = Some((result, worker_stderr));
+                        completed[chunk_index] = Some((result, worker_stderr, flow));
                         progress = true;
                     } else {
                         index += 1;
@@ -676,12 +675,17 @@ impl Evaluator {
             completed
                 .iter()
                 .filter_map(|entry| entry.as_ref())
-                .flat_map(|(_, stderr)| stderr.iter().copied()),
+                .flat_map(|(_, stderr, _)| stderr.iter().copied()),
         );
         let mut groups = BTreeMap::new();
         for completed in completed {
-            let (result, _) = completed.expect("fused par-map worker missing");
-            for (key, value) in result? {
+            let (result, _, flow) = completed.expect("fused par-map worker missing");
+            let result = result?;
+            if let Some(flow) = flow {
+                self.pending_value_block_flow = Some(flow);
+                break;
+            }
+            for (key, value) in result {
                 lowered_reduce_group_insert(&mut groups, key, value, op, span)?;
             }
         }
@@ -3531,24 +3535,7 @@ impl Evaluator {
                                             call_span,
                                         )? {
                                             StmtFlow::None => {}
-                                            StmtFlow::Value(value) | StmtFlow::Return(value)
-                                            | StmtFlow::Propagate(value) => {
-                                                return Ok(ControlFlow::Break(value));
-                                            }
-                                            StmtFlow::Break(_) => {
-                                                return Err(RuntimeError::new(
-                                                    "break-outside-loop",
-                                                    "break used outside loop",
-                                                )
-                                                .with_span(span));
-                                            }
-                                            StmtFlow::Continue => {
-                                                return Err(RuntimeError::new(
-                                                    "continue-outside-loop",
-                                                    "continue used outside loop",
-                                                )
-                                                .with_span(span));
-                                            }
+                                            flow => return Ok(self.preserve_lexical_expression_flow(flow)),
                                         }
                                         let keep = match self
                                             .eval_indexed_bool(execution, value, slots, span)?
@@ -3618,24 +3605,7 @@ impl Evaluator {
                                             call_span,
                                         )? {
                                             StmtFlow::None => {}
-                                            StmtFlow::Value(value) | StmtFlow::Return(value)
-                                            | StmtFlow::Propagate(value) => {
-                                                return Ok(ControlFlow::Break(value));
-                                            }
-                                            StmtFlow::Break(_) => {
-                                                return Err(RuntimeError::new(
-                                                    "break-outside-loop",
-                                                    "break used outside loop",
-                                                )
-                                                .with_span(span));
-                                            }
-                                            StmtFlow::Continue => {
-                                                return Err(RuntimeError::new(
-                                                    "continue-outside-loop",
-                                                    "continue used outside loop",
-                                                )
-                                                .with_span(span));
-                                            }
+                                            flow => return Ok(self.preserve_lexical_expression_flow(flow)),
                                         }
                                         let keep = match self
                                             .eval_indexed_bool(execution, value, slots, span)?
@@ -3715,24 +3685,7 @@ impl Evaluator {
                                             call_span,
                                         )? {
                                             StmtFlow::None => {}
-                                            StmtFlow::Value(value) | StmtFlow::Return(value)
-                                            | StmtFlow::Propagate(value) => {
-                                                return Ok(ControlFlow::Break(value));
-                                            }
-                                            StmtFlow::Break(_) => {
-                                                return Err(RuntimeError::new(
-                                                    "break-outside-loop",
-                                                    "break used outside loop",
-                                                )
-                                                .with_span(span));
-                                            }
-                                            StmtFlow::Continue => {
-                                                return Err(RuntimeError::new(
-                                                    "continue-outside-loop",
-                                                    "continue used outside loop",
-                                                )
-                                                .with_span(span));
-                                            }
+                                            flow => return Ok(self.preserve_lexical_expression_flow(flow)),
                                         }
                                         let value = match self
                                             .eval_indexed_expr(execution, value, slots, span)?
@@ -4056,15 +4009,8 @@ impl Evaluator {
                                         slots,
                                         span,
                                     )? {
-                                        StmtFlow::None | StmtFlow::Continue => {}
-                                        StmtFlow::Propagate(value) | StmtFlow::Value(value) | StmtFlow::Return(value) => {
-                                            return Ok(ControlFlow::Break(value));
-                                        }
-                                        StmtFlow::Break(value) => {
-                                            return Ok(ControlFlow::Break(
-                                                value.unwrap_or(LoweredValue::Unit),
-                                            ));
-                                        }
+                                        StmtFlow::None => {}
+                                        flow => return Ok(self.preserve_lexical_expression_flow(flow)),
                                     }
                                     acc = match self.eval_indexed_expr(execution, value, slots, span)? {
                                         ControlFlow::Continue(value) => value,
@@ -4140,15 +4086,8 @@ impl Evaluator {
                                         slots,
                                         span,
                                     )? {
-                                        StmtFlow::None | StmtFlow::Continue => {}
-                                        StmtFlow::Propagate(value) | StmtFlow::Value(value) | StmtFlow::Return(value) => {
-                                            return Ok(ControlFlow::Break(value));
-                                        }
-                                        StmtFlow::Break(value) => {
-                                            return Ok(ControlFlow::Break(
-                                                value.unwrap_or(LoweredValue::Unit),
-                                            ));
-                                        }
+                                        StmtFlow::None => {}
+                                        flow => return Ok(self.preserve_lexical_expression_flow(flow)),
                                     }
                                     let output =
                                         match self.eval_indexed_expr(execution, value, slots, span)? {
@@ -4263,6 +4202,9 @@ impl Evaluator {
                                                     ));
                                                 }
                                             };
+                                            if let Some(flow) = self.pending_value_block_flow.take() {
+                                                return Ok(self.preserve_lexical_expression_flow(flow));
+                                            }
                                             let rows = if flatten {
                                                 self.lowered_flat_map_rows(mapped, span)?
                                             } else {
@@ -4280,6 +4222,9 @@ impl Evaluator {
                                                 &mut groups,
                                                 span,
                                             )?;
+                                            if let Some(flow) = self.pending_value_block_flow.take() {
+                                                return Ok(self.preserve_lexical_expression_flow(flow));
+                                            }
                                             if self.trace_enabled {
                                                 self.trace_lowered_parallel_job(
                                                     TraceKind::ParallelJobEnd,
@@ -4292,7 +4237,7 @@ impl Evaluator {
                                         }
                                         LoweredValue::Map(Arc::new(groups))
                                     } else {
-                                        self.eval_indexed_par_map_flat_map_reduce_by(
+                                        let output = self.eval_indexed_par_map_flat_map_reduce_by(
                                             execution,
                                             body,
                                             value,
@@ -4306,7 +4251,11 @@ impl Evaluator {
                                             items,
                                             jobs,
                                             span,
-                                        )?
+                                        )?;
+                                        if let Some(flow) = self.pending_value_block_flow.take() {
+                                            return Ok(self.preserve_lexical_expression_flow(flow));
+                                        }
+                                        output
                                     }
                                 }
                                 FullStageTag::ParMap | FullStageTag::ParMapBlock => {
@@ -4373,6 +4322,9 @@ impl Evaluator {
                                                     span,
                                                 );
                                             }
+                                            if let Some(flow) = self.pending_value_block_flow.take() {
+                                                return Ok(self.preserve_lexical_expression_flow(flow));
+                                            }
                                             match result {
                                                 Ok(value) => results.push(value),
                                                 Err(error) => {
@@ -4397,6 +4349,9 @@ impl Evaluator {
                                         )?
                                     };
                                     slots[slot] = LoweredValue::Unit;
+                                    if let Some(flow) = self.pending_value_block_flow.take() {
+                                        return Ok(self.preserve_lexical_expression_flow(flow));
+                                    }
                                     LoweredValue::List(results)
                                 }
                                 FullStageTag::Tee | FullStageTag::Each => {
@@ -4426,15 +4381,8 @@ impl Evaluator {
                                             span,
                                         )?;
                                         match flow {
-                                            StmtFlow::None | StmtFlow::Continue => {}
-                                            StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
-                                                return Ok(ControlFlow::Break(value));
-                                            }
-                                            StmtFlow::Break(value) => {
-                                                return Ok(ControlFlow::Break(
-                                                    value.unwrap_or(LoweredValue::Unit),
-                                                ));
-                                            }
+                                            StmtFlow::None => {}
+                                            flow => return Ok(self.preserve_lexical_expression_flow(flow)),
                                         }
                                     }
                                     Ok(ControlFlow::Continue(output))

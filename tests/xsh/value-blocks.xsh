@@ -1,3 +1,5 @@
+type ValueChoice = ValueEmpty | ValueNumber(Int)
+
 pure value_label(code: Int) -> Str {
   match code {
     0 => "ok"
@@ -197,4 +199,129 @@ print \${choose()} \${attempted()}
 """)?
   test.eq(output.success, true)?
   test.eq(output.stdout, "7 9\n")?
+}
+
+proc test_value_callback_return_survives_retry_and_stream_cleanup(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
+stream rows() [] -> Stream[Int] {
+  defer mark("source cleanup")
+  yield 1
+  yield 2
+}
+proc choose() [] -> Int {
+  retry [] {
+    rows() |> each { |number|
+      let selected = if true {
+        defer mark("branch cleanup")
+        return 7
+      } else { 0 }
+      let _ = selected
+    }
+  }
+  0
+}
+print \${choose()}
+""")?
+  test.eq(output.success, true)?
+  test.eq(output.stdout, "branch cleanup\nsource cleanup\n7\n")?
+}
+
+proc test_value_callbacks_keep_enclosing_loop_targets() [error] {
+  var visits = 0
+  for number in [1, 2, 3] {
+    [number] |> each { |item|
+      let selected = if item == 2 {
+        continue
+      } else {
+        item
+      }
+      let _ = selected
+    }
+    visits += number
+  }
+  test.eq(visits, 4)?
+  visits = 0
+  for number in [1, 2, 3] {
+    [number] |> each { |item|
+      let selected = if item == 2 {
+        break
+      } else {
+        item
+      }
+      let _ = selected
+    }
+    visits += number
+  }
+  test.eq(visits, 1)?
+}
+
+proc test_value_callback_tail_precedes_cleanup(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
+proc result(number: Int) [] -> Int { print "value"; number }
+let mapped = [7] |> map { |number|
+  defer mark("cleanup")
+  result(number)
+} |> collect
+print \${mapped[0]}
+""")?
+  test.eq(output.success, true)?
+  test.eq(output.stdout, "value\ncleanup\n7\n")?
+}
+
+proc test_value_parallel_callback_keeps_lexical_return(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, """proc choose() [] -> Int {
+  let ignored = [1, 2] |> par-map --jobs=2 { |number|
+    let selected = if true { return 7 } else { number }
+    selected
+  } |> collect
+  0
+}
+proc fused() [] -> Int {
+  let ignored = [1, 2] |> par-map --jobs=2 { |number|
+    let selected = if true { return 9 } else { number }
+    selected
+  } |> reduce-by --sum { |number| {key: "all", value: number} }
+  0
+}
+proc serial() [] -> Int {
+  let ignored = [1, 2] |> par-map --jobs=1 { |number|
+    let selected = if true { return 11 } else { number }
+    selected
+  } |> collect
+  0
+}
+print \${choose()} \${fused()} \${serial()}
+""")?
+  test.eq(output.success, true)?
+  test.eq(output.stdout, "7 9 11\n")?
+}
+
+proc test_value_fold_and_key_callbacks_have_ordinary_scopes() [error] {
+  let total = [1, 2] |> fold(0) { |acc, number|
+    let added = acc + number
+    match number {
+      1 => { let result = added; result }
+      _ => { let result = added; result }
+    }
+  }
+  test.eq(total, 3)?
+  let grouped = [1, 2] |> reduce-by --sum { |number|
+    let key = "all"
+    if number == 1 { {key, value: number} } else { {key, value: number} }
+  }
+  test.eq(grouped.get("all", 0), 3)?
+  let sorted = [2, 1] |> sort-by { |number| let key = number; key } |> collect
+  test.eq(sorted, [1, 2])?
+}
+
+proc test_value_branches_preserve_tags_dotted_pipelines_and_tee() [error] {
+  let options = {items: [1, 2]}
+  let selected = if false { options.items } else { options.items |> drop(1) }
+  test.eq(selected, [2])?
+  let chosen = if true { ValueEmpty } else { ValueNumber(1) }
+  test.eq(chosen, ValueEmpty)?
+  let rows = [1] |> tee { |number|
+    if false { print $number }
+  } |> collect
+  test.eq(rows, [1])?
 }

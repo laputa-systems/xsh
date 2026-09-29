@@ -1617,6 +1617,16 @@ impl Checker {
         let stmt = arena.arena.stmt(id);
         self.statement_positions.insert(stmt.span, super::StatementPosition::Value);
         if expected.is_some_and(|ty| ty == &Type::Unit || ty.is_result_unit()) {
+            if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
+                let actual = self.check_expr_arena(arena, source, expr_id, expected);
+                if actual.is_result() {
+                    if expected.is_some_and(Type::is_result_unit) { return actual; }
+                    if expr_ty_auto_propagates(&actual) { return Type::Unit; }
+                    self.reject_ignored_result(&actual, arena.arena.expr(expr_id).span);
+                }
+                self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
+                return Type::Unit;
+            }
             self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
             self.check_stmt_arena(arena, source, id);
             return Type::Unit;

@@ -11285,9 +11285,6 @@ impl CompactLowerConstructProbe<'_, '_> {
             return None;
         };
         let block = stage.block?;
-        let statements = self.program.arena.block(block).statements;
-        let ids = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
-        let (&tail, prefix) = ids.split_last()?;
         // Preserve the accumulator's checked type while lowering the block.
         // Nested pipelines, especially in a tail `if`, use slot types to
         // resolve fields and stage arguments. Losing this type makes a valid
@@ -11327,29 +11324,10 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             _ => slots.reserve("pipeline.item"),
         };
-        let mut body = Vec::with_capacity(prefix.len() + 1);
-        for stmt in prefix {
-            let Some(lowered) =
-                self.lower_stmt_with_blocker_guard(*stmt, slots, current_function, Some(item_slot))
-            else {
-                slots.exit(saved);
-                return None;
-            };
-            body.push(lowered);
-        }
-        let result_slot = slots.reserve("pipeline.fold.result");
-        let value = if self.lower_fold_value_stmt(
-            tail,
-            result_slot,
-            &mut body,
-            slots,
-            current_function,
-            item_slot,
-        ) {
-            push_build_row!(self, expr, BuildExprRow::Param(result_slot))
-        } else {
-            slots.exit(saved);
-            return None;
+        let body = Vec::new();
+        let value = match self.lower_block_value_expr(block, slots, current_function, Some(item_slot)) {
+            Some(value) => value,
+            None => { slots.exit(saved); return None; }
         };
         slots.exit(saved);
         Some(LoweredPipelineStage::Fold {
@@ -11359,153 +11337,6 @@ impl CompactLowerConstructProbe<'_, '_> {
             body,
             value,
         })
-    }
-
-    fn lower_fold_value_stmt(
-        &mut self,
-        stmt: StmtId,
-        result_slot: usize,
-        body: &mut Vec<BuildStmtId>,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        item_slot: usize,
-    ) -> bool {
-        match self.program.arena.stmt(stmt).kind {
-            ArenaStmtKind::Expr(expr) => {
-                let Some(value) = self.lower_expr(expr, slots, current_function, Some(item_slot))
-                else {
-                    return false;
-                };
-                body.push(push_build_row!(
-                    self,
-                    stmt,
-                    BuildStmtRow::Assign {
-                        slot: result_slot,
-                        op: AssignOp::Set,
-                        value,
-                        span: self.program.arena.stmt(stmt).span,
-                    }
-                ));
-                true
-            }
-            ArenaStmtKind::TailBareIdent(name) => {
-                let Some(value) = self.lower_bare_ident(name, slots) else {
-                    return false;
-                };
-                body.push(push_build_row!(
-                    self,
-                    stmt,
-                    BuildStmtRow::Assign {
-                        slot: result_slot,
-                        op: AssignOp::Set,
-                        value,
-                        span: self.program.arena.stmt(stmt).span,
-                    }
-                ));
-                true
-            }
-            ArenaStmtKind::If {
-                branches,
-                else_block,
-            } => {
-                let mut lowered = Vec::new();
-                for branch in self.program.arena.if_branches(branches) {
-                    let mut branch_body = Vec::new();
-                    if !self
-                        .lower_fold_value_block(
-                            branch.block,
-                            result_slot,
-                            slots,
-                            current_function,
-                            item_slot,
-                        )
-                        .is_some_and(|values| {
-                            branch_body.extend(values);
-                            true
-                        })
-                    {
-                        return false;
-                    }
-                    let Some(condition) =
-                        self.lower_expr(branch.condition, slots, current_function, Some(item_slot))
-                    else {
-                        return false;
-                    };
-                    lowered.push((condition, branch_body));
-                }
-                let else_body = match else_block {
-                    Some(block) => {
-                        let mut branch_body = Vec::new();
-                        if !self
-                            .lower_fold_value_block(
-                                block,
-                                result_slot,
-                                slots,
-                                current_function,
-                                item_slot,
-                            )
-                            .is_some_and(|values| {
-                                branch_body.extend(values);
-                                true
-                            })
-                        {
-                            return false;
-                        }
-                        Some(branch_body)
-                    }
-                    None => None,
-                };
-                body.push(push_build_row!(
-                    self,
-                    stmt,
-                    BuildStmtRow::If {
-                        branches: lowered,
-                        else_body
-                    }
-                ));
-                true
-            }
-            _ => false,
-        }
-    }
-
-    fn lower_fold_value_block(
-        &mut self,
-        block: BlockId,
-        result_slot: usize,
-        slots: &mut SlotScope,
-        current_function: Option<Name>,
-        item_slot: usize,
-    ) -> Option<Vec<BuildStmtId>> {
-        let saved = slots.enter();
-        let ids = self
-            .program
-            .arena
-            .stmt_ids(self.program.arena.block(block).statements)
-            .collect::<Vec<_>>();
-        let (&tail, prefix) = ids.split_last()?;
-        let mut body = Vec::with_capacity(ids.len());
-        for stmt in prefix {
-            body.push(self.lower_stmt_with_blocker_guard(
-                *stmt,
-                slots,
-                current_function,
-                Some(item_slot),
-            )?);
-        }
-        if !self.lower_fold_value_stmt(
-            tail,
-            result_slot,
-            &mut body,
-            slots,
-            current_function,
-            item_slot,
-        ) {
-            slots.exit(saved);
-            return None;
-        }
-        slots.exit(saved);
-        Some(body)
     }
 
     fn lower_pipeline_stage_reduce_by(
@@ -11522,65 +11353,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         if !stage.args.is_empty() {
             return None;
         }
-        let block = stage.block?;
-        let statements = self.program.arena.block(block).statements;
-        let ids = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
-        let (&tail, prefix) = ids.split_last()?;
-        let ArenaStmtKind::Expr(expr) = self.program.arena.stmt(tail).kind else {
-            return None;
-        };
-        let saved = slots.enter();
-        let params = self
-            .program
-            .arena
-            .block_params(self.program.arena.block(block).params);
-        // The block has a single param bound to the item (or none).
-        let item_slot = match params {
-            [] => slots.reserve("pipeline.item"),
-            [item] => {
-                if slots.is_bound_non_capture(item.name) {
-                    slots.exit(saved);
-                    return None;
-                }
-                slots.declare_with_type(item.name, item_ty.cloned())
-            }
-            _ => {
-                slots.exit(saved);
-                return None;
-            }
-        };
-        let mut body = Vec::with_capacity(prefix.len());
-        for stmt in prefix {
-            let Some(lowered) =
-                self.lower_stmt_with_blocker_guard(*stmt, slots, current_function, Some(item_slot))
-            else {
-                slots.exit(saved);
-                return None;
-            };
-            let lowered_row = self.scratch.borrow().statements[lowered.index()].clone();
-            if !matches!(
-                lowered_row,
-                BuildStmtRow::Let { .. }
-                    | BuildStmtRow::LetInt { .. }
-                    | BuildStmtRow::LetBool { .. }
-                    | BuildStmtRow::Assign { .. }
-                    | BuildStmtRow::AssignInt { .. }
-                    | BuildStmtRow::AssignIndex { .. }
-                    | BuildStmtRow::AssignBool { .. }
-            ) {
-                slots.exit(saved);
-                return None;
-            }
-            body.push(lowered);
-        }
-        let value = match self.lower_expr(expr, slots, current_function, Some(item_slot)) {
-            Some(value) => value,
-            None => {
-                slots.exit(saved);
-                return None;
-            }
-        };
-        slots.exit(saved);
+        let (item_slot, value) = self.lower_pipeline_stage_expr(stage, slots, current_function, item_ty)?;
+        let body = Vec::new();
         Some(LoweredPipelineStage::ReduceBy {
             item_slot,
             body,
@@ -11600,11 +11374,13 @@ impl CompactLowerConstructProbe<'_, '_> {
         let block = stage.block?;
         let statements = self.program.arena.block(block).statements;
         let statements = self.program.arena.stmt_ids(statements).collect::<Vec<_>>();
-        let [stmt] = statements.as_slice() else {
-            return None;
-        };
         let (slot, cleanup) = self.lower_pipeline_stage_item_slot(stage, slots, item_ty)?;
-        let expr = match self.lower_tail_stmt_as_expr(*stmt, slots, current_function, Some(slot)) {
+        let lowered = match statements.as_slice() {
+            [stmt] => self.lower_tail_stmt_as_expr(*stmt, slots, current_function, Some(slot))
+                .or_else(|| self.lower_block_value_expr(block, slots, current_function, Some(slot))),
+            _ => self.lower_block_value_expr(block, slots, current_function, Some(slot)),
+        };
+        let expr = match lowered {
             Some(expr) => expr,
             None => {
                 cleanup_pipeline_stage_item_slot(slots, cleanup, slot);

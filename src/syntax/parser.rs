@@ -416,6 +416,7 @@ impl<'a> Parser<'a> {
                         | TokenTag::Slash
                         | TokenTag::Percent
                         | TokenTag::QuestionQuestion
+                        | TokenTag::PipeGt
                 )
                 && !matches!(
                     self.token_table.keyword_at(index + 1),

@@ -69,10 +69,12 @@ impl IndexedPipelineItems {
         evaluator: &mut Evaluator,
         span: Span,
     ) -> Result<(), RuntimeError> {
-        if let Self::Live { stream, .. } = self {
-            evaluator.stream_cancel(stream, span)?;
-        }
-        Ok(())
+        let escape = evaluator.pending_value_block_flow.take();
+        let result = if let Self::Live { stream, .. } = self {
+            evaluator.stream_cancel(stream, span)
+        } else { Ok(()) };
+        if result.is_ok() { evaluator.pending_value_block_flow = escape; }
+        result
     }
 }
 
@@ -305,13 +307,8 @@ impl IndexedSerialPipeline {
                     )?;
                     slots[*slot] = LoweredValue::Unit;
                     match flow {
-                        StmtFlow::None | StmtFlow::Continue => {}
-                        StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
-                            return Ok(ControlFlow::Break(value));
-                        }
-                        StmtFlow::Break(value) => {
-                            return Ok(ControlFlow::Break(value.unwrap_or(LoweredValue::Unit)));
-                        }
+                        StmtFlow::None => {}
+                        flow => return Ok(evaluator.preserve_lexical_expression_flow(flow)),
                     }
                 }
                 IndexedLiveSerialStage::Where { slot, predicate } => {
@@ -339,17 +336,7 @@ impl IndexedSerialPipeline {
                     )?;
                     match flow {
                         StmtFlow::None => {}
-                        StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
-                            return Ok(ControlFlow::Break(value));
-                        }
-                        StmtFlow::Break(_) | StmtFlow::Continue => {
-                            let (kind, message) = if matches!(flow, StmtFlow::Break(_)) {
-                                ("break-outside-loop", "break used outside loop")
-                            } else {
-                                ("continue-outside-loop", "continue used outside loop")
-                            };
-                            return Err(RuntimeError::new(kind, message).with_span(span));
-                        }
+                        flow => return Ok(evaluator.preserve_lexical_expression_flow(flow)),
                     }
                     let keep = match evaluator.eval_indexed_bool(execution, *value, slots, span)? {
                         ControlFlow::Continue(value) => value,
@@ -399,17 +386,7 @@ impl IndexedSerialPipeline {
                     )?;
                     match flow {
                         StmtFlow::None => {}
-                        StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
-                            return Ok(ControlFlow::Break(value));
-                        }
-                        StmtFlow::Break(_) | StmtFlow::Continue => {
-                            let (kind, message) = if matches!(flow, StmtFlow::Break(_)) {
-                                ("break-outside-loop", "break used outside loop")
-                            } else {
-                                ("continue-outside-loop", "continue used outside loop")
-                            };
-                            return Err(RuntimeError::new(kind, message).with_span(span));
-                        }
+                        flow => return Ok(evaluator.preserve_lexical_expression_flow(flow)),
                     }
                     let projected =
                         match evaluator.eval_indexed_expr(execution, *value, slots, span)? {
@@ -480,17 +457,7 @@ impl IndexedSerialPipeline {
                     )?;
                     match flow {
                         StmtFlow::None => {}
-                        StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
-                            return Ok(ControlFlow::Break(value));
-                        }
-                        StmtFlow::Break(_) | StmtFlow::Continue => {
-                            let (kind, message) = if matches!(flow, StmtFlow::Break(_)) {
-                                ("break-outside-loop", "break used outside loop")
-                            } else {
-                                ("continue-outside-loop", "continue used outside loop")
-                            };
-                            return Err(RuntimeError::new(kind, message).with_span(span));
-                        }
+                        flow => return Ok(evaluator.preserve_lexical_expression_flow(flow)),
                     }
                     let keep = match evaluator.eval_indexed_bool(execution, *value, slots, span)? {
                         ControlFlow::Continue(value) => value,
