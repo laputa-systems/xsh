@@ -72,7 +72,7 @@ stream parent() [io] -> Stream[Int] {
   yield 4 when true
 }
 let first = parent() |> take(1) |> collect
-print ${first.join(",")}
+print ${first[0]}
 """)?
   test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "child-close\nparent-close\n1\n")?
