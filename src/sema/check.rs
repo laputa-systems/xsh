@@ -692,6 +692,9 @@ impl Checker {
             }
             Some(callee_effs) => {
                 for eff in callee_effs {
+                    if *eff == Effect::Error && self.retry_attempt_depth > 0 {
+                        continue;
+                    }
                     if !Self::effects_covers(caller_effs, eff) {
                         self.error(
                             span,

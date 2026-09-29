@@ -113,6 +113,14 @@ impl Checker {
         inferred.unwrap_or(Type::Error)
     }
 
+    pub(super) fn record_callee_propagation(&mut self, effects: &Option<Vec<Effect>>, return_ty: &Type, span: Span) {
+        if self.retry_attempt_depth > 0 && !return_ty.is_result() && !matches!(return_ty, Type::Stream(_))
+            && effects.as_ref().is_some_and(|effects| effects.contains(&Effect::Error))
+            && let Some(errors) = self.error_boundary_errors.last_mut() {
+            errors.push((Type::Error, span));
+        }
+    }
+
     pub(super) fn record_statement_error(&mut self, ty: &Type, span: Span) {
         if self.retry_attempt_depth == 0 { return; }
         let error = match ty {

@@ -224,10 +224,12 @@ impl Checker {
                 self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
                 // A procedure may change mutable lexical captures before the next statement.
                 self.invalidate_mutable_narrowings();
+                self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
             if let Some(sig) = self.pures.get(&name).cloned() {
                 self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
             if let Some(sig) = self.streams.get(&name).cloned() {
@@ -241,6 +243,7 @@ impl Checker {
                     self.check_callee_effects(&caller_effs, &sig.effects, &name.as_str(), span);
                 }
                 self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
             return self.check_constructor_call_arena(arena, source, &name.as_str(), args, span);
@@ -289,6 +292,7 @@ impl Checker {
                 let qualified = QualifiedName::new(module, name);
                 if let Some(sig) = self.qualified_pures.get(&qualified).cloned() {
                     self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                     return sig.return_ty;
                 }
                 if let Some(sig) = self.qualified_procs.get(&qualified).cloned() {
@@ -307,6 +311,7 @@ impl Checker {
                         );
                     }
                     self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                     return sig.return_ty;
                 }
                 if let Some(sig) = self.qualified_streams.get(&qualified).cloned() {
@@ -325,6 +330,7 @@ impl Checker {
                         );
                     }
                     self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
+                    self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                     return sig.return_ty;
                 }
                 if module == "Path" {
@@ -348,6 +354,7 @@ impl Checker {
                     if let Some(caller_effs) = self.current_effects.clone()
                         && let Some(required) =
                             api_spec().module_required_effect(&module.as_str(), &name.as_str())
+                        && !(required == Effect::Error && self.retry_attempt_depth > 0)
                         && !Self::effects_covers(&caller_effs, &required)
                     {
                         self.error(
@@ -408,6 +415,7 @@ impl Checker {
                             &sig.params,
                             span,
                         );
+                        self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                         return sig.return_ty.as_ref().clone();
                     }
                     ModuleExportType::Pure { sig, .. } => {
@@ -418,6 +426,7 @@ impl Checker {
                             &sig.params,
                             span,
                         );
+                        self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                         return sig.return_ty.as_ref().clone();
                     }
                     ModuleExportType::Value { .. } => {}

@@ -1066,6 +1066,8 @@ impl Checker {
         }
         let previous_errors = self.with_initializer_errors.take();
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
+        let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
+        let previous_boundary_errors = std::mem::take(&mut self.error_boundary_errors);
         let previous_return = self.current_return.clone();
         let previous_pure = self.in_pure;
         let previous_effects = self.current_effects.clone();
@@ -1162,6 +1164,8 @@ impl Checker {
         self.current_effects = previous_effects;
         self.in_defer_block = previous_defer;
         self.with_initializer_errors = previous_errors;
+        self.retry_attempt_depth = previous_boundary_depth;
+        self.error_boundary_errors = previous_boundary_errors;
     }
 
     pub(super) fn check_stream_function_arena(
@@ -1172,6 +1176,8 @@ impl Checker {
     ) {
         let previous_errors = self.with_initializer_errors.take();
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
+        let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
+        let previous_boundary_errors = std::mem::take(&mut self.error_boundary_errors);
         let previous_return = self.current_return.clone();
         let previous_yield = self.current_yield.clone();
         let previous_pure = self.in_pure;
@@ -1251,6 +1257,8 @@ impl Checker {
         self.current_effects = previous_effects;
         self.in_defer_block = previous_defer;
         self.with_initializer_errors = previous_errors;
+        self.retry_attempt_depth = previous_boundary_depth;
+        self.error_boundary_errors = previous_boundary_errors;
     }
 
     pub(super) fn check_signal_hook_arena(

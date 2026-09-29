@@ -704,7 +704,9 @@ pub(super) fn lowered_return_value(
 ) -> Result<LoweredValue, RuntimeError> {
     match (kind, value) {
         (LoweredReturnKind::Plain(_), LoweredValue::ResultErr(error)) => {
-            Err(super::runtime_error_from_value(*error, span))
+            let mut error = super::runtime_error_from_value(*error, span);
+            error.propagated = true;
+            Err(error)
         }
         (LoweredReturnKind::Plain(kind), value) if lowered_value_matches(kind, &value) => Ok(value),
         // The error arm comes first because a `Result[Any]` slot matches every

@@ -166,3 +166,38 @@ print \$count
   test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "cleanup 1\n1 11\ncleanup 11\ncleanup 21\n31\n")?
 }
+
+proc test_try_function_unit_tail_consumes_assertion(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, """
+proc capture() [] -> Result[Unit] { try { false } }
+print (capture() is Err(_))
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "true\n")?
+}
+
+proc test_try_error_data_needs_its_nested_success_annotation(ctx: TestContext) [error] {
+  let unknown = test.run_script(ctx, """
+error LocalError = Failed(message: Str)
+let value = try { Err(LocalError.Failed(message: "nested")) }
+""")?
+  test.ok(!unknown.success)?
+  test.contains(unknown.stderr, "check.try-success-type")?
+  let known = test.run_script(ctx, """
+error LocalError = Failed(message: Str)
+let value: Result[Result[Int, LocalError]] = try { Err(LocalError.Failed(message: "nested")) }
+print (value? is Err(LocalError.Failed))
+""")?
+  test.ok(known.success, known.stderr)?
+  test.eq(known.stdout, "true\n")?
+}
+
+proc test_try_captures_plain_return_error_effect_call(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, """
+proc fail() [error] -> Int { "invalid".parse_int()? }
+proc capture() [] -> Result[Int] { try { fail() } }
+print (capture() is Err(_))
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "true\n")?
+}
