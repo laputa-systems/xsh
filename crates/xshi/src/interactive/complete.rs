@@ -436,10 +436,62 @@ fn finish_candidates(comp: &mut Completions, before: usize, prefix: &str, prefix
     comp.sort_by_mtime();
 }
 
+/// One directory's unfiltered listing, valid while the directory's identity and
+/// mtime are unchanged. Entry mtimes, types, and modes are those seen when the
+/// listing was read, so an edit to an existing file, a `chmod`, or a retargeted
+/// symlink does not invalidate it; adding, removing, or renaming an entry does.
+struct DirSnapshot {
+    dev: u64,
+    ino: u64,
+    mtime_sec: i64,
+    mtime_nsec: i64,
+    listing: Completions,
+}
+
+const DIR_CACHE_SLOTS: usize = 4;
+
+#[derive(Default)]
+struct DirCache {
+    snapshots: Vec<DirSnapshot>,
+    next_evict: usize,
+}
+
+impl DirCache {
+    fn find(&self, st: &libc::stat) -> Option<&DirSnapshot> {
+        self.snapshots.iter().find(|snap| {
+            snap.dev == st.st_dev as u64
+                && snap.ino == st.st_ino as u64
+                && snap.mtime_sec == st.st_mtime as i64
+                && snap.mtime_nsec == st.st_mtime_nsec as i64
+        })
+    }
+
+    fn insert(&mut self, snapshot: DirSnapshot) {
+        // A stale snapshot of the same directory is replaced, not kept.
+        if let Some(slot) = self
+            .snapshots
+            .iter_mut()
+            .find(|snap| snap.dev == snapshot.dev && snap.ino == snapshot.ino)
+        {
+            *slot = snapshot;
+        } else if self.snapshots.len() < DIR_CACHE_SLOTS {
+            self.snapshots.push(snapshot);
+        } else {
+            self.snapshots[self.next_evict] = snapshot;
+            self.next_evict = (self.next_evict + 1) % DIR_CACHE_SLOTS;
+        }
+    }
+}
+
+thread_local! {
+    static DIR_CACHE: std::cell::RefCell<DirCache> = std::cell::RefCell::new(DirCache::default());
+}
+
 /// Complete entries in `dir` matching `prefix`.
-/// Single readdir pass: collects prefix and substring matches together,
-/// preferring prefix matches when any exist. Substring fallback is
-/// case-insensitive (like fish) so "tom" matches "Cargo.toml".
+/// Single pass over the directory's cached or freshly read listing: collects
+/// prefix and substring matches together, preferring prefix matches when any
+/// exist. Substring fallback is case-insensitive (like fish) so "tom" matches
+/// "Cargo.toml".
 fn complete_in_dir(dir: &str, prefix: &str, dirs_only: bool, comp: &mut Completions) {
     // Keep libc directory/stat calls here: rustix::fs::Dir allocates, while
     // warmed completion must remain zero-allocation.
@@ -454,14 +506,88 @@ fn complete_in_dir(dir: &str, prefix: &str, dirs_only: bool, comp: &mut Completi
     dir_buf[..dir_bytes.len()].copy_from_slice(dir_bytes);
     dir_buf[dir_bytes.len()] = 0;
 
-    // SAFETY: dir_buf is NUL-terminated, opendir is safe for valid paths.
-    let dp = unsafe { libc::opendir(dir_buf.as_ptr() as *const libc::c_char) };
-    if dp.is_null() {
+    // The directory's own stat is the only per-completion filesystem cost on a
+    // cache hit. A failed stat also covers a missing or unreadable path.
+    // SAFETY: dir_buf is NUL-terminated, stat writes into stack struct.
+    let mut dir_stat: libc::stat = unsafe { std::mem::zeroed() };
+    if unsafe { libc::stat(dir_buf.as_ptr() as *const libc::c_char, &mut dir_stat) } != 0 {
         return;
     }
 
     let before = comp.entries.len();
     let mut prefix_count = 0usize;
+
+    let hit = DIR_CACHE.with(|cache| {
+        let cache = cache.borrow();
+        let snapshot = cache.find(&dir_stat)?;
+        prefix_count = filter_listing(&snapshot.listing, prefix, dirs_only, comp);
+        Some(())
+    });
+
+    if hit.is_none() {
+        // A directory modified within the current second can change again
+        // without moving its mtime, so only a listing read after that second
+        // ended is safe to reuse.
+        // SAFETY: time(NULL) has no preconditions.
+        let read_started = unsafe { libc::time(std::ptr::null_mut()) } as i64;
+        let Some(listing) = read_listing(dir_path, &dir_buf) else {
+            return;
+        };
+        prefix_count = filter_listing(&listing, prefix, dirs_only, comp);
+        if read_started > dir_stat.st_mtime as i64 {
+            DIR_CACHE.with(|cache| {
+                cache.borrow_mut().insert(DirSnapshot {
+                    dev: dir_stat.st_dev as u64,
+                    ino: dir_stat.st_ino as u64,
+                    mtime_sec: dir_stat.st_mtime as i64,
+                    mtime_nsec: dir_stat.st_mtime_nsec as i64,
+                    listing,
+                });
+            });
+        }
+    }
+
+    finish_candidates(comp, before, prefix, prefix_count);
+}
+
+/// Append the listing entries that match `prefix` to `comp`, returning how many
+/// were prefix (rather than substring) matches.
+fn filter_listing(
+    listing: &Completions,
+    prefix: &str,
+    dirs_only: bool,
+    comp: &mut Completions,
+) -> usize {
+    let mut prefix_count = 0usize;
+    for entry in &listing.entries {
+        if add_candidate(
+            comp,
+            listing.entry_name(entry),
+            entry.is_dir(),
+            entry.is_link(),
+            entry.is_exec(),
+            entry.mtime,
+            prefix,
+            dirs_only,
+        ) {
+            prefix_count += 1;
+        }
+    }
+    prefix_count
+}
+
+/// Read and stat every usable entry of the directory at the NUL-terminated
+/// `dir_buf`, unfiltered. Returns `None` when the directory cannot be opened.
+fn read_listing(dir_path: &str, dir_buf: &[u8; 4096]) -> Option<Completions> {
+    let dir_bytes = dir_path.as_bytes();
+
+    // SAFETY: dir_buf is NUL-terminated, opendir is safe for valid paths.
+    let dp = unsafe { libc::opendir(dir_buf.as_ptr() as *const libc::c_char) };
+    if dp.is_null() {
+        return None;
+    }
+
+    let mut listing = Completions::new();
 
     // Stack buffer for "dir/name\0" used by stat/lstat
     let mut path_buf = [0u8; 4096];
@@ -497,26 +623,9 @@ fn complete_in_dir(dir: &str, prefix: &str, dirs_only: bool, comp: &mut Completi
         if name_bytes.iter().any(|&b| b < b' ' || b == 0x7f) {
             continue;
         }
-
-        let prefix_bytes = prefix.as_bytes();
-        if name_bytes.first() == Some(&b'.') && !prefix_bytes.starts_with(b".") {
+        let Ok(name) = std::str::from_utf8(name_bytes) else {
             continue;
-        }
-        let is_prefix = name_bytes.starts_with(prefix_bytes);
-        if !is_prefix && (prefix_bytes.is_empty() || !contains_icase(name_bytes, prefix_bytes)) {
-            continue;
-        }
-
-        // Most filesystems provide d_type. Use it to avoid metadata work for
-        // entries that cannot satisfy a directory-only completion.
-        let d_type = unsafe { (*ent).d_type as u8 };
-        if dirs_only
-            && d_type != libc::DT_DIR
-            && d_type != libc::DT_LNK
-            && d_type != libc::DT_UNKNOWN
-        {
-            continue;
-        }
+        };
 
         // Build full path for stat: "dir/name\0"
         let total = dir_prefix_len + name_bytes.len();
@@ -533,6 +642,8 @@ fn complete_in_dir(dir: &str, prefix: &str, dirs_only: bool, comp: &mut Completi
             continue;
         }
         let is_dir = st.st_mode & libc::S_IFMT == libc::S_IFDIR;
+        // SAFETY: ent is a valid dirent until the next readdir.
+        let d_type = unsafe { (*ent).d_type as u8 };
         let is_link = if d_type == libc::DT_LNK {
             true
         } else if d_type == libc::DT_UNKNOWN {
@@ -542,32 +653,15 @@ fn complete_in_dir(dir: &str, prefix: &str, dirs_only: bool, comp: &mut Completi
         } else {
             false
         };
-
         let is_exec = !is_dir && st.st_mode & 0o111 != 0;
 
-        let name = match std::str::from_utf8(name_bytes) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-
-        if add_candidate(
-            comp,
-            name,
-            is_dir,
-            is_link,
-            is_exec,
-            st.st_mtime,
-            prefix,
-            dirs_only,
-        ) {
-            prefix_count += 1;
-        }
+        listing.push_with_mtime(name, is_dir, is_link, is_exec, st.st_mtime as i64);
     }
 
     // SAFETY: dp is a valid DIR* from opendir.
     unsafe { libc::closedir(dp) };
 
-    finish_candidates(comp, before, prefix, prefix_count);
+    Some(listing)
 }
 
 /// Fish-style partial path completion: each intermediate directory component
@@ -1169,6 +1263,50 @@ mod tests {
     fn partial_path_nonexistent_returns_empty() {
         let (_comp, groups) = complete_partial_path("./zzzzz/m", false);
         assert!(groups.is_empty());
+    }
+
+    fn set_dir_mtime(dir: &std::path::Path, epoch_secs: u64) {
+        let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs(epoch_secs);
+        std::fs::File::open(dir).unwrap().set_modified(when).unwrap();
+    }
+
+    fn names_in(dir: &std::path::Path) -> Vec<String> {
+        let mut comp = Completions::new();
+        complete_in_dir(dir.to_str().unwrap(), "", false, &mut comp);
+        (0..comp.len()).map(|i| comp.name(i).to_string()).collect()
+    }
+
+    #[test]
+    fn directory_listing_is_reused_until_its_mtime_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("one"), "").unwrap();
+        set_dir_mtime(dir.path(), 1_000_000);
+        assert_eq!(names_in(dir.path()), ["one"]);
+
+        // The mtime is restored, so the cached listing is still trusted.
+        std::fs::write(dir.path().join("two"), "").unwrap();
+        set_dir_mtime(dir.path(), 1_000_000);
+        assert_eq!(names_in(dir.path()), ["one"]);
+
+        set_dir_mtime(dir.path(), 1_000_001);
+        let mut names = names_in(dir.path());
+        names.sort();
+        assert_eq!(names, ["one", "two"]);
+    }
+
+    #[test]
+    fn directory_modified_this_second_is_never_reused() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("one"), "").unwrap();
+        assert_eq!(names_in(dir.path()), ["one"]);
+        let stamp = std::fs::metadata(dir.path()).unwrap().modified().unwrap();
+
+        std::fs::write(dir.path().join("two"), "").unwrap();
+        std::fs::File::open(dir.path())
+            .unwrap()
+            .set_modified(stamp)
+            .unwrap();
+        assert_eq!(names_in(dir.path()).len(), 2);
     }
 
     #[test]

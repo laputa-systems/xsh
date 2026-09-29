@@ -85,12 +85,24 @@ revision, medians):
 | `xshi_completion_navigation_1000_entries` | 19 µs | 0.6 ms |
 | `xshi_cd_list_complete_1000_entries` | 2.7 ms | 10.7 ms |
 
-The last two regressed by design. The previous frontend cached the directory
-listing between commands; the current one, like `ish`, reads the directory and
-stats each candidate on every completion and every `l` so results are always
-fresh and sorted by current modification time. A profile shows the time in
-`getdirentries` and `stat`, one `stat` per candidate. A 1,000-entry directory
-costs about half a millisecond per Tab. The history workloads have no earlier
+The last two regressed when the frontend stopped caching directory listings:
+like `ish`, it read the directory and statted each candidate on every
+completion and every `l`. A profile showed the time in `getdirentries` and
+`stat`, one `stat` per candidate, about half a millisecond per Tab in a
+1,000-entry directory. Completion now keeps a listing of up to four directories
+(`complete.rs::DirCache`), keyed by device, inode, and directory mtime, and
+each Tab costs one `stat` of the directory plus filtering. The
+`xshi_completion_navigation_1000_entries` median returned to 20 µs (20 samples
+of 10 iterations, two serial runs); the first sample, which reads the
+directory, is 245 µs. The cache trusts a listing only when the directory's
+mtime was in an earlier second than the read, so a directory being modified
+right now is always re-read. Entry mtimes, types, and modes are those of the
+read, so editing an existing file or `chmod` does not refresh the order or
+coloring until the directory itself changes. `l` still reads fresh, so
+`xshi_cd_list_complete_1000_entries` is unchanged at about 10 ms. The fixture
+directory's mtime is aged by a minute during setup, as a settled working
+directory is; a fixture created within the current second would measure the
+uncached path. The history workloads have no earlier
 counterpart; their first measurements were a 9 ms start from the cache, 15 ms
 from an uncompacted log, an idle sync bounded by three `stat` calls, 0.2 ms to
 record a command (open, lock, one write), and a 15 ms compaction at exit.

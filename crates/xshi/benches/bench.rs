@@ -77,6 +77,12 @@ fn make_directory_fixture(entries: usize) -> tempfile::TempDir {
         let path = dir.path().join(format!("dir-{index:04}"));
         fs::create_dir(&path).expect("create directory entry");
     }
+    // Completion reuses a directory listing only once the directory's mtime is
+    // in a past second, so age the fixture as a settled working directory is.
+    let settled = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+    fs::File::open(dir.path())
+        .and_then(|handle| handle.set_modified(settled))
+        .expect("age directory fixture");
     dir
 }
 
