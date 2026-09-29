@@ -9,6 +9,31 @@ use tempfile::TempDir;
 static SIGNAL_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
+fn lint_fix_converges_when_tail_edits_contain_named_argument_edits() {
+    let root = TempDir::new().expect("temporary lint fixture");
+    let fixture = root.path().join("fixture.xsh");
+    fs::write(&fixture, include_str!("../../../tests/fixtures/syntax/valid/ergonomics-fix-convergence.xsh"))
+        .expect("write lint fixture");
+    let run = |arguments: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(arguments)
+        .current_dir(root.path())
+        .output()
+        .expect("run isolated xsht fixture");
+    let before = run(&["trace", "fixture.xsh"]);
+    assert!(before.status.success(), "{}", String::from_utf8_lossy(&before.stderr));
+    let first = run(&["lint", "--fix", "fixture.xsh"]);
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    let fixed = fs::read_to_string(&fixture).expect("read first fix");
+    let second = run(&["lint", "--fix", "fixture.xsh"]);
+    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    assert_eq!(fixed, fs::read_to_string(&fixture).expect("read second fix"));
+    assert!(fixed.contains("words.join(separator:)"), "{fixed}");
+    let after = run(&["trace", "fixture.xsh"]);
+    assert!(after.status.success(), "{}", String::from_utf8_lossy(&after.stderr));
+    assert_eq!(before.stdout, after.stdout);
+}
+
+#[test]
 fn xsht_reports_non_utf8_argument_without_panicking() {
     let raw_path = std::ffi::OsString::from_vec(b"raw\xffpath.xsh".to_vec());
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
