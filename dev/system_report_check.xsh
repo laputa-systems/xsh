@@ -332,6 +332,19 @@ export type HwmonComparison = {
   missing_names: List[Str], unexpected_names: List[Str], field_mismatches: List[Str],
   unstable_fields: List[Str], eligible: Bool, exact: Bool,
 }
+type HwmonBundleChip = {name: Str, class_target: Str?, storage_path: Str, device_target: Str?}
+type HwmonBundleLayout = {
+  listing_state: Str, chips: List[HwmonBundleChip], source_paths: List[Str], complete: Bool,
+}
+type HwmonSourceObservation = {
+  path: Str, state: Str, truncated: Bool, errno: Int?, error_kind: Str?,
+  byte_count: Int, sha256_hex: Str?,
+}
+type HwmonBundleCapture = {
+  schema_version: Int, origin: Str, captured_unix_ms: Int, reference_adapter: Str,
+  layout: HwmonBundleLayout, stable_static: Bool, changing_gauges: List[Str], scoreable: Bool,
+  sources: List[HwmonSourceObservation], reference: List[HwmonReference]?,
+}
 ## Retains a DMI class attribute and distinguishes absence from a failed read.
 export type DmiTextReference = {value: Str?, complete: Bool}
 ## Holds raw DMI identity attributes without substituting database labels.
@@ -1323,6 +1336,8 @@ type CheckOptions = {
   replay_kernel_parameters_bundle: Str,
   capture_thermal_bundle: Str,
   replay_thermal_bundle: Str,
+  capture_hwmon_bundle: Str,
+  replay_hwmon_bundle: Str,
   capture_powercap_bundle: Str,
   replay_powercap_bundle: Str,
   capture_pci_bundle: Str,
@@ -3764,6 +3779,214 @@ export proc read_hwmon_reference(root: FsRoot) [fs, error] -> Result[List[HwmonR
     }
   }
   return channels
+}
+
+pure hwmon_bundle_storage_path(name: Str, target: Str) -> Result[Str] {
+  let parts = target.split("/")
+  if parts.len() < 4 or parts[0] != ".." or parts[1] != ".." or
+      parts[2] != "devices" or parts[parts.len() - 1] != name {
+    return Err(check_failure("hwmon class entry has an invalid devices target"))
+  }
+  var components = ["sys"]
+  for index in range(2, parts.len()) {
+    let part = parts[index]
+    if part in ["", ".", ".."] {return Err(check_failure("hwmon class target escapes the devices tree"))}
+    components = components.push(part)
+  }
+  return components.join("/")
+}
+
+pure hwmon_bundle_gauge(relative: Str) -> Bool {
+  return relative.ends_with("_input") or relative.ends_with("_alarm")
+}
+
+pure hwmon_bundle_device_target_safe(storage: Str, target: Str) -> Bool {
+  if target == "" or target.starts_with("/") {return false}
+  var components = storage.split("/") |> take(storage.split("/").len() - 1) |> collect()
+  for part in target.split("/") {
+    if part == ".." {
+      if components.len() <= 2 {return false}
+      components = components |> take(components.len() - 1) |> collect()
+    } else if part in ["", "."] {
+      return false
+    } else {
+      components = components.push(part)
+    }
+  }
+  return components.len() >= 3 and components[0] == "sys" and components[1] == "devices"
+}
+
+# Enumerates only class links, chip names, and known channel attributes.
+proc hwmon_bundle_layout(root: FsRoot) [fs, error] -> Result[HwmonBundleLayout] {
+  let listing = fs.root_children(root, p"sys/class/hwmon", max_entries: 1024)?
+  var chips: List[HwmonBundleChip] = []
+  var source_paths: List[Str] = []
+  var complete = listing.state == "complete" or listing.state == "absent"
+  if listing.state != "complete" {
+    return {listing_state: listing.state, chips: chips, source_paths: source_paths, complete: complete}
+  }
+  for entry in listing.children {
+    let name = entry.name()
+    if !name.starts_with("hwmon") {continue}
+    let suffix = (name.split("") |> drop(5)).join("")
+    let index = reference_thermal_index(suffix)?
+    if name != f"hwmon${index}" {return Err(check_failure("hwmon class identity is noncanonical"))}
+    let class_link = fs.root_readlink_result(root, entry)?
+    var class_target: Str? = null
+    var storage = entry.display()
+    if class_link.state == "observed" {
+      class_target = class_link.target.require(Path)?.display()
+      storage = hwmon_bundle_storage_path(name, class_target ?? "")?
+    } else if fs.root_metadata(root, entry)?.kind != "dir" {
+      complete = false
+    }
+    let device_link = fs.root_readlink_result(root, fp"${entry}/device")?
+    var device_target: Str? = null
+    if device_link.state == "observed" {
+      device_target = device_link.target.require(Path)?.display()
+      if !hwmon_bundle_device_target_safe(storage, device_target ?? "") {
+        return Err(check_failure("hwmon device link escapes the devices tree"))
+      }
+    } else if device_link.state != "absent" {complete = false}
+    let attributes = fs.root_children(root, entry, max_entries: 1024)?
+    if attributes.state != "complete" {complete = false}
+    chips = chips.push({name: name, class_target: class_target, storage_path: storage,
+      device_target: device_target})
+    source_paths = source_paths.push(f"${storage}/name")
+    for attribute in attributes.children {
+      let attribute_name = attribute.name()
+      if !attribute_name.ends_with("_input") {continue}
+      let channel = (attribute_name.split("") |> take(attribute_name.count_chars() - 6)).join("")
+      for suffix in ["input", "label", "min", "max", "crit", "alarm"] {
+        source_paths = source_paths.push(f"${storage}/${channel}_${suffix}")
+      }
+    }
+    if source_paths.len() > 8192 {return Err(check_failure("hwmon capture exceeds its source path bound"))}
+  }
+  return {listing_state: listing.state, chips: chips |> sort-by .name,
+    source_paths: source_paths |> sort-by ., complete: complete}
+}
+
+## Saves bounded hwmon source bytes with class links and an independent channel reference.
+export proc capture_hwmon_bundle(source: FsRoot, bundle: FsRoot, origin: Str) [fs, time, error] -> Result[Unit] {
+  if origin not in ["synthetic_fixture", "live_capture"] {return Err(check_failure("hwmon capture origin is invalid"))}
+  if fs.root_exists(bundle, p"capture.json")? or fs.root_exists(bundle, p"sys/class/hwmon")? {
+    return Err(check_failure("hwmon capture destination is not empty"))
+  }
+  let layout = hwmon_bundle_layout(source)?
+  if layout.listing_state == "complete" {
+    fs.root_mkdir(bundle, p"sys/class/hwmon", mode: 0o700, parents: true)?
+    for chip in layout.chips {
+      if !fs.root_exists(bundle, fp"${chip.storage_path}")? {
+        fs.root_mkdir(bundle, fp"${chip.storage_path}", mode: 0o700, parents: true)?
+      }
+      if chip.device_target != null {
+        fs.root_symlink(bundle, fp"${chip.device_target ?? ""}", fp"${chip.storage_path}/device")?
+      }
+      if chip.class_target != null {
+        fs.root_symlink(bundle, fp"${chip.class_target ?? ""}", fp"sys/class/hwmon/${chip.name}")?
+      }
+    }
+  }
+  var sources: List[HwmonSourceObservation] = []
+  var saved_bytes: List[Bytes?] = []
+  var complete = layout.complete
+  for relative in layout.source_paths {
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    var sha256_hex: Str? = null
+    var byte_count = 0
+    if raw.data != null {
+      let data = raw.data ?? b""
+      fs.root_write(bundle, fp"${relative}", data)?
+      sha256_hex = hash.sha256(data).hex()
+      byte_count = data.len()
+    }
+    if raw.truncated or raw.state not in ["observed", "absent"] or
+        (relative.ends_with("_input") and raw.state != "observed") {complete = false}
+    saved_bytes = saved_bytes.push(raw.data)
+    sources = sources.push({path: relative, state: raw.state, truncated: raw.truncated,
+      errno: raw.errno, error_kind: raw.error_kind, byte_count: byte_count, sha256_hex: sha256_hex})
+  }
+  let later_layout = hwmon_bundle_layout(source)?
+  var stable_static = layout == later_layout
+  var changing_gauges: List[Str] = []
+  for index in range(layout.source_paths.len()) {
+    let relative = layout.source_paths[index]
+    let raw = fs.root_read_result(source, fp"${relative}", max_bytes: 4096)?
+    let first = sources[index]
+    if raw.state != first.state or raw.truncated != first.truncated or raw.errno != first.errno or
+        raw.error_kind != first.error_kind or raw.data != saved_bytes[index] {
+      if hwmon_bundle_gauge(relative) {changing_gauges = changing_gauges.push(relative)} else {stable_static = false}
+    }
+  }
+  var reference: List[HwmonReference]? = null
+  if complete {match read_hwmon_reference(bundle) {Ok(rows) => reference = rows; Err(_) => {}}}
+  let scoreable = complete and stable_static and reference != null and (reference ?? []).len() > 0
+  let capture: HwmonBundleCapture = {schema_version: 1, origin: origin, captured_unix_ms: time.now(),
+    reference_adapter: "hwmon-sysfs-raw-v1", layout: layout, stable_static: stable_static,
+    changing_gauges: changing_gauges, scoreable: scoreable, sources: sources, reference: reference}
+  let wire: Any = capture
+  let encoded = json.encode(wire, pretty: true)?
+  if encoded.count_bytes() > 16777216 {return Err(check_failure("hwmon capture metadata exceeds its replay bound"))}
+  fs.root_write_atomic(bundle, p"capture.json", encoded)?
+  return Ok()
+}
+
+## Rejects changed class links, source bytes, absences, and independently decoded channels.
+export proc validate_hwmon_bundle(bundle: FsRoot) [fs, error] -> Result[HwmonBundleCapture] {
+  let capture = json.decode(capture_metadata_bytes(bundle, max_bytes: 16777216)?.utf8()?)?.require(HwmonBundleCapture)?
+  if capture.schema_version != 1 or capture.reference_adapter != "hwmon-sysfs-raw-v1" or
+      capture.origin not in ["synthetic_fixture", "live_capture"] or !capture.stable_static or
+      !capture.scoreable or capture.reference == null {
+    return Err(check_failure("hwmon capture has no stable scoreable reference"))
+  }
+  let layout = hwmon_bundle_layout(bundle)?
+  if layout != capture.layout or capture.sources.len() != layout.source_paths.len() {
+    return Err(check_failure("hwmon capture topology differs from metadata"))
+  }
+  var changing_seen = set.empty()
+  for gauge in capture.changing_gauges {
+    if !hwmon_bundle_gauge(gauge) or gauge not in layout.source_paths or set.has(changing_seen, gauge) {
+      return Err(check_failure("hwmon changing gauge metadata is invalid"))
+    }
+    changing_seen = set.add(changing_seen, gauge)
+  }
+  for index in range(layout.source_paths.len()) {
+    let relative = layout.source_paths[index]
+    let expected = capture.sources[index]
+    if expected.path != relative or expected.truncated {return Err(check_failure("hwmon source identity differs"))}
+    if expected.state == "absent" {
+      if expected.byte_count != 0 or expected.sha256_hex != null or fs.root_exists(bundle, fp"${relative}")? {
+        return Err(check_failure(f"hwmon absent source ${relative} differs"))
+      }
+      continue
+    }
+    if expected.state != "observed" or expected.sha256_hex == null or expected.errno != null or expected.error_kind != null {
+      return Err(check_failure(f"hwmon capture cannot score ${relative}"))
+    }
+    let raw = fs.root_read_result(bundle, fp"${relative}", max_bytes: 4096)?
+    if raw.state != "observed" or raw.truncated or raw.data == null or
+        (raw.data ?? b"").len() != expected.byte_count or
+        hash.sha256(raw.data ?? b"").hex() != (expected.sha256_hex ?? "") {
+      return Err(check_failure(f"hwmon capture ${relative} bytes differ"))
+    }
+  }
+  if read_hwmon_reference(bundle)? != (capture.reference ?? []) {
+    return Err(check_failure("hwmon reference differs from raw sources"))
+  }
+  return capture
+}
+
+## Runs the production sensor collector over a validated hwmon source tree.
+export proc replay_hwmon_bundle(bundle: FsRoot) [fs, time, error] -> Result[HwmonComparison] {
+  let metadata = capture_metadata_bytes(bundle, max_bytes: 16777216)?
+  let capture = validate_hwmon_bundle(bundle)?
+  let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
+  let candidate = collector.collect_from_root(bundle, "captured-architecture", 4096, 100, "sensors", true)?
+  if validate_hwmon_bundle(bundle)? != capture {return Err(check_failure("hwmon capture changed during replay"))}
+  require_capture_metadata_unchanged(bundle, metadata, max_bytes: 16777216)?
+  let report_json = encode_replayed_report(candidate, true)?
+  return compare_hwmon(report_json, capture.reference ?? [], capture.reference ?? [])?
 }
 
 pure hwmon_has_issue(issues: List[CandidateIssueField], field: Str) -> Bool {
@@ -16796,6 +17019,14 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
       form: "--replay-thermal-bundle DIR",
       default: "",
     },
+    capture_hwmon_bundle: {
+      form: "--capture-hwmon-bundle DIR",
+      default: "",
+    },
+    replay_hwmon_bundle: {
+      form: "--replay-hwmon-bundle DIR",
+      default: "",
+    },
     capture_powercap_bundle: {
       form: "--capture-powercap-bundle DIR",
       default: "",
@@ -16945,6 +17176,8 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     replay_kernel_parameters_bundle: parsed.replay_kernel_parameters_bundle,
     capture_thermal_bundle: parsed.capture_thermal_bundle,
     replay_thermal_bundle: parsed.replay_thermal_bundle,
+    capture_hwmon_bundle: parsed.capture_hwmon_bundle,
+    replay_hwmon_bundle: parsed.replay_hwmon_bundle,
     capture_powercap_bundle: parsed.capture_powercap_bundle,
     replay_powercap_bundle: parsed.replay_powercap_bundle,
     capture_pci_bundle: parsed.capture_pci_bundle,
@@ -16989,6 +17222,7 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     options.capture_mountinfo_bundle, options.replay_mountinfo_bundle,
     options.capture_kernel_parameters_bundle, options.replay_kernel_parameters_bundle,
     options.capture_thermal_bundle, options.replay_thermal_bundle,
+    options.capture_hwmon_bundle, options.replay_hwmon_bundle,
     options.capture_powercap_bundle, options.replay_powercap_bundle,
     options.capture_pci_bundle, options.replay_pci_bundle,
     options.capture_usb_bundle, options.replay_usb_bundle,
@@ -17543,6 +17777,35 @@ export proc validate_and_run(ctx: context.Context, args: List[Str]) [fs, process
     print f"thermal raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}; partial=${result.unstable_fields.len()}"
     if !result.exact {
       return Err(check_failure("thermal raw replay differs from its independent reference"))
+    }
+    return Ok()
+  }
+  if options.capture_hwmon_bundle != "" {
+    let destination = path.absolute(fp"${options.capture_hwmon_bundle}")?
+    let parent = fs.open_root(destination.parent())?
+    defer fs.close_root(parent)?
+    let leaf = fp"${destination.name()}"
+    if fs.root_exists(parent, leaf)? {return Err(check_failure("hwmon capture destination already exists"))}
+    fs.root_mkdir(parent, leaf, mode: 0o700)?
+    let bundle = fs.open_root(destination)?
+    defer fs.close_root(bundle)?
+    let source = fs.open_root(p"/")?
+    defer fs.close_root(source)?
+    capture_hwmon_bundle(source, bundle, "live_capture")?
+    let capture = json.decode(fs.root_read_text(bundle, p"capture.json")?)?.require(HwmonBundleCapture)?
+    print f"hwmon raw capture saved at ${destination}; origin=${capture.origin}; stable_static=${capture.stable_static}; scoreable=${capture.scoreable}; chips=${capture.layout.chips.len()}; changing_gauges=${capture.changing_gauges.len()}"
+    print f"Replay with --replay-hwmon-bundle ${destination}"
+    return Ok()
+  }
+  if options.replay_hwmon_bundle != "" {
+    let bundle = fs.open_root(fp"${options.replay_hwmon_bundle}")?
+    defer fs.close_root(bundle)?
+    let result = replay_hwmon_bundle(bundle)?
+    let mismatch = result.field_mismatches.len() > 0 or result.missing_names.len() > 0 or result.unexpected_names.len() > 0
+    let state = if result.exact {"exact"} else if mismatch {"mismatch"} else if result.eligible {"partial"} else {"unavailable"}
+    print f"hwmon raw replay: ${state}; reference=${result.reference_count}; candidate=${result.candidate_count}; mismatched=${result.field_mismatches.len()}; partial=${result.unstable_fields.len()}"
+    if mismatch {
+      return Err(check_failure("hwmon raw replay differs from its independent reference"))
     }
     return Ok()
   }

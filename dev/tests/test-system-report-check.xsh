@@ -603,6 +603,60 @@ proc test_system_report_pci_capture_replays_raw_identity_links_and_rejects_tampe
   test.error_kind(report_checks.validate_pci_bundle(bundle), "SystemReportCheckError.Invalid")?
 }
 
+proc test_system_report_hwmon_capture_replays_raw_channels_and_rejects_tampering() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  let chip = p"sys/devices/platform/example/hwmon/hwmon3"
+  fs.root_mkdir(source, chip, parents: true)?
+  fs.root_mkdir(source, p"sys/class/hwmon", parents: true)?
+  fs.root_symlink(source, p"../../devices/platform/example/hwmon/hwmon3", p"sys/class/hwmon/hwmon3")?
+  fs.root_write(source, fp"${chip}/name", "example\n")?
+  fs.root_write(source, fp"${chip}/temp1_input", "42000\n")?
+  fs.root_write(source, fp"${chip}/temp1_label", "package\n")?
+  fs.root_write(source, fp"${chip}/temp1_min", "10000\n")?
+  fs.root_write(source, fp"${chip}/temp1_max", "75000\n")?
+  fs.root_write(source, fp"${chip}/temp1_crit", "95000\n")?
+  fs.root_write(source, fp"${chip}/temp1_alarm", "0\n")?
+  report_checks.capture_hwmon_bundle(source, bundle, "synthetic_fixture")?
+  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  test.contains(metadata, "\"reference_adapter\": \"hwmon-sysfs-raw-v1\"")?
+  test.contains(metadata, "\"scoreable\": true")?
+  let replay = report_checks.replay_hwmon_bundle(bundle)?
+  test.ok(replay.exact)?
+  test.eq(replay.matched_count, 1)?
+  fs.root_write(bundle, fp"${chip}/temp1_input", "43000\n")?
+  test.error_kind(report_checks.validate_hwmon_bundle(bundle), "SystemReportCheckError.Invalid")?
+}
+
+proc test_system_report_hwmon_capture_rejects_escaping_class_link() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  fs.root_mkdir(source, p"sys/class/hwmon", parents: true)?
+  fs.root_symlink(source, p"../../devices/../rogue/hwmon3", p"sys/class/hwmon/hwmon3")?
+  test.error_kind(report_checks.capture_hwmon_bundle(source, bundle, "synthetic_fixture"), "SystemReportCheckError.Invalid")?
+  fs.root_remove(source, p"sys/class/hwmon/hwmon3")?
+  fs.root_mkdir(source, p"sys/class/hwmon/hwmon3")?
+  fs.root_symlink(source, p"../../../etc", p"sys/class/hwmon/hwmon3/device")?
+  test.error_kind(report_checks.capture_hwmon_bundle(source, bundle, "synthetic_fixture"), "SystemReportCheckError.Invalid")?
+}
+
+proc test_system_report_hwmon_capture_keeps_absent_class_unscoreable() [fs, time, error] {
+  let source = fs.tempdir()?
+  defer fs.close_root(source)?
+  let bundle = fs.tempdir()?
+  defer fs.close_root(bundle)?
+  report_checks.capture_hwmon_bundle(source, bundle, "synthetic_fixture")?
+  let metadata = fs.root_read_text(bundle, p"capture.json")?
+  test.contains(metadata, "\"listing_state\": \"absent\"")?
+  test.contains(metadata, "\"scoreable\": false")?
+  test.ok(!fs.root_exists(bundle, p"sys/class/hwmon")?)?
+  test.error_kind(report_checks.validate_hwmon_bundle(bundle), "SystemReportCheckError.Invalid")?
+}
+
 proc test_system_report_pci_capture_rejects_bus_link_outside_devices_tree() [fs, time, error] {
   let source = fs.tempdir()?
   defer fs.close_root(source)?
@@ -1360,6 +1414,10 @@ proc test_system_report_capture_rejects_simultaneous_live_comparison(ctx: TestCo
   test.ok(!bundle.exists()?)?
   let thermal_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-thermal-bundle $bundle --compare-thermal 2> $stderr
   test.ok(!thermal_status.exited_with(0))?
+  test.contains(stderr.read_text()?, "bundle operations cannot be combined")?
+  test.ok(!bundle.exists()?)?
+  let hwmon_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-hwmon-bundle $bundle --compare-hwmon 2> $stderr
+  test.ok(!hwmon_status.exited_with(0))?
   test.contains(stderr.read_text()?, "bundle operations cannot be combined")?
   test.ok(!bundle.exists()?)?
   let identity_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --capture-os-release-bundle $bundle --compare-identity 2> $stderr
