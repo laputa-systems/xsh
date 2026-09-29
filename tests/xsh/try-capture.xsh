@@ -292,7 +292,7 @@ match escape() {
   test.eq(output.stdout, "4096\nouter\n")?
 }
 
-proc test_try_explicit_return_uses_result_annotation(ctx: TestContext) [error] {
+test test_try_explicit_return_uses_result_annotation [error] { |ctx|
   let output = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
 proc assertion() [] -> Result[Unit] { return try { false } }
