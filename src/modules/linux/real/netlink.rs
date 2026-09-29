@@ -1166,6 +1166,7 @@ fn read_u64(bytes: &[u8], offset: usize) -> Option<u64> {
 mod tests {
     use super::*;
     use sha2::{Digest, Sha256};
+    use std::fmt::Write as _;
     use std::io::{Read, Write};
     use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 
@@ -1184,6 +1185,110 @@ mod tests {
         sequence: u32,
         local_port: u32,
         datagrams: Vec<Vec<u8>>,
+    }
+
+    fn append_xsh_bytes(bytes: &[u8], source: &mut String) {
+        source.push_str("bytes.from_ints([");
+        for (index, byte) in bytes.iter().enumerate() {
+            if index != 0 {
+                source.push(',');
+            }
+            write!(source, "{byte}").expect("write byte literal");
+        }
+        source.push_str("])?");
+    }
+
+    fn append_xsh_value(value: &Value, source: &mut String) {
+        match value {
+            Value::Null => source.push_str("null"),
+            Value::Bool(value) => source.push_str(if *value { "true" } else { "false" }),
+            Value::Int(value) => write!(source, "{value}").expect("write integer literal"),
+            Value::Str(value) => {
+                append_xsh_bytes(value.as_bytes(), source);
+                source.push_str(".utf8()?");
+            }
+            Value::Bytes(value) => append_xsh_bytes(value, source),
+            Value::List(values) => {
+                source.push('[');
+                for (index, value) in values.iter().enumerate() {
+                    if index != 0 {
+                        source.push(',');
+                    }
+                    append_xsh_value(value, source);
+                }
+                source.push(']');
+            }
+            Value::Record(fields) => {
+                source.push('{');
+                for (index, (key, value)) in fields.iter().enumerate() {
+                    assert!(
+                        key.starts_with(|character: char| character.is_ascii_alphabetic())
+                            && key.chars().all(|character| character.is_ascii_alphanumeric() || character == '_'),
+                        "netlink record key is not an XSH identifier"
+                    );
+                    if index != 0 {
+                        source.push(',');
+                    }
+                    source.push_str(key);
+                    source.push(':');
+                    append_xsh_value(value, source);
+                }
+                source.push('}');
+            }
+            other => panic!("netlink snapshot contains unsupported XSH value: {}", other.type_name()),
+        }
+    }
+
+    fn verify_xsh_network_assembly(snapshot: Snapshot) {
+        let Some(binary) = std::env::var_os("XSH_NETLINK_XSH_BIN") else {
+            return;
+        };
+        let expected_links = snapshot.links.len();
+        let expected_routes = snapshot.routes.len();
+        let expected_rules = snapshot.rules.len();
+        let mut expected_output = format!("true {expected_links} {expected_routes} {expected_rules}\n");
+        for link in &snapshot.links {
+            let address_count = snapshot.addresses.iter().filter(|address| Some(address.ifindex) == u32::try_from(link.ifindex).ok()).count();
+            writeln!(expected_output, "{} {address_count}", link.ifindex).expect("write expected link identity");
+        }
+        let mut source = String::from(
+            "use core.lib.system_report as report_model\n\
+type NetworkCollection = {status: report_model.SectionStatus, links: List[report_model.NetworkLink], routes: List[report_model.NetworkRoute], rules: List[report_model.NetworkRule], issues: List[report_model.CollectionIssue]}\n\
+type NetworkAssembler = module { export pure assemble_network_dump(value: LinuxNetworkDump) -> NetworkCollection }\n\
+proc main() [fs, error, io] {\n\
+  let collector = module.load(p\"core/lib/system_report_live.xsh\")?.require(NetworkAssembler)?\n\
+  let dump: LinuxNetworkDump = ",
+        );
+        append_xsh_value(&snapshot_value(snapshot), &mut source);
+        source.push_str(
+            "\n  let result = collector.assemble_network_dump(dump)\n\
+  print f\"${result.status.enumeration_succeeded} ${result.links.len()} ${result.routes.len()} ${result.rules.len()}\"\n\
+  for link in result.links {\n\
+    print f\"${link.ifindex} ${link.addresses.len()}\"\n\
+  }\n\
+}\nmain()?\n",
+        );
+        let directory = tempfile::tempdir().expect("private XSH replay directory");
+        let script = directory.path().join("network-assembly.xsh");
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&script)
+            .expect("create private XSH replay script");
+        file.write_all(source.as_bytes()).expect("write XSH replay script");
+        let output = std::process::Command::new(binary)
+            .arg(&script)
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .env("XSH_MODULE_PATH", env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .expect("run XSH network assembly");
+        assert!(output.status.success(), "XSH network assembly failed: {}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(
+            String::from_utf8(output.stdout).expect("UTF-8 XSH assembly output"),
+            expected_output,
+            "XSH network assembly changed saved link identities or entity counts"
+        );
     }
 
     fn dump_kinds() -> [DumpKind; 4] {
@@ -1401,6 +1506,7 @@ mod tests {
             println!("raw netlink replay: origin={}, captured={} ms, state={}, links={}, addresses={}, routes={}, rules={}",
                 replay.origin, replay.captured_unix_ms, replay.snapshot.state(), replay.snapshot.links.len(),
                 replay.snapshot.addresses.len(), replay.snapshot.routes.len(), replay.snapshot.rules.len());
+            verify_xsh_network_assembly(replay.snapshot);
             return;
         }
 
@@ -1465,6 +1571,7 @@ mod tests {
         println!("raw netlink capture: origin={}, captured={} ms, state={}, links={}, addresses={}, routes={}, rules={}",
             decoded.origin, decoded.captured_unix_ms, live.state(), live.links.len(), live.addresses.len(),
             live.routes.len(), live.rules.len());
+        verify_xsh_network_assembly(decoded.snapshot);
     }
 
     #[test]
