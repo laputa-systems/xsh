@@ -394,3 +394,32 @@ proc test_list_literal_splicing_handles_results_explicitly_and_composes_with_arg
   let _ = process.command_argv("true", ["true", @argv])
   test.eq(argv, ["cc", "-O2", "-g", "-o", "app"])?
 }
+
+proc test_multi_clause_comprehension_cleanup_precedes_block_and_function_defers(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, r"""
+error FixtureError = Failure(message: Str)
+stream numbers(label: Str) [io] -> Stream[Int] {
+  defer { print f"close ${label}" }
+  yield @[1, 2]
+}
+proc project() [error] -> Result[Int, FixtureError] {
+  return Err(FixtureError.Failure(message: "failure"))
+}
+proc collect() [io, error] -> Result[List[Int], FixtureError] {
+  defer { print "function" }
+  if true {
+    defer { print "block" }
+    return [project()? for outer in numbers("outer") for inner in numbers("inner")]
+  }
+  return []
+}
+proc main() [io, error] {
+  match collect() {
+    Ok(_) => print "unexpected"
+    Err(FixtureError.Failure {message}) => print $message
+  }
+}
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "close inner\nclose outer\nblock\nfunction\nfailure\n")?
+}

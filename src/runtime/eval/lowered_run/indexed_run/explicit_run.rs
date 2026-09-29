@@ -3445,6 +3445,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let mut first_error = None;
         for work in discarded.into_iter().rev() {
             let result = match work {
+                FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams),
                 FrameWork::Statements { scope_id: Some(scope_id), .. } => self.exit_block_scope(index, scope_id),
                 FrameWork::ForStream { mut stream, span, .. } => self.evaluator.stream_cancel(&mut stream, span),
                 FrameWork::ForPipeline { mut pipeline, .. } => pipeline.finish(self.evaluator, self.pending_error.as_ref()),
