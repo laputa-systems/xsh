@@ -83,6 +83,7 @@ impl Checker {
     }
 
     pub(super) fn check_env_get(&mut self, kind: EnvGetKind, span: Span) -> Type {
+        self.require_effect(Effect::Env, span, "environment lookup");
         if self.in_pure {
             self.error(
                 span,
@@ -101,6 +102,7 @@ impl Checker {
     }
 
     pub(super) fn check_process_effect(&mut self, span: Span, form: &str) {
+        self.record_required_effect(Effect::Process);
         if self.in_pure {
             self.error(
                 span,
@@ -269,7 +271,7 @@ impl Checker {
                 self.check_slice_arena(arena, source, *base, *start, *end, *guarded, expr.span)
             }
             ArenaExprKind::EnvGet { kind, .. } => self.check_env_get(*kind, expr.span),
-            ArenaExprKind::EnvPathList => Type::EnvPathList,
+            ArenaExprKind::EnvPathList => { self.require_effect(Effect::Env, expr.span, "environment path lookup"); Type::EnvPathList },
             ArenaExprKind::Pipeline { .. } => {
                 self.error(
                     expr.span,
@@ -810,6 +812,7 @@ impl Checker {
             self.expect_type(&Type::Duration, &ty, delay_span);
         }
         if !delay_ids.is_empty() {
+            self.record_required_effect(Effect::Time);
             if self.in_pure {
                 self.error(
                     span,
@@ -868,6 +871,7 @@ impl Checker {
         run_id: RunFormId,
     ) -> Type {
         let run_span = arena.arena.span(arena.arena.run_form(run_id).span);
+        self.record_required_effect(Effect::Process);
         if self.in_pure {
             self.error(
                 run_span,

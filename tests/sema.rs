@@ -222,7 +222,7 @@ fn checker_rejects_stage_5_acceptance_cases() {
         ),
         ("run.text echo hi\n", "check.ignored-result"),
         (
-            "proc bad() -> Unit { run.status false ? }\n",
+            "proc bad() [process] -> Unit { run.status false ? }\n",
             "check.try-context",
         ),
         ("let b = b\"x\"\nrun echo (b) ?\n", "check.argv-conversion"),
@@ -1151,10 +1151,12 @@ fn checker_rejects_process_time_system_identity_calls_in_pure_functions() {
 }
 
 #[test]
-fn checker_suggests_empty_effect_list_for_unrestricted_callee() {
+fn checker_requires_explicit_contract_for_unrestricted_public_callee() {
     let messages = check_messages(
         r#"
-proc trim_line(value: Str) -> Str {
+##! Public effect boundary.
+## Trims a line.
+export proc trim_line(value: Str) -> Str {
   return value
 }
 
@@ -1165,13 +1167,15 @@ proc main() [fs, error] -> Result[Str] {
     );
     assert!(
         messages.iter().any(|message| message
-            .contains("if it is side-effect-free, declare it with an empty effect list `[]`")),
+            .contains("establish an explicit checked contract at its declaration")),
         "expected actionable unrestricted-proc diagnostic, got {messages:?}"
     );
 
     let accepted = check(
         r#"
-proc trim_line(value: Str) [] -> Str {
+##! Public effect boundary.
+## Trims a line.
+export proc trim_line(value: Str) [] -> Str {
   return value
 }
 
@@ -3622,4 +3626,63 @@ fn parametric_record_separate_module_arenas_keep_private_schema_dependencies() {
         "##! Parameterized records.\ntype Owner = {name: Str}\n## A declaration-owned schema.\nexport type Box[T] = {value: T, owner: Owner}\n",
     );
     assert_no_codes(&output, &["check.unknown-type", "check.type-mismatch", "check.type-application"]);
+}
+
+#[test]
+fn private_proc_effects_publish_matching_full_and_compact_facts() {
+    let source = "proc caller() [time] -> Int { forwarding() }\nproc forwarding() -> Int { clock() }\nproc clock() -> Int { let _ = time.now(); 42 }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let compact = Checker::check_compact_declarations(&parsed.arena);
+    parsed.arena.symbol_owner().with_current(|| {
+        for name in ["forwarding", "clock"] {
+            let effects = Some(vec![xsh::frontend::syntax::node::Effect::Time]);
+            assert_eq!(checked.callable_effects[name], effects);
+            let signature = &compact.procs[&xsh::frontend::symbols::Name::intern(name)];
+            assert_eq!(signature.effects, effects);
+            assert!(signature.inferred_effects);
+        }
+    });
+    assert_eq!(checked.function_effect_facts.len(), 3);
+    assert_eq!(checked.function_effect_facts.values().filter(|fact| fact.inferred).count(), 2);
+}
+
+#[test]
+fn private_proc_effects_preserve_unknown_and_declaration_boundaries() {
+    for (source, name) in [
+        ("proc opaque(callback: Proc) -> Int { let _ = callback.call(); 42 }\n", "opaque"),
+        ("proc main() -> Int { 42 }\n", "main"),
+        ("##! Boundary.\n## Public.\nexport proc published() -> Int { 42 }\n", "published"),
+        ("stream values() -> Stream[Int] { yield 42 }\n", "values"),
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        assert_eq!(checked.callable_effects[name], None);
+        let compact = Checker::check_compact_declarations(&parsed.arena);
+        parsed.arena.symbol_owner().with_current(|| {
+            let name = xsh::frontend::symbols::Name::intern(name);
+            let signature = compact.procs.get(&name).or_else(|| compact.streams.get(&name)).unwrap();
+            assert_eq!(signature.effects, None);
+        });
+    }
+    let source = "test registered { assert true, \"checked\" }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(checked.function_effect_facts.len(), 1);
+    let fact = checked.function_effect_facts.values().next().unwrap();
+    assert!(!fact.inference_allowed);
+    assert!(!fact.inferred);
+    assert_eq!(fact.effective, None);
+    assert!(checked.callable_effects.is_empty());
+}
+
+#[test]
+fn private_proc_effects_module_helpers_use_declaring_module_identity() {
+    let diagnostics = check_with_module("use helper\nproc caller() [] -> Int { helper.answer() }\n", "##! Effect helper.\nproc private_answer() -> Int { 42 }\n## Checked public boundary.\nexport proc answer() [] -> Int { private_answer() }\n");
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
 }

@@ -157,6 +157,7 @@ impl Checker {
         callee_name: &str,
         span: Span,
     ) {
+        self.record_effect_contract(callee_effects, callee_name);
         self.check_callee_effects(caller_effs, callee_effects, callee_name, span);
     }
 
@@ -218,8 +219,8 @@ impl Checker {
                         "effectful proc is not allowed in pure functions",
                         "check.pure-effect",
                     );
-                } else if let Some(caller_effs) = self.current_effects.clone() {
-                    self.check_callee_effects(&caller_effs, &sig.effects, &name.as_str(), span);
+                } else {
+                    self.check_resolved_callable_effects(&sig, &name.as_str(), span);
                 }
                 self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
                 // A procedure may change mutable lexical captures before the next statement.
@@ -239,8 +240,8 @@ impl Checker {
                         "stream producer is not allowed in pure functions",
                         "check.pure-effect",
                     );
-                } else if let Some(caller_effs) = self.current_effects.clone() {
-                    self.check_callee_effects(&caller_effs, &sig.effects, &name.as_str(), span);
+                } else {
+                    self.check_resolved_callable_effects(&sig, &name.as_str(), span);
                 }
                 self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
                 self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
@@ -303,13 +304,8 @@ impl Checker {
                             "effectful proc is not allowed in pure functions",
                             "check.pure-effect",
                         );
-                    } else if let Some(caller_effs) = self.current_effects.clone() {
-                        self.check_callee_effects(
-                            &caller_effs,
-                            &sig.effects,
-                            &qualified.to_string(),
-                            span,
-                        );
+                    } else {
+                        self.check_resolved_callable_effects(&sig, &qualified.to_string(), span);
                     }
                     self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
                     self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
@@ -322,13 +318,8 @@ impl Checker {
                             "stream producer is not allowed in pure functions",
                             "check.pure-effect",
                         );
-                    } else if let Some(caller_effs) = self.current_effects.clone() {
-                        self.check_callee_effects(
-                            &caller_effs,
-                            &sig.effects,
-                            &qualified.to_string(),
-                            span,
-                        );
+                    } else {
+                        self.check_resolved_callable_effects(&sig, &qualified.to_string(), span);
                     }
                     self.check_function_arg_list_arena(arena, source, args, &sig.params, span);
                     self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
@@ -352,20 +343,8 @@ impl Checker {
                 // misleading unknown-module-api diagnostic instead of checking
                 // the valid Path method.
                 if self.lookup(module).is_none() && api_spec().module(&module.as_str()).is_some() {
-                    if let Some(caller_effs) = self.current_effects.clone()
-                        && let Some(required) =
-                            api_spec().module_required_effect(&module.as_str(), &name.as_str())
-                        && !(required == Effect::Error && self.retry_attempt_depth > 0)
-                        && !Self::effects_covers(&caller_effs, &required)
-                    {
-                        self.error(
-                            span,
-                            &format!(
-                                "`{module}.{name}` requires the `{}` effect",
-                                required.as_str()
-                            ),
-                            "check.effect-violation",
-                        );
+                    if let Some(required) = api_spec().module_required_effect(&module.as_str(), &name.as_str()) {
+                        self.require_effect(required, span, &format!("`{module}.{name}`"));
                     }
                     return self.check_module_call_arena(
                         arena,
@@ -395,6 +374,7 @@ impl Checker {
             {
                 match export {
                     ModuleExportType::Proc { sig, .. } => {
+                        self.record_effect_contract(&sig.effects, &name.as_str());
                         if self.in_pure {
                             self.error(
                                 span,
@@ -476,6 +456,7 @@ impl Checker {
             };
         }
 
+        self.record_effect_contract(&None, "unresolved call target");
         self.error(span, "unsupported call target", "check.call-target");
         Type::Unknown
     }
@@ -723,6 +704,7 @@ impl Checker {
                 Type::Unit
             }
             "env" => {
+                self.require_effect(Effect::Env, span, "environment lookup");
                 self.check_expr_arg_list_arena(arena, source, args, &[Type::Str], span);
                 Type::Result(Box::new(Type::Str), Box::new(Type::Error))
             }
@@ -732,6 +714,7 @@ impl Checker {
             }
             "range" if args.len() == 1 || args.len() == 2 => Type::Stream(Box::new(Type::Int)),
             _ => {
+                self.record_effect_contract(&None, name);
                 self.error(
                     span,
                     "unresolved pure function call",

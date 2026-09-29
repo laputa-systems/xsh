@@ -66,6 +66,7 @@ pub struct LintOutput {
 #[derive(Clone, Debug)]
 pub struct LintOptions {
     pub prefer_inferred_pure_returns: bool,
+    pub prefer_inferred_private_effects: bool,
     pub runless: bool,
     pub runless_except: Vec<String>,
     pub interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
@@ -73,6 +74,7 @@ pub struct LintOptions {
     pub expr_types: BTreeMap<Span, Type>,
     pub statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
+    pub function_effect_facts: BTreeMap<xsh::frontend::check::EffectDeclarationId, xsh::frontend::check::FunctionEffectFact>,
     pub terminating_call_spans: BTreeSet<Span>,
     pub definitely_exiting_block_spans: BTreeSet<Span>,
     pub dead_code: bool,
@@ -83,6 +85,7 @@ impl Default for LintOptions {
     fn default() -> Self {
         Self {
             prefer_inferred_pure_returns: false,
+            prefer_inferred_private_effects: false,
             runless: false,
             runless_except: Vec::new(),
             interactive_command_replacement: None,
@@ -90,6 +93,7 @@ impl Default for LintOptions {
             expr_types: BTreeMap::default(),
             statement_positions: BTreeMap::default(),
             callable_effects: FxHashMap::default(),
+            function_effect_facts: BTreeMap::default(),
             terminating_call_spans: BTreeSet::default(),
             definitely_exiting_block_spans: BTreeSet::default(),
             dead_code: true,
@@ -111,6 +115,7 @@ pub struct Linter<'a> {
     arena: &'a AstArena,
     record_constructors: xsh::frontend::check::RecordConstructors,
     prefer_inferred_pure_returns: bool,
+    prefer_inferred_private_effects: bool,
     return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
     source: &'a str,
     runless: bool,
@@ -125,7 +130,7 @@ pub struct Linter<'a> {
     result_path_functions: Vec<bool>,
     result_return_ok_types: Vec<Option<Type>>,
     function_return_types: Vec<Type>,
-    function_effects: FxHashMap<String, Option<Vec<Effect>>>,
+    checked_effects: BTreeMap<xsh::frontend::check::EffectDeclarationId, xsh::frontend::check::FunctionEffectFact>,
     terminating_call_spans: BTreeSet<Span>,
     definitely_exiting_block_spans: BTreeSet<Span>,
     dead_code: bool,
@@ -209,6 +214,9 @@ impl<'a> Linter<'a> {
         include_reachability: bool,
     ) -> LintOutput {
         let native_test_file = options.native_test_file;
+        let checked_effects = if options.function_effect_facts.is_empty() {
+            xsh::frontend::check::Checker::check_arena(program, source).function_effect_facts
+        } else { options.function_effect_facts };
         let mut linter = Self {
             record_constructors: xsh::frontend::check::RecordConstructors::collect(program),
             arena: &program.arena,
@@ -218,6 +226,7 @@ impl<'a> Linter<'a> {
                 import.alias.or_else(|| program.arena.names(import.path).last()).is_some_and(|name| name == "time")
             }),
             prefer_inferred_pure_returns: options.prefer_inferred_pure_returns,
+            prefer_inferred_private_effects: options.prefer_inferred_private_effects,
             return_removal_before: None,
             source,
             runless: options.runless,
@@ -232,7 +241,7 @@ impl<'a> Linter<'a> {
             result_path_functions: Vec::new(),
             result_return_ok_types: Vec::new(),
             function_return_types: Vec::new(),
-            function_effects: options.callable_effects,
+            checked_effects,
             terminating_call_spans: options.terminating_call_spans,
             definitely_exiting_block_spans: options.definitely_exiting_block_spans,
             dead_code: options.dead_code,
@@ -826,7 +835,7 @@ impl<'a> Linter<'a> {
                 self.lint_expr_or_run(&value);
             }
             ArenaStmtKind::ProcDef(def) => {
-                self.lint_proc_function(def, exported);
+                self.lint_proc_function(def, exported, stmt.span);
                 self.lint_effect_annotation(def, stmt.span);
             }
             ArenaStmtKind::PureDef(def) => {
@@ -834,7 +843,7 @@ impl<'a> Linter<'a> {
                 self.lint_function(def);
             },
             ArenaStmtKind::StreamDef(def) => {
-                self.lint_proc_function(def, exported);
+                self.lint_proc_function(def, exported, stmt.span);
                 self.lint_effect_annotation(def, stmt.span);
             }
             ArenaStmtKind::SignalHook(hook_id) => {
@@ -1074,7 +1083,33 @@ impl<'a> Linter<'a> {
             .with_fix_hint(FixHint::deletion(deletion, "infer the private pure return")));
     }
 
-    fn lint_proc_function(&mut self, def_id: FunctionDefId, exported: bool) {
+    fn checked_effect_fact(&self, body: Span) -> Option<&xsh::frontend::check::FunctionEffectFact> {
+        let mut matches = self.checked_effects.iter().filter_map(|(id, fact)| (id.body == body).then_some(fact));
+        let fact = matches.next()?;
+        matches.next().is_none().then_some(fact)
+    }
+
+    fn lint_inferred_proc_effects(&mut self, definition: FunctionDefId, exported: bool, statement_span: Span) {
+        if !self.prefer_inferred_private_effects || exported || self.source.contains('#') { return; }
+        let def = self.arena.function_def(definition);
+        if def.effects.is_none() || def.test_declaration { return; }
+        let body = self.arena.span(self.arena.block(def.body).span);
+        let Some(fact) = self.checked_effect_fact(body) else { return; };
+        if !fact.inference_allowed || fact.required.is_none() { return; }
+        let Some(span) = scan_effect_list_span(self.arena, def, statement_span, self.source) else { return; };
+        let mut rewritten = self.source.to_string();
+        rewritten.replace_range(span.start()..span.end(), "");
+        let before = checked_return_removal_facts(self.source, span.source_id, None);
+        let after = checked_return_removal_facts(&rewritten, span.source_id, Some((span.start(), span.end() - span.start())));
+        if before.is_none() || before != after { return; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "private proc effect clause can be inferred exactly")
+            .with_code("lint.prefer-inferred-private-effects")
+            .with_label(Label::secondary(span, "checked body, caller contracts, and statement purposes remain equivalent"))
+            .with_fix_hint(FixHint::deletion(span, "infer the private proc effects")));
+    }
+
+    fn lint_proc_function(&mut self, def_id: FunctionDefId, exported: bool, statement_span: Span) {
+        self.lint_inferred_proc_effects(def_id, exported, statement_span);
         let def = self.arena.function_def(def_id).clone();
         if !def.return_ty_defaulted && !exported && result_unit_type_expr(self.arena, def.return_ty)
         {
@@ -1102,13 +1137,11 @@ impl<'a> Linter<'a> {
 
     fn lint_effect_annotation(&mut self, def_id: FunctionDefId, stmt_span: Span) {
         let def = self.arena.function_def(def_id).clone();
-        let mut effects = FxHashSet::default();
-        collect_block_effects(
-            self.arena,
-            def.body,
-            &mut effects,
-            Some(&self.function_effects),
-        );
+        let body_span = self.arena.span(self.arena.block(def.body).span);
+        let Some(fact) = self.checked_effect_fact(body_span) else { return; };
+        if fact.inferred { return; }
+        let Some(required) = &fact.required else { return; };
+        let effects: FxHashSet<_> = required.iter().cloned().collect();
         if effects.is_empty() {
             return;
         }
@@ -7679,518 +7712,7 @@ fn effects_covers_any(declared: &[Effect], required: &Effect) -> bool {
             )
 }
 
-fn collect_block_effects(
-    arena: &AstArena,
-    block: BlockId,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    for stmt in arena
-        .stmt_ids(arena.block(block).statements)
-        .collect::<Vec<_>>()
-    {
-        collect_stmt_effects(arena, stmt, effects, proc_effects);
-    }
-}
 
-fn collect_stmt_effects(
-    arena: &AstArena,
-    stmt: StmtId,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    match arena.stmt(stmt).kind {
-        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Const { initializer, .. } | ArenaStmtKind::Var { initializer, .. } => {
-            collect_expr_or_run_effects(arena, &initializer, effects, proc_effects);
-        }
-        ArenaStmtKind::Assign { value, .. } => {
-            collect_expr_or_run_effects(arena, &value, effects, proc_effects)
-        }
-        ArenaStmtKind::Return(Some(v)) | ArenaStmtKind::Defer(v) | ArenaStmtKind::Yield(v) => {
-            collect_expr_or_run_effects(arena, &v, effects, proc_effects);
-        }
-        ArenaStmtKind::Return(None)
-        | ArenaStmtKind::Break { .. }
-        | ArenaStmtKind::Continue
-        | ArenaStmtKind::TailBareIdent(_)
-        | ArenaStmtKind::Use(_)
-        | ArenaStmtKind::TypeDef(_)
-        | ArenaStmtKind::ErrorDef(_)
-        | ArenaStmtKind::StreamDef(_) => {}
-        ArenaStmtKind::SignalHook(hook) => {
-            collect_block_effects(arena, arena.signal_hook(hook).body, effects, proc_effects)
-        }
-        ArenaStmtKind::Loop { block } => collect_block_effects(arena, block, effects, proc_effects),
-        ArenaStmtKind::Guard {
-            initializer,
-            else_block,
-            ..
-        } => {
-            collect_expr_or_run_effects(arena, &initializer, effects, proc_effects);
-            collect_block_effects(arena, else_block, effects, proc_effects);
-        }
-        ArenaStmtKind::BooleanGuard { condition, else_block } => {
-            collect_expr_effects(arena, condition, effects, proc_effects);
-            collect_block_effects(arena, else_block, effects, proc_effects);
-        }
-        ArenaStmtKind::Assert { condition, message } => {
-            collect_expr_effects(arena, condition, effects, proc_effects);
-            collect_expr_effects(arena, message, effects, proc_effects);
-        }
-        ArenaStmtKind::GuardedStmt {
-            stmt: inner,
-            condition,
-            ..
-        } => {
-            collect_expr_effects(arena, condition, effects, proc_effects);
-            collect_stmt_effects(arena, inner, effects, proc_effects);
-        }
-        ArenaStmtKind::Export(inner) => collect_stmt_effects(arena, inner, effects, proc_effects),
-        // Don't descend into nested function defs — they have their own effect scope
-        ArenaStmtKind::ProcDef(_) | ArenaStmtKind::PureDef(_) => {}
-        ArenaStmtKind::Expr(e) | ArenaStmtKind::YieldDelegate(e) => collect_expr_effects(arena, e, effects, proc_effects),
-        ArenaStmtKind::Command(cmd) => {
-            collect_command_effects(&arena.command_stmt(cmd).command, effects)
-        }
-        ArenaStmtKind::If {
-            branches,
-            else_block,
-        } => {
-            for b in arena.if_branches(branches).to_vec() {
-                collect_expr_effects(arena, b.condition, effects, proc_effects);
-                collect_block_effects(arena, b.block, effects, proc_effects);
-            }
-            if let Some(block) = else_block {
-                collect_block_effects(arena, block, effects, proc_effects);
-            }
-        }
-        ArenaStmtKind::While { condition, block } => {
-            collect_expr_effects(arena, condition, effects, proc_effects);
-            collect_block_effects(arena, block, effects, proc_effects);
-        }
-        ArenaStmtKind::For { iter, block, .. } => {
-            collect_expr_effects(arena, iter, effects, proc_effects);
-            collect_block_effects(arena, block, effects, proc_effects);
-        }
-        ArenaStmtKind::With {
-            bindings,
-            body,
-            else_block,
-            ..
-        } => {
-            for b in arena.with_bindings(bindings).to_vec() {
-                collect_expr_effects(arena, b.initializer, effects, proc_effects);
-            }
-            collect_block_effects(arena, body, effects, proc_effects);
-            collect_block_effects(arena, else_block, effects, proc_effects);
-        }
-        ArenaStmtKind::Match { value, arms } => {
-            collect_expr_effects(arena, value, effects, proc_effects);
-            for arm in arena.match_arms(arms).to_vec() {
-                if let Some(g) = arm.guard {
-                    collect_expr_effects(arena, g, effects, proc_effects);
-                }
-                collect_block_effects(arena, arm.block, effects, proc_effects);
-            }
-        }
-    }
-}
-
-fn collect_command_effects(cmd: &ArenaCommand, effects: &mut FxHashSet<Effect>) {
-    match cmd {
-        ArenaCommand::Run(_) => {
-            effects.insert(Effect::Process);
-        }
-        ArenaCommand::Core {
-            name: CoreCommand::Cd | CoreCommand::Env,
-            ..
-        } => {
-            effects.insert(Effect::Env);
-        }
-        ArenaCommand::Core { .. } | ArenaCommand::Proc { .. } => {}
-    }
-}
-
-fn collect_expr_or_run_effects(
-    arena: &AstArena,
-    v: &ArenaExprOrRun,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    match v {
-        ArenaExprOrRun::Expr(e) => collect_expr_effects(arena, *e, effects, proc_effects),
-        ArenaExprOrRun::Run(_) => {
-            effects.insert(Effect::Process);
-        }
-    }
-}
-
-fn collect_call_arg_effects(
-    arena: &AstArena,
-    args: ArenaRange,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    for arg in arena.call_args(args).to_vec() {
-        let e = match arg.kind {
-            ArenaCallArgKind::Positional(e)
-            | ArenaCallArgKind::Splice { value: e, .. } | ArenaCallArgKind::NamedSpread { value: e, .. }
-            | ArenaCallArgKind::Named { value: e, .. } => e,
-        };
-        collect_expr_effects(arena, e, effects, proc_effects);
-    }
-}
-
-fn collect_expr_effects(
-    arena: &AstArena,
-    expr: ExprId,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    match arena.expr(expr).kind {
-        ArenaExprKind::ValuePipelineCall { input, call, .. } => { collect_expr_effects(arena, input, effects, proc_effects); collect_expr_effects(arena, call, effects, proc_effects); }
-
-        ArenaExprKind::Call { callee, args } => {
-            if let ArenaExprKind::Ident(name) = arena.expr(callee).kind
-                && let Some(Some(callee_effects)) =
-                    proc_effects.and_then(|known| known.get(name.as_str().as_str()))
-            {
-                for effect in callee_effects {
-                    effects.insert(effect.clone());
-                }
-            }
-            if let ArenaExprKind::Field { base, name: func } = arena.expr(callee).kind
-                && let ArenaExprKind::Ident(module) = arena.expr(base).kind
-                && let Some(Some(callee_effects)) =
-                    proc_effects.and_then(|known| known.get(&format!("{module}.{func}")))
-            {
-                for effect in callee_effects {
-                    effects.insert(effect.clone());
-                }
-            }
-            if let ArenaExprKind::Field { base, name: func } = arena.expr(callee).kind
-                && let ArenaExprKind::Ident(module) = arena.expr(base).kind
-                && let Some(eff) =
-                    Effect::from_module_call(module.as_str().as_str(), func.as_str().as_str())
-            {
-                effects.insert(eff);
-            }
-            collect_expr_effects(arena, callee, effects, proc_effects);
-            collect_call_arg_effects(arena, args, effects, proc_effects);
-        }
-        ArenaExprKind::Try(inner) => {
-            effects.insert(Effect::Error);
-            collect_expr_effects(arena, inner, effects, proc_effects);
-        }
-        ArenaExprKind::Run(_) => {
-            effects.insert(Effect::Process);
-        }
-        ArenaExprKind::Spawn(form) => {
-            effects.insert(Effect::Process);
-            if let ArenaSpawnTarget::Command(expr) = form.target {
-                collect_expr_effects(arena, expr, effects, proc_effects);
-            }
-        }
-        ArenaExprKind::Wait(form) => {
-            effects.insert(Effect::Process);
-            collect_expr_effects(arena, form.target, effects, proc_effects);
-        }
-        ArenaExprKind::Unary { expr, .. } => {
-            collect_expr_effects(arena, expr, effects, proc_effects)
-        }
-        ArenaExprKind::ComparisonChain(pairs) => {
-            for operand in arena.comparison_chain_operands(pairs) { collect_expr_effects(arena, operand, effects, proc_effects); }
-        }
-        ArenaExprKind::Binary { left, right, .. } => {
-            collect_expr_effects(arena, left, effects, proc_effects);
-            collect_expr_effects(arena, right, effects, proc_effects);
-        }
-        ArenaExprKind::Field { base, .. } | ArenaExprKind::NullSafeField { base, .. } => {
-            collect_expr_effects(arena, base, effects, proc_effects);
-        }
-        ArenaExprKind::Index { base, index, .. } => {
-            collect_expr_effects(arena, base, effects, proc_effects);
-            collect_expr_effects(arena, index, effects, proc_effects);
-        }
-        ArenaExprKind::List(items) => {
-            for item in arena.list_element_exprs(items).collect::<Vec<_>>() {
-                collect_expr_effects(arena, item, effects, proc_effects);
-            }
-        }
-        ArenaExprKind::ListComp { expr, qualifiers } => {
-            for qualifier in arena.comp_qualifiers(qualifiers) { collect_expr_effects(arena, qualifier.expr(), effects, proc_effects); }
-            collect_expr_effects(arena, expr, effects, proc_effects);
-        }
-        ArenaExprKind::MapComp { key, value, qualifiers } => {
-            for qualifier in arena.comp_qualifiers(qualifiers) { collect_expr_effects(arena, qualifier.expr(), effects, proc_effects); }
-            collect_expr_effects(arena, key, effects, proc_effects); collect_expr_effects(arena, value, effects, proc_effects);
-        }
-        ArenaExprKind::Record(fields) => {
-            for field in arena.record_fields(fields).to_vec() {
-                match field.kind {
-                    ArenaRecordFieldKind::Computed { key, value, .. } => { collect_expr_effects(arena, key, effects, proc_effects); collect_expr_effects(arena, value, effects, proc_effects); }
-                    ArenaRecordFieldKind::Named { value, .. } | ArenaRecordFieldKind::Path { value, .. } | ArenaRecordFieldKind::Spread { expr: value, .. } => collect_expr_effects(arena, value, effects, proc_effects),
-                    ArenaRecordFieldKind::Shorthand { .. } => {}
-                }
-            }
-        }
-        ArenaExprKind::If {
-            branches,
-            else_value,
-        } => {
-            for b in arena.if_expr_branches(branches).to_vec() {
-                collect_expr_effects(arena, b.condition, effects, proc_effects);
-                collect_expr_effects(arena, b.value, effects, proc_effects);
-            }
-            collect_expr_effects(arena, else_value, effects, proc_effects);
-        }
-        ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } | ArenaExprKind::PatternCondition { value, arms } => {
-            collect_expr_effects(arena, value, effects, proc_effects);
-            for arm in arena.match_expr_arms(arms).to_vec() {
-                if let Some(g) = arm.guard {
-                    collect_expr_effects(arena, g, effects, proc_effects);
-                }
-                collect_expr_effects(arena, arm.value, effects, proc_effects);
-            }
-        }
-        ArenaExprKind::FmtString(parts) | ArenaExprKind::PathFmtString(parts) => {
-            for part in arena.fmt_parts(parts).collect::<Vec<_>>() {
-                if let ArenaFmtPart::Expr(e, _) = part {
-                    collect_expr_effects(arena, e, effects, proc_effects);
-                }
-            }
-        }
-        ArenaExprKind::Pipeline { input, stages } => {
-            collect_expr_effects(arena, input, effects, proc_effects);
-            for stage in arena.pipe_stages(stages).to_vec() {
-                match stage.kind {
-                    ArenaPipeStageKind::Expr(e) => {
-                        collect_expr_effects(arena, e, effects, proc_effects)
-                    }
-                    ArenaPipeStageKind::Stream(s) => {
-                        if let Some(block) = s.block {
-                            collect_block_effects(arena, block, effects, proc_effects);
-                        }
-                        collect_call_arg_effects(arena, s.args, effects, proc_effects);
-                    }
-                }
-            }
-        }
-        ArenaExprKind::StructuredPipeline { input, stages } => {
-            collect_expr_effects(arena, input, effects, proc_effects);
-            for stage in arena.stream_stages(stages).to_vec() {
-                if let Some(block) = stage.block {
-                    collect_block_effects(arena, block, effects, proc_effects);
-                }
-                collect_call_arg_effects(arena, stage.args, effects, proc_effects);
-            }
-        }
-        ArenaExprKind::BuilderCall { call, block } => {
-            collect_expr_effects(arena, call, effects, proc_effects);
-            for entry in arena
-                .builder_entries(arena.builder_block(block).entries)
-                .to_vec()
-            {
-                match entry.kind {
-                    ArenaBuilderEntryKind::Task { block, .. } => {
-                        collect_block_effects(arena, block, effects, proc_effects);
-                    }
-                    ArenaBuilderEntryKind::Stmt(stmt) => {
-                        collect_stmt_effects(arena, stmt, effects, proc_effects)
-                    }
-                    ArenaBuilderEntryKind::Field { value, .. } => {
-                        collect_expr_effects(arena, value, effects, proc_effects);
-                    }
-                    ArenaBuilderEntryKind::Entry { .. } => {}
-                }
-            }
-        }
-        ArenaExprKind::Require { value, .. } => {
-            collect_expr_effects(arena, value, effects, proc_effects)
-        }
-        ArenaExprKind::Capture(block) => collect_retry_block_effects(arena, block, effects, proc_effects),
-        ArenaExprKind::ErrorContext { message, block } => {
-            collect_expr_effects(arena, message, effects, proc_effects);
-            collect_block_effects(arena, block, effects, proc_effects);
-        }
-        ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => collect_block_effects(arena, block, effects, proc_effects),
-        ArenaExprKind::Retry { delays, block, .. } => {
-            for delay in arena.expr_ids(delays).collect::<Vec<_>>() {
-                collect_expr_effects(arena, delay, effects, proc_effects);
-            }
-            if !delays.is_empty() {
-                effects.insert(Effect::Time);
-            }
-            collect_retry_block_effects(arena, block, effects, proc_effects);
-        }
-        ArenaExprKind::Null
-        | ArenaExprKind::Bool(_)
-        | ArenaExprKind::Int(_)
-        | ArenaExprKind::Float(_)
-        | ArenaExprKind::Duration(_)
-        | ArenaExprKind::Str(_)
-        | ArenaExprKind::PathStr(_)
-        | ArenaExprKind::GlobStr(_)
-        | ArenaExprKind::Bytes(_) | ArenaExprKind::Regex(_)
-        | ArenaExprKind::Ident(_)
-        | ArenaExprKind::Item
-        | ArenaExprKind::LastStatus
-        | ArenaExprKind::EnvGet { .. }
-        | ArenaExprKind::EnvPathList => {}
-        ArenaExprKind::Slice { base, start, end, .. } => {
-            collect_expr_effects(arena, base, effects, proc_effects);
-            if let Some(s) = start {
-                collect_expr_effects(arena, s, effects, proc_effects);
-            }
-            if let Some(e) = end {
-                collect_expr_effects(arena, e, effects, proc_effects);
-            }
-        }
-    }
-}
-
-fn collect_retry_block_effects(
-    arena: &AstArena,
-    block: BlockId,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    for stmt in arena
-        .stmt_ids(arena.block(block).statements)
-        .collect::<Vec<_>>()
-    {
-        collect_retry_stmt_effects(arena, stmt, effects, proc_effects);
-    }
-}
-
-fn collect_retry_stmt_effects(
-    arena: &AstArena,
-    stmt: StmtId,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    match arena.stmt(stmt).kind {
-        ArenaStmtKind::Let { initializer, .. } | ArenaStmtKind::Const { initializer, .. }
-        | ArenaStmtKind::Var { initializer, .. }
-        | ArenaStmtKind::Assign {
-            value: initializer, ..
-        }
-        | ArenaStmtKind::Defer(initializer)
-        | ArenaStmtKind::Return(Some(initializer))
-        | ArenaStmtKind::Yield(initializer) => match initializer {
-            ArenaExprOrRun::Expr(expr) => {
-                collect_retry_expr_effects(arena, expr, effects, proc_effects)
-            }
-            ArenaExprOrRun::Run(_) => {
-                effects.insert(Effect::Process);
-            }
-        },
-        ArenaStmtKind::If {
-            branches,
-            else_block,
-        } => {
-            for branch in arena.if_branches(branches).to_vec() {
-                collect_retry_expr_effects(arena, branch.condition, effects, proc_effects);
-                collect_retry_block_effects(arena, branch.block, effects, proc_effects);
-            }
-            if let Some(block) = else_block {
-                collect_retry_block_effects(arena, block, effects, proc_effects);
-            }
-        }
-        ArenaStmtKind::While { condition, block } => {
-            collect_retry_expr_effects(arena, condition, effects, proc_effects);
-            collect_retry_block_effects(arena, block, effects, proc_effects);
-        }
-        ArenaStmtKind::For { iter, block, .. } => {
-            collect_retry_expr_effects(arena, iter, effects, proc_effects);
-            collect_retry_block_effects(arena, block, effects, proc_effects);
-        }
-        ArenaStmtKind::Loop { block } => {
-            collect_retry_block_effects(arena, block, effects, proc_effects)
-        }
-        ArenaStmtKind::Guard {
-            initializer,
-            else_block,
-            ..
-        } => {
-            match initializer {
-                ArenaExprOrRun::Expr(expr) => {
-                    collect_retry_expr_effects(arena, expr, effects, proc_effects)
-                }
-                ArenaExprOrRun::Run(_) => {
-                    effects.insert(Effect::Process);
-                }
-            }
-            collect_retry_block_effects(arena, else_block, effects, proc_effects);
-        }
-        ArenaStmtKind::BooleanGuard { condition, else_block } => {
-            collect_retry_expr_effects(arena, condition, effects, proc_effects);
-            collect_retry_block_effects(arena, else_block, effects, proc_effects);
-        }
-        ArenaStmtKind::Assert { condition, message } => {
-            collect_retry_expr_effects(arena, condition, effects, proc_effects);
-            collect_retry_expr_effects(arena, message, effects, proc_effects);
-        }
-        ArenaStmtKind::GuardedStmt {
-            stmt, condition, ..
-        } => {
-            collect_retry_stmt_effects(arena, stmt, effects, proc_effects);
-            collect_retry_expr_effects(arena, condition, effects, proc_effects);
-        }
-        ArenaStmtKind::With {
-            bindings,
-            body,
-            else_block,
-            ..
-        } => {
-            for binding in arena.with_bindings(bindings).to_vec() {
-                collect_retry_expr_effects(arena, binding.initializer, effects, proc_effects);
-            }
-            collect_retry_block_effects(arena, body, effects, proc_effects);
-            collect_retry_block_effects(arena, else_block, effects, proc_effects);
-        }
-        ArenaStmtKind::Break { value: Some(expr) } | ArenaStmtKind::Expr(expr) | ArenaStmtKind::YieldDelegate(expr) => {
-            collect_retry_expr_effects(arena, expr, effects, proc_effects);
-        }
-        ArenaStmtKind::Match { value, arms } => {
-            collect_retry_expr_effects(arena, value, effects, proc_effects);
-            for arm in arena.match_arms(arms).to_vec() {
-                if let Some(guard) = arm.guard {
-                    collect_retry_expr_effects(arena, guard, effects, proc_effects);
-                }
-                collect_retry_block_effects(arena, arm.block, effects, proc_effects);
-            }
-        }
-        ArenaStmtKind::Command(_) => {
-            effects.insert(Effect::Process);
-        }
-        ArenaStmtKind::Return(None)
-        | ArenaStmtKind::Break { value: None }
-        | ArenaStmtKind::Continue
-        | ArenaStmtKind::TailBareIdent(_)
-        | ArenaStmtKind::Use(_)
-        | ArenaStmtKind::Export(_)
-        | ArenaStmtKind::TypeDef(_)
-        | ArenaStmtKind::ErrorDef(_)
-        | ArenaStmtKind::ProcDef(_)
-        | ArenaStmtKind::PureDef(_)
-        | ArenaStmtKind::StreamDef(_)
-        | ArenaStmtKind::SignalHook(_) => {}
-    }
-}
-
-fn collect_retry_expr_effects(
-    arena: &AstArena,
-    expr: ExprId,
-    effects: &mut FxHashSet<Effect>,
-    proc_effects: Option<&FxHashMap<String, Option<Vec<Effect>>>>,
-) {
-    if let ArenaExprKind::Try(inner) = arena.expr(expr).kind {
-        collect_retry_expr_effects(arena, inner, effects, proc_effects);
-        return;
-    }
-    collect_expr_effects(arena, expr, effects, proc_effects);
-}
 
 fn binding_target_contains_name(arena: &AstArena, target: BindingTargetId, candidate: Name) -> bool {
     match arena.binding_target(target).kind {
@@ -9821,7 +9343,10 @@ fn checked_return_removal_facts(source: &str, source_id: xsh::frontend::source::
         expressions: checked.expr_types.iter().map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
         statements: checked.statement_positions.iter().map(|(span, position)| (original_offset(span.start()), original_offset(span.end()), *position)).collect(),
         returns: checked.function_return_types.iter().map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
-        effects: checked.callable_effects.into_iter().collect(),
+        effects: checked.callable_effects.into_iter().map(|(name, effects)| {
+            let effects = effects.map(|mut effects| { effects.sort_by_key(Effect::as_str); effects.dedup(); effects });
+            (name, effects)
+        }).collect(),
     }))
 }
 

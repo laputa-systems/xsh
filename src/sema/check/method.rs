@@ -26,6 +26,7 @@ impl Checker {
         span: Span,
     ) -> Type {
         if base_ty == Type::Any {
+            self.check_opaque_callable_effects(&format!("Any.{name}"), span);
             for arg in args {
                 self.check_call_arg_arena(arena, source, &arg.kind, None);
             }
@@ -251,6 +252,7 @@ impl Checker {
                 "check.pure-effect",
             );
         }
+        self.check_opaque_callable_effects("Proc.call", span);
         for arg in args {
             self.check_call_arg_arena(arena, source, &arg.kind, None);
         }
@@ -269,6 +271,7 @@ impl Checker {
             self.error(span, "unknown method", "check.unknown-method");
             return Type::Unknown;
         }
+        self.check_opaque_callable_effects("Pure.call", span);
         for arg in args {
             self.check_call_arg_arena(arena, source, &arg.kind, None);
         }
@@ -307,18 +310,8 @@ impl Checker {
                 "check.pure-effect",
             );
         }
-        if let Some(caller_effs) = self.current_effects.clone()
-            && let Some(required) = method.sig.effect.clone()
-            && !Self::effects_covers(&caller_effs, &required)
-        {
-            self.error(
-                span,
-                &format!(
-                    "method `{name}` requires the `{}` effect",
-                    required.as_str()
-                ),
-                "check.effect-violation",
-            );
+        if let Some(required) = method.sig.effect.clone() {
+            self.require_effect(required, span, &format!("method `{name}`"));
         }
         if receiver == MethodReceiver::List {
             return self.check_list_method_call_arena(

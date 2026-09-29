@@ -679,6 +679,7 @@ fn lint_workspace_root(
         options.expr_types = checked.expr_types.clone();
         options.statement_positions = checked.statement_positions.clone();
         options.callable_effects = checked.callable_effects.clone();
+        options.function_effect_facts = checked.function_effect_facts.clone();
         options.terminating_call_spans = checked.terminating_call_spans.clone();
         options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
         let mut linted = if key == root {
@@ -1151,6 +1152,7 @@ fn lint_config_for_file(
     let lint_options = LintOptions {
         native_test_file,
         prefer_inferred_pure_returns: tool_config.config.lint.prefer_inferred_pure_returns && !configured_return_annotations,
+        prefer_inferred_private_effects: tool_config.config.lint.prefer_inferred_private_effects,
         runless,
         runless_except: tool_config.config.lint.runless_except,
         interactive_command_replacement: None,
@@ -1158,6 +1160,7 @@ fn lint_config_for_file(
         expr_types: Default::default(),
         statement_positions: Default::default(),
         callable_effects: Default::default(),
+        function_effect_facts: Default::default(),
         terminating_call_spans: Default::default(),
         definitely_exiting_block_spans: Default::default(),
         dead_code: !is_path_excluded(
@@ -1222,6 +1225,7 @@ fn lint_one_file_with_fixes(
     lint_options.expr_types = checked.expr_types.clone();
     lint_options.statement_positions = checked.statement_positions.clone();
     lint_options.callable_effects = checked.callable_effects.clone();
+    lint_options.function_effect_facts = checked.function_effect_facts.clone();
     lint_options.terminating_call_spans = checked.terminating_call_spans.clone();
     lint_options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
     let linted = Linter::lint(&checked_program.parsed.arena, &text, lint_options);
@@ -1432,6 +1436,7 @@ fn apply_cst_fixes(
         options.expr_types = checked.expr_types.clone();
         options.statement_positions = checked.statement_positions.clone();
         options.callable_effects = checked.callable_effects.clone();
+        options.function_effect_facts = checked.function_effect_facts.clone();
         options.terminating_call_spans = checked.terminating_call_spans.clone();
         options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
         let linted = if is_module {

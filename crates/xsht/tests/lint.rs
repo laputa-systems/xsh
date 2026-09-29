@@ -3995,3 +3995,50 @@ fn parametric_record_constructor_fix_keeps_concrete_alias_and_converges() {
     let output = Linter::lint(&parsed.arena, direct, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
     assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-record-constructor")));
 }
+
+#[test]
+fn private_proc_effects_lint_does_not_reinsert_inferred_annotations() {
+    let source = "proc clock() -> Int { let _ = time.now(); 42 }\nproc forwarding() -> Int { clock() }\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let linted = Linter::lint(&parsed.arena, source, LintOptions {
+        function_effect_facts: checked.function_effect_facts,
+        ..LintOptions::default()
+    });
+    assert!(!linted.diagnostics.iter().any(|diagnostic| matches!(diagnostic.code.as_deref(), Some("lint.unannotated-effects" | "lint.missing-effects"))));
+}
+
+#[test]
+fn private_proc_effects_removal_is_opt_in_checked_and_convergent() {
+    let source = "proc clock() [time] -> Int { let _ = time.now(); 42 }\nlet value = clock()\n";
+    let parsed = parse_lint_source(source);
+    let disabled = Linter::lint(&parsed.arena, source, LintOptions::default());
+    assert!(!disabled.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-inferred-private-effects")));
+    let enabled = Linter::lint(&parsed.arena, source, LintOptions { prefer_inferred_private_effects: true, ..LintOptions::default() });
+    let diagnostic = enabled.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-inferred-private-effects")).expect("equivalent private effect removal");
+    let span = diagnostic.fix_hints[0].span.unwrap();
+    let mut fixed = source.to_string();
+    fixed.replace_range(span.start()..span.end(), "");
+    assert_parse_check_standalone("inferred effects", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let second = Linter::lint(&parsed.arena, &fixed, LintOptions { prefer_inferred_private_effects: true, ..LintOptions::default() });
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-inferred-private-effects")));
+}
+
+#[test]
+fn private_proc_effects_removal_retains_bounds_docs_and_entry_contracts() {
+    for source in [
+        "proc deliberate() [time] -> Int { 42 }\n",
+        "# Checked clock boundary.\nproc documented() [time] -> Int { let _ = time.now(); 42 }\n",
+        "proc main() [time] -> Int { let _ = time.now(); 42 }\n",
+        "test registered [error] { assert true, \"checked\" }\n",
+        "##! Public boundary.\n## Clock.\nexport proc published() [time] -> Int { let _ = time.now(); 42 }\n",
+        "proc dynamic(callback: Proc) [io] -> Int { let _ = callback.call(); 42 }\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let linted = Linter::lint(&parsed.arena, source, LintOptions { prefer_inferred_private_effects: true, ..LintOptions::default() });
+        assert!(!linted.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-inferred-private-effects")), "{source}");
+    }
+
+}

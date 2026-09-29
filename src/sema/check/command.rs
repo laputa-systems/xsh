@@ -201,6 +201,7 @@ impl Checker {
                 block,
             } => self.check_core_command_arena(arena, source, *name, *args, *env, *block, span),
             ArenaCommand::Run(run_id) => {
+                self.record_required_effect(Effect::Process);
                 if let Some(effs) = &self.current_effects
                     && !Self::effects_covers(effs, &Effect::Process)
                 {
@@ -317,6 +318,9 @@ impl Checker {
         args: ArenaRange,
         span: Span,
     ) -> Type {
+        if let Some(required) = api_spec().module_required_effect(module, name) {
+            self.require_effect(required, span, &format!("`{module}.{name}`"));
+        }
         let Some(module_sig) = api_spec().module(module) else {
             self.error(span, "unknown module", "check.unknown-module");
             return Type::Unknown;
@@ -459,6 +463,7 @@ impl Checker {
                 Type::Unit
             }
             CoreCommand::Cd => {
+                self.require_effect(Effect::Env, span, "`cd`");
                 if args.len() != 1 {
                     self.error(
                         span,
@@ -475,6 +480,7 @@ impl Checker {
                 Type::Result(Box::new(Type::Unit), Box::new(Type::Error))
             }
             CoreCommand::Env => {
+                self.require_effect(Effect::Env, span, "`env`");
                 if !args.is_empty() {
                     self.error(span, "`env` accepts assignments", "check.core-env-arity");
                 }

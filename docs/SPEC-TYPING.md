@@ -383,8 +383,14 @@ runtime contract validator.
 
 Proc calls are effectful. Pure functions may call only pure functions and pure
 standard APIs. Restricted procs may call only APIs whose effects are covered by
-their declared effect set. Unrestricted procs retain compatibility behavior and
-may call any proc or effectful API.
+their effective effect set. Ordinary private procs without a clause infer a
+finite transitive summary from checked bodies; explicit clauses remain upper
+bounds. Recursive summaries are a least fixed point independent of declaration
+order. Opaque or unrestricted dependencies remain unknown and cannot satisfy a
+restricted caller. Local error capture erases outward `error` only. Public,
+module-contract, CLI/test entry, conventional `main`, and stream boundaries keep
+an unrestricted missing-clause contract. Checked effect facts and inference
+provenance are shared by compact signatures, tooling, and static alias checks.
 
 ## Diagnostics
 

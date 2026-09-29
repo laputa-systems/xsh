@@ -1141,6 +1141,8 @@ impl Checker {
         let previous_return = self.current_return.clone();
         let previous_pure = self.in_pure;
         let previous_effects = self.current_effects.clone();
+        let previous_effect_owner = self.effect_owner;
+        self.effect_owner = (!pure).then(|| self.effect_declaration_id(arena, def.body));
         let inferring = pure && def.return_ty_defaulted && self.inferred_returns.is_some();
         let return_ty = if inferring { Type::Unknown } else { self.type_from_arena(arena, def.return_ty) };
         if !inferring { self.function_return_types.insert(body_span, return_ty.clone()); }
@@ -1149,8 +1151,7 @@ impl Checker {
         self.current_effects = if pure {
             None
         } else {
-            def.effects
-                .map(|effects| arena.arena.effects(effects).collect())
+            self.effective_function_effects(arena, def)
         };
         self.push_scope();
         let mut saw_default = false;
@@ -1239,6 +1240,7 @@ impl Checker {
         self.current_return = previous_return;
         self.in_pure = previous_pure;
         self.current_effects = previous_effects;
+        self.effect_owner = previous_effect_owner;
         self.in_defer_block = previous_defer;
         self.with_initializer_errors = previous_errors;
         self.retry_attempt_depth = previous_boundary_depth;
@@ -1259,6 +1261,8 @@ impl Checker {
         let previous_yield = self.current_yield.clone();
         let previous_pure = self.in_pure;
         let previous_effects = self.current_effects.clone();
+        let previous_effect_owner = self.effect_owner;
+        self.effect_owner = Some(self.effect_declaration_id(arena, def.body));
         let return_ty = self.type_from_arena(arena, def.return_ty);
         let item_ty = match return_ty {
             Type::Stream(item) => *item,
@@ -1332,6 +1336,7 @@ impl Checker {
         self.current_yield = previous_yield;
         self.in_pure = previous_pure;
         self.current_effects = previous_effects;
+        self.effect_owner = previous_effect_owner;
         self.in_defer_block = previous_defer;
         self.with_initializer_errors = previous_errors;
         self.retry_attempt_depth = previous_boundary_depth;
@@ -1419,6 +1424,7 @@ impl Checker {
         let previous_return = self.current_return.clone();
         let previous_pure = self.in_pure;
         let previous_effects = self.current_effects.clone();
+        let previous_effect_owner = self.effect_owner.take();
         let previous_in_signal_hook = self.in_signal_hook;
         self.current_return = Some(Type::Result(Box::new(Type::Unit), Box::new(Type::Error)));
         self.in_pure = false;
@@ -1428,6 +1434,7 @@ impl Checker {
         self.current_return = previous_return;
         self.in_pure = previous_pure;
         self.current_effects = previous_effects;
+        self.effect_owner = previous_effect_owner;
         self.in_signal_hook = previous_in_signal_hook;
 
         match ty {

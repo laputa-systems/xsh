@@ -24,6 +24,7 @@ pub struct CompactDeclOutput {
     pub wire_enums: crate::sema::wire_enums::PreparedWireEnums,
     pub diagnostics: Vec<Diagnostic>,
     pub function_return_types: BTreeMap<crate::source::Span, Type>,
+    pub function_effect_facts: BTreeMap<super::EffectDeclarationId, super::FunctionEffectFact>,
     pub types: FxHashMap<Name, CompactTypeDefInfo>,
     pub record_schema_fields: FxHashMap<Name, BTreeMap<Name, TypeExprId>>,
     pub tag_variants_by_name: FxHashMap<Name, TagVariantInfo>,
@@ -60,6 +61,7 @@ pub struct CompactFunctionSig {
     pub params: Vec<CallableParamType>,
     pub return_ty: Type,
     pub return_type_expr: TypeExprId,
+    pub inferred_effects: bool,
     pub effects: Option<Vec<Effect>>,
 }
 
@@ -101,13 +103,15 @@ pub struct CompactBodyProbeOutput {
 impl Checker {
     pub fn check_compact_declarations(program: &ArenaProgram) -> CompactDeclOutput {
         program.symbol_owner().with_current(|| {
-            let inferred = program.arena.function_defs.iter().any(|def| def.return_ty_defaulted
+            let needs_checked_facts = program.arena.function_defs.iter().any(|def| def.return_ty_defaulted
                 && program.arena.type_expr_tags[def.return_ty.index()] == ArenaTypeExprTag::Named)
-                .then(|| Checker::check_arena(program, ""));
+                || program.arena.stmt_tags.iter().any(|tag| *tag == crate::syntax::arena::ArenaStmtTag::ProcDef);
+            let inferred = needs_checked_facts.then(|| Checker::check_arena(program, ""));
             let mut collector = CompactDeclCollector {
                 diagnostics: Vec::new(),
                 names: FxHashSet::default(),
                 output: CompactDeclOutput {
+                    function_effect_facts: inferred.as_ref().map(|checked| checked.function_effect_facts.clone()).unwrap_or_default(),
                     function_return_types: inferred.as_ref().map(|checked| checked.function_return_types.clone()).unwrap_or_default(),
                     ..CompactDeclOutput::default()
                 },
@@ -438,7 +442,7 @@ impl CompactDeclCollector {
         if !self.names.insert(def.name) {
             self.error(span, "duplicate top-level name", "check.duplicate-name");
         }
-        let sig = self.function_sig(program, id);
+        let sig = self.function_sig(program, id, namespace);
         if let Some(namespace) = namespace {
             let qualified = QualifiedName::new(namespace, def.name);
             match kind {
@@ -472,19 +476,20 @@ impl CompactDeclCollector {
         }
     }
 
-    fn function_sig(&mut self, program: &ArenaProgram, id: FunctionDefId) -> CompactFunctionSig {
+    fn function_sig(&mut self, program: &ArenaProgram, id: FunctionDefId, namespace: Option<Name>) -> CompactFunctionSig {
         let def = program.arena.function_def(id);
         let params = self.param_sigs(program, def.params);
         let body_span = program.arena.span(program.arena.block(def.body).span);
         let return_ty = self.output.function_return_types.get(&body_span).cloned()
             .unwrap_or_else(|| Type::from_arena(&program.arena, def.return_ty));
-        let effects = def
-            .effects
-            .map(|effects| program.arena.effects(effects).collect::<Vec<_>>());
+        let effects = self.output.function_effect_facts.get(&super::EffectDeclarationId { namespace, body: body_span })
+            .map(|fact| fact.effective.clone())
+            .unwrap_or_else(|| def.effects.map(|effects| program.arena.effects(effects).collect::<Vec<_>>()));
         CompactFunctionSig {
             params,
             return_ty,
             return_type_expr: def.return_ty,
+            inferred_effects: self.output.function_effect_facts.get(&super::EffectDeclarationId { namespace, body: body_span }).is_some_and(|fact| fact.inferred),
             effects,
         }
     }

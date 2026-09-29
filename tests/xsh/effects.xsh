@@ -90,14 +90,14 @@ test test_unrestricted_proc_unchecked [fs, process, error] { |ctx|
   )?
 
   let result = run_check(src)?
-  test.ok(result.ok, "unrestricted proc should pass")?
+  test.ok(result.ok, "private proc effects should be inferred")?
 }
 
 test test_restricted_cannot_call_unrestricted_proc [fs, process, error] { |ctx|
   let src = test.temp_file(
     ctx,
     name: "t.xsh",
-    contents: b"proc legacy() {\n  return\n}\nproc restricted() [fs] {\n  legacy()\n}\n",
+    contents: b"##! Public effect boundary.\n## Retains an unrestricted public contract.\nexport proc legacy() {\n  return\n}\nproc restricted() [fs] {\n  legacy()\n}\n",
   )?
 
   let result = run_check(src)?

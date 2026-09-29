@@ -1520,8 +1520,15 @@ proc build() [fs, process, error] -> Result[Status] { ... }
 proc get_time() [time] -> Int { ... }
 ```
 
-A proc with no `[]` clause remains **unrestricted** — identical to existing
-`proc` behavior. Annotations are opt-in; existing code requires no changes.
+An ordinary private proc without an effect clause receives a checked effective
+summary from its body and resolved callees. Explicit clauses, including `[]`,
+remain checked upper bounds. A proc with an empty inferred summary remains a
+proc; pure/proc separation and return typing are unchanged.
+
+Missing clauses at exported APIs, module contracts, CLI entries, native test
+entries, and stream declarations remain unrestricted. Conventional `proc main`
+also retains its entry contract. A private implementation cannot establish an
+exported callable alias contract merely through inference.
 
 **Effect set.**
 
@@ -1539,9 +1546,12 @@ env}` for scripts that intentionally treat host I/O as one boundary; prefer
 specific effects when a proc does not need stdin/stdout.
 
 **Enforcement rules.**
-- A restricted proc (`Some([E])`) may only call procs whose declared effects are
-  a subset of `E`, plus `pure` functions.
-- Calling an unrestricted proc from a restricted proc is a checker error. The diagnostic points at the fix: declare the callee with an empty effect list `[]` when it is side-effect-free.
+- A restricted proc may call procs whose effective effects are covered by its
+  upper bound, plus `pure` functions.
+- An opaque callable, unrestricted external callee, or unresolved call dependency
+  has an unknown summary. Restricted callers cannot use it. Diagnostics identify
+  the resolved call chain and the dependency needing a checked contract; unknown
+  effects are never approximated as an empty set or `io`.
 - Direct calls to standard-module functions (e.g. `fs.read_text`) and standard
   methods (e.g. `path.read_text()`) are checked against `E`; the `io` effect
   covers `fs`, `net`, `process`, and `env` but not `time` or `error`.
@@ -1556,13 +1566,21 @@ specific effects when a proc does not need stdin/stdout.
 - Unrestricted procs (no annotation) may call anything — no restriction.
 - Diagnostic code: `check.effect-violation`.
 
-**Inference.** `xsht lint` emits `lint.unannotated-effects` for procs that
-have no annotation but whose bodies contain inferable effects, and
-`lint.missing-effects` for restricted procs whose annotation omits inferable
-body effects. `--fix` inserts or replaces the annotation automatically. The
-linter infers from direct module calls, typed standard methods, restricted proc
-calls, `run` forms, `spawn`, `wait`, delayed `retry`, and `?` outside retry
-attempt blocks.
+**Inference.** The checker records resolved calls and direct requirements, then
+computes a least fixed point over the finite effect domain. Recursive forwarding
+and declaration order produce the same effective summary. Method operations,
+executed stage bodies, host forms, and implicit statement assertions and Result
+propagation contribute effects; merely referencing a function does not. Local
+`try`/`retry` capture removes outward `error` only, retaining host requirements.
+
+Full and compact checking, private signatures, lowering, and linting share these
+facts. `xsht lint` does not reinsert an effect clause on an inferred private proc.
+It can still suggest missing effects for an explicit upper bound or a missing
+entry/public contract. `[lint] prefer-inferred-private-effects = true` opts into
+`lint.prefer-inferred-private-effects`: remove a private clause only when a
+fresh check preserves effective caller contracts, expression types, and
+statement purposes. Deliberately wider bounds, entry/public contracts, unknown
+summaries, and commented source retain their clauses.
 
 Statement and value positions are checked language contexts. Initializers,
 arguments, explicit return payloads, and tails whose enclosing function, task,

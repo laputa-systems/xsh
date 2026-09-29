@@ -542,7 +542,10 @@ impl Checker {
         def_id: FunctionDefId,
     ) -> FunctionSig {
         let def = program.arena.function_def(def_id);
+        let effect_declaration = self.effect_declaration_id(program, def.body);
         FunctionSig {
+            effect_declaration,
+            inferred_effects: self.effect_graph.is_inferred(effect_declaration),
             params: program
                 .arena
                 .params(def.params)
@@ -555,9 +558,7 @@ impl Checker {
                 })
                 .collect(),
             return_ty: self.type_from_arena(program, def.return_ty),
-            effects: def
-                .effects
-                .map(|effects| program.arena.effects(effects).collect()),
+            effects: self.effective_function_effects(program, def),
         }
     }
 }

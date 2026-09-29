@@ -627,6 +627,16 @@ members require explicit signatures. `CheckOutput::function_return_types` and
 qualified calls, indexed return kinds, lint rechecks, and annotation rendering.
 No caller supplies the inferred definition's return context.
 
+Private proc effects are owned by `src/sema/check/infer_effects.rs`. A checker
+collection pass records direct requirements and edges from resolved calls;
+`EffectGraph::solve` computes finite transitive summaries before final bound
+checking. `EffectDeclarationId` combines declaring namespace and body span so
+separately parsed module arenas may reuse local spans safely.
+`CheckOutput::function_effect_facts` and
+`CompactDeclOutput::function_effect_facts` publish effective requirements and
+inference provenance. Linting consumes these checked facts and uses equivalent
+rechecks for opt-in private-clause removal; it has no syntax-based effect solver.
+
 Explicit field labels share `TokenTable::label_text_at` and the parser's
 `current_label_name`, `peek_label_name`, and `expect_label_name` readers. The
 token reader returns owned spelling without interning; the parser interns into

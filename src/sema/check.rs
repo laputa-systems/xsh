@@ -29,6 +29,8 @@ mod compact;
 mod decl;
 #[path = "check/expr.rs"]
 mod expr;
+#[path = "check/infer_effects.rs"]
+mod infer_effects;
 #[path = "check/infer_return.rs"]
 mod infer_return;
 #[path = "check/method.rs"]
@@ -52,6 +54,9 @@ use self::command::{
     command_stmt_asserts_success_arena, command_ty_auto_propagates,
 };
 pub use super::constants::RecordConstructors;
+
+pub use self::infer_effects::{EffectDeclarationId, FunctionEffectFact};
+use self::infer_effects::{EffectGraph, EffectSummary};
 
 pub use self::compact::{
     CompactBodyProbeOutput, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo,
@@ -80,6 +85,7 @@ pub struct CheckOutput {
     pub expr_types: BTreeMap<Span, Type>,
     pub statement_positions: BTreeMap<Span, StatementPosition>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
+    pub function_effect_facts: BTreeMap<EffectDeclarationId, FunctionEffectFact>,
     pub terminating_call_spans: BTreeSet<Span>,
     /// Ordinary blocks whose checked paths cannot reach their enclosing continuation.
     pub definitely_exiting_block_spans: BTreeSet<Span>,
@@ -148,6 +154,8 @@ impl Binding {
 
 #[derive(Clone, Debug)]
 pub(super) struct FunctionSig {
+    effect_declaration: EffectDeclarationId,
+    inferred_effects: bool,
     params: Vec<FunctionParamSig>,
     return_ty: Type,
     effects: Option<Vec<Effect>>,
@@ -304,6 +312,10 @@ pub struct Checker {
     current_yield: Option<Type>,
     in_pure: bool,
     current_effects: Option<Vec<Effect>>,
+    collecting_effects: bool,
+    effect_graph: EffectGraph,
+    effect_summaries: BTreeMap<EffectDeclarationId, EffectSummary>,
+    effect_owner: Option<EffectDeclarationId>,
     last_status_available: bool,
     stream_item_types: Vec<Type>,
     loop_depth: usize,
@@ -355,7 +367,14 @@ impl Checker {
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
     ) -> CheckOutput {
         program.symbol_owner().with_current(|| {
+            // Resolve bodies once to collect dependencies, then check against the
+            // fixed-point contracts so callers never depend on source order.
+            let mut probe = Self::new(options);
+            probe.collecting_effects = true;
+            probe.check_program_arena_with_type_program(program, source, type_program.clone());
             let mut checker = Self::new(options);
+            checker.effect_summaries = probe.effect_graph.solve();
+            checker.effect_graph = probe.effect_graph;
             checker.check_program_arena_with_type_program(program, source, type_program);
             let callable_effects = checker.callable_effects();
             CheckOutput {
@@ -366,6 +385,7 @@ impl Checker {
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
                 statement_positions: checker.statement_positions,
+                function_effect_facts: checker.effect_graph.facts(&checker.effect_summaries),
                 callable_effects,
                 terminating_call_spans: checker.terminating_call_spans,
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
@@ -435,6 +455,12 @@ impl Checker {
                     main_program.arena.use_stmts[index].resolved = Some(std::sync::Arc::from(*key));
                 }
             }
+
+            let mut probe = Self::new(CheckOptions::default());
+            probe.collecting_effects = true;
+            probe.check_program_arena(&main_program, main.1);
+            checker.effect_summaries = probe.effect_graph.solve();
+            checker.effect_graph = probe.effect_graph;
             checker.check_program_arena(&main_program, main.1);
             let callable_effects = checker.callable_effects();
             CheckOutput {
@@ -445,6 +471,7 @@ impl Checker {
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
                 statement_positions: checker.statement_positions,
+                function_effect_facts: checker.effect_graph.facts(&checker.effect_summaries),
                 callable_effects,
                 terminating_call_spans: checker.terminating_call_spans,
                 definitely_exiting_block_spans: checker.definitely_exiting_block_spans,
@@ -494,6 +521,10 @@ impl Checker {
             current_yield: None,
             in_pure: false,
             current_effects: None,
+            collecting_effects: false,
+            effect_graph: EffectGraph::default(),
+            effect_summaries: BTreeMap::new(),
+            effect_owner: None,
             last_status_available: false,
             stream_item_types: Vec::new(),
             loop_depth: 0,
@@ -565,6 +596,7 @@ impl Checker {
         source: &str,
         type_program: Arc<crate::syntax::arena::ArenaProgram>,
     ) {
+        self.prepare_effect_declarations(program, None);
         self.diagnostics.extend(Self::prepare_regex_literals(program));
         self.record_constructors = RecordConstructors::collect(program);
         self.prepared_constants = super::constants::PreparedConstants::collect(program, &self.record_constructors);
@@ -704,7 +736,7 @@ impl Checker {
                 self.error(
                     span,
                     &format!(
-                        "proc `{callee_name}` is unrestricted — if it is side-effect-free, declare it with an empty effect list `[]` before calling it from a proc with declared effects",
+                        "callable `{callee_name}` has an unknown or unrestricted effect contract; use a named callable with checked effects or establish an explicit checked contract at its declaration",
                     ),
                     "check.effect-violation",
                 );

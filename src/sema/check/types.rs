@@ -22,8 +22,10 @@ impl Checker {
             return ty.clone();
         }
         if matches!(ty, Type::Any) {
+            self.check_opaque_callable_effects("opaque Result propagation", span);
             return Type::Any;
         }
+        self.record_required_effect(Effect::Error);
         if let Some(effs) = &self.current_effects
             && !effs.contains(&Effect::Error)
         {
@@ -128,6 +130,9 @@ impl Checker {
     }
 
     pub(super) fn record_statement_error(&mut self, ty: &Type, span: Span) {
+        if matches!(ty, Type::Bool | Type::Result(_, _)) {
+            self.require_effect(Effect::Error, span, "statement failure propagation");
+        }
         if self.retry_attempt_depth == 0 { return; }
         let error = match ty {
             Type::Result(_, error) => Some(error.as_ref().clone()),

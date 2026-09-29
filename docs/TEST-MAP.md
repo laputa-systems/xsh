@@ -705,6 +705,16 @@ identity and pool bounds. `crates/xsht/tests/lint.rs` covers exact re-encoding,
 conservative exclusions, comment retention, and convergence; `crates/xsht/tests/cli.rs`
 checks invalid unreachable literals without script execution.
 
+Private proc effect inference is exercised by
+`tests/xsh/private-proc-effects.xsh` (transitive calls, recursion, explicit bounds,
+references, mutation, assertions, capture, host requirements, and unknown call
+chains). `tests/sema.rs::private_proc_effects_*` checks full/compact facts and
+separately parsed module identity. `crates/xsht/tests/lint.rs::private_proc_effects_*`
+checks inference convergence and conservative annotation removal. Run
+`target/debug/xsht test --jobs 1 tests/xsh/private-proc-effects.xsh`, then
+`CARGO_BUILD_JOBS=1 cargo test -p xsh --test integration private_proc_effects -- --test-threads=1`
+and `CARGO_BUILD_JOBS=1 cargo test -p xsht --test integration private_proc_effects -- --test-threads=1`.
+
 Private pure return inference is exercised by
 `tests/xsh/private-pure-inference.xsh` (values, dependency order, captures,
 Result boundaries, pattern/fallback capture shadowing, imported tag variants,
