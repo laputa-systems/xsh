@@ -8,19 +8,14 @@ them to the owner and report that limit. Unfiltered `cargo test` includes
 
 ## Routine CI
 
-`.github/workflows/verify.yml` runs on pull requests and pushes to `master`
-with read-only repository permission. Both jobs use `DIST_PROFILE=dev` and
-dispatch through `cargo dev test`, which calls `dev/main.xsh`:
+`.github/workflows/lint.yml` and `.github/workflows/test.yml` run on pull requests
+and pushes to `master` with read-only repository permission. Both run on
+`ubuntu-latest`: lint runs `make lint` and fails on any resulting `git diff`,
+while test runs `make test`, which dispatches through `cargo dev test` to
+`dev/test_workflows.xsh::rust` (`cargo test --release`).
 
-| Runner | Target | Features selected by the XSH workflow |
-| --- | --- | --- |
-| macOS ARM64 | `aarch64-apple-darwin` | `net tools` in `dev/test_workflows.xsh::macos_ci`, plus default features |
-| pinned Linux ARM64 musl image | `aarch64-unknown-linux-musl` | `linux-priv-tests net tools` in `dev/internal.xsh::linux_ci_test`, plus default features |
-
-`dev/docker.xsh::internal_argv` forwards the selected target and profile into
-the pinned container. The manual release workflow retains the `dist` profile;
-ordinary CI uses debug products. These full CI tests include formatter and
-linter checks and are owner-run under the agent workflow rule.
+The manual release workflow retains the `dist` profile. Lint and its
+formatter/autofix steps are owner-run under the agent workflow rule.
 
 `Dockerfile.test` installs the reference utilities required by the current
 system-report checker and its opt-in utility corroboration adapters. Alpine splits

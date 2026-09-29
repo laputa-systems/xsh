@@ -155,8 +155,8 @@ remain explicit process boundaries. The `Makefile` is a compatibility facade:
 its 22 targets delegate to this program, through `cargo dev` by default.
 `XSH_DEV` selects a specific prebuilt binary for a caller that needs one.
 
-`.github/workflows/verify.yml` uses the same XSH test routes on macOS and
-the pinned Linux image. `docs/TEST-MAP.md` owns the actual verification matrix.
+`.github/workflows/lint.yml` and `.github/workflows/test.yml` run on
+`ubuntu-latest` via `make lint` and `make test`. `docs/TEST-MAP.md` owns the actual verification matrix.
 Larger new corpus programs need a concrete consumer before they are added to
 this document.
 
