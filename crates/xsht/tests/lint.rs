@@ -4416,3 +4416,23 @@ fn constant_key_projection_identity_require_fix_preserves_boundaries() {
         assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-require")), "{source}");
     }
 }
+
+#[test]
+fn wire_enum_mapping_expression_walk_preserves_wire_bytes_in_safe_edits() {
+    let source = "enum State: Str {\n  Ready = \"ready\\n\" + \"empty\\n\"\n}\nlet state: State = Ready\nprint json.encode(state)?\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics;
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-block-string")).expect("mapping expression is visited");
+    let fix = &diagnostic.fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+    let reparsed = parse_lint_source(&fixed);
+    assert!(reparsed.diagnostics.is_empty(), "{:?}", reparsed.diagnostics);
+    let rechecked = Checker::check_arena(&reparsed.arena, &fixed);
+    assert!(rechecked.diagnostics.is_empty(), "{:?}", rechecked.diagnostics);
+    let original = Checker::check_compact_declarations(&parsed.arena).wire_enums;
+    let rewritten = Checker::check_compact_declarations(&reparsed.arena).wire_enums;
+    assert_eq!(original.mappings.values().next().unwrap().variants.values().next(), rewritten.mappings.values().next().unwrap().variants.values().next());
+}

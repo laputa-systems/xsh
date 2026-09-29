@@ -724,6 +724,9 @@ impl<'a> Linter<'a> {
             }
             ArenaTypeDefBody::TagUnion(variants) => {
                 for variant in self.arena.tag_variants(*variants).to_vec() {
+                    if let Some(value) = variant.wire_value {
+                        self.lint_expr(value);
+                    }
                     for ty in self.arena.extra_range(variant.fields).to_vec() {
                         self.collect_type_expr_refs(TypeExprId::from_index(ty as usize));
                     }

@@ -648,3 +648,22 @@ fn grep_and_refactor_reach_accept_policy_expressions() {
     let again = grep_scripts("choose_codes(EXPR)", &paths(&file));
     assert_eq!(again.status, 1);
 }
+
+#[test]
+fn grep_and_refactor_reach_wire_enum_mapping_expressions() {
+    let root = TempDir::new().expect("temporary source root");
+    let file = root.path().join("state.xsh");
+    let source = "enum State: Str { Ready = \"rea\" + \"dy\", Empty = \"\" }\nlet state: State = Ready\nprint json.encode(state)?\n";
+    fs::write(&file, source).unwrap();
+    let matched = grep_scripts("LEFT + RIGHT", &paths(&file));
+    assert_eq!(matched.status, 0, "{}", output_text(&matched.stderr));
+    assert!(output_text(&matched.stdout).contains("1 match"));
+    let edited = refactor_scripts("\"rea\" + \"dy\"", "\"ready\"", &paths(&file), false);
+    assert_eq!(edited.status, 0, "{}", output_text(&edited.stderr));
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert!(fixed.contains("Ready = \"ready\""), "{fixed}");
+    assert!(fixed.contains("Empty = \"\""), "{fixed}");
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert!(xsh::frontend::check::Checker::check_arena(&parsed.arena, &fixed).diagnostics.is_empty());
+}
