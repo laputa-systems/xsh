@@ -13,4 +13,3 @@ pub fn pipe_nonblock_cloexec() -> Result<(RawFd, RawFd), std::io::Error> {
     rustix::fs::fcntl_setfl(&write, rustix::fs::OFlags::NONBLOCK)?;
     Ok((read.into_raw_fd(), write.into_raw_fd()))
 }
-

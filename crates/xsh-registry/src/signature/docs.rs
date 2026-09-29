@@ -650,7 +650,13 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         ("fs", "root_children") => Some((
             "Enumerates child paths below a rooted filesystem capability.",
             "Names stay lossless as Path values and are sorted by raw bytes; the result carries partial entries, stable error state, errno, and truncation status.",
-            &["filesystem", "rooted", "enumeration", "bounded", "observation"],
+            &[
+                "filesystem",
+                "rooted",
+                "enumeration",
+                "bounded",
+                "observation",
+            ],
         )),
         ("fs", "root_write" | "root_write_atomic") => Some((
             "Writes bytes or text below a rooted filesystem capability.",
@@ -674,8 +680,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         (
             "fs",
-            "root_mkdir" | "root_remove" | "root_chmod" | "root_symlink"
-            | "root_install_file",
+            "root_mkdir" | "root_remove" | "root_chmod" | "root_symlink" | "root_install_file",
         ) => Some((
             "Mutates a path below a rooted filesystem capability.",
             "Relative paths are validated against the root before the mutation and cannot address an outside destination.",

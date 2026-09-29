@@ -714,8 +714,7 @@ fn check_attributes_lowering_blocker_to_imported_source_with_embedded_module_loa
 #[test]
 fn check_reports_public_standard_call_name_at_user_source() {
     let root = TempDir::new().expect("create temp root");
-    fs::write(root.path().join("main.xsh"), "print tui.red(1)\n")
-        .expect("write main script");
+    fs::write(root.path().join("main.xsh"), "print tui.red(1)\n").expect("write main script");
 
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(["check", "main.xsh"])
@@ -770,12 +769,10 @@ fn check_explicit_directory_does_not_expand_parent_config_includes() {
     let root = TempDir::new().expect("create temp root");
     fs::create_dir(root.path().join("project")).expect("create project directory");
     fs::create_dir(root.path().join("extra")).expect("create configured include");
-    fs::write(root.path().join("xsht-config.ini"), "include = extra\n")
-        .expect("write root config");
+    fs::write(root.path().join("xsht-config.ini"), "include = extra\n").expect("write root config");
     fs::write(root.path().join("project/main.xsh"), "let value = 1\n")
         .expect("write project script");
-    fs::write(root.path().join("extra/bad.xsh"), "let value =\n")
-        .expect("write excluded script");
+    fs::write(root.path().join("extra/bad.xsh"), "let value =\n").expect("write excluded script");
 
     let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
         .args(["check", "project"])

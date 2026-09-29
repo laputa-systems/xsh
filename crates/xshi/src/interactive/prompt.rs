@@ -304,7 +304,12 @@ fn hostname() -> String {
     let name = std::env::var("XSHI_HOSTNAME")
         .ok()
         .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| rustix::system::uname().nodename().to_string_lossy().into_owned());
+        .unwrap_or_else(|| {
+            rustix::system::uname()
+                .nodename()
+                .to_string_lossy()
+                .into_owned()
+        });
     name.split('.').next().unwrap_or("localhost").to_string()
 }
 

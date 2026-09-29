@@ -14,11 +14,11 @@
 use super::explicit_run::{
     CallFrame, ExplicitFrames, ProducerFrameState, ProducerStep, decode_statements,
 };
-use crate::runtime::value::ScriptStreamState;
 use super::{
     Arc, Evaluator, LoweredFunctionKey, LoweredFunctionKind, LoweredValue, RuntimeError, Span,
     StreamValue, TraceKind, TracePayload, TracebackFrame, TracebackFrameKind,
 };
+use crate::runtime::value::ScriptStreamState;
 
 /// A producer suspended between pulls.
 pub(super) struct ScriptProducer {
@@ -332,10 +332,13 @@ impl Evaluator {
         if let Some(value) = producer.delegated_prefix.pop_front() {
             return super::lowered_value_from_runtime_any(&value)
                 .map(Some)
-                .ok_or_else(|| RuntimeError::new(
-                    "type-error",
-                    format!("stream produced unsupported {}", value.type_name()),
-                ).with_span(span));
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "type-error",
+                        format!("stream produced unsupported {}", value.type_name()),
+                    )
+                    .with_span(span)
+                });
         }
         let Some(stream) = producer.delegated.as_mut() else {
             return Ok(None);
@@ -343,10 +346,13 @@ impl Evaluator {
         match self.stream_next(stream, span)? {
             Some(value) => super::lowered_value_from_runtime_any(&value)
                 .map(Some)
-                .ok_or_else(|| RuntimeError::new(
-                    "type-error",
-                    format!("stream produced unsupported {}", value.type_name()),
-                ).with_span(span)),
+                .ok_or_else(|| {
+                    RuntimeError::new(
+                        "type-error",
+                        format!("stream produced unsupported {}", value.type_name()),
+                    )
+                    .with_span(span)
+                }),
             None => {
                 producer.delegated = None;
                 Ok(None)

@@ -354,7 +354,10 @@ pub(super) fn read_text_records(
             stamp: None,
         };
     };
-    let stamp = file.metadata().ok().map(|meta| FileStamp::from_metadata(&meta));
+    let stamp = file
+        .metadata()
+        .ok()
+        .map(|meta| FileStamp::from_metadata(&meta));
     let mut data = Vec::new();
     if file.seek(SeekFrom::Start(from)).is_err() || file.read_to_end(&mut data).is_err() {
         return unread(stamp);

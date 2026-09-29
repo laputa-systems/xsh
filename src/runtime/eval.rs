@@ -2132,7 +2132,10 @@ impl LoweredStatsValue {
     pub(in crate::runtime::eval) fn to_record_vec(&self) -> Vec<(Name, LoweredValue)> {
         vec![
             (Name::intern("blanks"), LoweredValue::Int(self.blanks)),
-            (Name::intern("blobs"), LoweredValue::Map(Arc::new(self.blobs.clone()))),
+            (
+                Name::intern("blobs"),
+                LoweredValue::Map(Arc::new(self.blobs.clone())),
+            ),
             (Name::intern("code"), LoweredValue::Int(self.code)),
             (Name::intern("comments"), LoweredValue::Int(self.comments)),
         ]
@@ -2185,7 +2188,10 @@ pub(in crate::runtime::eval) fn lowered_inline_stats_to_record_vec(
 ) -> Vec<(Name, LoweredValue)> {
     vec![
         (Name::intern("blanks"), LoweredValue::Int(blanks)),
-        (Name::intern("blobs"), LoweredValue::Map(Arc::new(BTreeMap::new()))),
+        (
+            Name::intern("blobs"),
+            LoweredValue::Map(Arc::new(BTreeMap::new())),
+        ),
         (Name::intern("code"), LoweredValue::Int(code)),
         (Name::intern("comments"), LoweredValue::Int(comments)),
     ]
@@ -3005,7 +3011,9 @@ impl Evaluator {
             scope_ids: vec![0],
             next_runtime_scope_id: 1,
             signal_state: EvaluatorSignalState::default(),
-            frame_scratch: crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(),
+            frame_scratch:
+                crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
+                ),
             script_producers: Vec::new(),
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),
@@ -3169,7 +3177,9 @@ impl Evaluator {
             scope_ids: (0..shared.scopes.len() as u64).collect(),
             next_runtime_scope_id: shared.scopes.len() as u64,
             signal_state: EvaluatorSignalState::default(),
-            frame_scratch: crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(),
+            frame_scratch:
+                crate::runtime::eval::lowered_run::indexed_run::explicit_run::FrameScratch::default(
+                ),
             script_producers: Vec::new(),
             #[cfg(feature = "native-tests")]
             test_mocks: FxHashMap::default(),

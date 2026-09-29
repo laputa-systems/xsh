@@ -212,12 +212,16 @@ mod tests {
 
     #[test]
     fn meminfo_parser_reports_errors_in_file_then_field_order() {
-        let malformed = include_str!("../../../../tests/fixtures/stdlib/meminfo/malformed_unreported.txt");
-        let error = parse_meminfo(malformed, span()).err().expect("malformed value");
+        let malformed =
+            include_str!("../../../../tests/fixtures/stdlib/meminfo/malformed_unreported.txt");
+        let error = parse_meminfo(malformed, span())
+            .err()
+            .expect("malformed value");
         assert_eq!(error.kind, "linux-meminfo");
         assert!(error.message.contains("invalid numeric value"));
 
-        let missing = include_str!("../../../../tests/fixtures/stdlib/meminfo/missing_available.txt");
+        let missing =
+            include_str!("../../../../tests/fixtures/stdlib/meminfo/missing_available.txt");
         let error = parse_meminfo(missing, span()).err().expect("missing value");
         assert_eq!(error.kind, "linux-meminfo");
         assert!(error.message.contains("MemAvailable"));
@@ -225,7 +229,8 @@ mod tests {
 
     #[test]
     fn meminfo_parser_rejects_non_decimal_field_spellings() {
-        let spellings = include_str!("../../../../tests/fixtures/stdlib/integers/field_spellings.txt");
+        let spellings =
+            include_str!("../../../../tests/fixtures/stdlib/integers/field_spellings.txt");
         for row in spellings.lines().filter(|line| !line.starts_with('#')) {
             let (spelling, expected) = row.split_once('\t').expect("fixture row");
             if spelling.trim() != spelling || spelling.is_empty() {
@@ -248,28 +253,55 @@ mod tests {
         let rows = include_str!("../../../../tests/fixtures/stdlib/modules/rows.txt");
         let mut rows = rows.lines().filter(|line| !line.trim().is_empty());
         let first = parse_module_line(rows.next().expect("first row"), span()).expect("valid row");
-        let Value::Record(record) = first else { panic!("module row record") };
+        let Value::Record(record) = first else {
+            panic!("module row record")
+        };
         assert_eq!(record.get("name"), Some(&Value::Str("core".into())));
         assert_eq!(record.get("size"), Some(&Value::Int(4096)));
         assert_eq!(
             record.get("used_by"),
-            Some(&Value::List(vec![Value::Str("dep_a".into()), Value::Str("dep_b".into())]))
+            Some(&Value::List(vec![
+                Value::Str("dep_a".into()),
+                Value::Str("dep_b".into())
+            ]))
         );
-        let second = parse_module_line(rows.next().expect("second row"), span()).expect("valid row");
-        let Value::Record(record) = second else { panic!("module row record") };
+        let second =
+            parse_module_line(rows.next().expect("second row"), span()).expect("valid row");
+        let Value::Record(record) = second else {
+            panic!("module row record")
+        };
         assert_eq!(record.get("used_by"), Some(&Value::List(vec![])));
         let third = parse_module_line(rows.next().expect("third row"), span()).expect("valid row");
-        let Value::Record(record) = third else { panic!("module row record") };
+        let Value::Record(record) = third else {
+            panic!("module row record")
+        };
         assert_eq!(record.get("name"), Some(&Value::Str("dep_b".into())));
-        assert_eq!(record.get("used_by"), Some(&Value::List(vec![Value::Str("core".into())])));
+        assert_eq!(
+            record.get("used_by"),
+            Some(&Value::List(vec![Value::Str("core".into())]))
+        );
 
         for (fixture, message) in [
-            (include_str!("../../../../tests/fixtures/stdlib/modules/missing_size.txt"), "size"),
-            (include_str!("../../../../tests/fixtures/stdlib/modules/malformed_size.txt"), "size"),
-            (include_str!("../../../../tests/fixtures/stdlib/modules/missing_use_count.txt"), "use count"),
-            (include_str!("../../../../tests/fixtures/stdlib/modules/short_row.txt"), "malformed"),
+            (
+                include_str!("../../../../tests/fixtures/stdlib/modules/missing_size.txt"),
+                "size",
+            ),
+            (
+                include_str!("../../../../tests/fixtures/stdlib/modules/malformed_size.txt"),
+                "size",
+            ),
+            (
+                include_str!("../../../../tests/fixtures/stdlib/modules/missing_use_count.txt"),
+                "use count",
+            ),
+            (
+                include_str!("../../../../tests/fixtures/stdlib/modules/short_row.txt"),
+                "malformed",
+            ),
         ] {
-            let error = parse_module_line(fixture.trim_end(), span()).err().expect("bad row");
+            let error = parse_module_line(fixture.trim_end(), span())
+                .err()
+                .expect("bad row");
             assert_eq!(error.kind, "linux-modules");
             assert!(error.message.contains(message), "{error:?}");
         }

@@ -111,7 +111,9 @@ impl DumpAccumulator {
 
     fn push_datagram(&mut self, bytes: &[u8]) -> Result<(), DumpError> {
         if self.complete {
-            return Err(DumpError::Malformed("data arrived after the dump terminator"));
+            return Err(DumpError::Malformed(
+                "data arrived after the dump terminator",
+            ));
         }
         self.datagram_count += 1;
         self.byte_count = self
@@ -129,7 +131,9 @@ impl DumpAccumulator {
                 if remaining.iter().all(|byte| *byte == 0) {
                     break;
                 }
-                return Err(DumpError::Malformed("data followed the netlink dump terminator"));
+                return Err(DumpError::Malformed(
+                    "data followed the netlink dump terminator",
+                ));
             }
             if remaining.len() < NLMSG_HEADER_LEN {
                 if remaining.iter().all(|byte| *byte == 0) {
@@ -152,10 +156,14 @@ impl DumpAccumulator {
             let port = read_u32(remaining, 12)
                 .ok_or(DumpError::Malformed("netlink port id is missing"))?;
             if sequence != self.sequence {
-                return Err(DumpError::Malformed("netlink response sequence does not match"));
+                return Err(DumpError::Malformed(
+                    "netlink response sequence does not match",
+                ));
             }
             if port != self.local_port {
-                return Err(DumpError::Malformed("netlink response port id does not match"));
+                return Err(DumpError::Malformed(
+                    "netlink response port id does not match",
+                ));
             }
             if flags & NLM_F_DUMP_INTR != 0 {
                 self.interrupted = true;
@@ -169,18 +177,23 @@ impl DumpAccumulator {
             match message_type {
                 NLMSG_NOOP => {}
                 NLMSG_OVERRUN => {
-                    return Err(DumpError::Truncated("kernel reported a netlink receive overrun"));
+                    return Err(DumpError::Truncated(
+                        "kernel reported a netlink receive overrun",
+                    ));
                 }
                 NLMSG_ERROR => {
                     if payload.len() < 20 {
-                        return Err(DumpError::Malformed("netlink error acknowledgment is truncated"));
+                        return Err(DumpError::Malformed(
+                            "netlink error acknowledgment is truncated",
+                        ));
                     }
                     let error = read_i32(payload, 0)
                         .ok_or(DumpError::Malformed("netlink error payload is truncated"))?;
                     let request_type = read_u16(payload, 8)
                         .ok_or(DumpError::Malformed("acknowledged request type is missing"))?;
-                    let request_sequence = read_u32(payload, 12)
-                        .ok_or(DumpError::Malformed("acknowledged request sequence is missing"))?;
+                    let request_sequence = read_u32(payload, 12).ok_or(DumpError::Malformed(
+                        "acknowledged request sequence is missing",
+                    ))?;
                     let request_port = read_u32(payload, 16)
                         .ok_or(DumpError::Malformed("acknowledged request port is missing"))?;
                     if request_type != self.request_type
@@ -230,12 +243,15 @@ impl DumpAccumulator {
                         payload: payload.to_vec(),
                     });
                 }
-                _ => return Err(DumpError::Malformed("unexpected message type in netlink dump")),
+                _ => {
+                    return Err(DumpError::Malformed(
+                        "unexpected message type in netlink dump",
+                    ));
+                }
             }
 
-            let aligned = align4(length).ok_or(DumpError::Malformed(
-                "netlink message alignment overflowed",
-            ))?;
+            let aligned = align4(length)
+                .ok_or(DumpError::Malformed("netlink message alignment overflowed"))?;
             if aligned > remaining.len() {
                 if length == remaining.len() {
                     cursor = bytes.len();
@@ -387,7 +403,9 @@ impl DumpError {
             Self::Limit(_) => "limited",
             Self::Truncated(_) => "truncated",
             Self::Interrupted => "interrupted",
-            Self::Kernel(error) | Self::Io(error) if error.kind() == io::ErrorKind::PermissionDenied => {
+            Self::Kernel(error) | Self::Io(error)
+                if error.kind() == io::ErrorKind::PermissionDenied =>
+            {
                 "permission_denied"
             }
             Self::Kernel(error) | Self::Io(error)
@@ -451,15 +469,17 @@ impl Snapshot {
         } else if self.successful_dumps > 0 {
             "partial"
         } else {
-            self.issues.first().map_or("failed", |issue| match issue.state.as_str() {
-                "permission_denied" => "permission_denied",
-                "unsupported" => "unsupported",
-                "malformed" => "malformed",
-                "truncated" => "truncated",
-                "limited" => "limited",
-                "interrupted" => "interrupted",
-                _ => "failed",
-            })
+            self.issues
+                .first()
+                .map_or("failed", |issue| match issue.state.as_str() {
+                    "permission_denied" => "permission_denied",
+                    "unsupported" => "unsupported",
+                    "malformed" => "malformed",
+                    "truncated" => "truncated",
+                    "limited" => "limited",
+                    "interrupted" => "interrupted",
+                    _ => "failed",
+                })
         }
     }
 
@@ -473,7 +493,8 @@ impl Snapshot {
                         if counter.is_some_and(|counter| counter > MAX_JSON_SAFE_INT) {
                             self.issues.push(NetworkIssue {
                                 object: format!("links.{}.{}", value.ifindex, field),
-                                message: "network counter exceeds the exact JSON integer range".to_owned(),
+                                message: "network counter exceeds the exact JSON integer range"
+                                    .to_owned(),
                                 state: "range_failure".to_owned(),
                                 errno: None,
                                 error_kind: "integer_out_of_range".to_owned(),
@@ -643,13 +664,17 @@ fn collect_dump_attempt_recorded(
         let (received, datagram_len, sender) = recvfrom(socket, &mut buffer[..], RecvFlags::TRUNC)
             .map_err(|error| DumpError::Io(io::Error::from(error)))?;
         if datagram_len > buffer.len() {
-            return Err(DumpError::Truncated("kernel netlink datagram was truncated"));
+            return Err(DumpError::Truncated(
+                "kernel netlink datagram was truncated",
+            ));
         }
         let sender = sender.ok_or(DumpError::Malformed("netlink sender address is missing"))?;
         let sender = SocketAddrNetlink::try_from(sender)
             .map_err(|_| DumpError::Malformed("netlink sender address has the wrong family"))?;
         if sender.pid() != 0 || sender.groups() != 0 {
-            return Err(DumpError::Malformed("netlink response sender is not the kernel"));
+            return Err(DumpError::Malformed(
+                "netlink response sender is not the kernel",
+            ));
         }
         accumulator.push_datagram(&buffer[..received])?;
         record(&buffer[..received]);
@@ -951,8 +976,14 @@ fn link_value(link: Link) -> Value {
         ("mtu", optional_int(link.mtu.map(i64::from))),
         ("address", optional_bytes(link.address)),
         ("broadcast", optional_bytes(link.broadcast)),
-        ("master_ifindex", optional_int(link.master_ifindex.map(i64::from))),
-        ("lower_ifindex", optional_int(link.lower_ifindex.map(i64::from))),
+        (
+            "master_ifindex",
+            optional_int(link.master_ifindex.map(i64::from)),
+        ),
+        (
+            "lower_ifindex",
+            optional_int(link.lower_ifindex.map(i64::from)),
+        ),
         ("operstate", optional_int(link.operstate.map(i64::from))),
         ("kind", optional_text(link.kind.as_deref())),
         (
@@ -979,15 +1010,24 @@ fn address_value(address: Address) -> Value {
     record([
         ("ifindex", Value::Int(i64::from(address.ifindex))),
         ("family", str_value(family_name(address.family))),
-        ("prefix_length", Value::Int(i64::from(address.prefix_length))),
+        (
+            "prefix_length",
+            Value::Int(i64::from(address.prefix_length)),
+        ),
         ("scope", Value::Int(i64::from(address.scope))),
         ("flags", Value::Int(i64::from(address.flags))),
         ("address", optional_ip(address.family, address.address)),
         ("local", optional_ip(address.family, address.local)),
         ("broadcast", optional_ip(address.family, address.broadcast)),
         ("label", optional_text(address.label.as_deref())),
-        ("preferred_lifetime_seconds", optional_int(address.preferred_lifetime.map(i64::from))),
-        ("valid_lifetime_seconds", optional_int(address.valid_lifetime.map(i64::from))),
+        (
+            "preferred_lifetime_seconds",
+            optional_int(address.preferred_lifetime.map(i64::from)),
+        ),
+        (
+            "valid_lifetime_seconds",
+            optional_int(address.valid_lifetime.map(i64::from)),
+        ),
         ("attributes", attributes_value(address.attributes)),
     ])
 }
@@ -1008,14 +1048,29 @@ fn route_value(route: Route) -> Value {
         .collect();
     record([
         ("family", str_value(family_name(route.family))),
-        ("destination_prefix_length", Value::Int(i64::from(route.destination_length))),
-        ("source_prefix_length", Value::Int(i64::from(route.source_length))),
+        (
+            "destination_prefix_length",
+            Value::Int(i64::from(route.destination_length)),
+        ),
+        (
+            "source_prefix_length",
+            Value::Int(i64::from(route.source_length)),
+        ),
         ("destination", optional_ip(route.family, route.destination)),
         ("source", optional_ip(route.family, route.source)),
         ("gateway", optional_ip(route.family, route.gateway)),
-        ("preferred_source", optional_ip(route.family, route.preferred_source)),
-        ("output_ifindex", optional_int(route.output_ifindex.map(i64::from))),
-        ("input_ifindex", optional_int(route.input_ifindex.map(i64::from))),
+        (
+            "preferred_source",
+            optional_ip(route.family, route.preferred_source),
+        ),
+        (
+            "output_ifindex",
+            optional_int(route.output_ifindex.map(i64::from)),
+        ),
+        (
+            "input_ifindex",
+            optional_int(route.input_ifindex.map(i64::from)),
+        ),
         ("table", Value::Int(i64::from(route.table))),
         ("priority", optional_int(route.priority.map(i64::from))),
         ("route_type", Value::Int(i64::from(route.route_type))),
@@ -1030,8 +1085,14 @@ fn route_value(route: Route) -> Value {
 fn rule_value(rule: Rule) -> Value {
     record([
         ("family", str_value(family_name(rule.family))),
-        ("destination_prefix_length", Value::Int(i64::from(rule.destination_length))),
-        ("source_prefix_length", Value::Int(i64::from(rule.source_length))),
+        (
+            "destination_prefix_length",
+            Value::Int(i64::from(rule.destination_length)),
+        ),
+        (
+            "source_prefix_length",
+            Value::Int(i64::from(rule.source_length)),
+        ),
         ("destination", optional_ip(rule.family, rule.destination)),
         ("source", optional_ip(rule.family, rule.source)),
         ("input_name", optional_text(rule.input_name.as_deref())),
@@ -1094,7 +1155,10 @@ fn str_value(value: impl Into<Arc<str>>) -> Value {
 }
 
 fn text_bytes(bytes: &[u8]) -> Result<String, std::str::Utf8Error> {
-    let end = bytes.iter().position(|byte| *byte == 0).unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(bytes.len());
     std::str::from_utf8(&bytes[..end]).map(str::to_owned)
 }
 
@@ -1110,7 +1174,9 @@ fn family_name(value: u8) -> String {
 
 fn ip_text(family: u8, bytes: &[u8]) -> Option<String> {
     match family as i32 {
-        libc::AF_INET if bytes.len() == 4 => Some(Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]).to_string()),
+        libc::AF_INET if bytes.len() == 4 => {
+            Some(Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]).to_string())
+        }
         libc::AF_INET6 if bytes.len() == 16 => {
             let raw: [u8; 16] = bytes.try_into().ok()?;
             Some(Ipv6Addr::from(raw).to_string())
@@ -1147,19 +1213,27 @@ fn align4(value: usize) -> Option<usize> {
 }
 
 fn read_u16(bytes: &[u8], offset: usize) -> Option<u16> {
-    Some(u16::from_ne_bytes(bytes.get(offset..offset.checked_add(2)?)?.try_into().ok()?))
+    Some(u16::from_ne_bytes(
+        bytes.get(offset..offset.checked_add(2)?)?.try_into().ok()?,
+    ))
 }
 
 fn read_u32(bytes: &[u8], offset: usize) -> Option<u32> {
-    Some(u32::from_ne_bytes(bytes.get(offset..offset.checked_add(4)?)?.try_into().ok()?))
+    Some(u32::from_ne_bytes(
+        bytes.get(offset..offset.checked_add(4)?)?.try_into().ok()?,
+    ))
 }
 
 fn read_i32(bytes: &[u8], offset: usize) -> Option<i32> {
-    Some(i32::from_ne_bytes(bytes.get(offset..offset.checked_add(4)?)?.try_into().ok()?))
+    Some(i32::from_ne_bytes(
+        bytes.get(offset..offset.checked_add(4)?)?.try_into().ok()?,
+    ))
 }
 
 fn read_u64(bytes: &[u8], offset: usize) -> Option<u64> {
-    Some(u64::from_ne_bytes(bytes.get(offset..offset.checked_add(8)?)?.try_into().ok()?))
+    Some(u64::from_ne_bytes(
+        bytes.get(offset..offset.checked_add(8)?)?.try_into().ok()?,
+    ))
 }
 
 #[cfg(test)]
@@ -1223,7 +1297,10 @@ mod tests {
                 for (index, (key, value)) in fields.iter().enumerate() {
                     assert!(
                         key.starts_with(|character: char| character.is_ascii_alphabetic())
-                            && key.chars().all(|character| character.is_ascii_alphanumeric() || character == '_'),
+                            && key
+                                .chars()
+                                .all(|character| character.is_ascii_alphanumeric()
+                                    || character == '_'),
                         "netlink record key is not an XSH identifier"
                     );
                     if index != 0 {
@@ -1235,7 +1312,10 @@ mod tests {
                 }
                 source.push('}');
             }
-            other => panic!("netlink snapshot contains unsupported XSH value: {}", other.type_name()),
+            other => panic!(
+                "netlink snapshot contains unsupported XSH value: {}",
+                other.type_name()
+            ),
         }
     }
 
@@ -1246,10 +1326,16 @@ mod tests {
         let expected_links = snapshot.links.len();
         let expected_routes = snapshot.routes.len();
         let expected_rules = snapshot.rules.len();
-        let mut expected_output = format!("true {expected_links} {expected_routes} {expected_rules}\n");
+        let mut expected_output =
+            format!("true {expected_links} {expected_routes} {expected_rules}\n");
         for link in &snapshot.links {
-            let address_count = snapshot.addresses.iter().filter(|address| Some(address.ifindex) == u32::try_from(link.ifindex).ok()).count();
-            writeln!(expected_output, "{} {address_count}", link.ifindex).expect("write expected link identity");
+            let address_count = snapshot
+                .addresses
+                .iter()
+                .filter(|address| Some(address.ifindex) == u32::try_from(link.ifindex).ok())
+                .count();
+            writeln!(expected_output, "{} {address_count}", link.ifindex)
+                .expect("write expected link identity");
         }
         let mut source = String::from(
             "use core.lib.system_report as report_model\n\
@@ -1276,14 +1362,19 @@ proc main() [fs, error, io] {\n\
             .mode(0o600)
             .open(&script)
             .expect("create private XSH replay script");
-        file.write_all(source.as_bytes()).expect("write XSH replay script");
+        file.write_all(source.as_bytes())
+            .expect("write XSH replay script");
         let output = std::process::Command::new(binary)
             .arg(&script)
             .current_dir(env!("CARGO_MANIFEST_DIR"))
             .env("XSH_MODULE_PATH", env!("CARGO_MANIFEST_DIR"))
             .output()
             .expect("run XSH network assembly");
-        assert!(output.status.success(), "XSH network assembly failed: {}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "XSH network assembly failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert_eq!(
             String::from_utf8(output.stdout).expect("UTF-8 XSH assembly output"),
             expected_output,
@@ -1292,18 +1383,29 @@ proc main() [fs, error, io] {\n\
     }
 
     fn dump_kinds() -> [DumpKind; 4] {
-        [DumpKind::Links, DumpKind::Addresses, DumpKind::Routes, DumpKind::Rules]
+        [
+            DumpKind::Links,
+            DumpKind::Addresses,
+            DumpKind::Routes,
+            DumpKind::Rules,
+        ]
     }
 
     fn take_bytes<'a>(bytes: &'a [u8], cursor: &mut usize, len: usize) -> Result<&'a [u8], String> {
-        let end = (*cursor).checked_add(len).ok_or("raw reply offset overflowed")?;
-        let item = bytes.get(*cursor..end).ok_or("raw reply bundle is truncated")?;
+        let end = (*cursor)
+            .checked_add(len)
+            .ok_or("raw reply offset overflowed")?;
+        let item = bytes
+            .get(*cursor..end)
+            .ok_or("raw reply bundle is truncated")?;
         *cursor = end;
         Ok(item)
     }
 
     fn take_u32(bytes: &[u8], cursor: &mut usize) -> Result<u32, String> {
-        let raw: [u8; 4] = take_bytes(bytes, cursor, 4)?.try_into().expect("four bytes");
+        let raw: [u8; 4] = take_bytes(bytes, cursor, 4)?
+            .try_into()
+            .expect("four bytes");
         Ok(u32::from_le_bytes(raw))
     }
 
@@ -1311,7 +1413,11 @@ proc main() [fs, error, io] {\n\
         assert_eq!(dumps.len(), 4);
         let mut bytes = Vec::new();
         bytes.extend_from_slice(RAW_REPLY_MAGIC);
-        bytes.push(if cfg!(target_endian = "little") { b'L' } else { b'B' });
+        bytes.push(if cfg!(target_endian = "little") {
+            b'L'
+        } else {
+            b'B'
+        });
         bytes.push(match origin {
             "synthetic" => 0,
             "container_live" => 1,
@@ -1327,13 +1433,24 @@ proc main() [fs, error, io] {\n\
             bytes.push(u8::try_from(index).expect("four dump kinds"));
             bytes.extend_from_slice(&dump.sequence.to_le_bytes());
             bytes.extend_from_slice(&dump.local_port.to_le_bytes());
-            bytes.extend_from_slice(&u32::try_from(dump.datagrams.len()).expect("bounded datagrams").to_le_bytes());
+            bytes.extend_from_slice(
+                &u32::try_from(dump.datagrams.len())
+                    .expect("bounded datagrams")
+                    .to_le_bytes(),
+            );
             for datagram in &dump.datagrams {
-                bytes.extend_from_slice(&u32::try_from(datagram.len()).expect("bounded datagram length").to_le_bytes());
+                bytes.extend_from_slice(
+                    &u32::try_from(datagram.len())
+                        .expect("bounded datagram length")
+                        .to_le_bytes(),
+                );
                 bytes.extend_from_slice(datagram);
             }
         }
-        assert!(bytes.len() <= RAW_REPLY_MAX_BYTES - 32, "raw reply bundle exceeds its size limit");
+        assert!(
+            bytes.len() <= RAW_REPLY_MAX_BYTES - 32,
+            "raw reply bundle exceeds its size limit"
+        );
         let digest = Sha256::digest(&bytes);
         bytes.extend_from_slice(&digest);
         bytes
@@ -1351,7 +1468,11 @@ proc main() [fs, error, io] {\n\
         if take_bytes(body, &mut cursor, 8)? != RAW_REPLY_MAGIC.as_slice() {
             return Err("raw reply bundle version is unsupported".to_owned());
         }
-        let endian = if cfg!(target_endian = "little") { b'L' } else { b'B' };
+        let endian = if cfg!(target_endian = "little") {
+            b'L'
+        } else {
+            b'B'
+        };
         if take_bytes(body, &mut cursor, 1)? != &[endian][..] {
             return Err("raw reply bundle has a different native byte order".to_owned());
         }
@@ -1362,7 +1483,9 @@ proc main() [fs, error, io] {\n\
             _ => return Err("raw reply origin is invalid".to_owned()),
         };
         let captured_unix_ms = u64::from_le_bytes(
-            take_bytes(body, &mut cursor, 8)?.try_into().expect("eight bytes"),
+            take_bytes(body, &mut cursor, 8)?
+                .try_into()
+                .expect("eight bytes"),
         );
         let architecture_len = usize::from(take_bytes(body, &mut cursor, 1)?[0]);
         if take_bytes(body, &mut cursor, architecture_len)? != std::env::consts::ARCH.as_bytes() {
@@ -1375,18 +1498,27 @@ proc main() [fs, error, io] {\n\
             }
             let sequence = take_u32(body, &mut cursor)?;
             let local_port = take_u32(body, &mut cursor)?;
-            let count = usize::try_from(take_u32(body, &mut cursor)?).map_err(|error| error.to_string())?;
+            let count =
+                usize::try_from(take_u32(body, &mut cursor)?).map_err(|error| error.to_string())?;
             if count == 0 || count > MAX_DUMP_DATAGRAMS {
                 return Err("raw reply datagram count is invalid".to_owned());
             }
-            let mut accumulator = DumpAccumulator::new(sequence, local_port, kind.request_type(), kind.response_type());
+            let mut accumulator = DumpAccumulator::new(
+                sequence,
+                local_port,
+                kind.request_type(),
+                kind.response_type(),
+            );
             for _ in 0..count {
-                let length = usize::try_from(take_u32(body, &mut cursor)?).map_err(|error| error.to_string())?;
+                let length = usize::try_from(take_u32(body, &mut cursor)?)
+                    .map_err(|error| error.to_string())?;
                 if length == 0 || length > MAX_DATAGRAM_BYTES {
                     return Err("raw reply datagram length is invalid".to_owned());
                 }
                 let datagram = take_bytes(body, &mut cursor, length)?;
-                accumulator.push_datagram(datagram).map_err(|error| error.to_string())?;
+                accumulator
+                    .push_datagram(datagram)
+                    .map_err(|error| error.to_string())?;
             }
             if !accumulator.complete || accumulator.interrupted {
                 return Err("raw reply dump did not finish cleanly".to_owned());
@@ -1397,7 +1529,11 @@ proc main() [fs, error, io] {\n\
         if cursor != body.len() {
             return Err("raw reply bundle has trailing bytes".to_owned());
         }
-        Ok(RawReplyReplay { origin, captured_unix_ms, snapshot })
+        Ok(RawReplyReplay {
+            origin,
+            captured_unix_ms,
+            snapshot,
+        })
     }
 
     fn append_message(
@@ -1454,7 +1590,14 @@ proc main() [fs, error, io] {\n\
             } else {
                 payload[0] = libc::AF_INET as u8;
             }
-            append_message(&mut item, kind.response_type(), NLM_F_MULTI, sequence, 91, &payload);
+            append_message(
+                &mut item,
+                kind.response_type(),
+                NLM_F_MULTI,
+                sequence,
+                91,
+                &payload,
+            );
             let mut done = Vec::new();
             append_message(&mut done, NLMSG_DONE, 0, sequence, 91, &0_i32.to_ne_bytes());
             dumps.push(RawDump {
@@ -1481,7 +1624,11 @@ proc main() [fs, error, io] {\n\
         let digest_offset = reframed.len() - 32;
         let digest = Sha256::digest(&reframed[..digest_offset]);
         reframed[digest_offset..].copy_from_slice(&digest);
-        assert!(replay_raw_replies(&reframed).unwrap_err().contains("sequence"));
+        assert!(
+            replay_raw_replies(&reframed)
+                .unwrap_err()
+                .contains("sequence")
+        );
 
         let tamper_offset = encoded.len() - 33;
         encoded[tamper_offset] ^= 1;
@@ -1493,7 +1640,10 @@ proc main() [fs, error, io] {\n\
     fn live_raw_reply_capture_or_replay_uses_the_network_decoder() {
         let capture = std::env::var_os("XSH_NETLINK_CAPTURE_DIR");
         let replay = std::env::var_os("XSH_NETLINK_REPLAY_DIR");
-        assert!(capture.is_some() ^ replay.is_some(), "set exactly one raw reply bundle directory");
+        assert!(
+            capture.is_some() ^ replay.is_some(),
+            "set exactly one raw reply bundle directory"
+        );
         if let Some(directory) = replay {
             let file = std::fs::File::open(std::path::Path::new(&directory).join("replies.bin"))
                 .expect("open saved raw replies");
@@ -1503,18 +1653,34 @@ proc main() [fs, error, io] {\n\
                 .expect("read bounded raw replies");
             let replay = replay_raw_replies(&bytes).expect("replay saved raw replies");
             assert_eq!(replay.snapshot.successful_dumps, 4);
-            println!("raw netlink replay: origin={}, captured={} ms, state={}, links={}, addresses={}, routes={}, rules={}",
-                replay.origin, replay.captured_unix_ms, replay.snapshot.state(), replay.snapshot.links.len(),
-                replay.snapshot.addresses.len(), replay.snapshot.routes.len(), replay.snapshot.rules.len());
+            println!(
+                "raw netlink replay: origin={}, captured={} ms, state={}, links={}, addresses={}, routes={}, rules={}",
+                replay.origin,
+                replay.captured_unix_ms,
+                replay.snapshot.state(),
+                replay.snapshot.links.len(),
+                replay.snapshot.addresses.len(),
+                replay.snapshot.routes.len(),
+                replay.snapshot.rules.len()
+            );
             verify_xsh_network_assembly(replay.snapshot);
             return;
         }
 
-        let origin = std::env::var("XSH_NETLINK_CAPTURE_ORIGIN").unwrap_or_else(|_| "container_live".to_owned());
-        assert!(matches!(origin.as_str(), "container_live" | "physical_live"), "live capture origin is invalid");
+        let origin = std::env::var("XSH_NETLINK_CAPTURE_ORIGIN")
+            .unwrap_or_else(|_| "container_live".to_owned());
+        assert!(
+            matches!(origin.as_str(), "container_live" | "physical_live"),
+            "live capture origin is invalid"
+        );
 
-        let socket = socket_with(AddressFamily::NETLINK, SocketType::RAW, SocketFlags::CLOEXEC, None)
-            .expect("open route netlink socket");
+        let socket = socket_with(
+            AddressFamily::NETLINK,
+            SocketType::RAW,
+            SocketFlags::CLOEXEC,
+            None,
+        )
+        .expect("open route netlink socket");
         bind(&socket, &SocketAddrNetlink::new(0, 0)).expect("bind route netlink socket");
         let local = rustix::net::getsockname(&socket).expect("read local netlink port");
         let local = SocketAddrNetlink::try_from(local).expect("local route netlink address");
@@ -1543,7 +1709,12 @@ proc main() [fs, error, io] {\n\
             let messages = messages.expect("at least one netlink dump attempt");
             live.successful_dumps += 1;
             live.add_messages(kind, &messages);
-            dumps.push(RawDump { kind, sequence, local_port: local.pid(), datagrams });
+            dumps.push(RawDump {
+                kind,
+                sequence,
+                local_port: local.pid(),
+                datagrams,
+            });
         }
         let captured_unix_ms = u64::try_from(
             std::time::SystemTime::now()
@@ -1559,7 +1730,9 @@ proc main() [fs, error, io] {\n\
         let directory = std::path::PathBuf::from(capture.expect("capture directory"));
         let mut builder = std::fs::DirBuilder::new();
         builder.mode(0o700);
-        builder.create(&directory).expect("create new private raw reply directory");
+        builder
+            .create(&directory)
+            .expect("create new private raw reply directory");
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -1568,9 +1741,16 @@ proc main() [fs, error, io] {\n\
             .expect("create private raw reply file");
         file.write_all(&bytes).expect("save bounded raw replies");
         file.sync_all().expect("sync raw reply file");
-        println!("raw netlink capture: origin={}, captured={} ms, state={}, links={}, addresses={}, routes={}, rules={}",
-            decoded.origin, decoded.captured_unix_ms, live.state(), live.links.len(), live.addresses.len(),
-            live.routes.len(), live.rules.len());
+        println!(
+            "raw netlink capture: origin={}, captured={} ms, state={}, links={}, addresses={}, routes={}, rules={}",
+            decoded.origin,
+            decoded.captured_unix_ms,
+            live.state(),
+            live.links.len(),
+            live.addresses.len(),
+            live.routes.len(),
+            live.rules.len()
+        );
         verify_xsh_network_assembly(decoded.snapshot);
     }
 
@@ -1629,12 +1809,22 @@ proc main() [fs, error, io] {\n\
         {
             let sequence = (index + 1) as u32;
             let mut item = Vec::new();
-            append_message(&mut item, kind.response_type(), NLM_F_MULTI, sequence, 91, &payload);
+            append_message(
+                &mut item,
+                kind.response_type(),
+                NLM_F_MULTI,
+                sequence,
+                91,
+                &payload,
+            );
             let mut done = Vec::new();
             append_message(&mut done, NLMSG_DONE, 0, sequence, 91, &0_i32.to_ne_bytes());
-            let mut accumulator = DumpAccumulator::new(sequence, 91, kind.request_type(), kind.response_type());
+            let mut accumulator =
+                DumpAccumulator::new(sequence, 91, kind.request_type(), kind.response_type());
             accumulator.push_datagram(&item).expect("multipart item");
-            accumulator.push_datagram(&done).expect("multipart terminator");
+            accumulator
+                .push_datagram(&done)
+                .expect("multipart terminator");
             assert!(accumulator.complete);
             assert!(!accumulator.interrupted);
             snapshot.successful_dumps += 1;
@@ -1644,16 +1834,27 @@ proc main() [fs, error, io] {\n\
         assert!(snapshot.issues.is_empty());
         assert_eq!(snapshot.links[0].ifindex, 4);
         assert_eq!(snapshot.links[0].mtu, Some(1500));
-        assert_eq!(snapshot.addresses[0].address.as_deref(), Some(&[192, 0, 2, 10][..]));
-        assert_eq!(snapshot.routes[0].destination.as_deref(), Some(&[192, 0, 2, 0][..]));
+        assert_eq!(
+            snapshot.addresses[0].address.as_deref(),
+            Some(&[192, 0, 2, 10][..])
+        );
+        assert_eq!(
+            snapshot.routes[0].destination.as_deref(),
+            Some(&[192, 0, 2, 0][..])
+        );
         assert_eq!(snapshot.routes[0].output_ifindex, Some(4));
         assert_eq!(snapshot.rules[0].priority, Some(100));
         assert_eq!(snapshot.rules[0].fwmark, Some(3));
         let Value::Record(value) = snapshot_value(snapshot) else {
             panic!("network dump must be a record");
         };
-        assert!(matches!(value.get("state"), Some(Value::Str(state)) if state.as_ref() == "complete"));
-        assert!(matches!(value.get("enumeration_succeeded"), Some(Value::Bool(true))));
+        assert!(
+            matches!(value.get("state"), Some(Value::Str(state)) if state.as_ref() == "complete")
+        );
+        assert!(matches!(
+            value.get("enumeration_succeeded"),
+            Some(Value::Bool(true))
+        ));
         for field in ["links", "addresses", "routes", "rules"] {
             assert!(matches!(value.get(field), Some(Value::List(rows)) if rows.len() == 1));
         }
@@ -1662,13 +1863,33 @@ proc main() [fs, error, io] {\n\
     #[test]
     fn dump_accumulator_rejects_bad_sequence_port_and_lengths() {
         for (sequence, port, payload, expected) in [
-            (8, 91, &[0_u8; 16][..], "netlink response sequence does not match"),
-            (7, 92, &[0_u8; 16][..], "netlink response port id does not match"),
+            (
+                8,
+                91,
+                &[0_u8; 16][..],
+                "netlink response sequence does not match",
+            ),
+            (
+                7,
+                92,
+                &[0_u8; 16][..],
+                "netlink response port id does not match",
+            ),
         ] {
             let mut state = accumulator();
             let mut datagram = Vec::new();
-            append_message(&mut datagram, RTM_NEWLINK, NLM_F_MULTI, sequence, port, payload);
-            assert_eq!(state.push_datagram(&datagram).unwrap_err().to_string(), expected);
+            append_message(
+                &mut datagram,
+                RTM_NEWLINK,
+                NLM_F_MULTI,
+                sequence,
+                port,
+                payload,
+            );
+            assert_eq!(
+                state.push_datagram(&datagram).unwrap_err().to_string(),
+                expected
+            );
         }
         let mut state = accumulator();
         assert!(state.push_datagram(&[8, 0, 0]).is_err());
@@ -1686,7 +1907,10 @@ proc main() [fs, error, io] {\n\
             91,
             &error_payload(-libc::EPERM, RTM_GETLINK, 7, 91),
         );
-        assert!(matches!(state.push_datagram(&error), Err(DumpError::Kernel(_))));
+        assert!(matches!(
+            state.push_datagram(&error),
+            Err(DumpError::Kernel(_))
+        ));
 
         let mut state = accumulator();
         let mut ack = Vec::new();
@@ -1723,7 +1947,9 @@ proc main() [fs, error, io] {\n\
             91,
             &[0; 16],
         );
-        state.push_datagram(&interrupted).expect("parse interrupted item");
+        state
+            .push_datagram(&interrupted)
+            .expect("parse interrupted item");
         assert!(state.interrupted);
     }
 
@@ -1754,7 +1980,14 @@ proc main() [fs, error, io] {\n\
 
         let mut state = accumulator();
         let mut positive_done = Vec::new();
-        append_message(&mut positive_done, NLMSG_DONE, 0, 7, 91, &1_i32.to_ne_bytes());
+        append_message(
+            &mut positive_done,
+            NLMSG_DONE,
+            0,
+            7,
+            91,
+            &1_i32.to_ne_bytes(),
+        );
         assert!(matches!(
             state.push_datagram(&positive_done),
             Err(DumpError::Malformed(_))
@@ -1782,9 +2015,7 @@ proc main() [fs, error, io] {\n\
                 NetlinkMessage {
                     payload: vec![0; 2],
                 },
-                NetlinkMessage {
-                    payload: valid,
-                },
+                NetlinkMessage { payload: valid },
             ],
         );
         assert_eq!(dump.links.len(), 1);
@@ -1816,7 +2047,10 @@ proc main() [fs, error, io] {\n\
         );
         assert_eq!(snapshot.addresses.len(), 1);
         assert_eq!(snapshot.addresses[0].ifindex, 3);
-        assert_eq!(snapshot.addresses[0].address.as_deref(), Some(&[192, 0, 2, 2][..]));
+        assert_eq!(
+            snapshot.addresses[0].address.as_deref(),
+            Some(&[192, 0, 2, 2][..])
+        );
         assert_eq!(snapshot.issues.len(), 1);
         assert_eq!(snapshot.issues[0].object, "address");
         assert_eq!(snapshot.issues[0].state, "malformed");
@@ -1881,7 +2115,10 @@ proc main() [fs, error, io] {\n\
             value.get("state"),
             Some(Value::Str(state)) if state.as_ref() == "partial"
         ));
-        assert!(matches!(value.get("enumeration_succeeded"), Some(Value::Bool(true))));
+        assert!(matches!(
+            value.get("enumeration_succeeded"),
+            Some(Value::Bool(true))
+        ));
 
         let Value::Record(value) = snapshot_value(Snapshot {
             successful_dumps: 3,
@@ -1889,7 +2126,10 @@ proc main() [fs, error, io] {\n\
         }) else {
             panic!("network dump must be a record");
         };
-        assert!(matches!(value.get("enumeration_succeeded"), Some(Value::Bool(false))));
+        assert!(matches!(
+            value.get("enumeration_succeeded"),
+            Some(Value::Bool(false))
+        ));
     }
 
     #[test]
@@ -1900,12 +2140,19 @@ proc main() [fs, error, io] {\n\
         };
         snapshot.add_messages(
             DumpKind::Addresses,
-            &[NetlinkMessage { payload: vec![0_u8; 3] }],
+            &[NetlinkMessage {
+                payload: vec![0_u8; 3],
+            }],
         );
         let Value::Record(value) = snapshot_value(snapshot) else {
             panic!("network dump must be a record");
         };
-        assert!(matches!(value.get("state"), Some(Value::Str(state)) if state.as_ref() == "partial"));
-        assert!(matches!(value.get("enumeration_succeeded"), Some(Value::Bool(false))));
+        assert!(
+            matches!(value.get("state"), Some(Value::Str(state)) if state.as_ref() == "partial")
+        );
+        assert!(matches!(
+            value.get("enumeration_succeeded"),
+            Some(Value::Bool(false))
+        ));
     }
 }

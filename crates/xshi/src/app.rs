@@ -115,8 +115,13 @@ fn login_shell_argv0() -> bool {
 enum Command {
     Help,
     Version,
-    Run { config: ConfigChoice },
-    Eval { source: String, config: ConfigChoice },
+    Run {
+        config: ConfigChoice,
+    },
+    Eval {
+        source: String,
+        config: ConfigChoice,
+    },
     Refuse,
 }
 

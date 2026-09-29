@@ -78,7 +78,9 @@ fn scan_word(bytes: &[u8], mut i: usize) -> usize {
                 while i < bytes.len() && bytes[i] != b'"' {
                     match bytes[i] {
                         b'\\' => i = (i + 2).min(bytes.len()),
-                        b'$' if bytes.get(i + 1) == Some(&b'(') => i = scan_substitution(bytes, i + 1),
+                        b'$' if bytes.get(i + 1) == Some(&b'(') => {
+                            i = scan_substitution(bytes, i + 1)
+                        }
                         b'`' => i = scan_backtick(bytes, i),
                         _ => i += 1,
                     }
@@ -138,7 +140,10 @@ mod tests {
     fn set_get_and_override() {
         let mut aliases = AliasMap::default();
         aliases.set("ll".into(), vec!["ls".into(), "-l".into()]);
-        assert_eq!(aliases.get("ll"), Some(&["ls".to_string(), "-l".to_string()][..]));
+        assert_eq!(
+            aliases.get("ll"),
+            Some(&["ls".to_string(), "-l".to_string()][..])
+        );
         aliases.set("ll".into(), vec!["l".into()]);
         assert_eq!(aliases.get("ll"), Some(&["l".to_string()][..]));
         assert!(aliases.get("missing").is_none());
@@ -158,8 +163,14 @@ mod tests {
     #[test]
     fn lex_words_preserves_quoting_and_substitutions() {
         assert_eq!(lex_words("git status -sb"), ["git", "status", "-sb"]);
-        assert_eq!(lex_words("echo 'a b' \"c d\""), ["echo", "'a b'", "\"c d\""]);
-        assert_eq!(lex_words("echo $(date +%s) `x y`"), ["echo", "$(date +%s)", "`x y`"]);
+        assert_eq!(
+            lex_words("echo 'a b' \"c d\""),
+            ["echo", "'a b'", "\"c d\""]
+        );
+        assert_eq!(
+            lex_words("echo $(date +%s) `x y`"),
+            ["echo", "$(date +%s)", "`x y`"]
+        );
         assert_eq!(lex_words("ls -l | more"), ["ls", "-l"]);
     }
 }

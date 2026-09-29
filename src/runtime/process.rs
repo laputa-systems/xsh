@@ -2024,10 +2024,8 @@ mod tests {
 
     #[test]
     fn child_dup_follows_the_childs_own_redirections() {
-        let output_path = std::env::temp_dir().join(format!(
-            "xsh-process-child-dup-{}",
-            std::process::id()
-        ));
+        let output_path =
+            std::env::temp_dir().join(format!("xsh-process-child-dup-{}", std::process::id()));
         let env = std::env::vars_os()
             .map(|(name, value)| (name.as_bytes().to_vec(), value.as_bytes().to_vec()))
             .collect();

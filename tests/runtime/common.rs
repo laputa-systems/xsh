@@ -46,17 +46,15 @@ fn build_workspace_binaries() -> WorkspaceBinaries {
     };
 
     let mut command = Command::new("cargo");
-    command
-        .current_dir(cargo_env!("CARGO_MANIFEST_DIR"))
-        .args([
-            "build",
-            "-p",
-            "xshi",
-            "-p",
-            "xsht",
-            "--bins",
-            "--message-format=json",
-        ]);
+    command.current_dir(cargo_env!("CARGO_MANIFEST_DIR")).args([
+        "build",
+        "-p",
+        "xshi",
+        "-p",
+        "xsht",
+        "--bins",
+        "--message-format=json",
+    ]);
     if profile != "dev" {
         command.args(["--profile", profile]);
     }

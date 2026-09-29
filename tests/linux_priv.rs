@@ -23,7 +23,9 @@ fn report_field<'a>(value: &'a JsonValue, key: &str) -> &'a JsonValue {
     let JsonValue::Object(object) = value else {
         panic!("report field parent is not an object: {key}");
     };
-    object.get(key).unwrap_or_else(|| panic!("report field is absent: {key}"))
+    object
+        .get(key)
+        .unwrap_or_else(|| panic!("report field is absent: {key}"))
 }
 
 fn report_array(value: &JsonValue) -> &[JsonValue] {
@@ -293,7 +295,10 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
         }
         Err(error) => panic!("start private mount test: {error}"),
     };
-    assert!(!mount_visible_in_parent(&target), "mount escaped its namespace");
+    assert!(
+        !mount_visible_in_parent(&target),
+        "mount escaped its namespace"
+    );
     if !output.status.success() && lacks_capability(&output) {
         eprintln!("skipped: CAP_SYS_ADMIN is required for the tmpfs mount");
         return;
@@ -370,7 +375,10 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {{
         }
         Err(error) => panic!("start private mount failure test: {error}"),
     };
-    assert!(!mount_visible_in_parent(&target), "mount escaped its namespace");
+    assert!(
+        !mount_visible_in_parent(&target),
+        "mount escaped its namespace"
+    );
     assert_eq!(
         std::fs::read_to_string("/etc/fstab").expect("read parent fstab after child"),
         parent_fstab,
@@ -532,7 +540,8 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
     assert!(!status.success(), "{status}");
 
     let mut stderr = Vec::new();
-    child.0
+    child
+        .0
         .stderr
         .take()
         .expect("child stderr")
@@ -543,7 +552,11 @@ env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
 
 #[test]
 fn system_report_sysctl_denial_as_unprivileged_reader_creates_no_child() {
-    assert_eq!(unsafe { libc::geteuid() }, 0, "the denied-source fixture requires root to drop privileges");
+    assert_eq!(
+        unsafe { libc::geteuid() },
+        0,
+        "the denied-source fixture requires root to drop privileges"
+    );
     let fixture = tempfile::Builder::new()
         .prefix("xsh-system-report-denied-")
         .tempdir_in("/tmp")
@@ -623,20 +636,30 @@ fn system_report_sysctl_denial_as_unprivileged_reader_creates_no_child() {
         report_text(report_field(pid_max_value, "state")),
         "permission_denied"
     );
-    assert!(matches!(report_field(pid_max_value, "value"), JsonValue::Null));
+    assert!(matches!(
+        report_field(pid_max_value, "value"),
+        JsonValue::Null
+    ));
     let swappiness = sysctls
         .iter()
         .find(|item| report_text(report_field(item, "name")) == "vm.swappiness")
         .expect("neighboring sysctl is retained");
     let swappiness_value = report_field(swappiness, "value");
-    assert_eq!(report_text(report_field(swappiness_value, "state")), "observed");
+    assert_eq!(
+        report_text(report_field(swappiness_value, "state")),
+        "observed"
+    );
     assert_eq!(report_text(report_field(swappiness_value, "value")), "60");
-    assert!(report_array(report_field(&report, "issues")).iter().any(|issue| {
-        report_text(report_field(issue, "section")) == "kernel"
-            && report_text(report_field(issue, "field")) == "sysctl.kernel.pid_max"
-            && report_text(report_field(issue, "state")) == "permission_denied"
-            && report_i64(report_field(issue, "errno")) == Some(i64::from(libc::EACCES))
-    }));
+    assert!(
+        report_array(report_field(&report, "issues"))
+            .iter()
+            .any(|issue| {
+                report_text(report_field(issue, "section")) == "kernel"
+                    && report_text(report_field(issue, "field")) == "sysctl.kernel.pid_max"
+                    && report_text(report_field(issue, "state")) == "permission_denied"
+                    && report_i64(report_field(issue, "errno")) == Some(i64::from(libc::EACCES))
+            })
+    );
 }
 
 #[test]
@@ -695,9 +718,18 @@ fn system_report_pci_keeps_numeric_ids_without_a_label_database_or_helper() {
     let report = report_json(&output.stdout);
     let functions = report_array(report_field(report_field(&report, "pci"), "functions"));
     assert_eq!(functions.len(), 1);
-    assert_eq!(report_text(report_field(&functions[0], "address")), "0000:00:01.0");
-    assert_eq!(report_i64(report_field(&functions[0], "vendor_id")), Some(0x1234));
-    assert_eq!(report_i64(report_field(&functions[0], "device_id")), Some(0xabcd));
+    assert_eq!(
+        report_text(report_field(&functions[0], "address")),
+        "0000:00:01.0"
+    );
+    assert_eq!(
+        report_i64(report_field(&functions[0], "vendor_id")),
+        Some(0x1234)
+    );
+    assert_eq!(
+        report_i64(report_field(&functions[0], "device_id")),
+        Some(0xabcd)
+    );
 }
 
 struct ChildCleanup(Child);

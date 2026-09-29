@@ -15,12 +15,16 @@ macro_rules! parity {
 }
 pub(super) use parity;
 
-parity!(prompt_appears_on_startup, Fixture::new(), |sh: &mut Live| {
-    sh.frame("startup");
-    sh.enter();
-    sh.wait_prompt();
-    sh.frame("after_enter");
-});
+parity!(
+    prompt_appears_on_startup,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.frame("startup");
+        sh.enter();
+        sh.wait_prompt();
+        sh.frame("after_enter");
+    }
+);
 
 parity!(echo_command, Fixture::new(), |sh: &mut Live| {
     sh.line("echo hello world");
@@ -124,18 +128,22 @@ parity!(line_editing_ctrl_delete, Fixture::new(), |sh: &mut Live| {
     sh.frame("after_enter");
 });
 
-parity!(line_editing_ctrl_k_and_ctrl_y, Fixture::new(), |sh: &mut Live| {
-    sh.text("echo hello world");
-    sh.keys(key::CTRL_A);
-    sh.repeat(key::RIGHT, 5);
-    sh.keys(key::CTRL_K);
-    sh.frame("after_kill");
-    sh.text("yanked: ");
-    sh.keys(key::CTRL_Y);
-    sh.frame("after_yank");
-    sh.keys_to_prompt(key::ENTER);
-    sh.frame("after_enter");
-});
+parity!(
+    line_editing_ctrl_k_and_ctrl_y,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.text("echo hello world");
+        sh.keys(key::CTRL_A);
+        sh.repeat(key::RIGHT, 5);
+        sh.keys(key::CTRL_K);
+        sh.frame("after_kill");
+        sh.text("yanked: ");
+        sh.keys(key::CTRL_Y);
+        sh.frame("after_yank");
+        sh.keys_to_prompt(key::ENTER);
+        sh.frame("after_enter");
+    }
+);
 
 parity!(pipeline, Fixture::new(), |sh: &mut Live| {
     sh.line("echo 'abc def ghi' | tr ' ' '\\n' | grep -c .");
@@ -177,59 +185,91 @@ parity!(set_and_echo_var, Fixture::new(), |sh: &mut Live| {
     sh.frame("after_echo");
 });
 
-parity!(exported_var_reaches_external_commands, Fixture::new(), |sh: &mut Live| {
-    sh.line("export MY_VAR=hello_world");
-    sh.line("env | grep MY_VAR");
-    sh.frame("after_env");
-});
+parity!(
+    exported_var_reaches_external_commands,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("export MY_VAR=hello_world");
+        sh.line("env | grep MY_VAR");
+        sh.frame("after_env");
+    }
+);
 
-parity!(set_var_reaches_external_commands, Fixture::new(), |sh: &mut Live| {
-    sh.line("set TEST_VAR hello_world");
-    sh.line("env | grep TEST_VAR");
-    sh.frame("after_env");
-});
+parity!(
+    set_var_reaches_external_commands,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("set TEST_VAR hello_world");
+        sh.line("env | grep TEST_VAR");
+        sh.frame("after_env");
+    }
+);
 
-parity!(set_var_joins_multiple_value_words, Fixture::new(), |sh: &mut Live| {
-    sh.line("set GREETING hello world");
-    sh.line("echo $GREETING");
-    sh.frame("after_echo");
-});
+parity!(
+    set_var_joins_multiple_value_words,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("set GREETING hello world");
+        sh.line("echo $GREETING");
+        sh.frame("after_echo");
+    }
+);
 
-parity!(set_no_args_lists_env_vars, Fixture::new(), |sh: &mut Live| {
-    sh.line("set | grep '^PATH='");
-    sh.frame("after_set");
-});
+parity!(
+    set_no_args_lists_env_vars,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("set | grep '^PATH='");
+        sh.frame("after_set");
+    }
+);
 
-parity!(set_option_forms_fall_through_to_epsh, Fixture::new(), |sh: &mut Live| {
-    sh.line("set -e");
-    sh.frame("after_set_e");
-    sh.line("echo $?");
-    sh.frame("status");
-});
+parity!(
+    set_option_forms_fall_through_to_epsh,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("set -e");
+        sh.frame("after_set_e");
+        sh.line("echo $?");
+        sh.frame("status");
+    }
+);
 
-parity!(unset_removes_var_from_children, Fixture::new(), |sh: &mut Live| {
-    sh.line("export TMP_UNSET_VAR=present");
-    sh.line("env | grep TMP_UNSET_VAR");
-    sh.frame("before_unset");
-    sh.line("unset TMP_UNSET_VAR");
-    sh.line("env | grep TMP_UNSET_VAR");
-    sh.frame("after_unset");
-});
+parity!(
+    unset_removes_var_from_children,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("export TMP_UNSET_VAR=present");
+        sh.line("env | grep TMP_UNSET_VAR");
+        sh.frame("before_unset");
+        sh.line("unset TMP_UNSET_VAR");
+        sh.line("env | grep TMP_UNSET_VAR");
+        sh.frame("after_unset");
+    }
+);
 
-parity!(unset_removes_os_env_var_set_by_set, Fixture::new(), |sh: &mut Live| {
-    sh.line("set TMP_OS_VAR some_value");
-    sh.line("env | grep TMP_OS_VAR");
-    sh.frame("before_unset");
-    sh.line("unset TMP_OS_VAR");
-    sh.line("env | grep TMP_OS_VAR");
-    sh.frame("after_unset");
-});
+parity!(
+    unset_removes_os_env_var_set_by_set,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("set TMP_OS_VAR some_value");
+        sh.line("env | grep TMP_OS_VAR");
+        sh.frame("before_unset");
+        sh.line("unset TMP_OS_VAR");
+        sh.line("env | grep TMP_OS_VAR");
+        sh.frame("after_unset");
+    }
+);
 
-parity!(unset_in_same_line_not_inherited_by_children, Fixture::new(), |sh: &mut Live| {
-    sh.line("export TMP_SAME_LINE=present");
-    sh.line("unset TMP_SAME_LINE; env | grep TMP_SAME_LINE");
-    sh.frame("after_unset_env");
-});
+parity!(
+    unset_in_same_line_not_inherited_by_children,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("export TMP_SAME_LINE=present");
+        sh.line("unset TMP_SAME_LINE; env | grep TMP_SAME_LINE");
+        sh.frame("after_unset_env");
+    }
+);
 
 parity!(
     unset_removes_ambient_environment_from_children,
@@ -253,30 +293,46 @@ parity!(
     }
 );
 
-parity!(compound_list_export_reaches_child, Fixture::new(), |sh: &mut Live| {
-    sh.line("cd / && export TMP_COMPOUND=value; env | grep TMP_COMPOUND");
-    sh.frame("after_compound");
-});
+parity!(
+    compound_list_export_reaches_child,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("cd / && export TMP_COMPOUND=value; env | grep TMP_COMPOUND");
+        sh.frame("after_compound");
+    }
+);
 
-parity!(store_home_drives_interactive_cd, Fixture::new(), |sh: &mut Live| {
-    sh.line("set HOME /usr");
-    sh.line("cd; pwd");
-    sh.frame("after_cd");
-});
+parity!(
+    store_home_drives_interactive_cd,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("set HOME /usr");
+        sh.line("cd; pwd");
+        sh.frame("after_cd");
+    }
+);
 
-parity!(unset_oldpwd_blocks_interactive_cd_minus, Fixture::new(), |sh: &mut Live| {
-    sh.line("cd /");
-    sh.line("unset OLDPWD");
-    sh.line("cd -");
-    sh.frame("after_cd_minus");
-});
+parity!(
+    unset_oldpwd_blocks_interactive_cd_minus,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("cd /");
+        sh.line("unset OLDPWD");
+        sh.line("cd -");
+        sh.frame("after_cd_minus");
+    }
+);
 
-parity!(prefix_assignment_reaches_child_but_does_not_persist, Fixture::new(), |sh: &mut Live| {
-    sh.line("TMP_PREFIX=value env | grep TMP_PREFIX");
-    sh.frame("with_prefix");
-    sh.line("env | grep TMP_PREFIX");
-    sh.frame("without_prefix");
-});
+parity!(
+    prefix_assignment_reaches_child_but_does_not_persist,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("TMP_PREFIX=value env | grep TMP_PREFIX");
+        sh.frame("with_prefix");
+        sh.line("env | grep TMP_PREFIX");
+        sh.frame("without_prefix");
+    }
+);
 
 parity!(
     set_path_affects_command_lookup,
@@ -298,13 +354,17 @@ parity!(
     }
 );
 
-parity!(which_uses_store_path_not_os_env, Fixture::new().dir("empty-bin"), |sh: &mut Live| {
-    sh.line("export PATH=$HOME/empty-bin");
-    sh.line("which ls");
-    sh.frame("after_which_ls");
-    sh.line("which /bin/ls");
-    sh.frame("after_which_absolute");
-});
+parity!(
+    which_uses_store_path_not_os_env,
+    Fixture::new().dir("empty-bin"),
+    |sh: &mut Live| {
+        sh.line("export PATH=$HOME/empty-bin");
+        sh.line("which ls");
+        sh.frame("after_which_ls");
+        sh.line("which /bin/ls");
+        sh.frame("after_which_absolute");
+    }
+);
 
 parity!(tilde_expansion, Fixture::new(), |sh: &mut Live| {
     sh.line("echo ~");
@@ -396,7 +456,9 @@ parity!(
 
 parity!(
     history_ctrl_r_narrow_repaint_does_not_stack_rows,
-    Fixture::new().history(&["abc1", "abc2", "abc3"]).size(24, 10),
+    Fixture::new()
+        .history(&["abc1", "abc2", "abc3"])
+        .size(24, 10),
     |sh: &mut Live| {
         sh.keys(key::CTRL_R);
         sh.text("ab");
@@ -428,7 +490,10 @@ parity!(
         ])
         .size(24, 10),
     |sh: &mut Live| {
-        let fill = (1..=14).map(|i| format!("echo fill{i:02}")).collect::<Vec<_>>().join("; ");
+        let fill = (1..=14)
+            .map(|i| format!("echo fill{i:02}"))
+            .collect::<Vec<_>>()
+            .join("; ");
         sh.line(&fill);
         sh.keys(key::CTRL_R);
         sh.frame("open_search");
@@ -445,10 +510,16 @@ parity!(
 parity!(
     history_accept_reanchors_prompt_before_typing,
     Fixture::new()
-        .history(&["echo history-one-abcdefghijklmnop", "echo history-two-abcdefghijklmnop"])
+        .history(&[
+            "echo history-one-abcdefghijklmnop",
+            "echo history-two-abcdefghijklmnop"
+        ])
         .size(8, 20),
     |sh: &mut Live| {
-        let fill = (1..=6).map(|i| format!("echo fill{i:02}")).collect::<Vec<_>>().join("; ");
+        let fill = (1..=6)
+            .map(|i| format!("echo fill{i:02}"))
+            .collect::<Vec<_>>()
+            .join("; ");
         sh.line(&fill);
         sh.keys(key::CTRL_R);
         sh.frame("open_search");
@@ -466,12 +537,17 @@ parity!(
 
 parity!(
     history_ctrl_r_near_bottom_keeps_pager_stable,
-    Fixture::new().history(&[
-        "hist01", "hist02", "hist03", "hist04", "hist05", "hist06", "hist07", "hist08", "hist09",
-        "hist10", "hist11", "hist12",
-    ]).size(24, 20),
+    Fixture::new()
+        .history(&[
+            "hist01", "hist02", "hist03", "hist04", "hist05", "hist06", "hist07", "hist08",
+            "hist09", "hist10", "hist11", "hist12",
+        ])
+        .size(24, 20),
     |sh: &mut Live| {
-        let fill = (1..=14).map(|i| format!("echo fill{i:02}")).collect::<Vec<_>>().join("; ");
+        let fill = (1..=14)
+            .map(|i| format!("echo fill{i:02}"))
+            .collect::<Vec<_>>()
+            .join("; ");
         sh.line(&fill);
         sh.keys(key::CTRL_R);
         sh.frame("search");
@@ -481,10 +557,12 @@ parity!(
 
 parity!(
     history_ctrl_r_scrolls_when_selection_passes_last_visible_entry,
-    Fixture::new().history(&[
-        "hist01", "hist02", "hist03", "hist04", "hist05", "hist06", "hist07", "hist08", "hist09",
-        "hist10", "hist11", "hist12",
-    ]).size(8, 20),
+    Fixture::new()
+        .history(&[
+            "hist01", "hist02", "hist03", "hist04", "hist05", "hist06", "hist07", "hist08",
+            "hist09", "hist10", "hist11", "hist12",
+        ])
+        .size(8, 20),
     |sh: &mut Live| {
         sh.keys(key::CTRL_R);
         sh.frame("search");
@@ -496,26 +574,38 @@ parity!(
 
 parity!(
     history_ctrl_r_near_bottom_query_edits_do_not_stack_headers,
-    Fixture::new().history(&[
-        "gh auth login",
-        "gh api repos/openai/openai/contents",
-        "gh api user",
-        "gh pr status",
-        "gh api rate_limit",
-        "gh api notifications",
-        "gh api orgs/openai/repos",
-        "gh api repos/openai/openai/pulls",
-        "gh api repos/openai/openai/issues",
-        "gh api repos/openai/openai/actions/runs",
-        "gh api repos/openai/openai/releases",
-        "gh api repos/openai/openai/branches",
-    ]).size(24, 20),
+    Fixture::new()
+        .history(&[
+            "gh auth login",
+            "gh api repos/openai/openai/contents",
+            "gh api user",
+            "gh pr status",
+            "gh api rate_limit",
+            "gh api notifications",
+            "gh api orgs/openai/repos",
+            "gh api repos/openai/openai/pulls",
+            "gh api repos/openai/openai/issues",
+            "gh api repos/openai/openai/actions/runs",
+            "gh api repos/openai/openai/releases",
+            "gh api repos/openai/openai/branches",
+        ])
+        .size(24, 20),
     |sh: &mut Live| {
-        let fill = (1..=14).map(|i| format!("echo fill{i:02}")).collect::<Vec<_>>().join("; ");
+        let fill = (1..=14)
+            .map(|i| format!("echo fill{i:02}"))
+            .collect::<Vec<_>>()
+            .join("; ");
         sh.line(&fill);
         sh.keys(key::CTRL_R);
         sh.frame("open");
-        for (label, ch) in [("g", "g"), ("h", "h"), ("space", " "), ("a", "a"), ("p", "p"), ("i", "i")] {
+        for (label, ch) in [
+            ("g", "g"),
+            ("h", "h"),
+            ("space", " "),
+            ("a", "a"),
+            ("p", "p"),
+            ("i", "i"),
+        ] {
             sh.text(ch);
             sh.frame(label);
         }
@@ -540,7 +630,10 @@ parity!(
 
 parity!(
     tab_completion_shows_grid,
-    Fixture::new().file("aaa.txt", "").file("aab.txt", "").file("aac.txt", ""),
+    Fixture::new()
+        .file("aaa.txt", "")
+        .file("aab.txt", "")
+        .file("aac.txt", ""),
     |sh: &mut Live| {
         sh.text("echo aa");
         sh.keys(key::TAB);
@@ -554,7 +647,10 @@ parity!(
 
 parity!(
     tab_completion_first_tab_has_no_selection_second_tab_selects_first,
-    Fixture::new().file("aaa.txt", "").file("aab.txt", "").file("aac.txt", ""),
+    Fixture::new()
+        .file("aaa.txt", "")
+        .file("aab.txt", "")
+        .file("aac.txt", ""),
     |sh: &mut Live| {
         sh.text("echo aa");
         sh.keys(key::TAB);
@@ -698,7 +794,9 @@ parity!(
 
 parity!(
     history_resize_rerenders_pager,
-    Fixture::new().history(&["abc1", "abc2", "abc3"]).size(24, 20),
+    Fixture::new()
+        .history(&["abc1", "abc2", "abc3"])
+        .size(24, 20),
     |sh: &mut Live| {
         sh.keys(key::CTRL_R);
         sh.text("abc");
@@ -716,15 +814,19 @@ parity!(alias_expansion, Fixture::new(), |sh: &mut Live| {
     sh.frame("after_alias");
 });
 
-parity!(alias_self_referencing_no_reexpand, Fixture::new(), |sh: &mut Live| {
-    sh.line("alias rg rg --hidden -S -g !.git");
-    sh.text("rg");
-    sh.text(" ");
-    sh.frame("first_space");
-    sh.text(" ");
-    sh.frame("second_space");
-    sh.keys_to_prompt(key::CTRL_C);
-});
+parity!(
+    alias_self_referencing_no_reexpand,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("alias rg rg --hidden -S -g !.git");
+        sh.text("rg");
+        sh.text(" ");
+        sh.frame("first_space");
+        sh.text(" ");
+        sh.frame("second_space");
+        sh.keys_to_prompt(key::CTRL_C);
+    }
+);
 
 parity!(
     alias_self_referencing_from_config,
@@ -741,11 +843,15 @@ parity!(
     }
 );
 
-parity!(alias_self_referencing_exec, Fixture::new(), |sh: &mut Live| {
-    sh.line("alias myecho echo --verbose");
-    sh.line("myecho hello");
-    sh.frame("after_alias");
-});
+parity!(
+    alias_self_referencing_exec,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("alias myecho echo --verbose");
+        sh.line("myecho hello");
+        sh.frame("after_alias");
+    }
+);
 
 parity!(alias_list, Fixture::new(), |sh: &mut Live| {
     sh.line("alias myalias echo test");
@@ -757,20 +863,28 @@ parity!(alias_list, Fixture::new(), |sh: &mut Live| {
     sh.frame("after_missing");
 });
 
-parity!(alias_with_command_substitution, Fixture::new(), |sh: &mut Live| {
-    sh.line(r#"alias grt echo "$(echo hello_subst)""#);
-    sh.text("grt");
-    sh.text(" ");
-    sh.frame("expanded");
-    sh.keys_to_prompt(key::ENTER);
-    sh.frame("after_enter");
-});
+parity!(
+    alias_with_command_substitution,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line(r#"alias grt echo "$(echo hello_subst)""#);
+        sh.text("grt");
+        sh.text(" ");
+        sh.frame("expanded");
+        sh.keys_to_prompt(key::ENTER);
+        sh.frame("after_enter");
+    }
+);
 
-parity!(alias_preserves_quoted_word, Fixture::new(), |sh: &mut Live| {
-    sh.line(r#"alias greet echo "hello world""#);
-    sh.line("greet");
-    sh.frame("after_alias");
-});
+parity!(
+    alias_preserves_quoted_word,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line(r#"alias greet echo "hello world""#);
+        sh.line("greet");
+        sh.frame("after_alias");
+    }
+);
 
 parity!(which_builtin, Fixture::new(), |sh: &mut Live| {
     sh.line("w echo");
@@ -797,12 +911,16 @@ parity!(which_alias, Fixture::new(), |sh: &mut Live| {
     sh.frame("after_w");
 });
 
-parity!(error_status_colors_prompt, Fixture::new(), |sh: &mut Live| {
-    sh.line("false");
-    sh.frame("after_false");
-    sh.keys_to_prompt(key::ENTER);
-    sh.frame("after_enter");
-});
+parity!(
+    error_status_colors_prompt,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("false");
+        sh.frame("after_false");
+        sh.keys_to_prompt(key::ENTER);
+        sh.frame("after_enter");
+    }
+);
 
 parity!(nonexistent_command, Fixture::new(), |sh: &mut Live| {
     sh.line("nonexistent_cmd_xyz");
@@ -823,18 +941,14 @@ parity!(ctrl_l_clears_screen, Fixture::new(), |sh: &mut Live| {
     sh.frame("after_clear");
 });
 
-parity!(
-    multiline_continuation,
-    Fixture::new(),
-    |sh: &mut Live| {
-        sh.text("echo hello |");
-        sh.keys(key::ENTER);
-        sh.frame("continuation");
-        sh.text("tr a-z A-Z");
-        sh.keys_to_prompt(key::ENTER);
-        sh.frame("after_enter");
-    }
-);
+parity!(multiline_continuation, Fixture::new(), |sh: &mut Live| {
+    sh.text("echo hello |");
+    sh.keys(key::ENTER);
+    sh.frame("continuation");
+    sh.text("tr a-z A-Z");
+    sh.keys_to_prompt(key::ENTER);
+    sh.frame("after_enter");
+});
 
 parity!(
     multiline_completion_on_continuation_line,
@@ -851,7 +965,11 @@ parity!(
 
 parity!(
     dir_picker_narrow_repaint_does_not_stack_rows,
-    Fixture::new().file("one/.keep", "").file("two/.keep", "").file("three/.keep", "").size(24, 40),
+    Fixture::new()
+        .file("one/.keep", "")
+        .file("two/.keep", "")
+        .file("three/.keep", "")
+        .size(24, 40),
     |sh: &mut Live| {
         sh.line("cd one");
         sh.line("cd ../two");
@@ -881,31 +999,47 @@ parity!(prompt_shows_cwd, Fixture::new(), |sh: &mut Live| {
     sh.frame("after_enter");
 });
 
-parity!(cd_minus_goes_back, Fixture::new().file("subdir/.keep", ""), |sh: &mut Live| {
-    sh.line("cd subdir");
-    sh.frame("in_subdir");
-    sh.line("cd -");
-    sh.frame("after_cd_minus");
-    sh.line("pwd");
-    sh.frame("after_pwd");
-});
+parity!(
+    cd_minus_goes_back,
+    Fixture::new().file("subdir/.keep", ""),
+    |sh: &mut Live| {
+        sh.line("cd subdir");
+        sh.frame("in_subdir");
+        sh.line("cd -");
+        sh.frame("after_cd_minus");
+        sh.line("pwd");
+        sh.frame("after_pwd");
+    }
+);
 
-parity!(cd_tilde_subdir, Fixture::new().file("subdir/.keep", ""), |sh: &mut Live| {
-    sh.line("cd ~/subdir");
-    sh.line("pwd");
-    sh.frame("after_pwd");
-});
+parity!(
+    cd_tilde_subdir,
+    Fixture::new().file("subdir/.keep", ""),
+    |sh: &mut Live| {
+        sh.line("cd ~/subdir");
+        sh.line("pwd");
+        sh.frame("after_pwd");
+    }
+);
 
-parity!(implicit_cd_quoted_path, Fixture::new().file("space dir/.keep", ""), |sh: &mut Live| {
-    sh.line("'space dir'");
-    sh.line("pwd");
-    sh.frame("after_pwd");
-});
+parity!(
+    implicit_cd_quoted_path,
+    Fixture::new().file("space dir/.keep", ""),
+    |sh: &mut Live| {
+        sh.line("'space dir'");
+        sh.line("pwd");
+        sh.frame("after_pwd");
+    }
+);
 
-parity!(l_tilde_subdir, Fixture::new().file("subdir/file.txt", "hello"), |sh: &mut Live| {
-    sh.line("l ~/subdir");
-    sh.frame("after_l");
-});
+parity!(
+    l_tilde_subdir,
+    Fixture::new().file("subdir/file.txt", "hello"),
+    |sh: &mut Live| {
+        sh.line("l ~/subdir");
+        sh.frame("after_l");
+    }
+);
 
 parity!(unset_variable, Fixture::new(), |sh: &mut Live| {
     sh.line("set TMPVAR abc");
@@ -916,7 +1050,10 @@ parity!(unset_variable, Fixture::new(), |sh: &mut Live| {
 
 parity!(
     glob_expansion,
-    Fixture::new().file("foo.rs", "").file("bar.rs", "").file("baz.txt", ""),
+    Fixture::new()
+        .file("foo.rs", "")
+        .file("bar.rs", "")
+        .file("baz.txt", ""),
     |sh: &mut Live| {
         sh.line("echo *.rs");
         sh.frame("after_glob");
@@ -925,32 +1062,47 @@ parity!(
 
 parity!(
     l_glob_expansion,
-    Fixture::new().file("rust-toolchain.toml", "").file("toolbox.txt", "").file("Cargo.toml", ""),
+    Fixture::new()
+        .file("rust-toolchain.toml", "")
+        .file("toolbox.txt", "")
+        .file("Cargo.toml", ""),
     |sh: &mut Live| {
         sh.line("l *tool*");
         sh.frame("after_l");
     }
 );
 
-parity!(quoted_string_preserves_spaces, Fixture::new(), |sh: &mut Live| {
-    sh.line("echo \"hello   world\"");
-    sh.frame("after_echo");
-});
+parity!(
+    quoted_string_preserves_spaces,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("echo \"hello   world\"");
+        sh.frame("after_echo");
+    }
+);
 
-parity!(single_quotes_no_expansion, Fixture::new(), |sh: &mut Live| {
-    sh.line("set FOO bar");
-    sh.line("echo '$FOO'");
-    sh.frame("after_echo");
-});
+parity!(
+    single_quotes_no_expansion,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("set FOO bar");
+        sh.line("echo '$FOO'");
+        sh.frame("after_echo");
+    }
+);
 
-parity!(history_persisted_across_commands, Fixture::new(), |sh: &mut Live| {
-    sh.line("/bin/echo unique_cmd_12345");
-    sh.keys(key::UP);
-    sh.frame("recalled");
-    sh.keys_to_prompt(key::ENTER);
-    sh.frame("after_enter");
-    sh.effect_history("history");
-});
+parity!(
+    history_persisted_across_commands,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("/bin/echo unique_cmd_12345");
+        sh.keys(key::UP);
+        sh.frame("recalled");
+        sh.keys_to_prompt(key::ENTER);
+        sh.frame("after_enter");
+        sh.effect_history("history");
+    }
+);
 
 parity!(history_help, Fixture::new(), |sh: &mut Live| {
     sh.line("history -h");
@@ -990,49 +1142,76 @@ parity!(true_and_false_builtins, Fixture::new(), |sh: &mut Live| {
     sh.frame("after_lists");
 });
 
-parity!(bracketed_paste_over_limit_rejected, Fixture::new(), |sh: &mut Live| {
-    sh.keys(&paste(&"x".repeat(9000)));
-    sh.frame("after_paste");
-    sh.keys(key::CTRL_U);
-    sh.line("echo ok");
-    sh.frame("still_responsive");
-});
+parity!(
+    bracketed_paste_over_limit_rejected,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.keys(&paste(&"x".repeat(9000)));
+        sh.frame("after_paste");
+        sh.keys(key::CTRL_U);
+        sh.line("echo ok");
+        sh.frame("still_responsive");
+    }
+);
 
-parity!(bracketed_paste_large_document_rejected, Fixture::new(), |sh: &mut Live| {
-    let document = format!("# Agent Guide\n{}", "This line is filler for a large paste.\n".repeat(400));
-    sh.keys(&paste(&document));
-    sh.frame("after_paste");
-    sh.keys(key::CTRL_U);
-    sh.line("echo ok");
-    sh.frame("still_responsive");
-});
+parity!(
+    bracketed_paste_large_document_rejected,
+    Fixture::new(),
+    |sh: &mut Live| {
+        let document = format!(
+            "# Agent Guide\n{}",
+            "This line is filler for a large paste.\n".repeat(400)
+        );
+        sh.keys(&paste(&document));
+        sh.frame("after_paste");
+        sh.keys(key::CTRL_U);
+        sh.line("echo ok");
+        sh.frame("still_responsive");
+    }
+);
 
-parity!(bracketed_paste_under_limit_accepted, Fixture::new(), |sh: &mut Live| {
-    sh.keys(&paste("echo hello world"));
-    sh.frame("after_paste");
-    sh.keys_to_prompt(key::ENTER);
-    sh.frame("after_enter");
-});
+parity!(
+    bracketed_paste_under_limit_accepted,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.keys(&paste("echo hello world"));
+        sh.frame("after_paste");
+        sh.keys_to_prompt(key::ENTER);
+        sh.frame("after_enter");
+    }
+);
 
-parity!(bracketed_paste_exactly_at_limit_accepted, Fixture::new(), |sh: &mut Live| {
-    sh.keys(&paste(&"x".repeat(8192)));
-    sh.frame("after_paste");
-    sh.text(" ok");
-    sh.keys_to_prompt(key::CTRL_C);
-    sh.frame("after_cancel");
-});
+parity!(
+    bracketed_paste_exactly_at_limit_accepted,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.keys(&paste(&"x".repeat(8192)));
+        sh.frame("after_paste");
+        sh.text(" ok");
+        sh.keys_to_prompt(key::CTRL_C);
+        sh.frame("after_cancel");
+    }
+);
 
-parity!(bracketed_paste_one_byte_over_limit_rejected, Fixture::new(), |sh: &mut Live| {
-    sh.keys(&paste(&"x".repeat(8193)));
-    sh.frame("after_paste");
-});
+parity!(
+    bracketed_paste_one_byte_over_limit_rejected,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.keys(&paste(&"x".repeat(8193)));
+        sh.frame("after_paste");
+    }
+);
 
-parity!(bracketed_paste_multiline_joins_lines, Fixture::new(), |sh: &mut Live| {
-    sh.keys(&paste("echo first\necho second"));
-    sh.frame("after_paste");
-    sh.keys_to_prompt(key::ENTER);
-    sh.frame("after_enter");
-});
+parity!(
+    bracketed_paste_multiline_joins_lines,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.keys(&paste("echo first\necho second"));
+        sh.frame("after_paste");
+        sh.keys_to_prompt(key::ENTER);
+        sh.frame("after_enter");
+    }
+);
 
 const READY_SLEEP: &str = "#!/bin/sh\necho ready\nsleep 60\n";
 
@@ -1054,12 +1233,16 @@ parity!(
     }
 );
 
-parity!(fg_without_a_job_reports_an_error, Fixture::new(), |sh: &mut Live| {
-    sh.line("fg");
-    sh.frame("after_fg");
-    sh.line("echo $?");
-    sh.frame("status");
-});
+parity!(
+    fg_without_a_job_reports_an_error,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("fg");
+        sh.frame("after_fg");
+        sh.line("echo $?");
+        sh.frame("status");
+    }
+);
 
 parity!(
     exit_with_a_suspended_job_warns,
@@ -1089,15 +1272,19 @@ parity!(
 
 // Redirections, pipes, and statuses.
 
-parity!(redirect_append_and_stdin, Fixture::new(), |sh: &mut Live| {
-    sh.line("echo first > f.txt");
-    sh.line("echo second >> f.txt");
-    sh.line("cat f.txt");
-    sh.frame("after_cat");
-    sh.line("cat < f.txt");
-    sh.frame("after_stdin");
-    sh.effect_file("f.txt", "f.txt");
-});
+parity!(
+    redirect_append_and_stdin,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("echo first > f.txt");
+        sh.line("echo second >> f.txt");
+        sh.line("cat f.txt");
+        sh.frame("after_cat");
+        sh.line("cat < f.txt");
+        sh.frame("after_stdin");
+        sh.effect_file("f.txt", "f.txt");
+    }
+);
 
 parity!(redirect_stderr_forms, Fixture::new(), |sh: &mut Live| {
     sh.line("cat missing.txt 2> err.txt");
@@ -1113,27 +1300,35 @@ parity!(redirect_stderr_forms, Fixture::new(), |sh: &mut Live| {
     sh.frame("after_both");
 });
 
-parity!(redirect_to_unwritable_path, Fixture::new(), |sh: &mut Live| {
-    sh.line("echo hi > /nonexistent-dir/file");
-    sh.frame("after_failed_redirect");
-    sh.line("echo $?");
-    sh.frame("status");
-});
+parity!(
+    redirect_to_unwritable_path,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("echo hi > /nonexistent-dir/file");
+        sh.frame("after_failed_redirect");
+        sh.line("echo $?");
+        sh.frame("status");
+    }
+);
 
-parity!(exit_status_of_external_commands, Fixture::new(), |sh: &mut Live| {
-    sh.line("sh -c 'exit 7'");
-    sh.line("echo $?");
-    sh.frame("exit_7");
-    sh.line("sh -c 'kill -TERM $$'");
-    sh.line("echo $?");
-    sh.frame("signal");
-    sh.line("false");
-    sh.line("echo $?");
-    sh.frame("false");
-    sh.line("true");
-    sh.line("echo $?");
-    sh.frame("true");
-});
+parity!(
+    exit_status_of_external_commands,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("sh -c 'exit 7'");
+        sh.line("echo $?");
+        sh.frame("exit_7");
+        sh.line("sh -c 'kill -TERM $$'");
+        sh.line("echo $?");
+        sh.frame("signal");
+        sh.line("false");
+        sh.line("echo $?");
+        sh.frame("false");
+        sh.line("true");
+        sh.line("echo $?");
+        sh.frame("true");
+    }
+);
 
 parity!(
     exit_status_of_unrunnable_commands,
@@ -1151,17 +1346,21 @@ parity!(
     }
 );
 
-parity!(pipeline_status_is_the_rightmost_failure, Fixture::new(), |sh: &mut Live| {
-    sh.line("sh -c 'exit 3' | cat");
-    sh.line("echo $?");
-    sh.frame("first_fails");
-    sh.line("echo x | sh -c 'exit 4'");
-    sh.line("echo $?");
-    sh.frame("last_fails");
-    sh.line("sh -c 'exit 5' | sh -c 'exit 6'");
-    sh.line("echo $?");
-    sh.frame("both_fail");
-});
+parity!(
+    pipeline_status_is_the_rightmost_failure,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("sh -c 'exit 3' | cat");
+        sh.line("echo $?");
+        sh.frame("first_fails");
+        sh.line("echo x | sh -c 'exit 4'");
+        sh.line("echo $?");
+        sh.frame("last_fails");
+        sh.line("sh -c 'exit 5' | sh -c 'exit 6'");
+        sh.line("echo $?");
+        sh.frame("both_fail");
+    }
+);
 
 parity!(and_or_list_statuses, Fixture::new(), |sh: &mut Live| {
     sh.line("false && echo no; echo $?");
@@ -1226,28 +1425,36 @@ parity!(continuation_lines, Fixture::new(), |sh: &mut Live| {
     sh.frame("quote_done");
 });
 
-parity!(tilde_and_variable_expansion, Fixture::new().dir("sub"), |sh: &mut Live| {
-    sh.line("echo ~ ~/sub ~x");
-    sh.frame("tilde");
-    sh.line("set NAME world");
-    sh.line("echo hello-$NAME ${NAME} $NAME-x $NOPE| cat");
-    sh.frame("variables");
-    sh.line("echo $((1 + 2 * 3)) $(( (1+2) * 3 ))");
-    sh.frame("arithmetic");
-});
+parity!(
+    tilde_and_variable_expansion,
+    Fixture::new().dir("sub"),
+    |sh: &mut Live| {
+        sh.line("echo ~ ~/sub ~x");
+        sh.frame("tilde");
+        sh.line("set NAME world");
+        sh.line("echo hello-$NAME ${NAME} $NAME-x $NOPE| cat");
+        sh.frame("variables");
+        sh.line("echo $((1 + 2 * 3)) $(( (1+2) * 3 ))");
+        sh.frame("arithmetic");
+    }
+);
 
-parity!(command_substitution_forms, Fixture::new(), |sh: &mut Live| {
-    sh.line("echo a$(echo b)c `echo d`e");
-    sh.frame("basic");
-    sh.line("echo $(echo $(echo nested))");
-    sh.frame("nested");
-    sh.line("echo \"$(echo   spaced   out)\" $(echo   spaced   out)");
-    sh.frame("word_splitting");
-    sh.line("echo $(sh -c 'exit 3') after");
-    sh.frame("failing_substitution");
-    sh.line("echo $?");
-    sh.frame("status");
-});
+parity!(
+    command_substitution_forms,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("echo a$(echo b)c `echo d`e");
+        sh.frame("basic");
+        sh.line("echo $(echo $(echo nested))");
+        sh.frame("nested");
+        sh.line("echo \"$(echo   spaced   out)\" $(echo   spaced   out)");
+        sh.frame("word_splitting");
+        sh.line("echo $(sh -c 'exit 3') after");
+        sh.frame("failing_substitution");
+        sh.line("echo $?");
+        sh.frame("status");
+    }
+);
 
 parity!(
     glob_forms,
@@ -1274,44 +1481,52 @@ parity!(
 
 // Builtins.
 
-parity!(cd_forms, Fixture::new().dir("a/b").file("plain.txt", ""), |sh: &mut Live| {
-    sh.line("cd a");
-    sh.frame("cd_a");
-    sh.line("cd b");
-    sh.line("cd ../..");
-    sh.frame("cd_up");
-    sh.line("cd -");
-    sh.frame("cd_dash");
-    sh.line("cd");
-    sh.frame("cd_home");
-    sh.line("cd nonexistent");
-    sh.frame("cd_missing");
-    sh.line("cd plain.txt");
-    sh.frame("cd_file");
-    sh.line("cd a b");
-    sh.frame("cd_too_many");
-    sh.line("cd ~/a");
-    sh.line("cd $HOME");
-    sh.frame("cd_variable");
-});
+parity!(
+    cd_forms,
+    Fixture::new().dir("a/b").file("plain.txt", ""),
+    |sh: &mut Live| {
+        sh.line("cd a");
+        sh.frame("cd_a");
+        sh.line("cd b");
+        sh.line("cd ../..");
+        sh.frame("cd_up");
+        sh.line("cd -");
+        sh.frame("cd_dash");
+        sh.line("cd");
+        sh.frame("cd_home");
+        sh.line("cd nonexistent");
+        sh.frame("cd_missing");
+        sh.line("cd plain.txt");
+        sh.frame("cd_file");
+        sh.line("cd a b");
+        sh.frame("cd_too_many");
+        sh.line("cd ~/a");
+        sh.line("cd $HOME");
+        sh.frame("cd_variable");
+    }
+);
 
-parity!(implicit_cd_forms, Fixture::new().dir("a/b/c").executable("run", "#!/bin/sh\n"), |sh: &mut Live| {
-    sh.line("a");
-    sh.frame("implicit_cd");
-    sh.line("..");
-    sh.frame("dotdot");
-    sh.line("a/b/c");
-    sh.line("...");
-    sh.frame("three_dots");
-    sh.line("....");
-    sh.frame("four_dots");
-    sh.line("~");
-    sh.frame("tilde_alone");
-    sh.line("./a");
-    sh.frame("relative");
-    sh.line("nonexistent_dir_xyz");
-    sh.frame("not_a_dir");
-});
+parity!(
+    implicit_cd_forms,
+    Fixture::new().dir("a/b/c").executable("run", "#!/bin/sh\n"),
+    |sh: &mut Live| {
+        sh.line("a");
+        sh.frame("implicit_cd");
+        sh.line("..");
+        sh.frame("dotdot");
+        sh.line("a/b/c");
+        sh.line("...");
+        sh.frame("three_dots");
+        sh.line("....");
+        sh.frame("four_dots");
+        sh.line("~");
+        sh.frame("tilde_alone");
+        sh.line("./a");
+        sh.frame("relative");
+        sh.line("nonexistent_dir_xyz");
+        sh.frame("not_a_dir");
+    }
+);
 
 parity!(echo_flags, Fixture::new(), |sh: &mut Live| {
     sh.line("echo -n no-newline");
@@ -1326,21 +1541,25 @@ parity!(echo_flags, Fixture::new(), |sh: &mut Live| {
     sh.frame("empty");
 });
 
-parity!(type_and_which_forms, Fixture::new().executable("bin/tool", "#!/bin/sh\n"), |sh: &mut Live| {
-    sh.line("alias ll l");
-    sh.line("type ll");
-    sh.frame("type_alias");
-    sh.line("which cd");
-    sh.frame("which_builtin");
-    sh.line("type nosuchthing_xyz");
-    sh.frame("type_missing");
-    sh.line("echo $?");
-    sh.frame("status");
-    sh.line("which /bin/sh");
-    sh.frame("which_absolute");
-    sh.line("w");
-    sh.frame("w_no_args");
-});
+parity!(
+    type_and_which_forms,
+    Fixture::new().executable("bin/tool", "#!/bin/sh\n"),
+    |sh: &mut Live| {
+        sh.line("alias ll l");
+        sh.line("type ll");
+        sh.frame("type_alias");
+        sh.line("which cd");
+        sh.frame("which_builtin");
+        sh.line("type nosuchthing_xyz");
+        sh.frame("type_missing");
+        sh.line("echo $?");
+        sh.frame("status");
+        sh.line("which /bin/sh");
+        sh.frame("which_absolute");
+        sh.line("w");
+        sh.frame("w_no_args");
+    }
+);
 
 parity!(alias_edge_cases, Fixture::new(), |sh: &mut Live| {
     sh.line("alias a echo one");
@@ -1366,31 +1585,47 @@ parity!(exit_codes, Fixture::new(), |sh: &mut Live| {
     sh.expect_exit("exit_3");
 });
 
-parity!(exit_code_wraps_modulo_256, Fixture::new(), |sh: &mut Live| {
-    sh.text("exit 300");
-    sh.enter();
-    sh.expect_exit("exit_300");
-});
+parity!(
+    exit_code_wraps_modulo_256,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.text("exit 300");
+        sh.enter();
+        sh.expect_exit("exit_300");
+    }
+);
 
-parity!(exit_code_ignores_garbage, Fixture::new(), |sh: &mut Live| {
-    sh.line("false");
-    sh.text("exit notanumber");
-    sh.enter();
-    sh.expect_exit("exit_garbage");
-});
+parity!(
+    exit_code_ignores_garbage,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("false");
+        sh.text("exit notanumber");
+        sh.enter();
+        sh.expect_exit("exit_garbage");
+    }
+);
 
-parity!(exit_without_argument_is_success, Fixture::new(), |sh: &mut Live| {
-    sh.line("false");
-    sh.text("exit");
-    sh.enter();
-    sh.expect_exit("exit_plain");
-});
+parity!(
+    exit_without_argument_is_success,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("false");
+        sh.text("exit");
+        sh.enter();
+        sh.expect_exit("exit_plain");
+    }
+);
 
-parity!(ctrl_d_exits_success_after_failure, Fixture::new(), |sh: &mut Live| {
-    sh.line("false");
-    sh.keys(key::CTRL_D);
-    sh.expect_exit("ctrl_d_status");
-});
+parity!(
+    ctrl_d_exits_success_after_failure,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("false");
+        sh.keys(key::CTRL_D);
+        sh.expect_exit("ctrl_d_status");
+    }
+);
 
 parity!(clear_builtin, Fixture::new(), |sh: &mut Live| {
     sh.line("echo before");
@@ -1438,28 +1673,32 @@ parity!(history_command_forms, Fixture::new(), |sh: &mut Live| {
     sh.effect_history("after_history");
 });
 
-parity!(environment_builtin_forms, Fixture::new(), |sh: &mut Live| {
-    sh.line("export A_VAR=1 B_VAR=two");
-    sh.line("export | grep _VAR");
-    sh.frame("export_list");
-    sh.line("set C_VAR");
-    sh.line("env | grep C_VAR");
-    sh.frame("set_empty");
-    sh.line("set 9bad value");
-    sh.frame("set_invalid");
-    sh.line("unset A_VAR B_VAR C_VAR");
-    sh.line("env | grep _VAR");
-    sh.frame("after_unset");
-    sh.line("export 9bad=1");
-    sh.frame("export_invalid");
-    sh.line("FOO=bar");
-    sh.line("echo $FOO");
-    sh.line("env | grep FOO");
-    sh.frame("plain_assignment_not_exported");
-    sh.line("export FOO");
-    sh.line("env | grep FOO");
-    sh.frame("export_existing");
-});
+parity!(
+    environment_builtin_forms,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("export A_VAR=1 B_VAR=two");
+        sh.line("export | grep _VAR");
+        sh.frame("export_list");
+        sh.line("set C_VAR");
+        sh.line("env | grep C_VAR");
+        sh.frame("set_empty");
+        sh.line("set 9bad value");
+        sh.frame("set_invalid");
+        sh.line("unset A_VAR B_VAR C_VAR");
+        sh.line("env | grep _VAR");
+        sh.frame("after_unset");
+        sh.line("export 9bad=1");
+        sh.frame("export_invalid");
+        sh.line("FOO=bar");
+        sh.line("echo $FOO");
+        sh.line("env | grep FOO");
+        sh.frame("plain_assignment_not_exported");
+        sh.line("export FOO");
+        sh.line("env | grep FOO");
+        sh.frame("export_existing");
+    }
+);
 
 parity!(alias_list_in_pipeline, Fixture::new(), |sh: &mut Live| {
     sh.line("alias only echo one");
@@ -1477,7 +1716,10 @@ const WIDE: u16 = 200;
 
 parity!(
     denv_loads_allowed_envrc_on_cd,
-    Fixture::new().size(24, WIDE).file("project/.envrc", ENVRC_LOADED).allow_envrc("project/.envrc"),
+    Fixture::new()
+        .size(24, WIDE)
+        .file("project/.envrc", ENVRC_LOADED)
+        .allow_envrc("project/.envrc"),
     |sh: &mut Live| {
         sh.line("cd project");
         sh.frame("after_cd");
@@ -1488,7 +1730,9 @@ parity!(
 
 parity!(
     denv_loads_dotenv_on_cd_without_allow,
-    Fixture::new().size(24, WIDE).file("project/.env", "DENV_TEST_VAR=loaded\n"),
+    Fixture::new()
+        .size(24, WIDE)
+        .file("project/.env", "DENV_TEST_VAR=loaded\n"),
     |sh: &mut Live| {
         sh.line("cd project");
         sh.frame("after_cd");
@@ -1499,7 +1743,8 @@ parity!(
 
 parity!(
     denv_unloads_on_leave,
-    Fixture::new().size(24, WIDE)
+    Fixture::new()
+        .size(24, WIDE)
         .file("project/.envrc", "export DENV_TEST_VAR='active'\n")
         .allow_envrc("project/.envrc"),
     |sh: &mut Live| {
@@ -1515,7 +1760,9 @@ parity!(
 
 parity!(
     denv_allow_applies_env,
-    Fixture::new().size(24, WIDE).file("project/.envrc", "export DENV_TEST_VAR='allowed'\n"),
+    Fixture::new()
+        .size(24, WIDE)
+        .file("project/.envrc", "export DENV_TEST_VAR='allowed'\n"),
     |sh: &mut Live| {
         sh.line("cd project");
         sh.frame("blocked");
@@ -1530,7 +1777,10 @@ parity!(
 
 parity!(
     denv_deny_removes_env_and_marks_dirty,
-    Fixture::new().size(24, WIDE).file("project/.envrc", ENVRC_LOADED).allow_envrc("project/.envrc"),
+    Fixture::new()
+        .size(24, WIDE)
+        .file("project/.envrc", ENVRC_LOADED)
+        .allow_envrc("project/.envrc"),
     |sh: &mut Live| {
         sh.line("cd project");
         sh.line("denv deny");
@@ -1542,7 +1792,10 @@ parity!(
 
 parity!(
     denv_startup_loads_dotenv_in_initial_cwd,
-    Fixture::new().size(24, WIDE).file("project/.env", "DENV_TEST_VAR=from_startup\n").cwd("project"),
+    Fixture::new()
+        .size(24, WIDE)
+        .file("project/.env", "DENV_TEST_VAR=from_startup\n")
+        .cwd("project"),
     |sh: &mut Live| {
         sh.frame("startup");
         sh.line("echo $DENV_TEST_VAR");
@@ -1552,7 +1805,8 @@ parity!(
 
 parity!(
     denv_startup_loads_allowed_envrc_in_initial_cwd,
-    Fixture::new().size(24, WIDE)
+    Fixture::new()
+        .size(24, WIDE)
         .file("project/.envrc", "export DENV_TEST_VAR='from_startup'\n")
         .allow_envrc("project/.envrc")
         .cwd("project"),
@@ -1565,8 +1819,12 @@ parity!(
 
 parity!(
     denv_dotenv_overrides_envrc,
-    Fixture::new().size(24, WIDE)
-        .file("project/.envrc", "export SHARED='from_envrc'\nexport ENVRC_ONLY='1'\n")
+    Fixture::new()
+        .size(24, WIDE)
+        .file(
+            "project/.envrc",
+            "export SHARED='from_envrc'\nexport ENVRC_ONLY='1'\n"
+        )
         .file("project/.env", "SHARED=from_dotenv\nDOTENV_ONLY=1\n")
         .allow_envrc("project/.envrc"),
     |sh: &mut Live| {
@@ -1579,7 +1837,8 @@ parity!(
 
 parity!(
     denv_reload_after_reallow_picks_up_envrc_edit,
-    Fixture::new().size(24, WIDE)
+    Fixture::new()
+        .size(24, WIDE)
         .file("project/.envrc", "export DENV_TEST_VAR='old'\n")
         .allow_envrc("project/.envrc"),
     |sh: &mut Live| {
@@ -1595,7 +1854,8 @@ parity!(
 
 parity!(
     denv_edit_envrc_invalidates_trust,
-    Fixture::new().size(24, WIDE)
+    Fixture::new()
+        .size(24, WIDE)
         .file("project/.envrc", "export DENV_TEST_VAR='old'\n")
         .allow_envrc("project/.envrc"),
     |sh: &mut Live| {
@@ -1610,7 +1870,8 @@ parity!(
 
 parity!(
     denv_restores_preexisting_var_on_leave,
-    Fixture::new().size(24, WIDE)
+    Fixture::new()
+        .size(24, WIDE)
         .file("project/.envrc", "export EXISTING='inside'\n")
         .allow_envrc("project/.envrc")
         .env("EXISTING", "outside"),
@@ -1626,7 +1887,8 @@ parity!(
 
 parity!(
     denv_path_add_relative_dir,
-    Fixture::new().size(24, WIDE)
+    Fixture::new()
+        .size(24, WIDE)
         .file("project/.envrc", "PATH_add bin\n")
         .executable("project/bin/tool", "#!/bin/sh\nexit 0\n")
         .allow_envrc("project/.envrc"),
@@ -1639,7 +1901,8 @@ parity!(
 
 parity!(
     denv_dotenv_helper_loads_env_file,
-    Fixture::new().size(24, WIDE)
+    Fixture::new()
+        .size(24, WIDE)
         .file("project/.envrc", "dotenv\nexport AFTER='1'\n")
         .file("project/.env", "FROM_ENV=loaded\n")
         .allow_envrc("project/.envrc"),
@@ -1655,7 +1918,9 @@ parity!(
 
 parity!(
     denv_allow_requires_envrc,
-    Fixture::new().size(24, WIDE).file("project/.env", "DENV_TEST_VAR=loaded\n"),
+    Fixture::new()
+        .size(24, WIDE)
+        .file("project/.env", "DENV_TEST_VAR=loaded\n"),
     |sh: &mut Live| {
         sh.line("cd project");
         sh.line("denv allow");

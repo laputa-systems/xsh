@@ -6,12 +6,12 @@ use super::config::{load_config, load_config_path, load_profile};
 use super::denv::{self, DenvCommand};
 use super::repl::{self, ReadResult, Ui};
 use super::session::{InteractiveJob, InteractiveJobState, Session, set_env_bytes, stdio_is_tty};
-use super::signal;
 use super::shell::{
-    Chain, ChainOp, PipeOp, Pipeline, RedirectionKind as ShellRedirectionKind, ShellLine, ShellParser,
-    ShellToken, ShellWord, ShellWordPart, SimpleCommand, expand_glob, has_glob_meta, lex_shell,
-    shell_line_source,
+    Chain, ChainOp, PipeOp, Pipeline, RedirectionKind as ShellRedirectionKind, ShellLine,
+    ShellParser, ShellToken, ShellWord, ShellWordPart, SimpleCommand, expand_glob, has_glob_meta,
+    lex_shell, shell_line_source,
 };
+use super::signal;
 use rustix::termios::{self as rtermios, OptionalActions, Termios};
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -166,7 +166,11 @@ pub fn run_with_options(options: RunOptions) -> i32 {
     } else {
         None
     };
-    let signal_fd = if options.require_tty { signal::init() } else { -1 };
+    let signal_fd = if options.require_tty {
+        signal::init()
+    } else {
+        -1
+    };
     let mut ui = Ui::new(signal_fd);
     let mut line = String::new();
 
@@ -191,9 +195,12 @@ pub fn run_with_options(options: RunOptions) -> i32 {
                 .get(b"PWD".as_slice())
                 .map(|value| String::from_utf8_lossy(value).into_owned())
                 .unwrap_or_default();
-            session
-                .prompt
-                .render_into(&mut prompt_text, session.last_status, &pwd, session.denv_dirty());
+            session.prompt.render_into(
+                &mut prompt_text,
+                session.last_status,
+                &pwd,
+                session.denv_dirty(),
+            );
             if write!(stdout, "{prompt_text}")
                 .and_then(|()| stdout.flush())
                 .is_err()
@@ -280,7 +287,9 @@ fn handle_submitted_line(
                 if let Some(code) = handle_exit_command(session, ui, &line, stderr) {
                     return LineOutcome::Exit(code);
                 }
-                session.history.add_in_dir(&history_line, Some(&history_cwd));
+                session
+                    .history
+                    .add_in_dir(&history_line, Some(&history_cwd));
                 return LineOutcome::Continue;
             }
             "exec" => {
@@ -295,7 +304,9 @@ fn handle_submitted_line(
                 let _ = stdout.write_all(&output.stdout);
                 let _ = stdout.flush();
                 let _ = stderr.write_all(&output.stderr);
-                session.history.add_in_dir(&history_line, Some(&history_cwd));
+                session
+                    .history
+                    .add_in_dir(&history_line, Some(&history_cwd));
                 if matches!(output.status, 126 | 127) {
                     session.last_status = output.status;
                     return LineOutcome::Continue;
@@ -314,7 +325,9 @@ fn handle_submitted_line(
                 let _ = stderr.flush();
                 session.last_status = status;
                 session.last_process_status = Some(ProcessStatus::exited(status));
-                session.history.add_in_dir(&history_line, Some(&history_cwd));
+                session
+                    .history
+                    .add_in_dir(&history_line, Some(&history_cwd));
                 return LineOutcome::Continue;
             }
             "copy-scrollback" => {
@@ -323,7 +336,9 @@ fn handle_submitted_line(
                 let _ = stdout.flush();
                 session.last_status = 0;
                 session.last_process_status = Some(ProcessStatus::exited(0));
-                session.history.add_in_dir(&history_line, Some(&history_cwd));
+                session
+                    .history
+                    .add_in_dir(&history_line, Some(&history_cwd));
                 return LineOutcome::Continue;
             }
             "xshi-dump" => {
@@ -334,7 +349,9 @@ fn handle_submitted_line(
                 let _ = stderr.flush();
                 session.last_status = status;
                 session.last_process_status = Some(ProcessStatus::exited(status));
-                session.history.add_in_dir(&history_line, Some(&history_cwd));
+                session
+                    .history
+                    .add_in_dir(&history_line, Some(&history_cwd));
                 return LineOutcome::Continue;
             }
             _ => {}
@@ -388,7 +405,11 @@ fn is_intercepted_line(line: &str) -> bool {
     let first = line.split_whitespace().next().unwrap_or("");
     let simple = || {
         lex_shell(line)
-            .map(|tokens| tokens.iter().all(|token| matches!(token, ShellToken::Word(_))))
+            .map(|tokens| {
+                tokens
+                    .iter()
+                    .all(|token| matches!(token, ShellToken::Word(_)))
+            })
             .unwrap_or(false)
     };
     match first {
@@ -564,7 +585,10 @@ fn handle_exit_command(
             terminate_job(session);
             return Some(0);
         }
-        let _ = writeln!(stderr, "xshi: there is a suspended job. Exit again to force quit.");
+        let _ = writeln!(
+            stderr,
+            "xshi: there is a suspended job. Exit again to force quit."
+        );
         ui.exit_warned = true;
         session.last_status = 1;
         session.last_process_status = Some(ProcessStatus::exited(1));
@@ -702,8 +726,16 @@ fn base64_encode(input: &[u8]) -> String {
         let n = (b0 << 16) | (b1 << 8) | b2;
         out.push(TABLE[((n >> 18) & 0x3F) as usize] as char);
         out.push(TABLE[((n >> 12) & 0x3F) as usize] as char);
-        out.push(if chunk.len() > 1 { TABLE[((n >> 6) & 0x3F) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { TABLE[(n & 0x3F) as usize] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            TABLE[((n >> 6) & 0x3F) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[(n & 0x3F) as usize] as char
+        } else {
+            '='
+        });
     }
     out
 }
@@ -1091,11 +1123,14 @@ fn run_external_pipeline(
                 if let Some(last) = invocations.last_mut() {
                     // The sink is the program's standard output before any
                     // redirection of its own: `2>&1` reaches it, `> file` wins.
-                    last.redirections.insert(0, ProcessRedirection::File {
-                        stream: RedirectionStream::Stdout,
-                        mode: FileRedirectionMode::Write,
-                        path: PathBuf::from(&sink.path),
-                    });
+                    last.redirections.insert(
+                        0,
+                        ProcessRedirection::File {
+                            stream: RedirectionStream::Stdout,
+                            mode: FileRedirectionMode::Write,
+                            path: PathBuf::from(&sink.path),
+                        },
+                    );
                 }
                 capture = Some(sink);
             }
@@ -1121,11 +1156,11 @@ fn run_external_pipeline(
             for segment in &status.segments {
                 if segment.kind == ProcessSegmentStatusKind::Exec {
                     let kind = segment.error_kind.clone().unwrap_or_default();
-                    let mut error = RunError::new(
-                        kind,
-                        segment.error_message.clone().unwrap_or_default(),
-                    );
-                    if let Some(message) = exec_failure_message(session, &segment.target, &mut error) {
+                    let mut error =
+                        RunError::new(kind, segment.error_message.clone().unwrap_or_default());
+                    if let Some(message) =
+                        exec_failure_message(session, &segment.target, &mut error)
+                    {
                         stderr.extend_from_slice(message.as_bytes());
                     }
                 }
@@ -1327,7 +1362,9 @@ fn execute_mixed_pipeline(session: &mut Session, pipeline: Pipeline) -> CommandO
     let final_stdout: Vec<u8>;
 
     for (index, command) in commands.iter().enumerate().take(last_builtin + 1) {
-        let merge_stderr = pipes.get(index).is_some_and(|pipe| *pipe == PipeOp::StdoutStderr);
+        let merge_stderr = pipes
+            .get(index)
+            .is_some_and(|pipe| *pipe == PipeOp::StdoutStderr);
         if is_builtin_stage(session, command) {
             let output = run_builtin_stage(session, command);
             statuses.push(output.status);
@@ -1386,7 +1423,10 @@ fn execute_mixed_pipeline(session: &mut Session, pipeline: Pipeline) -> CommandO
             }
         };
         let first = suffix.remove(0);
-        suffix.insert(0, with_redirection(first, ShellRedirectionKind::Stdin, &feed.path));
+        suffix.insert(
+            0,
+            with_redirection(first, ShellRedirectionKind::Stdin, &feed.path),
+        );
         let output = execute_pipeline(
             session,
             Pipeline {
@@ -1971,11 +2011,7 @@ fn run_external_captured(
 /// (127), `name: permission denied` (126), or, when the file exists and is
 /// executable but its `#!` interpreter cannot be started,
 /// `name: interp: bad interpreter: <reason>`.
-fn exec_failure_message(
-    session: &Session,
-    target: &[u8],
-    error: &mut RunError,
-) -> Option<String> {
+fn exec_failure_message(session: &Session, target: &[u8], error: &mut RunError) -> Option<String> {
     let name = String::from_utf8_lossy(target);
     let (code_text, fallback) = match error.kind.as_str() {
         "not-found" => ("No such file or directory", format!("{name}: not found\n")),
@@ -1990,7 +2026,9 @@ fn exec_failure_message(
     {
         // A broken interpreter is "found but not executable": status 126.
         error.kind = "bad-interpreter".to_string();
-        return Some(format!("{name}: {interpreter}: bad interpreter: {code_text}\n"));
+        return Some(format!(
+            "{name}: {interpreter}: bad interpreter: {code_text}\n"
+        ));
     }
     Some(fallback)
 }
@@ -1998,11 +2036,21 @@ fn exec_failure_message(
 fn resolve_exec_path(session: &Session, name: &str) -> Option<PathBuf> {
     if name.contains('/') {
         let path = PathBuf::from(name);
-        return Some(if path.is_absolute() { path } else { session.cwd.join(path) });
+        return Some(if path.is_absolute() {
+            path
+        } else {
+            session.cwd.join(path)
+        });
     }
     let path_env = session.env.get(b"PATH".as_slice())?;
     std::env::split_paths(&OsString::from_vec(path_env.clone()))
-        .map(|dir| if dir.as_os_str().is_empty() { session.cwd.clone() } else { dir })
+        .map(|dir| {
+            if dir.as_os_str().is_empty() {
+                session.cwd.clone()
+            } else {
+                dir
+            }
+        })
         .map(|dir| dir.join(name))
         .find(|candidate| is_executable_file(candidate))
 }
@@ -2180,19 +2228,39 @@ fn external_redirections(
     };
     Ok(match redirection.kind {
         ShellRedirectionKind::Stdin => {
-            vec![file(RedirectionStream::Stdin, FileRedirectionMode::Read, redirection)?]
+            vec![file(
+                RedirectionStream::Stdin,
+                FileRedirectionMode::Read,
+                redirection,
+            )?]
         }
         ShellRedirectionKind::StdoutWrite => {
-            vec![file(RedirectionStream::Stdout, FileRedirectionMode::Write, redirection)?]
+            vec![file(
+                RedirectionStream::Stdout,
+                FileRedirectionMode::Write,
+                redirection,
+            )?]
         }
         ShellRedirectionKind::StdoutAppend => {
-            vec![file(RedirectionStream::Stdout, FileRedirectionMode::Append, redirection)?]
+            vec![file(
+                RedirectionStream::Stdout,
+                FileRedirectionMode::Append,
+                redirection,
+            )?]
         }
         ShellRedirectionKind::StderrWrite => {
-            vec![file(RedirectionStream::Stderr, FileRedirectionMode::Write, redirection)?]
+            vec![file(
+                RedirectionStream::Stderr,
+                FileRedirectionMode::Write,
+                redirection,
+            )?]
         }
         ShellRedirectionKind::StderrAppend => {
-            vec![file(RedirectionStream::Stderr, FileRedirectionMode::Append, redirection)?]
+            vec![file(
+                RedirectionStream::Stderr,
+                FileRedirectionMode::Append,
+                redirection,
+            )?]
         }
         ShellRedirectionKind::StdoutToStderr => vec![ProcessRedirection::ChildDup {
             stream: RedirectionStream::Stdout,
@@ -2203,14 +2271,22 @@ fn external_redirections(
             fd: 1,
         }],
         ShellRedirectionKind::BothWrite => vec![
-            file(RedirectionStream::Stdout, FileRedirectionMode::Write, redirection)?,
+            file(
+                RedirectionStream::Stdout,
+                FileRedirectionMode::Write,
+                redirection,
+            )?,
             ProcessRedirection::ChildDup {
                 stream: RedirectionStream::Stderr,
                 fd: 1,
             },
         ],
         ShellRedirectionKind::BothAppend => vec![
-            file(RedirectionStream::Stdout, FileRedirectionMode::Append, redirection)?,
+            file(
+                RedirectionStream::Stdout,
+                FileRedirectionMode::Append,
+                redirection,
+            )?,
             ProcessRedirection::ChildDup {
                 stream: RedirectionStream::Stderr,
                 fd: 1,
@@ -2283,7 +2359,10 @@ fn is_xsh_source(source: &str) -> bool {
 /// `export` is a shell builtin (`export NAME=value`) unless it begins an XSH
 /// export: a declaration keyword, or the short form `export name: Type`.
 fn looks_like_xsh_export(trimmed: &str) -> bool {
-    let rest = trimmed.strip_prefix("export").unwrap_or_default().trim_start();
+    let rest = trimmed
+        .strip_prefix("export")
+        .unwrap_or_default()
+        .trim_start();
     let word_end = rest
         .find(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_'))
         .unwrap_or(rest.len());
@@ -2465,11 +2544,17 @@ fn expand_fields(
                     builder.literal(text, true);
                 }
             }
-            ShellWordPart::CommandSubstitution { source, glob: unquoted } => {
+            ShellWordPart::CommandSubstitution {
+                source,
+                glob: unquoted,
+            } => {
                 let value = expand_command_substitution(session, source)?;
                 builder.expansion(&value, !*unquoted || !split);
             }
-            ShellWordPart::ArithmeticExpansion { source, glob: unquoted } => {
+            ShellWordPart::ArithmeticExpansion {
+                source,
+                glob: unquoted,
+            } => {
                 let value = expand_arithmetic(session, source)?;
                 builder.expansion(&value, !*unquoted || !split);
             }
@@ -2565,7 +2650,11 @@ pub(super) fn expand_word_to_string(
     word: &ShellWord,
 ) -> Result<String, ExpansionError> {
     let fields = expand_fields(session, word, false)?;
-    Ok(fields.into_iter().map(|field| field.text).collect::<Vec<_>>().join(" "))
+    Ok(fields
+        .into_iter()
+        .map(|field| field.text)
+        .collect::<Vec<_>>()
+        .join(" "))
 }
 
 fn expand_command_words(
@@ -3026,19 +3115,28 @@ fn apply_builtin_redirections(
                 }
             }
             ShellRedirectionKind::StdoutWrite | ShellRedirectionKind::StdoutAppend => {
-                match open(redirection.kind == ShellRedirectionKind::StdoutAppend, &mut files) {
+                match open(
+                    redirection.kind == ShellRedirectionKind::StdoutAppend,
+                    &mut files,
+                ) {
                     Ok(sink) => stdout_sink = sink,
                     Err(output) => return output,
                 }
             }
             ShellRedirectionKind::StderrWrite | ShellRedirectionKind::StderrAppend => {
-                match open(redirection.kind == ShellRedirectionKind::StderrAppend, &mut files) {
+                match open(
+                    redirection.kind == ShellRedirectionKind::StderrAppend,
+                    &mut files,
+                ) {
                     Ok(sink) => stderr_sink = sink,
                     Err(output) => return output,
                 }
             }
             ShellRedirectionKind::BothWrite | ShellRedirectionKind::BothAppend => {
-                match open(redirection.kind == ShellRedirectionKind::BothAppend, &mut files) {
+                match open(
+                    redirection.kind == ShellRedirectionKind::BothAppend,
+                    &mut files,
+                ) {
                     Ok(sink) => {
                         stdout_sink = sink;
                         stderr_sink = sink;
@@ -3152,7 +3250,11 @@ mod tests {
     fn wait_for_job_state(session: &mut Session, expected: InteractiveJobState) -> Vec<u8> {
         let deadline = Instant::now() + Duration::from_secs(3);
         let mut stderr = Vec::new();
-        while session.job.as_ref().is_some_and(|job| job.state != expected) {
+        while session
+            .job
+            .as_ref()
+            .is_some_and(|job| job.state != expected)
+        {
             reap_interactive_job(session, &mut stderr);
             assert!(Instant::now() < deadline, "job did not reach {expected:?}");
             std::thread::yield_now();
@@ -3271,7 +3373,10 @@ mod tests {
             assert!(!output.stdout.is_empty(), "{source}");
         }
 
-        assert_eq!(execute_line(&mut session, "let submission_only = 7").status, 0);
+        assert_eq!(
+            execute_line(&mut session, "let submission_only = 7").status,
+            0
+        );
 
         for (source, diagnostic) in [
             ("print (", true),
@@ -3324,11 +3429,16 @@ mod tests {
 
     #[test]
     fn fd_duplication_carries_its_own_target() {
-        let line = ShellParser::new("cat missing 2>&1 | wc").parse_line().unwrap();
+        let line = ShellParser::new("cat missing 2>&1 | wc")
+            .parse_line()
+            .unwrap();
         let command = &line.chains[0].pipeline.commands[0];
         assert_eq!(command.words.len(), 2);
         assert_eq!(command.redirections.len(), 1);
-        assert_eq!(command.redirections[0].kind, ShellRedirectionKind::StderrToStdout);
+        assert_eq!(
+            command.redirections[0].kind,
+            ShellRedirectionKind::StderrToStdout
+        );
     }
 
     #[test]
@@ -3385,18 +3495,16 @@ mod tests {
         let mut session = Session::for_test();
         let w = execute_line(&mut session, "w fg");
         assert_eq!(w.status, 0);
-        assert!(
-            String::from_utf8(w.stdout)
-                .unwrap()
-                .contains("builtin")
-        );
+        assert!(String::from_utf8(w.stdout).unwrap().contains("builtin"));
 
-        session
-            .aliases
-            .set("fg".to_string(), vec!["echo".to_string(), "alias".to_string()]);
-        session
-            .aliases
-            .set("bg".to_string(), vec!["echo".to_string(), "alias".to_string()]);
+        session.aliases.set(
+            "fg".to_string(),
+            vec!["echo".to_string(), "alias".to_string()],
+        );
+        session.aliases.set(
+            "bg".to_string(),
+            vec!["echo".to_string(), "alias".to_string()],
+        );
 
         let fg = execute_line(&mut session, "fg");
         assert_eq!(fg.status, 1);
@@ -3447,7 +3555,6 @@ mod tests {
         assert!(!is_xsh_source("./tool.with.dot --flag"));
     }
 
-
     #[test]
     fn shell_guidance_shims_do_not_shadow_xsh_list_expressions() {
         let mut session = Session::for_test();
@@ -3455,12 +3562,6 @@ mod tests {
         let list = execute_line(&mut session, "[1, 2]");
         assert_eq!(list.status, 0);
     }
-
-
-
-
-
-
 
     #[test]
     fn single_background_job_rejects_second_slot_and_reaps_without_changing_prompt_status() {
@@ -3476,9 +3577,7 @@ mod tests {
 
         let second = execute_line(&mut session, "/bin/sleep 30 &");
         assert_eq!(second.status, 1);
-        assert!(
-            String::from_utf8_lossy(&second.stderr).contains("background job already exists")
-        );
+        assert!(String::from_utf8_lossy(&second.stderr).contains("background job already exists"));
         assert_eq!(session.job.as_ref().unwrap().pgid, pgid);
 
         let already_running = execute_line(&mut session, "bg");

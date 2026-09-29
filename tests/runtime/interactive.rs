@@ -73,8 +73,11 @@ fn utility_names_are_not_implicit_script_commands() {
 fn xsh_ignores_xshi_config_aliases_and_history() {
     let home = Home::new("xsh-ignores-xshi-config");
     std::fs::create_dir_all(home.path().join(".config/xshi")).expect("create config dir");
-    std::fs::write(home.path().join(".config/xshi/config.ish"), "alias echo print\n")
-        .expect("write config");
+    std::fs::write(
+        home.path().join(".config/xshi/config.ish"),
+        "alias echo print\n",
+    )
+    .expect("write config");
 
     let path = temp_xsh_path("xsh-ignores-interactive-config");
     std::fs::write(&path, "echo hi\n").expect("write temp script");
@@ -184,7 +187,10 @@ fn xshi_requires_tty_for_normal_startup() {
 
     assert_eq!(output.status.code(), Some(2));
     let stderr = stderr(&output);
-    assert!(stderr.contains("requires stdin and stdout to be terminals"), "{stderr}");
+    assert!(
+        stderr.contains("requires stdin and stdout to be terminals"),
+        "{stderr}"
+    );
 }
 
 #[test]
@@ -205,7 +211,11 @@ fn exit_status_reaches_the_parent_process() {
     assert_eq!(stderr(&output), "");
 
     let output = home.run_with(&["--no-config"], "false\nexit\n");
-    assert_eq!(output.status.code(), Some(0), "exit without an argument succeeds");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "exit without an argument succeeds"
+    );
 }
 
 #[test]
@@ -213,7 +223,10 @@ fn login_profile_is_loaded_for_sessions_but_not_for_command_flag() {
     let home = Home::new("login-profile");
     let bin = home.path().join("bin");
     std::fs::create_dir_all(&bin).expect("create profile bin");
-    write_test_executable(&bin.join("xshi-profile-probe"), "#!/bin/sh\nprintf 'from-profile\\n'\n");
+    write_test_executable(
+        &bin.join("xshi-profile-probe"),
+        "#!/bin/sh\nprintf 'from-profile\\n'\n",
+    );
     let profile = home.path().join("profile");
     std::fs::write(&profile, format!("export PATH={}\n", bin.display())).expect("write profile");
 
@@ -221,12 +234,20 @@ fn login_profile_is_loaded_for_sessions_but_not_for_command_flag() {
     session.env("XSHI_PROFILE_PATH", &profile).env("PATH", "");
     let output = run_with_input(session, "xshi-profile-probe\nexit\n");
     assert!(output.status.success());
-    assert!(stdout(&output).contains("from-profile\n"), "{}", stdout(&output));
+    assert!(
+        stdout(&output).contains("from-profile\n"),
+        "{}",
+        stdout(&output)
+    );
 
     let mut one_shot = home.xshi(&["--no-config", "-c", "xshi-profile-probe"]);
     one_shot.env("XSHI_PROFILE_PATH", &profile).env("PATH", "");
     let output = run_with_input(one_shot, "");
-    assert!(!stdout(&output).contains("from-profile\n"), "{}", stdout(&output));
+    assert!(
+        !stdout(&output).contains("from-profile\n"),
+        "{}",
+        stdout(&output)
+    );
 }
 
 #[test]
@@ -270,7 +291,10 @@ fn xshi_pty_master_does_not_survive_exec() {
     parity::run_xshi_only(&Fixture::new().size(24, 400), |sh| {
         sh.line(cargo_env!("CARGO_BIN_EXE_xsh-test-show-fds"));
         let screen = sh.screen_text();
-        let rows: Vec<&str> = screen.lines().filter(|row| !row.trim().is_empty()).collect();
+        let rows: Vec<&str> = screen
+            .lines()
+            .filter(|row| !row.trim().is_empty())
+            .collect();
         assert_eq!(rows.len(), 2, "the helper printed a descriptor: {screen}");
     });
 }
@@ -312,7 +336,14 @@ fn lists_and_statuses_follow_the_previous_command() {
     );
 
     let stdout = stdout(&output);
-    for expected in ["fallback\n", "ok\n", "yes\n", "no\n", "status=7\n", "colon\n"] {
+    for expected in [
+        "fallback\n",
+        "ok\n",
+        "yes\n",
+        "no\n",
+        "status=7\n",
+        "colon\n",
+    ] {
         assert!(stdout.contains(expected), "missing {expected:?}: {stdout}");
     }
     assert_eq!(stderr(&output), "");
@@ -333,7 +364,13 @@ fn a_pipelines_status_is_its_last_stage() {
     );
 
     let stdout = stdout(&output);
-    for expected in ["external=0\n", "last=4\n", "mixed\n", "builtin-first=0\n", "builtin-last=1\n"] {
+    for expected in [
+        "external=0\n",
+        "last=4\n",
+        "mixed\n",
+        "builtin-first=0\n",
+        "builtin-last=1\n",
+    ] {
         assert!(stdout.contains(expected), "missing {expected:?}: {stdout}");
     }
 }
@@ -349,7 +386,10 @@ fn session_builtins_in_a_pipeline_leave_the_shell_alone() {
     ));
 
     let stdout = stdout(&output);
-    assert!(stdout.contains(&format!("{}/one\n", home.path().display())), "{stdout}");
+    assert!(
+        stdout.contains(&format!("{}/one\n", home.path().display())),
+        "{stdout}"
+    );
     assert!(stdout.contains("unset\n"), "{stdout}");
 }
 
@@ -360,7 +400,10 @@ fn redirections_resolve_against_the_session_directory() {
     let output = home.session("cd work\n/usr/bin/printf hi > out\ncat < out");
 
     assert!(stdout(&output).contains("hi"), "{}", stdout(&output));
-    assert_eq!(std::fs::read_to_string(home.path().join("work/out")).unwrap(), "hi");
+    assert_eq!(
+        std::fs::read_to_string(home.path().join("work/out")).unwrap(),
+        "hi"
+    );
     assert_eq!(stderr(&output), "");
 }
 
@@ -377,7 +420,10 @@ fn both_streams_can_be_redirected_or_piped_together() {
     let both = std::fs::read_to_string(home.path().join("both.txt")).unwrap();
     assert_eq!(both, "out\nerr\nmore\n");
     let stdout = stdout(&output);
-    assert!(stdout.contains("piped-err\n") && stdout.contains("dup-err\n"), "{stdout}");
+    assert!(
+        stdout.contains("piped-err\n") && stdout.contains("dup-err\n"),
+        "{stdout}"
+    );
     assert_eq!(stderr(&output), "");
 }
 
@@ -398,15 +444,33 @@ fn exec_runs_the_command_and_then_leaves_the_shell() {
     let home = Home::new("exec");
     let output = home.run_with(&["--no-config"], "exec echo replaced\necho not-reached\n");
     assert_eq!(output.status.code(), Some(0));
-    assert!(stdout(&output).contains("replaced\n"), "{}", stdout(&output));
-    assert!(!stdout(&output).contains("not-reached"), "{}", stdout(&output));
+    assert!(
+        stdout(&output).contains("replaced\n"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(
+        !stdout(&output).contains("not-reached"),
+        "{}",
+        stdout(&output)
+    );
 
     let output = home.run_with(&["--no-config"], "exec sh -c 'exit 3'\necho not-reached\n");
     assert_eq!(output.status.code(), Some(3));
 
-    let output = home.run_with(&["--no-config"], "exec no-such-command-xshi\necho still-here\nexit\n");
-    assert!(stdout(&output).contains("still-here\n"), "a failed exec keeps the shell");
-    assert!(stderr(&output).contains("no-such-command-xshi: not found"), "{}", stderr(&output));
+    let output = home.run_with(
+        &["--no-config"],
+        "exec no-such-command-xshi\necho still-here\nexit\n",
+    );
+    assert!(
+        stdout(&output).contains("still-here\n"),
+        "a failed exec keeps the shell"
+    );
+    assert!(
+        stderr(&output).contains("no-such-command-xshi: not found"),
+        "{}",
+        stderr(&output)
+    );
 }
 
 #[test]
@@ -420,20 +484,43 @@ fn redirections_apply_left_to_right() {
     );
 
     let read = |name: &str| std::fs::read_to_string(home.path().join(name)).unwrap();
-    assert_eq!(read("stderr-first.txt"), "out\n", "`2>&1 > file` leaves stderr on the pipe");
-    assert_eq!(read("stdout-first.txt"), "out\nerr\n", "`> file 2>&1` sends both to the file");
+    assert_eq!(
+        read("stderr-first.txt"),
+        "out\n",
+        "`2>&1 > file` leaves stderr on the pipe"
+    );
+    assert_eq!(
+        read("stdout-first.txt"),
+        "out\nerr\n",
+        "`> file 2>&1` sends both to the file"
+    );
     assert_eq!(read("captured-away.txt"), "out\n");
     let stdout = stdout(&output);
-    assert!(stdout.contains("err\n"), "stderr reached the pipeline: {stdout}");
+    assert!(
+        stdout.contains("err\n"),
+        "stderr reached the pipeline: {stdout}"
+    );
     assert!(stdout.contains("[out err]\n"), "{stdout}");
     assert!(stdout.contains("[]\n"), "{stdout}");
-    assert!(stderr(&output).contains("err"), "the redirected substitution left stderr alone");
+    assert!(
+        stderr(&output).contains("err"),
+        "the redirected substitution left stderr alone"
+    );
 }
 
 #[test]
 fn globs_are_sorted_recursive_and_quotable() {
     let home = Home::new("globs");
-    for file in ["b.txt", "a.txt", ".hidden.txt", "root.log", "x1", "x2", "xa", "sub/deep.log"] {
+    for file in [
+        "b.txt",
+        "a.txt",
+        ".hidden.txt",
+        "root.log",
+        "x1",
+        "x2",
+        "xa",
+        "sub/deep.log",
+    ] {
         let path = home.path().join(file);
         std::fs::create_dir_all(path.parent().unwrap()).expect("create parent");
         std::fs::write(path, "").expect("write file");
@@ -460,7 +547,11 @@ fn globs_are_sorted_recursive_and_quotable() {
     ] {
         assert!(stdout.contains(expected), "missing {expected:?}: {stdout}");
     }
-    assert!(stderr(&output).contains("glob pattern matched no paths: *.missing"), "{}", stderr(&output));
+    assert!(
+        stderr(&output).contains("glob pattern matched no paths: *.missing"),
+        "{}",
+        stderr(&output)
+    );
 }
 
 #[test]
@@ -509,7 +600,14 @@ fn variables_are_exported_only_when_asked() {
     );
 
     let stdout = stdout(&output);
-    for expected in ["three\n", "scoped-gone\n", "not-exported\n", "two one\n", "two\n", "[]\n"] {
+    for expected in [
+        "three\n",
+        "scoped-gone\n",
+        "not-exported\n",
+        "two one\n",
+        "two\n",
+        "[]\n",
+    ] {
         assert!(stdout.contains(expected), "missing {expected:?}: {stdout}");
     }
     assert_eq!(stderr(&output), "");
@@ -527,8 +625,14 @@ fn expansion_of_quotes_tilde_and_escapes() {
     );
 
     let stdout = stdout(&output);
-    assert!(stdout.contains("hello-world $WORD world $WORD $WORD\n"), "{stdout}");
-    assert!(stdout.contains(&format!("{}/subdir\n", home.path().display())), "{stdout}");
+    assert!(
+        stdout.contains("hello-world $WORD world $WORD $WORD\n"),
+        "{stdout}"
+    );
+    assert!(
+        stdout.contains(&format!("{}/subdir\n", home.path().display())),
+        "{stdout}"
+    );
     assert_eq!(stderr(&output), "");
 }
 
@@ -538,10 +642,16 @@ fn malformed_lines_report_and_the_session_continues() {
     let output = home.session("let nope =\necho after\nBAD-NAME=value\necho still");
 
     let stdout = stdout(&output);
-    assert!(stdout.contains("after\n") && stdout.contains("still\n"), "{stdout}");
+    assert!(
+        stdout.contains("after\n") && stdout.contains("still\n"),
+        "{stdout}"
+    );
     let stderr = stderr(&output);
     assert!(stderr.contains("parse."), "{stderr}");
-    assert!(stderr.contains("invalid environment assignment"), "{stderr}");
+    assert!(
+        stderr.contains("invalid environment assignment"),
+        "{stderr}"
+    );
 }
 
 #[test]
@@ -553,10 +663,18 @@ fn l_lists_hidden_entries_and_sees_files_created_by_commands() {
     let output = home.session("l\ntouch after.txt\nl");
 
     let stdout = stdout(&output);
-    assert!(stdout.contains("visible.txt") && stdout.contains(".hidden"), "{stdout}");
-    let (before, after) = stdout.split_once("after.txt").map_or((stdout.as_str(), ""), |(b, a)| (b, a));
+    assert!(
+        stdout.contains("visible.txt") && stdout.contains(".hidden"),
+        "{stdout}"
+    );
+    let (before, after) = stdout
+        .split_once("after.txt")
+        .map_or((stdout.as_str(), ""), |(b, a)| (b, a));
     assert!(!before.contains("after.txt"));
-    assert!(after.contains("visible.txt"), "the second listing includes the new file: {stdout}");
+    assert!(
+        after.contains("visible.txt"),
+        "the second listing includes the new file: {stdout}"
+    );
     assert_eq!(stderr(&output), "");
 }
 
@@ -574,8 +692,16 @@ fn z_jumps_to_a_directory_recorded_in_history() {
 
     let output = home.session("z alpha\npwd");
 
-    assert!(stdout(&output).contains(&format!("{}\n", target.display())), "{}", stdout(&output));
-    assert_eq!(stderr(&output), format!("{}\n", target.display()), "z announces where it went");
+    assert!(
+        stdout(&output).contains(&format!("{}\n", target.display())),
+        "{}",
+        stdout(&output)
+    );
+    assert_eq!(
+        stderr(&output),
+        format!("{}\n", target.display()),
+        "z announces where it went"
+    );
 }
 
 #[test]
@@ -585,11 +711,18 @@ fn a_session_records_history_and_the_next_one_recalls_it() {
     assert!(first.status.success());
 
     let log = home.path().join(".local/share/xshi");
-    assert!(log.join("history.bin").exists(), "exit folds the log into the cache");
+    assert!(
+        log.join("history.bin").exists(),
+        "exit folds the log into the cache"
+    );
     assert_eq!(std::fs::metadata(log.join("history")).unwrap().len(), 0);
 
     let output = home.session("history");
-    assert!(stdout(&output).contains("echo remembered\n"), "{}", stdout(&output));
+    assert!(
+        stdout(&output).contains("echo remembered\n"),
+        "{}",
+        stdout(&output)
+    );
 }
 
 #[test]
@@ -602,12 +735,27 @@ fn a_damaged_history_cache_is_reported_and_history_keeps_working() {
 
     let output = home.session("history\necho new");
 
-    assert!(stdout(&output).contains("echo from the log\n"), "{}", stdout(&output));
-    assert!(stderr(&output).contains("history cache corrupt"), "{}", stderr(&output));
-    assert_eq!(std::fs::read(dir.join("history.bin")).unwrap(), b"ISH\x05 damaged");
+    assert!(
+        stdout(&output).contains("echo from the log\n"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(
+        stderr(&output).contains("history cache corrupt"),
+        "{}",
+        stderr(&output)
+    );
+    assert_eq!(
+        std::fs::read(dir.join("history.bin")).unwrap(),
+        b"ISH\x05 damaged"
+    );
 
     let repaired = home.session("history rebuild\nhistory");
-    assert!(stdout(&repaired).contains("echo new\n"), "{}", stdout(&repaired));
+    assert!(
+        stdout(&repaired).contains("echo new\n"),
+        "{}",
+        stdout(&repaired)
+    );
     assert!(dir.join("history.bin.corrupt").exists());
     assert_eq!(home.session("history").status.code(), Some(0));
 }
@@ -623,12 +771,24 @@ fn config_file_aliases_and_variables_load_unless_disabled() {
     .expect("write config");
 
     let output = home.run_with(&[], "probe $XSHI_FROM_CONFIG\nexit\n");
-    assert!(stdout(&output).contains("from-config configured\n"), "{}", stdout(&output));
+    assert!(
+        stdout(&output).contains("from-config configured\n"),
+        "{}",
+        stdout(&output)
+    );
     assert_eq!(stderr(&output), "");
 
     let output = home.run_with(&["--no-config"], "probe\nexit\n");
-    assert!(!stdout(&output).contains("from-config"), "{}", stdout(&output));
-    assert!(stderr(&output).contains("probe: not found"), "{}", stderr(&output));
+    assert!(
+        !stdout(&output).contains("from-config"),
+        "{}",
+        stdout(&output)
+    );
+    assert!(
+        stderr(&output).contains("probe: not found"),
+        "{}",
+        stderr(&output)
+    );
 }
 
 #[test]
@@ -639,7 +799,11 @@ fn history_search_survives_a_peer_shell_resetting_history() {
         sh.enter();
         sh.wait_prompt();
         sh.keys(key::CTRL_R);
-        assert!(!sh.screen_text().contains("echo old"), "{}", sh.screen_text());
+        assert!(
+            !sh.screen_text().contains("echo old"),
+            "{}",
+            sh.screen_text()
+        );
         sh.keys(key::ESC);
         sh.absorb(peer, "peer");
     });
@@ -661,9 +825,15 @@ fn dollar_completes_shell_variables_exported_or_not() {
         sh.text("EBRA_S");
         sh.keys(key::TAB);
         sh.keys(key::ENTER);
-        let row = sh.screen_text().lines().rev().find(|row| row.contains("echo")).map(str::to_owned);
+        let row = sh
+            .screen_text()
+            .lines()
+            .rev()
+            .find(|row| row.contains("echo"))
+            .map(str::to_owned);
         assert!(
-            row.as_deref().is_some_and(|row| row.ends_with("echo $XSHI_ZEBRA_SH")),
+            row.as_deref()
+                .is_some_and(|row| row.ends_with("echo $XSHI_ZEBRA_SH")),
             "accepted without quoting or a trailing slash: {row:?}"
         );
         sh.keys_to_prompt(key::ENTER);
@@ -676,16 +846,26 @@ fn dollar_completion_works_inside_double_quotes_and_ignores_escaped_dollars() {
     parity::run_xshi_only(&Fixture::new().env("XSHI_QUOTED_VALUE", "ok"), |sh| {
         sh.text("echo \"value=$XSHI_QUOTED_V");
         sh.keys(key::TAB);
-        let row = sh.screen_text().lines().rev().find(|row| row.contains("echo")).map(str::to_owned);
+        let row = sh
+            .screen_text()
+            .lines()
+            .rev()
+            .find(|row| row.contains("echo"))
+            .map(str::to_owned);
         assert!(
-            row.as_deref().is_some_and(|row| row.ends_with("echo \"value=$XSHI_QUOTED_VALUE")),
+            row.as_deref()
+                .is_some_and(|row| row.ends_with("echo \"value=$XSHI_QUOTED_VALUE")),
             "{row:?}"
         );
         sh.keys(key::CTRL_U);
 
         sh.text("echo \\$XSHI_QUOTED_V");
         sh.keys(key::TAB);
-        assert!(!sh.screen_text().contains("XSHI_QUOTED_VALUE"), "{}", sh.screen_text());
+        assert!(
+            !sh.screen_text().contains("XSHI_QUOTED_VALUE"),
+            "{}",
+            sh.screen_text()
+        );
     });
 }
 
@@ -697,16 +877,30 @@ fn fg_resumes_the_rest_of_an_and_or_list() {
     parity::run_xshi_only(&fixture, |sh| {
         sh.line_until("./bin/ok && echo continued-$((1+1))", "ready");
         sh.keys_to_prompt(key::CTRL_Z);
-        assert!(!sh.screen_text().contains("continued-2"), "the list waits while the job is stopped");
+        assert!(
+            !sh.screen_text().contains("continued-2"),
+            "the list waits while the job is stopped"
+        );
         sh.line("fg");
-        assert!(sh.screen_text().contains("continued-2"), "{}", sh.screen_text());
+        assert!(
+            sh.screen_text().contains("continued-2"),
+            "{}",
+            sh.screen_text()
+        );
 
         sh.line_until("./bin/bad || echo fallback-$((1+1))", "ready");
         sh.keys_to_prompt(key::CTRL_Z);
         sh.line("fg");
-        assert!(sh.screen_text().contains("fallback-2"), "{}", sh.screen_text());
+        assert!(
+            sh.screen_text().contains("fallback-2"),
+            "{}",
+            sh.screen_text()
+        );
 
-        sh.line_until("./bin/bad && echo skipped-$((1+1)); echo after-$((1+1))", "ready");
+        sh.line_until(
+            "./bin/bad && echo skipped-$((1+1)); echo after-$((1+1))",
+            "ready",
+        );
         sh.keys_to_prompt(key::CTRL_Z);
         sh.line("fg");
         let screen = sh.screen_text();
@@ -717,7 +911,10 @@ fn fg_resumes_the_rest_of_an_and_or_list() {
 
 #[test]
 fn forced_exit_terminates_a_stopped_job() {
-    let fixture = Fixture::new().executable("bin/job", "#!/bin/sh\necho $$ > pid\necho ready\nsleep 60\n");
+    let fixture = Fixture::new().executable(
+        "bin/job",
+        "#!/bin/sh\necho $$ > pid\necho ready\nsleep 60\n",
+    );
     parity::run_xshi_only(&fixture, |sh| {
         sh.line_until("./bin/job", "ready");
         sh.keys_to_prompt(key::CTRL_Z);
@@ -726,12 +923,22 @@ fn forced_exit_terminates_a_stopped_job() {
 
         sh.text("exit");
         sh.keys_to_prompt(key::ENTER);
-        assert!(sh.screen_text().contains("suspended job"), "{}", sh.screen_text());
+        assert!(
+            sh.screen_text().contains("suspended job"),
+            "{}",
+            sh.screen_text()
+        );
         sh.text("exit");
         sh.enter();
         sh.expect_exit("forced_exit");
 
-        let alive = || Command::new("kill").args(["-0", &pid]).stderr(Stdio::null()).status().is_ok_and(|s| s.success());
+        let alive = || {
+            Command::new("kill")
+                .args(["-0", &pid])
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success())
+        };
         let deadline = Instant::now() + Duration::from_secs(5);
         while alive() && Instant::now() < deadline {
             std::thread::sleep(Duration::from_millis(20));

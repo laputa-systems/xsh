@@ -35,11 +35,7 @@ fn target_paths(
     root: &std::path::Path,
 ) -> Option<(std::path::PathBuf, std::path::PathBuf, &'static str)> {
     match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("macos", "aarch64") => Some((
-            root.join("target"),
-            root.join("target/no-default"),
-            "",
-        )),
+        ("macos", "aarch64") => Some((root.join("target"), root.join("target/no-default"), "")),
         ("linux", "aarch64") => Some((
             root.join("target/aarch64-unknown-linux-musl"),
             root.join("target/no-default-linux/aarch64-unknown-linux-musl"),

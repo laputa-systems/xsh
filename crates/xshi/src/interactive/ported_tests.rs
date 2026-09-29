@@ -901,7 +901,10 @@ fn config_load_all_paths() {
         Some(&b"hello world"[..])
     );
     assert_eq!(session.aliases.get("ll").unwrap(), &["ls", "-la"]);
-    assert!(stderr.contains(":5: unrecognized directive: badline"), "{stderr}");
+    assert!(
+        stderr.contains(":5: unrecognized directive: badline"),
+        "{stderr}"
+    );
 
     // 3. Empty set name: an error, and nothing changes.
     let (_, stderr) = load(Some("set  \n"), false);
@@ -910,7 +913,10 @@ fn config_load_all_paths() {
     // 4. Alias without expansion is not added.
     let (session, stderr) = load(Some("alias myalias\n"), false);
     assert!(session.aliases.get("myalias").is_none());
-    assert!(stderr.contains("alias: missing expansion for 'myalias'"), "{stderr}");
+    assert!(
+        stderr.contains("alias: missing expansion for 'myalias'"),
+        "{stderr}"
+    );
 
     // 5. set VAR with no value is the empty string.
     let (session, _) = load(Some("set ISH_TEST_CFG_NOVAL\n"), false);

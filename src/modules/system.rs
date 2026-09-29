@@ -43,8 +43,11 @@ pub(crate) fn execution_units(span: Span) -> Result<Value, RuntimeError> {
     let page_size = rustix::param::page_size();
     let clock_ticks_per_second = rustix::param::clock_ticks_per_second();
     let page_size_bytes = i64::try_from(page_size).map_err(|_| {
-        RuntimeError::new("system-execution-units", "page size exceeds the supported integer range")
-            .with_span(span)
+        RuntimeError::new(
+            "system-execution-units",
+            "page size exceeds the supported integer range",
+        )
+        .with_span(span)
     })?;
     let clock_ticks_per_second = clock_ticks_per_second as i64;
     if page_size_bytes <= 0 || clock_ticks_per_second <= 0 {
@@ -377,13 +380,18 @@ mod tests {
         assert_eq!(memory.free, 2_097_152 * 1024);
         assert_eq!(memory.available, 8_388_608 * 1024);
 
-        let malformed = include_str!("../../tests/fixtures/stdlib/meminfo/malformed_unreported.txt");
-        let error = parse_memory(malformed, test_span()).err().expect("invalid value");
+        let malformed =
+            include_str!("../../tests/fixtures/stdlib/meminfo/malformed_unreported.txt");
+        let error = parse_memory(malformed, test_span())
+            .err()
+            .expect("invalid value");
         assert_eq!(error.kind, "system-memory");
         assert!(error.message.contains("invalid numeric value"));
 
         let missing = include_str!("../../tests/fixtures/stdlib/meminfo/missing_total.txt");
-        let error = parse_memory(missing, test_span()).err().expect("missing key");
+        let error = parse_memory(missing, test_span())
+            .err()
+            .expect("missing key");
         assert_eq!(error.kind, "system-memory");
         assert!(error.message.contains("MemTotal"));
 
@@ -399,15 +407,27 @@ mod tests {
     fn os_release_parser_preserves_quotes_duplicates_and_defaults() {
         let quoted = include_str!("../../tests/fixtures/stdlib/os_release/quoted_and_escaped.txt");
         let values = parse_os_release(quoted);
-        assert_eq!(values.get("NAME").map(String::as_str), Some("Fixture \"Quoted\" Linux"));
-        assert_eq!(values.get("PRETTY_NAME").map(String::as_str), Some("Single quoted name"));
+        assert_eq!(
+            values.get("NAME").map(String::as_str),
+            Some("Fixture \"Quoted\" Linux")
+        );
+        assert_eq!(
+            values.get("PRETTY_NAME").map(String::as_str),
+            Some("Single quoted name")
+        );
         assert_eq!(values.get("VERSION").map(String::as_str), Some("1.2\\3"));
-        assert_eq!(values.get("ID").map(String::as_str), Some("fixture-os-last"));
+        assert_eq!(
+            values.get("ID").map(String::as_str),
+            Some("fixture-os-last")
+        );
         assert!(!values.contains_key("KEY_WITH_SPACE"));
 
         let defaults = include_str!("../../tests/fixtures/stdlib/os_release/defaults.txt");
         let values = parse_os_release(defaults);
-        assert_eq!(values.get("ID").map(String::as_str), Some("defaults-fixture"));
+        assert_eq!(
+            values.get("ID").map(String::as_str),
+            Some("defaults-fixture")
+        );
         assert!(!values.contains_key("NAME"));
     }
 }

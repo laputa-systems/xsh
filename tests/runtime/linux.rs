@@ -119,7 +119,10 @@ fn xsht_syscall_trace_includes_summary_when_ptrace_available() {
 
     let stderr = String::from_utf8(output.stderr).unwrap();
     if !output.status.success() && stderr.contains("syscall tracing setup failed") {
-        eprintln!("skipped: ptrace syscall tracing unavailable: {}", stderr.trim());
+        eprintln!(
+            "skipped: ptrace syscall tracing unavailable: {}",
+            stderr.trim()
+        );
         return;
     }
 
@@ -169,7 +172,10 @@ print ${out.trim()}
 
     let stderr = String::from_utf8(stderr).unwrap();
     if !status.success() && stderr.contains("syscall tracing setup failed") {
-        eprintln!("skipped: ptrace syscall tracing unavailable: {}", stderr.trim());
+        eprintln!(
+            "skipped: ptrace syscall tracing unavailable: {}",
+            stderr.trim()
+        );
         return;
     }
 

@@ -406,7 +406,9 @@ print ${{values.len()}}
     }
     let root_id = trace
         .iter()
-        .find_map(|(id, (parent, kind))| (parent.is_none() && kind == "script.enter").then_some(*id))
+        .find_map(|(id, (parent, kind))| {
+            (parent.is_none() && kind == "script.enter").then_some(*id)
+        })
         .expect("script trace root");
     for kind in [
         "spawn.start",
@@ -430,8 +432,14 @@ print ${{values.len()}}
     }
     assert!(server.join(), "network connection survived cancellation");
     std::thread::sleep(Duration::from_millis(2300));
-    assert!(!process_leaked.exists(), "spawned process survived cancellation");
-    assert!(!worker_leaked.exists(), "parallel worker survived cancellation");
+    assert!(
+        !process_leaked.exists(),
+        "spawned process survived cancellation"
+    );
+    assert!(
+        !worker_leaked.exists(),
+        "parallel worker survived cancellation"
+    );
 }
 
 #[cfg(all(feature = "net", any(target_os = "linux", target_os = "macos")))]

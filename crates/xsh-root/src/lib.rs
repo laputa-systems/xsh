@@ -49,7 +49,12 @@ impl Root {
     /// a directory during the confined open also prevents blocking on a FIFO.
     pub fn open_readable_dir(&self, path: impl AsRef<Path>) -> io::Result<File> {
         let path = relative_path_to_cstring(path.as_ref())?;
-        platform::open_file(self.fd.as_fd(), &path, libc::O_RDONLY | libc::O_DIRECTORY, 0)
+        platform::open_file(
+            self.fd.as_fd(),
+            &path,
+            libc::O_RDONLY | libc::O_DIRECTORY,
+            0,
+        )
     }
 
     /// Opens a file or directory for descriptor-based metadata queries without reading its data.

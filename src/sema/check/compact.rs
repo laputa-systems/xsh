@@ -227,7 +227,9 @@ impl CompactDeclCollector {
                     schema_fields.insert(field.name, field.ty);
                 }
                 if !namespace.is_some_and(|name| program.is_internal_namespace(name)) {
-                    self.output.record_schema_fields.insert(def.name, schema_fields);
+                    self.output
+                        .record_schema_fields
+                        .insert(def.name, schema_fields);
                 }
                 CompactTypeDefInfo::Record(record)
             }

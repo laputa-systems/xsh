@@ -92,7 +92,11 @@ impl<'a> ShellParser<'a> {
                 }
                 ShellToken::Redir(kind) if kind.is_dup() => {
                     self.index += 1;
-                    let descriptor = if kind == RedirectionKind::StdoutToStderr { "2" } else { "1" };
+                    let descriptor = if kind == RedirectionKind::StdoutToStderr {
+                        "2"
+                    } else {
+                        "1"
+                    };
                     redirections.push(Redirection {
                         kind,
                         target: literal_descriptor(descriptor),

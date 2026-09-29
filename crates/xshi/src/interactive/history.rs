@@ -355,7 +355,11 @@ impl History {
             return None;
         }
         // The log's contents are now in the cache.
-        match fs::OpenOptions::new().write(true).truncate(true).open(&self.path) {
+        match fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&self.path)
+        {
             Ok(_) => {}
             Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(_) => return None,
@@ -436,7 +440,13 @@ impl History {
             self.remove_entry_at(idx);
         }
         let timestamp = now_millis();
-        if self.push_entry(line, timestamp, self.session_id, cwd.map(Path::to_path_buf), true) {
+        if self.push_entry(
+            line,
+            timestamp,
+            self.session_id,
+            cwd.map(Path::to_path_buf),
+            true,
+        ) {
             self.append_to_file(timestamp, line, cwd);
         }
     }

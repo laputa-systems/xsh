@@ -337,7 +337,10 @@ fn hostname() -> String {
     // within it on success.
     let status = unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) };
     assert_eq!(status, 0, "gethostname failed");
-    let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(buffer.len());
+    let end = buffer
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(buffer.len());
     let full = String::from_utf8_lossy(&buffer[..end]).into_owned();
     full.split('.').next().unwrap_or("localhost").to_owned()
 }
@@ -350,12 +353,21 @@ fn prompt_width_at_home(host: &str) -> u16 {
 fn set_mtime(path: &Path, mtime: i64, follow: bool) {
     use std::os::unix::ffi::OsStrExt;
     let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).expect("path without NUL");
-    let stamp = libc::timespec { tv_sec: mtime, tv_nsec: 0 };
+    let stamp = libc::timespec {
+        tv_sec: mtime,
+        tv_nsec: 0,
+    };
     let times = [stamp, stamp];
     let flags = if follow { 0 } else { libc::AT_SYMLINK_NOFOLLOW };
     // SAFETY: c_path is NUL-terminated and times points at two timespecs.
     let status = unsafe { libc::utimensat(libc::AT_FDCWD, c_path.as_ptr(), times.as_ptr(), flags) };
-    assert_eq!(status, 0, "utimensat {}: {}", path.display(), std::io::Error::last_os_error());
+    assert_eq!(
+        status,
+        0,
+        "utimensat {}: {}",
+        path.display(),
+        std::io::Error::last_os_error()
+    );
 }
 
 fn materialize(home: &Path, fixture: &Fixture, kind: ShellKind) {
@@ -386,7 +398,9 @@ fn materialize(home: &Path, fixture: &Fixture, kind: ShellKind) {
             if ancestor == home {
                 break;
             }
-            explicit.entry(ancestor.to_path_buf()).or_insert(1_700_000_000);
+            explicit
+                .entry(ancestor.to_path_buf())
+                .or_insert(1_700_000_000);
         }
     }
     for file in &fixture.files {
@@ -415,7 +429,9 @@ fn materialize(home: &Path, fixture: &Fixture, kind: ShellKind) {
         let canonical = std::fs::canonicalize(&envrc).unwrap_or(envrc);
         let allow_dir = home.join(kind.denv_allow_dir());
         std::fs::create_dir_all(&allow_dir).expect("create denv allow dir");
-        let mtime = std::fs::metadata(&canonical).expect("envrc metadata").mtime();
+        let mtime = std::fs::metadata(&canonical)
+            .expect("envrc metadata")
+            .mtime();
         let key: String = canonical
             .as_os_str()
             .as_encoded_bytes()
@@ -426,9 +442,22 @@ fn materialize(home: &Path, fixture: &Fixture, kind: ShellKind) {
     }
     // The state directories the harness itself creates must not carry the
     // time of the run into `l` listings.
-    for relative in [".local/share/xshi", ".local/share/ish", ".local/share", ".local", ".config/xshi", ".config/ish", ".config"] {
+    for relative in [
+        ".local/share/xshi",
+        ".local/share/ish",
+        ".local/share",
+        ".local",
+        ".config/xshi",
+        ".config/ish",
+        ".config",
+    ] {
         let path = home.join(relative);
-        if path.exists() && !fixture.files.iter().any(|file| home.join(&file.path) == path) {
+        if path.exists()
+            && !fixture
+                .files
+                .iter()
+                .any(|file| home.join(&file.path) == path)
+        {
             set_mtime(&path, 1_700_000_000, false);
         }
     }
@@ -479,7 +508,10 @@ fn color_text(color: &ptytest::Color) -> String {
 }
 
 fn count_osc7(output: &[u8]) -> usize {
-    output.windows(OSC7.len()).filter(|window| *window == OSC7).count()
+    output
+        .windows(OSC7.len())
+        .filter(|window| *window == OSC7)
+        .count()
 }
 
 impl Live {
@@ -510,14 +542,23 @@ impl Live {
     /// way a second terminal window would. Fold its transcript into this one
     /// with `absorb`.
     pub(super) fn spawn_peer(&self) -> Self {
-        Self::start(self.kind, self.launch.clone(), None, self.home.clone(), self.host.clone())
+        Self::start(
+            self.kind,
+            self.launch.clone(),
+            None,
+            self.home.clone(),
+            self.host.clone(),
+        )
     }
 
     /// Ends `peer` and appends its frames and effects, labelled `name/…`.
     pub(super) fn absorb(&mut self, peer: Self, name: &str) {
         let transcript = peer.finish();
         for frame in transcript.frames {
-            self.frames.push(Frame { label: format!("{name}/{}", frame.label), ..frame });
+            self.frames.push(Frame {
+                label: format!("{name}/{}", frame.label),
+                ..frame
+            });
         }
         for (effect, text) in transcript.effects {
             self.effects.push((format!("{name}/{effect}"), text));
@@ -610,12 +651,15 @@ impl Live {
             if count_osc7(self.term.raw_output()) > self.prompts_seen {
                 break;
             }
-            let arrived = self.term.wait_for_output(deadline).expect("wait for shell output");
+            let arrived = self
+                .term
+                .wait_for_output(deadline)
+                .expect("wait for shell output");
             assert!(
                 arrived || count_osc7(self.term.raw_output()) > self.prompts_seen,
                 "{}: no new prompt within {STEP_TIMEOUT:?}; screen:\n{}",
                 self.kind.label(),
-                self.term.screen().to_string()
+                self.term.screen()
             );
         }
         self.settle();
@@ -637,18 +681,23 @@ impl Live {
     pub(super) fn keys(&mut self, bytes: &[u8]) {
         let before = self.term.raw_output().len();
         let deadline = self.deadline();
-        self.term.send_bytes(deadline, bytes).expect("write to shell PTY");
+        self.term
+            .send_bytes(deadline, bytes)
+            .expect("write to shell PTY");
         loop {
             self.term.drain(deadline).expect("drain shell output");
             if self.term.raw_output().len() > before {
                 break;
             }
-            let arrived = self.term.wait_for_output(deadline).expect("wait for shell output");
+            let arrived = self
+                .term
+                .wait_for_output(deadline)
+                .expect("wait for shell output");
             assert!(
                 arrived || self.term.raw_output().len() > before,
                 "{}: no output within {STEP_TIMEOUT:?} after {bytes:?}; screen:\n{}",
                 self.kind.label(),
-                self.term.screen().to_string()
+                self.term.screen()
             );
         }
         self.settle();
@@ -657,7 +706,9 @@ impl Live {
     /// Sends bytes the shell handles without repainting (for example Ctrl+P).
     pub(super) fn keys_silent(&mut self, bytes: &[u8]) {
         let deadline = self.deadline();
-        self.term.send_bytes(deadline, bytes).expect("write to shell PTY");
+        self.term
+            .send_bytes(deadline, bytes)
+            .expect("write to shell PTY");
         self.settle();
     }
 
@@ -674,7 +725,9 @@ impl Live {
     pub(super) fn line(&mut self, text: &str) {
         self.text(text);
         let deadline = self.deadline();
-        self.term.send_bytes(deadline, b"\r").expect("write to shell PTY");
+        self.term
+            .send_bytes(deadline, b"\r")
+            .expect("write to shell PTY");
         self.wait_prompt();
     }
 
@@ -686,7 +739,9 @@ impl Live {
     /// Sends bytes and waits for the next prompt cycle instead of quiescence.
     pub(super) fn keys_to_prompt(&mut self, bytes: &[u8]) {
         let deadline = self.deadline();
-        self.term.send_bytes(deadline, bytes).expect("write to shell PTY");
+        self.term
+            .send_bytes(deadline, bytes)
+            .expect("write to shell PTY");
         self.wait_prompt();
     }
 
@@ -706,12 +761,16 @@ impl Live {
     pub(super) fn line_until(&mut self, text: &str, needle: &str) {
         self.text(text);
         let deadline = self.deadline();
-        self.term.send_bytes(deadline, b"\r").expect("write to shell PTY");
+        self.term
+            .send_bytes(deadline, b"\r")
+            .expect("write to shell PTY");
         self.wait_screen_contains(needle);
     }
 
     pub(super) fn resize(&mut self, rows: u16, cols: u16) {
-        self.term.resize(Size::new(cols, rows).expect("non-zero terminal size")).expect("resize");
+        self.term
+            .resize(Size::new(cols, rows).expect("non-zero terminal size"))
+            .expect("resize");
         self.settle();
     }
 
@@ -754,7 +813,9 @@ impl Live {
                     u8::from(attributes.inverse),
                 );
                 match &mut run {
-                    Some((current, contents)) if *current == text => contents.push_str(cell.contents()),
+                    Some((current, contents)) if *current == text => {
+                        contents.push_str(cell.contents())
+                    }
                     _ => {
                         flush(&mut run, self);
                         run = Some((text, cell.contents().to_owned()));
@@ -803,7 +864,9 @@ impl Live {
             .replace("xshi-dump", "ish-dump")
             .replace("xshi layout dump", "ish layout dump")
             .replace(".cache/xshi/", ".cache/ish/");
-        normalize_dump_names(&normalize_pgid(&normalize_ls_row(&normalize_shell_name(&text))))
+        normalize_dump_names(&normalize_pgid(&normalize_ls_row(&normalize_shell_name(
+            &text,
+        ))))
     }
 
     /// Records how many layout dumps the shell has written.
@@ -833,7 +896,13 @@ impl Live {
                 // The package version differs by shell.
                 let text = text
                     .lines()
-                    .map(|line| if line.starts_with("version: ") { "version: <VERSION>" } else { line })
+                    .map(|line| {
+                        if line.starts_with("version: ") {
+                            "version: <VERSION>"
+                        } else {
+                            line
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join("\n");
                 Some((modified, self.normalize(&text)))
@@ -873,7 +942,10 @@ impl Live {
     pub(super) fn rewrite_file(&mut self, relative: &str, body: &str, seconds: u64) {
         let path = self.home.join(relative);
         std::fs::write(&path, body).expect("rewrite file");
-        let file = std::fs::File::options().write(true).open(&path).expect("open rewritten file");
+        let file = std::fs::File::options()
+            .write(true)
+            .open(&path)
+            .expect("open rewritten file");
         file.set_modified(std::time::SystemTime::now() + Duration::from_secs(seconds))
             .expect("set future mtime");
     }
@@ -894,7 +966,10 @@ impl Live {
     /// Waits for the shell to exit and records its exit status as an effect.
     pub(super) fn expect_exit(&mut self, name: &str) {
         let deadline = self.deadline();
-        let status = self.term.wait_for_exit(deadline).expect("wait for shell exit");
+        let status = self
+            .term
+            .wait_for_exit(deadline)
+            .expect("wait for shell exit");
         if status == ExitStatus::Code(0) {
             self.term
                 .assert_terminal_restored(&self.baseline)
@@ -916,7 +991,10 @@ impl Live {
     fn finish(mut self) -> Transcript {
         let deadline = self.term.deadline(Duration::from_secs(3));
         let _ = self.term.finish(deadline);
-        Transcript { frames: self.frames, effects: self.effects }
+        Transcript {
+            frames: self.frames,
+            effects: self.effects,
+        }
     }
 }
 
@@ -998,7 +1076,11 @@ fn normalize_ls_row(row: &str) -> String {
     } else {
         &rest[..size_end]
     };
-    let nlink = if mode.starts_with('d') { "<NLINK>" } else { nlink };
+    let nlink = if mode.starts_with('d') {
+        "<NLINK>"
+    } else {
+        nlink
+    };
     let remainder = rest[size_end..].trim_start();
     format!("{mode} {nlink} <USER> <GROUP> {size} {remainder}")
 }
@@ -1007,7 +1089,9 @@ fn normalize_ls_row(row: &str) -> String {
 fn normalize_listing_transcript(transcript: &str) -> String {
     let mut out = String::with_capacity(transcript.len());
     for chunk in transcript.split_inclusive('\n') {
-        let (line, ending) = chunk.strip_suffix('\n').map_or((chunk, ""), |line| (line, "\n"));
+        let (line, ending) = chunk
+            .strip_suffix('\n')
+            .map_or((chunk, ""), |line| (line, "\n"));
         if let Some(row) = line.strip_prefix('|') {
             out.push('|');
             out.push_str(&normalize_ls_row(row));
@@ -1031,7 +1115,9 @@ fn normalize_shell_name(text: &str) -> String {
         let after_control_echo = out.ends_with("^Z") || out.ends_with("^C");
         let at_boundary = after_control_echo || previous.is_none_or(|ch| !ch.is_alphanumeric());
         let matched = if at_boundary {
-            ["xshi:", "epsh:", "ish:"].into_iter().find(|name| rest.starts_with(name))
+            ["xshi:", "epsh:", "ish:"]
+                .into_iter()
+                .find(|name| rest.starts_with(name))
         } else {
             None
         };
@@ -1055,7 +1141,9 @@ fn normalize_history(text: &str) -> String {
         let normalized = if let Some(rest) = line.strip_prefix(":ish-history:v2\t") {
             let mut parts = rest.splitn(4, '\t');
             match (parts.next(), parts.next(), parts.next(), parts.next()) {
-                (Some(_), Some(_), Some(cwd), Some(command)) => format!("v2 <TS> <SESSION> {cwd} {command}"),
+                (Some(_), Some(_), Some(cwd), Some(command)) => {
+                    format!("v2 <TS> <SESSION> {cwd} {command}")
+                }
                 _ => line.to_owned(),
             }
         } else if let Some(rest) = line.strip_prefix(":ish-history:v1\t") {
@@ -1133,10 +1221,19 @@ fn first_difference(expected: &str, actual: &str) -> String {
             let full = std::env::var_os("XSHI_PARITY_FULL").is_some();
             let window = |lines: &[&str]| -> String {
                 let start = if full { 0 } else { index.saturating_sub(8) };
-                let end = if full { lines.len() } else { (index + 8).min(lines.len()) };
+                let end = if full {
+                    lines.len()
+                } else {
+                    (index + 8).min(lines.len())
+                };
                 lines[start.min(lines.len())..end].join("\n")
             };
-            let _ = writeln!(context, "--- expected\n{}\n--- actual\n{}\n---", window(&expected_lines), window(&actual_lines));
+            let _ = writeln!(
+                context,
+                "--- expected\n{}\n--- actual\n{}\n---",
+                window(&expected_lines),
+                window(&actual_lines)
+            );
             return context;
         }
     }
@@ -1144,9 +1241,15 @@ fn first_difference(expected: &str, actual: &str) -> String {
 }
 
 fn ish_binary() -> Option<PathBuf> {
-    std::env::var_os("XSHI_PARITY_ISH_BIN").map(PathBuf::from).inspect(|path| {
-        assert!(path.exists(), "XSHI_PARITY_ISH_BIN does not exist: {}", path.display());
-    })
+    std::env::var_os("XSHI_PARITY_ISH_BIN")
+        .map(PathBuf::from)
+        .inspect(|path| {
+            assert!(
+                path.exists(),
+                "XSHI_PARITY_ISH_BIN does not exist: {}",
+                path.display()
+            );
+        })
 }
 
 fn run_shell(kind: ShellKind, binary: &Path, fixture: &Fixture, script: fn(&mut Live)) -> String {

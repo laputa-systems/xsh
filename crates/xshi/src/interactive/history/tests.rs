@@ -46,7 +46,9 @@ impl Drop for Scratch {
 
 /// Every entry, oldest first.
 fn entries(hist: &History) -> Vec<String> {
-    (0..hist.len()).map(|idx| hist.get(idx).to_owned()).collect()
+    (0..hist.len())
+        .map(|idx| hist.get(idx).to_owned())
+        .collect()
 }
 
 /// Entries this session can recall with Up-arrow, newest first.
@@ -255,14 +257,20 @@ fn record_round_trips_metadata_with_awkward_cwd() {
     );
     let legacy = format_record(1234, 56, None, "echo plain");
     let parsed = parse_line(&legacy, 9).unwrap();
-    assert_eq!((parsed.timestamp, parsed.session_id, parsed.cwd), (1234, 56, None));
+    assert_eq!(
+        (parsed.timestamp, parsed.session_id, parsed.cwd),
+        (1234, 56, None)
+    );
 }
 
 #[test]
 fn plain_lines_are_legacy_commands_with_unknown_metadata() {
     let parsed = parse_line("echo old style", 777).unwrap();
     assert_eq!(parsed.command, "echo old style");
-    assert_eq!((parsed.timestamp, parsed.session_id, parsed.cwd), (777, 0, None));
+    assert_eq!(
+        (parsed.timestamp, parsed.session_id, parsed.cwd),
+        (777, 0, None)
+    );
 }
 
 #[test]
@@ -317,7 +325,10 @@ fn newlines_in_a_command_are_collapsed_into_one_record() {
     let mut h = scratch.load();
     h.add("echo a\necho b");
     assert_eq!(entries(&h), ["echo a echo b"]);
-    assert_eq!(fs::read_to_string(scratch.log()).unwrap().lines().count(), 1);
+    assert_eq!(
+        fs::read_to_string(scratch.log()).unwrap().lines().count(),
+        1
+    );
 }
 
 // Cache codec
@@ -338,11 +349,19 @@ fn cache_layout_is_the_ish_v5_format() {
     let records = decode_cache(&bytes).expect("a hand-built v5 cache decodes");
     assert_eq!(records.len(), 2);
     assert_eq!(
-        (records[0].command.as_str(), records[0].timestamp, records[0].cwd.as_deref()),
+        (
+            records[0].command.as_str(),
+            records[0].timestamp,
+            records[0].cwd.as_deref()
+        ),
         ("ls", 5, Some(Path::new("/a")))
     );
     assert_eq!(
-        (records[1].command.as_str(), records[1].timestamp, records[1].cwd.as_deref()),
+        (
+            records[1].command.as_str(),
+            records[1].timestamp,
+            records[1].cwd.as_deref()
+        ),
         ("pwd", 9, None)
     );
     assert_eq!(encode_cache(&records), bytes);
@@ -376,7 +395,10 @@ fn cache_with_any_structural_damage_is_rejected() {
 
     let mut wrong_magic = good.clone();
     wrong_magic[3] = 4;
-    assert!(decode_cache(&wrong_magic).is_none(), "older cache generation");
+    assert!(
+        decode_cache(&wrong_magic).is_none(),
+        "older cache generation"
+    );
     assert_eq!(&good[..4], CACHE_MAGIC);
 
     let mut too_many = good.clone();
@@ -494,7 +516,10 @@ fn cache_and_log_are_merged_on_load() {
     h.add("compacted");
     h.compact();
     drop(h);
-    append_raw(&scratch.log(), format!("{}\n", line(later(0), 55, "in the log")).as_bytes());
+    append_raw(
+        &scratch.log(),
+        format!("{}\n", line(later(0), 55, "in the log")).as_bytes(),
+    );
     assert_eq!(entries(&scratch.load()), ["compacted", "in the log"]);
 }
 
@@ -508,7 +533,10 @@ fn unreadable_cache_falls_back_to_the_log_and_is_left_alone() {
     let mut damaged = fs::read(scratch.cache()).unwrap();
     damaged.truncate(damaged.len() - 3);
     fs::write(scratch.cache(), &damaged).unwrap();
-    append_raw(&scratch.log(), format!("{}\n", line(10, 1, "in the log")).as_bytes());
+    append_raw(
+        &scratch.log(),
+        format!("{}\n", line(10, 1, "in the log")).as_bytes(),
+    );
 
     let mut h = scratch.load();
     assert_eq!(entries(&h), ["in the log"]);
@@ -517,9 +545,16 @@ fn unreadable_cache_falls_back_to_the_log_and_is_left_alone() {
     h.add("new");
     h.compact();
     h.sync();
-    assert_eq!(fs::read(scratch.cache()).unwrap(), damaged, "cache is not overwritten");
+    assert_eq!(
+        fs::read(scratch.cache()).unwrap(),
+        damaged,
+        "cache is not overwritten"
+    );
     let log = fs::read_to_string(scratch.log()).unwrap();
-    assert!(log.contains("in the log") && log.contains("new"), "log is not truncated: {log}");
+    assert!(
+        log.contains("in the log") && log.contains("new"),
+        "log is not truncated: {log}"
+    );
     assert!(!quarantine_path_for(&scratch.log()).exists());
 }
 
@@ -527,7 +562,10 @@ fn unreadable_cache_falls_back_to_the_log_and_is_left_alone() {
 fn rebuild_sets_the_unreadable_cache_aside_and_writes_a_new_one() {
     let scratch = Scratch::new("rebuild");
     fs::write(scratch.cache(), b"ISH\x05 this is not a cache").unwrap();
-    append_raw(&scratch.log(), format!("{}\n", line(10, 1, "survivor")).as_bytes());
+    append_raw(
+        &scratch.log(),
+        format!("{}\n", line(10, 1, "survivor")).as_bytes(),
+    );
 
     let mut h = scratch.load();
     assert!(h.cache_dirty);
@@ -578,7 +616,10 @@ fn a_stale_log_left_by_a_crashed_compaction_does_not_reorder_history() {
 #[test]
 fn a_log_line_torn_by_a_crash_does_not_swallow_the_next_record() {
     let scratch = Scratch::new("torn");
-    append_raw(&scratch.log(), format!("{}\n", line(10, 1, "whole")).as_bytes());
+    append_raw(
+        &scratch.log(),
+        format!("{}\n", line(10, 1, "whole")).as_bytes(),
+    );
     append_raw(&scratch.log(), b":ish-history:v2\t20\t2\t/tm");
 
     let mut h = scratch.load();
@@ -604,7 +645,11 @@ fn sync_picks_up_records_appended_by_another_shell() {
 
     me.sync();
     assert_eq!(entries(&me), ["from peer"]);
-    assert_eq!(recallable(&me), Vec::<String>::new(), "peer entries stay out of Up-arrow");
+    assert_eq!(
+        recallable(&me),
+        Vec::<String>::new(),
+        "peer entries stay out of Up-arrow"
+    );
     assert_eq!(me.prefix_search("from", 0), Some("from peer"));
 }
 
@@ -663,7 +708,10 @@ fn sync_skips_undecodable_lines_and_keeps_making_progress() {
     let mut me = scratch.load();
     append_raw(&scratch.log(), b"garbage \xc3\x28 bytes\n");
     me.sync();
-    append_raw(&scratch.log(), format!("{}\n", line(later(0), 4242, "after garbage")).as_bytes());
+    append_raw(
+        &scratch.log(),
+        format!("{}\n", line(later(0), 4242, "after garbage")).as_bytes(),
+    );
     me.sync();
     assert_eq!(entries(&me), ["after garbage"]);
 }
@@ -702,10 +750,18 @@ fn a_peers_older_record_never_displaces_a_newer_entry() {
     tick();
     append_raw(
         &scratch.log(),
-        format!("{}\n{}\n", line(later(100), 4242, "x"), line(later(200), 4242, "y")).as_bytes(),
+        format!(
+            "{}\n{}\n",
+            line(later(100), 4242, "x"),
+            line(later(200), 4242, "y")
+        )
+        .as_bytes(),
     );
     me.sync();
-    append_raw(&scratch.log(), format!("{}\n", line(later(50), 4243, "x")).as_bytes());
+    append_raw(
+        &scratch.log(),
+        format!("{}\n", line(later(50), 4243, "x")).as_bytes(),
+    );
     me.sync();
     assert_eq!(entries(&me), ["x", "y"]);
 }
@@ -752,7 +808,11 @@ fn sync_survives_the_log_regrowing_before_it_notices_a_compaction() {
 
     me.sync();
     assert_eq!(me.len(), 31);
-    assert!(entries(&me).iter().all(|entry| !entry.contains("ish-history")));
+    assert!(
+        entries(&me)
+            .iter()
+            .all(|entry| !entry.contains("ish-history"))
+    );
     assert_consistent(&me);
 }
 
@@ -788,14 +848,20 @@ fn sync_survives_the_log_being_truncated_or_removed() {
     assert_eq!(entries(&me), ["kept in memory"]);
 
     tick();
-    append_raw(&scratch.log(), format!("{}\n", line(later(0), 4242, "later")).as_bytes());
+    append_raw(
+        &scratch.log(),
+        format!("{}\n", line(later(0), 4242, "later")).as_bytes(),
+    );
     me.sync();
     assert_eq!(entries(&me), ["kept in memory", "later"]);
 
     fs::remove_file(scratch.log()).unwrap();
     me.sync();
     assert_eq!(entries(&me), ["kept in memory", "later"]);
-    append_raw(&scratch.log(), format!("{}\n", line(later(1), 4242, "recreated")).as_bytes());
+    append_raw(
+        &scratch.log(),
+        format!("{}\n", line(later(1), 4242, "recreated")).as_bytes(),
+    );
     me.sync();
     assert_eq!(entries(&me), ["kept in memory", "later", "recreated"]);
 }
@@ -868,7 +934,11 @@ fn compaction_yields_when_another_shell_holds_the_lock() {
 
     h.compact();
     assert!(!scratch.cache().exists());
-    assert!(fs::read_to_string(scratch.log()).unwrap().contains("only in the log"));
+    assert!(
+        fs::read_to_string(scratch.log())
+            .unwrap()
+            .contains("only in the log")
+    );
 
     drop(held);
     h.compact();
@@ -889,9 +959,16 @@ fn appending_waits_for_a_running_compaction() {
             drop(held);
         });
         h.add("appended after the rewrite");
-        assert!(released.load(Ordering::SeqCst), "the append ran under the exclusive lock");
+        assert!(
+            released.load(Ordering::SeqCst),
+            "the append ran under the exclusive lock"
+        );
     });
-    assert!(fs::read_to_string(scratch.log()).unwrap().contains("appended after the rewrite"));
+    assert!(
+        fs::read_to_string(scratch.log())
+            .unwrap()
+            .contains("appended after the rewrite")
+    );
 }
 
 #[test]
@@ -904,7 +981,11 @@ fn a_stuck_lock_holder_cannot_hang_a_shell() {
     h.add("still recorded");
     h.sync();
     assert!(started.elapsed() < Duration::from_secs(10));
-    assert!(fs::read_to_string(scratch.log()).unwrap().contains("still recorded"));
+    assert!(
+        fs::read_to_string(scratch.log())
+            .unwrap()
+            .contains("still recorded")
+    );
 }
 
 #[test]
@@ -919,7 +1000,10 @@ fn many_shells_together_lose_no_entries_and_tear_no_records() {
             s.spawn(move || {
                 let mut h = History::load_from(log);
                 for n in 0..PER_SHELL {
-                    h.add(&format!("shell {shell} command {n} {}", "padding".repeat(20)));
+                    h.add(&format!(
+                        "shell {shell} command {n} {}",
+                        "padding".repeat(20)
+                    ));
                     h.add("shared command");
                     if n % 4 == 0 {
                         h.sync();
@@ -938,7 +1022,10 @@ fn many_shells_together_lose_no_entries_and_tear_no_records() {
     for shell in 0..SHELLS {
         for n in 0..PER_SHELL {
             let command = format!("shell {shell} command {n} {}", "padding".repeat(20));
-            assert!(fresh.prefix_search(&command, 0).is_some(), "lost {command:?}");
+            assert!(
+                fresh.prefix_search(&command, 0).is_some(),
+                "lost {command:?}"
+            );
         }
     }
     assert_consistent(&fresh);
@@ -946,7 +1033,10 @@ fn many_shells_together_lose_no_entries_and_tear_no_records() {
     let log = fs::read(scratch.log()).unwrap_or_default();
     for chunk in log.split(|&b| b == b'\n').filter(|chunk| !chunk.is_empty()) {
         let text = std::str::from_utf8(chunk).expect("records are whole");
-        assert!(text.starts_with(":ish-history:v2\t") && parse_line(text, 0).is_some(), "{text:?}");
+        assert!(
+            text.starts_with(":ish-history:v2\t") && parse_line(text, 0).is_some(),
+            "{text:?}"
+        );
     }
 
     fresh.compact();
@@ -1035,7 +1125,12 @@ fn a_large_history_round_trips_through_the_cache() {
     const COUNT: u64 = 60_000;
     let mut text = String::new();
     for n in 0..COUNT {
-        text += &format_record(1_000 + n, 7, Some(Path::new("/work/project")), &format!("command number {n}"));
+        text += &format_record(
+            1_000 + n,
+            7,
+            Some(Path::new("/work/project")),
+            &format!("command number {n}"),
+        );
         text.push('\n');
     }
     fs::write(scratch.log(), text).unwrap();
@@ -1050,8 +1145,14 @@ fn a_large_history_round_trips_through_the_cache() {
     assert_eq!(reloaded.get(0), "command number 0");
     assert_eq!(reloaded.get(COUNT as usize - 1), "command number 59999");
     assert_eq!(reloaded.timestamp(12_345), 1_000 + 12_345);
-    assert_eq!(reloaded.cwds[59_999].as_deref(), Some(Path::new("/work/project")));
-    assert_eq!(reloaded.prefix_search("command number 4", 0), Some("command number 49999"));
+    assert_eq!(
+        reloaded.cwds[59_999].as_deref(),
+        Some(Path::new("/work/project"))
+    );
+    assert_eq!(
+        reloaded.prefix_search("command number 4", 0),
+        Some("command number 49999")
+    );
     assert_consistent(&reloaded);
 }
 
@@ -1072,7 +1173,11 @@ fn a_log_full_of_repeats_loads_in_linear_time() {
     h.compact();
     assert_eq!(scratch.load().len(), 100);
     // Quadratic handling of the repeats takes minutes; the bound only guards that.
-    assert!(started.elapsed() < Duration::from_secs(30), "{:?}", started.elapsed());
+    assert!(
+        started.elapsed() < Duration::from_secs(30),
+        "{:?}",
+        started.elapsed()
+    );
 }
 
 #[test]

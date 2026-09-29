@@ -1078,7 +1078,10 @@ fn complete_remote_path_with_executable(
                     stop_remote_completion(&mut child);
                     return;
                 }
-                let mut pfd = [rustix::event::PollFd::new(&pipe_r, rustix::event::PollFlags::IN)];
+                let mut pfd = [rustix::event::PollFd::new(
+                    &pipe_r,
+                    rustix::event::PollFlags::IN,
+                )];
                 let poll_wait =
                     rustix::event::Timespec::try_from(remaining.min(Duration::from_millis(100)))
                         .expect("remote completion timeout fits Timespec");
@@ -1179,8 +1182,6 @@ mod tests {
         assert_eq!(comp.entries[0].display_width(), 7); // "myhost" + ":"
     }
 
-
-
     #[test]
     fn single_quote_wraps_and_escapes_embedded_quotes() {
         assert_eq!(single_quote("hello"), "'hello'");
@@ -1267,7 +1268,10 @@ mod tests {
 
     fn set_dir_mtime(dir: &std::path::Path, epoch_secs: u64) {
         let when = std::time::UNIX_EPOCH + std::time::Duration::from_secs(epoch_secs);
-        std::fs::File::open(dir).unwrap().set_modified(when).unwrap();
+        std::fs::File::open(dir)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
     }
 
     fn names_in(dir: &std::path::Path) -> Vec<String> {

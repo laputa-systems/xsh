@@ -146,8 +146,14 @@ pub fn fs_filesystem_stats_type() -> Type {
 pub fn fs_root_filesystem_stats_type() -> Type {
     Type::Record(name_type_map(vec![
         ("state".to_string(), Type::Str),
-        ("total_bytes".to_string(), Type::Optional(Box::new(Type::Int))),
-        ("used_bytes".to_string(), Type::Optional(Box::new(Type::Int))),
+        (
+            "total_bytes".to_string(),
+            Type::Optional(Box::new(Type::Int)),
+        ),
+        (
+            "used_bytes".to_string(),
+            Type::Optional(Box::new(Type::Int)),
+        ),
         (
             "available_bytes".to_string(),
             Type::Optional(Box::new(Type::Int)),
@@ -342,7 +348,10 @@ pub fn fs_root_read_result_type() -> Type {
         ("state".to_string(), Type::Str),
         ("data".to_string(), Type::Optional(Box::new(Type::Bytes))),
         ("errno".to_string(), Type::Optional(Box::new(Type::Int))),
-        ("error_kind".to_string(), Type::Optional(Box::new(Type::Str))),
+        (
+            "error_kind".to_string(),
+            Type::Optional(Box::new(Type::Str)),
+        ),
         ("truncated".to_string(), Type::Bool),
     ]))
 }
@@ -562,7 +571,10 @@ pub fn linux_network_link_type() -> Type {
         ("kind", Type::Optional(Box::new(Type::Str))),
         ("rx_bytes", Type::Optional(Box::new(Type::Int))),
         ("tx_bytes", Type::Optional(Box::new(Type::Int))),
-        ("attributes", Type::List(Box::new(linux_netlink_attribute_type()))),
+        (
+            "attributes",
+            Type::List(Box::new(linux_netlink_attribute_type())),
+        ),
     ]))
 }
 
@@ -577,9 +589,18 @@ pub fn linux_network_address_type() -> Type {
         ("local", Type::Optional(Box::new(Type::Str))),
         ("broadcast", Type::Optional(Box::new(Type::Str))),
         ("label", Type::Optional(Box::new(Type::Str))),
-        ("preferred_lifetime_seconds", Type::Optional(Box::new(Type::Int))),
-        ("valid_lifetime_seconds", Type::Optional(Box::new(Type::Int))),
-        ("attributes", Type::List(Box::new(linux_netlink_attribute_type()))),
+        (
+            "preferred_lifetime_seconds",
+            Type::Optional(Box::new(Type::Int)),
+        ),
+        (
+            "valid_lifetime_seconds",
+            Type::Optional(Box::new(Type::Int)),
+        ),
+        (
+            "attributes",
+            Type::List(Box::new(linux_netlink_attribute_type())),
+        ),
     ]))
 }
 
@@ -609,8 +630,14 @@ pub fn linux_network_route_type() -> Type {
         ("protocol", Type::Int),
         ("scope", Type::Int),
         ("flags", Type::Int),
-        ("nexthops", Type::List(Box::new(linux_network_nexthop_type()))),
-        ("attributes", Type::List(Box::new(linux_netlink_attribute_type()))),
+        (
+            "nexthops",
+            Type::List(Box::new(linux_network_nexthop_type())),
+        ),
+        (
+            "attributes",
+            Type::List(Box::new(linux_netlink_attribute_type())),
+        ),
     ]))
 }
 
@@ -629,7 +656,10 @@ pub fn linux_network_rule_type() -> Type {
         ("fwmask", Type::Optional(Box::new(Type::Int))),
         ("action", Type::Int),
         ("flags", Type::Int),
-        ("attributes", Type::List(Box::new(linux_netlink_attribute_type()))),
+        (
+            "attributes",
+            Type::List(Box::new(linux_netlink_attribute_type())),
+        ),
     ]))
 }
 
@@ -648,7 +678,10 @@ pub fn linux_network_dump_type() -> Type {
         ("state", Type::Str),
         ("enumeration_succeeded", Type::Bool),
         ("links", Type::List(Box::new(linux_network_link_type()))),
-        ("addresses", Type::List(Box::new(linux_network_address_type()))),
+        (
+            "addresses",
+            Type::List(Box::new(linux_network_address_type())),
+        ),
         ("routes", Type::List(Box::new(linux_network_route_type()))),
         ("rules", Type::List(Box::new(linux_network_rule_type()))),
         ("issues", Type::List(Box::new(linux_network_issue_type()))),

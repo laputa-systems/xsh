@@ -92,7 +92,10 @@ fn env_str<'a>(session: &'a Session, name: &[u8]) -> &'a str {
 }
 
 fn path_env(session: &Session) -> &[u8] {
-    session.env.get(b"PATH".as_slice()).map_or(&[], Vec::as_slice)
+    session
+        .env
+        .get(b"PATH".as_slice())
+        .map_or(&[], Vec::as_slice)
 }
 
 fn home_string(session: &Session) -> String {
@@ -132,7 +135,11 @@ fn capture_layout_dump(
     let _ = writeln!(out, "line.text: {:?}", line.text());
     let _ = writeln!(out, "line.bytes: {}", line.text().len());
     let _ = writeln!(out, "line.cursor_byte: {}", line.cursor());
-    let _ = writeln!(out, "line.cursor_display_col: {}", line.display_cursor_pos());
+    let _ = writeln!(
+        out,
+        "line.cursor_display_col: {}",
+        line.display_cursor_pos()
+    );
     let _ = writeln!(out, "line.display_len: {}", line.display_len());
     let _ = writeln!(out, "suggestion.text: {suggestion:?}");
     let _ = writeln!(out, "suggestion.display_len: {suggestion_display_len}");
@@ -145,7 +152,11 @@ fn capture_layout_dump(
         Mode::Normal => {}
         Mode::Completion { state, base_line } => {
             let _ = writeln!(out, "completion.base_line.text: {:?}", base_line.text());
-            let _ = writeln!(out, "completion.base_line.cursor_byte: {}", base_line.cursor());
+            let _ = writeln!(
+                out,
+                "completion.base_line.cursor_byte: {}",
+                base_line.cursor()
+            );
             let _ = writeln!(out, "completion.selected: {}", state.selected);
             let _ = writeln!(out, "completion.cols: {}", state.cols);
             let _ = writeln!(out, "completion.rows: {}", state.rows);
@@ -168,7 +179,11 @@ fn capture_layout_dump(
         } => {
             let _ = writeln!(out, "history.query.text: {:?}", query.text());
             let _ = writeln!(out, "history.query.cursor_byte: {}", query.cursor());
-            let _ = writeln!(out, "history.query.cursor_display_col: {}", query.display_cursor_pos());
+            let _ = writeln!(
+                out,
+                "history.query.cursor_display_col: {}",
+                query.display_cursor_pos()
+            );
             let _ = writeln!(out, "history.matches: {matches:?}");
             let _ = writeln!(out, "history.candidates: {candidates:?}");
             let _ = writeln!(out, "history.scratch: {scratch:?}");
@@ -231,7 +246,11 @@ fn write_layout_dump_to_file(session: &Session, ui: &Ui) -> Result<String, Strin
 
     for _ in 0..8 {
         let path = dir.join(format!("dump-{}", random_dump_hex()));
-        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
             Ok(mut file) => {
                 std::io::Write::write_all(&mut file, ui.layout_dump.as_bytes()).map_err(
                     |error| format!("xshi-dump: could not write {}: {error}", path.display()),
@@ -552,7 +571,8 @@ pub(super) fn read_line(session: &mut Session, ui: &mut Ui) -> ReadResult {
                                         entries,
                                         selected: 0,
                                     };
-                                    region = render_dir_picker_mode(&mut tw, &mode, session, ui, region);
+                                    region =
+                                        render_dir_picker_mode(&mut tw, &mode, session, ui, region);
                                     let _ = tw.flush_to_stdout();
                                     continue;
                                 }
@@ -833,7 +853,15 @@ fn render_prompt_region(
         cmd_color,
         suggestion,
     };
-    render::render_line(tw, prompt_str, prompt_display_len, line, ui.cols, region, &opts)
+    render::render_line(
+        tw,
+        prompt_str,
+        prompt_display_len,
+        line,
+        ui.cols,
+        region,
+        &opts,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -849,9 +877,15 @@ fn render_active_mode(
     history_cache: &mut render::HistoryPagerCache,
 ) -> render::RenderedRegion {
     match mode {
-        Mode::Normal => {
-            render_prompt_region(tw, session, ui, line, prompt_str, prompt_display_len, region)
-        }
+        Mode::Normal => render_prompt_region(
+            tw,
+            session,
+            ui,
+            line,
+            prompt_str,
+            prompt_display_len,
+            region,
+        ),
         Mode::Completion { state, .. } => {
             let info = render::render_line(
                 tw,
@@ -958,8 +992,9 @@ fn handle_normal_key(
                 line.move_line_up();
                 *grid_column = None;
             } else if !line.has_newlines() {
-                let col = *grid_column
-                    .get_or_insert_with(|| line.grid_cursor_position(prompt_display_len, ui.cols).1);
+                let col = *grid_column.get_or_insert_with(|| {
+                    line.grid_cursor_position(prompt_display_len, ui.cols).1
+                });
                 if !line.move_grid_up(prompt_display_len, ui.cols, col) {
                     *grid_column = None;
                     navigate_history(line, history_idx, saved_line, session, true);
@@ -973,8 +1008,9 @@ fn handle_normal_key(
                 line.move_line_down();
                 *grid_column = None;
             } else if !line.has_newlines() {
-                let col = *grid_column
-                    .get_or_insert_with(|| line.grid_cursor_position(prompt_display_len, ui.cols).1);
+                let col = *grid_column.get_or_insert_with(|| {
+                    line.grid_cursor_position(prompt_display_len, ui.cols).1
+                });
                 if !line.move_grid_down(prompt_display_len, ui.cols, col) {
                     *grid_column = None;
                     navigate_history(line, history_idx, saved_line, session, false);
@@ -1308,7 +1344,11 @@ fn variable_prefix_end(word: &str) -> Option<usize> {
     if end == 0 || bytes[end - 1] != b'$' {
         return None;
     }
-    let backslashes = bytes[..end - 1].iter().rev().take_while(|byte| **byte == b'\\').count();
+    let backslashes = bytes[..end - 1]
+        .iter()
+        .rev()
+        .take_while(|byte| **byte == b'\\')
+        .count();
     (backslashes % 2 == 0).then_some(end)
 }
 
@@ -1342,9 +1382,7 @@ pub(super) fn start_completion(
     };
 
     // `$NAME`: shell variables, exported or not.
-    if !in_single
-        && let Some(dollar) = variable_prefix_end(raw_word)
-    {
+    if !in_single && let Some(dollar) = variable_prefix_end(raw_word) {
         let name_prefix = &raw_word[dollar..];
         let mut names: Vec<&Vec<u8>> = session.env.keys().chain(session.vars.keys()).collect();
         names.sort_unstable();
@@ -1458,7 +1496,9 @@ pub(super) fn start_completion(
             let rel_dir = if expanded_root.is_empty() {
                 resolved_dir.as_str()
             } else {
-                resolved_dir.strip_prefix(&expanded_root).unwrap_or(resolved_dir)
+                resolved_dir
+                    .strip_prefix(&expanded_root)
+                    .unwrap_or(resolved_dir)
             };
             for i in *start..*start + *count {
                 let entry = &partial_comp.entries[i];
@@ -1854,7 +1894,11 @@ mod tests {
         assert_eq!(variable_prefix_end("$"), Some(1));
         assert_eq!(variable_prefix_end("$HO"), Some(1));
         assert_eq!(variable_prefix_end("\"a=$HO"), Some(4));
-        assert_eq!(variable_prefix_end("\\\\$HO"), Some(3), "an escaped backslash does not escape the dollar");
+        assert_eq!(
+            variable_prefix_end("\\\\$HO"),
+            Some(3),
+            "an escaped backslash does not escape the dollar"
+        );
         assert_eq!(variable_prefix_end("\\$HO"), None);
         assert_eq!(variable_prefix_end("HOME"), None);
         assert_eq!(variable_prefix_end("$HOME/"), None);

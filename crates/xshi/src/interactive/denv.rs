@@ -1094,7 +1094,11 @@ mod tests {
         let tmp = temp("xshi_denv_blocked");
         let project = tmp.path().join("project");
         std::fs::create_dir_all(&project).unwrap();
-        std::fs::write(project.join(".envrc"), "#!/bin/sh\nexport DENV_ALLOWED=yes\n").unwrap();
+        std::fs::write(
+            project.join(".envrc"),
+            "#!/bin/sh\nexport DENV_ALLOWED=yes\n",
+        )
+        .unwrap();
         let mut session = Session::for_test();
         session.denv = DenvState::load(Some(tmp.path().join("denv")));
         session.cwd = project.canonicalize().unwrap();

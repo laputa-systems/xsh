@@ -1,9 +1,12 @@
+use super::serial_pipeline::{
+    IndexedLiveSerialStage, IndexedSerialPipeline, indexed_for_pipeline_input,
+};
 use super::{
     Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
     FormatSpec, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader,
     LoweredCompTarget, LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
-    LoweredTypeCheck, LoweredValue, Name, PathValue, RuntimeError, Span, StmtFlow, TraceKind,
-    TracePayload, TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view,
+    LoweredTypeCheck, LoweredValue, Name, PathValue, RuntimeError, Span, StmtFlow, StreamValue,
+    TraceKind, TracePayload, TracebackFrame, TracebackFrameKind, assign_lowered_bytes_view,
     assign_lowered_str_view, bind_lowered_comp_target, indexed_decode, indexed_error,
     indexed_finish, indexed_optional_raw, indexed_raw, indexed_string, indexed_value,
     lowered_assign_value, lowered_binary_value, lowered_bytes_parts,
@@ -11,9 +14,8 @@ use super::{
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
     lowered_result_err_value, lowered_result_ok, lowered_return_value, lowered_splice_arg_items,
     lowered_str_parts, lowered_value_from_runtime_any, lowered_value_satisfies_require,
-    push_lowered_fmt_value, StreamValue,
+    push_lowered_fmt_value,
 };
-use super::serial_pipeline::{IndexedSerialPipeline, IndexedLiveSerialStage, indexed_for_pipeline_input};
 
 enum FrameValue {
     Value(LoweredValue),
@@ -355,7 +357,11 @@ fn indexed_slot_read(
 ) -> Result<Option<usize>, RuntimeError> {
     let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), span)?;
     match tag {
-        FullTag::ExprParam => Ok(Some(indexed_decode::<usize>(&mut payload, execution, span)?)),
+        FullTag::ExprParam => Ok(Some(indexed_decode::<usize>(
+            &mut payload,
+            execution,
+            span,
+        )?)),
         _ => Ok(None),
     }
 }
@@ -484,10 +490,7 @@ impl FrameScratch {
     /// Returns a finished frame's vectors to the pools, cleared for reuse.
     pub(super) fn recycle(&mut self, call: &mut CallFrame<'_>) {
         for work in call.work.drain(..) {
-            let FrameWork::Statements {
-                mut statements, ..
-            } = work
-            else {
+            let FrameWork::Statements { mut statements, .. } = work else {
                 continue;
             };
             statements.clear();
@@ -555,7 +558,6 @@ impl ProducerFrameState {
         self.scope_id = scope_id;
         self.slot_scopes = vec![scope_id; self.slots.len()];
     }
-
 }
 
 impl<'p> CallFrame<'p> {
@@ -614,7 +616,6 @@ impl<'p> CallFrame<'p> {
     }
 }
 
-
 impl<'a, 'p> ExplicitFrames<'a, 'p> {
     /// A machine over one program, with no frames of its own yet.
     pub(super) fn new(evaluator: &'a mut Evaluator, program: &'p FullProgram) -> Self {
@@ -639,11 +640,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .last()
                     .map(|call| call.call_span)
                     .unwrap_or_else(crate::runtime::eval::zero_span);
-                return Err(RuntimeError::new(
-                    "control-flow",
-                    "yield outside stream producer",
-                )
-                .with_span(span));
+                return Err(
+                    RuntimeError::new("control-flow", "yield outside stream producer")
+                        .with_span(span),
+                );
             }
             let index = self
                 .calls
@@ -1165,11 +1165,9 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let body = indexed_raw(&mut payload, span)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                if let Some((input, pipeline_span, stages)) = indexed_for_pipeline_input(
-                    &self.calls[index].execution,
-                    iter,
-                    value_span,
-                )? {
+                if let Some((input, pipeline_span, stages)) =
+                    indexed_for_pipeline_input(&self.calls[index].execution, iter, value_span)?
+                {
                     self.push_expr(
                         index,
                         input,
@@ -1731,12 +1729,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 };
                 let kind = self.function_kind(function, span)?;
                 let mut args = self.evaluator.frame_scratch.take_call_args();
-                decode_call_args_into(
-                    &self.calls[index].execution,
-                    &mut payload,
-                    span,
-                    &mut args,
-                )?;
+                decode_call_args_into(&self.calls[index].execution, &mut payload, span, &mut args)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
                 if let Some((_, value)) = args.first().copied() {
@@ -2003,7 +1996,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     return self.complete_call(index, StmtFlow::Return(value));
                 }
             },
-            FrameContinuation::ForPipelineInput { slot, body, span, stages } => match value {
+            FrameContinuation::ForPipelineInput {
+                slot,
+                body,
+                span,
+                stages,
+            } => match value {
                 FrameValue::Value(input) => {
                     let pipeline = {
                         let call = &mut self.calls[index];

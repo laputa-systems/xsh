@@ -1053,7 +1053,10 @@ fn os_release_entry_reads_the_fixed_paths() {
     match scenario.as_str() {
         "etc" => {
             assert_eq!(output.status.code(), Some(0), "{stderr}");
-            assert_eq!(stdout, "Fixture Etc|Fixture Etc \"quoted\"|1.0|7|fixture-etc-last\n");
+            assert_eq!(
+                stdout,
+                "Fixture Etc|Fixture Etc \"quoted\"|1.0|7|fixture-etc-last\n"
+            );
         }
         "fallback" => {
             assert_eq!(output.status.code(), Some(0), "{stderr}");

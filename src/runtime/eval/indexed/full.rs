@@ -830,8 +830,7 @@ impl FullProgram {
     /// Keep the scan's first-match behavior for repeated identities.
     fn resolve_identities(
         &self,
-    ) -> Result<FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), usize>, IrVerifyError>
-    {
+    ) -> Result<FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), usize>, IrVerifyError> {
         let mut identities = FxHashMap::default();
         identities.reserve(self.store.functions.len());
         for index in 0..self.store.functions.len() {
@@ -1212,9 +1211,7 @@ impl<'a> FullFunctionView<'a> {
     /// slot; every later call — from any evaluator, including worker
     /// evaluators, which share the program — reads the same `Arc`. The store is
     /// immutable once verified, so there is nothing to invalidate.
-    pub(in crate::runtime::eval) fn header(
-        &self,
-    ) -> Result<Arc<FunctionHeader>, IrVerifyError> {
+    pub(in crate::runtime::eval) fn header(&self) -> Result<Arc<FunctionHeader>, IrVerifyError> {
         // A program built without slots — the verifier fixtures construct one
         // directly — decodes without caching rather than failing.
         let Some(slot) = self.program.headers.get(self.index) else {
@@ -5038,12 +5035,12 @@ impl FullCodec for LoweredValue {
             FullValueTag::Str => Self::Str(Arc::<str>::decode(decoder, &mut payload)?),
             FullValueTag::Bytes => Self::Bytes(Arc::<[u8]>::decode(decoder, &mut payload)?),
             FullValueTag::Path => Self::Path(PathValue::decode(decoder, &mut payload)?),
-            FullValueTag::Record => Self::Record(Arc::new(BTreeMap::<Arc<str>, LoweredValue>::decode(
-                decoder, &mut payload,
-            )?)),
-            FullValueTag::RecordVec => {
-                Self::RecordVec(Arc::new(Vec::<(Name, LoweredValue)>::decode(decoder, &mut payload)?))
-            }
+            FullValueTag::Record => Self::Record(Arc::new(
+                BTreeMap::<Arc<str>, LoweredValue>::decode(decoder, &mut payload)?,
+            )),
+            FullValueTag::RecordVec => Self::RecordVec(Arc::new(
+                Vec::<(Name, LoweredValue)>::decode(decoder, &mut payload)?,
+            )),
             FullValueTag::Stats => Self::Stats {
                 blanks: i64::decode(decoder, &mut payload)?,
                 code: i64::decode(decoder, &mut payload)?,
@@ -5055,12 +5052,13 @@ impl FullCodec for LoweredValue {
                 code: i64::decode(decoder, &mut payload)?,
                 comments: i64::decode(decoder, &mut payload)?,
             })),
-            FullValueTag::Module => Self::Module(Arc::new(BTreeMap::<Arc<str>, LoweredValue>::decode(
-                decoder, &mut payload,
-            )?)),
+            FullValueTag::Module => Self::Module(Arc::new(
+                BTreeMap::<Arc<str>, LoweredValue>::decode(decoder, &mut payload)?,
+            )),
             FullValueTag::List => Self::List(Vec::<LoweredValue>::decode(decoder, &mut payload)?),
             FullValueTag::Map => Self::Map(Arc::new(BTreeMap::<String, LoweredValue>::decode(
-                decoder, &mut payload,
+                decoder,
+                &mut payload,
             )?)),
             FullValueTag::Tag => Self::Tag(Box::new(LoweredTagValue {
                 name: Arc::<str>::decode(decoder, &mut payload)?,
@@ -7512,8 +7510,7 @@ run true
                 "indexed-list-reuse.xsh",
                 "proc main() [io] {\n  var index = 0\n  while index < 200 {\n    index = index + 1\n  }\n  print f\"index=${index}\"\n}\n",
             ));
-            let mut evaluator =
-                Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+            let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
             evaluator.indexed_program = Some(Arc::clone(&program));
             evaluator
                 .call_indexed_direct(

@@ -5,32 +5,40 @@
 use super::scenarios::parity;
 use super::{Fixture, Live, key, paste, run_scenario};
 
-parity!(edit_home_end_and_ctrl_a_e, Fixture::new(), |sh: &mut Live| {
-    sh.text("hello world");
-    sh.keys(key::HOME);
-    sh.text("X");
-    sh.frame("home");
-    sh.keys(key::END);
-    sh.text("Y");
-    sh.frame("end");
-    sh.keys(key::CTRL_A);
-    sh.text("A");
-    sh.keys(key::CTRL_E);
-    sh.text("E");
-    sh.frame("ctrl_a_e");
-});
+parity!(
+    edit_home_end_and_ctrl_a_e,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.text("hello world");
+        sh.keys(key::HOME);
+        sh.text("X");
+        sh.frame("home");
+        sh.keys(key::END);
+        sh.text("Y");
+        sh.frame("end");
+        sh.keys(key::CTRL_A);
+        sh.text("A");
+        sh.keys(key::CTRL_E);
+        sh.text("E");
+        sh.frame("ctrl_a_e");
+    }
+);
 
-parity!(edit_delete_and_ctrl_d_delete_forward, Fixture::new(), |sh: &mut Live| {
-    sh.text("abcdef");
-    sh.repeat(key::LEFT, 3);
-    sh.keys(key::DELETE);
-    sh.frame("after_delete");
-    sh.keys(key::CTRL_D);
-    sh.frame("after_ctrl_d");
-    sh.keys(key::END);
-    sh.keys(key::DELETE);
-    sh.frame("delete_at_end_is_a_no_op");
-});
+parity!(
+    edit_delete_and_ctrl_d_delete_forward,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.text("abcdef");
+        sh.repeat(key::LEFT, 3);
+        sh.keys(key::DELETE);
+        sh.frame("after_delete");
+        sh.keys(key::CTRL_D);
+        sh.frame("after_ctrl_d");
+        sh.keys(key::END);
+        sh.keys(key::DELETE);
+        sh.frame("delete_at_end_is_a_no_op");
+    }
+);
 
 parity!(edit_word_motions, Fixture::new(), |sh: &mut Live| {
     sh.text("one two  three-four five");
@@ -70,38 +78,46 @@ parity!(edit_word_kills, Fixture::new(), |sh: &mut Live| {
     sh.frame("kill_past_start");
 });
 
-parity!(edit_kill_ring_is_shared_between_kills, Fixture::new(), |sh: &mut Live| {
-    sh.text("one two three");
-    sh.repeat(key::LEFT, 6);
-    sh.keys(key::CTRL_K);
-    sh.frame("kill_to_end");
-    sh.keys(key::CTRL_U);
-    sh.frame("kill_to_start");
-    sh.keys(key::CTRL_Y);
-    sh.frame("yank_last_kill");
-    sh.keys(key::CTRL_Y);
-    sh.frame("yank_twice");
-    sh.keys(key::CTRL_U);
-    sh.keys(key::CTRL_W);
-    sh.keys(key::CTRL_Y);
-    sh.frame("yank_after_empty_kills");
-});
+parity!(
+    edit_kill_ring_is_shared_between_kills,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.text("one two three");
+        sh.repeat(key::LEFT, 6);
+        sh.keys(key::CTRL_K);
+        sh.frame("kill_to_end");
+        sh.keys(key::CTRL_U);
+        sh.frame("kill_to_start");
+        sh.keys(key::CTRL_Y);
+        sh.frame("yank_last_kill");
+        sh.keys(key::CTRL_Y);
+        sh.frame("yank_twice");
+        sh.keys(key::CTRL_U);
+        sh.keys(key::CTRL_W);
+        sh.keys(key::CTRL_Y);
+        sh.frame("yank_after_empty_kills");
+    }
+);
 
-parity!(edit_utf8_cursor_and_backspace, Fixture::new(), |sh: &mut Live| {
-    sh.text("héllo wörld");
-    sh.frame("typed");
-    sh.repeat(key::LEFT, 3);
-    sh.text("é");
-    sh.frame("inserted_before_ö");
-    sh.repeat(key::BACKSPACE, 2);
-    sh.frame("backspaced");
-    sh.keys(key::HOME);
-    sh.keys(key::DELETE);
-    sh.frame("deleted_h");
-    sh.keys(key::END);
-    sh.keys_to_prompt(key::ENTER);
-    sh.frame("submitted");
-});
+parity!(
+    edit_utf8_cursor_and_backspace,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.text("héllo wörld");
+        sh.frame("typed");
+        sh.repeat(key::LEFT, 3);
+        sh.text("é");
+        sh.frame("inserted_before_ö");
+        sh.repeat(key::BACKSPACE, 2);
+        sh.frame("backspaced");
+        sh.keys(key::HOME);
+        sh.keys(key::DELETE);
+        sh.frame("deleted_h");
+        sh.keys(key::END);
+        sh.keys_to_prompt(key::ENTER);
+        sh.frame("submitted");
+    }
+);
 
 parity!(edit_wide_characters, Fixture::new(), |sh: &mut Live| {
     sh.text("日本語text");
@@ -116,17 +132,21 @@ parity!(edit_wide_characters, Fixture::new(), |sh: &mut Live| {
     sh.frame("kill_wide_tail");
 });
 
-parity!(edit_combining_marks_and_emoji, Fixture::new(), |sh: &mut Live| {
-    sh.text("cafe\u{301} 👍🏽 ok");
-    sh.frame("typed");
-    sh.repeat(key::LEFT, 3);
-    sh.frame("cursor_over_emoji");
-    sh.keys(key::BACKSPACE);
-    sh.frame("backspace_over_modifier");
-    sh.keys(key::END);
-    sh.repeat(key::BACKSPACE, 4);
-    sh.frame("backspace_into_combining_mark");
-});
+parity!(
+    edit_combining_marks_and_emoji,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.text("cafe\u{301} 👍🏽 ok");
+        sh.frame("typed");
+        sh.repeat(key::LEFT, 3);
+        sh.frame("cursor_over_emoji");
+        sh.keys(key::BACKSPACE);
+        sh.frame("backspace_over_modifier");
+        sh.keys(key::END);
+        sh.repeat(key::BACKSPACE, 4);
+        sh.frame("backspace_into_combining_mark");
+    }
+);
 
 parity!(
     edit_wide_characters_wrap_at_the_edge,
@@ -143,46 +163,62 @@ parity!(
     }
 );
 
-parity!(edit_enter_mid_line_submits_the_whole_line, Fixture::new(), |sh: &mut Live| {
-    sh.text("echo abcdef");
-    sh.repeat(key::LEFT, 3);
-    sh.keys_to_prompt(key::ENTER);
-    sh.frame("submitted");
-});
+parity!(
+    edit_enter_mid_line_submits_the_whole_line,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.text("echo abcdef");
+        sh.repeat(key::LEFT, 3);
+        sh.keys_to_prompt(key::ENTER);
+        sh.frame("submitted");
+    }
+);
 
-parity!(edit_ctrl_l_keeps_the_pending_line, Fixture::new(), |sh: &mut Live| {
-    sh.line("echo before");
-    sh.text("echo partial");
-    sh.repeat(key::LEFT, 3);
-    sh.keys(key::CTRL_L);
-    sh.frame("cleared");
-    sh.text("X");
-    sh.frame("cursor_kept");
-});
+parity!(
+    edit_ctrl_l_keeps_the_pending_line,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("echo before");
+        sh.text("echo partial");
+        sh.repeat(key::LEFT, 3);
+        sh.keys(key::CTRL_L);
+        sh.frame("cleared");
+        sh.text("X");
+        sh.frame("cursor_kept");
+    }
+);
 
-parity!(edit_ctrl_c_discards_the_pending_line, Fixture::new(), |sh: &mut Live| {
-    sh.text("echo never");
-    sh.keys_to_prompt(key::CTRL_C);
-    sh.frame("cancelled");
-    sh.keys(key::UP);
-    sh.frame("cancelled_line_is_not_history");
-});
+parity!(
+    edit_ctrl_c_discards_the_pending_line,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.text("echo never");
+        sh.keys_to_prompt(key::CTRL_C);
+        sh.frame("cancelled");
+        sh.keys(key::UP);
+        sh.frame("cancelled_line_is_not_history");
+    }
+);
 
-parity!(edit_multiline_paste_navigates_between_lines, Fixture::new(), |sh: &mut Live| {
-    sh.keys(&paste("echo 'one\ntwo\nthree'"));
-    sh.frame("pasted");
-    sh.keys(key::UP);
-    sh.frame("up");
-    sh.keys(key::UP);
-    sh.frame("up_again");
-    sh.text("X");
-    sh.frame("edit_middle_line");
-    sh.keys(key::DOWN);
-    sh.keys(key::DOWN);
-    sh.frame("down_to_last");
-    sh.keys_to_prompt(key::ENTER);
-    sh.frame("submitted");
-});
+parity!(
+    edit_multiline_paste_navigates_between_lines,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.keys(&paste("echo 'one\ntwo\nthree'"));
+        sh.frame("pasted");
+        sh.keys(key::UP);
+        sh.frame("up");
+        sh.keys(key::UP);
+        sh.frame("up_again");
+        sh.text("X");
+        sh.frame("edit_middle_line");
+        sh.keys(key::DOWN);
+        sh.keys(key::DOWN);
+        sh.frame("down_to_last");
+        sh.keys_to_prompt(key::ENTER);
+        sh.frame("submitted");
+    }
+);
 
 parity!(
     edit_multiline_up_at_first_row_recalls_history,
@@ -281,12 +317,16 @@ parity!(
     }
 );
 
-parity!(completion_on_an_empty_line_inserts_cd, Fixture::new(), |sh: &mut Live| {
-    sh.keys(key::TAB);
-    sh.frame("cd_inserted");
-    sh.keys(key::TAB);
-    sh.frame("second_tab_lists_directories");
-});
+parity!(
+    completion_on_an_empty_line_inserts_cd,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.keys(key::TAB);
+        sh.frame("cd_inserted");
+        sh.keys(key::TAB);
+        sh.frame("second_tab_lists_directories");
+    }
+);
 
 parity!(
     completion_after_cd_offers_only_directories,
@@ -388,7 +428,11 @@ parity!(
 
 parity!(
     completion_arrows_navigate_and_enter_accepts_without_submitting,
-    Fixture::new().file("a-one", "").file("a-two", "").file("a-three", "").file("a-four", ""),
+    Fixture::new()
+        .file("a-one", "")
+        .file("a-two", "")
+        .file("a-three", "")
+        .file("a-four", ""),
     |sh: &mut Live| {
         sh.text("cat a");
         sh.keys(key::TAB);
@@ -431,7 +475,10 @@ parity!(
 
 parity!(
     completion_of_tilde_and_hidden_entries,
-    Fixture::new().file(".profile-like", "").file("visible", "").dir(".config-like"),
+    Fixture::new()
+        .file(".profile-like", "")
+        .file("visible", "")
+        .dir(".config-like"),
     |sh: &mut Live| {
         sh.text("ls ~/");
         sh.keys(key::TAB);
@@ -445,7 +492,10 @@ parity!(
 
 parity!(
     completion_escapes_spaces_and_quotes_in_names,
-    Fixture::new().file("my file.txt", "").file("it's here", "").file("plain", ""),
+    Fixture::new()
+        .file("my file.txt", "")
+        .file("it's here", "")
+        .file("plain", ""),
     |sh: &mut Live| {
         sh.text("cat my");
         sh.keys(key::TAB);
@@ -484,7 +534,9 @@ parity!(
 
 parity!(
     completion_after_pipe_and_redirect_operators,
-    Fixture::new().executable("bin/upcase", "#!/bin/sh\n").file("out.txt", ""),
+    Fixture::new()
+        .executable("bin/upcase", "#!/bin/sh\n")
+        .file("out.txt", ""),
     |sh: &mut Live| {
         sh.line("set PATH $HOME/bin");
         sh.text("echo hi | upc");
@@ -650,7 +702,10 @@ parity!(
 
 parity!(
     layout_dump_ctrl_p_leaves_the_screen_alone,
-    Fixture::new().file("aa", "").file("ab", "").history(&["echo one", "echo two"]),
+    Fixture::new()
+        .file("aa", "")
+        .file("ab", "")
+        .history(&["echo one", "echo two"]),
     |sh: &mut Live| {
         sh.text("echo hello world");
         sh.frame("before");
@@ -671,18 +726,24 @@ parity!(
     }
 );
 
-parity!(layout_dump_builtin_reports_where_it_wrote, Fixture::new().size(24, 200), |sh: &mut Live| {
-    sh.text("echo shown");
-    sh.keys_to_prompt(key::ENTER);
-    let command = format!("{}-dump", sh.kind().label());
-    sh.line(&command);
-    sh.frame("after_dump_command");
-    sh.effect_dump_count("dump_count");
-});
+parity!(
+    layout_dump_builtin_reports_where_it_wrote,
+    Fixture::new().size(24, 200),
+    |sh: &mut Live| {
+        sh.text("echo shown");
+        sh.keys_to_prompt(key::ENTER);
+        let command = format!("{}-dump", sh.kind().label());
+        sh.line(&command);
+        sh.frame("after_dump_command");
+        sh.effect_dump_count("dump_count");
+    }
+);
 
 parity!(
     no_config_flag_skips_the_config_file,
-    Fixture::new().config("alias ll l\nset FROM_CONFIG configured\n").arg("--no-config"),
+    Fixture::new()
+        .config("alias ll l\nset FROM_CONFIG configured\n")
+        .arg("--no-config"),
     |sh: &mut Live| {
         sh.line("ll");
         sh.frame("alias_not_defined");
@@ -691,16 +752,20 @@ parity!(
     }
 );
 
-parity!(redirection_order_is_left_to_right, Fixture::new(), |sh: &mut Live| {
-    sh.line("sh -c 'echo out; echo err >&2' 2>&1 > first.txt | cat");
-    sh.line("cat first.txt");
-    sh.frame("stderr_duplicated_first");
-    sh.line("sh -c 'echo out; echo err >&2' > second.txt 2>&1 | cat");
-    sh.line("cat second.txt");
-    sh.frame("stdout_redirected_first");
-    sh.line("echo [$(sh -c 'echo out; echo err >&2' 2>&1)]");
-    sh.frame("substitution_captures_stderr");
-});
+parity!(
+    redirection_order_is_left_to_right,
+    Fixture::new(),
+    |sh: &mut Live| {
+        sh.line("sh -c 'echo out; echo err >&2' 2>&1 > first.txt | cat");
+        sh.line("cat first.txt");
+        sh.frame("stderr_duplicated_first");
+        sh.line("sh -c 'echo out; echo err >&2' > second.txt 2>&1 | cat");
+        sh.line("cat second.txt");
+        sh.frame("stdout_redirected_first");
+        sh.line("echo [$(sh -c 'echo out; echo err >&2' 2>&1)]");
+        sh.frame("substitution_captures_stderr");
+    }
+);
 
 parity!(
     history_search_ctrl_n_and_ctrl_p_keys,

@@ -1,4 +1,4 @@
-use super::*;
+use super::{LoweredValue, StreamValue, Evaluator, Span, RuntimeError, lowered_value_from_runtime_any, FullStageTag, FullExecution, SmallVec, indexed_value, FullTag, indexed_raw, BLOCK_LIST, indexed_error, indexed_decode, indexed_finish, ControlFlow, lowered_pipeline_input, lowered_nonnegative_count, TraceKind, TracePayload, StmtFlow, Arc, btree_map, lowered_result_ok, TraceError, lowered_result_err_value, FullPayload};
 
 // Serial stages run on each live source item before the next pull. Bounded
 // terminals close a producer when they have enough input.
@@ -24,7 +24,9 @@ impl IndexedPipelineItems {
                 Ok(Self::Live { stream, prefix })
             }
             value => Ok(Self::Materialized(
-                evaluator.lowered_pipeline_input_items(value, span)?.into_iter(),
+                evaluator
+                    .lowered_pipeline_input_items(value, span)?
+                    .into_iter(),
             )),
         }
     }
@@ -56,7 +58,11 @@ impl IndexedPipelineItems {
         }
     }
 
-    pub(super) fn cancel(&mut self, evaluator: &mut Evaluator, span: Span) -> Result<(), RuntimeError> {
+    pub(super) fn cancel(
+        &mut self,
+        evaluator: &mut Evaluator,
+        span: Span,
+    ) -> Result<(), RuntimeError> {
         if let Self::Live { stream, .. } = self {
             evaluator.stream_cancel(stream, span)?;
         }
@@ -66,16 +72,53 @@ impl IndexedPipelineItems {
 
 #[derive(Clone, Copy)]
 pub(super) enum IndexedLiveSerialStage {
-    Tee { slot: usize, body: u32 },
-    Where { slot: usize, predicate: u32 },
-    WhereBlock { slot: usize, body: u32, value: u32 },
-    Map { slot: usize, value: u32, flat: bool },
-    MapBlock { slot: usize, body: u32, value: u32, flat: bool },
-    Drop { count_expr: u32, count: usize, seen: usize },
-    Enumerate { index: usize },
-    Take { count_expr: u32, count: usize },
-    Any { slot: usize, predicate: u32, all: bool },
-    AnyBlock { slot: usize, body: u32, value: u32, all: bool },
+    Tee {
+        slot: usize,
+        body: u32,
+    },
+    Where {
+        slot: usize,
+        predicate: u32,
+    },
+    WhereBlock {
+        slot: usize,
+        body: u32,
+        value: u32,
+    },
+    Map {
+        slot: usize,
+        value: u32,
+        flat: bool,
+    },
+    MapBlock {
+        slot: usize,
+        body: u32,
+        value: u32,
+        flat: bool,
+    },
+    Drop {
+        count_expr: u32,
+        count: usize,
+        seen: usize,
+    },
+    Enumerate {
+        index: usize,
+    },
+    Take {
+        count_expr: u32,
+        count: usize,
+    },
+    Any {
+        slot: usize,
+        predicate: u32,
+        all: bool,
+    },
+    AnyBlock {
+        slot: usize,
+        body: u32,
+        value: u32,
+        all: bool,
+    },
     First,
     Count,
     Collect,
@@ -171,7 +214,9 @@ impl IndexedSerialPipeline {
         let input = lowered_pipeline_input(input, span)?;
         for stage in &mut stages {
             match stage {
-                IndexedLiveSerialStage::Drop { count_expr, count, .. }
+                IndexedLiveSerialStage::Drop {
+                    count_expr, count, ..
+                }
                 | IndexedLiveSerialStage::Take { count_expr, count } => {
                     match evaluator.eval_indexed_expr(execution, *count_expr, slots, span)? {
                         ControlFlow::Continue(value) => {
@@ -246,7 +291,11 @@ impl IndexedSerialPipeline {
                     let Some(value) = item.as_ref() else { continue };
                     slots[*slot] = value.clone();
                     let flow = evaluator.eval_indexed_statement_block(
-                        execution, *body, &block_header, slots, call_span,
+                        execution,
+                        *body,
+                        &block_header,
+                        slots,
+                        call_span,
                     )?;
                     slots[*slot] = LoweredValue::Unit;
                     match flow {
@@ -262,12 +311,11 @@ impl IndexedSerialPipeline {
                 IndexedLiveSerialStage::Where { slot, predicate } => {
                     let Some(value) = item.take() else { continue };
                     slots[*slot] = value;
-                    let keep = match evaluator.eval_indexed_bool(
-                        execution, *predicate, slots, span,
-                    )? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
+                    let keep =
+                        match evaluator.eval_indexed_bool(execution, *predicate, slots, span)? {
+                            ControlFlow::Continue(value) => value,
+                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        };
                     let value = std::mem::replace(&mut slots[*slot], LoweredValue::Unit);
                     if keep {
                         item = Some(value);
@@ -277,7 +325,11 @@ impl IndexedSerialPipeline {
                     let Some(input) = item.take() else { continue };
                     slots[*slot] = input;
                     let flow = evaluator.eval_indexed_statement_block(
-                        execution, *body, &block_header, slots, call_span,
+                        execution,
+                        *body,
+                        &block_header,
+                        slots,
+                        call_span,
                     )?;
                     match flow {
                         StmtFlow::None => {}
@@ -305,13 +357,18 @@ impl IndexedSerialPipeline {
                 IndexedLiveSerialStage::Map { slot, value, flat } => {
                     let Some(input) = item.take() else { continue };
                     slots[*slot] = input;
-                    let projected = match evaluator.eval_indexed_expr(execution, *value, slots, span) {
-                        Ok(ControlFlow::Continue(value)) => value,
-                        Ok(ControlFlow::Break(value)) => return Ok(ControlFlow::Break(value)),
-                        Err(error) => {
-                            return Err(evaluator.stream_item_runtime_error("map", self.source_index - 1, error));
-                        }
-                    };
+                    let projected =
+                        match evaluator.eval_indexed_expr(execution, *value, slots, span) {
+                            Ok(ControlFlow::Continue(value)) => value,
+                            Ok(ControlFlow::Break(value)) => return Ok(ControlFlow::Break(value)),
+                            Err(error) => {
+                                return Err(evaluator.stream_item_runtime_error(
+                                    "map",
+                                    self.source_index - 1,
+                                    error,
+                                ));
+                            }
+                        };
                     slots[*slot] = LoweredValue::Unit;
                     if *flat {
                         expanded = Some(evaluator.lowered_flat_map_rows(projected, span)?);
@@ -319,11 +376,20 @@ impl IndexedSerialPipeline {
                         item = Some(projected);
                     }
                 }
-                IndexedLiveSerialStage::MapBlock { slot, body, value, flat } => {
+                IndexedLiveSerialStage::MapBlock {
+                    slot,
+                    body,
+                    value,
+                    flat,
+                } => {
                     let Some(input) = item.take() else { continue };
                     slots[*slot] = input;
                     let flow = evaluator.eval_indexed_statement_block(
-                        execution, *body, &block_header, slots, call_span,
+                        execution,
+                        *body,
+                        &block_header,
+                        slots,
+                        call_span,
                     )?;
                     match flow {
                         StmtFlow::None => {}
@@ -339,10 +405,11 @@ impl IndexedSerialPipeline {
                             return Err(RuntimeError::new(kind, message).with_span(span));
                         }
                     }
-                    let projected = match evaluator.eval_indexed_expr(execution, *value, slots, span)? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
+                    let projected =
+                        match evaluator.eval_indexed_expr(execution, *value, slots, span)? {
+                            ControlFlow::Continue(value) => value,
+                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        };
                     slots[*slot] = LoweredValue::Unit;
                     if *flat {
                         expanded = Some(evaluator.lowered_flat_map_rows(projected, span)?);
@@ -372,26 +439,38 @@ impl IndexedSerialPipeline {
                         return Ok(ControlFlow::Continue(Some(value)));
                     }
                 }
-                IndexedLiveSerialStage::Any { slot, predicate, all } => {
+                IndexedLiveSerialStage::Any {
+                    slot,
+                    predicate,
+                    all,
+                } => {
                     let Some(value) = item.take() else { continue };
                     slots[*slot] = value;
-                    let keep = match evaluator.eval_indexed_bool(
-                        execution, *predicate, slots, span,
-                    )? {
-                        ControlFlow::Continue(value) => value,
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    };
+                    let keep =
+                        match evaluator.eval_indexed_bool(execution, *predicate, slots, span)? {
+                            ControlFlow::Continue(value) => value,
+                            ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                        };
                     slots[*slot] = LoweredValue::Unit;
                     if keep != *all {
                         self.outcome = Some(LoweredValue::Bool(!*all));
                         self.stopped = true;
                     }
                 }
-                IndexedLiveSerialStage::AnyBlock { slot, body, value, all } => {
+                IndexedLiveSerialStage::AnyBlock {
+                    slot,
+                    body,
+                    value,
+                    all,
+                } => {
                     let Some(input) = item.take() else { continue };
                     slots[*slot] = input;
                     let flow = evaluator.eval_indexed_statement_block(
-                        execution, *body, &block_header, slots, call_span,
+                        execution,
+                        *body,
+                        &block_header,
+                        slots,
+                        call_span,
                     )?;
                     match flow {
                         StmtFlow::None => {}
@@ -436,7 +515,8 @@ impl IndexedSerialPipeline {
                 }
             }
             if let Some(expanded) = expanded {
-                self.pending.extend(expanded.into_iter().rev().map(|row| (stage_index + 1, row)));
+                self.pending
+                    .extend(expanded.into_iter().rev().map(|row| (stage_index + 1, row)));
             } else if let Some(item) = item {
                 self.pending.push((stage_index + 1, item));
             }
@@ -475,10 +555,10 @@ impl IndexedSerialPipeline {
 
     fn into_result(self, output: Vec<LoweredValue>) -> LoweredValue {
         match self.stages.last() {
-            Some(IndexedLiveSerialStage::Any { all, .. }
-                | IndexedLiveSerialStage::AnyBlock { all, .. }) => {
-                self.outcome.unwrap_or(LoweredValue::Bool(*all))
-            }
+            Some(
+                IndexedLiveSerialStage::Any { all, .. }
+                | IndexedLiveSerialStage::AnyBlock { all, .. },
+            ) => self.outcome.unwrap_or(LoweredValue::Bool(*all)),
             Some(IndexedLiveSerialStage::First) => self.outcome.unwrap_or_else(|| {
                 lowered_result_err_value(
                     RuntimeError::new("empty-stream", "stream was empty").with_span(self.span),
@@ -528,19 +608,32 @@ pub(super) fn decode_serial_prefix(
                 let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
                 let value = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
-                IndexedLiveSerialStage::Map { slot, value, flat: tag == FullStageTag::FlatMap }
+                IndexedLiveSerialStage::Map {
+                    slot,
+                    value,
+                    flat: tag == FullStageTag::FlatMap,
+                }
             }
             FullStageTag::MapBlock | FullStageTag::FlatMapBlock => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
                 let body = indexed_raw(&mut payload, span)?;
                 let value = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
-                IndexedLiveSerialStage::MapBlock { slot, body, value, flat: tag == FullStageTag::FlatMapBlock }
+                IndexedLiveSerialStage::MapBlock {
+                    slot,
+                    body,
+                    value,
+                    flat: tag == FullStageTag::FlatMapBlock,
+                }
             }
             FullStageTag::Drop => {
                 let count_expr = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
-                IndexedLiveSerialStage::Drop { count_expr, count: 0, seen: 0 }
+                IndexedLiveSerialStage::Drop {
+                    count_expr,
+                    count: 0,
+                    seen: 0,
+                }
             }
             FullStageTag::Enumerate => {
                 indexed_finish(payload, span)?;
@@ -549,13 +642,20 @@ pub(super) fn decode_serial_prefix(
             FullStageTag::Take => {
                 let count_expr = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
-                IndexedLiveSerialStage::Take { count_expr, count: 0 }
+                IndexedLiveSerialStage::Take {
+                    count_expr,
+                    count: 0,
+                }
             }
             FullStageTag::Any | FullStageTag::All => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
                 let predicate = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
-                IndexedLiveSerialStage::Any { slot, predicate, all: tag == FullStageTag::All }
+                IndexedLiveSerialStage::Any {
+                    slot,
+                    predicate,
+                    all: tag == FullStageTag::All,
+                }
             }
             FullStageTag::AnyBlock | FullStageTag::AllBlock => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, span)?;
@@ -563,7 +663,10 @@ pub(super) fn decode_serial_prefix(
                 let value = indexed_raw(&mut payload, span)?;
                 indexed_finish(payload, span)?;
                 IndexedLiveSerialStage::AnyBlock {
-                    slot, body, value, all: tag == FullStageTag::AllBlock,
+                    slot,
+                    body,
+                    value,
+                    all: tag == FullStageTag::AllBlock,
                 }
             }
             FullStageTag::First => {
@@ -581,7 +684,17 @@ pub(super) fn decode_serial_prefix(
             _ => break,
         };
         prefix.push(decoded);
-        if matches!(tag, FullStageTag::Take | FullStageTag::Any | FullStageTag::All | FullStageTag::AnyBlock | FullStageTag::AllBlock | FullStageTag::First | FullStageTag::Count | FullStageTag::Collect) {
+        if matches!(
+            tag,
+            FullStageTag::Take
+                | FullStageTag::Any
+                | FullStageTag::All
+                | FullStageTag::AnyBlock
+                | FullStageTag::AllBlock
+                | FullStageTag::First
+                | FullStageTag::Count
+                | FullStageTag::Collect
+        ) {
             break;
         }
     }
@@ -601,7 +714,8 @@ impl Evaluator {
         span: Span,
         call_span: Span,
     ) -> Result<Option<(ControlFlow<LoweredValue, LoweredValue>, usize)>, RuntimeError> {
-        if !matches!(current, LoweredValue::Stream(stream) if stream.source.is_some() || stream.script().is_some()) {
+        if !matches!(current, LoweredValue::Stream(stream) if stream.source.is_some() || stream.script().is_some())
+        {
             return Ok(None);
         }
         let stages = decode_serial_prefix(execution, stages, stage_count, span)?;
@@ -644,7 +758,10 @@ impl Evaluator {
             }
             Ok(None) => {
                 close?;
-                Ok(Some((ControlFlow::Continue(pipeline.into_result(output)), consumed)))
+                Ok(Some((
+                    ControlFlow::Continue(pipeline.into_result(output)),
+                    consumed,
+                )))
             }
         }
     }

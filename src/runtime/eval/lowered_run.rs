@@ -3,11 +3,12 @@
 //! (`refresh_lowered_pures`, `call_lowered_pure`) stay in the parent.
 
 use crate::modules::{
-    RuntimeOp, api_spec, archive as archive_module, bytes as bytes_module, cli as cli_module, diff as diff_module,
-    dns as dns_module, elf as elf_module, fs as fs_module, group as group_module,
-    hash as hash_module, ini as ini_module, json as json_module, linux as linux_module,
-    mime as mime_module, net as net_module, patch as patch_module, process as process_module, regex as regex_module,
-    shlex, system, tui, unix as unix_module, user as user_module,
+    RuntimeOp, api_spec, archive as archive_module, bytes as bytes_module, cli as cli_module,
+    diff as diff_module, dns as dns_module, elf as elf_module, fs as fs_module,
+    group as group_module, hash as hash_module, ini as ini_module, json as json_module,
+    linux as linux_module, mime as mime_module, net as net_module, patch as patch_module,
+    process as process_module, regex as regex_module, shlex, system, tui, unix as unix_module,
+    user as user_module,
 };
 use crate::runtime::process::{
     CancellationPolicy, ChildWaitOutcome, FileRedirectionMode, ManagedStdio, ProcessEnd,
@@ -57,7 +58,8 @@ pub(in crate::runtime::eval) mod indexed_run;
 use super::display_value;
 use super::lower::{
     lowered_match_no_arm, lowered_record_field, lowered_stmt_flow_to_flow, lowered_str_key,
-    lowered_sum_records, lowered_sum_values, lowered_tag_key, take_shared,};
+    lowered_sum_records, lowered_sum_values, lowered_tag_key, take_shared,
+};
 use super::lowered_ops::{
     checked_int_binary, compare_lowered_sort_keys, lowered_assign_value, lowered_binary_value,
     lowered_bytes_arg, lowered_bytes_parts, lowered_bytes_value, lowered_contains_value,
@@ -1645,7 +1647,10 @@ fn lowered_json_path_arg(
         Value::List(_) => Ok(path),
         other => Err(RuntimeError::new(
             "type-error",
-            format!("{operation} path expected List[Any], found {}", other.type_name()),
+            format!(
+                "{operation} path expected List[Any], found {}",
+                other.type_name()
+            ),
         )
         .with_span(span)),
     }
@@ -1947,7 +1952,7 @@ fn lowered_optional_str_record(
 
     let mut env = BTreeMap::new();
     for (key, value) in fields.iter() {
-        let Some(text) = lowered_str_value(&value) else {
+        let Some(text) = lowered_str_value(value) else {
             return Err(RuntimeError::new(
                 "type-error",
                 format!(
@@ -2035,7 +2040,7 @@ fn lowered_env_record_arg(
         LoweredValue::Record(fields) => {
             for (name, value) in fields.iter() {
                 let mut text = String::new();
-                push_lowered_display(&mut text, &value, span)?;
+                push_lowered_display(&mut text, value, span)?;
                 env.insert(name.to_string(), text);
             }
         }
@@ -2713,7 +2718,9 @@ fn lowered_pipeline_record_list(
                 LoweredValue::RecordVec(record) => Ok(Arc::new(
                     record
                         .iter()
-                        .map(|(key, value)| (Arc::<str>::from(key.as_str().as_str()), value.clone()))
+                        .map(|(key, value)| {
+                            (Arc::<str>::from(key.as_str().as_str()), value.clone())
+                        })
                         .collect::<BTreeMap<_, _>>(),
                 )),
                 LoweredValue::Map(map) => Ok(Arc::new(
@@ -2853,7 +2860,10 @@ fn lowered_root_id(root: &LoweredValue, span: Span) -> Result<i64, RuntimeError>
 }
 
 fn fs_root_record(id: i64) -> LoweredValue {
-    LoweredValue::Record(Arc::new(BTreeMap::from([(Arc::from("id"), LoweredValue::Int(id))])))
+    LoweredValue::Record(Arc::new(BTreeMap::from([(
+        Arc::from("id"),
+        LoweredValue::Int(id),
+    )])))
 }
 
 fn lowered_fs_root_children_result(
@@ -2870,10 +2880,7 @@ fn lowered_fs_root_children_result(
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(LoweredValue::Record(Arc::new(BTreeMap::from([
-        (
-            Arc::from("state"),
-            LoweredValue::Str(result.state.into()),
-        ),
+        (Arc::from("state"), LoweredValue::Str(result.state.into())),
         (
             Arc::from("enumeration_succeeded"),
             LoweredValue::Bool(result.enumeration_succeeded),
@@ -2881,9 +2888,7 @@ fn lowered_fs_root_children_result(
         (Arc::from("children"), LoweredValue::List(children)),
         (
             Arc::from("errno"),
-            result
-                .errno
-                .map_or(LoweredValue::Null, LoweredValue::Int),
+            result.errno.map_or(LoweredValue::Null, LoweredValue::Int),
         ),
         (
             Arc::from("error_kind"),
@@ -2896,10 +2901,7 @@ fn lowered_fs_root_children_result(
 
 fn lowered_fs_root_read_result(result: fs_module::RootReadResult) -> LoweredValue {
     LoweredValue::Record(Arc::new(BTreeMap::from([
-        (
-            Arc::from("state"),
-            LoweredValue::Str(result.state.into()),
-        ),
+        (Arc::from("state"), LoweredValue::Str(result.state.into())),
         (
             Arc::from("data"),
             result
@@ -2908,9 +2910,7 @@ fn lowered_fs_root_read_result(result: fs_module::RootReadResult) -> LoweredValu
         ),
         (
             Arc::from("errno"),
-            result
-                .errno
-                .map_or(LoweredValue::Null, LoweredValue::Int),
+            result.errno.map_or(LoweredValue::Null, LoweredValue::Int),
         ),
         (
             Arc::from("error_kind"),
@@ -2918,10 +2918,7 @@ fn lowered_fs_root_read_result(result: fs_module::RootReadResult) -> LoweredValu
                 .error_kind
                 .map_or(LoweredValue::Null, |kind| LoweredValue::Str(kind.into())),
         ),
-        (
-            Arc::from("truncated"),
-            LoweredValue::Bool(result.truncated),
-        ),
+        (Arc::from("truncated"), LoweredValue::Bool(result.truncated)),
     ])))
 }
 
@@ -2953,17 +2950,18 @@ fn lowered_fs_root_readlink_result(
 
 fn lowered_fs_root_filesystem_stats(result: fs_module::RootFilesystemStats) -> LoweredValue {
     LoweredValue::Record(Arc::new(BTreeMap::from([
-        (
-            Arc::from("state"),
-            LoweredValue::Str(result.state.into()),
-        ),
+        (Arc::from("state"), LoweredValue::Str(result.state.into())),
         (
             Arc::from("total_bytes"),
-            result.total_bytes.map_or(LoweredValue::Null, LoweredValue::Int),
+            result
+                .total_bytes
+                .map_or(LoweredValue::Null, LoweredValue::Int),
         ),
         (
             Arc::from("used_bytes"),
-            result.used_bytes.map_or(LoweredValue::Null, LoweredValue::Int),
+            result
+                .used_bytes
+                .map_or(LoweredValue::Null, LoweredValue::Int),
         ),
         (
             Arc::from("available_bytes"),
@@ -4249,12 +4247,8 @@ impl Evaluator {
                 }
             }
             RuntimeOp::FsRootChildren if values.len() == 2 || values.len() == 3 => {
-                let max_entries = lowered_int_arg_or(
-                    values.get(2).cloned(),
-                    65_536,
-                    "fs.root_children",
-                    span,
-                )?;
+                let max_entries =
+                    lowered_int_arg_or(values.get(2).cloned(), 65_536, "fs.root_children", span)?;
                 let path = lowered_path_arg(
                     values.get(1).cloned().expect("checked value length"),
                     "fs.root_children",
@@ -4265,9 +4259,7 @@ impl Evaluator {
                 match lowered_fs_root_dir(&self.fs_roots, &root, span)
                     .and_then(|dir| fs_module::rooted_children(dir, &rel, max_entries, span))
                 {
-                    Ok(result) => {
-                        lowered_result_ok(lowered_fs_root_children_result(result, span)?)
-                    }
+                    Ok(result) => lowered_result_ok(lowered_fs_root_children_result(result, span)?),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
@@ -4300,9 +4292,9 @@ impl Evaluator {
                 )?;
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &root, span).and_then(|dir| {
-                    fs_module::rooted_read_result(dir, &rel, max_bytes, span)
-                }) {
+                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                    .and_then(|dir| fs_module::rooted_read_result(dir, &rel, max_bytes, span))
+                {
                     Ok(result) => lowered_result_ok(lowered_fs_root_read_result(result)),
                     Err(error) => lowered_result_err_value(error),
                 }
@@ -4315,9 +4307,9 @@ impl Evaluator {
                 )?;
                 let root = values.first().cloned().expect("checked value length");
                 let rel = pathbuf_from_path_value(&path);
-                match lowered_fs_root_dir(&self.fs_roots, &root, span).and_then(|dir| {
-                    fs_module::rooted_filesystem_stats(dir, &rel, span)
-                }) {
+                match lowered_fs_root_dir(&self.fs_roots, &root, span)
+                    .and_then(|dir| fs_module::rooted_filesystem_stats(dir, &rel, span))
+                {
                     Ok(result) => lowered_result_ok(lowered_fs_root_filesystem_stats(result)),
                     Err(error) => lowered_result_err_value(error),
                 }
@@ -4481,9 +4473,7 @@ impl Evaluator {
                 match lowered_fs_root_dir(&self.fs_roots, &root, span)
                     .and_then(|dir| fs_module::rooted_readlink_result(dir, &rel, span))
                 {
-                    Ok(result) => {
-                        lowered_result_ok(lowered_fs_root_readlink_result(result, span)?)
-                    }
+                    Ok(result) => lowered_result_ok(lowered_fs_root_readlink_result(result, span)?),
                     Err(error) => lowered_result_err_value(error),
                 }
             }
@@ -5017,11 +5007,13 @@ impl Evaluator {
             RuntimeOp::HashParseCheckLine if values.len() == 1 => {
                 let line = lowered_str_arg_owned(values.pop(), "", "hash.parse_check_line", span)?;
                 match hash_module::parse_check_line(&line, span) {
-                    Ok(line) => lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
-                        (Arc::from("hex"), LoweredValue::Str(line.hex.into())),
-                        (Arc::from("path"), LoweredValue::Str(line.path.into())),
-                        (Arc::from("binary"), LoweredValue::Bool(line.binary)),
-                    ])))),
+                    Ok(line) => {
+                        lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
+                            (Arc::from("hex"), LoweredValue::Str(line.hex.into())),
+                            (Arc::from("path"), LoweredValue::Str(line.path.into())),
+                            (Arc::from("binary"), LoweredValue::Bool(line.binary)),
+                        ]))))
+                    }
                     Err(error) => lowered_result_err_value(error),
                 }
             }
@@ -5134,7 +5126,9 @@ impl Evaluator {
                 self.stdout.extend_from_slice(data);
                 lowered_result_ok(LoweredValue::Unit)
             }
-            RuntimeOp::MapEmpty if values.is_empty() => LoweredValue::Map(Arc::new(BTreeMap::new())),
+            RuntimeOp::MapEmpty if values.is_empty() => {
+                LoweredValue::Map(Arc::new(BTreeMap::new()))
+            }
             RuntimeOp::TimeNow if values.is_empty() => {
                 LoweredValue::Int(crate::modules::time::now_epoch_ms())
             }
@@ -5745,8 +5739,8 @@ impl Evaluator {
                     lowered_runtime_result(linux_module::interfaces(span), span)?
                 } else {
                     self.linux_dry_run_log("interfaces", &[], span)?;
-                    lowered_result_ok(lowered_stream_from_values(vec![LoweredValue::Record(Arc::new(
-                        BTreeMap::from([
+                    lowered_result_ok(lowered_stream_from_values(vec![LoweredValue::Record(
+                        Arc::new(BTreeMap::from([
                             (Arc::from("name"), LoweredValue::Str("eth0".into())),
                             (
                                 Arc::from("flags"),
@@ -5763,14 +5757,16 @@ impl Evaluator {
                             ),
                             (
                                 Arc::from("addresses"),
-                                LoweredValue::List(vec![LoweredValue::Record(Arc::new(BTreeMap::from([
-                                    (Arc::from("family"), LoweredValue::Str("inet".into())),
-                                    (Arc::from("addr"), LoweredValue::Str("192.0.2.10".into())),
-                                    (Arc::from("prefix_len"), LoweredValue::Int(24)),
-                                ])))]),
+                                LoweredValue::List(vec![LoweredValue::Record(Arc::new(
+                                    BTreeMap::from([
+                                        (Arc::from("family"), LoweredValue::Str("inet".into())),
+                                        (Arc::from("addr"), LoweredValue::Str("192.0.2.10".into())),
+                                        (Arc::from("prefix_len"), LoweredValue::Int(24)),
+                                    ]),
+                                ))]),
                             ),
-                        ]),
-                    ))]))
+                        ])),
+                    )]))
                 }
             }
             RuntimeOp::LinuxRoutes if values.is_empty() => {
@@ -5783,8 +5779,8 @@ impl Evaluator {
                     lowered_runtime_result(linux_module::routes(span), span)?
                 } else {
                     self.linux_dry_run_log("routes", &[], span)?;
-                    lowered_result_ok(lowered_stream_from_values(vec![LoweredValue::Record(Arc::new(
-                        BTreeMap::from([
+                    lowered_result_ok(lowered_stream_from_values(vec![LoweredValue::Record(
+                        Arc::new(BTreeMap::from([
                             (Arc::from("family"), LoweredValue::Str("inet".into())),
                             (Arc::from("dst"), LoweredValue::Str("default".into())),
                             (Arc::from("prefix_len"), LoweredValue::Int(0)),
@@ -5798,8 +5794,8 @@ impl Evaluator {
                                     LoweredValue::Str("GATEWAY".into()),
                                 ]),
                             ),
-                        ]),
-                    ))]))
+                        ])),
+                    )]))
                 }
             }
             RuntimeOp::LinuxNetworkDump if values.is_empty() => {
@@ -5841,10 +5837,7 @@ impl Evaluator {
                         (Arc::from("prefix_length"), LoweredValue::Int(24)),
                         (Arc::from("scope"), LoweredValue::Int(0)),
                         (Arc::from("flags"), LoweredValue::Int(0)),
-                        (
-                            Arc::from("address"),
-                            LoweredValue::Str("192.0.2.10".into()),
-                        ),
+                        (Arc::from("address"), LoweredValue::Str("192.0.2.10".into())),
                         (Arc::from("local"), LoweredValue::Str("192.0.2.10".into())),
                         (
                             Arc::from("broadcast"),
@@ -5865,7 +5858,10 @@ impl Evaluator {
                         (Arc::from("family"), LoweredValue::Str("inet".into())),
                         (Arc::from("destination_prefix_length"), LoweredValue::Int(0)),
                         (Arc::from("source_prefix_length"), LoweredValue::Int(0)),
-                        (Arc::from("destination"), LoweredValue::Str("0.0.0.0".into())),
+                        (
+                            Arc::from("destination"),
+                            LoweredValue::Str("0.0.0.0".into()),
+                        ),
                         (Arc::from("source"), LoweredValue::Null),
                         (Arc::from("gateway"), LoweredValue::Str("192.0.2.1".into())),
                         (Arc::from("preferred_source"), LoweredValue::Null),
@@ -6806,33 +6802,35 @@ impl Evaluator {
                     ignore_hup: plan.ignore_hup,
                 };
                 match spawn_command(&invocation, options) {
-                    Ok(started) => lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
-                        (Arc::from("pid"), LoweredValue::Int(started.pid as i64)),
-                        (
-                            Arc::from("command"),
-                            LoweredValue::Str(
-                                String::from_utf8_lossy(&started.target).into_owned().into(),
+                    Ok(started) => {
+                        lowered_result_ok(LoweredValue::Record(Arc::new(BTreeMap::from([
+                            (Arc::from("pid"), LoweredValue::Int(started.pid as i64)),
+                            (
+                                Arc::from("command"),
+                                LoweredValue::Str(
+                                    String::from_utf8_lossy(&started.target).into_owned().into(),
+                                ),
                             ),
-                        ),
-                        (
-                            Arc::from("argv"),
-                            LoweredValue::Str(
-                                display_spawn_argv(&started.target, &started.argv).into(),
+                            (
+                                Arc::from("argv"),
+                                LoweredValue::Str(
+                                    display_spawn_argv(&started.target, &started.argv).into(),
+                                ),
                             ),
-                        ),
-                        (
-                            Arc::from("detach"),
-                            LoweredValue::Bool(started.options.detach),
-                        ),
-                        (
-                            Arc::from("new_session"),
-                            LoweredValue::Bool(started.options.new_session),
-                        ),
-                        (
-                            Arc::from("ignore_hup"),
-                            LoweredValue::Bool(started.options.ignore_hup),
-                        ),
-                    ])))),
+                            (
+                                Arc::from("detach"),
+                                LoweredValue::Bool(started.options.detach),
+                            ),
+                            (
+                                Arc::from("new_session"),
+                                LoweredValue::Bool(started.options.new_session),
+                            ),
+                            (
+                                Arc::from("ignore_hup"),
+                                LoweredValue::Bool(started.options.ignore_hup),
+                            ),
+                        ]))))
+                    }
                     Err(error) => lowered_result_err_value(run_error_to_runtime(error, span)),
                 }
             }
@@ -7023,7 +7021,9 @@ impl Evaluator {
                     Err(error) => lowered_result_err_value(error),
                 }
             }
-            RuntimeOp::SetEmpty if values.is_empty() => LoweredValue::Map(Arc::new(BTreeMap::new())),
+            RuntimeOp::SetEmpty if values.is_empty() => {
+                LoweredValue::Map(Arc::new(BTreeMap::new()))
+            }
             RuntimeOp::SetFrom if values.len() == 1 => {
                 let items = lowered_str_list_arg(values.pop(), "set.from", span)?;
                 let mut set = BTreeMap::new();
@@ -9776,7 +9776,9 @@ impl Evaluator {
                 .iter()
                 .copied()
                 .enumerate()
-                .all(|(index, kind)| lowered_value_matches_param(lowered, index, kind, &args[index]))
+                .all(|(index, kind)| {
+                    lowered_value_matches_param(lowered, index, kind, &args[index])
+                })
         {
             // A fully bound call owns its evaluated arguments. Use that vector
             // as the frame slots so the binding step need not copy the values.
@@ -10294,13 +10296,14 @@ impl Evaluator {
         let doc_diagnostics =
             crate::sema::check::Checker::check_public_module_docs(&parsed.arena, &module_text);
         if let Some(diagnostic) = doc_diagnostics.first() {
-            return Err(
-                RuntimeError::new(
-                    "module-load",
-                    format!("loaded module has undocumented exports: {}", diagnostic.message),
-                )
-                    .with_span(span),
-            );
+            return Err(RuntimeError::new(
+                "module-load",
+                format!(
+                    "loaded module has undocumented exports: {}",
+                    diagnostic.message
+                ),
+            )
+            .with_span(span));
         }
 
         let declarations = crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
@@ -10906,12 +10909,14 @@ impl Evaluator {
         let key = lowered_reduce_key_value(&key, span)?;
         match groups.entry(key) {
             std::collections::btree_map::Entry::Vacant(slot) => {
-                slot.insert(LoweredValue::RecordVec(Arc::new(lowered_projected_record_value(
-                    &state.projection,
-                    &item,
-                    indices.as_ref(),
-                    span,
-                )?)));
+                slot.insert(LoweredValue::RecordVec(Arc::new(
+                    lowered_projected_record_value(
+                        &state.projection,
+                        &item,
+                        indices.as_ref(),
+                        span,
+                    )?,
+                )));
             }
             std::collections::btree_map::Entry::Occupied(mut slot) => {
                 if let LoweredValue::RecordVec(acc) = slot.get_mut() {

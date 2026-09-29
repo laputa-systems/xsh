@@ -10,6 +10,6 @@ pub(super) use lower::shell_line_source;
 pub(super) use parse::ShellParser;
 pub(super) use syntax::ShellToken;
 pub(super) use syntax::{
-    Chain, ChainOp, PipeOp, Pipeline, Redirection, RedirectionKind, ShellLine, ShellWord, ShellWordPart,
-    SimpleCommand,
+    Chain, ChainOp, PipeOp, Pipeline, Redirection, RedirectionKind, ShellLine, ShellWord,
+    ShellWordPart, SimpleCommand,
 };

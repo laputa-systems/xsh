@@ -57,7 +57,9 @@ pub(crate) fn lex_shell(source: &str) -> Result<Vec<ShellToken>, String> {
                 } else if chars.peek().is_some_and(|(_, ch)| *ch == '&') {
                     chars.next();
                     match chars.next() {
-                        Some((_, '2')) => tokens.push(ShellToken::Redir(RedirectionKind::StdoutToStderr)),
+                        Some((_, '2')) => {
+                            tokens.push(ShellToken::Redir(RedirectionKind::StdoutToStderr))
+                        }
                         Some((_, '1')) => {}
                         _ => return Err("only 2>&1 and 1>&2 are supported".to_string()),
                     }

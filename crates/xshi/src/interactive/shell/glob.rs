@@ -199,7 +199,10 @@ struct ByteClass {
 
 impl ByteClass {
     fn contains(&self, byte: u8) -> bool {
-        self.ranges.iter().any(|(low, high)| (*low..=*high).contains(&byte)) != self.negated
+        self.ranges
+            .iter()
+            .any(|(low, high)| (*low..=*high).contains(&byte))
+            != self.negated
     }
 }
 
@@ -219,7 +222,9 @@ fn parse_bracket(pattern: &[u8]) -> Option<(ByteClass, usize)> {
             return Some((ByteClass { negated, ranges }, index + 1));
         }
         first = false;
-        if pattern.get(index + 1) == Some(&b'-') && pattern.get(index + 2).is_some_and(|next| *next != b']') {
+        if pattern.get(index + 1) == Some(&b'-')
+            && pattern.get(index + 2).is_some_and(|next| *next != b']')
+        {
             ranges.push((byte, pattern[index + 2]));
             index += 3;
         } else {

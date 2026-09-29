@@ -342,7 +342,7 @@ proc main(...raw: List[Str]) [fs, process, env, time, error, io] {
     return dispatch(command, global.rest)
   }
 
-  env TARGET=f"${global.target}" {
+  env TARGET=$global.target {
     dispatch(command, global.rest)?
   } ?
 }

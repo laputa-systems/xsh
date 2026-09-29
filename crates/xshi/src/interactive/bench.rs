@@ -62,9 +62,14 @@ impl BenchSession {
     pub fn complete_len(&self, text: &str, cursor: usize, term_cols: u16) -> usize {
         let mut line = LineBuffer::new();
         line.set_with_cursor(text, cursor);
-        repl::start_completion(&line, term_cols, &self.session, complete::Completions::default())
-            .comp
-            .len()
+        repl::start_completion(
+            &line,
+            term_cols,
+            &self.session,
+            complete::Completions::default(),
+        )
+        .comp
+        .len()
     }
 
     pub fn list_len(&self, args: &[String]) -> usize {

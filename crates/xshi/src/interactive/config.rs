@@ -2,8 +2,8 @@
 
 use super::alias;
 use super::app::{expand_word_to_string, valid_env_name};
-use super::shell::{ShellToken, lex_shell};
 use super::session::{Session, set_env_bytes};
+use super::shell::{ShellToken, lex_shell};
 use std::env;
 use std::fs;
 use std::io::{self, Write};
@@ -171,7 +171,13 @@ pub(super) fn load_config_path(
     }
 }
 
-fn apply_set(session: &mut Session, rest: &str, lineno: usize, path: &Path, stderr: &mut dyn Write) {
+fn apply_set(
+    session: &mut Session,
+    rest: &str,
+    lineno: usize,
+    path: &Path,
+    stderr: &mut dyn Write,
+) {
     let (name, value_source) = match rest.split_once(char::is_whitespace) {
         Some((name, value)) => (name.trim(), value.trim()),
         None => (rest, ""),
@@ -231,7 +237,12 @@ fn apply_alias(
 ) {
     let mut words = alias::lex_words(rest);
     if words.is_empty() {
-        writeln!(stderr, "xshi: {}:{lineno}: alias: missing name", path.display()).ok();
+        writeln!(
+            stderr,
+            "xshi: {}:{lineno}: alias: missing name",
+            path.display()
+        )
+        .ok();
         return;
     }
     let name = words.remove(0);
@@ -259,7 +270,10 @@ mod tests {
         set_env_bytes(&mut session.env, b"HOME", b"/home/user");
         let mut stderr = Vec::new();
         load_config_path(&mut session, &path, true, &mut stderr);
-        (session, String::from_utf8(stderr).expect("utf8 diagnostics"))
+        (
+            session,
+            String::from_utf8(stderr).expect("utf8 diagnostics"),
+        )
     }
 
     #[test]
@@ -287,7 +301,9 @@ mod tests {
     #[test]
     fn config_path_uses_non_utf8_home() {
         use std::os::unix::ffi::OsStringExt;
-        let raw = std::ffi::OsString::from_vec(vec![b'/', b't', b'm', b'p', b'/', 0xf0, 0x80, 0x80, b'x']);
+        let raw = std::ffi::OsString::from_vec(vec![
+            b'/', b't', b'm', b'p', b'/', 0xf0, 0x80, 0x80, b'x',
+        ]);
         let path = config_path_for(Path::new(&raw));
         assert_eq!(path, PathBuf::from(raw).join(".config/xshi/config.ish"));
     }
@@ -295,9 +311,15 @@ mod tests {
     #[test]
     fn bad_lines_warn_with_position_and_loading_continues() {
         let (session, stderr) = load("bogus line\nalias\nalias lonely\nset\nset OK yes\n");
-        assert!(stderr.contains(":1: unrecognized directive: bogus line"), "{stderr}");
+        assert!(
+            stderr.contains(":1: unrecognized directive: bogus line"),
+            "{stderr}"
+        );
         assert!(stderr.contains("unrecognized directive: alias"), "{stderr}");
-        assert!(stderr.contains(":3: alias: missing expansion for 'lonely'"), "{stderr}");
+        assert!(
+            stderr.contains(":3: alias: missing expansion for 'lonely'"),
+            "{stderr}"
+        );
         assert!(stderr.contains("unrecognized directive: set"), "{stderr}");
         assert_eq!(
             session.env.get(b"OK".as_slice()).map(Vec::as_slice),

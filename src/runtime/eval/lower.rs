@@ -1256,10 +1256,7 @@ fn compact_run_command_asserts_success(
         )
 }
 
-fn lower_fs_files_args(
-    args: &[ArenaCallArg],
-    has_exts: bool,
-) -> Option<LoweredFsFilesArgs> {
+fn lower_fs_files_args(args: &[ArenaCallArg], has_exts: bool) -> Option<LoweredFsFilesArgs> {
     let mut root = None;
     let mut gitignore = None;
     let mut stat = None;
@@ -3021,7 +3018,11 @@ fn lower_const_param_default(
                     ArenaRecordFieldKind::Spread { expr, .. } => {
                         let spread = lower_const_param_default(arena, expr, LoweredType::Any)?;
                         match spread {
-                            LoweredValue::Record(spread) => values.extend(spread.iter().map(|(key, value)| (key.clone(), value.clone()))),
+                            LoweredValue::Record(spread) => values.extend(
+                                spread
+                                    .iter()
+                                    .map(|(key, value)| (key.clone(), value.clone())),
+                            ),
                             LoweredValue::RecordVec(spread) => {
                                 for (name, value) in spread.iter() {
                                     values.insert(
@@ -7518,7 +7519,12 @@ impl CompactLowerConstructProbe<'_, '_> {
         item_slot: Option<usize>,
     ) -> Option<Option<BuildExprId>> {
         match id {
-            Some(id) => Some(Some(self.lower_expr(id, slots, current_function, item_slot)?)),
+            Some(id) => Some(Some(self.lower_expr(
+                id,
+                slots,
+                current_function,
+                item_slot,
+            )?)),
             None => Some(None),
         }
     }
@@ -11209,10 +11215,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     self.lower_block_in_current_scope(block, slots, current_function, Some(slot))?;
                 slots.exit(saved);
                 cleanup_pipeline_stage_item_slot(slots, cleanup, slot);
-                Some(LoweredPipelineStage::Each {
-                    slot,
-                    body,
-                })
+                Some(LoweredPipelineStage::Each { slot, body })
             }
             StreamStageKind::Tee => {
                 let block = stage.block?;
@@ -11265,7 +11268,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                 }
                 self.lower_pipeline_stage_reduce_by(
-                    stage, slots, current_function, op?, jobs, item_ty,
+                    stage,
+                    slots,
+                    current_function,
+                    op?,
+                    jobs,
+                    item_ty,
                 )
             }
             StreamStageKind::Shuffle => {
@@ -11424,12 +11432,9 @@ impl CompactLowerConstructProbe<'_, '_> {
         };
         let mut body = Vec::with_capacity(prefix.len() + 1);
         for stmt in prefix {
-            let Some(lowered) = self.lower_stmt_with_blocker_guard(
-                *stmt,
-                slots,
-                current_function,
-                Some(item_slot),
-            ) else {
+            let Some(lowered) =
+                self.lower_stmt_with_blocker_guard(*stmt, slots, current_function, Some(item_slot))
+            else {
                 slots.exit(saved);
                 return None;
             };
@@ -11795,7 +11800,8 @@ impl CompactLowerConstructProbe<'_, '_> {
         let branches = self.program.arena.if_branches(branches).to_vec();
         let mut lowered = Vec::with_capacity(branches.len());
         for branch in branches {
-            let condition = self.lower_expr(branch.condition, slots, current_function, item_slot)?;
+            let condition =
+                self.lower_expr(branch.condition, slots, current_function, item_slot)?;
             // Tail blocks do not open a scope themselves. Sibling branches
             // must not resolve a local name through an earlier branch's slot.
             let saved = slots.enter();

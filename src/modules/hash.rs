@@ -183,7 +183,7 @@ fn hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{digest_bytes, digest_reader, HashAlgorithm};
+    use super::{HashAlgorithm, digest_bytes, digest_reader};
     use crate::source::{SourceId, Span};
     use std::io::{self, Cursor, Read};
 
@@ -204,7 +204,10 @@ mod tests {
         fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
             if !self.1 {
                 self.1 = true;
-                return Err(io::Error::new(io::ErrorKind::Interrupted, "retry this read"));
+                return Err(io::Error::new(
+                    io::ErrorKind::Interrupted,
+                    "retry this read",
+                ));
             }
             self.0.read(buffer)
         }
@@ -212,7 +215,9 @@ mod tests {
 
     #[test]
     fn file_digests_read_in_bounded_chunks_with_byte_parity() {
-        let data = (0..(256 * 1024 + 17)).map(|index| index as u8).collect::<Vec<_>>();
+        let data = (0..(256 * 1024 + 17))
+            .map(|index| index as u8)
+            .collect::<Vec<_>>();
         let span = Span::new(SourceId::new(0), 0, 0);
         for algorithm in [
             HashAlgorithm::Md5,
@@ -231,7 +236,8 @@ mod tests {
         let data = b"digest after retry".to_vec();
         let span = Span::new(SourceId::new(0), 0, 0);
         let mut reader = InterruptOnce(Cursor::new(data.clone()), false);
-        let digest = digest_reader(HashAlgorithm::Sha256, &mut reader, span).expect("interrupted read retries");
+        let digest = digest_reader(HashAlgorithm::Sha256, &mut reader, span)
+            .expect("interrupted read retries");
         assert_eq!(digest, digest_bytes(HashAlgorithm::Sha256, &data));
     }
 }

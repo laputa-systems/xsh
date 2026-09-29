@@ -252,8 +252,7 @@ fn arena_uses_dynamic_module_load(arena: &AstArena) -> bool {
         }
     }
     for index in 0..arena.expr_tags.len() {
-        let ArenaExprKind::Field { base, name } = arena.expr(ExprId::from_index(index)).kind
-        else {
+        let ArenaExprKind::Field { base, name } = arena.expr(ExprId::from_index(index)).kind else {
             continue;
         };
         if name != "load" {
@@ -436,7 +435,12 @@ mod tests {
         use std::time::{Duration, Instant};
 
         let reps: usize = 20;
-        let mut phases = [("parse", Duration::ZERO), ("declarations", Duration::ZERO), ("bodies", Duration::ZERO), ("lower+verify", Duration::ZERO)];
+        let mut phases = [
+            ("parse", Duration::ZERO),
+            ("declarations", Duration::ZERO),
+            ("bodies", Duration::ZERO),
+            ("lower+verify", Duration::ZERO),
+        ];
         for identity in ["hash", "tui", "json"] {
             for entry in &mut phases {
                 entry.1 = Duration::ZERO;
@@ -452,8 +456,10 @@ mod tests {
                         crate::sema::check::Checker::check_compact_declarations(&parsed.arena);
                     phases[1].1 += start.elapsed();
                     let start = Instant::now();
-                    let bodies =
-                        crate::sema::check::Checker::probe_compact_bodies(&parsed.arena, &declarations);
+                    let bodies = crate::sema::check::Checker::probe_compact_bodies(
+                        &parsed.arena,
+                        &declarations,
+                    );
                     phases[2].1 += start.elapsed();
                     let text = sources
                         .get(crate::source::SourceId::new(0))
@@ -491,16 +497,22 @@ mod tests {
         // embedded module is prepared before execution, and the program's own
         // check and lowering cover their bodies too.
         let source = "use module\n\nproc main() [io, error] {\n  let m = module.load(p\"nothing.xsh\")?\n  print m\n}\n";
-        let mut phases = [("load+parse", Duration::ZERO), ("declarations", Duration::ZERO), ("bodies", Duration::ZERO), ("lower+verify", Duration::ZERO)];
+        let mut phases = [
+            ("load+parse", Duration::ZERO),
+            ("declarations", Duration::ZERO),
+            ("bodies", Duration::ZERO),
+            ("lower+verify", Duration::ZERO),
+        ];
         for _ in 0..reps {
             crate::symbol::SymbolOwner::new().with_current(|| {
                 let start = Instant::now();
-                let (sources, parsed) = crate::loader::parse_load_entry_source_arena_only_with_linkage(
-                    "profile.xsh",
-                    crate::loader::entry_source_from_text("profile.xsh", source.to_string()),
-                    Vec::new(),
-                    crate::loader::StdlibLinkage::Prepare,
-                );
+                let (sources, parsed) =
+                    crate::loader::parse_load_entry_source_arena_only_with_linkage(
+                        "profile.xsh",
+                        crate::loader::entry_source_from_text("profile.xsh", source.to_string()),
+                        Vec::new(),
+                        crate::loader::StdlibLinkage::Prepare,
+                    );
                 phases[0].1 += start.elapsed();
                 let start = Instant::now();
                 let declarations =

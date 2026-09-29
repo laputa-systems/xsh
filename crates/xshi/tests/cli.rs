@@ -103,5 +103,8 @@ fn explicit_config_replaces_the_default_and_warns_when_missing() {
     let missing = run(&["--config", "/nonexistent/config.ish", "-c", "true"]);
     let stderr = String::from_utf8(missing.stderr).unwrap();
     assert!(stderr.contains("/nonexistent/config.ish"), "{stderr}");
-    assert!(missing.status.success(), "a missing config is a warning, not fatal");
+    assert!(
+        missing.status.success(),
+        "a missing config is a warning, not fatal"
+    );
 }

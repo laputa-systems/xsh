@@ -2459,7 +2459,8 @@ let after = 3
 #[test]
 fn formatter_keeps_trailing_comment_on_skipped_statement() {
     let source = "# fmt: skip\nlet value=1+2 # keep with the skipped statement\n\nlet after=3\n";
-    let expected = "# fmt: skip\nlet value=1+2 # keep with the skipped statement\n\nlet after = 3\n";
+    let expected =
+        "# fmt: skip\nlet value=1+2 # keep with the skipped statement\n\nlet after = 3\n";
     let first = Formatter::new().format_source(SourceId::new(0), source);
     assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
     assert_eq!(first.formatted, expected);

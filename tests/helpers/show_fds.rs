@@ -49,7 +49,10 @@ fn descriptor_path(fd: i32) -> String {
     if unsafe { libc::fcntl(fd, libc::F_GETPATH, path.as_mut_ptr()) } == -1 {
         return format!("error={}", std::io::Error::last_os_error());
     }
-    let length = path.iter().position(|byte| *byte == 0).unwrap_or(path.len());
+    let length = path
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(path.len());
     String::from_utf8_lossy(&path[..length]).into_owned()
 }
 

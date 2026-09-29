@@ -2259,9 +2259,12 @@ fn lowered_map_method_ref(
                 })),
                 None => match args.get(1) {
                     Some(fallback) => Ok(Some(fallback.clone())),
-                    None => Ok(Some(LoweredValue::ResultErr(Box::new(Value::Error(Box::new(
-                        RuntimeError::new("map-missing", format!("map has no key `{key}`")),
-                    )))))),
+                    None => Ok(Some(LoweredValue::ResultErr(Box::new(Value::Error(
+                        Box::new(RuntimeError::new(
+                            "map-missing",
+                            format!("map has no key `{key}`"),
+                        )),
+                    ))))),
                 },
             }
         }

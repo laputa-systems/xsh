@@ -97,7 +97,11 @@ impl Session {
 
     /// A session that reads and writes nothing on disk, for benchmarks.
     #[cfg(feature = "benchmark")]
-    pub(super) fn detached(cwd: PathBuf, env: BTreeMap<Vec<u8>, Vec<u8>>, history: History) -> Self {
+    pub(super) fn detached(
+        cwd: PathBuf,
+        env: BTreeMap<Vec<u8>, Vec<u8>>,
+        history: History,
+    ) -> Self {
         Self::assemble(cwd, env, history, DenvState::default())
     }
 

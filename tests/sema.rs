@@ -2120,7 +2120,10 @@ let metadata: Metadata = {name: null, count: 0}
 let encoded = json.encode(metadata) ?
 "#,
     );
-    assert_no_codes(&optional_value, &["check.json-compatible", "check.type-mismatch"]);
+    assert_no_codes(
+        &optional_value,
+        &["check.json-compatible", "check.type-mismatch"],
+    );
 
     let optional_path = check(
         r#"

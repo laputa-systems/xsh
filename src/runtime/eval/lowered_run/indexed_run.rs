@@ -54,8 +54,8 @@ use crate::runtime::eval::{
 use smallvec::SmallVec;
 
 pub(in crate::runtime::eval) mod explicit_run;
-mod serial_pipeline;
 mod producer;
+mod serial_pipeline;
 
 use serial_pipeline::IndexedPipelineItems;
 
@@ -1164,7 +1164,10 @@ impl Evaluator {
                 value => {
                     return Err(RuntimeError::new(
                         "type-error",
-                        format!("stream worker count expected Int, found {}", value.type_name()),
+                        format!(
+                            "stream worker count expected Int, found {}",
+                            value.type_name()
+                        ),
                     )
                     .with_span(span));
                 }
@@ -1911,14 +1914,11 @@ impl Evaluator {
             let (function, kind) = execution
                 .function_identity()
                 .map_err(|error| indexed_error(error, call_span))?;
-            let state = self.start_script_producer(
-                function,
-                kind,
-                view,
-                slots.to_vec(),
-                call_span,
-            )?;
-            return Ok(LoweredValue::Stream(Box::new(StreamValue::from_script(state))));
+            let state =
+                self.start_script_producer(function, kind, view, slots.to_vec(), call_span)?;
+            return Ok(LoweredValue::Stream(Box::new(StreamValue::from_script(
+                state,
+            ))));
         }
         let result = self.eval_indexed_stmts(&execution, body, header, slots, call_span);
         let write_back = self.write_back_lowered_captures(header, slots, call_span);
@@ -2939,180 +2939,203 @@ impl Evaluator {
                         },
                     );
                     // Contain early returns so every entered stage closes its trace.
-                    let stage_result = (|| -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
-                        let value = match tag {
-                        FullStageTag::TextLines => {
-                            indexed_finish(stage_payload, span)?;
-                            let Some((text, start, end)) = lowered_str_parts(&current) else {
-                                return Err(RuntimeError::new(
-                                    "type-error",
-                                    format!(
-                                        "text.lines expected Str, found {}",
-                                        current.type_name()
-                                    ),
-                                )
-                                .with_span(span));
-                            };
-                            let bytes = text.as_bytes();
-                            let mut cursor = start;
-                            let mut lines = Vec::new();
-                            while cursor < end {
-                                let newline = bytes[cursor..end]
-                                    .iter()
-                                    .position(|byte| *byte == b'\n')
-                                    .map(|offset| cursor + offset);
-                                let line_end = newline.unwrap_or(end);
-                                let view_end = if line_end > cursor && bytes[line_end - 1] == b'\r'
-                                {
-                                    line_end - 1
-                                } else {
-                                    line_end
-                                };
-                                lines.push(lowered_str_view_value(text.clone(), cursor, view_end));
-                                let Some(newline) = newline else {
-                                    break;
-                                };
-                                cursor = newline + 1;
-                            }
-                            LoweredValue::List(lines)
-                        }
-                        FullStageTag::JsonLines => {
-                            indexed_finish(stage_payload, span)?;
-                            let Some(text) = lowered_str_value(&current) else {
-                                return Err(RuntimeError::new(
-                                    "type-error",
-                                    format!(
-                                        "json.lines expected Str, found {}",
-                                        current.type_name()
-                                    ),
-                                )
-                                .with_span(span));
-                            };
-                            let values = crate::modules::json::parse_json_lines(text, span)?;
-                            let mut lowered = Vec::with_capacity(values.len());
-                            for value in values {
-                                let Some(value) = lowered_value_from_runtime_any(&value) else {
-                                    return Err(RuntimeError::new(
-                                        "type-error",
-                                        format!(
-                                            "json.lines produced unsupported {}",
-                                            value.type_name()
-                                        ),
-                                    )
-                                    .with_span(span));
-                                };
-                                lowered.push(value);
-                            }
-                            LoweredValue::List(lowered)
-                        }
-                        FullStageTag::Enumerate => {
-                            indexed_finish(stage_payload, span)?;
-                            let items = self.lowered_pipeline_input_items(current, span)?;
-                            LoweredValue::List(
-                                items
-                                    .into_iter()
-                                    .enumerate()
-                                    .map(|(index, value)| {
-                                        LoweredValue::Record(Arc::new(btree_map(vec![
-                                            (Arc::from("index"), LoweredValue::Int(index as i64)),
-                                            (Arc::from("value"), value),
-                                        ])))
-                                    })
-                                    .collect(),
-                            )
-                        }
-                        FullStageTag::Zip => {
-                            let other = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let other =
-                                match self.eval_indexed_expr(execution, other, slots, span)? {
-                                    ControlFlow::Continue(value) => value,
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
-                            let right =
-                                self.lowered_list_items(other, span, "zip expected List")?;
-                            let mut left = IndexedPipelineItems::new(self, current, span)?;
-                            let known_left = match &left {
-                                IndexedPipelineItems::Materialized(values) => values.len(),
-                                IndexedPipelineItems::Live { prefix, .. } => prefix.len(),
-                            };
-                            let driven = (|| -> Result<Vec<LoweredValue>, RuntimeError> {
-                                let mut pairs = Vec::with_capacity(known_left.min(right.len()));
-                                for right in right {
-                                    let Some(item) = left.next(self, span)? else {
-                                        break;
+                    let stage_result =
+                        (|| -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+                            let value = match tag {
+                                FullStageTag::TextLines => {
+                                    indexed_finish(stage_payload, span)?;
+                                    let Some((text, start, end)) = lowered_str_parts(&current)
+                                    else {
+                                        return Err(RuntimeError::new(
+                                            "type-error",
+                                            format!(
+                                                "text.lines expected Str, found {}",
+                                                current.type_name()
+                                            ),
+                                        )
+                                        .with_span(span));
                                     };
-                                    pairs.push(LoweredValue::Record(Arc::new(btree_map(vec![
-                                        (Arc::from("left"), item),
-                                        (Arc::from("right"), right),
-                                    ]))));
+                                    let bytes = text.as_bytes();
+                                    let mut cursor = start;
+                                    let mut lines = Vec::new();
+                                    while cursor < end {
+                                        let newline = bytes[cursor..end]
+                                            .iter()
+                                            .position(|byte| *byte == b'\n')
+                                            .map(|offset| cursor + offset);
+                                        let line_end = newline.unwrap_or(end);
+                                        let view_end =
+                                            if line_end > cursor && bytes[line_end - 1] == b'\r' {
+                                                line_end - 1
+                                            } else {
+                                                line_end
+                                            };
+                                        lines.push(lowered_str_view_value(
+                                            text.clone(),
+                                            cursor,
+                                            view_end,
+                                        ));
+                                        let Some(newline) = newline else {
+                                            break;
+                                        };
+                                        cursor = newline + 1;
+                                    }
+                                    LoweredValue::List(lines)
                                 }
-                                Ok(pairs)
-                            })();
-                            let close = left.cancel(self, span);
-                            match driven {
-                                Ok(pairs) => {
-                                    close?;
-                                    LoweredValue::List(pairs)
+                                FullStageTag::JsonLines => {
+                                    indexed_finish(stage_payload, span)?;
+                                    let Some(text) = lowered_str_value(&current) else {
+                                        return Err(RuntimeError::new(
+                                            "type-error",
+                                            format!(
+                                                "json.lines expected Str, found {}",
+                                                current.type_name()
+                                            ),
+                                        )
+                                        .with_span(span));
+                                    };
+                                    let values =
+                                        crate::modules::json::parse_json_lines(text, span)?;
+                                    let mut lowered = Vec::with_capacity(values.len());
+                                    for value in values {
+                                        let Some(value) = lowered_value_from_runtime_any(&value)
+                                        else {
+                                            return Err(RuntimeError::new(
+                                                "type-error",
+                                                format!(
+                                                    "json.lines produced unsupported {}",
+                                                    value.type_name()
+                                                ),
+                                            )
+                                            .with_span(span));
+                                        };
+                                        lowered.push(value);
+                                    }
+                                    LoweredValue::List(lowered)
                                 }
-                                Err(error) => {
-                                    let _ = close;
-                                    return Err(error);
+                                FullStageTag::Enumerate => {
+                                    indexed_finish(stage_payload, span)?;
+                                    let items = self.lowered_pipeline_input_items(current, span)?;
+                                    LoweredValue::List(
+                                        items
+                                            .into_iter()
+                                            .enumerate()
+                                            .map(|(index, value)| {
+                                                LoweredValue::Record(Arc::new(btree_map(vec![
+                                                    (
+                                                        Arc::from("index"),
+                                                        LoweredValue::Int(index as i64),
+                                                    ),
+                                                    (Arc::from("value"), value),
+                                                ])))
+                                            })
+                                            .collect(),
+                                    )
                                 }
-                            }
-                        }
-                        FullStageTag::Sort => {
-                            let descending = indexed_optional_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let mut items = self.lowered_pipeline_input_items(current, span)?;
-                            items.sort_by(compare_lowered_sort_keys);
-                            if self.eval_indexed_pipeline_descending(
-                                execution, descending, slots, span,
-                            )? {
-                                items.reverse();
-                            }
-                            LoweredValue::List(items)
-                        }
-                        FullStageTag::SortBy => {
-                            let slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let key = indexed_raw(&mut stage_payload, span)?;
-                            let descending = indexed_optional_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let descending = self.eval_indexed_pipeline_descending(
-                                execution, descending, slots, span,
-                            )?;
-                            let items = self.lowered_pipeline_input_items(current, span)?;
-                            let projection =
-                                Self::indexed_field_projection(execution, key, slot, span)?;
-                            let mut keyed = Vec::with_capacity(items.len());
-                            for item in items {
-                                if let Some(field) = projection
-                                    && let Some(key) =
-                                        self.indexed_borrowed_field_value(&item, field, span)?
-                                {
-                                    keyed.push((key, item));
-                                    continue;
-                                }
-                                slots[slot] = item;
-                                let key =
-                                    match self.eval_indexed_expr(execution, key, slots, span)? {
+                                FullStageTag::Zip => {
+                                    let other = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let other = match self
+                                        .eval_indexed_expr(execution, other, slots, span)?
+                                    {
                                         ControlFlow::Continue(value) => value,
                                         ControlFlow::Break(value) => {
                                             return Ok(ControlFlow::Break(value));
                                         }
                                     };
-                                let item = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
-                                keyed.push((key, item));
-                            }
-                            if let Some(key) = keyed
-                                .iter()
-                                .find(|(key, _)| !lowered_sort_key_orderable(key))
-                                .map(|(key, _)| key)
-                            {
-                                return Err(RuntimeError::new(
+                                    let right =
+                                        self.lowered_list_items(other, span, "zip expected List")?;
+                                    let mut left = IndexedPipelineItems::new(self, current, span)?;
+                                    let known_left = match &left {
+                                        IndexedPipelineItems::Materialized(values) => values.len(),
+                                        IndexedPipelineItems::Live { prefix, .. } => prefix.len(),
+                                    };
+                                    let driven = (|| -> Result<Vec<LoweredValue>, RuntimeError> {
+                                        let mut pairs =
+                                            Vec::with_capacity(known_left.min(right.len()));
+                                        for right in right {
+                                            let Some(item) = left.next(self, span)? else {
+                                                break;
+                                            };
+                                            pairs.push(LoweredValue::Record(Arc::new(btree_map(
+                                                vec![
+                                                    (Arc::from("left"), item),
+                                                    (Arc::from("right"), right),
+                                                ],
+                                            ))));
+                                        }
+                                        Ok(pairs)
+                                    })();
+                                    let close = left.cancel(self, span);
+                                    match driven {
+                                        Ok(pairs) => {
+                                            close?;
+                                            LoweredValue::List(pairs)
+                                        }
+                                        Err(error) => {
+                                            let _ = close;
+                                            return Err(error);
+                                        }
+                                    }
+                                }
+                                FullStageTag::Sort => {
+                                    let descending =
+                                        indexed_optional_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let mut items =
+                                        self.lowered_pipeline_input_items(current, span)?;
+                                    items.sort_by(compare_lowered_sort_keys);
+                                    if self.eval_indexed_pipeline_descending(
+                                        execution, descending, slots, span,
+                                    )? {
+                                        items.reverse();
+                                    }
+                                    LoweredValue::List(items)
+                                }
+                                FullStageTag::SortBy => {
+                                    let slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let key = indexed_raw(&mut stage_payload, span)?;
+                                    let descending =
+                                        indexed_optional_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let descending = self.eval_indexed_pipeline_descending(
+                                        execution, descending, slots, span,
+                                    )?;
+                                    let items = self.lowered_pipeline_input_items(current, span)?;
+                                    let projection =
+                                        Self::indexed_field_projection(execution, key, slot, span)?;
+                                    let mut keyed = Vec::with_capacity(items.len());
+                                    for item in items {
+                                        if let Some(field) = projection
+                                            && let Some(key) = self
+                                                .indexed_borrowed_field_value(&item, field, span)?
+                                        {
+                                            keyed.push((key, item));
+                                            continue;
+                                        }
+                                        slots[slot] = item;
+                                        let key = match self
+                                            .eval_indexed_expr(execution, key, slots, span)?
+                                        {
+                                            ControlFlow::Continue(value) => value,
+                                            ControlFlow::Break(value) => {
+                                                return Ok(ControlFlow::Break(value));
+                                            }
+                                        };
+                                        let item =
+                                            std::mem::replace(&mut slots[slot], LoweredValue::Unit);
+                                        keyed.push((key, item));
+                                    }
+                                    if let Some(key) = keyed
+                                        .iter()
+                                        .find(|(key, _)| !lowered_sort_key_orderable(key))
+                                        .map(|(key, _)| key)
+                                    {
+                                        return Err(RuntimeError::new(
                                     "stream-sort-key",
                                     format!(
                                         "sort-by keys must be Int, Str, Bool, Path, or Records of supported keys; found {}",
@@ -3120,658 +3143,563 @@ impl Evaluator {
                                     ),
                                 )
                                 .with_span(span));
-                            }
-                            keyed.sort_by(|(left, _), (right, _)| {
-                                compare_lowered_sort_keys(left, right)
-                            });
-                            if descending {
-                                keyed.reverse();
-                            }
-                            LoweredValue::List(keyed.into_iter().map(|(_, item)| item).collect())
-                        }
-                        FullStageTag::GroupBy => {
-                            let slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let key = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let projection =
-                                Self::indexed_field_projection(execution, key, slot, span)?;
-                            let mut items = IndexedPipelineItems::new(self, current, span)?;
-                            let driven: Result<
-                                ControlFlow<LoweredValue, Vec<(LoweredValue, Vec<LoweredValue>)>>,
-                                RuntimeError,
-                            > = (|| {
-                                let mut groups: Vec<(LoweredValue, Vec<LoweredValue>)> = Vec::new();
-                                while let Some(item) = items.next(self, span)? {
-                                    let mut item = Some(item);
-                                    let key = if let Some(field) = projection
-                                        && let Some(key) = self.indexed_borrowed_field_value(
-                                            item.as_ref().expect("group item is present"),
-                                            field,
-                                            span,
-                                        )? {
-                                        key
-                                    } else {
-                                        slots[slot] = item.take().expect("group item is present");
-                                        match self.eval_indexed_expr(execution, key, slots, span)? {
-                                            ControlFlow::Continue(value) => value,
-                                            ControlFlow::Break(value) => {
-                                                return Ok(ControlFlow::Break(value));
+                                    }
+                                    keyed.sort_by(|(left, _), (right, _)| {
+                                        compare_lowered_sort_keys(left, right)
+                                    });
+                                    if descending {
+                                        keyed.reverse();
+                                    }
+                                    LoweredValue::List(
+                                        keyed.into_iter().map(|(_, item)| item).collect(),
+                                    )
+                                }
+                                FullStageTag::GroupBy => {
+                                    let slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let key = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let projection =
+                                        Self::indexed_field_projection(execution, key, slot, span)?;
+                                    let mut items = IndexedPipelineItems::new(self, current, span)?;
+                                    let driven: Result<
+                                        ControlFlow<
+                                            LoweredValue,
+                                            Vec<(LoweredValue, Vec<LoweredValue>)>,
+                                        >,
+                                        RuntimeError,
+                                    > = (|| {
+                                        let mut groups: Vec<(LoweredValue, Vec<LoweredValue>)> =
+                                            Vec::new();
+                                        while let Some(item) = items.next(self, span)? {
+                                            let mut item = Some(item);
+                                            let key = if let Some(field) = projection
+                                                && let Some(key) = self
+                                                    .indexed_borrowed_field_value(
+                                                        item.as_ref()
+                                                            .expect("group item is present"),
+                                                        field,
+                                                        span,
+                                                    )? {
+                                                key
+                                            } else {
+                                                slots[slot] =
+                                                    item.take().expect("group item is present");
+                                                match self.eval_indexed_expr(
+                                                    execution, key, slots, span,
+                                                )? {
+                                                    ControlFlow::Continue(value) => value,
+                                                    ControlFlow::Break(value) => {
+                                                        return Ok(ControlFlow::Break(value));
+                                                    }
+                                                }
+                                            };
+                                            let item = item.unwrap_or_else(|| {
+                                                std::mem::replace(
+                                                    &mut slots[slot],
+                                                    LoweredValue::Unit,
+                                                )
+                                            });
+                                            if let Some((_, group_items)) = groups
+                                                .iter_mut()
+                                                .find(|(existing, _)| existing == &key)
+                                            {
+                                                group_items.push(item);
+                                            } else {
+                                                groups.push((key, vec![item]));
                                             }
                                         }
+                                        Ok(ControlFlow::Continue(groups))
+                                    })();
+                                    let close = items.cancel(self, span);
+                                    let groups = match driven {
+                                        Err(error) => {
+                                            let _ = close;
+                                            return Err(error);
+                                        }
+                                        Ok(ControlFlow::Break(value)) => {
+                                            close?;
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                        Ok(ControlFlow::Continue(groups)) => {
+                                            close?;
+                                            groups
+                                        }
                                     };
-                                    let item = item.unwrap_or_else(|| {
-                                        std::mem::replace(&mut slots[slot], LoweredValue::Unit)
-                                    });
-                                    if let Some((_, group_items)) =
-                                        groups.iter_mut().find(|(existing, _)| existing == &key)
-                                    {
-                                        group_items.push(item);
-                                    } else {
-                                        groups.push((key, vec![item]));
-                                    }
+                                    slots[slot] = LoweredValue::Unit;
+                                    LoweredValue::List(
+                                        groups
+                                            .into_iter()
+                                            .map(|(key, items)| {
+                                                LoweredValue::Record(Arc::new(btree_map(vec![
+                                                    (Arc::from("items"), LoweredValue::List(items)),
+                                                    (Arc::from("key"), key),
+                                                ])))
+                                            })
+                                            .collect(),
+                                    )
                                 }
-                                Ok(ControlFlow::Continue(groups))
-                            })();
-                            let close = items.cancel(self, span);
-                            let groups = match driven {
-                                Err(error) => {
-                                    let _ = close;
-                                    return Err(error);
-                                }
-                                Ok(ControlFlow::Break(value)) => {
-                                    close?;
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                                Ok(ControlFlow::Continue(groups)) => {
-                                    close?;
-                                    groups
-                                }
-                            };
-                            slots[slot] = LoweredValue::Unit;
-                            LoweredValue::List(
-                                groups
-                                    .into_iter()
-                                    .map(|(key, items)| {
-                                        LoweredValue::Record(Arc::new(btree_map(vec![
-                                            (Arc::from("items"), LoweredValue::List(items)),
-                                            (Arc::from("key"), key),
-                                        ])))
-                                    })
-                                    .collect(),
-                            )
-                        }
-                        FullStageTag::CountBy => {
-                            let slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let key = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let mut items = IndexedPipelineItems::new(self, current, span)?;
-                            let driven: Result<
-                                ControlFlow<LoweredValue, BTreeMap<String, LoweredValue>>,
-                                RuntimeError,
-                            > = (|| {
-                                let mut counts = BTreeMap::new();
-                                while let Some(item) = items.next(self, span)? {
-                                    slots[slot] = item;
-                                    let key =
-                                        match self.eval_indexed_expr(execution, key, slots, span)? {
-                                            ControlFlow::Continue(value) => {
-                                                lowered_count_key(&value, span)?
-                                            }
-                                            ControlFlow::Break(value) => {
-                                                return Ok(ControlFlow::Break(value));
-                                            }
-                                        };
-                                    let entry = counts.entry(key).or_insert(LoweredValue::Int(0));
-                                    let LoweredValue::Int(count) = entry else {
-                                        unreachable!("count accumulator only stores ints");
+                                FullStageTag::CountBy => {
+                                    let slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let key = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let mut items = IndexedPipelineItems::new(self, current, span)?;
+                                    let driven: Result<
+                                        ControlFlow<LoweredValue, BTreeMap<String, LoweredValue>>,
+                                        RuntimeError,
+                                    > = (|| {
+                                        let mut counts = BTreeMap::new();
+                                        while let Some(item) = items.next(self, span)? {
+                                            slots[slot] = item;
+                                            let key = match self
+                                                .eval_indexed_expr(execution, key, slots, span)?
+                                            {
+                                                ControlFlow::Continue(value) => {
+                                                    lowered_count_key(&value, span)?
+                                                }
+                                                ControlFlow::Break(value) => {
+                                                    return Ok(ControlFlow::Break(value));
+                                                }
+                                            };
+                                            let entry =
+                                                counts.entry(key).or_insert(LoweredValue::Int(0));
+                                            let LoweredValue::Int(count) = entry else {
+                                                unreachable!("count accumulator only stores ints");
+                                            };
+                                            *count += 1;
+                                        }
+                                        Ok(ControlFlow::Continue(counts))
+                                    })();
+                                    let close = items.cancel(self, span);
+                                    let counts = match driven {
+                                        Err(error) => {
+                                            let _ = close;
+                                            return Err(error);
+                                        }
+                                        Ok(ControlFlow::Break(value)) => {
+                                            close?;
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                        Ok(ControlFlow::Continue(counts)) => {
+                                            close?;
+                                            counts
+                                        }
                                     };
-                                    *count += 1;
+                                    slots[slot] = LoweredValue::Unit;
+                                    LoweredValue::Map(Arc::new(counts))
                                 }
-                                Ok(ControlFlow::Continue(counts))
-                            })();
-                            let close = items.cancel(self, span);
-                            let counts = match driven {
-                                Err(error) => {
-                                    let _ = close;
-                                    return Err(error);
-                                }
-                                Ok(ControlFlow::Break(value)) => {
-                                    close?;
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                                Ok(ControlFlow::Continue(counts)) => {
-                                    close?;
-                                    counts
-                                }
-                            };
-                            slots[slot] = LoweredValue::Unit;
-                            LoweredValue::Map(Arc::new(counts))
-                        }
-                        FullStageTag::UniqueBy => {
-                            let slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let key = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let mut items = IndexedPipelineItems::new(self, current, span)?;
-                            let known_items = match &items {
-                                IndexedPipelineItems::Materialized(values) => values.len(),
-                                IndexedPipelineItems::Live { prefix, .. } => prefix.len(),
-                            };
-                            let driven: Result<ControlFlow<LoweredValue, Vec<LoweredValue>>, RuntimeError> =
-                                (|| {
-                                    let mut seen = Vec::new();
-                                    let mut unique = Vec::with_capacity(known_items);
-                                    while let Some(item) = items.next(self, span)? {
-                                        slots[slot] = item;
-                                        let key =
-                                            match self.eval_indexed_expr(execution, key, slots, span)? {
+                                FullStageTag::UniqueBy => {
+                                    let slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let key = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let mut items = IndexedPipelineItems::new(self, current, span)?;
+                                    let known_items = match &items {
+                                        IndexedPipelineItems::Materialized(values) => values.len(),
+                                        IndexedPipelineItems::Live { prefix, .. } => prefix.len(),
+                                    };
+                                    let driven: Result<
+                                        ControlFlow<LoweredValue, Vec<LoweredValue>>,
+                                        RuntimeError,
+                                    > = (|| {
+                                        let mut seen = Vec::new();
+                                        let mut unique = Vec::with_capacity(known_items);
+                                        while let Some(item) = items.next(self, span)? {
+                                            slots[slot] = item;
+                                            let key = match self
+                                                .eval_indexed_expr(execution, key, slots, span)?
+                                            {
                                                 ControlFlow::Continue(value) => value,
                                                 ControlFlow::Break(value) => {
                                                     return Ok(ControlFlow::Break(value));
                                                 }
                                             };
-                                        let item =
-                                            std::mem::replace(&mut slots[slot], LoweredValue::Unit);
-                                        if !seen.iter().any(|existing| existing == &key) {
-                                            seen.push(key);
-                                            unique.push(item);
-                                        }
-                                    }
-                                    Ok(ControlFlow::Continue(unique))
-                                })();
-                            let close = items.cancel(self, span);
-                            let unique = match driven {
-                                Err(error) => {
-                                    let _ = close;
-                                    return Err(error);
-                                }
-                                Ok(ControlFlow::Break(value)) => {
-                                    close?;
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                                Ok(ControlFlow::Continue(unique)) => {
-                                    close?;
-                                    unique
-                                }
-                            };
-                            slots[slot] = LoweredValue::Unit;
-                            LoweredValue::List(unique)
-                        }
-                        FullStageTag::Where => {
-                            let slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let predicate = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let items = self.lowered_pipeline_input_items(current, span)?;
-                            let item_predicate =
-                                Self::indexed_item_predicate(execution, predicate, slot, span)?;
-                            let mut filtered = Vec::new();
-                            for item in items {
-                                if let Some(predicate) = &item_predicate {
-                                    if self.eval_indexed_item_predicate(predicate, &item, span)? {
-                                        filtered.push(item);
-                                    }
-                                    continue;
-                                }
-                                slots[slot] = item;
-                                let keep = match self
-                                    .eval_indexed_bool(execution, predicate, slots, span)?
-                                {
-                                    ControlFlow::Continue(value) => value,
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
-                                let item = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
-                                if keep {
-                                    filtered.push(item);
-                                }
-                            }
-                            LoweredValue::List(filtered)
-                        }
-                        FullStageTag::WhereBlock => {
-                            let slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let body = indexed_raw(&mut stage_payload, span)?;
-                            let value = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let items = self.lowered_pipeline_input_items(current, span)?;
-                            let block_header = Self::indexed_block_header(slots.len());
-                            let mut filtered = Vec::new();
-                            for item in items {
-                                slots[slot] = item;
-                                match self.eval_indexed_statement_block(
-                                    execution,
-                                    body,
-                                    &block_header,
-                                    slots,
-                                    call_span,
-                                )? {
-                                    StmtFlow::None => {}
-                                    StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                    StmtFlow::Break(_) => {
-                                        return Err(RuntimeError::new(
-                                            "break-outside-loop",
-                                            "break used outside loop",
-                                        )
-                                        .with_span(span));
-                                    }
-                                    StmtFlow::Continue => {
-                                        return Err(RuntimeError::new(
-                                            "continue-outside-loop",
-                                            "continue used outside loop",
-                                        )
-                                        .with_span(span));
-                                    }
-                                }
-                                let keep =
-                                    match self.eval_indexed_bool(execution, value, slots, span)? {
-                                        ControlFlow::Continue(value) => value,
-                                        ControlFlow::Break(value) => {
-                                            return Ok(ControlFlow::Break(value));
-                                        }
-                                    };
-                                let item = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
-                                if keep {
-                                    filtered.push(item);
-                                }
-                            }
-                            LoweredValue::List(filtered)
-                        }
-                        FullStageTag::Any | FullStageTag::All => {
-                            let slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let predicate = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let items = self.lowered_pipeline_input_items(current, span)?;
-                            let all = tag == FullStageTag::All;
-                            let mut matched = all;
-                            for item in items {
-                                slots[slot] = item;
-                                let keep = match self
-                                    .eval_indexed_bool(execution, predicate, slots, span)?
-                                {
-                                    ControlFlow::Continue(value) => value,
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
-                                slots[slot] = LoweredValue::Unit;
-                                if keep != all {
-                                    matched = !all;
-                                    break;
-                                }
-                            }
-                            LoweredValue::Bool(matched)
-                        }
-                        FullStageTag::AnyBlock | FullStageTag::AllBlock => {
-                            let slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let body = indexed_raw(&mut stage_payload, span)?;
-                            let value = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let items = self.lowered_pipeline_input_items(current, span)?;
-                            let all = tag == FullStageTag::AllBlock;
-                            let block_header = Self::indexed_block_header(slots.len());
-                            let mut matched = all;
-                            for item in items {
-                                slots[slot] = item;
-                                match self.eval_indexed_statement_block(
-                                    execution,
-                                    body,
-                                    &block_header,
-                                    slots,
-                                    call_span,
-                                )? {
-                                    StmtFlow::None => {}
-                                    StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                    StmtFlow::Break(_) => {
-                                        return Err(RuntimeError::new(
-                                            "break-outside-loop",
-                                            "break used outside loop",
-                                        )
-                                        .with_span(span));
-                                    }
-                                    StmtFlow::Continue => {
-                                        return Err(RuntimeError::new(
-                                            "continue-outside-loop",
-                                            "continue used outside loop",
-                                        )
-                                        .with_span(span));
-                                    }
-                                }
-                                let keep =
-                                    match self.eval_indexed_bool(execution, value, slots, span)? {
-                                        ControlFlow::Continue(value) => value,
-                                        ControlFlow::Break(value) => {
-                                            return Ok(ControlFlow::Break(value));
-                                        }
-                                    };
-                                slots[slot] = LoweredValue::Unit;
-                                if keep != all {
-                                    matched = !all;
-                                    break;
-                                }
-                            }
-                            LoweredValue::Bool(matched)
-                        }
-                        FullStageTag::Map => {
-                            let slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let value = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let items = self.lowered_pipeline_input_items(current, span)?;
-                            let projection =
-                                Self::indexed_field_projection(execution, value, slot, span)?;
-                            let mut mapped = Vec::with_capacity(items.len());
-                            for (index, item) in items.into_iter().enumerate() {
-                                if let Some(field) = projection
-                                    && let Some(value) =
-                                        self.indexed_borrowed_field_value(&item, field, span)?
-                                {
-                                    mapped.push(value);
-                                    continue;
-                                }
-                                slots[slot] = item;
-                                let value =
-                                    match self.eval_indexed_expr(execution, value, slots, span) {
-                                        Ok(ControlFlow::Continue(value)) => value,
-                                        Ok(ControlFlow::Break(value)) => {
-                                            return Ok(ControlFlow::Break(value));
-                                        }
-                                        Err(error) => {
-                                            return Err(
-                                                self.stream_item_runtime_error("map", index, error)
+                                            let item = std::mem::replace(
+                                                &mut slots[slot],
+                                                LoweredValue::Unit,
                                             );
-                                        }
-                                    };
-                                mapped.push(value);
-                            }
-                            LoweredValue::List(mapped)
-                        }
-                        FullStageTag::MapBlock | FullStageTag::FlatMapBlock => {
-                            let slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let body = indexed_raw(&mut stage_payload, span)?;
-                            let value = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let flat = tag == FullStageTag::FlatMapBlock;
-                            let items = self.lowered_pipeline_input_items(current, span)?;
-                            let mut mapped = Vec::with_capacity(items.len());
-                            let block_header = Self::indexed_block_header(slots.len());
-                            for item in items {
-                                slots[slot] = item;
-                                match self.eval_indexed_statement_block(
-                                    execution,
-                                    body,
-                                    &block_header,
-                                    slots,
-                                    call_span,
-                                )? {
-                                    StmtFlow::None => {}
-                                    StmtFlow::Return(value) | StmtFlow::Propagate(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                    StmtFlow::Break(_) => {
-                                        return Err(RuntimeError::new(
-                                            "break-outside-loop",
-                                            "break used outside loop",
-                                        )
-                                        .with_span(span));
-                                    }
-                                    StmtFlow::Continue => {
-                                        return Err(RuntimeError::new(
-                                            "continue-outside-loop",
-                                            "continue used outside loop",
-                                        )
-                                        .with_span(span));
-                                    }
-                                }
-                                let value =
-                                    match self.eval_indexed_expr(execution, value, slots, span)? {
-                                        ControlFlow::Continue(value) => value,
-                                        ControlFlow::Break(value) => {
-                                            return Ok(ControlFlow::Break(value));
-                                        }
-                                    };
-                                if flat {
-                                    mapped.extend(self.lowered_list_items(
-                                        value,
-                                        span,
-                                        "flat-map expected List",
-                                    )?);
-                                } else {
-                                    mapped.push(value);
-                                }
-                            }
-                            LoweredValue::List(mapped)
-                        }
-                        FullStageTag::FlatMap => {
-                            let slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let value = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let items = self.lowered_pipeline_input_items(current, span)?;
-                            let mut mapped = Vec::new();
-                            for item in items {
-                                slots[slot] = item;
-                                let value =
-                                    match self.eval_indexed_expr(execution, value, slots, span)? {
-                                        ControlFlow::Continue(value) => value,
-                                        ControlFlow::Break(value) => {
-                                            return Ok(ControlFlow::Break(value));
-                                        }
-                                    };
-                                mapped.extend(self.lowered_list_items(
-                                    value,
-                                    span,
-                                    "flat-map expected List",
-                                )?);
-                            }
-                            LoweredValue::List(mapped)
-                        }
-                        FullStageTag::BytesChunks => {
-                            let size = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let bytes = lowered_bytes_value(&current)
-                                .ok_or_else(|| {
-                                    RuntimeError::new(
-                                        "type-error",
-                                        format!(
-                                            "bytes.chunks expected Bytes, found {}",
-                                            current.type_name()
-                                        ),
-                                    )
-                                    .with_span(span)
-                                })?
-                                .to_vec();
-                            let size = match self.eval_indexed_expr(execution, size, slots, span)? {
-                                ControlFlow::Continue(LoweredValue::Int(value)) if value > 0 => {
-                                    value
-                                }
-                                ControlFlow::Continue(LoweredValue::Int(_)) => {
-                                    return Err(RuntimeError::new(
-                                        "bytes-chunks",
-                                        "chunk size must be positive",
-                                    )
-                                    .with_span(span));
-                                }
-                                ControlFlow::Continue(value) => {
-                                    return Err(RuntimeError::new(
-                                        "type-error",
-                                        format!(
-                                            "bytes.chunks size expected Int, found {}",
-                                            value.type_name()
-                                        ),
-                                    )
-                                    .with_span(span));
-                                }
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                            };
-                            let chunks = bytes_module::chunks(bytes, size, span)?;
-                            let mut lowered = Vec::with_capacity(chunks.len());
-                            for chunk in chunks {
-                                let Some(chunk) = lowered_value_from_runtime_any(&chunk) else {
-                                    return Err(RuntimeError::new(
-                                        "type-error",
-                                        format!(
-                                            "bytes.chunks produced unsupported {}",
-                                            chunk.type_name()
-                                        ),
-                                    )
-                                    .with_span(span));
-                                };
-                                lowered.push(chunk);
-                            }
-                            LoweredValue::List(lowered)
-                        }
-                        FullStageTag::BatchCount => {
-                            let count = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let count = match self
-                                .eval_indexed_expr(execution, count, slots, span)?
-                            {
-                                ControlFlow::Continue(LoweredValue::Int(value)) if value > 0 => {
-                                    value as usize
-                                }
-                                ControlFlow::Continue(LoweredValue::Int(_)) => {
-                                    return Err(RuntimeError::new(
-                                        "stream-stage-option",
-                                        "--count must be positive",
-                                    )
-                                    .with_span(span));
-                                }
-                                ControlFlow::Continue(value) => {
-                                    return Err(RuntimeError::new(
-                                        "type-error",
-                                        format!(
-                                            "--count expected Int, found {}",
-                                            value.type_name()
-                                        ),
-                                    )
-                                    .with_span(span));
-                                }
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                            };
-                            let items = self.lowered_pipeline_input_items(current, span)?;
-                            let mut batches = Vec::new();
-                            let mut batch = Vec::with_capacity(count);
-                            for item in items {
-                                batch.push(item);
-                                if batch.len() == count {
-                                    batches.push(LoweredValue::List(std::mem::take(&mut batch)));
-                                    batch = Vec::with_capacity(count);
-                                }
-                            }
-                            if !batch.is_empty() {
-                                batches.push(LoweredValue::List(batch));
-                            }
-                            LoweredValue::List(batches)
-                        }
-                        FullStageTag::BatchMaxArgv | FullStageTag::BatchMaxBytes => {
-                            let limit = if tag == FullStageTag::BatchMaxArgv {
-                                let max_argv = indexed_optional_raw(&mut stage_payload, span)?;
-                                match max_argv {
-                                    Some(expr) => {
-                                        match self
-                                            .eval_indexed_expr(execution, expr, slots, span)?
-                                        {
-                                            ControlFlow::Continue(value) => {
-                                                lowered_nonnegative_count(value, span)?
+                                            if !seen.iter().any(|existing| existing == &key) {
+                                                seen.push(key);
+                                                unique.push(item);
                                             }
+                                        }
+                                        Ok(ControlFlow::Continue(unique))
+                                    })();
+                                    let close = items.cancel(self, span);
+                                    let unique = match driven {
+                                        Err(error) => {
+                                            let _ = close;
+                                            return Err(error);
+                                        }
+                                        Ok(ControlFlow::Break(value)) => {
+                                            close?;
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                        Ok(ControlFlow::Continue(unique)) => {
+                                            close?;
+                                            unique
+                                        }
+                                    };
+                                    slots[slot] = LoweredValue::Unit;
+                                    LoweredValue::List(unique)
+                                }
+                                FullStageTag::Where => {
+                                    let slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let predicate = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let items = self.lowered_pipeline_input_items(current, span)?;
+                                    let item_predicate = Self::indexed_item_predicate(
+                                        execution, predicate, slot, span,
+                                    )?;
+                                    let mut filtered = Vec::new();
+                                    for item in items {
+                                        if let Some(predicate) = &item_predicate {
+                                            if self.eval_indexed_item_predicate(
+                                                predicate, &item, span,
+                                            )? {
+                                                filtered.push(item);
+                                            }
+                                            continue;
+                                        }
+                                        slots[slot] = item;
+                                        let keep = match self
+                                            .eval_indexed_bool(execution, predicate, slots, span)?
+                                        {
+                                            ControlFlow::Continue(value) => value,
                                             ControlFlow::Break(value) => {
                                                 return Ok(ControlFlow::Break(value));
                                             }
+                                        };
+                                        let item =
+                                            std::mem::replace(&mut slots[slot], LoweredValue::Unit);
+                                        if keep {
+                                            filtered.push(item);
                                         }
                                     }
-                                    None => super::super::stream::platform_arg_max()
-                                        .saturating_sub(4096)
-                                        .clamp(1, 128 * 1024),
+                                    LoweredValue::List(filtered)
                                 }
-                            } else {
-                                let max_bytes = indexed_raw(&mut stage_payload, span)?;
-                                match self.eval_indexed_expr(execution, max_bytes, slots, span)? {
-                                    ControlFlow::Continue(value) => {
-                                        lowered_nonnegative_count(value, span)?
+                                FullStageTag::WhereBlock => {
+                                    let slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let body = indexed_raw(&mut stage_payload, span)?;
+                                    let value = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let items = self.lowered_pipeline_input_items(current, span)?;
+                                    let block_header = Self::indexed_block_header(slots.len());
+                                    let mut filtered = Vec::new();
+                                    for item in items {
+                                        slots[slot] = item;
+                                        match self.eval_indexed_statement_block(
+                                            execution,
+                                            body,
+                                            &block_header,
+                                            slots,
+                                            call_span,
+                                        )? {
+                                            StmtFlow::None => {}
+                                            StmtFlow::Return(value)
+                                            | StmtFlow::Propagate(value) => {
+                                                return Ok(ControlFlow::Break(value));
+                                            }
+                                            StmtFlow::Break(_) => {
+                                                return Err(RuntimeError::new(
+                                                    "break-outside-loop",
+                                                    "break used outside loop",
+                                                )
+                                                .with_span(span));
+                                            }
+                                            StmtFlow::Continue => {
+                                                return Err(RuntimeError::new(
+                                                    "continue-outside-loop",
+                                                    "continue used outside loop",
+                                                )
+                                                .with_span(span));
+                                            }
+                                        }
+                                        let keep = match self
+                                            .eval_indexed_bool(execution, value, slots, span)?
+                                        {
+                                            ControlFlow::Continue(value) => value,
+                                            ControlFlow::Break(value) => {
+                                                return Ok(ControlFlow::Break(value));
+                                            }
+                                        };
+                                        let item =
+                                            std::mem::replace(&mut slots[slot], LoweredValue::Unit);
+                                        if keep {
+                                            filtered.push(item);
+                                        }
                                     }
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
+                                    LoweredValue::List(filtered)
                                 }
-                            };
-                            indexed_finish(stage_payload, span)?;
-                            let mut items = IndexedPipelineItems::new(self, current, span)?;
-                            let driven = (|| -> Result<Vec<LoweredValue>, RuntimeError> {
-                                let mut batches = Vec::new();
-                                let mut batch = Vec::new();
-                                let mut batch_len = 0usize;
-                                while let Some(item) = items.next(self, span)? {
-                                    let item_len = lowered_value_argv_len(&item);
-                                    if tag == FullStageTag::BatchMaxBytes && item_len > limit {
-                                        return Err(RuntimeError::new(
-                                            "argv-limit",
-                                            "batch item exceeds byte budget",
-                                        )
-                                        .with_span(span));
+                                FullStageTag::Any | FullStageTag::All => {
+                                    let slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let predicate = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let items = self.lowered_pipeline_input_items(current, span)?;
+                                    let all = tag == FullStageTag::All;
+                                    let mut matched = all;
+                                    for item in items {
+                                        slots[slot] = item;
+                                        let keep = match self
+                                            .eval_indexed_bool(execution, predicate, slots, span)?
+                                        {
+                                            ControlFlow::Continue(value) => value,
+                                            ControlFlow::Break(value) => {
+                                                return Ok(ControlFlow::Break(value));
+                                            }
+                                        };
+                                        slots[slot] = LoweredValue::Unit;
+                                        if keep != all {
+                                            matched = !all;
+                                            break;
+                                        }
                                     }
-                                    let separator = usize::from(
-                                        tag == FullStageTag::BatchMaxArgv && !batch.is_empty(),
-                                    );
-                                    if !batch.is_empty()
-                                        && batch_len + separator + item_len > limit
+                                    LoweredValue::Bool(matched)
+                                }
+                                FullStageTag::AnyBlock | FullStageTag::AllBlock => {
+                                    let slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let body = indexed_raw(&mut stage_payload, span)?;
+                                    let value = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let items = self.lowered_pipeline_input_items(current, span)?;
+                                    let all = tag == FullStageTag::AllBlock;
+                                    let block_header = Self::indexed_block_header(slots.len());
+                                    let mut matched = all;
+                                    for item in items {
+                                        slots[slot] = item;
+                                        match self.eval_indexed_statement_block(
+                                            execution,
+                                            body,
+                                            &block_header,
+                                            slots,
+                                            call_span,
+                                        )? {
+                                            StmtFlow::None => {}
+                                            StmtFlow::Return(value)
+                                            | StmtFlow::Propagate(value) => {
+                                                return Ok(ControlFlow::Break(value));
+                                            }
+                                            StmtFlow::Break(_) => {
+                                                return Err(RuntimeError::new(
+                                                    "break-outside-loop",
+                                                    "break used outside loop",
+                                                )
+                                                .with_span(span));
+                                            }
+                                            StmtFlow::Continue => {
+                                                return Err(RuntimeError::new(
+                                                    "continue-outside-loop",
+                                                    "continue used outside loop",
+                                                )
+                                                .with_span(span));
+                                            }
+                                        }
+                                        let keep = match self
+                                            .eval_indexed_bool(execution, value, slots, span)?
+                                        {
+                                            ControlFlow::Continue(value) => value,
+                                            ControlFlow::Break(value) => {
+                                                return Ok(ControlFlow::Break(value));
+                                            }
+                                        };
+                                        slots[slot] = LoweredValue::Unit;
+                                        if keep != all {
+                                            matched = !all;
+                                            break;
+                                        }
+                                    }
+                                    LoweredValue::Bool(matched)
+                                }
+                                FullStageTag::Map => {
+                                    let slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let value = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let items = self.lowered_pipeline_input_items(current, span)?;
+                                    let projection = Self::indexed_field_projection(
+                                        execution, value, slot, span,
+                                    )?;
+                                    let mut mapped = Vec::with_capacity(items.len());
+                                    for (index, item) in items.into_iter().enumerate() {
+                                        if let Some(field) = projection
+                                            && let Some(value) = self
+                                                .indexed_borrowed_field_value(&item, field, span)?
+                                        {
+                                            mapped.push(value);
+                                            continue;
+                                        }
+                                        slots[slot] = item;
+                                        let value = match self
+                                            .eval_indexed_expr(execution, value, slots, span)
+                                        {
+                                            Ok(ControlFlow::Continue(value)) => value,
+                                            Ok(ControlFlow::Break(value)) => {
+                                                return Ok(ControlFlow::Break(value));
+                                            }
+                                            Err(error) => {
+                                                return Err(self.stream_item_runtime_error(
+                                                    "map", index, error,
+                                                ));
+                                            }
+                                        };
+                                        mapped.push(value);
+                                    }
+                                    LoweredValue::List(mapped)
+                                }
+                                FullStageTag::MapBlock | FullStageTag::FlatMapBlock => {
+                                    let slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let body = indexed_raw(&mut stage_payload, span)?;
+                                    let value = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let flat = tag == FullStageTag::FlatMapBlock;
+                                    let items = self.lowered_pipeline_input_items(current, span)?;
+                                    let mut mapped = Vec::with_capacity(items.len());
+                                    let block_header = Self::indexed_block_header(slots.len());
+                                    for item in items {
+                                        slots[slot] = item;
+                                        match self.eval_indexed_statement_block(
+                                            execution,
+                                            body,
+                                            &block_header,
+                                            slots,
+                                            call_span,
+                                        )? {
+                                            StmtFlow::None => {}
+                                            StmtFlow::Return(value)
+                                            | StmtFlow::Propagate(value) => {
+                                                return Ok(ControlFlow::Break(value));
+                                            }
+                                            StmtFlow::Break(_) => {
+                                                return Err(RuntimeError::new(
+                                                    "break-outside-loop",
+                                                    "break used outside loop",
+                                                )
+                                                .with_span(span));
+                                            }
+                                            StmtFlow::Continue => {
+                                                return Err(RuntimeError::new(
+                                                    "continue-outside-loop",
+                                                    "continue used outside loop",
+                                                )
+                                                .with_span(span));
+                                            }
+                                        }
+                                        let value = match self
+                                            .eval_indexed_expr(execution, value, slots, span)?
+                                        {
+                                            ControlFlow::Continue(value) => value,
+                                            ControlFlow::Break(value) => {
+                                                return Ok(ControlFlow::Break(value));
+                                            }
+                                        };
+                                        if flat {
+                                            mapped.extend(self.lowered_list_items(
+                                                value,
+                                                span,
+                                                "flat-map expected List",
+                                            )?);
+                                        } else {
+                                            mapped.push(value);
+                                        }
+                                    }
+                                    LoweredValue::List(mapped)
+                                }
+                                FullStageTag::FlatMap => {
+                                    let slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let value = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let items = self.lowered_pipeline_input_items(current, span)?;
+                                    let mut mapped = Vec::new();
+                                    for item in items {
+                                        slots[slot] = item;
+                                        let value = match self
+                                            .eval_indexed_expr(execution, value, slots, span)?
+                                        {
+                                            ControlFlow::Continue(value) => value,
+                                            ControlFlow::Break(value) => {
+                                                return Ok(ControlFlow::Break(value));
+                                            }
+                                        };
+                                        mapped.extend(self.lowered_list_items(
+                                            value,
+                                            span,
+                                            "flat-map expected List",
+                                        )?);
+                                    }
+                                    LoweredValue::List(mapped)
+                                }
+                                FullStageTag::BytesChunks => {
+                                    let size = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let bytes = lowered_bytes_value(&current)
+                                        .ok_or_else(|| {
+                                            RuntimeError::new(
+                                                "type-error",
+                                                format!(
+                                                    "bytes.chunks expected Bytes, found {}",
+                                                    current.type_name()
+                                                ),
+                                            )
+                                            .with_span(span)
+                                        })?
+                                        .to_vec();
+                                    let size = match self
+                                        .eval_indexed_expr(execution, size, slots, span)?
                                     {
-                                        batches.push(LoweredValue::List(std::mem::take(
-                                            &mut batch,
-                                        )));
-                                        batch_len = 0;
-                                    }
-                                    let separator = usize::from(
-                                        tag == FullStageTag::BatchMaxArgv && !batch.is_empty(),
-                                    );
-                                    batch_len += separator + item_len;
-                                    batch.push(item);
-                                }
-                                if !batch.is_empty() {
-                                    batches.push(LoweredValue::List(batch));
-                                }
-                                Ok(batches)
-                            })();
-                            let close = items.cancel(self, span);
-                            match driven {
-                                Ok(batches) => {
-                                    close?;
-                                    LoweredValue::List(batches)
-                                }
-                                Err(error) => {
-                                    let _ = close;
-                                    return Err(error);
-                                }
-                            }
-                        }
-                        FullStageTag::Shuffle => {
-                            let seed = indexed_optional_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let seed = match seed {
-                                Some(seed) => {
-                                    match self.eval_indexed_expr(execution, seed, slots, span)? {
-                                        ControlFlow::Continue(LoweredValue::Int(value)) => {
-                                            value as u64
+                                        ControlFlow::Continue(LoweredValue::Int(value))
+                                            if value > 0 =>
+                                        {
+                                            value
+                                        }
+                                        ControlFlow::Continue(LoweredValue::Int(_)) => {
+                                            return Err(RuntimeError::new(
+                                                "bytes-chunks",
+                                                "chunk size must be positive",
+                                            )
+                                            .with_span(span));
                                         }
                                         ControlFlow::Continue(value) => {
                                             return Err(RuntimeError::new(
                                                 "type-error",
                                                 format!(
-                                                    "shuffle seed expected Int, found {}",
+                                                    "bytes.chunks size expected Int, found {}",
                                                     value.type_name()
                                                 ),
                                             )
@@ -3780,39 +3708,227 @@ impl Evaluator {
                                         ControlFlow::Break(value) => {
                                             return Ok(ControlFlow::Break(value));
                                         }
+                                    };
+                                    let chunks = bytes_module::chunks(bytes, size, span)?;
+                                    let mut lowered = Vec::with_capacity(chunks.len());
+                                    for chunk in chunks {
+                                        let Some(chunk) = lowered_value_from_runtime_any(&chunk)
+                                        else {
+                                            return Err(RuntimeError::new(
+                                                "type-error",
+                                                format!(
+                                                    "bytes.chunks produced unsupported {}",
+                                                    chunk.type_name()
+                                                ),
+                                            )
+                                            .with_span(span));
+                                        };
+                                        lowered.push(chunk);
+                                    }
+                                    LoweredValue::List(lowered)
+                                }
+                                FullStageTag::BatchCount => {
+                                    let count = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let count = match self
+                                        .eval_indexed_expr(execution, count, slots, span)?
+                                    {
+                                        ControlFlow::Continue(LoweredValue::Int(value))
+                                            if value > 0 =>
+                                        {
+                                            value as usize
+                                        }
+                                        ControlFlow::Continue(LoweredValue::Int(_)) => {
+                                            return Err(RuntimeError::new(
+                                                "stream-stage-option",
+                                                "--count must be positive",
+                                            )
+                                            .with_span(span));
+                                        }
+                                        ControlFlow::Continue(value) => {
+                                            return Err(RuntimeError::new(
+                                                "type-error",
+                                                format!(
+                                                    "--count expected Int, found {}",
+                                                    value.type_name()
+                                                ),
+                                            )
+                                            .with_span(span));
+                                        }
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    };
+                                    let items = self.lowered_pipeline_input_items(current, span)?;
+                                    let mut batches = Vec::new();
+                                    let mut batch = Vec::with_capacity(count);
+                                    for item in items {
+                                        batch.push(item);
+                                        if batch.len() == count {
+                                            batches.push(LoweredValue::List(std::mem::take(
+                                                &mut batch,
+                                            )));
+                                            batch = Vec::with_capacity(count);
+                                        }
+                                    }
+                                    if !batch.is_empty() {
+                                        batches.push(LoweredValue::List(batch));
+                                    }
+                                    LoweredValue::List(batches)
+                                }
+                                FullStageTag::BatchMaxArgv | FullStageTag::BatchMaxBytes => {
+                                    let limit = if tag == FullStageTag::BatchMaxArgv {
+                                        let max_argv =
+                                            indexed_optional_raw(&mut stage_payload, span)?;
+                                        match max_argv {
+                                            Some(expr) => {
+                                                match self.eval_indexed_expr(
+                                                    execution, expr, slots, span,
+                                                )? {
+                                                    ControlFlow::Continue(value) => {
+                                                        lowered_nonnegative_count(value, span)?
+                                                    }
+                                                    ControlFlow::Break(value) => {
+                                                        return Ok(ControlFlow::Break(value));
+                                                    }
+                                                }
+                                            }
+                                            None => super::super::stream::platform_arg_max()
+                                                .saturating_sub(4096)
+                                                .clamp(1, 128 * 1024),
+                                        }
+                                    } else {
+                                        let max_bytes = indexed_raw(&mut stage_payload, span)?;
+                                        match self
+                                            .eval_indexed_expr(execution, max_bytes, slots, span)?
+                                        {
+                                            ControlFlow::Continue(value) => {
+                                                lowered_nonnegative_count(value, span)?
+                                            }
+                                            ControlFlow::Break(value) => {
+                                                return Ok(ControlFlow::Break(value));
+                                            }
+                                        }
+                                    };
+                                    indexed_finish(stage_payload, span)?;
+                                    let mut items = IndexedPipelineItems::new(self, current, span)?;
+                                    let driven = (|| -> Result<Vec<LoweredValue>, RuntimeError> {
+                                        let mut batches = Vec::new();
+                                        let mut batch = Vec::new();
+                                        let mut batch_len = 0usize;
+                                        while let Some(item) = items.next(self, span)? {
+                                            let item_len = lowered_value_argv_len(&item);
+                                            if tag == FullStageTag::BatchMaxBytes
+                                                && item_len > limit
+                                            {
+                                                return Err(RuntimeError::new(
+                                                    "argv-limit",
+                                                    "batch item exceeds byte budget",
+                                                )
+                                                .with_span(span));
+                                            }
+                                            let separator = usize::from(
+                                                tag == FullStageTag::BatchMaxArgv
+                                                    && !batch.is_empty(),
+                                            );
+                                            if !batch.is_empty()
+                                                && batch_len + separator + item_len > limit
+                                            {
+                                                batches.push(LoweredValue::List(std::mem::take(
+                                                    &mut batch,
+                                                )));
+                                                batch_len = 0;
+                                            }
+                                            let separator = usize::from(
+                                                tag == FullStageTag::BatchMaxArgv
+                                                    && !batch.is_empty(),
+                                            );
+                                            batch_len += separator + item_len;
+                                            batch.push(item);
+                                        }
+                                        if !batch.is_empty() {
+                                            batches.push(LoweredValue::List(batch));
+                                        }
+                                        Ok(batches)
+                                    })();
+                                    let close = items.cancel(self, span);
+                                    match driven {
+                                        Ok(batches) => {
+                                            close?;
+                                            LoweredValue::List(batches)
+                                        }
+                                        Err(error) => {
+                                            let _ = close;
+                                            return Err(error);
+                                        }
                                     }
                                 }
-                                None => 0,
-                            };
-                            let mut items = self.lowered_pipeline_input_items(current, span)?;
-                            let mut state =
-                                seed ^ (items.len() as u64).wrapping_mul(0x9e3779b97f4a7c15);
-                            for index in (1..items.len()).rev() {
-                                state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
-                                let swap = (state as usize) % (index + 1);
-                                items.swap(index, swap);
-                            }
-                            LoweredValue::List(items)
-                        }
-                        FullStageTag::Fold => {
-                            let acc_slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let item_slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let initial = indexed_raw(&mut stage_payload, span)?;
-                            let body = indexed_raw(&mut stage_payload, span)?;
-                            let value = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let mut acc =
-                                match self.eval_indexed_expr(execution, initial, slots, span)? {
-                                    ControlFlow::Continue(value) => value,
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
+                                FullStageTag::Shuffle => {
+                                    let seed = indexed_optional_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let seed = match seed {
+                                        Some(seed) => {
+                                            match self
+                                                .eval_indexed_expr(execution, seed, slots, span)?
+                                            {
+                                                ControlFlow::Continue(LoweredValue::Int(value)) => {
+                                                    value as u64
+                                                }
+                                                ControlFlow::Continue(value) => {
+                                                    return Err(RuntimeError::new(
+                                                        "type-error",
+                                                        format!(
+                                                            "shuffle seed expected Int, found {}",
+                                                            value.type_name()
+                                                        ),
+                                                    )
+                                                    .with_span(span));
+                                                }
+                                                ControlFlow::Break(value) => {
+                                                    return Ok(ControlFlow::Break(value));
+                                                }
+                                            }
+                                        }
+                                        None => 0,
+                                    };
+                                    let mut items =
+                                        self.lowered_pipeline_input_items(current, span)?;
+                                    let mut state = seed
+                                        ^ (items.len() as u64).wrapping_mul(0x9e3779b97f4a7c15);
+                                    for index in (1..items.len()).rev() {
+                                        state =
+                                            state.wrapping_mul(6364136223846793005).wrapping_add(1);
+                                        let swap = (state as usize) % (index + 1);
+                                        items.swap(index, swap);
                                     }
-                                };
-                            let mut items = IndexedPipelineItems::new(self, current, span)?;
-                            let block_header = Self::indexed_block_header(slots.len());
-                            let driven = (|| -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+                                    LoweredValue::List(items)
+                                }
+                                FullStageTag::Fold => {
+                                    let acc_slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let item_slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let initial = indexed_raw(&mut stage_payload, span)?;
+                                    let body = indexed_raw(&mut stage_payload, span)?;
+                                    let value = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let mut acc = match self
+                                        .eval_indexed_expr(execution, initial, slots, span)?
+                                    {
+                                        ControlFlow::Continue(value) => value,
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    };
+                                    let mut items = IndexedPipelineItems::new(self, current, span)?;
+                                    let block_header = Self::indexed_block_header(slots.len());
+                                    let driven = (|| -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
                                 while let Some(item) = items.next(self, span)? {
                                     slots[acc_slot] = acc;
                                     slots[item_slot] = item;
@@ -3842,46 +3958,52 @@ impl Evaluator {
                                 }
                                 Ok(ControlFlow::Continue(acc))
                             })();
-                            let close = items.cancel(self, span);
-                            let acc = match driven {
-                                Err(error) => {
-                                    let _ = close;
-                                    return Err(error);
-                                }
-                                Ok(ControlFlow::Break(value)) => {
-                                    close?;
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                                Ok(ControlFlow::Continue(acc)) => {
-                                    close?;
+                                    let close = items.cancel(self, span);
+                                    let acc = match driven {
+                                        Err(error) => {
+                                            let _ = close;
+                                            return Err(error);
+                                        }
+                                        Ok(ControlFlow::Break(value)) => {
+                                            close?;
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                        Ok(ControlFlow::Continue(acc)) => {
+                                            close?;
+                                            acc
+                                        }
+                                    };
+                                    slots[acc_slot] = LoweredValue::Unit;
+                                    slots[item_slot] = LoweredValue::Unit;
                                     acc
                                 }
-                            };
-                            slots[acc_slot] = LoweredValue::Unit;
-                            slots[item_slot] = LoweredValue::Unit;
-                            acc
-                        }
-                        FullStageTag::ReduceBy => {
-                            let item_slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let body = indexed_raw(&mut stage_payload, span)?;
-                            let value = indexed_raw(&mut stage_payload, span)?;
-                            let op =
-                                indexed_decode::<ReduceByOp>(&mut stage_payload, execution, span)?;
-                            let jobs = indexed_optional_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            if let ControlFlow::Break(value) =
-                                self.eval_indexed_jobs_option(execution, jobs, slots, span)?
-                            {
-                                return Ok(ControlFlow::Break(value));
-                            }
-                            let mut items = IndexedPipelineItems::new(self, current, span)?;
-                            let block_header = Self::indexed_block_header(slots.len());
-                            let mut projection = Self::indexed_reduce_projection(
-                                execution, item_slot, body, value, op, span,
-                            )?
-                            .map(LoweredProjectedReduceState::new);
-                            let driven = (|| -> Result<ControlFlow<LoweredValue, BTreeMap<_, _>>, RuntimeError> {
+                                FullStageTag::ReduceBy => {
+                                    let item_slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let body = indexed_raw(&mut stage_payload, span)?;
+                                    let value = indexed_raw(&mut stage_payload, span)?;
+                                    let op = indexed_decode::<ReduceByOp>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let jobs = indexed_optional_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    if let ControlFlow::Break(value) =
+                                        self.eval_indexed_jobs_option(execution, jobs, slots, span)?
+                                    {
+                                        return Ok(ControlFlow::Break(value));
+                                    }
+                                    let mut items = IndexedPipelineItems::new(self, current, span)?;
+                                    let block_header = Self::indexed_block_header(slots.len());
+                                    let mut projection = Self::indexed_reduce_projection(
+                                        execution, item_slot, body, value, op, span,
+                                    )?
+                                    .map(LoweredProjectedReduceState::new);
+                                    let driven = (|| -> Result<ControlFlow<LoweredValue, BTreeMap<_, _>>, RuntimeError> {
                                 let mut groups = BTreeMap::new();
                                 while let Some(item) = items.next(self, span)? {
                                     if let Some(projection) = projection.as_mut() {
@@ -3926,223 +4048,252 @@ impl Evaluator {
                                 slots[item_slot] = LoweredValue::Unit;
                                 Ok(ControlFlow::Continue(groups))
                             })();
-                            let close = items.cancel(self, span);
-                            let groups = match driven {
-                                Err(error) => {
-                                    let _ = close;
-                                    return Err(error);
-                                }
-                                Ok(ControlFlow::Break(value)) => {
-                                    close?;
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                                Ok(ControlFlow::Continue(groups)) => {
-                                    close?;
-                                    groups
-                                }
-                            };
-                            LoweredValue::Map(Arc::new(groups))
-                        }
-                        FullStageTag::ParMapFlatMapReduceBy => {
-                            let slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let body = indexed_optional_raw(&mut stage_payload, span)?;
-                            let jobs = indexed_optional_raw(&mut stage_payload, span)?;
-                            let value = indexed_raw(&mut stage_payload, span)?;
-                            let flatten =
-                                indexed_decode::<bool>(&mut stage_payload, execution, span)?;
-                            let reduce_item_slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let reduce_body = indexed_raw(&mut stage_payload, span)?;
-                            let reduce_value = indexed_raw(&mut stage_payload, span)?;
-                            let op =
-                                indexed_decode::<ReduceByOp>(&mut stage_payload, execution, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let jobs = match self
-                                .eval_indexed_jobs_option(execution, jobs, slots, span)?
-                            {
-                                ControlFlow::Continue(Some(jobs)) => jobs,
-                                ControlFlow::Continue(None) => std::thread::available_parallelism()
-                                    .map_or(1, |count| count.get().min(DEFAULT_PAR_MAP_WORKERS)),
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                            };
-                            let items = self.lowered_pipeline_input_items(current, span)?;
-                            if self.trace_enabled || jobs <= 1 || items.len() <= 1 {
-                                let map_header = Self::indexed_block_header(slots.len());
-                                let mut groups = BTreeMap::new();
-                                let mut projection = Self::indexed_reduce_projection(
-                                    execution,
-                                    reduce_item_slot,
-                                    reduce_body,
-                                    reduce_value,
-                                    op,
-                                    span,
-                                )?
-                                .map(LoweredProjectedReduceState::new);
-                                for (item_index, item) in items.into_iter().enumerate() {
-                                    if self.trace_enabled {
-                                        self.trace_lowered_parallel_job(
-                                            TraceKind::ParallelJobStart,
-                                            "par-map",
-                                            item_index,
-                                            None,
-                                            span,
-                                        );
-                                    }
-                                    let mapped = match self.eval_indexed_par_map_item(
-                                        execution,
-                                        body,
-                                        value,
-                                        &map_header,
-                                        slots,
-                                        slot,
-                                        item,
-                                        span,
-                                    ) {
-                                        Ok(value) => value,
+                                    let close = items.cancel(self, span);
+                                    let groups = match driven {
                                         Err(error) => {
-                                            return Err(self.stream_item_runtime_error(
-                                                "par-map", item_index, error,
-                                            ));
+                                            let _ = close;
+                                            return Err(error);
+                                        }
+                                        Ok(ControlFlow::Break(value)) => {
+                                            close?;
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                        Ok(ControlFlow::Continue(groups)) => {
+                                            close?;
+                                            groups
                                         }
                                     };
-                                    let rows = if flatten {
-                                        self.lowered_flat_map_rows(mapped, span)?
-                                    } else {
-                                        vec![mapped]
-                                    };
-                                    self.eval_indexed_reduce_rows(
+                                    LoweredValue::Map(Arc::new(groups))
+                                }
+                                FullStageTag::ParMapFlatMapReduceBy => {
+                                    let slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
                                         execution,
-                                        rows,
-                                        reduce_item_slot,
-                                        reduce_body,
-                                        reduce_value,
-                                        op,
-                                        &mut projection,
-                                        slots,
-                                        &mut groups,
                                         span,
                                     )?;
-                                    if self.trace_enabled {
-                                        self.trace_lowered_parallel_job(
-                                            TraceKind::ParallelJobEnd,
-                                            "par-map",
-                                            item_index,
-                                            None,
-                                            span,
-                                        );
-                                    }
-                                }
-                                LoweredValue::Map(Arc::new(groups))
-                            } else {
-                                self.eval_indexed_par_map_flat_map_reduce_by(
-                                    execution,
-                                    body,
-                                    value,
-                                    flatten,
-                                    reduce_item_slot,
-                                    reduce_body,
-                                    reduce_value,
-                                    op,
-                                    slots,
-                                    slot,
-                                    items,
-                                    jobs,
-                                    span,
-                                )?
-                            }
-                        }
-                        FullStageTag::ParMap | FullStageTag::ParMapBlock => {
-                            let slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let body = if tag == FullStageTag::ParMapBlock {
-                                Some(indexed_raw(&mut stage_payload, span)?)
-                            } else {
-                                None
-                            };
-                            let jobs = indexed_optional_raw(&mut stage_payload, span)?;
-                            let value = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let jobs = match self
-                                .eval_indexed_jobs_option(execution, jobs, slots, span)?
-                            {
-                                ControlFlow::Continue(Some(jobs)) => jobs,
-                                ControlFlow::Continue(None) => std::thread::available_parallelism()
-                                    .map_or(1, |count| count.get().min(DEFAULT_PAR_MAP_WORKERS)),
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                            };
-                            let items = self.lowered_pipeline_input_items(current, span)?;
-                            let block_header = Self::indexed_block_header(slots.len());
-                            let results = if self.trace_enabled || jobs <= 1 || items.len() <= 1 {
-                                let mut results = Vec::with_capacity(items.len());
-                                for (item_index, item) in items.into_iter().enumerate() {
-                                    if self.trace_enabled {
-                                        self.trace_lowered_parallel_job(
-                                            TraceKind::ParallelJobStart,
-                                            "par-map",
-                                            item_index,
-                                            None,
-                                            span,
-                                        );
-                                    }
-                                    let result = self.eval_indexed_par_map_item(
+                                    let body = indexed_optional_raw(&mut stage_payload, span)?;
+                                    let jobs = indexed_optional_raw(&mut stage_payload, span)?;
+                                    let value = indexed_raw(&mut stage_payload, span)?;
+                                    let flatten = indexed_decode::<bool>(
+                                        &mut stage_payload,
                                         execution,
-                                        body,
-                                        value,
-                                        &block_header,
-                                        slots,
-                                        slot,
-                                        item,
                                         span,
-                                    );
-                                    if self.trace_enabled {
-                                        self.trace_lowered_parallel_job(
-                                            TraceKind::ParallelJobEnd,
-                                            "par-map",
-                                            item_index,
-                                            None,
-                                            span,
-                                        );
-                                    }
-                                    match result {
-                                        Ok(value) => results.push(value),
-                                        Err(error) => {
-                                            return Err(self.stream_item_runtime_error(
-                                                "par-map", item_index, error,
-                                            ));
+                                    )?;
+                                    let reduce_item_slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let reduce_body = indexed_raw(&mut stage_payload, span)?;
+                                    let reduce_value = indexed_raw(&mut stage_payload, span)?;
+                                    let op = indexed_decode::<ReduceByOp>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let jobs = match self
+                                        .eval_indexed_jobs_option(execution, jobs, slots, span)?
+                                    {
+                                        ControlFlow::Continue(Some(jobs)) => jobs,
+                                        ControlFlow::Continue(None) => {
+                                            std::thread::available_parallelism()
+                                                .map_or(1, |count| {
+                                                    count.get().min(DEFAULT_PAR_MAP_WORKERS)
+                                                })
                                         }
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    };
+                                    let items = self.lowered_pipeline_input_items(current, span)?;
+                                    if self.trace_enabled || jobs <= 1 || items.len() <= 1 {
+                                        let map_header = Self::indexed_block_header(slots.len());
+                                        let mut groups = BTreeMap::new();
+                                        let mut projection = Self::indexed_reduce_projection(
+                                            execution,
+                                            reduce_item_slot,
+                                            reduce_body,
+                                            reduce_value,
+                                            op,
+                                            span,
+                                        )?
+                                        .map(LoweredProjectedReduceState::new);
+                                        for (item_index, item) in items.into_iter().enumerate() {
+                                            if self.trace_enabled {
+                                                self.trace_lowered_parallel_job(
+                                                    TraceKind::ParallelJobStart,
+                                                    "par-map",
+                                                    item_index,
+                                                    None,
+                                                    span,
+                                                );
+                                            }
+                                            let mapped = match self.eval_indexed_par_map_item(
+                                                execution,
+                                                body,
+                                                value,
+                                                &map_header,
+                                                slots,
+                                                slot,
+                                                item,
+                                                span,
+                                            ) {
+                                                Ok(value) => value,
+                                                Err(error) => {
+                                                    return Err(self.stream_item_runtime_error(
+                                                        "par-map", item_index, error,
+                                                    ));
+                                                }
+                                            };
+                                            let rows = if flatten {
+                                                self.lowered_flat_map_rows(mapped, span)?
+                                            } else {
+                                                vec![mapped]
+                                            };
+                                            self.eval_indexed_reduce_rows(
+                                                execution,
+                                                rows,
+                                                reduce_item_slot,
+                                                reduce_body,
+                                                reduce_value,
+                                                op,
+                                                &mut projection,
+                                                slots,
+                                                &mut groups,
+                                                span,
+                                            )?;
+                                            if self.trace_enabled {
+                                                self.trace_lowered_parallel_job(
+                                                    TraceKind::ParallelJobEnd,
+                                                    "par-map",
+                                                    item_index,
+                                                    None,
+                                                    span,
+                                                );
+                                            }
+                                        }
+                                        LoweredValue::Map(Arc::new(groups))
+                                    } else {
+                                        self.eval_indexed_par_map_flat_map_reduce_by(
+                                            execution,
+                                            body,
+                                            value,
+                                            flatten,
+                                            reduce_item_slot,
+                                            reduce_body,
+                                            reduce_value,
+                                            op,
+                                            slots,
+                                            slot,
+                                            items,
+                                            jobs,
+                                            span,
+                                        )?
                                     }
                                 }
-                                results
-                            } else {
-                                self.eval_indexed_par_map_parallel(
-                                    execution,
-                                    body,
-                                    value,
-                                    &block_header,
-                                    slots,
-                                    slot,
-                                    items,
-                                    jobs,
-                                    span,
-                                )?
-                            };
-                            slots[slot] = LoweredValue::Unit;
-                            LoweredValue::List(results)
-                        }
-                        FullStageTag::Tee | FullStageTag::Each => {
-                            let slot =
-                                indexed_decode::<usize>(&mut stage_payload, execution, span)?;
-                            let body = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let mut items = IndexedPipelineItems::new(self, current, span)?;
-                            let tee = tag == FullStageTag::Tee;
-                            let block_header = Self::indexed_block_header(slots.len());
-                            let driven =
+                                FullStageTag::ParMap | FullStageTag::ParMapBlock => {
+                                    let slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let body = if tag == FullStageTag::ParMapBlock {
+                                        Some(indexed_raw(&mut stage_payload, span)?)
+                                    } else {
+                                        None
+                                    };
+                                    let jobs = indexed_optional_raw(&mut stage_payload, span)?;
+                                    let value = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let jobs = match self
+                                        .eval_indexed_jobs_option(execution, jobs, slots, span)?
+                                    {
+                                        ControlFlow::Continue(Some(jobs)) => jobs,
+                                        ControlFlow::Continue(None) => {
+                                            std::thread::available_parallelism()
+                                                .map_or(1, |count| {
+                                                    count.get().min(DEFAULT_PAR_MAP_WORKERS)
+                                                })
+                                        }
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    };
+                                    let items = self.lowered_pipeline_input_items(current, span)?;
+                                    let block_header = Self::indexed_block_header(slots.len());
+                                    let results = if self.trace_enabled
+                                        || jobs <= 1
+                                        || items.len() <= 1
+                                    {
+                                        let mut results = Vec::with_capacity(items.len());
+                                        for (item_index, item) in items.into_iter().enumerate() {
+                                            if self.trace_enabled {
+                                                self.trace_lowered_parallel_job(
+                                                    TraceKind::ParallelJobStart,
+                                                    "par-map",
+                                                    item_index,
+                                                    None,
+                                                    span,
+                                                );
+                                            }
+                                            let result = self.eval_indexed_par_map_item(
+                                                execution,
+                                                body,
+                                                value,
+                                                &block_header,
+                                                slots,
+                                                slot,
+                                                item,
+                                                span,
+                                            );
+                                            if self.trace_enabled {
+                                                self.trace_lowered_parallel_job(
+                                                    TraceKind::ParallelJobEnd,
+                                                    "par-map",
+                                                    item_index,
+                                                    None,
+                                                    span,
+                                                );
+                                            }
+                                            match result {
+                                                Ok(value) => results.push(value),
+                                                Err(error) => {
+                                                    return Err(self.stream_item_runtime_error(
+                                                        "par-map", item_index, error,
+                                                    ));
+                                                }
+                                            }
+                                        }
+                                        results
+                                    } else {
+                                        self.eval_indexed_par_map_parallel(
+                                            execution,
+                                            body,
+                                            value,
+                                            &block_header,
+                                            slots,
+                                            slot,
+                                            items,
+                                            jobs,
+                                            span,
+                                        )?
+                                    };
+                                    slots[slot] = LoweredValue::Unit;
+                                    LoweredValue::List(results)
+                                }
+                                FullStageTag::Tee | FullStageTag::Each => {
+                                    let slot = indexed_decode::<usize>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    let body = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let mut items = IndexedPipelineItems::new(self, current, span)?;
+                                    let tee = tag == FullStageTag::Tee;
+                                    let block_header = Self::indexed_block_header(slots.len());
+                                    let driven =
                                 (|| -> Result<ControlFlow<LoweredValue, Vec<LoweredValue>>, RuntimeError> {
                                     let mut output = Vec::new();
                                     while let Some(item) = items.next(self, span)? {
@@ -4171,294 +4322,266 @@ impl Evaluator {
                                     }
                                     Ok(ControlFlow::Continue(output))
                                 })();
-                            let close = items.cancel(self, span);
-                            let output = match driven {
-                                Err(error) => {
-                                    let _ = close;
-                                    return Err(error);
+                                    let close = items.cancel(self, span);
+                                    let output = match driven {
+                                        Err(error) => {
+                                            let _ = close;
+                                            return Err(error);
+                                        }
+                                        Ok(ControlFlow::Break(value)) => {
+                                            close?;
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                        Ok(ControlFlow::Continue(output)) => {
+                                            close?;
+                                            output
+                                        }
+                                    };
+                                    slots[slot] = LoweredValue::Unit;
+                                    if tee {
+                                        // tee is a pass-through stage: it yields the
+                                        // items unchanged for later stages. each is a
+                                        // terminal stage that the checker types as Unit,
+                                        // so its pipeline value must be Unit rather than
+                                        // the drained (empty) list.
+                                        LoweredValue::List(output)
+                                    } else {
+                                        LoweredValue::Unit
+                                    }
                                 }
-                                Ok(ControlFlow::Break(value)) => {
-                                    close?;
-                                    return Ok(ControlFlow::Break(value));
+                                FullStageTag::TablePrint => {
+                                    let columns = indexed_decode::<Option<Vec<String>>>(
+                                        &mut stage_payload,
+                                        execution,
+                                        span,
+                                    )?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let records = lowered_pipeline_record_list(&current, span)?;
+                                    let columns = columns.unwrap_or_else(|| {
+                                        let mut seen = std::collections::BTreeSet::new();
+                                        let mut columns = Vec::new();
+                                        for record in &records {
+                                            for key in record.keys() {
+                                                if seen.insert(key.clone()) {
+                                                    columns.push(key.to_string());
+                                                }
+                                            }
+                                        }
+                                        columns
+                                    });
+                                    let table_columns = columns
+                                        .iter()
+                                        .map(|name| {
+                                            let align = records
+                                                .first()
+                                                .and_then(|record| record.get(name.as_str()))
+                                                .map(|value| match value {
+                                                    LoweredValue::Int(_)
+                                                    | LoweredValue::Float(_)
+                                                    | LoweredValue::Duration(_) => {
+                                                        crate::terminal::table::TableAlign::Right
+                                                    }
+                                                    _ => crate::terminal::table::TableAlign::Left,
+                                                })
+                                                .unwrap_or(
+                                                    crate::terminal::table::TableAlign::Left,
+                                                );
+                                            crate::terminal::table::TextTableColumn::new(
+                                                name.clone(),
+                                                0,
+                                                80,
+                                                align,
+                                            )
+                                        })
+                                        .collect::<Vec<_>>();
+                                    let rows = records
+                                        .iter()
+                                        .map(|record| {
+                                            columns
+                                                .iter()
+                                                .map(|column| {
+                                                    let value = record
+                                                        .get(column.as_str())
+                                                        .cloned()
+                                                        .unwrap_or(LoweredValue::Null);
+                                                    crate::terminal::table::sanitize_table_text(
+                                                        &lowered_table_print_value(&value),
+                                                    )
+                                                })
+                                                .collect::<Vec<_>>()
+                                        })
+                                        .collect::<Vec<_>>();
+                                    let mut output = String::new();
+                                    let width =
+                                        crate::terminal::table::terminal_table_width_for_stdout(
+                                            20, 120,
+                                        );
+                                    crate::terminal::table::render_text_table(
+                                        &table_columns,
+                                        &rows,
+                                        width,
+                                        &mut output,
+                                    );
+                                    self.stdout.extend_from_slice(output.as_bytes());
+                                    LoweredValue::Unit
                                 }
-                                Ok(ControlFlow::Continue(output)) => {
-                                    close?;
-                                    output
+                                FullStageTag::Count => {
+                                    indexed_finish(stage_payload, span)?;
+                                    if let LoweredValue::Stream(mut stream) = current {
+                                        let mut count = stream.items.len() as i64;
+                                        while self.stream_next(&mut stream, span)?.is_some() {
+                                            count += 1;
+                                        }
+                                        LoweredValue::Int(count)
+                                    } else {
+                                        let items =
+                                            self.lowered_pipeline_input_items(current, span)?;
+                                        LoweredValue::Int(items.len() as i64)
+                                    }
                                 }
-                            };
-                            slots[slot] = LoweredValue::Unit;
-                            if tee {
-                                // tee is a pass-through stage: it yields the
-                                // items unchanged for later stages. each is a
-                                // terminal stage that the checker types as Unit,
-                                // so its pipeline value must be Unit rather than
-                                // the drained (empty) list.
-                                LoweredValue::List(output)
-                            } else {
-                                LoweredValue::Unit
-                            }
-                        }
-                        FullStageTag::TablePrint => {
-                            let columns = indexed_decode::<Option<Vec<String>>>(
-                                &mut stage_payload,
-                                execution,
-                                span,
-                            )?;
-                            indexed_finish(stage_payload, span)?;
-                            let records = lowered_pipeline_record_list(&current, span)?;
-                            let columns = columns.unwrap_or_else(|| {
-                                let mut seen = std::collections::BTreeSet::new();
-                                let mut columns = Vec::new();
-                                for record in &records {
-                                    for key in record.keys() {
-                                        if seen.insert(key.clone()) {
-                                            columns.push(key.to_string());
+                                FullStageTag::Sum => {
+                                    indexed_finish(stage_payload, span)?;
+                                    let mut items = IndexedPipelineItems::new(self, current, span)?;
+                                    let summed = (|| -> Result<i64, RuntimeError> {
+                                        let mut sum = 0i64;
+                                        while let Some(item) = items.next(self, span)? {
+                                            let LoweredValue::Int(value) = item else {
+                                                return Err(RuntimeError::new(
+                                                    "type-error",
+                                                    "sum expected Int stream",
+                                                )
+                                                .with_span(span));
+                                            };
+                                            sum += value;
+                                        }
+                                        Ok(sum)
+                                    })();
+                                    let close = items.cancel(self, span);
+                                    let sum = match summed {
+                                        Ok(sum) => {
+                                            close?;
+                                            sum
+                                        }
+                                        Err(error) => {
+                                            let _ = close;
+                                            return Err(error);
+                                        }
+                                    };
+                                    LoweredValue::Int(sum)
+                                }
+                                FullStageTag::First
+                                | FullStageTag::Last
+                                | FullStageTag::Min
+                                | FullStageTag::Max => {
+                                    indexed_finish(stage_payload, span)?;
+                                    // A bounded terminal over a producer pulls one item
+                                    // and stops there: the rest of the body is never
+                                    // run, and its defers run once.
+                                    if tag == FullStageTag::First
+                                        && let LoweredValue::Stream(stream) = &current
+                                        && stream.script().is_some()
+                                    {
+                                        let LoweredValue::Stream(mut stream) = current else {
+                                            unreachable!("checked above")
+                                        };
+                                        let item = self.stream_next(&mut stream, span)?;
+                                        self.stream_cancel(&mut stream, span)?;
+                                        match item {
+                                            Some(value) => {
+                                                match lowered_value_from_runtime_any(&value) {
+                                                    Some(item) => lowered_result_ok(item),
+                                                    None => lowered_result_err_value(
+                                                        RuntimeError::new(
+                                                            "type-error",
+                                                            format!(
+                                                                "stream produced unsupported {}",
+                                                                value.type_name()
+                                                            ),
+                                                        )
+                                                        .with_span(span),
+                                                    ),
+                                                }
+                                            }
+                                            None => lowered_result_err_value(
+                                                RuntimeError::new(
+                                                    "empty-stream",
+                                                    "stream was empty",
+                                                )
+                                                .with_span(span),
+                                            ),
+                                        }
+                                    } else if tag == FullStageTag::First {
+                                        let items =
+                                            self.lowered_pipeline_input_items(current, span)?;
+                                        match items.into_iter().next() {
+                                            Some(item) => lowered_result_ok(item),
+                                            None => lowered_result_err_value(
+                                                RuntimeError::new(
+                                                    "empty-stream",
+                                                    "stream was empty",
+                                                )
+                                                .with_span(span),
+                                            ),
+                                        }
+                                    } else {
+                                        let mut items =
+                                            IndexedPipelineItems::new(self, current, span)?;
+                                        let selected =
+                                            (|| -> Result<Option<LoweredValue>, RuntimeError> {
+                                                let mut selected = None;
+                                                while let Some(item) = items.next(self, span)? {
+                                                    selected = Some(match selected {
+                                                        None => item,
+                                                        Some(previous) => match tag {
+                                                            FullStageTag::Last => item,
+                                                            FullStageTag::Min => std::cmp::min_by(
+                                                                previous,
+                                                                item,
+                                                                compare_lowered_sort_keys,
+                                                            ),
+                                                            FullStageTag::Max => std::cmp::max_by(
+                                                                previous,
+                                                                item,
+                                                                compare_lowered_sort_keys,
+                                                            ),
+                                                            _ => unreachable!(),
+                                                        },
+                                                    });
+                                                }
+                                                Ok(selected)
+                                            })();
+                                        let close = items.cancel(self, span);
+                                        match selected {
+                                            Ok(Some(item)) => {
+                                                close?;
+                                                lowered_result_ok(item)
+                                            }
+                                            Ok(None) => {
+                                                close?;
+                                                lowered_result_err_value(
+                                                    RuntimeError::new(
+                                                        "empty-stream",
+                                                        "stream was empty",
+                                                    )
+                                                    .with_span(span),
+                                                )
+                                            }
+                                            Err(error) => {
+                                                let _ = close;
+                                                return Err(error);
+                                            }
                                         }
                                     }
                                 }
-                                columns
-                            });
-                            let table_columns = columns
-                                .iter()
-                                .map(|name| {
-                                    let align = records
-                                        .first()
-                                        .and_then(|record| record.get(name.as_str()))
-                                        .map(|value| match value {
-                                            LoweredValue::Int(_)
-                                            | LoweredValue::Float(_)
-                                            | LoweredValue::Duration(_) => {
-                                                crate::terminal::table::TableAlign::Right
-                                            }
-                                            _ => crate::terminal::table::TableAlign::Left,
-                                        })
-                                        .unwrap_or(crate::terminal::table::TableAlign::Left);
-                                    crate::terminal::table::TextTableColumn::new(
-                                        name.clone(),
-                                        0,
-                                        80,
-                                        align,
-                                    )
-                                })
-                                .collect::<Vec<_>>();
-                            let rows = records
-                                .iter()
-                                .map(|record| {
-                                    columns
-                                        .iter()
-                                        .map(|column| {
-                                            let value = record
-                                                .get(column.as_str())
-                                                .cloned()
-                                                .unwrap_or(LoweredValue::Null);
-                                            crate::terminal::table::sanitize_table_text(
-                                                &lowered_table_print_value(&value),
-                                            )
-                                        })
-                                        .collect::<Vec<_>>()
-                                })
-                                .collect::<Vec<_>>();
-                            let mut output = String::new();
-                            let width =
-                                crate::terminal::table::terminal_table_width_for_stdout(20, 120);
-                            crate::terminal::table::render_text_table(
-                                &table_columns,
-                                &rows,
-                                width,
-                                &mut output,
-                            );
-                            self.stdout.extend_from_slice(output.as_bytes());
-                            LoweredValue::Unit
-                        }
-                        FullStageTag::Count => {
-                            indexed_finish(stage_payload, span)?;
-                            if let LoweredValue::Stream(mut stream) = current {
-                                let mut count = stream.items.len() as i64;
-                                while self.stream_next(&mut stream, span)?.is_some() {
-                                    count += 1;
-                                }
-                                LoweredValue::Int(count)
-                            } else {
-                                let items = self.lowered_pipeline_input_items(current, span)?;
-                                LoweredValue::Int(items.len() as i64)
-                            }
-                        }
-                        FullStageTag::Sum => {
-                            indexed_finish(stage_payload, span)?;
-                            let mut items = IndexedPipelineItems::new(self, current, span)?;
-                            let summed = (|| -> Result<i64, RuntimeError> {
-                                let mut sum = 0i64;
-                                while let Some(item) = items.next(self, span)? {
-                                    let LoweredValue::Int(value) = item else {
-                                        return Err(RuntimeError::new(
-                                            "type-error",
-                                            "sum expected Int stream",
-                                        )
-                                        .with_span(span));
-                                    };
-                                    sum += value;
-                                }
-                                Ok(sum)
-                            })();
-                            let close = items.cancel(self, span);
-                            let sum = match summed {
-                                Ok(sum) => {
-                                    close?;
-                                    sum
-                                }
-                                Err(error) => {
-                                    let _ = close;
-                                    return Err(error);
-                                }
-                            };
-                            LoweredValue::Int(sum)
-                        }
-                        FullStageTag::First
-                        | FullStageTag::Last
-                        | FullStageTag::Min
-                        | FullStageTag::Max => {
-                            indexed_finish(stage_payload, span)?;
-                            // A bounded terminal over a producer pulls one item
-                            // and stops there: the rest of the body is never
-                            // run, and its defers run once.
-                            if tag == FullStageTag::First
-                                && let LoweredValue::Stream(stream) = &current
-                                && stream.script().is_some()
-                            {
-                                let LoweredValue::Stream(mut stream) = current else {
-                                    unreachable!("checked above")
-                                };
-                                let item = self.stream_next(&mut stream, span)?;
-                                self.stream_cancel(&mut stream, span)?;
-                                match item {
-                                    Some(value) => match lowered_value_from_runtime_any(&value) {
-                                        Some(item) => lowered_result_ok(item),
-                                        None => lowered_result_err_value(
-                                            RuntimeError::new(
-                                                "type-error",
-                                                format!(
-                                                    "stream produced unsupported {}",
-                                                    value.type_name()
-                                                ),
-                                            )
-                                            .with_span(span),
-                                        ),
-                                    },
-                                    None => lowered_result_err_value(
-                                        RuntimeError::new("empty-stream", "stream was empty")
-                                            .with_span(span),
-                                    ),
-                                }
-                            } else if tag == FullStageTag::First {
-                                let items = self.lowered_pipeline_input_items(current, span)?;
-                                match items.into_iter().next() {
-                                    Some(item) => lowered_result_ok(item),
-                                    None => lowered_result_err_value(
-                                        RuntimeError::new("empty-stream", "stream was empty")
-                                            .with_span(span),
-                                    ),
-                                }
-                            } else {
-                                let mut items = IndexedPipelineItems::new(self, current, span)?;
-                                let selected = (|| -> Result<Option<LoweredValue>, RuntimeError> {
-                                    let mut selected = None;
-                                    while let Some(item) = items.next(self, span)? {
-                                        selected = Some(match selected {
-                                            None => item,
-                                            Some(previous) => match tag {
-                                                FullStageTag::Last => item,
-                                                FullStageTag::Min => std::cmp::min_by(
-                                                    previous, item, compare_lowered_sort_keys,
-                                                ),
-                                                FullStageTag::Max => std::cmp::max_by(
-                                                    previous, item, compare_lowered_sort_keys,
-                                                ),
-                                                _ => unreachable!(),
-                                            },
-                                        });
-                                    }
-                                    Ok(selected)
-                                })();
-                                let close = items.cancel(self, span);
-                                match selected {
-                                    Ok(Some(item)) => {
-                                        close?;
-                                        lowered_result_ok(item)
-                                    }
-                                    Ok(None) => {
-                                        close?;
-                                        lowered_result_err_value(
-                                            RuntimeError::new("empty-stream", "stream was empty")
-                                                .with_span(span),
-                                        )
-                                    }
-                                    Err(error) => {
-                                        let _ = close;
-                                        return Err(error);
-                                    }
-                                }
-                            }
-                        }
-                        FullStageTag::Collect => {
-                            indexed_finish(stage_payload, span)?;
-                            if let LoweredValue::Stream(stream) = current {
-                                let values = self.collect_stream_values(*stream, span)?;
-                                let mut lowered = Vec::with_capacity(values.len());
-                                for value in values {
-                                    let Some(value) = lowered_value_from_runtime_any(&value) else {
-                                        return Err(RuntimeError::new(
-                                            "type-error",
-                                            format!(
-                                                "stream produced unsupported {}",
-                                                value.type_name()
-                                            ),
-                                        )
-                                        .with_span(span));
-                                    };
-                                    lowered.push(value);
-                                }
-                                LoweredValue::List(lowered)
-                            } else if matches!(
-                                current,
-                                LoweredValue::List(_) | LoweredValue::SharedList(_)
-                            ) {
-                                current
-                            } else {
-                                return Err(RuntimeError::new(
-                                    "type-error",
-                                    "pipeline input expected List",
-                                )
-                                .with_span(span));
-                            }
-                        }
-                        FullStageTag::Take | FullStageTag::Drop => {
-                            let count = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let count =
-                                match self.eval_indexed_expr(execution, count, slots, span)? {
-                                    ControlFlow::Continue(value) => {
-                                        lowered_nonnegative_count(value, span)?
-                                    }
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
-                            // `take` over a producer pulls only what it keeps
-                            // and then stops the producer; `drop` has to read
-                            // past the dropped items, so it drains the stream.
-                            if tag == FullStageTag::Take
-                                && let LoweredValue::Stream(stream) = &current
-                                && stream.script().is_some()
-                            {
-                                let LoweredValue::Stream(mut stream) = current else {
-                                    unreachable!("checked above")
-                                };
-                                let mut kept = Vec::new();
-                                while kept.len() < count {
-                                    match self.stream_next(&mut stream, span)? {
-                                        Some(value) => match lowered_value_from_runtime_any(&value) {
-                                            Some(item) => kept.push(item),
-                                            None => {
+                                FullStageTag::Collect => {
+                                    indexed_finish(stage_payload, span)?;
+                                    if let LoweredValue::Stream(stream) = current {
+                                        let values = self.collect_stream_values(*stream, span)?;
+                                        let mut lowered = Vec::with_capacity(values.len());
+                                        for value in values {
+                                            let Some(value) =
+                                                lowered_value_from_runtime_any(&value)
+                                            else {
                                                 return Err(RuntimeError::new(
                                                     "type-error",
                                                     format!(
@@ -4467,93 +4590,160 @@ impl Evaluator {
                                                     ),
                                                 )
                                                 .with_span(span));
-                                            }
-                                        },
-                                        None => break,
-                                    }
-                                }
-                                self.stream_cancel(&mut stream, span)?;
-                                LoweredValue::List(kept)
-                            } else {
-                            let items = self.lowered_pipeline_input_items(current, span)?;
-                            if tag == FullStageTag::Take {
-                                LoweredValue::List(items.into_iter().take(count).collect())
-                            } else {
-                                LoweredValue::List(items.into_iter().skip(count).collect())
-                            }
-                            }
-                        }
-                        FullStageTag::Repeat => {
-                            let count = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let count =
-                                match self.eval_indexed_expr(execution, count, slots, span)? {
-                                    ControlFlow::Continue(value) => {
-                                        lowered_nonnegative_count(value, span)?
-                                    }
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
-                            if count == 0 {
-                                let mut items = IndexedPipelineItems::new(self, current, span)?;
-                                items.cancel(self, span)?;
-                                LoweredValue::List(Vec::new())
-                            } else {
-                                let items = self.lowered_pipeline_input_items(current, span)?;
-                                let mut repeated = Vec::with_capacity(items.len() * count);
-                                for _ in 0..count {
-                                    repeated.extend(items.iter().cloned());
-                                }
-                                LoweredValue::List(repeated)
-                            }
-                        }
-                        FullStageTag::Range => {
-                            let start = indexed_raw(&mut stage_payload, span)?;
-                            let end = indexed_raw(&mut stage_payload, span)?;
-                            indexed_finish(stage_payload, span)?;
-                            let start =
-                                match self.eval_indexed_expr(execution, start, slots, span)? {
-                                    ControlFlow::Continue(LoweredValue::Int(value)) => value,
-                                    ControlFlow::Continue(value) => {
+                                            };
+                                            lowered.push(value);
+                                        }
+                                        LoweredValue::List(lowered)
+                                    } else if matches!(
+                                        current,
+                                        LoweredValue::List(_) | LoweredValue::SharedList(_)
+                                    ) {
+                                        current
+                                    } else {
                                         return Err(RuntimeError::new(
                                             "type-error",
-                                            format!(
-                                                "range start expected Int, found {}",
-                                                value.type_name()
-                                            ),
+                                            "pipeline input expected List",
                                         )
                                         .with_span(span));
                                     }
-                                    ControlFlow::Break(value) => {
-                                        return Ok(ControlFlow::Break(value));
-                                    }
-                                };
-                            let end = match self.eval_indexed_expr(execution, end, slots, span)? {
-                                ControlFlow::Continue(LoweredValue::Int(value)) => value,
-                                ControlFlow::Continue(value) => {
-                                    return Err(RuntimeError::new(
-                                        "type-error",
-                                        format!(
-                                            "range end expected Int, found {}",
-                                            value.type_name()
-                                        ),
-                                    )
-                                    .with_span(span));
                                 }
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
+                                FullStageTag::Take | FullStageTag::Drop => {
+                                    let count = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let count = match self
+                                        .eval_indexed_expr(execution, count, slots, span)?
+                                    {
+                                        ControlFlow::Continue(value) => {
+                                            lowered_nonnegative_count(value, span)?
+                                        }
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    };
+                                    // `take` over a producer pulls only what it keeps
+                                    // and then stops the producer; `drop` has to read
+                                    // past the dropped items, so it drains the stream.
+                                    if tag == FullStageTag::Take
+                                        && let LoweredValue::Stream(stream) = &current
+                                        && stream.script().is_some()
+                                    {
+                                        let LoweredValue::Stream(mut stream) = current else {
+                                            unreachable!("checked above")
+                                        };
+                                        let mut kept = Vec::new();
+                                        while kept.len() < count {
+                                            match self.stream_next(&mut stream, span)? {
+                                                Some(value) => {
+                                                    match lowered_value_from_runtime_any(&value) {
+                                                        Some(item) => kept.push(item),
+                                                        None => {
+                                                            return Err(RuntimeError::new(
+                                                    "type-error",
+                                                    format!(
+                                                        "stream produced unsupported {}",
+                                                        value.type_name()
+                                                    ),
+                                                )
+                                                .with_span(span));
+                                                        }
+                                                    }
+                                                }
+                                                None => break,
+                                            }
+                                        }
+                                        self.stream_cancel(&mut stream, span)?;
+                                        LoweredValue::List(kept)
+                                    } else {
+                                        let items =
+                                            self.lowered_pipeline_input_items(current, span)?;
+                                        if tag == FullStageTag::Take {
+                                            LoweredValue::List(
+                                                items.into_iter().take(count).collect(),
+                                            )
+                                        } else {
+                                            LoweredValue::List(
+                                                items.into_iter().skip(count).collect(),
+                                            )
+                                        }
+                                    }
+                                }
+                                FullStageTag::Repeat => {
+                                    let count = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let count = match self
+                                        .eval_indexed_expr(execution, count, slots, span)?
+                                    {
+                                        ControlFlow::Continue(value) => {
+                                            lowered_nonnegative_count(value, span)?
+                                        }
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    };
+                                    if count == 0 {
+                                        let mut items =
+                                            IndexedPipelineItems::new(self, current, span)?;
+                                        items.cancel(self, span)?;
+                                        LoweredValue::List(Vec::new())
+                                    } else {
+                                        let items =
+                                            self.lowered_pipeline_input_items(current, span)?;
+                                        let mut repeated = Vec::with_capacity(items.len() * count);
+                                        for _ in 0..count {
+                                            repeated.extend(items.iter().cloned());
+                                        }
+                                        LoweredValue::List(repeated)
+                                    }
+                                }
+                                FullStageTag::Range => {
+                                    let start = indexed_raw(&mut stage_payload, span)?;
+                                    let end = indexed_raw(&mut stage_payload, span)?;
+                                    indexed_finish(stage_payload, span)?;
+                                    let start = match self
+                                        .eval_indexed_expr(execution, start, slots, span)?
+                                    {
+                                        ControlFlow::Continue(LoweredValue::Int(value)) => value,
+                                        ControlFlow::Continue(value) => {
+                                            return Err(RuntimeError::new(
+                                                "type-error",
+                                                format!(
+                                                    "range start expected Int, found {}",
+                                                    value.type_name()
+                                                ),
+                                            )
+                                            .with_span(span));
+                                        }
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    };
+                                    let end = match self
+                                        .eval_indexed_expr(execution, end, slots, span)?
+                                    {
+                                        ControlFlow::Continue(LoweredValue::Int(value)) => value,
+                                        ControlFlow::Continue(value) => {
+                                            return Err(RuntimeError::new(
+                                                "type-error",
+                                                format!(
+                                                    "range end expected Int, found {}",
+                                                    value.type_name()
+                                                ),
+                                            )
+                                            .with_span(span));
+                                        }
+                                        ControlFlow::Break(value) => {
+                                            return Ok(ControlFlow::Break(value));
+                                        }
+                                    };
+                                    LoweredValue::List(if start <= end {
+                                        (start..end).map(LoweredValue::Int).collect()
+                                    } else {
+                                        (end + 1..=start).rev().map(LoweredValue::Int).collect()
+                                    })
                                 }
                             };
-                            LoweredValue::List(if start <= end {
-                                (start..end).map(LoweredValue::Int).collect()
-                            } else {
-                                (end + 1..=start).rev().map(LoweredValue::Int).collect()
-                            })
-                        }
-                        };
-                        Ok(ControlFlow::Continue(value))
-                    })();
+                            Ok(ControlFlow::Continue(value))
+                        })();
                     let trace_error = stage_result
                         .as_ref()
                         .err()
@@ -4967,12 +5157,13 @@ impl Evaluator {
                     }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let gitignore = match self.eval_indexed_optional_expr(execution, gitignore, slots, span)? {
-                    ControlFlow::Continue(value) => {
-                        lowered_bool_arg_or(value, true, operation, span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
+                let gitignore =
+                    match self.eval_indexed_optional_expr(execution, gitignore, slots, span)? {
+                        ControlFlow::Continue(value) => {
+                            lowered_bool_arg_or(value, true, operation, span)?
+                        }
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
                 let stat = match self.eval_indexed_optional_expr(execution, stat, slots, span)? {
                     ControlFlow::Continue(value) => {
                         lowered_bool_arg_or(value, true, operation, span)?
@@ -4992,12 +5183,13 @@ impl Evaluator {
                     ControlFlow::Continue(None) => Vec::new(),
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let hidden = match self.eval_indexed_optional_expr(execution, hidden, slots, span)? {
-                    ControlFlow::Continue(value) => {
-                        lowered_bool_arg_or(value, false, operation, span)?
-                    }
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
+                let hidden =
+                    match self.eval_indexed_optional_expr(execution, hidden, slots, span)? {
+                        ControlFlow::Continue(value) => {
+                            lowered_bool_arg_or(value, false, operation, span)?
+                        }
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    };
                 let emit = if tag == FullTag::ExprFsFiles {
                     crate::modules::fs::WalkEmit::Files
                 } else {
@@ -6812,8 +7004,7 @@ impl Evaluator {
                 // an accumulating call like `m = m.set(k, v)` can update the map
                 // in place instead of copying it into a second map.
                 let saved = self.consuming_receiver;
-                self.consuming_receiver =
-                    (op == AssignOp::Set).then_some(slot);
+                self.consuming_receiver = (op == AssignOp::Set).then_some(slot);
                 let evaluated = self.eval_indexed_expr(execution, value, slots, call_span);
                 self.consuming_receiver = saved;
                 let value = match evaluated? {
@@ -7193,9 +7384,9 @@ impl Evaluator {
                             .with_span(span));
                         };
                         slots[slot] = item;
-                        match self
-                            .eval_indexed_statement_block(execution, body, header, slots, call_span)?
-                        {
+                        match self.eval_indexed_statement_block(
+                            execution, body, header, slots, call_span,
+                        )? {
                             StmtFlow::None | StmtFlow::Continue => {}
                             flow => {
                                 self.stream_cancel(&mut stream, span)?;
@@ -8259,11 +8450,11 @@ impl Evaluator {
 }
 
 /// Whether two values are the same container through shared backing.
-    ///
-    /// A consuming call only takes the value out of its slot when the slot still
-    /// holds the very container the receiver was read from: an argument may have
-    /// replaced it, and that replacement must be what the slot ends up with.
-    pub(super) fn lowered_shares_backing(left: &LoweredValue, right: &LoweredValue) -> bool {
+///
+/// A consuming call only takes the value out of its slot when the slot still
+/// holds the very container the receiver was read from: an argument may have
+/// replaced it, and that replacement must be what the slot ends up with.
+pub(super) fn lowered_shares_backing(left: &LoweredValue, right: &LoweredValue) -> bool {
     match (left, right) {
         (LoweredValue::Record(left), LoweredValue::Record(right))
         | (LoweredValue::Module(left), LoweredValue::Module(right)) => Arc::ptr_eq(left, right),
@@ -8274,8 +8465,7 @@ impl Evaluator {
         }
         _ => false,
     }
-    }
-
+}
 
 #[cfg(test)]
 mod tests {
