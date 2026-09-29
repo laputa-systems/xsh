@@ -17,7 +17,7 @@ use super::{
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
     lowered_result_err_value, lowered_result_ok, lowered_return_value, lowered_splice_arg_items,
     lowered_str_parts, lowered_value_from_runtime_any, lowered_value_satisfies_require,
-    push_lowered_fmt_value, push_lowered_native_fmt_value,
+    push_lowered_fmt_value, push_lowered_native_fmt_value, capture_checked_error,
 };
 
 enum FrameValue {
@@ -334,12 +334,20 @@ fn with_initializer_handler(mut continuation: &FrameContinuation) -> Option<(Opt
     }
 }
 
+// Expression boundaries own completion and failure routing within one lexical
+// call frame, so producers can suspend without creating recursive evaluators.
+enum ExpressionBoundaryPolicy {
+    Value,
+    Context(crate::runtime::value::ErrorContext),
+    Capture,
+}
+
 enum FrameWork {
     ClearSlots(Vec<usize>),
     GuardFailureEnd(Span),
     // A lexical expression retains its destination across producer suspension.
     // Its statement scope owns defers; this boundary consumes only the body value.
-    ExpressionBoundary { context: Option<crate::runtime::value::ErrorContext>, next: FrameContinuation },
+    ExpressionBoundary { policy: ExpressionBoundaryPolicy, next: FrameContinuation },
     CompCleanup(CompStreams),
     Statements {
         statements: Vec<u32>,
@@ -835,17 +843,35 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 .expect("pending indexed frame error")));
             return;
         };
-        // An error abandons the active lexical blocks before it enters this
-        // function's defers. Their owned processes and NetJobs must observe
-        // the same lexical cleanup boundary as they do on normal completion.
-        if let Err(error) = self.discard_work_from(index, 0) {
-            if error.abort.as_ref().is_some_and(|signal| signal.force) {
-                self.begin_error_unwind(error);
-                return;
-            }
+        if let Err(error) = self.unwind_error_frame(index) { self.begin_error_unwind(error); }
+    }
+
+    fn capture_boundary(&self, index: usize) -> Option<usize> {
+        self.calls[index].work.iter().rposition(|work| matches!(work,
+            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Capture, .. }))
+    }
+
+    // Callee cleanup completes before searching its caller for a local capture.
+    // The selected boundary remains live while its inner lexical scopes unwind.
+    fn unwind_error_frame(&mut self, index: usize) -> Result<(), RuntimeError> {
+        let boundary = self.pending_error.as_ref().filter(|error|
+            error.abort.is_none() && (error.propagated || error.kind == "assertion-failed"))
+            .and_then(|_| self.capture_boundary(index));
+        let keep = boundary.map_or(0, |boundary| boundary + 1);
+        if let Err(error) = self.discard_work_from(index, keep) {
+            if error.abort.as_ref().is_some_and(|signal| signal.force) { return Err(error); }
             self.evaluator.report_cleanup_error(&error, self.calls[index].call_span);
         }
-        self.calls[index].work.push(FrameWork::FinishError);
+        if boundary.is_some() {
+            let Some(FrameWork::ExpressionBoundary { next, .. }) = self.calls[index].work.pop() else { unreachable!() };
+            let error = self.pending_error.take().expect("checked indexed frame failure");
+            let value = capture_checked_error(error)?;
+            self.evaluator.pending_traceback = None;
+            self.push_value(index, FrameValue::Value(value), next);
+        } else {
+            self.calls[index].work.push(FrameWork::FinishError);
+        }
+        Ok(())
     }
 
     fn discard_calls(&mut self) {
@@ -1060,8 +1086,12 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 Ok(())
             }
             FrameWork::GuardFailureEnd(span) => Err(RuntimeError::new("guard", "guard else block must diverge").with_span(span)),
-            FrameWork::ExpressionBoundary { next, .. } => {
-                self.push_value(index, FrameValue::Value(LoweredValue::Unit), next);
+            FrameWork::ExpressionBoundary { policy, next } => {
+                let value = match policy {
+                    ExpressionBoundaryPolicy::Capture => LoweredValue::ResultOk(Box::new(LoweredValue::Unit)),
+                    _ => LoweredValue::Unit,
+                };
+                self.push_value(index, FrameValue::Value(value), next);
                 Ok(())
             }
             FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams),
@@ -1592,7 +1622,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 let body = indexed_raw(&mut payload, span)?;
                 let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 indexed_finish(payload, span)?;
-                self.calls[index].work.push(FrameWork::ExpressionBoundary { context: None, next });
+                self.calls[index].work.push(FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Value, next });
+                self.push_statement_block(index, body, span)?;
+            }
+            FullTag::ExprCapture => {
+                let body = indexed_raw(&mut payload, span)?;
+                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.calls[index].work.push(FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Capture, next });
                 self.push_statement_block(index, body, span)?;
             }
             FullTag::ExprErrorContext => {
@@ -2156,7 +2193,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Value(value) => {
                     let description = super::lowered_str_arg_owned(Some(value), "", "ctx description", span)?;
                     let context = crate::runtime::value::ErrorContext { kind: "ctx".to_string(), message: Some(description), span: Some(span) };
-                    self.calls[index].work.push(FrameWork::ExpressionBoundary { context: Some(context), next: *next });
+                    self.calls[index].work.push(FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Context(context), next: *next });
                     self.push_statement_block(index, body, span)?;
                 }
                 FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
@@ -2950,14 +2987,35 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         self.evaluator.transfer_owned_host_resources_in_lowered_value(&value,
             self.evaluator.current_scope_id(), self.evaluator.parent_owned_host_scope());
         self.discard_work_from(index, boundary + 1)?;
-        let Some(FrameWork::ExpressionBoundary { next, .. }) = self.calls[index].work.pop() else { unreachable!() };
+        let Some(FrameWork::ExpressionBoundary { policy, next }) = self.calls[index].work.pop() else { unreachable!() };
+        let value = match policy {
+            ExpressionBoundaryPolicy::Capture => LoweredValue::ResultOk(Box::new(value)),
+            _ => value,
+        };
         self.push_value(index, FrameValue::Value(value), next);
         Ok(())
     }
 
     fn complete_call(&mut self, index: usize, mut flow: StmtFlow) -> Result<(), RuntimeError> {
+        if let StmtFlow::Propagate(value) = &flow
+            && let Some(boundary) = self.capture_boundary(index) {
+            let contexts = self.calls[index].work[boundary + 1..].iter().rev().filter_map(|work| match work {
+                FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Context(context), .. } => Some(context.clone()),
+                _ => None,
+            }).collect::<Vec<_>>();
+            let cleanup = self.discard_work_from(index, boundary + 1);
+            if let Err(error) = cleanup {
+                if error.abort.as_ref().is_some_and(|signal| signal.force) { return Err(error); }
+                self.evaluator.report_cleanup_error(&error, self.calls[index].call_span);
+            }
+            let Some(FrameWork::ExpressionBoundary { next, .. }) = self.calls[index].work.pop() else { unreachable!() };
+            let value = contexts.into_iter().fold(value.clone(), contextualize_propagation);
+            self.evaluator.pending_traceback = None;
+            self.push_value(index, FrameValue::Value(value), next);
+            return Ok(());
+        }
         let contexts: Vec<_> = self.calls[index].work.iter().rev().filter_map(|work| match work {
-            FrameWork::ExpressionBoundary { context: Some(context), .. } => Some(context.clone()),
+            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Context(context), .. } => Some(context.clone()),
             _ => None,
         }).collect();
         if let StmtFlow::Return(value) | StmtFlow::Break(Some(value)) = &flow {
@@ -3251,8 +3309,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             );
         }
         if let Some(parent) = self.calls.len().checked_sub(1) {
-            let _ = self.discard_work_from(parent, 0);
-            self.calls[parent].work.push(FrameWork::FinishError);
+            self.unwind_error_frame(parent)?;
         } else {
             self.result = Some(Err(self
                 .pending_error
@@ -3812,7 +3869,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn install_cleanup_contexts(&mut self) -> Vec<crate::runtime::value::ErrorContext> {
         let previous = self.evaluator.cleanup_error_contexts.clone();
         self.evaluator.cleanup_error_contexts.extend(self.calls.iter().flat_map(|call| call.work.iter()).filter_map(|work| match work {
-            FrameWork::ExpressionBoundary { context: Some(context), .. } => Some(context.clone()),
+            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Context(context), .. } => Some(context.clone()),
             _ => None,
         }));
         previous
@@ -3828,7 +3885,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     for slot in slots { self.calls[index].slots[slot] = LoweredValue::Unit; }
                     Ok(())
                 }
-                FrameWork::ExpressionBoundary { context: Some(context), .. } => {
+                FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Context(context), .. } => {
                     self.evaluator.cleanup_error_contexts.pop();
                     if let Some(error) = self.pending_error.take() {
                         self.pending_error = Some(contextualize_runtime_error(error, context.clone()));
