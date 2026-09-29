@@ -214,3 +214,27 @@ proc test_pattern_predicates_leave_control_body_braces() [error] {
   test.eq(matched, true)?
   test.eq(branches, 2)?
 }
+
+proc test_pattern_predicates_keep_following_type_pattern_match_arms(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, r"""error ArmError = Missing(message: Str) : NotFound
+pure describe(value: Error) -> Str {
+  match value {
+    is PermissionDenied => return "denied"
+    is NotFound => return "missing"
+    _ => return "other"
+  }
+}
+pure describe_expression(value: Error) -> Str {
+  let result = match value {
+    is PermissionDenied => "denied"
+    is NotFound => "missing"
+    _ => "other"
+  }
+  result
+}
+let missing = ArmError.Missing(message: "missing")
+print (describe(missing)) (describe_expression(missing))
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "missing missing\n")?
+}

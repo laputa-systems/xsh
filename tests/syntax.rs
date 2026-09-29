@@ -3492,3 +3492,10 @@ fn parser_requires_grouping_between_ordering_and_pattern_tests() {
         assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
     }
 }
+
+#[test]
+fn parser_keeps_type_pattern_match_arms_after_unbraced_values() {
+    let source = "pure describe(failure: Error) -> Str {\n  match failure {\n    is PermissionDenied => return \"permission_denied\"\n    is NotFound => return \"not_found\"\n    _ => return \"other\"\n  }\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+}

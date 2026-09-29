@@ -115,12 +115,12 @@ let absent: List[Str]? = null
 let separator = separator_value()
 let skipped = absent?.join(separator:)
 let skipped_effect = absent?.join(separator_value())
-print calls
+print $calls
 print (skipped ?? "absent")
 print (skipped_effect ?? "absent")
 """,
   )?
-  test.eq(output.status, 0)?
+  test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "1\nabsent\nabsent\n")?
 }
 

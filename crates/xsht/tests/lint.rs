@@ -2761,6 +2761,7 @@ fn optional_postfix_fix_preserves_null_fallback_and_converges() {
 #[test]
 fn optional_postfix_fix_refuses_mutation_comments_and_optional_results() {
     for source in [
+        "let name: Str? = null\nlet label = if name == null { \"default\" } else { print \"selected\"; name.trim() }\nprint $label\n",
         "var name: Str? = null\nname = \"x\"\nlet label = if name == null { \"default\" } else { name.trim() }\nprint $label\n",
         "let name: Str? = null\nlet label = if name == null {\n  # retain explanation\n  \"default\"\n} else { name.trim() }\nprint $label\n",
         "type Item = {name: Str?}\nlet item: Item? = null\nlet name: Str? = if item == null { \"default\" } else { item.name }\nprint (name ?? \"\")\n",

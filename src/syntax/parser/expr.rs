@@ -253,7 +253,11 @@ impl<'a> Parser<'a> {
         let value = if self.at(TokenKindMatch::LBrace) && !self.brace_starts_record_value() {
             self.parse_braced_value_expr_arena_only("match arm", arena)?.0.id
         } else {
-            self.parse_expr_id_arena_only(arena)?
+            let previous = self.unbraced_match_arm_depth;
+            self.unbraced_match_arm_depth = Some((self.block_depth, self.parenthesized_expr_depth));
+            let value = self.parse_expr_id_arena_only(arena);
+            self.unbraced_match_arm_depth = previous;
+            value?
         };
         let value_end = self.previous_end();
         if self.consume(TokenKindMatch::Comma).is_some() {
@@ -563,7 +567,11 @@ impl<'a> Parser<'a> {
                 if self.current_binary_op().is_none() && self.continuation_binary_op().is_some() {
                     self.skip_newlines();
                 }
-                if self.current_tag() == TokenTag::Newline {
+                // At an unbraced arm boundary, a leading `is` starts the next
+                // type pattern. Nested blocks and groups still allow continuation.
+                if self.current_tag() == TokenTag::Newline
+                    && self.unbraced_match_arm_depth != Some((self.block_depth, self.parenthesized_expr_depth))
+                {
                     let mut offset = 1;
                     while self.peek_tag(offset) == Some(TokenTag::Newline) { offset += 1; }
                     if self.peek_name(offset).is_some_and(|name| name == "is") { self.skip_newlines(); }

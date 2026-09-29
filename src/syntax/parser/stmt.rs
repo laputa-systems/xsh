@@ -1350,7 +1350,10 @@ impl<'a> Parser<'a> {
             let previous = self.comma_is_terminator;
             self.comma_is_terminator = true;
             arena.begin_block();
+            let previous_arm = self.unbraced_match_arm_depth;
+            self.unbraced_match_arm_depth = Some((self.block_depth, self.parenthesized_expr_depth));
             let stmt = self.parse_statement_arena_only(arena);
+            self.unbraced_match_arm_depth = previous_arm;
             self.comma_is_terminator = previous;
             if stmt.is_none() {
                 arena.discard_block();
