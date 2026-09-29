@@ -779,7 +779,7 @@ fn core_doc(item: &str) -> ReferenceDoc {
         ),
         "pure-functions" => (
             "Defines effect-free function declarations.",
-            "Pure functions cannot cross host-effect boundaries and retain a distinct trace/evaluation contract.",
+            "Pure functions cannot cross host-effect boundaries. Private helpers may omit return annotations when their definitions infer a concrete compatible type. Exported and recursive pure signatures remain explicit; empty or dynamic shapes require annotations. Inference never creates a Result boundary merely from ?. xsht check --annotate=returns can render inferred returns.",
         ),
         "list-concatenation" => (
             "Concatenates lists while preserving value semantics.",

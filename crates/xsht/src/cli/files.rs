@@ -170,6 +170,7 @@ pub(crate) fn is_path_excluded(root: &Path, path: &Path, excludes: &[String]) ->
 
 #[derive(Clone, Debug, Default)]
 pub struct LintConfig {
+    pub prefer_inferred_pure_returns: bool,
     pub runless_except: Vec<String>,
 }
 
@@ -322,6 +323,7 @@ fn parse_lint_ini(fields: &xsh::execution::value::RecordMap) -> LintConfig {
         return LintConfig::default();
     };
     LintConfig {
+        prefer_inferred_pure_returns: ini_string(lint, "prefer-inferred-pure-returns").is_some_and(|value| value == "true"),
         runless_except: ini_string_list(lint, "runless-except").unwrap_or_default(),
     }
 }

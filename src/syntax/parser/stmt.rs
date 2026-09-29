@@ -741,11 +741,7 @@ impl<'a> Parser<'a> {
         } else if proc_def {
             (result_unit_type_expr(arena, self.current_span()), true)
         } else {
-            self.diagnostic_here(
-                "pure function return annotations are required",
-                "parse.required-return",
-            );
-            (result_unit_type_expr(arena, self.current_span()), true)
+            (arena.push_named_type_expr(Name::intern("Unit"), self.current_span()), true)
         };
         let body_id = self.parse_block_arena_only(arena)?;
         let span = self.span(start, self.previous_end());

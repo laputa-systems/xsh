@@ -3419,3 +3419,46 @@ fn error_fallback_checked_facts_keep_nominal_error_and_value_tail() {
     }
     assert!(exact_error);
 }
+
+#[test]
+fn private_pure_inference_publishes_exact_returns_and_annotations() {
+    let source = "pure later(value: Int) { value + 1 }\npure earlier(value: Int) { later(value) }\npure predicate(value: Int) { value > 0 }\nlet number: Int = earlier(2)\nlet flag: Bool = predicate(-1)\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert_eq!(checked.function_return_types.len(), 3);
+    assert_eq!(checked.annotation_facts.iter().filter(|fact| matches!(fact.kind, AnnotationFactKind::InferredPureReturn { .. })).count(), 3);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    parsed.arena.symbol_owner().with_current(|| {
+        assert_eq!(declarations.pures[&xsh::frontend::symbols::Name::intern("earlier")].return_ty.to_string(), "Int");
+        assert_eq!(declarations.pures[&xsh::frontend::symbols::Name::intern("predicate")].return_ty.to_string(), "Bool");
+    });
+}
+
+#[test]
+fn private_pure_inference_requires_annotations_for_recursive_and_contextual_returns() {
+    for source in [
+        "pure first(value: Int) { second(value) }\npure second(value: Int) -> Int { first(value) }\n",
+        "export pure value() { 1 }\n",
+    ] { assert!(has_code(&check(source), "check.required-return"), "{source}"); }
+    for source in [
+        "pure value() { [] }\n", "pure value() { map.empty() }\n",
+        "pure value(input: Any) { input }\n",
+        "pure value(flag: Bool) { if flag { Ok(1) } else { 1 } }\n",
+        "pure value(flag: Bool) { if flag { return 1 }; let unused = 2 }\n",
+    ] { assert!(has_code(&check(source), "check.infer-return"), "{source}"); }
+    assert!(has_code(&check("pure parsed(text: Str) { text.parse_int()? }\n"), "check.try-context"));
+}
+
+#[test]
+fn private_pure_inference_destructured_capture() {
+    let source = "let {left, right} = {left: 2, right: 3}\npure destructured() { left + right }\n";
+    assert!(check(source).is_empty(), "{:?}", check(source));
+}
+
+#[test]
+fn private_pure_inference_preserves_prefix_capture_visibility() {
+    assert!(has_code(&check("pure captured() { prefix + \"!\" }\nlet prefix = \"later\"\n"), "check.unresolved-name"));
+}

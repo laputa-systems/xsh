@@ -1,3 +1,3 @@
-pure add(left: Int, right: Int) -> Int {
+pure add(left: Int, right: Int) {
   left + right
 }

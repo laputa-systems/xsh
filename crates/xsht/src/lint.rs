@@ -58,9 +58,11 @@ pub struct LintOutput {
 
 #[derive(Clone, Debug)]
 pub struct LintOptions {
+    pub prefer_inferred_pure_returns: bool,
     pub runless: bool,
     pub runless_except: Vec<String>,
     pub interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
+    pub function_return_types: BTreeMap<Span, Type>,
     pub expr_types: BTreeMap<Span, Type>,
     pub statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
@@ -71,9 +73,11 @@ pub struct LintOptions {
 impl Default for LintOptions {
     fn default() -> Self {
         Self {
+            prefer_inferred_pure_returns: false,
             runless: false,
             runless_except: Vec::new(),
             interactive_command_replacement: None,
+            function_return_types: BTreeMap::default(),
             expr_types: BTreeMap::default(),
             statement_positions: BTreeMap::default(),
             callable_effects: FxHashMap::default(),
@@ -95,12 +99,15 @@ struct Binding {
 pub struct Linter<'a> {
     arena: &'a AstArena,
     record_constructors: xsh::frontend::check::RecordConstructors,
+    prefer_inferred_pure_returns: bool,
+    return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
     source: &'a str,
     runless: bool,
     runless_except: Vec<String>,
     interactive_command_replacement: Option<fn(&str) -> Option<&'static str>>,
     scopes: Vec<FxHashMap<String, Binding>>,
     diagnostics: Vec<Diagnostic>,
+    checked_function_returns: BTreeMap<Span, Type>,
     expr_types: BTreeMap<Span, Type>,
     statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
     result_unit_functions: Vec<bool>,
@@ -190,12 +197,15 @@ impl<'a> Linter<'a> {
         let mut linter = Self {
             record_constructors: xsh::frontend::check::RecordConstructors::collect(program),
             arena: &program.arena,
+            prefer_inferred_pure_returns: options.prefer_inferred_pure_returns,
+            return_removal_before: None,
             source,
             runless: options.runless,
             runless_except: options.runless_except,
             interactive_command_replacement: options.interactive_command_replacement,
             scopes: vec![FxHashMap::default()],
             diagnostics: Vec::new(),
+            checked_function_returns: options.function_return_types,
             expr_types: options.expr_types,
             statement_positions: options.statement_positions,
             result_unit_functions: Vec::new(),
@@ -715,7 +725,10 @@ impl<'a> Linter<'a> {
                 self.lint_proc_function(def, exported);
                 self.lint_effect_annotation(def, stmt.span);
             }
-            ArenaStmtKind::PureDef(def) => self.lint_function(def),
+            ArenaStmtKind::PureDef(def) => {
+                self.lint_inferred_pure_return(def, exported);
+                self.lint_function(def);
+            },
             ArenaStmtKind::StreamDef(def) => {
                 self.lint_proc_function(def, exported);
                 self.lint_effect_annotation(def, stmt.span);
@@ -852,6 +865,44 @@ impl<'a> Linter<'a> {
         }
     }
 
+    fn lint_inferred_pure_return(&mut self, id: FunctionDefId, exported: bool) {
+        let def = self.arena.function_def(id);
+        if !self.prefer_inferred_pure_returns || exported || def.return_ty_defaulted { return; }
+        let ty_span = self.arena.type_expr_span(def.return_ty);
+        let mut types = vec![def.return_ty];
+        while let Some(id) = types.pop() {
+            let data = self.arena.type_expr_data[id.index()];
+            match self.arena.type_expr_tags[id.index()] {
+                ArenaTypeExprTag::Named => {
+                    let name = Name::from_symbol(Symbol::from_raw(data.lhs));
+                    if Type::builtin_from_name(&name.as_str()).is_none() { return; }
+                }
+                ArenaTypeExprTag::Qualified => return,
+                ArenaTypeExprTag::Result => {
+                    types.push(TypeExprId::from_index(data.lhs as usize));
+                    if let Some(error) = TypeExprId::from_optional_raw(data.rhs) { types.push(error); }
+                }
+                _ => types.push(TypeExprId::from_index(data.lhs as usize)),
+            }
+        }
+        let start = scan_before_arrow(self.source, ty_span.start());
+        let deletion = Span::new(ty_span.source_id, start, ty_span.end());
+        let Some(annotation) = self.source.get(start..ty_span.end()) else { return; };
+        if annotation.contains('#') { return; }
+        let mut rewritten = self.source.to_string();
+        rewritten.replace_range(start..ty_span.end(), "");
+        if self.return_removal_before.is_none() {
+            self.return_removal_before = Some(checked_return_removal_facts(self.source, ty_span.source_id, None));
+        }
+        let before = self.return_removal_before.as_ref().unwrap();
+        let after = checked_return_removal_facts(&rewritten, ty_span.source_id, Some((start, ty_span.end() - start)));
+        if before.is_none() || before != &after { return; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "private pure return type can be inferred exactly")
+            .with_code("lint.prefer-inferred-pure-return")
+            .with_label(Label::secondary(ty_span, "definition and caller types remain identical without this annotation"))
+            .with_fix_hint(FixHint::deletion(deletion, "infer the private pure return")));
+    }
+
     fn lint_proc_function(&mut self, def_id: FunctionDefId, exported: bool) {
         let def = self.arena.function_def(def_id).clone();
         if !def.return_ty_defaulted && !exported && result_unit_type_expr(self.arena, def.return_ty)
@@ -965,7 +1016,9 @@ impl<'a> Linter<'a> {
         let result_unit = result_unit_type_expr(self.arena, def.return_ty);
         let result_path = result_path_type_expr(self.arena, def.return_ty);
         let result_ok = result_ok_type_expr(self.arena, def.return_ty);
-        let return_ty = Type::from_arena(self.arena, def.return_ty);
+        let body_span = self.arena.span(self.arena.block(def.body).span);
+        let return_ty = self.checked_function_returns.get(&body_span).cloned()
+            .unwrap_or_else(|| Type::from_arena(self.arena, def.return_ty));
 
         self.result_unit_functions.push(result_unit);
         self.result_path_functions.push(result_path);
@@ -8832,5 +8885,55 @@ fn same_ordering_operand(arena: &AstArena, left: ExprId, right: ExprId) -> bool 
         (ArenaExprKind::Float(left), ArenaExprKind::Float(right)) => arena.float_literal(left).value().zip(arena.float_literal(right).value()).is_some_and(|(left, right)| left.to_bits() == right.to_bits()),
         (ArenaExprKind::Str(left), ArenaExprKind::Str(right)) => arena.string_literal(left) == arena.string_literal(right),
         _ => false,
+    }
+}
+
+#[derive(Eq, PartialEq)]
+struct CheckedReturnRemovalFacts {
+    expressions: Vec<(usize, usize, String)>,
+    statements: Vec<(usize, usize, xsh::frontend::check::StatementPosition)>,
+    returns: Vec<(usize, usize, String)>,
+    effects: BTreeMap<String, Option<Vec<Effect>>>,
+}
+
+/// Source edits must preserve every checked expression and statement purpose,
+/// including caller overload selection, conversions, and implicit Result tails.
+fn checked_return_removal_facts(source: &str, source_id: xsh::frontend::source::SourceId, removed: Option<(usize, usize)>)
+    -> Option<CheckedReturnRemovalFacts> {
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(source_id, source);
+    if !parsed.diagnostics.is_empty() { return None; }
+    let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
+    if !checked.diagnostics.is_empty() { return None; }
+    let original_offset = |offset: usize| match removed { Some((start, length)) if offset >= start => offset + length, _ => offset };
+    parsed.arena.symbol_owner().with_current(|| Some(CheckedReturnRemovalFacts {
+        expressions: checked.expr_types.iter().map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
+        statements: checked.statement_positions.iter().map(|(span, position)| (original_offset(span.start()), original_offset(span.end()), *position)).collect(),
+        returns: checked.function_return_types.iter().map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
+        effects: checked.callable_effects.into_iter().collect(),
+    }))
+}
+
+// Type display intentionally hides structural fields. Compare their complete
+// checked shapes with names rendered under each source's symbol owner.
+fn checked_return_type_shape(ty: &Type) -> String {
+    match ty {
+        Type::Record(fields) => format!("Record{:?}", fields.iter().map(|(name, ty)| (name.to_string(), checked_return_type_shape(ty))).collect::<BTreeMap<_, _>>()),
+        Type::Module(exports) => format!("Module{:?}", exports.iter().map(|(name, export)| {
+            use xsh::frontend::check::ModuleExportType;
+            let shape = match export {
+                ModuleExportType::Value { ty, optional } => format!("value:{optional}:{}", checked_return_type_shape(ty)),
+                ModuleExportType::Pure { sig, optional } | ModuleExportType::Proc { sig, optional } => {
+                    let params = sig.params.iter().map(|param| (param.name.to_string(), checked_return_type_shape(&param.ty), param.defaulted, param.rest)).collect::<Vec<_>>();
+                    format!("{}:{optional}:{params:?}:{}:{:?}", if matches!(export, ModuleExportType::Pure { .. }) { "pure" } else { "proc" }, checked_return_type_shape(&sig.return_ty), sig.effects)
+                }
+            };
+            (name.to_string(), shape)
+        }).collect::<BTreeMap<_, _>>()),
+        Type::List(inner) => format!("List[{}]", checked_return_type_shape(inner)),
+        Type::Map(inner) => format!("Map[{}]", checked_return_type_shape(inner)),
+        Type::Stream(inner) => format!("Stream[{}]", checked_return_type_shape(inner)),
+        Type::Optional(inner) => format!("Optional[{}]", checked_return_type_shape(inner)),
+        Type::Result(ok, error) => format!("Result[{}, {}]", checked_return_type_shape(ok), checked_return_type_shape(error)),
+        _ => ty.to_string(),
     }
 }

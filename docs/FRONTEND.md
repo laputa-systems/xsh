@@ -364,3 +364,10 @@ the flag so ordinary and guarded operations never match interchangeably.
 spans to replace equivalent immutable null branches. It preserves precedence
 with grouping and declines comments, mutation, dynamic receiver domains, and
 present results whose own null value would change fallback selection.
+
+An omitted private pure return is retained by
+`ArenaFunctionDef::return_ty_defaulted`; its synthetic Unit annotation is only
+parser storage. Semantic consumers use checked `function_return_types` facts
+keyed by the body span. The return inference pass checks dependency components
+before callers and retains Bool tail value classifications. Exported and
+recursive pure signatures remain explicit.

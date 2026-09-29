@@ -543,3 +543,11 @@ Callable result slots retain complete declared schemas through
 precedence over syntactic recovery. Resolving a named record return before
 field aliases are stored keeps Optional receivers distinguishable from Result
 receivers when guarded postfix operations are lowered.
+
+Private pure return inference is owned by
+`src/sema/check/infer_return.rs::infer_local_pure_returns`. Declaration dependency
+components are computed with iterative graph traversals; recursive unannotated
+members require explicit signatures. `CheckOutput::function_return_types` and
+`CompactDeclOutput::function_return_types` retain checked body return facts for
+qualified calls, indexed return kinds, lint rechecks, and annotation rendering.
+No caller supplies the inferred definition's return context.

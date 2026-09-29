@@ -178,7 +178,7 @@ The implemented v1 surface includes:
 - Newline and semicolon statement terminators.
 - `use`, `export`, `let`, `var`, `proc`, `pure`, `type`, `return`, `defer`,
   `if`, `else`, `while`, `for`, `break`, `continue`, and `match`.
-- Required parameter lists, required return annotations for `pure`, default
+- Required parameter lists, concrete return inference for private `pure` helpers, default
   `Result[Unit]` returns for annotation-free `proc`, typed defaults for simple
   defaulted parameters, plus default and rest parameters.
 - Expression-style pure and proc calls, plus fully qualified standard-module
@@ -1107,7 +1107,7 @@ Definitions:
 
 ```ebnf
 proc_def     = "proc" PROC_IDENT "(" param_list? ")" effect_list? "->" type_expr block ;
-pure_def     = "pure" IDENT "(" param_list? ")" "->" type_expr block ;
+pure_def     = "pure" IDENT "(" param_list? ")" ("->" type_expr)? block ;
 stream_def   = "stream" IDENT "(" param_list? ")" effect_list? "->" "Stream" "[" type_expr "]" block ;
 param_list   = param ("," param)* ","? ;
 param        = IDENT (":" type_expr ("=" expr)? | "=" expr) ;
@@ -1119,6 +1119,24 @@ Parameters without an explicit type require a default expression whose type is
 syntactically clear. Supported inferred defaults include `Bool`, `Int`,
 `Duration`, `Str`, `Bytes`, `Regex`, and `Path` literals. Parameters
 without defaults and rest parameters require an explicit type.
+
+Private pure functions may omit `-> Type`. Infer from typed parameters,
+checked callee signatures, explicit returns, and reachable fallthrough tails;
+call sites provide no return context. A final Bool is a value. Non-tail
+statements retain their statement behavior. Compatible branches must produce a
+concrete shape; inconsistent value/missing-return paths require an annotation.
+Empty collections without another source of element type, error-only returns,
+and dynamic return shapes report `check.infer-return`.
+
+Local callable definitions are analyzed in declaration dependency order.
+Captured values retain visibility from the lexical prefix before the function
+definition. Every
+unannotated pure member of a recursive dependency component reports
+`check.required-return`; exported pure functions and module-contract signatures
+also retain explicit return annotations. Inference does not create a Result
+boundary from `?`: the body must independently determine a compatible Result,
+or declare its return type. Annotation-driven conversions, contextual schema
+constraints, and implicit Ok wrapping retain their declared boundary.
 
 Pure functions are called with expression syntax:
 
@@ -3799,6 +3817,16 @@ effectful expressions.
 `return`, `break`, `continue`, or `yield`. It preserves condition-first payload
 laziness and groups run payloads. Comments, multiple actions, multiline payloads,
 and long proposed one-liners keep their readable blocks.
+
+`lint.prefer-inferred-pure-return` is opt-in with
+`[lint] prefer-inferred-pure-returns = true` in `xsht-config.ini`. It removes a
+private pure return annotation only after a complete source recheck preserves
+all function and caller types, expression types, effects, and statement/value
+classifications. Named schema constraints and unresolved imported contexts
+receive no fix. The rule is disabled when configured `check.annotate` includes
+`returns` (directly or through `default`/`signatures`/`all`), preserving annotation
+tooling round trips. `xsht check --annotate=returns` renders inferred private
+pure returns as well as defaulted exported proc returns.
 
 During `xsht check`, `reveal_type(expr)` is a checker-only builtin that accepts
 one positional argument, reports the inferred type as a note, and has type

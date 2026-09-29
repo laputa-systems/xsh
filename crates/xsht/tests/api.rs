@@ -781,3 +781,13 @@ fn api_core_records_demonstrates_schema_owned_defaults_and_constructor_puns() {
     assert!(stdout.contains("enabled: Bool = true"), "{stdout}");
     assert!(stdout.contains("Config(name:)"), "{stdout}");
 }
+
+#[test]
+fn api_private_pure_returns_explain_definition_inference_and_explicit_boundaries() {
+    let output = xsht(&["api", "language:core.pure-functions"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(stdout.contains("Private helpers"), "{stdout}");
+    assert!(stdout.contains("recursive"), "{stdout}");
+    assert!(stdout.contains("pure add(left: Int, right: Int) {"), "{stdout}");
+}

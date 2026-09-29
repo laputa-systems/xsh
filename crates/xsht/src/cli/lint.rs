@@ -667,6 +667,7 @@ fn lint_workspace_root(
             bundle.modules.clear();
         }
         let mut options = module.config.lint_options.clone();
+        options.function_return_types = checked.function_return_types.clone();
         options.expr_types = checked.expr_types.clone();
         options.statement_positions = checked.statement_positions.clone();
         options.callable_effects = checked.callable_effects.clone();
@@ -1049,10 +1050,15 @@ fn lint_config_for_file(
     let tool_config = FileToolConfig { config_dir, config };
     let line_width = tool_config.line_width();
     let module_roots = tool_config.module_roots();
+    let configured_return_annotations = tool_config.config.check.annotate.as_ref()
+        .and_then(|classes| super::check::AnnotationPolicy::from_names(classes.iter().map(String::as_str)).ok())
+        .is_some_and(super::check::AnnotationPolicy::annotates_returns);
     let lint_options = LintOptions {
+        prefer_inferred_pure_returns: tool_config.config.lint.prefer_inferred_pure_returns && !configured_return_annotations,
         runless,
         runless_except: tool_config.config.lint.runless_except,
         interactive_command_replacement: None,
+        function_return_types: Default::default(),
         expr_types: Default::default(),
         statement_positions: Default::default(),
         callable_effects: Default::default(),
@@ -1115,6 +1121,7 @@ fn lint_one_file_with_fixes(
         .as_ref()
         .expect("checked program after clean parse");
     let mut lint_options = config.lint_options.clone();
+    lint_options.function_return_types = checked.function_return_types.clone();
     lint_options.expr_types = checked.expr_types.clone();
     lint_options.statement_positions = checked.statement_positions.clone();
     lint_options.callable_effects = checked.callable_effects.clone();
@@ -1320,6 +1327,7 @@ fn apply_cst_fixes(
             return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &program.sources));
         }
         let mut options = config.lint_options.clone();
+        options.function_return_types = checked.function_return_types.clone();
         options.expr_types = checked.expr_types.clone();
         options.statement_positions = checked.statement_positions.clone();
         options.callable_effects = checked.callable_effects.clone();

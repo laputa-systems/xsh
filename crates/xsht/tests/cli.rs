@@ -1644,3 +1644,36 @@ fn check_validates_regex_literals_in_unused_imported_functions() {
     assert!(stderr.contains("check.regex-literal"), "{stderr}");
     assert!(stderr.contains("broken.xsh:1:"), "{stderr}");
 }
+
+#[test]
+fn private_pure_return_annotation_mode_and_lint_policy_preserve_each_other() {
+    let root = TempDir::new().expect("temp root");
+    let script = root.path().join("main.xsh");
+    fs::write(&script, "pure label(name: Str) { name.trim() }\nprint label(\"ready\")\n").unwrap();
+    fs::write(root.path().join("xsht-config.ini"), "[check]\nannotate = returns\n[lint]\nprefer-inferred-pure-returns = true\n").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["check", "--annotate", "main.xsh"]).current_dir(root.path()).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let annotated = fs::read_to_string(&script).unwrap();
+    assert!(annotated.contains("-> Str"), "{annotated}");
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht")).args(["lint", "--fix", "main.xsh"]).current_dir(root.path()).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(fs::read_to_string(&script).unwrap(), annotated);
+}
+
+#[test]
+fn private_pure_return_annotation_removal_cli_is_opt_in_and_idempotent() {
+    let root = TempDir::new().expect("temp root");
+    let script = root.path().join("main.xsh");
+    let source = "pure label(name: Str) -> Str { name.trim() }\nprint label(\"ready\")\n";
+    fs::write(&script, source).unwrap();
+    let run = || Command::new(env!("CARGO_BIN_EXE_xsht")).args(["lint", "--fix", "main.xsh"]).current_dir(root.path()).output().unwrap();
+    assert!(run().status.success());
+    assert_eq!(fs::read_to_string(&script).unwrap(), source);
+    fs::write(root.path().join("xsht-config.ini"), "[lint]\nprefer-inferred-pure-returns = true\n").unwrap();
+    let output = run();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let fixed = fs::read_to_string(&script).unwrap();
+    assert!(!fixed.contains("-> Str"), "{fixed}");
+    assert!(run().status.success());
+    assert_eq!(fs::read_to_string(&script).unwrap(), fixed);
+}

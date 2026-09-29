@@ -29,6 +29,8 @@ mod compact;
 mod decl;
 #[path = "check/expr.rs"]
 mod expr;
+#[path = "check/infer_return.rs"]
+mod infer_return;
 #[path = "check/method.rs"]
 mod method;
 #[path = "check/pattern.rs"]
@@ -72,6 +74,7 @@ pub enum StatementPosition {
 pub struct CheckOutput {
     pub diagnostics: Vec<Diagnostic>,
     pub annotation_facts: Vec<AnnotationFact>,
+    pub function_return_types: BTreeMap<Span, Type>,
     pub reveal_types: Vec<Diagnostic>,
     pub expr_types: BTreeMap<Span, Type>,
     pub statement_positions: BTreeMap<Span, StatementPosition>,
@@ -103,6 +106,9 @@ pub enum AnnotationFactKind {
     DefaultedParam {
         span: Span,
         default: Span,
+    },
+    InferredPureReturn {
+        body: Span,
     },
     ExportedProcReturn {
         body: Span,
@@ -274,6 +280,10 @@ pub struct Checker {
     pattern_test_types: FxHashMap<crate::syntax::arena::PatternId, Type>,
     terminating_call_spans: BTreeSet<Span>,
     options: CheckOptions,
+    function_return_types: BTreeMap<Span, Type>,
+    inferred_returns: Option<Vec<(Type, Span)>>,
+    inferred_propagations: Vec<(Type, Span)>,
+    inference_reachable: bool,
     current_return: Option<Type>,
     current_yield: Option<Type>,
     in_pure: bool,
@@ -334,6 +344,7 @@ impl Checker {
             CheckOutput {
                 diagnostics: checker.diagnostics,
                 annotation_facts: checker.annotation_facts,
+                function_return_types: checker.function_return_types,
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
                 statement_positions: checker.statement_positions,
@@ -415,6 +426,7 @@ impl Checker {
             CheckOutput {
                 diagnostics: checker.diagnostics,
                 annotation_facts: checker.annotation_facts,
+                function_return_types: checker.function_return_types,
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
                 statement_positions: checker.statement_positions,
@@ -450,6 +462,10 @@ impl Checker {
             pattern_test_types: FxHashMap::default(),
             terminating_call_spans: BTreeSet::new(),
             options,
+            function_return_types: BTreeMap::new(),
+            inferred_returns: None,
+            inferred_propagations: Vec::new(),
+            inference_reachable: true,
             current_return: None,
             current_yield: None,
             in_pure: false,
@@ -529,6 +545,7 @@ impl Checker {
         self.collect_user_modules_arena(program, type_program.clone(), source);
         self.collect_type_imports_arena(program, program.statement_ids());
         self.collect_definitions_arena(program, type_program, source, program.statement_ids());
+        self.infer_local_pure_returns(program, source, &program.statement_ids().collect::<Vec<_>>());
         for stmt in program.statement_ids() {
             self.check_stmt_arena(program, source, stmt);
         }

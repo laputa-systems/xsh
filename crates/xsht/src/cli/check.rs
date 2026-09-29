@@ -32,6 +32,8 @@ pub enum AnnotationSelection {
 }
 
 impl AnnotationPolicy {
+    pub(crate) fn annotates_returns(self) -> bool { self.returns }
+
     pub fn defaults() -> Self {
         Self {
             params: true,
@@ -866,7 +868,7 @@ fn annotation_edits(
                     edits.push((offset, offset, format!(": {ty} ")));
                 }
             }
-            AnnotationFactKind::ExportedProcReturn { body } => {
+            AnnotationFactKind::InferredPureReturn { body } | AnnotationFactKind::ExportedProcReturn { body } => {
                 if policy.returns && body.source_id == target_source {
                     edits.push((body.start(), body.start(), format!(" -> {ty} ")));
                 }

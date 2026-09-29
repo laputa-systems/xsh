@@ -3203,3 +3203,40 @@ fn linter_record_constructor_requires_static_schema_and_preserves_constant_bits(
     assert!(constructors[2].fix_hints.is_empty());
     assert!(constructors[3].fix_hints.is_empty());
 }
+
+#[test]
+fn private_pure_return_removal_is_opt_in_exact_and_convergent() {
+    let source = "pure label(name: Str) -> Str { name.trim() }\nprint label(\"ready\")\n";
+    let parsed = parse_lint_source(source);
+    let disabled = Linter::lint(&parsed.arena, source, LintOptions::default());
+    assert!(!disabled.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-inferred-pure-return")));
+    let enabled = Linter::lint(&parsed.arena, source, LintOptions { prefer_inferred_pure_returns: true, ..LintOptions::default() });
+    let diagnostic = enabled.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-inferred-pure-return")).expect("safe inferred return fix");
+    let span = diagnostic.fix_hints[0].span.unwrap();
+    let mut fixed = source.to_string();
+    fixed.replace_range(span.start()..span.end(), "");
+    assert_parse_check_standalone("inferred return", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let second = Linter::lint(&parsed.arena, &fixed, LintOptions { prefer_inferred_pure_returns: true, ..LintOptions::default() });
+    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-inferred-pure-return")));
+}
+
+#[test]
+fn private_pure_return_removal_retains_context_and_result_boundaries() {
+    for source in [
+        "pure empty() -> List[Int] { [] }\nlet values = empty()\n",
+        "type Item = {name: Str}\npure item() -> Item { {name: \"ready\"} }\nlet selected = item()\n",
+        "type Item = {name: Str}\npure items() -> List[Item] { [{name: \"ready\"}] }\nlet selected = items()\n",
+        "pure structural() -> Record { {name: \"ready\"} }\nlet selected = structural()\n",
+        "pure wrapped() -> Result[Int] { 1 }\nlet selected = wrapped()\n",
+        "pure converted() -> Path { \".\" }\nlet selected = converted()\n",
+        "pure assertion() -> Unit { false }\nassertion()\n",
+        "pure recursive(value: Int) -> Int { recursive(value) }\nlet selected = recursive(1)\n",
+        "export pure visible() -> Int { 1 }\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let linted = Linter::lint(&parsed.arena, source, LintOptions { prefer_inferred_pure_returns: true, ..LintOptions::default() });
+        assert!(!linted.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-inferred-pure-return")), "{source}");
+    }
+}

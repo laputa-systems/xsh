@@ -46,7 +46,9 @@ impl Checker {
                 .as_ref()
                 .is_none_or(|return_ty| return_ty.is_result())
             || self.current_yield.is_some();
-        if !allowed {
+        let inferring = self.inferred_returns.is_some() && self.current_return == Some(Type::Unknown);
+        if inferring { self.inferred_propagations.push((err.clone(), span)); }
+        if !allowed && !inferring {
             self.error(
                 span,
                 "`?` requires a Result-returning context",

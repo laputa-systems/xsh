@@ -25,6 +25,15 @@ impl Checker {
     ) {
         for module in &program.modules {
             if module.internal {
+                if program.module_statements(module).any(|id| {
+                    let kind = match program.arena.stmt(id).kind {
+                        ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
+                        other => other,
+                    };
+                    matches!(kind, ArenaStmtKind::PureDef(id) if program.arena.function_def(id).return_ty_defaulted)
+                }) {
+                    self.check_user_module_arena(program, type_program.clone(), source, module);
+                }
                 // Embedded implementations are not user modules: they have no
                 // `use` path, no module contract, and no public documentation
                 // obligations. Their bodies are checked with the program and
@@ -164,7 +173,8 @@ impl Checker {
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let mut sig = self.function_sig_arena(program, source, def_id);
+                    if def.return_ty_defaulted { sig.return_ty = Type::Unknown; }
                     self.pures.insert(def.name, sig);
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
@@ -205,7 +215,7 @@ impl Checker {
         self.define_standard_values();
 
         let stmt_ids: Vec<StmtId> = program.module_statements(module).collect();
-        self.check_public_docs(program, module.statements, &stmt_ids);
+        if !module.internal { self.check_public_docs(program, module.statements, &stmt_ids); }
         self.collect_type_imports_arena(program, stmt_ids.iter().copied());
         let mut names = FxHashSet::default();
         for stmt_id in &stmt_ids {
@@ -244,7 +254,8 @@ impl Checker {
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
                     self.check_standard_module_shadow(&def.name.as_str(), span);
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let mut sig = self.function_sig_arena(program, source, def_id);
+                    if def.return_ty_defaulted { sig.return_ty = Type::Unknown; }
                     self.pures.insert(def.name, sig);
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
@@ -257,6 +268,7 @@ impl Checker {
             }
         }
 
+        self.infer_local_pure_returns(program, source, &stmt_ids);
         let mut exports = UserModuleSig::default();
         for stmt_id in &stmt_ids {
             let stmt = program.arena.stmt(*stmt_id);

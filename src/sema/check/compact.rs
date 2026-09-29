@@ -21,6 +21,7 @@ use crate::syntax::node::{Effect, EnvGetKind};
 pub struct CompactDeclOutput {
     pub record_constructors: super::RecordConstructors,
     pub diagnostics: Vec<Diagnostic>,
+    pub function_return_types: BTreeMap<crate::source::Span, Type>,
     pub types: FxHashMap<Name, CompactTypeDefInfo>,
     pub record_schema_fields: FxHashMap<Name, BTreeMap<Name, TypeExprId>>,
     pub tag_variants_by_name: FxHashMap<Name, TagVariantInfo>,
@@ -94,16 +95,26 @@ pub struct CompactBodyProbeOutput {
 impl Checker {
     pub fn check_compact_declarations(program: &ArenaProgram) -> CompactDeclOutput {
         program.symbol_owner().with_current(|| {
+            let inferred = program.arena.function_defs.iter().any(|def| def.return_ty_defaulted
+                && program.arena.type_expr_tags[def.return_ty.index()] == ArenaTypeExprTag::Named)
+                .then(|| Checker::check_arena(program, ""));
             let mut collector = CompactDeclCollector {
                 diagnostics: Vec::new(),
                 names: FxHashSet::default(),
-                output: CompactDeclOutput::default(),
+                output: CompactDeclOutput {
+                    function_return_types: inferred.as_ref().map(|checked| checked.function_return_types.clone()).unwrap_or_default(),
+                    ..CompactDeclOutput::default()
+                },
             };
             collector.diagnostics.extend(Self::prepare_regex_literals(program));
             collector.collect_program(program);
             let mut output = collector.output;
             output.record_constructors = super::RecordConstructors::collect(program);
             output.diagnostics = collector.diagnostics;
+            if let Some(checked) = inferred {
+                output.diagnostics.extend(checked.diagnostics.into_iter().filter(|diagnostic|
+                    matches!(diagnostic.code.as_deref(), Some("check.infer-return" | "check.required-return"))));
+            }
             output
         })
     }
@@ -447,7 +458,9 @@ impl CompactDeclCollector {
     fn function_sig(&mut self, program: &ArenaProgram, id: FunctionDefId) -> CompactFunctionSig {
         let def = program.arena.function_def(id);
         let params = self.param_sigs(program, def.params);
-        let return_ty = Type::from_arena(&program.arena, def.return_ty);
+        let body_span = program.arena.span(program.arena.block(def.body).span);
+        let return_ty = self.output.function_return_types.get(&body_span).cloned()
+            .unwrap_or_else(|| Type::from_arena(&program.arena, def.return_ty));
         let effects = def
             .effects
             .map(|effects| program.arena.effects(effects).collect::<Vec<_>>());
@@ -797,7 +810,9 @@ impl CompactBodyProbe<'_> {
             }
         }
         self.check_compact_block_in_current_scope(def.body);
-        let expected = self.type_from_arena(def.return_ty);
+        let body_span = self.program.arena.span(self.program.arena.block(def.body).span);
+        let expected = self.declarations.function_return_types.get(&body_span).cloned()
+            .unwrap_or_else(|| self.type_from_arena(def.return_ty));
         self.mark_tail_position(def.body, expected != Type::Unit && !expected.is_result_unit());
         self.pop_scope();
     }

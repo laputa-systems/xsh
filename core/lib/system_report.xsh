@@ -972,11 +972,11 @@ pure not_requested_devices(section: DeviceSection) -> DeviceSection {
   return {...section, status: not_requested_status(), devices: []}
 }
 
-pure selection_needs_pci(selected: ReportSection) -> Bool {
+pure selection_needs_pci(selected: ReportSection) {
   return selected == ReportPci or selected == ReportUsb or selected == ReportNetwork or selected == ReportDevices or selected == ReportSensors
 }
 
-pure selection_needs_usb(selected: ReportSection) -> Bool {
+pure selection_needs_usb(selected: ReportSection) {
   return selected == ReportUsb or selected == ReportNetwork or selected == ReportDevices or selected == ReportSensors
 }
 
@@ -2929,7 +2929,7 @@ pure integer_list_display(values: List[Int]) -> Str {
   return texts.join(",")
 }
 
-pure key_part(prefix: Str, value: Str) -> Str {
+pure key_part(prefix: Str, value: Str) {
   return f"${prefix}${value.count_chars()}:${value}"
 }
 

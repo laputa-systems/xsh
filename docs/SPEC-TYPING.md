@@ -37,7 +37,7 @@ loading, and checking have produced no diagnostics. The rewrite surface is
 intentionally conservative. Bare `--annotate` uses the exact class list in
 `check.annotate` from `xsht-config.ini` when present, or the built-in default classes
 `params`, `returns`, and `exports`. `params` annotates defaulted proc/pure
-parameters, `returns` annotates defaulted exported proc returns, and `exports`
+parameters, `returns` annotates inferred private pure returns and defaulted exported proc returns, and `exports`
 annotates exported simple `let`/`var` bindings. The opt-in `locals` class
 annotates local simple bindings with non-trivial types (`List`, `Map`, `Result`,
 optional, `Command`, `Pure`, `Proc`, or tag union). `--annotate=locals` is
@@ -315,7 +315,12 @@ arms is still precise.
 ## Callable Values
 
 Named pure functions and procs have statically checked parameters and return
-types. First-class `Pure` and `Proc` values are dynamic callable handles used for
+types. Private pure returns may be inferred from their definitions, independently
+of declaration and caller order. Return inference accepts concrete compatible
+shapes, preserves explicit Result boundaries, and requires annotations for
+recursive components, exported functions, and underdetermined shapes. Checked
+return facts are shared with indexed preparation and annotation tooling.
+First-class `Pure` and `Proc` values are dynamic callable handles used for
 module contracts and runtime-loaded APIs. Their `.call(...)` method returns
 `Any` or `Result[Any]` because the concrete signature is known only to the
 runtime contract validator.

@@ -3497,7 +3497,16 @@ impl CompactLowerConstructProbe<'_, '_> {
         _pure: bool,
     ) -> Result<FunctionBuild, CompactFunctionBlocker> {
         let def = self.program.arena.function_def(id);
-        let return_kind = match self.lowered_return_kind(def.return_ty) {
+        let body_span = self.program.arena.span(self.program.arena.block(def.body).span);
+        let inferred_kind = self.declarations.function_return_types.get(&body_span).and_then(|ty| {
+            let storage_kind = |ty: &Type| match ty {
+                Type::Null | Type::Optional(_) => Some(LoweredType::Any),
+                _ => lowered_checked_type(ty),
+            };
+            if let Type::Result(ok, _) = ty { storage_kind(ok).map(LoweredReturnKind::Result) }
+            else { storage_kind(ty).map(LoweredReturnKind::Plain) }
+        });
+        let return_kind = match inferred_kind.or_else(|| self.lowered_return_kind(def.return_ty)) {
             Some(kind) => kind,
             None => {
                 self.last_blocker_detail = Some((

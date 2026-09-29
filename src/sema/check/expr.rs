@@ -508,14 +508,17 @@ impl Checker {
             self.push_scope();
             self.apply_narrowings(&narrowings.when_true);
             self.bind_pattern_condition_arena(arena, source, branch.condition);
-            let branch_expected = expected.or(inferred.as_ref());
+            let infer_branches = self.inferred_returns.is_some() && expected.is_none();
+            let branch_expected = if infer_branches { None } else { expected.or(inferred.as_ref()) };
             let actual = self.check_expr_arena(arena, source, branch.value, branch_expected);
             if let Some(branch_expected) = branch_expected {
                 let value_span = arena.arena.expr(branch.value).span;
                 self.expect_type(branch_expected, &actual, value_span);
             }
-            if inferred.is_none() && !matches!(actual, Type::Unknown) {
-                inferred = Some(actual);
+            if actual != Type::Unknown {
+                inferred = Some(if infer_branches {
+                    inferred.map_or(actual.clone(), |previous| self.unify_inferred_returns(previous, actual, arena.arena.expr(branch.value).span))
+                } else { inferred.unwrap_or(actual) });
             }
             self.pop_scope();
         }
@@ -524,14 +527,17 @@ impl Checker {
             let narrowings = self.infer_condition_narrowings_arena(arena, arena.arena.if_expr_branches(branches)[0].condition);
             self.apply_narrowings(&narrowings.when_false);
         }
-        let else_expected = expected.or(inferred.as_ref());
+        let infer_branches = self.inferred_returns.is_some() && expected.is_none();
+        let else_expected = if infer_branches { None } else { expected.or(inferred.as_ref()) };
         let else_ty = self.check_expr_arena(arena, source, else_value, else_expected);
         if let Some(else_expected) = else_expected {
             let else_span = arena.arena.expr(else_value).span;
             self.expect_type(else_expected, &else_ty, else_span);
         }
         self.pop_scope();
-        expected.cloned().or(inferred).unwrap_or(else_ty)
+        if infer_branches {
+            inferred.map_or(else_ty.clone(), |previous| self.unify_inferred_returns(previous, else_ty, arena.arena.expr(else_value).span))
+        } else { expected.cloned().or(inferred).unwrap_or(else_ty) }
     }
 
     fn check_comp_qualifiers_arena(&mut self, arena: &ArenaProgram, source: &str, qualifiers: ArenaRange, map: bool) -> usize {
@@ -783,14 +789,17 @@ impl Checker {
                 let guard_span = arena.arena.expr(guard).span;
                 self.expect_type(&Type::Bool, &guard_ty, guard_span);
             }
-            let arm_expected = expected.or(inferred.as_ref());
+            let infer_branches = self.inferred_returns.is_some() && expected.is_none();
+            let arm_expected = if infer_branches { None } else { expected.or(inferred.as_ref()) };
             let actual = self.check_expr_arena(arena, source, arm.value, arm_expected);
             if let Some(arm_expected) = arm_expected {
                 let value_span = arena.arena.expr(arm.value).span;
                 self.expect_type(arm_expected, &actual, value_span);
             }
-            if inferred.is_none() && !matches!(actual, Type::Unknown) {
-                inferred = Some(actual);
+            if actual != Type::Unknown {
+                inferred = Some(if infer_branches {
+                    inferred.map_or(actual.clone(), |previous| self.unify_inferred_returns(previous, actual, arena.arena.expr(arm.value).span))
+                } else { inferred.unwrap_or(actual) });
             }
             self.pop_scope();
         }
