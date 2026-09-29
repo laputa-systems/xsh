@@ -268,6 +268,16 @@ impl Checker {
             }
         }
 
+        // Inferred bodies need constructor signatures before any statement
+        // bodies are checked, just as root declarations do.
+        for &stmt_id in &stmt_ids {
+            if let ArenaStmtKind::TypeDef(def_id) = exported_stmt_kind_arena(program, stmt_id).0 {
+                let def = program.arena.type_def(def_id);
+                if matches!(def.body, ArenaTypeDefBody::TagUnion(_)) {
+                    self.check_type_def_arena(program, source, def, program.arena.stmt(stmt_id).span);
+                }
+            }
+        }
         self.infer_local_pure_returns(program, source, &stmt_ids);
         let mut exports = UserModuleSig::default();
         for stmt_id in &stmt_ids {

@@ -89,3 +89,29 @@ print $first parameter(1) destructured() (pattern(2) ?? 0)
   test.ok(result.success, result.stderr)?
   test.eq(result.stdout, "1 2 5 2\n")?
 }
+
+proc test_private_pure_inference_condition_and_fallback_capture_shadowing(ctx: TestContext) [fs, error] {
+  let result = test.run_script(ctx, """
+pure selected(outcome: Result[Int]) { if let Ok(selected) = outcome { selected + 1 } else { 0 } }
+pure expression(outcome: Result[Int]) { let value = if let Ok(expression) = outcome { expression + 1 } else { 0 }; value }
+pure looped(outcome: Result[Int]) { var value = 0; while let Ok(looped) = outcome { value += looped; break }; value }
+pure recovered(outcome: Result[Str]) { outcome ?? { |recovered| recovered.message } }
+print selected(Ok(2)) expression(Ok(3)) looped(Ok(5)) recovered(Ok("ready"))
+""", [], {}, b"", "inferred-capture-shadowing.xsh")?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "3 4 5 ready\n")?
+}
+
+proc test_private_pure_inference_imported_module_tag_variants(ctx: TestContext) [fs, error] {
+  let root = test.temp_dir(ctx, name: "inferred-tag-module")?
+  fp"${root}/inferred_tags.xsh".write("""
+##! Inferred tag helper module.
+type Selection = Included | Excluded
+pure private_enabled(value: Selection) { value == Included }
+## Checks the selected tag.
+export pure enabled() -> Bool { private_enabled(Included) }
+""")?
+  let result = test.run_script(ctx, "use inferred_tags\nprint inferred_tags.enabled()\n", [], {XSH_MODULE_PATH: root.display()}, b"", "inferred-tag-capture.xsh")?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "true\n")?
+}

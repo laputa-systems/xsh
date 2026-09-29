@@ -3462,3 +3462,24 @@ fn private_pure_inference_destructured_capture() {
 fn private_pure_inference_preserves_prefix_capture_visibility() {
     assert!(has_code(&check("pure captured() { prefix + \"!\" }\nlet prefix = \"later\"\n"), "check.unresolved-name"));
 }
+
+#[test]
+fn private_pure_inference_pattern_captures_do_not_create_recursive_dependencies() {
+    for source in [
+        "pure selected(outcome: Result[Int]) { if let Ok(selected) = outcome { selected + 1 } else { 0 } }\n",
+        "pure selected(outcome: Result[Int]) { let value = if let Ok(selected) = outcome { selected + 1 } else { 0 }; value }\n",
+        "pure selected(outcome: Result[Int]) { var value = 0; while let Ok(selected) = outcome { value += selected; break }; value }\n",
+        "pure recovered(outcome: Result[Str]) { outcome ?? { |recovered| recovered.message } }\n",
+    ] {
+        let diagnostics = check(source);
+        assert!(diagnostics.is_empty(), "{source}: {diagnostics:?}");
+    }
+    assert!(has_code(&check("pure selected(outcome: Result[Int]) { if let Ok(selected) = selected(outcome) { selected } else { 0 } }\n"), "check.required-return"));
+    assert!(has_code(&check("pure selected(outcome: Result[Int]) { if let Ok(selected) = outcome { selected } else { selected(outcome) } }\n"), "check.required-return"));
+}
+
+#[test]
+fn private_pure_inference_imported_module_predeclares_tag_variants() {
+    let diagnostics = check_with_module("use helper\nlet selected: Bool = helper.enabled()\n", "##! Inferred tag helper module.\ntype Selection = Included | Excluded\npure private_enabled(value: Selection) { value == Included }\n## Checks the selected tag.\nexport pure enabled() -> Bool { private_enabled(Included) }\n");
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+}

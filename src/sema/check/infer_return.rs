@@ -73,6 +73,16 @@ impl Checker {
                     let span = program.arena.span(arm.span);
                     for name in pattern_binding_names(program, arm.pattern) { shadows.entry(name).or_default().push(span); }
                 },
+                ArenaStmtKind::If { branches, .. } => {
+                    for branch in program.arena.if_branches(branches) {
+                        let span = program.arena.span(program.arena.block(branch.block).span);
+                        for name in pattern_condition_bindings(program, branch.condition) { shadows.entry(name).or_default().push(span); }
+                    }
+                }
+                ArenaStmtKind::While { condition, block } => {
+                    let span = program.arena.span(program.arena.block(block).span);
+                    for name in pattern_condition_bindings(program, condition) { shadows.entry(name).or_default().push(span); }
+                }
                 ArenaStmtKind::With { bindings, body, .. } => {
                     let span = program.arena.span(program.arena.block(body).span);
                     for binding in program.arena.with_bindings(bindings) { shadows.entry(binding.name).or_default().push(span); }
@@ -87,6 +97,12 @@ impl Checker {
                     let span = program.arena.span(arm.span);
                     for name in pattern_binding_names(program, arm.pattern) { shadows.entry(name).or_default().push(span); }
                 },
+                ArenaExprKind::If { branches, .. } => {
+                    for branch in program.arena.if_expr_branches(branches) {
+                        let span = program.arena.expr(branch.value).span;
+                        for name in pattern_condition_bindings(program, branch.condition) { shadows.entry(name).or_default().push(span); }
+                    }
+                }
                 ArenaExprKind::ListComp { qualifiers, .. } | ArenaExprKind::MapComp { qualifiers, .. } => {
                     for qualifier in program.arena.comp_qualifiers(qualifiers) {
                         if let ArenaCompQualifier::For { target, iter, .. } = qualifier {
@@ -355,4 +371,14 @@ fn pattern_binding_names(program: &ArenaProgram, pattern: PatternId) -> Vec<Name
         }
     }
     names
+}
+
+// Pattern captures are visible only in the selected body, never in the
+// condition subject or a sibling branch.
+fn pattern_condition_bindings(program: &ArenaProgram, condition: ExprId) -> Vec<Name> {
+    match program.arena.expr(condition).kind {
+        ArenaExprKind::PatternCondition { arms, .. } =>
+            pattern_binding_names(program, program.arena.match_expr_arms(arms)[0].pattern),
+        _ => Vec::new(),
+    }
 }

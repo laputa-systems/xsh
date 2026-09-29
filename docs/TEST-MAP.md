@@ -619,7 +619,8 @@ checks invalid unreachable literals without script execution.
 
 Private pure return inference is exercised by
 `tests/xsh/private-pure-inference.xsh` (values, dependency order, captures,
-Result boundaries, and rejection paths). `tests/sema.rs::private_pure_inference_*`
+Result boundaries, pattern/fallback capture shadowing, imported tag variants,
+and rejection paths). `tests/sema.rs::private_pure_inference_*`
 checks published full/compact signature facts; `crates/xsht/tests/lint.rs::private_pure_return_*`
 and the matching CLI tests cover exact opt-in annotation removal, refusal,
 convergence, and `--annotate=returns` preservation. Run the native module, then
