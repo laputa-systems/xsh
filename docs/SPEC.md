@@ -695,7 +695,10 @@ values and local constants. Their finite lexical dependency graph may reference
 other constants, including qualified exported constants; cycles are preparation
 errors. Runtime bindings, parameters, ambient names, arbitrary calls or methods,
 blocks, comprehensions, retry, and propagation are rejected. Record and tag
-constructors may consume prepared constant arguments and schema defaults.
+constructors may consume prepared constant arguments and schema defaults. Named
+constructor spreads require prepared closed records and use only their statically
+visible fields; Optional, Map, runtime, and erased sources are rejected. Explicit
+and spread fields retain the ordinary duplicate and field-type checks.
 
 The bounded data subset includes scalar, path, and regex literals, homogeneous
 constant containers, and checked primitive operations. Invalid integer arithmetic

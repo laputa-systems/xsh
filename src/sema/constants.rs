@@ -779,10 +779,26 @@ impl ConstantPreparation<'_> {
                 }
                 let mut supplied = FxHashSet::default();
                 for arg in arena.call_args(args) {
-                    let ArenaCallArgKind::Named { name, value, .. } = arg.kind else { return Err(failure()); };
-                    let ty = field_types.get(&name).ok_or_else(failure)?;
-                    if !supplied.insert(name) { return Err(failure()); }
-                    values.insert(name, self.expression(value, scope, Some(ty), depth + 1)?);
+                    match arg.kind {
+                        ArenaCallArgKind::Named { name, value, .. } => {
+                            let ty = field_types.get(&name).ok_or_else(failure)?;
+                            if !supplied.insert(name) { return Err(failure()); }
+                            values.insert(name, self.expression(value, scope, Some(ty), depth + 1)?);
+                        }
+                        ArenaCallArgKind::NamedSpread { value, .. } => {
+                            let prepared = self.expression(value, scope, None, depth + 1)?;
+                            let visible = self.prepared.types.get(&value).cloned().unwrap_or_else(|| prepared.value_type());
+                            let (Type::Record(visible), LiteralConstant::Record(record)) = (visible, prepared) else { return Err(failure()); };
+                            for (name, actual) in visible {
+                                let ty = field_types.get(&name).ok_or_else(failure)?;
+                                if !actual.matches_expected(ty) || !supplied.insert(name) { return Err(failure()); }
+                                let value = record.get(&name).ok_or_else(failure)?.clone().in_type(ty);
+                                if !constant_matches_type(&value, ty) { return Err(failure()); }
+                                values.insert(name, value);
+                            }
+                        }
+                        _ => return Err(failure()),
+                    }
                 }
                 if field_types.keys().any(|name| !values.contains_key(name)) { return Err(failure()); }
                 self.prepared.types.insert(id, Type::Record(field_types));
@@ -790,6 +806,11 @@ impl ConstantPreparation<'_> {
             }
             _ => LiteralConstant::analyze(arena, id, &FxHashMap::default()).ok_or_else(failure)?,
         };
+        if matches!(expr.kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }) {
+            if let (Some(expected), Some(actual)) = (expected, self.prepared.types.get(&id)) {
+                if !actual.matches_expected(expected) { return Err((expr.span, "constant reference does not match its expected type".into())); }
+            }
+        }
         let value = expected.map_or_else(|| value.clone(), |ty| value.clone().in_type(ty));
         if expected.is_some_and(|ty| !constant_matches_type(&value, ty)) { return Err((expr.span, "constant value does not match its expected type".into())); }
         if let Some(ty) = expected { self.prepared.types.insert(id, ty.clone()); }

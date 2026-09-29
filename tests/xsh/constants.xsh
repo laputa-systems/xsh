@@ -141,3 +141,24 @@ test test_constants_fail_before_any_runtime_statement [error] { |ctx|
   test.eq(runtime.success, false)?
   test.eq(runtime.stdout, "starting\n")?
 }
+
+test test_constants_constructor_spreads_use_prepared_visible_fields [error] {
+  const supplied = {name: "spread"}
+  const configured = ConstantConfig(...supplied)
+  test.eq(configured.name, "spread")?
+  test.eq(configured.values, [])?
+}
+
+test test_constants_constructor_spreads_reject_runtime_and_erased_sources [error] { |ctx|
+  for source in [
+    "type Config = {value: Int}\nlet source = {value: 1}\nconst config = Config(...source)\n",
+    "type Config = {value: Int}\nconst source: Map[Int] = {value: 1}\nconst config = Config(...source)\n",
+    "type Config = {value: Int}\nconst source = {value: 1}\nconst config = Config(value: 2, ...source)\n",
+    "type Config = {value: Int}\nconst source = {other: 1}\nconst config = Config(...source)\n",
+    "type Config = {value: Int}\nconst source: Int? = 1\nconst config = Config(value: source)\n",
+    "type Config = {value: Int}\nconst source: Config? = {value: 1}\nconst config = Config(...source)\n",
+  ] {
+    let executed = test.run_script(ctx, source)?
+    test.eq(executed.success, false)?
+  }
+}
