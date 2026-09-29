@@ -2424,7 +2424,7 @@ export pure decode_report_json(text: Str) -> Result[SystemReport] {
             }
           }
           Err(_) => {
-            let replacement: Any = if legacy_current == null { null } else { legacy_current ?? -1 }
+            let replacement: Any = if legacy_current == null { null } else { legacy_current }
             guard let updated = json.set(
               normalized,
               ["cpu", "frequency_policies", policy_index, "scaling_current_khz"],

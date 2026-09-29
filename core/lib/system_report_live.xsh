@@ -4361,7 +4361,7 @@ proc collect_cpu(root: FsRoot, base: report.SystemReport) [fs, error] -> report.
 
       let cache_key = if shared_cpus.len() > 0 {
         if kernel_id != null {
-          json.encode({level: level, kind: cache_kind, kernel_id: kernel_id ?? -1})?
+          json.encode({level: level, kind: cache_kind, kernel_id: kernel_id})?
         } else {
           json.encode({level: level, kind: cache_kind, shared_cpus: shared_cpus, sysfs_index: sysfs_index})?
         }

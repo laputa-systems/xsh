@@ -689,6 +689,7 @@ fn lint_workspace_root(
                 &linted.diagnostics,
                 &check_diagnostics,
                 &workspace.sources,
+                key != root,
             )
         } else if linted.diagnostics.is_empty() {
             LintResult {
@@ -940,6 +941,7 @@ fn lint_workspace_node_with_fixes(
     lint_diagnostics: &[Diagnostic],
     check_diagnostics: &[Diagnostic],
     sources: &SourceMap,
+    is_module: bool,
 ) -> LintResult {
     let mut fixes = collect_fix_spans_for_source(lint_diagnostics, module.source_id);
     fixes.extend(collect_fix_spans_for_source(
@@ -972,7 +974,7 @@ fn lint_workspace_node_with_fixes(
 
     let config = &module.config;
     let final_text =
-        match apply_cst_fixes(&module.path.to_string_lossy(), &module.text, &fixes, config) {
+        match apply_cst_fixes(&module.path.to_string_lossy(), &module.text, &fixes, config, check_diagnostics, is_module) {
             Ok(Some(text)) => text,
             Ok(None) => {
                 return LintResult {
@@ -1160,7 +1162,7 @@ fn lint_one_file_with_fixes(
         };
     }
 
-    let final_text = match apply_cst_fixes(file, &text, &ast_fixes, config) {
+    let final_text = match apply_cst_fixes(file, &text, &ast_fixes, config, &checked.diagnostics, false) {
         Ok(Some(text)) => text,
         Ok(None) => {
             return LintResult {
@@ -1283,16 +1285,55 @@ fn apply_cst_fixes(
     text: &str,
     fixes: &[(usize, usize, String)],
     config: &ResolvedLintConfig,
+    original_check_diagnostics: &[Diagnostic],
+    is_module: bool,
 ) -> Result<Option<String>, String> {
-    let edits = fixes
-        .iter()
-        .map(|(start, end, replacement)| SourceEdit {
+    let mut candidate = text.to_owned();
+    let mut fixes = fixes.to_vec();
+    let mut seen = FxHashSet::default();
+    seen.insert(candidate.clone());
+    // Outer edits can expose safe inner edits. Every round uses fresh checked
+    // facts and source spans; a rejected round never reaches the filesystem.
+    for _ in 0..64 {
+        let edits = fixes.iter().map(|(start, end, replacement)| SourceEdit {
             start: *start,
             end: *end,
             replacement: replacement.clone(),
-        })
-        .collect::<Vec<_>>();
-    apply_cst_guarded_edits(file, text, &edits, config.line_width)
+        }).collect::<Vec<_>>();
+        let Some(next) = apply_cst_guarded_edits(file, &candidate, &edits, config.line_width)? else {
+            return Ok(None);
+        };
+        if next == candidate { return Ok(Some(candidate)); }
+        if !seen.insert(next.clone()) {
+            return Err(format!("xsht: safe fixes for {file} do not converge\n"));
+        }
+        candidate = next;
+        let symbols = SymbolOwner::new();
+        let program = symbols.with_current(|| parse_load_check_text(
+            file, candidate.clone(), config.module_roots.clone(), CheckOptions::default(),
+        ));
+        if !program.parsed.diagnostics.is_empty() {
+            return Err(DiagnosticRenderer::new().render(&program.parsed.diagnostics, &program.sources));
+        }
+        let checked = program.checked.as_ref().expect("checked program after clean parse");
+        if !check_diagnostics_are_preserved(original_check_diagnostics, &checked.diagnostics) {
+            return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &program.sources));
+        }
+        let mut options = config.lint_options.clone();
+        options.expr_types = checked.expr_types.clone();
+        options.statement_positions = checked.statement_positions.clone();
+        options.callable_effects = checked.callable_effects.clone();
+        options.terminating_call_spans = checked.terminating_call_spans.clone();
+        let linted = if is_module {
+            Linter::lint_module(&program.parsed.arena, &candidate, options)
+        } else {
+            Linter::lint(&program.parsed.arena, &candidate, options)
+        };
+        fixes = collect_fix_spans_for_source(&linted.diagnostics, SourceId::new(0));
+        fixes.extend(collect_fix_spans_for_source(&checked.diagnostics, SourceId::new(0)));
+        if fixes.is_empty() { return Ok(Some(candidate)); }
+    }
+    Err(format!("xsht: safe fixes for {file} exceeded the convergence limit\n"))
 }
 
 fn render_diagnostics_with_keys(

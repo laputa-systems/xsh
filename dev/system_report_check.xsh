@@ -12980,7 +12980,7 @@ export pure parse_ip_rule_json(output: Str, family: Str) -> Result[List[IpRuleRe
     let action_name = json.get(row, ["action"], null).require(Str?)?
     let goto_target = json.get(row, ["goto"], null).require(Int?)?
     let action = if action_name != null {
-      ip_rule_action(action_name ?? "")?
+      ip_rule_action(action_name)?
     } else if "masquerade" in row.keys() or "nat_gateway" in row.keys() {
       "action_10"
     } else if goto_target != null {
@@ -14433,7 +14433,7 @@ export proc read_block_queue_sources(
     sources = sources.push({
       name: name,
       firmware: firmware,
-      counters: if stat == null { [] } else { parse_block_queue_stat(stat ?? "")? },
+      counters: if stat == null { [] } else { parse_block_queue_stat(stat)? },
     })
   }
 
@@ -19313,8 +19313,8 @@ export proc read_cpu_scope_cgroup_reference(root: FsRoot) [fs, time, error] -> R
   for path_item in paths {
     let cpuset_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/cpuset.cpus.effective", 65536, false)?
     let quota_raw = cgroup2_reference_text(root, fp"${path_item.source_path}/cpu.max", 4096, false)?
-    let cpus: List[Int]? = if cpuset_raw == null { null } else { parse_reference_cpu_list(cpuset_raw ?? "", true)? }
-    let quota: CpuScopeQuota? = if quota_raw == null { null } else { parse_cpu_scope_quota(quota_raw ?? "")? }
+    let cpus: List[Int]? = if cpuset_raw == null { null } else { parse_reference_cpu_list(cpuset_raw, true)? }
+    let quota: CpuScopeQuota? = if quota_raw == null { null } else { parse_cpu_scope_quota(quota_raw)? }
     ancestors = ancestors.push(
       {path: path_item.visible_path, hierarchy_level: path_item.hierarchy_level, effective_cpus: cpus, quota: quota},
     )
