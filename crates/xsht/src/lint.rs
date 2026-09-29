@@ -2764,6 +2764,7 @@ impl<'a> Linter<'a> {
     fn lint_statement_sequence(&mut self, stmts: &[StmtId]) {
         self.lint_record_destructuring(stmts);
         self.lint_fresh_map_initializations(stmts);
+        self.lint_list_element_reconstruction(stmts);
         let mut flow = FlowSummary::fallthrough();
         let mut reported_dead_region = false;
         for &stmt in stmts {
@@ -2780,6 +2781,55 @@ impl<'a> Linter<'a> {
             if flow.fallthrough {
                 flow = flow.then(stmt_flow(self.arena, stmt, &self.terminating_call_spans));
             }
+        }
+    }
+
+    fn lint_list_element_reconstruction(&mut self, stmts: &[StmtId]) {
+        fn integer(arena: &AstArena, expr: ExprId) -> Option<usize> {
+            let ArenaExprKind::Int(value) = arena.expr(expr).kind else { return None; };
+            usize::try_from(arena.int_literal(value).value()?).ok()
+        }
+        for (position, &stmt) in stmts.iter().enumerate() {
+            let node = self.arena.stmt(stmt);
+            let ArenaStmtKind::Assign { target, op: AssignOp::Set, value: ArenaExprOrRun::Expr(value) } = node.kind else { continue; };
+            let ArenaAssignTargetKind::Name(name) = self.arena.assign_target(target).kind else { continue; };
+            let ArenaExprKind::List(items) = self.arena.expr(value).kind else { continue; };
+            let elements: Vec<_> = self.arena.list_elements(items).collect();
+            let [prefix, replacement, suffix] = elements.as_slice() else { continue; };
+            if prefix.splice_span.is_none() || replacement.splice_span.is_some() || suffix.splice_span.is_none() { continue; }
+            let ArenaExprKind::Slice { base: first, start: None, end: Some(end), guarded: false } = self.arena.expr(prefix.value).kind else { continue; };
+            let ArenaExprKind::Slice { base: last, start: Some(start), end: None, guarded: false } = self.arena.expr(suffix.value).kind else { continue; };
+            if ![first, last].into_iter().all(|expr| matches!(self.arena.expr(expr).kind, ArenaExprKind::Ident(found) if found == name)) { continue; }
+            let (Some(index), Some(after)) = (integer(self.arena, end), integer(self.arena, start)) else { continue; };
+            if index.checked_add(1) != Some(after) { continue; }
+            let Some(list_ty @ Type::List(element)) = self.expr_types.get(&self.arena.expr(first).span) else { continue; };
+            if !list_splice_element_type_is_precise(element)
+                || self.expr_types.get(&self.arena.expr(value).span) != Some(list_ty)
+                || self.expr_types.get(&self.arena.expr(replacement.value).span) != Some(element.as_ref())
+            { continue; }
+            let mut diagnostic = Diagnostic::warning("prefer an element assignment when the list index is known valid")
+                .with_code("lint.prefer-list-element-assignment")
+                .with_label(Label::secondary(node.span, "replace one existing element"));
+            // Only an immediately preceding literal declaration proves a current
+            // length without removing a read across intervening effects.
+            let length = position.checked_sub(1).and_then(|previous| {
+                let ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(initializer), .. } = self.arena.stmt(stmts[previous]).kind else { return None; };
+                if !matches!(self.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(found) if found == name) { return None; }
+                let ArenaExprKind::List(elements) = self.arena.expr(initializer).kind else { return None; };
+                let elements: Vec<_> = self.arena.list_elements(elements).collect();
+                elements.iter().all(|element| element.splice_span.is_none()).then_some(elements.len())
+            });
+            let edit_span = Span::new(node.span.source_id, node.span.start(), self.arena.expr(value).span.end());
+            if length.is_some_and(|length| index < length)
+                && list_update_argument_stable(self.arena, replacement.value)
+                && self.source.get(edit_span.range()).is_some_and(|text| !text.contains('#'))
+            {
+                let rhs = &self.source[self.arena.expr(replacement.value).span.range()];
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(edit_span, "update the existing list element", format!("{name}[{index}] = {rhs}")));
+            } else {
+                diagnostic = diagnostic.with_note("slice bounds clip but element indices must exist; unproved lengths, effects, and comments require manual review");
+            }
+            self.diagnostics.push(diagnostic);
         }
     }
 

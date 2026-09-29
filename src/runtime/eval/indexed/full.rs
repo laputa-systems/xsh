@@ -9,7 +9,7 @@ use crate::runtime::eval::{
     BuildBoolId, BuildBoolRow, BuildExprId, BuildExprRow, BuildIntId, BuildIntRow, BuildPatternId,
     BuildPatternIdSlots, BuildPatternRow, BuildScratch, BuildStmtId, BuildStmtRow, BuildTopKind,
     BuildTopStmtId, BuildTopStmtRow, FunctionBuild, FunctionHeader, LoweredCallArg,
-    LoweredCompQualifier, LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields, LoweredFmtPart,
+    LoweredAssignPath, LoweredAssignStep, LoweredCompQualifier, LoweredCompQualifiers, LoweredCompTarget, LoweredErrorExpr, LoweredErrorPatternFields, LoweredFmtPart,
     LoweredFunctionKey, LoweredFunctionKind, LoweredFunctionUnit, LoweredModuleExport,
     LoweredModuleExportKind, LoweredPipelineStage, LoweredProcessCommandArgv,
     LoweredProcessCommandBuilderEntry, LoweredRecordEntry, LoweredReturnKind, LoweredRunArg,
@@ -207,7 +207,7 @@ pub(in crate::runtime::eval) enum FullTag {
     StmtAssign,
     StmtAssignField,
     StmtAssignFieldInt,
-    StmtAssignIndex,
+    StmtAssignPath,
     StmtAssignInt,
     StmtAssignBool,
     StmtValue,
@@ -5579,6 +5579,33 @@ impl FullCodec for LoweredCompTarget {
     }
 }
 
+impl FullCodec for LoweredAssignPath {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        self.0.encode(builder, output)
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        let steps = Vec::<LoweredAssignStep>::decode(decoder, input)?;
+        if steps.is_empty() { return Err(IrVerifyError::new("assignment path must select an element")); }
+        Ok(Self(steps))
+    }
+}
+impl FullCodec for LoweredAssignStep {
+    fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
+        match self {
+            Self::Field(name) => { output.push(0); name.encode(builder, output) }
+            Self::Index(expr) => { output.push(1); expr.encode(builder, output) }
+        }
+    }
+    fn decode(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<Self, IrVerifyError> {
+        match input.raw()? {
+            0 => Ok(Self::Field(Name::decode(decoder, input)?)),
+            1 => Ok(Self::Index(BuildExprId::decode(decoder, input)?)),
+            _ => Err(IrVerifyError::new("assignment path step tag is invalid")),
+        }
+    }
+}
+impl_vec_codec!(LoweredAssignStep, BLOCK_LIST);
+
 impl FullCodec for LoweredCompQualifiers {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         self.0.encode(builder, output)
@@ -7333,25 +7360,13 @@ impl_node_codec! {
             value,
             span,
         },
-        BuildStmtRow::AssignIndex {
-            slot,
-            index,
-            op,
-            value,
-            span,
-        } => StmtAssignIndex {
+        BuildStmtRow::AssignPath { slot, path, op, value, span } => StmtAssignPath {
             slot: usize,
-            index: BuildExprId,
+            path: LoweredAssignPath,
             op: AssignOp,
             value: BuildExprId,
             span: Span,
-        } => BuildStmtRow::AssignIndex {
-            slot,
-            index,
-            op,
-            value,
-            span,
-        },
+        } => BuildStmtRow::AssignPath { slot, path, op, value, span },
         BuildStmtRow::AssignInt {
             slot,
             op,
@@ -8457,6 +8472,38 @@ proc main() [error] {
                 ).expect("Map function exists");
                 let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
                 assert_eq!(result.unwrap(), Value::Int(5));
+            }
+        });
+    }
+
+    #[test]
+    fn list_assignment_verifies_paths_and_executes_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/list-assignment.xsh");
+            let program = fixture("list-assignment.xsh", source);
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::StmtAssignPath).unwrap();
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let block = IrBlockId::from_raw(program.store.extra[payload.start + 1]).unwrap();
+            let steps = program.store.blocks[block.index()].instructions.bounds(program.store.extra.len()).unwrap();
+            let mut malformed = program.clone();
+            malformed.store.extra[steps.start + 1] = u32::MAX;
+            assert!(FullVerifier::verify(&malformed).unwrap_err().message.contains("assignment path step"));
+            let mut bad_index = program.clone();
+            bad_index.store.extra[steps.start + 2] = u32::MAX;
+            assert!(FullVerifier::verify(&bad_index).is_err());
+            let mut empty = program.clone();
+            empty.store.extra[steps.start] = 0;
+            assert!(FullVerifier::verify(&empty).is_err());
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "updated")),
+                    LoweredFunctionKind::Pure, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("assignment function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(16));
             }
         });
     }

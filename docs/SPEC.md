@@ -498,17 +498,30 @@ binding name in expression context. The checker rejects hyphenated-final-segment
 `let` bindings are immutable. `var` bindings are mutable. Assigning to a `let`
 binding or an undefined name is a checker error. Assignment targets may name a
 mutable local binding directly, a field below a mutable local record, or a
-string-keyed entry below a mutable local map. Field and indexed assignment
-update the local value stored in the root binding; they do not introduce shared
-record or map identity. Compound assignment requires a mutable target and
+string-keyed entry below a mutable local map, or an element below a mutable
+local List. Paths may mix existing record fields, Map keys, and List indices.
+List writes use ordinary indexing: indices are Int and must be nonnegative
+and less than the current length. They neither clip nor append, pad, replace
+slices, mutate Str/Bytes, or write through temporary receivers.
+Field and indexed assignment update the local value stored in the root binding;
+prior bindings and aliases retain their contents. Compound assignment requires a mutable target and
 follows the corresponding binary operator type rules for the target value.
 `List[T] + List[T]` concatenates values in encounter order; `+=` appends a
 list to a mutable target. A scalar append is written `items += [item]`.
 Both operands use ordinary element compatibility, including expected types
 for empty lists; concatenation does not implicitly widen heterogeneous lists.
-Compound assignment evaluates the target selectors once, then its right side,
-then reads and updates the selected target value. Earlier aliases retain their
-contents, including when a list is concatenated with itself.
+Assignment evaluates target selectors once in path order, then its right side
+once, then reads the current root and selected old value and commits the update.
+Changes selectors or RHS make to the same root remain visible; unrelated updates
+are preserved. Bounds, required intermediate fields, and fallible arithmetic
+are validated before rebuilding ancestors. Failed updates expose no partial
+ancestor rebuild; already executed operand effects remain visible to cleanup.
+Replacement values retain contextual element/schema typing. Assignment produces
+Unit. Earlier aliases retain their contents, including self-concatenation.
+`lint.prefer-list-element-assignment` recognizes exact prefix/replacement/suffix
+reconstructions. It fixes only checked compatible types, proven current bounds,
+stable replacement expressions, and preserved comments; clipping slices with
+unproved lengths require manual review.
 `List.push`/`List.extend` and `Map.set`/`Map.remove`/`Map.push` return updated
 values; earlier bindings and aliases keep their previous contents.
 Record destructuring selects required fields in source order. A field may bind

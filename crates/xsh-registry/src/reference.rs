@@ -215,6 +215,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "field-labels",
     "list-concatenation",
     "list-splicing",
+    "list-element-assignment",
     "slicing",
     "results",
     "pattern-tests",
@@ -785,6 +786,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "list-concatenation" => (
             "Concatenates lists while preserving value semantics.",
             "`left + right` concatenates compatible List values in encounter order. `items += more` updates a mutable target; append one item with `items += [item]`. Empty lists use the expected element type, selectors and operands evaluate once, and earlier aliases retain their contents. The push and extend methods remain available for expression chains.",
+        ),
+        "list-element-assignment" => (
+            "Updates existing List elements below mutable local bindings.",
+            "`values[index] = replacement` and `rows[index].count += 1` retain contextual element types and collection value semantics. Paths can mix List elements, existing record fields, and Map keys. Int indices use ordinary indexing: negative and out-of-range indices fail without clipping, appending, or padding. Selectors run once in path order, then RHS once, then the current root and old selected value are read. Operand mutations survive; an invalid update exposes no partial ancestor rebuild. Immutable roots, temporary receivers, slice writes, and Str/Bytes mutation are rejected. Assignment produces Unit.",
         ),
         "list-splicing" => (
             "Builds lists from ordinary elements and explicit List splices.",

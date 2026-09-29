@@ -1454,11 +1454,15 @@ impl Checker {
                         self.expect_type(&Type::Str, &index_ty, index_span);
                         item_ty.as_ref().clone()
                     }
+                    Type::List(item_ty) => {
+                        self.expect_type(&Type::Int, &index_ty, arena.arena.expr(*index).span);
+                        item_ty.as_ref().clone()
+                    }
                     Type::Unknown => Type::Unknown,
                     _ => {
                         self.error(
                             span,
-                            "indexed assignment currently supports Map values",
+                            "indexed assignment requires List or Map values",
                             "check.assign-target",
                         );
                         Type::Unknown

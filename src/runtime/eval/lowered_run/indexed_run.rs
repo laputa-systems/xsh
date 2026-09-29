@@ -23,7 +23,7 @@ use super::{
     lowered_path_method_value, lowered_pipeline_input, lowered_pipeline_item_count,
     lowered_pipeline_record_list, lowered_process_run_error, lowered_record_field_value,
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_get,
-    lowered_record_vec_insert, lowered_record_vec_or_stats, lowered_reduce_fields_owned,
+    lowered_record_vec_or_stats, lowered_reduce_fields_owned,
     lowered_reduce_group_insert, lowered_reduce_key_value_owned, lowered_result_err_value,
     lowered_result_ok, lowered_return_value, lowered_root_id, lowered_slice_value,
     lowered_sort_key_orderable, lowered_splice_arg_items, lowered_stats_field_value,
@@ -186,6 +186,27 @@ fn indexed_optional_raw(
         1 => indexed_raw(payload, span).map(Some),
         _ => Err(RuntimeError::new("indexed-ir", "invalid optional value tag").with_span(span)),
     }
+}
+
+#[derive(Clone)]
+enum IndexedAssignStep {
+    Field(Name),
+    Index(u32),
+}
+
+fn decode_assign_path<'a>(execution: &FullExecution<'a>, payload: &mut FullPayload<'a>, span: Span) -> Result<Vec<IndexedAssignStep>, RuntimeError> {
+    let (_, mut entries) = execution.block(payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
+    let count = indexed_raw(&mut entries, span)?;
+    let mut path = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        path.push(match indexed_raw(&mut entries, span)? {
+            0 => IndexedAssignStep::Field(indexed_decode(&mut entries, execution, span)?),
+            1 => IndexedAssignStep::Index(indexed_raw(&mut entries, span)?),
+            _ => return Err(RuntimeError::new("indexed-ir", "invalid assignment path step").with_span(span)),
+        });
+    }
+    indexed_finish(entries, span)?;
+    Ok(path)
 }
 
 #[derive(Clone)]
@@ -1659,7 +1680,9 @@ impl Evaluator {
                 let statement = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let flow =
-                    self.eval_indexed_stmt(&execution, statement, &header, &mut slots, call_span)?;
+                    self.eval_indexed_stmt(&execution, statement, &header, &mut slots, call_span);
+                // Operand effects already changed these bindings even if the
+                // enclosing statement failed before committing its own update.
                 for slot in &top_level_slots {
                     if slot.mutable {
                         self.assign(
@@ -1669,7 +1692,7 @@ impl Evaluator {
                         )?;
                     }
                 }
-                match flow {
+                match flow? {
                     StmtFlow::Propagate(value) => self.indexed_driver_expression_escape(value, call_span),
                     flow => lowered_stmt_flow_to_flow(flow),
                 }
@@ -7331,86 +7354,38 @@ impl Evaluator {
                         }
                     }
                 };
-                if matches!(
-                    slots[slot],
-                    LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)
-                ) {
-                    let stats = std::mem::replace(&mut slots[slot], LoweredValue::Unit);
-                    slots[slot] = LoweredValue::RecordVec(match stats {
-                        LoweredValue::Stats {
-                            blanks,
-                            code,
-                            comments,
-                        } => Arc::new(lowered_inline_stats_to_record_vec(blanks, code, comments)),
-                        LoweredValue::StatsBlob(stats) => Arc::new(stats.to_record_vec()),
-                        _ => unreachable!("checked indexed stats assignment target"),
-                    });
-                }
-                let current = match &mut slots[slot] {
-                    LoweredValue::Record(record) => {
-                        let record = Arc::make_mut(record);
-                        record.get_mut(field.as_ref())
-                    }
-                    LoweredValue::RecordVec(record) => {
-                        super::super::lowered_record_vec_get_mut(Arc::make_mut(record).as_mut_slice(), field.as_ref())
-                    }
-                    _ => {
-                        return Err(RuntimeError::new("type-error", "lowered expression expected Record").with_span(span));
-                    }
-                }.ok_or_else(|| RuntimeError::new("missing-field", field.to_string()).with_span(span))?;
-                let value = apply_indexed_assignment(current, op, value, singleton, span)?;
-                match &mut slots[slot] {
-                    LoweredValue::Record(record) => {
-                        Arc::make_mut(record).insert(field.clone(), value);
-                    }
-                    LoweredValue::RecordVec(record) => {
-                        lowered_record_vec_insert(
-                            Arc::make_mut(record),
-                            Name::intern(field.as_ref()),
-                            value,
-                        );
-                    }
-                    _ => unreachable!("checked indexed record assignment target"),
-                }
+                let current = super::super::lowered_ops::lowered_record_field_mut(
+                    &mut slots[slot], Name::intern(field.as_ref()), span,
+                )?;
+                *current = apply_indexed_assignment(current, op, value, singleton, span)?;
                 Ok(StmtFlow::None)
             }
-            FullTag::StmtAssignIndex => {
+            FullTag::StmtAssignPath => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
-                let index = indexed_raw(&mut payload, call_span)?;
+                let path = decode_assign_path(execution, &mut payload, call_span)?;
                 let op = indexed_decode::<AssignOp>(&mut payload, execution, call_span)?;
                 let value = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
-                let key = match self.eval_indexed_expr(execution, index, slots, call_span)? {
-                    ControlFlow::Continue(value) => {
-                        lowered_str_arg(&value, "indexed assignment", span)?.to_string()
-                    }
-                    ControlFlow::Break(value) => {
-                        return Ok(StmtFlow::Return(value));
-                    }
-                };
+                let mut selectors = Vec::with_capacity(path.len());
+                for step in path {
+                    selectors.push(match step {
+                        IndexedAssignStep::Field(name) => ResolvedAssignStep::Field(name),
+                        IndexedAssignStep::Index(expr) => {
+                            let selector = match self.eval_indexed_expr(execution, expr, slots, call_span)? {
+                                ControlFlow::Continue(value) => value,
+                                ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
+                            };
+                            resolve_assign_index(selector, span)?
+                        }
+                    });
+                }
                 let (value, singleton) = indexed_assignment_operand(execution, value, op, call_span)?;
                 let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
                 };
-                let LoweredValue::Map(map) = &mut slots[slot] else {
-                    return Err(RuntimeError::new(
-                        "type-error",
-                        "indexed assignment requires a map value",
-                    )
-                    .with_span(span));
-                };
-                let map = Arc::make_mut(map);
-                if op == AssignOp::Set {
-                    map.insert(key, value);
-                    return Ok(StmtFlow::None);
-                }
-                let current = map.get_mut(key.as_str()).ok_or_else(|| {
-                    RuntimeError::new("missing-field", key.clone()).with_span(span)
-                })?;
-                let value = apply_indexed_assignment(current, op, value, singleton, span)?;
-                map.insert(key, value);
+                apply_indexed_path_assignment(&mut slots[slot], &selectors, op, value, singleton, span)?;
                 Ok(StmtFlow::None)
             }
             FullTag::StmtAssignInt => {
@@ -8834,6 +8809,92 @@ fn apply_indexed_assignment(
     lowered_assign_value(op, current.clone(), value, span)
 }
 
+enum ResolvedAssignStep {
+    Field(Name),
+    Map(String),
+    List(i64),
+}
+
+fn resolve_assign_index(value: LoweredValue, span: Span) -> Result<ResolvedAssignStep, RuntimeError> {
+    Ok(match value {
+        LoweredValue::Int(index) => ResolvedAssignStep::List(index),
+        value => ResolvedAssignStep::Map(lowered_str_arg(&value, "indexed assignment", span)?.to_string()),
+    })
+}
+
+// Validate the complete path before copying or rebuilding an ancestor. The root
+// is observed after the RHS so unrelated changes made by either operand survive.
+fn apply_indexed_path_assignment(
+    root: &mut LoweredValue,
+    path: &[ResolvedAssignStep],
+    op: AssignOp,
+    value: LoweredValue,
+    singleton: bool,
+    span: Span,
+) -> Result<(), RuntimeError> {
+    let mut selected = &*root;
+    let mut inline_field = None;
+    for (position, step) in path.iter().enumerate() {
+        if let ResolvedAssignStep::Field(name) = step
+            && matches!(selected, LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_))
+            && position + 1 == path.len()
+        {
+            inline_field = Some(lowered_record_field_value(selected, name.as_str().as_str())
+                .ok_or_else(|| RuntimeError::new("missing-field", name.to_string()).with_span(span))?);
+            break;
+        }
+        selected = match (step, selected) {
+            (ResolvedAssignStep::Field(name), record) => lowered_record_field(record, name.as_str().as_str())
+                .ok_or_else(|| RuntimeError::new("missing-field", name.to_string()).with_span(span))?,
+            (ResolvedAssignStep::Map(key), LoweredValue::Map(map)) => {
+                if position + 1 == path.len() && op == AssignOp::Set { break; }
+                map.get(key.as_str()).ok_or_else(|| RuntimeError::new("missing-field", key.clone()).with_span(span))?
+            }
+            (ResolvedAssignStep::List(index), LoweredValue::List(list)) => list.get(*index as usize)
+                .ok_or_else(|| RuntimeError::new("index-out-of-range", "list index").with_span(span))?,
+            (ResolvedAssignStep::List(index), LoweredValue::SharedList(list)) => list.get(*index as usize)
+                .ok_or_else(|| RuntimeError::new("index-out-of-range", "list index").with_span(span))?,
+            _ => return Err(RuntimeError::new("type-error", "assignment path requires a compatible collection").with_span(span)),
+        };
+    }
+    let selected = inline_field.as_ref().unwrap_or(selected);
+    // Fallible arithmetic finishes before mutable descent. List concatenation is
+    // safe to consume in place once both operand types have been established.
+    let consume_list = op == AssignOp::Add && matches!(selected, LoweredValue::List(_) | LoweredValue::SharedList(_))
+        && (singleton || matches!(value, LoweredValue::List(_) | LoweredValue::SharedList(_)));
+    let mut operand = Some(value);
+    let replacement = if consume_list { None } else {
+        let value = operand.take().expect("assignment operand");
+        let rhs = if singleton { LoweredValue::List(vec![value]) } else { value };
+        Some(if op == AssignOp::Set { rhs } else { lowered_assign_value(op, selected.clone(), rhs, span)? })
+    };
+    let mut selected = root;
+    for (position, step) in path.iter().enumerate() {
+        selected = match step {
+            ResolvedAssignStep::Field(name) => super::super::lowered_ops::lowered_record_field_mut(selected, *name, span)?,
+            ResolvedAssignStep::Map(key) => {
+                let LoweredValue::Map(map) = selected else { unreachable!("validated map path") };
+                let map = Arc::make_mut(map);
+                if position + 1 == path.len() && op == AssignOp::Set {
+                    map.insert(key.clone(), replacement.expect("set replacement"));
+                    return Ok(());
+                }
+                map.get_mut(key.as_str()).expect("validated map key")
+            }
+            ResolvedAssignStep::List(index) => match selected {
+                LoweredValue::List(list) => &mut list[*index as usize],
+                LoweredValue::SharedList(list) => &mut Arc::make_mut(list)[*index as usize],
+                _ => unreachable!("validated list path"),
+            },
+        };
+    }
+    *selected = match replacement {
+        Some(value) => value,
+        None => apply_indexed_assignment(selected, op, operand.expect("consuming list operand"), singleton, span)?,
+    };
+    Ok(())
+}
+
 /// Whether two values are the same container through shared backing.
 ///
 /// A consuming call only takes the value out of its slot when the slot still
@@ -8858,6 +8919,63 @@ mod tests {
     use crate::sema::check::Checker;
     use crate::source::SourceMap;
     use crate::syntax::parser::Parser;
+
+    #[test]
+    fn assignment_path_copies_only_shared_ancestors() {
+        let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+        let list = || LoweredValue::SharedList(Arc::new(vec![LoweredValue::Int(1), LoweredValue::Int(2)]));
+        let mut root = LoweredValue::Map(Arc::new(BTreeMap::from([
+            ("selected".to_string(), list()), ("untouched".to_string(), list()),
+        ])));
+        let backing = |root: &LoweredValue| {
+            let LoweredValue::Map(map) = root else { unreachable!() };
+            let LoweredValue::SharedList(selected) = &map["selected"] else { unreachable!() };
+            let LoweredValue::SharedList(untouched) = &map["untouched"] else { unreachable!() };
+            (Arc::as_ptr(map), Arc::as_ptr(selected), Arc::as_ptr(untouched))
+        };
+        let path = [ResolvedAssignStep::Map("selected".to_string()), ResolvedAssignStep::List(1)];
+        let original = backing(&root);
+        apply_indexed_path_assignment(&mut root, &path, AssignOp::Set, LoweredValue::Int(9), false, span).unwrap();
+        assert_eq!(backing(&root), original);
+        let alias = root.clone();
+        apply_indexed_path_assignment(&mut root, &path, AssignOp::Set, LoweredValue::Int(10), false, span).unwrap();
+        let changed = backing(&root);
+        assert_ne!(changed.0, original.0);
+        assert_ne!(changed.1, original.1);
+        assert_eq!(changed.2, original.2);
+        assert_eq!(backing(&alias), original);
+        let invalid = [ResolvedAssignStep::Map("selected".to_string()), ResolvedAssignStep::List(99)];
+        assert!(apply_indexed_path_assignment(&mut root, &invalid, AssignOp::Set, LoweredValue::Int(0), false, span).is_err());
+        assert_eq!(backing(&root), changed);
+    }
+
+    #[test]
+    fn assignment_path_reuses_unique_storage_and_preserves_aliases() {
+        let span = Span::new(crate::source::SourceId::new(0), 0, 0);
+        let path = [ResolvedAssignStep::List(1)];
+        let mut owned = LoweredValue::List(vec![LoweredValue::Int(1), LoweredValue::Int(2)]);
+        let LoweredValue::List(list) = &owned else { unreachable!() };
+        let backing = list.as_ptr();
+        apply_indexed_path_assignment(&mut owned, &path, AssignOp::Set, LoweredValue::Int(9), false, span).unwrap();
+        let LoweredValue::List(list) = &owned else { unreachable!() };
+        assert_eq!(list.as_ptr(), backing);
+        let mut shared = LoweredValue::SharedList(Arc::new(vec![LoweredValue::Int(1), LoweredValue::Int(2)]));
+        let LoweredValue::SharedList(list) = &shared else { unreachable!() };
+        let backing = Arc::as_ptr(list);
+        apply_indexed_path_assignment(&mut shared, &path, AssignOp::Set, LoweredValue::Int(9), false, span).unwrap();
+        let LoweredValue::SharedList(list) = &shared else { unreachable!() };
+        assert_eq!(Arc::as_ptr(list), backing);
+        let alias = shared.clone();
+        apply_indexed_path_assignment(&mut shared, &path, AssignOp::Add, LoweredValue::Int(1), false, span).unwrap();
+        assert_eq!(alias, LoweredValue::List(vec![LoweredValue::Int(1), LoweredValue::Int(9)]));
+        assert_eq!(shared, LoweredValue::List(vec![LoweredValue::Int(1), LoweredValue::Int(10)]));
+        let LoweredValue::SharedList(list) = &shared else { unreachable!() };
+        let backing = Arc::as_ptr(list);
+        assert!(apply_indexed_path_assignment(&mut shared, &path, AssignOp::Div, LoweredValue::Int(0), false, span).is_err());
+        let LoweredValue::SharedList(list) = &shared else { unreachable!() };
+        assert_eq!(Arc::as_ptr(list), backing);
+        assert_eq!(list[1], LoweredValue::Int(10));
+    }
 
     #[test]
     fn direct_indexed_function_executes_without_decoding_its_body() {

@@ -317,3 +317,21 @@ fn grep_and_refactor_computed_map_entries_keep_static_labels_distinct() {
     assert!(updated.contains("{[key]: 1, [\"two\"]: 2}"));
     assert!(updated.contains("let fixed = {key: 1}"));
 }
+
+#[test]
+fn grep_and_refactor_list_element_assignment_selectors_and_rhs() {
+    let root = TempDir::new().unwrap();
+    let file = root.path().join("list-assignment.xsh");
+    fs::write(&file, "var rows = [{count: 1}]\nrows[choose(0)].count += delta(2)\n").unwrap();
+    for pattern in ["choose(EXPR)", "delta(EXPR)"] {
+        let output = grep_scripts(pattern, &paths(&file));
+        assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+        assert!(output_text(&output.stdout).contains("1 match"));
+    }
+    let output = refactor_scripts("choose(X)", "selected(X)", &paths(&file), false);
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    let fixed = fs::read_to_string(&file).unwrap();
+    assert!(fixed.contains("rows[selected(0)].count += delta(2)"));
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(xsh::frontend::source::SourceId::new(0), &fixed);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+}

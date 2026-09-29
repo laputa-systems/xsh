@@ -169,6 +169,15 @@ before the next. It stops at bounded terminals, collects at a value boundary,
 and materializes before an unsupported stage. Other indexed pipeline shapes
 remain in `src/runtime/eval/lowered_run/indexed_run.rs`.
 
+Nested assignment paths lower to `BuildStmtRow::AssignPath` with verified
+`LoweredAssignStep` field/index selectors. Indexed frames evaluate selectors and
+RHS before `apply_indexed_path_assignment` observes the current root, validates
+the complete path, and descends through ownership-aware record/map/list storage.
+`lowered_ops.rs::lowered_record_field_mut` is the shared record COW primitive.
+Unique backing is retained; shared ancestors copy only when mutable descent
+reaches them. The top-level driver publishes operand mutations before surfacing
+an enclosing assignment failure, so cleanup observes those effects.
+
 Half-open slices reuse `ArenaExprKind::Slice` and the verified `ExprSlice` row.
 `check_slice_arena` checks List/Str/Bytes receivers and Int bounds; indexed dispatch
 evaluates the receiver and supplied bounds once in source order.

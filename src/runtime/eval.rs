@@ -1027,6 +1027,15 @@ struct LoweredSpawnRun {
 }
 
 #[derive(Clone, Debug)]
+enum LoweredAssignStep {
+    Field(Name),
+    Index(BuildExprId),
+}
+
+#[derive(Clone, Debug)]
+struct LoweredAssignPath(Vec<LoweredAssignStep>);
+
+#[derive(Clone, Debug)]
 enum BuildStmtRow {
     Let {
         slot: usize,
@@ -1071,12 +1080,9 @@ enum BuildStmtRow {
         value: BuildIntId,
         span: Span,
     },
-    AssignIndex {
+    AssignPath {
         slot: usize,
-        // Boxed: this is the only `BuildStmtId` variant with two inline
-        // `BuildExprId`s, which made it (at ~2x the enum's other variants) the
-        // size driver for every statement in the lowered IR.
-        index: BuildExprId,
+        path: LoweredAssignPath,
         op: AssignOp,
         value: BuildExprId,
         span: Span,

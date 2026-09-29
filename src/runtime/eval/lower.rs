@@ -1525,7 +1525,7 @@ use super::{
     BuildTopStmtId, BuildTopStmtRow, COMPACT_CALL_BLOCKER_KIND_COUNT,
     COMPACT_COMMAND_BLOCKER_KIND_COUNT, COMPACT_EXPR_KIND_COUNT, COMPACT_STMT_KIND_COUNT,
     COMPACT_TYPE_EXPR_TAG_COUNT, CompactLowerConstructProbeOutput, Flow, FunctionBuild,
-    LowerableFunctions, LoweredCallArg, LoweredCompFields, LoweredCompTarget, LoweredErrorExpr,
+    LoweredAssignPath, LoweredAssignStep, LowerableFunctions, LoweredCallArg, LoweredCompFields, LoweredCompTarget, LoweredErrorExpr,
     LoweredErrorPatternFields, LoweredFmtPart, LoweredFunctionBlocker, LoweredFunctionKey,
     LoweredFunctionKind, LoweredFunctionUnit, LoweredModuleExport, LoweredModuleExportKind,
     LoweredParamChecks, LoweredParamDefaults, LoweredParamKinds, LoweredParamNames,
@@ -6364,30 +6364,13 @@ impl CompactLowerConstructProbe<'_, '_> {
                             ))
                         }
                     }
-                    ArenaAssignTargetKind::Index { base, index }
-                        if matches!(
-                            self.program.arena.assign_target(base).kind,
-                            ArenaAssignTargetKind::Name(_)
-                        ) =>
-                    {
-                        Some(push_build_row!(
-                            self,
-                            stmt,
-                            BuildStmtRow::AssignIndex {
-                                slot,
-                                index: self.lower_expr(
-                                    index,
-                                    slots,
-                                    current_function,
-                                    item_slot,
-                                )?,
-                                op,
-                                value,
-                                span: self.program.arena.stmt(id).span,
-                            }
-                        ))
-                    }
-                    _ => None,
+                    _ => {
+                        let path = self.lower_assign_path(target, slots, current_function, item_slot)?;
+                        Some(push_build_row!(self, stmt, BuildStmtRow::AssignPath {
+                            slot, path: LoweredAssignPath(path), op, value,
+                            span: self.program.arena.stmt(id).span,
+                        }))
+                    },
                 }
             }
             ArenaStmtKind::If {
@@ -12950,6 +12933,28 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
     }
 
+    fn lower_assign_path(
+        &mut self,
+        target: crate::syntax::arena::AssignTargetId,
+        slots: &mut SlotScope,
+        current_function: Option<Name>,
+        item_slot: Option<usize>,
+    ) -> Option<Vec<LoweredAssignStep>> {
+        match self.program.arena.assign_target(target).kind {
+            ArenaAssignTargetKind::Name(_) => Some(Vec::new()),
+            ArenaAssignTargetKind::Field { base, name } => {
+                let mut path = self.lower_assign_path(base, slots, current_function, item_slot)?;
+                path.push(LoweredAssignStep::Field(name));
+                Some(path)
+            }
+            ArenaAssignTargetKind::Index { base, index } => {
+                let mut path = self.lower_assign_path(base, slots, current_function, item_slot)?;
+                path.push(LoweredAssignStep::Index(self.lower_expr(index, slots, current_function, item_slot)?));
+                Some(path)
+            }
+        }
+    }
+
     fn assign_target_root_name(&self, id: crate::syntax::arena::AssignTargetId) -> Option<Name> {
         match self.program.arena.assign_target(id).kind {
             ArenaAssignTargetKind::Name(name) => Some(name),
@@ -15300,7 +15305,7 @@ pub(super) fn lowered_body_can_return(scratch: &BuildScratch, statements: &[Buil
             | BuildStmtRow::AssignInt { .. }
             | BuildStmtRow::AssignField { .. }
             | BuildStmtRow::AssignFieldInt { .. }
-            | BuildStmtRow::AssignIndex { .. }
+            | BuildStmtRow::AssignPath { .. }
             | BuildStmtRow::AssignBool { .. }
             | BuildStmtRow::Value { .. }
             | BuildStmtRow::Assert { .. }

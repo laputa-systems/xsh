@@ -3,7 +3,7 @@ use super::serial_pipeline::{
     IndexedLiveSerialStage, IndexedSerialPipeline, indexed_for_pipeline_input,
 };
 use super::{
-    IndexedCompQualifier, decode_comp_qualifiers, lowered_comp_iterable, Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
+    IndexedAssignStep, ResolvedAssignStep, decode_assign_path, apply_indexed_path_assignment, resolve_assign_index, IndexedCompQualifier, decode_comp_qualifiers, lowered_comp_iterable, Arc, AssignOp, BLOCK_LIST, BLOCK_STATEMENTS, BTreeMap, BinaryOp, ControlFlow, Evaluator,
     FormatSpec, FullExecution, FullFunctionView, FullPayload, FullProgram, FullTag, FunctionHeader,
     LoweredFunctionKey, LoweredFunctionKind, LoweredReturnKind, LoweredType,
     LoweredTypeCheck, LoweredValue, Name, PathValue, RuntimeError, Span, StmtFlow, StreamValue,
@@ -69,6 +69,17 @@ enum FmtPart {
     Expr(u32, Span, Option<FormatSpec>),
 }
 
+struct AssignPathState {
+    slot: usize,
+    path: Vec<IndexedAssignStep>,
+    selectors: Vec<ResolvedAssignStep>,
+    position: usize,
+    op: AssignOp,
+    value: u32,
+    singleton: bool,
+    span: Span,
+}
+
 enum FrameContinuation {
     Store(usize),
     Assign {
@@ -77,6 +88,8 @@ enum FrameContinuation {
         singleton: bool,
         span: Span,
     },
+    AssignSelector(AssignPathState),
+    AssignPath(AssignPathState),
     Return,
     Discard(Span),
     ComparisonLeft {
@@ -1158,6 +1171,17 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 );
                 Ok(())
             }
+            FullTag::StmtAssignPath => {
+                let slot = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let path = decode_assign_path(&self.calls[index].execution, &mut payload, span)?;
+                let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let value = indexed_raw(&mut payload, span)?;
+                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                let (value, singleton) = indexed_assignment_operand(&self.calls[index].execution, value, op, span)?;
+                self.advance_assign_path(index, AssignPathState { slot, path, selectors: Vec::new(), position: 0, op, value, singleton, span });
+                Ok(())
+            }
             FullTag::StmtExpr => {
                 let value = indexed_raw(&mut payload, span)?;
                 let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
@@ -1916,6 +1940,22 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 FrameValue::Break(value) => {
                     return self.complete_call(index, StmtFlow::Return(value));
                 }
+            },
+            FrameContinuation::AssignSelector(mut state) => match value {
+                FrameValue::Value(value) => {
+                    state.selectors.push(resolve_assign_index(value, state.span)?);
+                    self.advance_assign_path(index, state);
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
+            },
+            FrameContinuation::AssignPath(state) => match value {
+                FrameValue::Value(value) => {
+                    apply_indexed_path_assignment(&mut self.calls[index].slots[state.slot], &state.selectors, state.op, value, state.singleton, state.span)?;
+                    self.evaluator.transfer_owned_host_resources_in_lowered_value(
+                        &self.calls[index].slots[state.slot], self.evaluator.current_scope_id(), self.calls[index].slot_scopes[state.slot],
+                    );
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Return(value)),
             },
             FrameContinuation::Return => {
                 let value = match value {
@@ -3430,6 +3470,21 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     .with_span(span),
             )
         }
+    }
+
+    fn advance_assign_path(&mut self, index: usize, mut state: AssignPathState) {
+        while state.position < state.path.len() {
+            let step = state.path[state.position].clone();
+            state.position += 1;
+            match step {
+                IndexedAssignStep::Field(name) => state.selectors.push(ResolvedAssignStep::Field(name)),
+                IndexedAssignStep::Index(expr) => {
+                    self.push_expr(index, expr, state.span, FrameContinuation::AssignSelector(state));
+                    return;
+                }
+            }
+        }
+        self.push_expr(index, state.value, state.span, FrameContinuation::AssignPath(state));
     }
 
     fn push_expr(&mut self, index: usize, instruction: u32, span: Span, next: FrameContinuation) {

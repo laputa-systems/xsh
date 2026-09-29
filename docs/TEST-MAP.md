@@ -646,3 +646,11 @@ formatter round trips, and quoted dotted keys. Focused tooling acceptance uses
 `cargo test -p xsht --test integration field_label`; safe label/access rewrites
 recheck and converge, while unknown receivers, handled Results, comments,
 consumer conversions, and error contexts stay unchanged.
+List element and nested assignment behavior lives in `tests/xsh/list-assignment.xsh`.
+It pins existing record/Map evaluation policy, same-root selector/RHS mutation,
+strict bounds, contextual schemas, alias independence, and cleanup after failure.
+`assignment_path_reuses_unique_storage_and_preserves_aliases` owns internal
+allocation identity; `list_assignment_verifies_paths_and_executes_both_routes`
+checks malformed indexed paths and both runtime routes. The
+`linter_list_element_assignment_*` tooling tests cover exact-bound fixes,
+refusal, Unicode/comments, normal rechecking, and convergence.

@@ -340,7 +340,7 @@ impl<'a> Parser<'a> {
                                     break;
                                 }
                             }
-                            TokenTag::Eof | TokenTag::Newline | TokenTag::Semicolon => {
+                            TokenTag::Eof => {
                                 return false;
                             }
                             _ => {}

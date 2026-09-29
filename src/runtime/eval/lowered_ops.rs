@@ -1986,6 +1986,29 @@ fn lowered_inline_stats_method_value(
     })
 }
 
+/// Selects an existing record field while retaining value semantics.
+/// Shared storage is copied only when another value still owns it.
+pub(super) fn lowered_record_field_mut<'a>(
+    value: &'a mut LoweredValue,
+    field: Name,
+    span: Span,
+) -> Result<&'a mut LoweredValue, RuntimeError> {
+    if matches!(value, LoweredValue::Stats { .. } | LoweredValue::StatsBlob(_)) {
+        let stats = std::mem::replace(value, LoweredValue::Unit);
+        *value = LoweredValue::RecordVec(Arc::new(match stats {
+            LoweredValue::Stats { blanks, code, comments } => super::lowered_inline_stats_to_record_vec(blanks, code, comments),
+            LoweredValue::StatsBlob(stats) => stats.to_record_vec(),
+            _ => unreachable!("checked stats record"),
+        }));
+    }
+    let selected = match value {
+        LoweredValue::Record(fields) => Arc::make_mut(fields).get_mut(field.as_str().as_str()),
+        LoweredValue::RecordVec(fields) => super::lowered_record_vec_get_mut(Arc::make_mut(fields).as_mut_slice(), field.as_str().as_str()),
+        _ => return Err(RuntimeError::new("type-error", "lowered expression expected Record").with_span(span)),
+    };
+    selected.ok_or_else(|| RuntimeError::new("missing-field", field.to_string()).with_span(span))
+}
+
 pub(super) fn lowered_index_value(
     base: LoweredValue,
     index: LoweredValue,

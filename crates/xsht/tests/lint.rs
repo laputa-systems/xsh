@@ -3341,3 +3341,58 @@ fn linter_map_literal_comment_spans_have_guidance_without_fixes() {
     let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-map-literal")).expect("commented initialization warning");
     assert!(diagnostic.fix_hints.is_empty());
 }
+
+#[test]
+fn linter_list_element_assignment_exact_bounds_rechecks_and_converges() {
+    let source = "# café\nvar values: List[Int] = [1, 2, 3]\nvalues = [@values[..1], 8, @values[2..]] # keep\nprint values.len()\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-list-element-assignment")).unwrap();
+    let hint = &diagnostic.fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+    assert!(fixed.contains("values[1] = 8 # keep"));
+    assert!(fixed.contains("var values: List[Int] = [1, 2, 3]"));
+    assert_parse_check_standalone("element assignment", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty());
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+    let parsed = parse_lint_source(&formatted.formatted);
+    let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
+    let second = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-list-element-assignment")));
+}
+
+#[test]
+fn linter_list_element_assignment_refuses_clipped_bounds_effects_and_comments() {
+    for source in [
+        "var values = [1]\nvalues = [@values[..1], 8, @values[2..]]\n",
+        "var values = [1, 2, 3]\nprint values.len()\nvalues = [@values[..1], 8, @values[2..]]\n",
+        "pure replacement() -> Int { return 8 }\nvar values = [1, 2, 3]\nvalues = [@values[..1], replacement(), @values[2..]]\n",
+        "var values = [1, 2, 3]\nvalues = [@values[..1], # reason\n  8, @values[2..]]\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+        let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-list-element-assignment")).unwrap();
+        assert!(diagnostic.fix_hints.is_empty(), "{source}");
+        let unchecked = Linter::lint(&parsed.arena, source, LintOptions::default());
+        assert!(!unchecked.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-list-element-assignment")));
+    }
+}
+
+#[test]
+fn formatter_list_element_assignment_preserves_nested_selectors_and_comments() {
+    let source = "var rows = [{count: 1}]\nrows[if true { # selector\n  0\n} else { 0 }].count += 1 # update\n";
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("# selector"));
+    assert!(formatted.formatted.contains("# update"));
+    assert_parse_check_standalone("formatted nested assignment", &formatted.formatted);
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+}

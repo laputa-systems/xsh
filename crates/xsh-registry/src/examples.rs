@@ -46,6 +46,9 @@ pub(crate) fn source(id: &str) -> Option<String> {
             include_str!("../../../docs/snippets/api/stream-collect.xsh")
         }
         "method.Str.trim" => include_str!("../../../docs/snippets/api/str-trim.xsh"),
+        "language.core.list-element-assignment" => {
+            include_str!("../../../docs/snippets/api/list-element-assignment.xsh")
+        }
         "language.core.list-splicing" => {
             include_str!("../../../docs/snippets/api/list-splicing.xsh")
         }
