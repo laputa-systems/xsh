@@ -594,6 +594,7 @@ stack boundaries.
 | standard modules | `tests/xsh/stdlib/module.xsh`, `tests/runtime/modules.rs` |
 | embedded standard-module linkage and copied checker/runner binaries | `tests/stdlib_port.rs`, `tests/runtime/run.rs::copied_products_check_and_run_script_backed_calls_in_static_and_loaded_modules` |
 | OS-facing runtime behavior | `tests/xsh/stdlib/unix.xsh`, `tests/runtime/os.rs`, `tests/runtime/unix.rs`, `tests/runtime/linux.rs` |
+| Bytes stdin redirection, concurrent capture delivery, early closure, Command/stream/pipeline routes, and owned spawn cleanup | `tests/runtime/process.rs::bytes_stdin_*`, `tests/xsh/stdlib/process.xsh::test_bytes_stdin_*`; `cargo test -p xsh --test integration bytes_stdin` |
 | `run_capture`, `spawn_managed`, and process execution | `tests/xsh/run.xsh`, `tests/xsh/stdlib/process.xsh`, `tests/runtime/process.rs`, `tests/runtime/run.rs` |
 | local Result capture, nested Result data, lexical exits, assertion and cleanup failures | `tests/xsh/try-capture.xsh` |
 | retry blocks, selective nominal/facet patterns, error identity, cleanup and selection trace | `tests/xsh/retry.xsh` |

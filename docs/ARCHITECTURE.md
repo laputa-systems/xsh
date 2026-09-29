@@ -478,6 +478,10 @@ Focused runtime behavior lives beside it:
   need evaluator state.
 - `src/runtime/process.rs` owns process invocation, redirection, argv/env
   conversion, and cancellation signals.
+  `ProcessRedirection::Input` and `CommandRedirection::Input` retain immutable
+  byte input. `InputDelivery` feeds a nonblocking child pipe in bounded writes
+  under the capture, pipeline, and managed-child owners; evaluator checkpoints
+  advance owned spawn input without introducing a public scheduler.
 - `execute_run` in `src/runtime/run.rs` executes `run` forms.
 - `src/runtime/value.rs` defines runtime values and error constructors.
 

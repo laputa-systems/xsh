@@ -1040,6 +1040,7 @@ pub struct CommandPlan {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandRedirection {
+    Input { bytes: Arc<[u8]> },
     File {
         stream: CommandRedirectionStream,
         mode: CommandRedirectionMode,

@@ -515,6 +515,10 @@ impl Checker {
             self.check_run_segment_arena(arena, source, segment);
         }
         let is_pipeline = segments.len() > 1;
+        if segments.iter().skip(1).any(|segment| arena.arena.redirections(segment.redirections).iter().any(|item|
+            matches!(item.kind, crate::syntax::node::RedirectionKind::StdinRead | crate::syntax::node::RedirectionKind::StdinDup))) {
+            self.error(run_span, "stdin redirection is only valid on the first byte pipeline segment", "check.pipeline-stdin");
+        }
         if is_pipeline
             && segments
                 .iter()
@@ -652,8 +656,15 @@ impl Checker {
         for arg in arena.arena.command_args(segment.args) {
             self.check_external_arg_arena(arena, source, arg);
         }
-        for redirection in arena.arena.redirections(segment.redirections) {
-            self.check_redirection_arena(arena, source, redirection);
+        let redirections = arena.arena.redirections(segment.redirections);
+        let stdin_sources = redirections.iter().filter(|item| matches!(item.kind,
+            crate::syntax::node::RedirectionKind::StdinRead | crate::syntax::node::RedirectionKind::StdinDup)).count();
+        let mut bytes_input = false;
+        for redirection in redirections {
+            bytes_input |= self.check_redirection_arena(arena, source, redirection);
+        }
+        if bytes_input && stdin_sources > 1 {
+            self.error(arena.arena.span(segment.span), "Bytes input cannot compete with another stdin source", "check.stdin-source");
         }
     }
 
@@ -734,17 +745,21 @@ impl Checker {
         arena: &ArenaProgram,
         source: &str,
         redirection: &ArenaRedirection,
-    ) {
+    ) -> bool {
         match &redirection.target {
             ArenaRedirectionTarget::Path(arg) => {
                 let ty = self.check_command_arg_arena(arena, source, arg, None);
                 let arg_span = arena.arena.span(arg.span);
-                self.expect_command_value_conversion(&Type::Path, &ty, arg_span);
+                if redirection.kind != crate::syntax::node::RedirectionKind::StdinRead || ty != Type::Bytes {
+                    self.expect_command_value_conversion(&Type::Path, &ty, arg_span);
+                }
+                ty == Type::Bytes && redirection.kind == crate::syntax::node::RedirectionKind::StdinRead
             }
             ArenaRedirectionTarget::Fd(arg) => {
                 let ty = self.check_command_arg_arena(arena, source, arg, None);
                 let arg_span = arena.arena.span(arg.span);
                 self.expect_command_value_conversion(&Type::Int, &ty, arg_span);
+                false
             }
         }
     }

@@ -3278,6 +3278,11 @@ impl Evaluator {
     }
 
     pub(super) fn service_pending_signal(&mut self, span: Span) -> Result<(), RuntimeError> {
+        for live in self.process_handles.values_mut() {
+            // Delivery failures remain owned by the handle and surface through
+            // its wait or cleanup result, alongside other process I/O failures.
+            let _ = crate::runtime::process::drive_managed_input(&mut live.child);
+        }
         if self.signal_hooks.is_empty()
             && self.process_handles.is_empty()
             && self.net_jobs.is_empty()

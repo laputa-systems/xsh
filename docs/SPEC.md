@@ -2184,7 +2184,17 @@ run sort < ${input} > ${output}
 run tool >& 2
 ```
 
-Redirection targets are typed path-like values or non-negative file descriptor
+Stdin `<` also accepts Bytes, evaluated once at the redirection position and
+sent exactly, including NUL, without adding a newline or creating a temporary
+file. Empty Bytes closes stdin with no content. Str remains a file path; text
+content requires explicit UTF-8 encoding. Result operands require handling.
+Bytes cannot redirect output, compete with another stdin source, or replace
+stdin wiring on a later byte pipeline segment. Command plans retain byte input
+until delivery or termination; owned spawn continues delivery at process-owner
+checkpoints and wait/cancel/cleanup. Capture drains output while feeding input,
+and a consumer closing stdin early does not turn successful exit into failure.
+
+Redirection targets otherwise are typed path-like values or non-negative file descriptor
 numbers for fd duplication. `2>` and `2>>` redirect stderr for write and append.
 Process traces must represent argv, env overlays, cwd, pipeline segments,
 spawn/wait handle ids, and redirections structurally, never as reconstructed
@@ -3421,7 +3431,7 @@ when `XSH_UNIX_DRY_RUN_LOG` is set. `unix.set_hostname` is gated unless
   backslash escapes. Unquoted shell operators, expansions, globs, command
   substitution, and compound-command syntax are rejected.
 - `process.command_argv(target: Str|Path, argv: List[Str|Path], cwd: Path = default,
-  env: Record = default, stdin: Path = default, stdout: Path = default,
+  env: Record = default, stdin: Path | Bytes = default, stdout: Path = default,
   stderr: Path = default, stdout_append: Bool = false,
   stderr_append: Bool = false, timeout: Duration = default,
   detach: Bool = false, new_session: Bool = false, ignore_hup: Bool = false,
@@ -3776,7 +3786,7 @@ Builder checks reports unknown fields, duplicate fields, invalid nested
 commands, missing required fields, and domain check failures with source
 spans from the builder block.
 
-`process.command { ... }` accepts `cwd: Path`, `env: Record`, `stdin: Path`,
+`process.command { ... }` accepts `cwd: Path`, `env: Record`, `stdin: Path | Bytes`,
 `stdout: Path`, `stderr: Path`, `stdout_append: Bool`,
 `stderr_append: Bool`, `timeout: Duration`, `cpu_max: Int`, `detach: Bool`,
 `new_session: Bool`, `ignore_hup: Bool`, and exactly one plain `run` entry. It

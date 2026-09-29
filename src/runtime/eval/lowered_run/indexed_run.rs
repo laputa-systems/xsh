@@ -975,14 +975,22 @@ impl Evaluator {
     ) -> Result<ControlFlow<LoweredValue, Vec<ProcessRedirection>>, RuntimeError> {
         let mut out = Vec::with_capacity(redirections.len());
         for redirection in redirections {
-            let target = match self.eval_indexed_run_arg(
-                execution,
-                &redirection.target,
-                slots,
-                redirection.span,
-            )? {
-                ControlFlow::Continue(items) => items,
+            let value = match self.eval_indexed_expr(execution, redirection.target.value, slots, redirection.span)? {
+                ControlFlow::Continue(value) => value,
                 ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+            };
+            if let LoweredValue::Bytes(bytes) = value {
+                if redirection.kind != RedirectionKind::StdinRead || redirection.target.mode == 2 {
+                    return Err(RuntimeError::new("redirection-target", "Bytes are only valid as a single stdin input").with_span(redirection.span));
+                }
+                out.push(ProcessRedirection::Input { bytes });
+                continue;
+            }
+            let value = value.into_value();
+            let target = match redirection.target.mode {
+                2 => splice_to_argv(value, redirection.target.span)?,
+                1 if matches!(value, Value::List(_)) => splice_to_argv(value, redirection.target.span)?,
+                _ => vec![value_to_argv_bytes(value, redirection.target.span)?],
             };
             let [target]: [Vec<u8>; 1] = target.try_into().map_err(|_| {
                 RuntimeError::new(

@@ -1507,6 +1507,9 @@ impl<'a> Writer<'a> {
         });
         output.push(' ');
         match &redirection.target {
+            ArenaRedirectionTarget::Path(arg) if matches!(arg.kind, ArenaCommandArgKind::Typed(expr) if matches!(self.arena.expr(expr).kind, ArenaExprKind::Bytes(_))) => {
+                if let ArenaCommandArgKind::Typed(expr) = arg.kind { self.write_expr(expr, 0, output); }
+            }
             ArenaRedirectionTarget::Path(arg) | ArenaRedirectionTarget::Fd(arg) => {
                 self.write_command_arg(arg, output);
             }

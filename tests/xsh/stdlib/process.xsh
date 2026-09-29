@@ -433,3 +433,47 @@ print \${status.exit_code()?}
   test.contains(json_trace.stderr, "\"handle_id\":2")?
   test.contains(json_trace.stderr, "\"code\":7")?
 }
+
+proc test_bytes_stdin_redirection_is_exact_and_explicit() [process, error] {
+  let payload = b"a\0\xff\n"
+  let echoed = run.bytes cat < (payload) ?
+  test.eq(echoed, payload)?
+  test.eq(run.bytes cat < b"" ?, b"")?
+  let text = "text without a newline"
+  test.eq(run.text cat < (bytes.from_text(text)) ?, text)?
+}
+
+proc test_bytes_stdin_rejects_invalid_targets_and_sources(ctx: TestContext) [error] {
+  for source in [
+    "run cat > b\"output\"\n",
+    "run cat < b\"first\" < b\"second\"\n",
+    "run cat | run cat < b\"second\"\n",
+    "let payload: Result[Bytes] = Ok(b\"input\")\nrun cat < (payload)\n",
+    "let command = process.command {stdout = b\"output\"; run cat}\n",
+  ] {
+    let checked = test.run_xsh(ctx, source)?
+    test.eq(checked.status, 2, checked.stderr)?
+  }
+}
+
+proc test_bytes_stdin_path_strings_and_once_only_expression(ctx: TestContext) [fs, process, error] {
+  let root = test.temp_dir(ctx, name: "bytes-stdin-path")?
+  let input = fp"${root}/input"
+  input.write("file content")?
+  let file_name = input.display()
+  test.eq(run.text cat < (file_name) ?, "file content")?
+  let result = test.run_script(ctx, r"""proc payload() [io] -> Bytes {print preparing; return b"content"}
+let copied = run.bytes cat < (payload()) ?
+print ${copied.utf8()?}
+""")?
+  test.ok(result.success, result.stderr)?
+  test.eq(result.stdout, "preparing\ncontent\n")?
+}
+
+proc test_bytes_stdin_trace_does_not_include_payload(ctx: TestContext) [error] {
+  let result = test.run_xsht_trace(ctx, r"""let copied = run.bytes cat < b"private-input-payload" ?
+print ${copied.len()}
+""", ["--trace", "--raw", "--trace-format", "jsonl"])?
+  test.ok(result.success, result.stderr)?
+  test.ok(! result.stderr.contains("private-input-payload"), result.stderr)?
+}

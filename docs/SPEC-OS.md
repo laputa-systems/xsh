@@ -280,6 +280,14 @@ to `Command` and starts that plan as an owned handle. `wait handle` returns
 `Result[List[Status], ProcessError]`. A trailing `?` applies to the `Result`
 produced by the whole `spawn`, `wait`, or `cancel` expression.
 
+Bytes stdin payloads belong to the process owner. `InputDelivery` retains one
+immutable byte allocation and a nonblocking child pipe, advancing bounded
+writes at capture, managed-wait, and pipeline polling checkpoints. Evaluator
+checkpoints also drive live owned handles. Captured stdout/stderr are drained
+while input delivery proceeds; successful consumers may close stdin early.
+Completion, timeout, cancellation, lexical cleanup, and detached reaping close
+the pipe and release the payload without a temporary file or extra feeder task.
+
 ## 3. Signal State
 
 XSH uses two process-global atomic slots for handled signals:

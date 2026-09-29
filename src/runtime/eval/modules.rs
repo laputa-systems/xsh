@@ -70,6 +70,7 @@ impl Evaluator {
             .redirections
             .iter()
             .map(|redirection| match redirection {
+                CommandRedirection::Input { bytes } => ProcessRedirection::Input { bytes: bytes.clone() },
                 CommandRedirection::File { stream, mode, path } => ProcessRedirection::File {
                     stream: match stream {
                         CommandRedirectionStream::Stdin => RedirectionStream::Stdin,

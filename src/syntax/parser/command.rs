@@ -513,7 +513,11 @@ impl<'a> Parser<'a> {
             return None;
         };
 
-        let target_arg = self.parse_command_arg_arena_only(arena)?;
+        let target_arg = if self.current_tag() == TokenTag::Bytes {
+            let start = self.current_start();
+            let expr = self.with_command_arg_expr(|parser| parser.parse_expr_id_arena_only(arena))?;
+            arena.typed_command_arg(expr, self.span(start, self.previous_end()))
+        } else { self.parse_command_arg_arena_only(arena)? };
         let arena_target = match kind {
             RedirectionKind::StdoutDup | RedirectionKind::StdinDup => {
                 ArenaRedirectionTarget::Fd(target_arg)

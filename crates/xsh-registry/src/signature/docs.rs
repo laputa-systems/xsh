@@ -329,7 +329,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("process", "command") => Some((
             "Builds a typed command plan without starting it.",
-            "The plan captures argv, cwd, environment, and redirection before execution or spawn.",
+            "The plan captures argv, cwd, environment, and redirection before execution or spawn. Stdin accepts a file Path or immutable Bytes content; empty Bytes closes input, and text must be explicitly encoded.",
             &["process", "argv", "plan"],
         )),
         ("process", "spawn") => Some((
@@ -1022,7 +1022,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("process", "command_argv") => Some((
             "Builds a command plan from an executable and argv list.",
-            "Arguments remain separate values; no shell expansion, word splitting, or implicit command execution occurs.",
+            "Arguments remain separate values; no shell expansion, word splitting, or implicit command execution occurs. Stdin accepts Path or Bytes; byte content is delivered exactly while captured output drains, without a temporary file.",
             &["process", "argv", "plan"],
         )),
         ("process", "run") => Some((

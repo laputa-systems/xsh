@@ -1042,3 +1042,115 @@ run sh -c r"trap '' USR1; (sleep 2; printf leaked > $1) & kill -USR1 $PPID; wait
     assert!(!leaked.exists());
     let _ = std::fs::remove_file(leaked);
 }
+
+// Raw child stdio and bounded pipe delivery belong to the host process boundary.
+#[test]
+fn bytes_stdin_redirection_preserves_arbitrary_and_empty_input() {
+    let output = run_temp_script("bytes-stdin-exact", r#"
+let payload = b"a\0\xff\n"
+let copied = run.bytes cat < (payload) ?
+io.write_stdout_bytes(copied)?
+let empty = run.bytes cat < b"" ?
+print empty.len()
+"#);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"a\0\xff\n0\n");
+}
+
+#[test]
+fn bytes_stdin_capture_drains_both_outputs_while_feeding_large_input() {
+    let output = run_temp_script("bytes-stdin-large-capture", &format!(r#"
+let payload = bytes.concat([b"a\0\xff\n", bytes.zero(2097152)?])
+let copied = run.capture --bytes --timeout=3s ({}) bytes-echo stderr < (payload) ?
+if copied.stderr != payload {{ error.fail("stderr payload changed")? }}
+io.write_stdout_bytes(copied.stdout)?
+"#, xsh_string_literal(os_probe())));
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let mut expected = b"a\0\xff\n".to_vec(); expected.resize(2097156, 0);
+    assert_eq!(output.stdout, expected);
+}
+
+#[test]
+fn bytes_stdin_early_close_and_first_pipeline_keep_success_status() {
+    let output = run_temp_script("bytes-stdin-early-close-pipeline", &format!(r#"
+let payload = bytes.zero(1048576)?
+let copied = run.bytes --timeout=3s ({probe}) bytes-prefix 1 < (payload) ?
+io.write_stdout_bytes(copied)?
+run ({probe}) bytes-echo < b"pipe\0\xff" | run cat
+"#, probe = xsh_string_literal(os_probe())));
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"pipe\0\xff\0");
+}
+
+#[test]
+fn bytes_stdin_command_routes_and_streams_deliver_exact_input() {
+    let output = run_temp_script("bytes-stdin-command-stream", &format!(r#"
+let payload = b"cmd\0\xff"
+let command = process.command {{ stdin = payload; run cat }}
+process.run(command)?
+let explicit = process.command_argv("cat", ["cat"], stdin: payload)
+let handle = spawn explicit?
+let status = wait handle?
+if status.ok == false {{ error.fail("command failed")? }}
+let streamed = run.stream --bytes ({probe}) bytes-echo < b"stream\n"
+for chunk in streamed {{ io.write_stdout_bytes(chunk)? }}
+"#, probe = xsh_string_literal(os_probe())));
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"cmd\0\xffcmd\0\xffstream\n");
+}
+
+#[test]
+fn bytes_stdin_owned_spawn_feeds_before_wait_and_closes_on_timeout_or_cancel() {
+    let marker = temp_path("bytes-stdin-spawn-marker");
+    let ready = temp_path("bytes-stdin-timeout-ready");
+    let output = run_temp_script("bytes-stdin-spawn-owners", &format!(r#"
+let payload = bytes.zero(262144)?
+let marker = Path({marker})
+let ready = Path({ready})
+let handle = spawn run --timeout=3s ({probe}) bytes-sink-marker (marker) < (payload) ?
+var attempts = 0
+while marker.exists()? == false and attempts < 200 {{ time.sleep(10ms)?; attempts += 1 }}
+let contents = marker.read_text()?
+print $contents
+let completed = wait handle?
+let timed = spawn run --timeout=20ms ({probe}) ready-sleep (ready) < (payload) ?
+let failure = wait timed
+if failure is Ok(_) {{ error.fail("timeout expected")? }}
+let cancelled = spawn run ({probe}) ready-sleep (ready) < (payload) ?
+cancelled.cancel(kill_after: 0ms)?
+"#, probe=xsh_string_literal(os_probe()), marker=xsh_string_literal(marker.to_str().unwrap()), ready=xsh_string_literal(ready.to_str().unwrap())));
+    let _ = std::fs::remove_file(marker); let _ = std::fs::remove_file(ready);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"262144\n");
+}
+
+#[test]
+fn bytes_stdin_scope_cleanup_reaps_an_unread_input_owner() {
+    let ready = temp_path("bytes-stdin-cleanup-ready");
+    let output = run_temp_script("bytes-stdin-scope-cleanup", &format!(r#"
+proc abandon() [process, error] -> Int {{
+  let payload = bytes.zero(1048576)?
+  let handle = spawn run ({probe}) ready-sleep ({ready}) < (payload) ?
+  return handle.pid
+}}
+let pid = abandon()
+print $pid
+"#, probe=xsh_string_literal(os_probe()), ready=xsh_string_literal(ready.to_str().unwrap())));
+    let _ = std::fs::remove_file(ready);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let pid: i32 = String::from_utf8(output.stdout).unwrap().trim().parse().unwrap();
+    assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "child remains live after scope cleanup");
+    assert_eq!(std::io::Error::last_os_error().raw_os_error(), Some(libc::ESRCH));
+}
+
+#[test]
+fn bytes_stdin_empty_payload_closes_input_without_consuming_inherited_stdin() {
+    let script = write_temp_script("bytes-stdin-empty-is-explicit", "let empty = run.bytes cat < b\"\" ?\nprint ${empty.len()}\nio.write_stdout_bytes(io.stdin_bytes()?)?\n");
+    let mut child = Command::new(cargo_env!("CARGO_BIN_EXE_xsh")).arg(&script)
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(b"inherited").unwrap();
+    let output = child.wait_with_output().unwrap();
+    let _ = std::fs::remove_file(script);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(output.stdout, b"0\ninherited");
+}

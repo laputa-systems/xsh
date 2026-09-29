@@ -3871,3 +3871,14 @@ fn block_string_parser_preserves_original_expression_and_diagnostic_spans() {
     let issue = parsed.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("parse.block-string-margin")).unwrap();
     assert_eq!(&invalid[issue.labels[0].span.range()], " w");
 }
+
+#[test]
+fn parser_and_formatter_retain_bare_bytes_stdin_as_one_typed_operand() {
+    let source = "let copied = run.bytes cat < b\"a\\0\\xff\" ?\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert_eq!(formatted.formatted, source);
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, source);
+}

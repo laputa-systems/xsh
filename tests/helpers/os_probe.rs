@@ -15,6 +15,9 @@ fn main() {
     };
 
     let result = match mode.as_str() {
+        "bytes-echo" => bytes_echo(args),
+        "bytes-prefix" => bytes_prefix(args),
+        "bytes-sink-marker" => bytes_sink_marker(args),
         "delayed-marker" => delayed_marker(args),
         "fork-new-session-leak" => fork_new_session_leak(args),
         "group-leak" => group_leak(args),
@@ -30,6 +33,33 @@ fn main() {
     if let Err(message) = result {
         fatal(&message);
     }
+}
+
+fn bytes_echo(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
+    use std::io::{Read, Write};
+    let copy_stderr = args.next().is_some_and(|arg| arg == "stderr");
+    let mut buffer = [0u8; 8192];
+    loop {
+        let count = std::io::stdin().read(&mut buffer).map_err(|error| error.to_string())?;
+        if count == 0 { return Ok(()); }
+        std::io::stdout().write_all(&buffer[..count]).map_err(|error| error.to_string())?;
+        if copy_stderr { std::io::stderr().write_all(&buffer[..count]).map_err(|error| error.to_string())?; }
+    }
+}
+
+fn bytes_prefix(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
+    use std::io::{Read, Write};
+    let count = args.next().and_then(|arg| arg.into_string().ok()).ok_or("count is required")?
+        .parse::<usize>().map_err(|error| error.to_string())?;
+    let mut buffer = vec![0; count];
+    std::io::stdin().read_exact(&mut buffer).map_err(|error| error.to_string())?;
+    std::io::stdout().write_all(&buffer).map_err(|error| error.to_string())
+}
+
+fn bytes_sink_marker(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {
+    let marker = required_path(&mut args, "marker")?;
+    let count = std::io::copy(&mut std::io::stdin(), &mut std::io::sink()).map_err(|error| error.to_string())?;
+    write_file(&marker, count.to_string().as_bytes())
 }
 
 fn delayed_marker(mut args: impl Iterator<Item = OsString>) -> Result<(), String> {

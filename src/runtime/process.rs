@@ -18,6 +18,7 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 use std::process::{ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub const CAPTURE_LIMIT: usize = 16 * 1024 * 1024;
@@ -328,6 +329,7 @@ pub struct ProcessInvocation {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProcessRedirection {
+    Input { bytes: Arc<[u8]> },
     File {
         stream: RedirectionStream,
         mode: FileRedirectionMode,
@@ -453,6 +455,52 @@ impl SpawnManagedOptions {
     }
 }
 
+// The process owner retains one immutable payload and advances a bounded write
+// at polling checkpoints, so capture reads and cancellation continue to run.
+struct InputDelivery {
+    writer: Option<std::process::ChildStdin>,
+    bytes: Arc<[u8]>,
+    offset: usize,
+}
+
+impl InputDelivery {
+    fn start(child: &mut std::process::Child, invocation: &ProcessInvocation, group: ProcessGroup) -> Result<Option<Self>, RunError> {
+        let Some(bytes) = invocation.redirections.iter().find_map(|item| match item {
+            ProcessRedirection::Input { bytes } => Some(bytes.clone()), _ => None,
+        }) else { return Ok(None); };
+        let Some(writer) = child.stdin.take() else {
+            group.kill(); let _ = child.kill(); let _ = child.wait();
+            return Err(RunError::new("io", "missing Bytes input pipe"));
+        };
+        if let Err(error) = set_nonblocking(writer.as_fd()) {
+            group.kill(); let _ = child.kill(); let _ = child.wait(); return Err(error);
+        }
+        Ok(Some(Self { writer: Some(writer), bytes, offset: 0 }))
+    }
+
+    fn pump(&mut self) -> Result<(), RunError> {
+        let Some(writer) = self.writer.as_ref() else { return Ok(()); };
+        if self.offset == self.bytes.len() { self.writer = None; return Ok(()); }
+        let end = self.offset.saturating_add(65536).min(self.bytes.len());
+        match rio::write(writer, &self.bytes[self.offset..end]) {
+            Ok(0) => return Err(RunError::new("io", "stdin write made no progress")),
+            Ok(count) => { self.offset += count; if self.offset == self.bytes.len() { self.writer = None; } }
+            Err(rustix::io::Errno::PIPE) => self.writer = None,
+            Err(rustix::io::Errno::AGAIN | rustix::io::Errno::INTR) => {}
+            Err(error) => return Err(RunError::new("io", error.to_string())),
+        }
+        Ok(())
+    }
+}
+
+fn feed_input(input: &mut Option<InputDelivery>) -> Result<(), RunError> {
+    if let Some(delivery) = input.as_mut() {
+        delivery.pump()?;
+        if delivery.writer.is_none() { *input = None; }
+    }
+    Ok(())
+}
+
 #[allow(dead_code)]
 pub struct ManagedChild {
     child: std::process::Child,
@@ -466,6 +514,8 @@ pub struct ManagedChild {
     pub detached: bool,
     pub consumed: bool,
     cgroup: CgroupScope,
+    input: Option<InputDelivery>,
+    input_error: Option<RunError>,
 }
 
 impl ManagedChild {
@@ -547,6 +597,9 @@ pub fn run_pipeline_inherit_with_policy(
         return run_inherit_with_policy(&invocations[0], policy);
     }
 
+    if invocations.iter().skip(1).any(|invocation| invocation.redirections.iter().any(|item| matches!(item, ProcessRedirection::Input { .. }))) {
+        return Err(RunError::new("redirection", "Bytes input is only valid on the first byte pipeline segment"));
+    }
     let mut children: Vec<StartedChild> = Vec::new();
     let mut previous_stdout: Option<ChildStdout> = None;
     let mut segment_statuses: Vec<Option<ProcessSegmentStatus>> = vec![None; invocations.len()];
@@ -616,7 +669,12 @@ pub fn run_pipeline_inherit_with_policy(
                 } else {
                     child.stdout.take()
                 };
+                let input = match InputDelivery::start(&mut child, invocation, group) {
+                    Ok(input) => input,
+                    Err(error) => { group.kill(); for started in &mut children { let _ = started.child.wait(); } return Err(error); }
+                };
                 children.push(StartedChild {
+                    input,
                     index,
                     target: invocation.target.clone(),
                     pid,
@@ -724,6 +782,7 @@ fn run_capture_stdio(
         return Err(map_cgroup_error(error));
     }
     let _foreground = ForegroundTerminal::take(group);
+    let mut input = InputDelivery::start(&mut child, invocation, group)?;
     let stdout = child.stdout.take();
     let stderr = if capture_stderr {
         child.stderr.take()
@@ -746,6 +805,9 @@ fn run_capture_stdio(
     let mut buf = [0u8; 8192];
 
     let status = loop {
+        if let Err(error) = feed_input(&mut input) {
+            group.kill(); let _ = child.wait(); return Err(error);
+        }
         if let Some(stdout_fd) = stdout_fd {
             drain_capture_fd(
                 stdout_fd,
@@ -801,6 +863,9 @@ fn run_capture_stdio(
         }
 
         let mut pollfds = Vec::new();
+        if let Some(writer) = input.as_ref().and_then(|input| input.writer.as_ref()) {
+            pollfds.push(revent::PollFd::new(writer, revent::PollFlags::OUT));
+        }
         if let Some(stdout_fd) = stdout_fd {
             let stdout = unsafe { BorrowedFd::borrow_raw(stdout_fd) };
             pollfds.push(revent::PollFd::from_borrowed_fd(
@@ -909,7 +974,8 @@ pub fn spawn_managed(
         let _ = child.wait();
         return Err(map_cgroup_error(error));
     }
-    Ok(ManagedChild {
+    let input = InputDelivery::start(&mut child, invocation, group)?;
+    let mut managed = ManagedChild {
         child,
         pid,
         pgid: group.pgid,
@@ -921,7 +987,20 @@ pub fn spawn_managed(
         detached: options.spawn.detach || options.spawn.new_session,
         consumed: false,
         cgroup,
-    })
+        input,
+        input_error: None,
+    };
+    drive_managed_input(&mut managed)?;
+    Ok(managed)
+}
+
+pub(crate) fn drive_managed_input(child: &mut ManagedChild) -> Result<(), RunError> {
+    if let Some(error) = &child.input_error { return Err(error.clone()); }
+    if let Err(error) = feed_input(&mut child.input) {
+        child.process_group().kill(); let _ = child.child.wait(); child.consumed = true;
+        child.input = None; child.input_error = Some(error.clone()); return Err(error);
+    }
+    Ok(())
 }
 
 #[allow(dead_code)]
@@ -1005,6 +1084,7 @@ pub fn release_to_reaper(mut child: ManagedChild) {
 }
 
 struct StartedChild {
+    input: Option<InputDelivery>,
     index: usize,
     target: Vec<u8>,
     pid: Option<u32>,
@@ -1121,7 +1201,13 @@ fn wait_children(
             if segment_statuses[started.index].is_some() {
                 continue;
             }
+            if let Err(error) = feed_input(&mut started.input) {
+                group.kill();
+                for started in children.iter_mut() { let _ = started.child.wait(); }
+                return Err(error);
+            }
             if let Some(status) = started.child.try_wait().map_err(map_wait_error)? {
+                started.input = None;
                 segment_statuses[started.index] = Some(process_segment_status(
                     status,
                     started.index,
@@ -1159,11 +1245,13 @@ fn wait_children(
 }
 
 fn waitpid_managed(child: &mut ManagedChild, mode: WaitMode) -> Result<ChildWaitOutcome, RunError> {
+    drive_managed_input(child)?;
     if child.consumed {
         return Ok(ChildWaitOutcome::StillRunning);
     }
     let flags = match mode {
         WaitMode::Script => rprocess::WaitOptions::NOHANG,
+        WaitMode::InteractiveForeground if child.input.is_some() => rprocess::WaitOptions::NOHANG | rprocess::WaitOptions::UNTRACED,
         WaitMode::InteractiveForeground => rprocess::WaitOptions::UNTRACED,
         WaitMode::Nonblocking => rprocess::WaitOptions::NOHANG | rprocess::WaitOptions::UNTRACED,
     };
@@ -1182,6 +1270,7 @@ fn waitpid_managed(child: &mut ManagedChild, mode: WaitMode) -> Result<ChildWait
                     ChildWaitOutcome::Exited(_) | ChildWaitOutcome::Signaled(_)
                 ) {
                     child.consumed = true;
+                    child.input = None;
                 }
                 return Ok(outcome);
             }
@@ -1199,8 +1288,9 @@ fn waitpid_managed(child: &mut ManagedChild, mode: WaitMode) -> Result<ChildWait
 
 fn waitpid_blocking_until_exit(child: &mut ManagedChild) -> Result<ChildWaitOutcome, RunError> {
     loop {
-        match waitpid_managed(child, WaitMode::InteractiveForeground)? {
-            ChildWaitOutcome::Stopped { .. } | ChildWaitOutcome::StillRunning => continue,
+        let mode = if child.input.is_some() { WaitMode::Script } else { WaitMode::InteractiveForeground };
+        match waitpid_managed(child, mode)? {
+            ChildWaitOutcome::Stopped { .. } | ChildWaitOutcome::StillRunning => { std::thread::sleep(WAIT_POLL); continue; },
             outcome => return Ok(outcome),
         }
     }
@@ -1478,6 +1568,9 @@ fn command_with_managed_stdio(
     configure_managed_child(&mut command, options);
     if options.apply_redirections {
         apply_redirections(&mut command, &invocation.redirections)?;
+    } else if invocation.redirections.iter().any(|item| matches!(item, ProcessRedirection::Input { .. })) {
+        validate_input_sources(&invocation.redirections)?;
+        command.stdin(Stdio::piped());
     }
     Ok(command)
 }
@@ -1681,10 +1774,21 @@ fn exec_failure_segment(index: usize, target: &[u8], error: RunError) -> Process
     }
 }
 
+fn validate_input_sources(redirections: &[ProcessRedirection]) -> Result<(), RunError> {
+    if redirections.iter().any(|item| matches!(item, ProcessRedirection::Input { .. }))
+        && redirections.iter().filter(|item| matches!(item, ProcessRedirection::Input { .. }
+            | ProcessRedirection::File { stream: RedirectionStream::Stdin, .. }
+            | ProcessRedirection::Dup { stream: RedirectionStream::Stdin, .. }
+            | ProcessRedirection::ChildDup { stream: RedirectionStream::Stdin, .. })).count() != 1
+    { return Err(RunError::new("redirection", "Bytes input cannot compete with another stdin source")); }
+    Ok(())
+}
+
 fn apply_redirections(
     command: &mut Command,
     redirections: &[ProcessRedirection],
 ) -> Result<(), RunError> {
+    validate_input_sources(redirections)?;
     // A `ChildDup` copies whatever its source descriptor is at that point in
     // the list, so it and everything after it must run in the child, in order,
     // on top of the streams the parent has already set up. Files are opened
@@ -1697,6 +1801,7 @@ fn apply_redirections(
     apply_parent_redirections(command, parent_side)?;
     for redirection in child_side {
         match redirection {
+            ProcessRedirection::Input { .. } => { command.stdin(Stdio::piped()); }
             ProcessRedirection::File { stream, mode, path } => {
                 let file = file_redirection_file(path, *mode)?;
                 child_dup_owned(command, *stream, rustix::fd::OwnedFd::from(file));
@@ -1753,6 +1858,7 @@ fn apply_parent_redirections(
 
         let redirection = &redirections[index];
         match redirection {
+            ProcessRedirection::Input { .. } => { command.stdin(Stdio::piped()); }
             ProcessRedirection::File { stream, mode, path } => {
                 let stdio = file_redirection(path, *mode)?;
                 apply_file_stdio(command, *stream, stdio);
@@ -1930,7 +2036,7 @@ fn map_cgroup_error(error: CgroupError) -> RunError {
 fn setup_error_is_hard(error: &RunError) -> bool {
     matches!(
         error.kind.as_str(),
-        "redirection" | "cgroup" | "unsupported-platform"
+        "redirection" | "cgroup" | "unsupported-platform" | "io"
     )
 }
 

@@ -894,3 +894,13 @@ fn api_block_strings_explains_exact_margin_source_boundaries_and_literal_domains
         assert!(stdout.contains(text), "missing {text}: {stdout}");
     }
 }
+
+#[test]
+fn api_process_commands_document_exact_bytes_stdin_ownership() {
+    let output = xsht(&["api", "api:process.command_argv", "api:process.command"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for text in ["stdin: Bytes", "stdin: Path", "temporary file", "empty Bytes", "hello"] {
+        assert!(stdout.contains(text), "missing {text}: {stdout}");
+    }
+}

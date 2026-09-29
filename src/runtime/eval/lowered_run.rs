@@ -2125,11 +2125,15 @@ fn lowered_command_redirections(
     let mut redirections = Vec::new();
 
     if let Some(value) = stdin {
-        redirections.push(CommandRedirection::File {
-            stream: CommandRedirectionStream::Stdin,
-            mode: CommandRedirectionMode::Read,
-            path: lowered_path_like_arg(value, operation, span)?,
-        });
+        if let LoweredValue::Bytes(bytes) = value {
+            redirections.push(CommandRedirection::Input { bytes });
+        } else {
+            redirections.push(CommandRedirection::File {
+                stream: CommandRedirectionStream::Stdin,
+                mode: CommandRedirectionMode::Read,
+                path: lowered_path_like_arg(value, operation, span)?,
+            });
+        }
     }
 
     if let Some(value) = stdout {

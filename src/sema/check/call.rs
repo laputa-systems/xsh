@@ -1242,7 +1242,12 @@ impl Checker {
             Type::Int,
         ];
         for (offset, expected) in expected.iter().enumerate() {
-            self.check_optional_api_arg_arena(arena, source, slots[offset + 2], Some(expected));
+            if offset + 2 == 4 {
+                let actual = self.check_optional_api_arg_arena(arena, source, slots[4], None);
+                if let Some(arg) = slots[4] && actual != Type::Bytes {
+                    self.expect_type(&Type::Path, &actual, call_arg_span_arena(arena, arg));
+                }
+            } else { self.check_optional_api_arg_arena(arena, source, slots[offset + 2], Some(expected)); }
         }
         if let Some(arg) = slots[13] {
             let expr_id = call_arg_expr_id_arena(arg);

@@ -85,8 +85,9 @@ impl Checker {
                     if expected.is_none() && !builder_allows_field(kind, &name.as_str()) {
                         self.error(entry_span, "unknown builder field", "check.builder-field");
                     }
-                    let actual = self.check_expr_arena(arena, source, *value, expected.as_ref());
-                    if let Some(expected) = expected {
+                    let byte_input = kind == BuilderKind::ProcessCommand && *name == "stdin";
+                    let actual = self.check_expr_arena(arena, source, *value, if byte_input { None } else { expected.as_ref() });
+                    if let Some(expected) = expected && !(byte_input && actual == Type::Bytes) {
                         let value_span = arena.arena.expr(*value).span;
                         self.expect_type(&expected, &actual, value_span);
                     }
