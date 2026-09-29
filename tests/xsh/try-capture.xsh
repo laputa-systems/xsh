@@ -269,3 +269,25 @@ print "finished"
   test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "cleanup\ntrue\ncleanup\nfinished\n")?
 }
+
+proc test_try_recursive_calls_use_frames_and_err_return_stays_lexical(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, """
+error LocalError = Failed(message: Str)
+proc descend(n: Int) [] -> Result[Int] {
+  if n == 0 { Ok(0) } else { try { descend(n - 1)? + 1 } }
+}
+proc escape() [] -> Result[Str, LocalError] {
+  let value: Result[Int, LocalError] = try {
+    return Err(LocalError.Failed(message: "outer"))
+  }
+  Err(LocalError.Failed(message: "unexpected"))
+}
+print descend(4096)?
+match escape() {
+  Err(error) => print \$error.message
+  Ok(_) => print "unexpected"
+}
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "4096\nouter\n")?
+}
