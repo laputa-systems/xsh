@@ -16,6 +16,41 @@ fn type_pattern_input_is_dynamic(ty: &Type) -> bool {
 /// leaf sub-expressions, so no `Block` support is needed to port it.
 #[allow(dead_code)]
 impl Checker {
+    pub(super) fn check_nonbinding_pattern_arena(
+        &mut self, arena: &ArenaProgram, source: &str, pattern: PatternId, value_ty: &Type,
+    ) {
+        self.reject_pattern_test_bindings(arena, pattern);
+        self.push_scope();
+        self.check_pattern_arena(arena, source, pattern, value_ty);
+        self.pop_scope();
+    }
+
+    fn reject_pattern_test_bindings(&mut self, arena: &ArenaProgram, pattern: PatternId) {
+        let node = arena.arena.pattern(pattern);
+        let span = arena.arena.span(node.span);
+        match &node.kind {
+            ArenaPatternKind::Binding(name) if self.tag_variants.get(name).is_some_and(|info| info.field_count == 0) => {}
+            ArenaPatternKind::Binding(_) | ArenaPatternKind::Type { binding: Some(_), .. } => {
+                self.error(span, "pattern tests cannot bind names; use `_` or a non-binding pattern", "check.pattern-test-binding");
+            }
+            ArenaPatternKind::Alternation(_) => {
+                self.error(span, "use `or` between complete pattern tests", "check.pattern-test-alternation");
+            }
+            ArenaPatternKind::Constructor { arg: Some(arg), .. } => self.reject_pattern_test_bindings(arena, *arg),
+            ArenaPatternKind::Record { fields, .. } | ArenaPatternKind::ErrorVariant { fields, .. } => {
+                for field in arena.arena.pattern_fields(*fields) {
+                    self.reject_pattern_test_bindings(arena, field.pattern);
+                }
+            }
+            ArenaPatternKind::Tuple(patterns) => {
+                for pattern in arena.arena.pattern_ids(*patterns) {
+                    self.reject_pattern_test_bindings(arena, pattern);
+                }
+            }
+            _ => {}
+        }
+    }
+
     pub(super) fn check_pattern_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -27,11 +62,76 @@ impl Checker {
         let span = arena.arena.span(pattern.span);
         match &pattern.kind {
             ArenaPatternKind::Wildcard => {}
+            ArenaPatternKind::TestName { name, ty } => {
+                if name == "Ok" || name == "Err" {
+                    if self.type_defs.contains_key(name) || self.error_facets.contains(name) || self.tag_variants.contains_key(name) {
+                        self.error(span, "ambiguous pattern test name; qualify the type or constructor", "check.pattern-test-ambiguous");
+                    }
+                    if let Some((ok, err)) = result_types(value_ty) {
+                        let target = if name == "Ok" { ok } else { err };
+                        if !matches!(target, Type::Unit | Type::Unknown) {
+                            self.error(span, "constructor pattern needs an argument for this Result type", "check.pattern-arity");
+                        }
+                    } else if !matches!(value_ty, Type::Any | Type::Unknown) {
+                        self.error(span, "constructor patterns require a Result value", "check.pattern-type");
+                    }
+                    return;
+                }
+                let text = name.as_str();
+                if let Some((family, variant)) = text.rsplit_once('.') {
+                    let family = Name::intern(family);
+                    let variant = Name::intern(variant);
+                    if self.error_families.get(&family).is_some_and(|info| info.variants.contains_key(&variant)) {
+                        if self.tag_variants.contains_key(name) || self.error_facets.contains(name)
+                            || self.type_namespaces.get(&family).is_some_and(|types| types.contains_key(&variant))
+                        {
+                            self.error(span, "ambiguous pattern test name; qualify the type or constructor", "check.pattern-test-ambiguous");
+                        }
+                        self.pattern_test_types.insert(pattern_id, Type::ErrorVariant { family, variant });
+                        let applicable = match value_ty {
+                            Type::Any | Type::Unknown | Type::Error | Type::ProcessError => true,
+                            Type::ErrorFamily(actual) => *actual == family,
+                            Type::ErrorVariant { family: actual_family, variant: actual_variant } => *actual_family == family && *actual_variant == variant,
+                            _ => false,
+                        };
+                        if !applicable {
+                            self.error(span, "error variant pattern does not match value type", "check.pattern-type");
+                        }
+                        return;
+                    }
+                }
+                let is_type = Type::builtin_from_name(&name.as_str()).is_some()
+                    || super::standard_record_type(&name.as_str()).is_some()
+                    || self.type_defs.contains_key(name) || self.error_families.contains_key(name)
+                    || text.rsplit_once('.').is_some_and(|(namespace, member)| self.type_namespaces.get(&Name::intern(namespace)).is_some_and(|types| types.contains_key(&Name::intern(member))));
+                let is_facet = self.error_facets.contains(name);
+                let constructor = self.tag_variants.get(name).cloned();
+                if usize::from(is_type) + usize::from(is_facet) + usize::from(constructor.is_some()) > 1 {
+                    self.error(span, "ambiguous pattern test name; use a qualified type, facet, or constructor", "check.pattern-test-ambiguous");
+                } else if let Some(info) = constructor {
+                    if info.field_count != 0 {
+                        self.error(span, "constructor pattern needs arguments; use `_` for payloads", "check.pattern-arity");
+                    }
+                    if !matches!(value_ty, Type::Any | Type::Unknown) && !matches!(value_ty, Type::Tag(t) if t == &info.type_name) {
+                        self.error(span, "constructor does not match subject type", "check.pattern-type");
+                    }
+                } else {
+                    let tested = self.type_from_arena(arena, *ty);
+                    self.pattern_test_types.insert(pattern_id, tested.clone());
+                    if !matches!(tested, Type::ErrorFacet(_)) && !type_pattern_input_is_dynamic(value_ty) {
+                        self.error(span, "type patterns require a dynamic value", "check.pattern-type");
+                    }
+                    if matches!(tested, Type::ErrorFacet(_)) && !matches!(value_ty, Type::Any | Type::Unknown | Type::Error | Type::ProcessError | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_)) {
+                        self.error(span, "error facet patterns require an error value", "check.pattern-type");
+                    }
+                }
+            }
+
             ArenaPatternKind::Binding(name) => {
                 if let Some(info) = self.tag_variants.get(name).cloned()
                     && info.field_count == 0
                 {
-                    if !matches!(value_ty, Type::Unknown)
+                    if !matches!(value_ty, Type::Any | Type::Unknown)
                         && !matches!(value_ty, Type::Tag(t) if t == &info.type_name)
                     {
                         self.error(
@@ -56,6 +156,7 @@ impl Checker {
                     );
                 }
                 let narrowed_ty = self.type_from_arena(arena, *ty);
+                self.pattern_test_types.insert(pattern_id, narrowed_ty.clone());
                 if let Some(name) = binding {
                     self.define(*name, Binding::new(narrowed_ty, false), span);
                 }
@@ -67,6 +168,7 @@ impl Checker {
             }
             ArenaPatternKind::Record { fields, .. } => {
                 let record_fields = match value_ty {
+                    Type::Record(fields) if fields.is_empty() => None,
                     Type::Record(fields) => Some(fields),
                     Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => {
                         self.error(
@@ -77,7 +179,7 @@ impl Checker {
                         None
                     }
                     Type::ProcessError => None,
-                    Type::Unknown => None,
+                    Type::Any | Type::Unknown => None,
                     _ => {
                         self.error(
                             span,
@@ -117,7 +219,7 @@ impl Checker {
             }
             ArenaPatternKind::Constructor { name, arg } => {
                 if let Some(info) = self.tag_variants.get(name).cloned() {
-                    if !matches!(value_ty, Type::Unknown)
+                    if !matches!(value_ty, Type::Any | Type::Unknown)
                         && !matches!(value_ty, Type::Tag(t) if t == &info.type_name)
                     {
                         self.error(
@@ -171,7 +273,7 @@ impl Checker {
                     return;
                 }
                 let Some((ok_ty, err_ty)) = result_types(value_ty) else {
-                    if !matches!(value_ty, Type::Unknown) {
+                    if !matches!(value_ty, Type::Any | Type::Unknown) {
                         self.error(
                             span,
                             "constructor patterns require a Result value",
@@ -207,6 +309,16 @@ impl Checker {
                 variant,
                 fields,
             } => {
+                let qualified = Name::intern(format!("{family}.{variant}"));
+                if fields.len == 0 && let Some(info) = self.tag_variants.get(&qualified).cloned() {
+                    if info.field_count != 0 {
+                        self.error(span, "constructor pattern needs arguments", "check.pattern-arity");
+                    }
+                    if !matches!(value_ty, Type::Any | Type::Unknown) && !matches!(value_ty, Type::Tag(name) if *name == info.type_name) {
+                        self.error(span, "constructor does not match subject type", "check.pattern-type");
+                    }
+                    return;
+                }
                 let Some(variant_info) = self
                     .error_families
                     .get(family)

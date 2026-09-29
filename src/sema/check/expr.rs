@@ -243,6 +243,12 @@ impl Checker {
             ArenaExprKind::Call { callee, args } => {
                 self.check_call_arena(arena, source, *callee, *args, expr.span)
             }
+            ArenaExprKind::PatternTest { value, arms } => {
+                let value_ty = self.check_expr_arena(arena, source, *value, None);
+                let pattern = arena.arena.match_expr_arms(*arms)[0].pattern;
+                self.check_nonbinding_pattern_arena(arena, source, pattern, &value_ty);
+                Type::Bool
+            }
             ArenaExprKind::Match { value, arms } => {
                 self.check_match_expr_arena(arena, source, *value, *arms, expected, expr.span)
             }

@@ -48,6 +48,7 @@ pub struct Parser<'a> {
     pipe_is_boundary: bool,
     trailing_statement_try: bool,
     command_arg_expr: bool,
+    condition_expr: bool,
     block_depth: usize,
     parenthesized_expr_depth: usize,
     diagnostics: Vec<Diagnostic>,
@@ -141,6 +142,7 @@ impl<'a> Parser<'a> {
             pipe_is_boundary: false,
             trailing_statement_try: true,
             command_arg_expr: false,
+            condition_expr: false,
             block_depth: 0,
             parenthesized_expr_depth: 0,
             diagnostics: Vec::new(),
@@ -463,7 +465,7 @@ impl<'a> Parser<'a> {
                     | (TokenTag::Keyword, Some(Keyword::In))
                     | (TokenTag::Keyword, Some(Keyword::Not))
             )
-        }) || self.lookahead_past_newlines_is_pipe_gt()
+        }) || self.peek_name(1).is_some_and(|name| name == "is") || self.lookahead_past_newlines_is_pipe_gt()
     }
 
     pub(in crate::syntax::parser) fn lookahead_past_newlines_is_pipe_gt(&self) -> bool {

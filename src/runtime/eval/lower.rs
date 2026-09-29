@@ -2208,7 +2208,7 @@ fn compact_collect_expr_call_edges(
             }
             compact_collect_expr_call_edges(program, else_value, namespace, index_of, edges);
         }
-        ArenaExprKind::Match { value, arms } => {
+        ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
             compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
             for arm in program.arena.match_expr_arms(arms) {
                 if let Some(guard) = arm.guard {
@@ -2640,7 +2640,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::MapComp { .. } => 16,
         ArenaExprKind::Record(_) => 17,
         ArenaExprKind::If { .. } => 18,
-        ArenaExprKind::Match { .. } => 19,
+        ArenaExprKind::Match { .. } | ArenaExprKind::PatternTest { .. } => 19,
         ArenaExprKind::Unary { .. } => 20,
         ArenaExprKind::ComparisonChain(_) => 40,
         ArenaExprKind::Binary { .. } => 21,
@@ -2687,6 +2687,7 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
         ArenaExprKind::Record(_) => "record",
         ArenaExprKind::If { .. } => "if",
         ArenaExprKind::Match { .. } => "match",
+        ArenaExprKind::PatternTest { .. } => "pattern_test",
         ArenaExprKind::Unary { .. } => "unary",
         ArenaExprKind::ComparisonChain(_) => "comparison-chain",
         ArenaExprKind::Binary { .. } => "binary",
@@ -5271,7 +5272,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     })
                     .then_some(expected)
             }
-            ArenaExprKind::Match { arms, .. } => {
+            ArenaExprKind::Match { arms, .. } | ArenaExprKind::PatternTest { arms, .. } => {
                 let mut expected = None;
                 for arm in self.program.arena.match_expr_arms(arms) {
                     let kind = self.infer_lowered_expr_type(arm.value, known)?;
@@ -7873,7 +7874,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                     }
                 ))
             }
-            ArenaExprKind::Match { value, arms } => {
+            ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
                 if let Some(expr) =
                     self.lower_str_match_expr(value, arms, span, slots, current_function, item_slot)
                 {
@@ -12311,6 +12312,52 @@ impl CompactLowerConstructProbe<'_, '_> {
     ) -> Option<(BuildPatternId, Vec<(Name, usize)>)> {
         self.output.patterns += 1;
         let lowered = match &self.program.arena.pattern(id).kind {
+            ArenaPatternKind::TestName { name, ty } => {
+                if name == "Ok" || name == "Err" {
+                    let row = if name == "Ok" { BuildPatternRow::ResultOk { slot: None, unit_only: true } } else { BuildPatternRow::ResultErr { slot: None, unit_only: true } };
+                    return Some((push_build_row!(self, pattern, row), Vec::new()));
+                }
+                let text = name.as_str();
+                if let Some((family, variant)) = text.rsplit_once('.') {
+                    let family = Name::intern(family);
+                    let variant = Name::intern(variant);
+                    if let Some((family, info)) = self.compact_pattern_error_family(family)
+                        && info.variants.contains_key(&variant)
+                    {
+                        return Some((push_build_row!(self, pattern, BuildPatternRow::ErrorTest { family, variant, fields: Box::new(Vec::new()) }), Vec::new()));
+                    }
+                }
+                if self.compact_tag_variant_arity(*name) == Some(0) {
+                    Some((push_build_row!(self, pattern, BuildPatternRow::Tag { name: compact_pattern_tag_name(*name), slots: Default::default() }), Vec::new()))
+                } else {
+                    let ty = if let Some(facet) = self.compact_qualified_pattern_facet(*name) {
+                        Type::ErrorFacet(facet)
+                    } else { compact_pattern_test_type(&self.program.arena, *name, *ty, self.declarations) };
+                    if let Type::ErrorFacet(facet) = ty {
+                        Some((push_build_row!(self, pattern, BuildPatternRow::Facet { facet, result_wrapped: false }), Vec::new()))
+                    } else if let Type::Tag(type_name) = ty {
+                        let namespace = name.as_str().rsplit_once('.').and_then(|(namespace, _)| self.compact_imported_module_owner(Name::intern(namespace))).or(self.current_namespace);
+                        let variants = if let Some(namespace) = namespace {
+                            self.declarations.qualified_tag_variants.iter().filter_map(|(key, info)| (key.namespace == namespace && info.type_name == type_name).then_some(key.member)).collect()
+                        } else {
+                            self.declarations.tag_variants_by_name.iter().filter_map(|(name, info)| (info.type_name == type_name).then_some(*name)).collect()
+                        };
+                        Some((push_build_row!(self, pattern, BuildPatternRow::TagType { variants }), Vec::new()))
+                    } else {
+                        Some((push_build_row!(self, pattern, BuildPatternRow::Type { ty, slot: None }), Vec::new()))
+                    }
+                }
+            }
+            ArenaPatternKind::Record { fields, .. } => {
+                let mut lowered = Vec::new();
+                let mut cleanup = Vec::new();
+                for field in self.program.arena.pattern_fields(*fields).to_vec() {
+                    let (pattern, bindings) = self.lower_pattern(field.pattern, slots, None, None)?;
+                    cleanup.extend(bindings);
+                    lowered.push((field.name, pattern));
+                }
+                Some((push_build_row!(self, pattern, BuildPatternRow::RecordTest { fields: Box::new(lowered) }), cleanup))
+            }
             ArenaPatternKind::Wildcard => Some((
                 push_build_row!(self, pattern, BuildPatternRow::Wildcard),
                 Vec::new(),
@@ -12324,7 +12371,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         pattern,
                         BuildPatternRow::Tag {
-                            name: *name,
+                            name: compact_pattern_tag_name(*name),
                             slots: Default::default(),
                         }
                     ),
@@ -12370,11 +12417,21 @@ impl CompactLowerConstructProbe<'_, '_> {
                     Vec::new(),
                 ))
             }
-            ArenaPatternKind::ErrorVariant {
-                family,
-                variant,
-                fields,
-            } => self.lower_error_variant_pattern(*family, *variant, *fields, false, slots),
+            ArenaPatternKind::ErrorVariant { family, variant, fields } => {
+                let qualified = Name::intern(format!("{family}.{variant}"));
+                if fields.len == 0 && self.compact_tag_variant_arity(qualified) == Some(0) {
+                    return Some((push_build_row!(self, pattern, BuildPatternRow::Tag { name: *variant, slots: Default::default() }), Vec::new()));
+                }
+                let family = self.compact_pattern_error_family(*family).map_or(*family, |(family, _)| family);
+                let mut lowered = Vec::new();
+                let mut cleanup = Vec::new();
+                for field in self.program.arena.pattern_fields(*fields).to_vec() {
+                    let (pattern, bindings) = self.lower_pattern(field.pattern, slots, None, None)?;
+                    cleanup.extend(bindings);
+                    lowered.push((field.name, pattern));
+                }
+                Some((push_build_row!(self, pattern, BuildPatternRow::ErrorTest { family, variant: *variant, fields: Box::new(lowered) }), cleanup))
+            }
             ArenaPatternKind::Facet(facet) => Some((
                 push_build_row!(
                     self,
@@ -12387,6 +12444,26 @@ impl CompactLowerConstructProbe<'_, '_> {
                 Vec::new(),
             )),
             ArenaPatternKind::Constructor { name, arg } => {
+                if let Some(arg) = arg
+                    && !matches!(self.program.arena.pattern(*arg).kind, ArenaPatternKind::Wildcard | ArenaPatternKind::Binding(_))
+                {
+                    if name == "Ok" || name == "Err" {
+                        let (inner, cleanup) = self.lower_pattern(*arg, slots, None, None)?;
+                        return Some((push_build_row!(self, pattern, BuildPatternRow::ResultTest { ok: name == "Ok", inner }), cleanup));
+                    }
+                    let patterns = match self.program.arena.pattern(*arg).kind {
+                        ArenaPatternKind::Tuple(fields) => self.program.arena.pattern_ids(fields).collect::<Vec<_>>(),
+                        _ => vec![*arg],
+                    };
+                    let mut fields = Vec::new();
+                    let mut cleanup = Vec::new();
+                    for pattern in patterns {
+                        let (field, bindings) = self.lower_pattern(pattern, slots, None, None)?;
+                        fields.push(field);
+                        cleanup.extend(bindings);
+                    }
+                    return Some((push_build_row!(self, pattern, BuildPatternRow::TagTest { name: compact_pattern_tag_name(*name), fields }), cleanup));
+                }
                 if name == "Err"
                     && let Some(arg) = arg
                     && let ArenaPatternKind::ErrorVariant {
@@ -12459,7 +12536,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                         self,
                         pattern,
                         BuildPatternRow::Tag {
-                            name: *name,
+                            name: compact_pattern_tag_name(*name),
                             slots: field_slots,
                         }
                     ),
@@ -12520,6 +12597,11 @@ impl CompactLowerConstructProbe<'_, '_> {
 
     fn lower_pattern_literal(&self, id: ExprId) -> Option<BuildPatternId> {
         match self.program.arena.expr(id).kind {
+            ArenaExprKind::Float(value) => self.program.arena.float_literal(value).value()
+                .map(crate::runtime::value::FloatValue::new)
+                .map(|value| push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Float(value)))),
+            ArenaExprKind::Bytes(value) => Some(push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Bytes(self.program.arena.bytes_literal(value).clone())))),
+            ArenaExprKind::Null => Some(push_build_row!(self, pattern, BuildPatternRow::Literal(LoweredValue::Null))),
             ArenaExprKind::Int(value) => {
                 self.program.arena.int_literal(value).value().map(|value| {
                     push_build_row!(
@@ -12679,7 +12761,28 @@ impl CompactLowerConstructProbe<'_, '_> {
         }
     }
 
+    fn compact_pattern_error_family(&self, family: Name) -> Option<(Name, crate::sema::check::ErrorFamilyInfo)> {
+        if let Some((namespace, member)) = family.as_str().rsplit_once('.') {
+            let key = self.compact_qualified_function_key(Name::intern(namespace), Name::intern(member));
+            let info = self.declarations.qualified_error_families.get(&key)?.clone();
+            Some((Name::intern(key.to_string()), info))
+        } else {
+            self.declarations.error_families_by_name.get(&family).cloned().map(|info| (family, info))
+        }
+    }
+
+    fn compact_qualified_pattern_facet(&self, name: Name) -> Option<Name> {
+        let text = name.as_str();
+        let (namespace, facet) = text.rsplit_once('.')?;
+        let namespace = self.compact_imported_module_owner(Name::intern(namespace))?;
+        let facet = Name::intern(facet);
+        self.declarations.qualified_error_families.iter().any(|(key, info)| key.namespace == namespace && info.variants.values().any(|variant| variant.facets.contains(&facet))).then_some(facet)
+    }
+
     fn compact_tag_variant_arity(&self, name: Name) -> Option<usize> {
+        if let Some((namespace, member)) = name.as_str().rsplit_once('.') {
+            return self.compact_qualified_tag_variant_arity(Name::intern(namespace), Name::intern(member));
+        }
         if let Some(namespace) = self.current_namespace
             && let Some(variant) = self
                 .declarations
@@ -12780,6 +12883,22 @@ fn is_env_module_expr(
     }
 }
 
+fn compact_pattern_tag_name(name: Name) -> Name {
+    name.as_str().rsplit_once('.').map_or(name, |(_, member)| Name::intern(member))
+}
+
+fn compact_pattern_test_type(arena: &AstArena, name: Name, ty: TypeExprId, declarations: &CompactDeclOutput) -> Type {
+    if declarations.error_families_by_name.contains_key(&name) {
+        return Type::ErrorFamily(name);
+    }
+    if declarations.error_families_by_name.values().any(|family| family.variants.values().any(|variant| variant.facets.contains(&name)))
+        || xsh_registry::errors::builtin_error_families().iter().any(|family| family.variants.iter().any(|variant| variant.facets.iter().any(|facet| *facet == name.as_str().as_str())))
+    {
+        return Type::ErrorFacet(name);
+    }
+    compact_runtime_type(arena, ty, declarations)
+}
+
 fn compact_runtime_type(
     arena: &AstArena,
     ty: TypeExprId,
@@ -12808,6 +12927,9 @@ fn compact_runtime_type_inner(
             }
             if let Some(record) = standard_record_type(&name.as_str()) {
                 return record;
+            }
+            if declarations.error_families_by_name.contains_key(&name) {
+                return Type::ErrorFamily(name);
             }
             match declarations.types.get(&name) {
                 Some(CompactTypeDefInfo::Alias(alias)) => {

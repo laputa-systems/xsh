@@ -1,6 +1,64 @@
 use super::{Keyword, Parser, TokenKindMatch, TokenTag};
 
 impl<'a> Parser<'a> {
+    pub(super) fn parse_pattern_test_rhs_arena_only(
+        &mut self,
+        arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,
+    ) -> Option<(crate::syntax::arena::PatternId, crate::source::Span)> {
+        let mut offset = 1;
+        while self.peek_tag(offset) == Some(TokenTag::Dot) {
+            offset += 2;
+        }
+        if self.condition_expr
+            && offset > 1
+            && self.peek_tag(offset) == Some(TokenTag::LBrace)
+            && !self.pattern_test_brace_is_payload(offset)
+        {
+            // A qualified predicate can end immediately before a control body.
+            // Explicit payload fields retain their colon spelling here.
+            let start = self.current_start();
+            let mut name = self.current_name()?.to_string();
+            self.bump();
+            while self.consume(TokenKindMatch::Dot).is_some() {
+                name.push('.');
+                name.push_str(&self.expect_ident("expected pattern name after `.`")?.as_str());
+            }
+            let span = self.span(start, self.previous_end());
+            return Some((
+                arena.push_pattern_test_name(crate::symbol::Name::intern(name), span),
+                span,
+            ));
+        }
+        if self.current_name().is_some()
+            && matches!(self.peek_tag(offset), Some(TokenTag::LBracket | TokenTag::Question))
+        {
+            let start = self.current_start();
+            let ty = self.parse_type_expr(arena)?;
+            let span = self.span(start, self.previous_end());
+            Some((arena.push_pattern_type(None, ty, span), span))
+        } else {
+            self.parse_pattern_arena_only(arena)
+        }
+    }
+
+    fn pattern_test_brace_is_payload(&self, brace: usize) -> bool {
+        let mut field = brace + 1;
+        while self.peek_tag(field) == Some(TokenTag::Newline) {
+            field += 1;
+        }
+        match self.peek_tag(field) {
+            Some(TokenTag::Ident | TokenTag::ProcIdent) => {
+                self.peek_tag(field + 1) == Some(TokenTag::Colon)
+            }
+            Some(TokenTag::Dot) => self.peek_tag(field + 1) == Some(TokenTag::Dot),
+            Some(TokenTag::RBrace) => matches!(
+                self.peek_tag(field + 1),
+                Some(TokenTag::LBrace | TokenTag::RParen | TokenTag::RBracket | TokenTag::Comma)
+            ),
+            _ => false,
+        }
+    }
+
     pub(super) fn parse_pattern_arena_only(
         &mut self,
         arena: &mut crate::syntax::arena::ArenaProgramBuilder<'_>,

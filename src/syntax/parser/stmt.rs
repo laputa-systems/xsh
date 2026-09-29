@@ -1035,7 +1035,7 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         self.bump();
-        let condition = self.parse_expr_id_arena_only(arena)?;
+        let condition = self.parse_condition_arena_only(arena)?.id;
         let block_id = self.parse_block_arena_only(arena)?;
         let span = self.span(start, self.previous_end());
         arena.push_while(condition, block_id, span);
@@ -1063,13 +1063,13 @@ impl<'a> Parser<'a> {
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<()> {
         self.bump();
-        let condition = self.parse_expr_id_arena_only(arena)?;
+        let condition = self.parse_condition_arena_only(arena)?.id;
         let block_id = self.parse_block_arena_only(arena)?;
         let mut branch_ids = vec![(condition, block_id)];
         let mut else_block_id = None;
         while self.consume_keyword(Keyword::Else).is_some() {
             if self.consume_keyword(Keyword::If).is_some() {
-                let condition = self.parse_expr_id_arena_only(arena)?;
+                let condition = self.parse_condition_arena_only(arena)?.id;
                 let block_id = self.parse_block_arena_only(arena)?;
                 branch_ids.push((condition, block_id));
             } else {

@@ -1277,6 +1277,30 @@ or empty `Record`. Use `.require(Type)?` when the program expects a known
 schema; use type patterns when the program intentionally handles unknown JSON or
 other dynamic shapes.
 
+`value is Pattern` evaluates its subject once and returns Bool using the same
+nominal constructor, error variant, facet, literal, and record pattern matcher.
+Its RHS cannot bind names: write `outcome is Ok(_)`, not `Ok(payload)`; record
+shorthand that would bind is rejected. Nested constructor and record payloads
+may contain literals or other non-binding patterns. Use `or` between complete
+tests instead of pattern alternation. Negation is `!(value is Pattern)`.
+In control conditions, qualified error payload patterns use explicit fields such
+as `error is Family.Variant {message: "missing"}` before the branch body.
+
+A bare RHS name resolves to a type, error facet, or zero-field constructor.
+Unknown names are errors; ambiguous namespaces require a qualified name.
+Type tests require the existing dynamic subject boundary. Facet and error
+variant tests preserve nominal identity. Tests on stable immutable bindings
+narrow the selected true branch; payload variables are never introduced.
+Testing a Result preserves the wrapper and does not propagate an Err.
+`is` shares equality precedence, above `and` and `or` and below arithmetic and
+ordering. A bound, returned, or filtered test is a value; a bare test uses the
+Bool statement assertion contract.
+
+`lint.boolean-pattern-test` identifies trivial boolean matches with a proven
+complement. Its safe fix preserves one subject evaluation, rejects binding
+patterns and guards, and retains matches containing comments. Explicit Result
+Ok/Err complements are eligible only when the checked subject is a Result.
+
 `for` iterates over `List[T]`, `Stream[T]`, `Result[List[T]]`, or
 `Result[Stream[T]]`. `Result` wrappers are auto-unwrapped; an `Err` propagates
 as a runtime error. The loop target is bound immutably for each iteration

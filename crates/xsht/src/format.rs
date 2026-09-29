@@ -1006,7 +1006,7 @@ impl<'a> Writer<'a> {
         let kind = self.arena.pattern(pattern_id).kind.clone();
         match &kind {
             ArenaPatternKind::Wildcard => output.push('_'),
-            ArenaPatternKind::Binding(name) => output.push_str(name.as_str().as_str()),
+            ArenaPatternKind::Binding(name) | ArenaPatternKind::TestName { name, .. } => output.push_str(name.as_str().as_str()),
             ArenaPatternKind::Type { binding, ty } => {
                 if let Some(binding) = binding {
                     output.push_str(binding.as_str().as_str());
@@ -1567,6 +1567,18 @@ impl<'a> Writer<'a> {
                 else_value,
             } => self.write_if_expr(*branches, *else_value, output),
             ArenaExprKind::Match { value, arms } => self.write_match_expr(*value, *arms, output),
+            ArenaExprKind::PatternTest { value, arms } => {
+                self.write_expr(*value, 4, output);
+                output.push_str(" is ");
+                let pattern = self.arena.match_expr_arms(*arms)[0].pattern;
+                if let ArenaPatternKind::Type { binding: None, ty } = self.arena.pattern(pattern).kind
+                    && !matches!(self.arena.type_expr_tags[ty.index()], ArenaTypeExprTag::Named | ArenaTypeExprTag::Qualified)
+                {
+                    self.write_type(ty, output);
+                } else {
+                    self.write_pattern(pattern, output);
+                }
+            },
             ArenaExprKind::Unary { op, expr } => {
                 output.push_str(match op {
                     UnaryOp::Not => "! ",
@@ -3118,6 +3130,7 @@ fn expr_precedence(kind: &ArenaExprKind) -> u8 {
             BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => 6,
         },
         ArenaExprKind::If { .. } | ArenaExprKind::Match { .. } => 0,
+        ArenaExprKind::PatternTest { .. } => 3,
         ArenaExprKind::Unary { .. } => 7,
         ArenaExprKind::Call { .. }
         | ArenaExprKind::Field { .. }

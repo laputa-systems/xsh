@@ -920,10 +920,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
   for device_path in listing.children {
     let address_text = device_path.name()
     let address_result = parse_pci_address(address_text)
-    let valid_address = match address_result {
-      Ok(_) => true,
-      Err(_) => false,
-    }
+    let valid_address = address_result is Ok(_)
     if ! valid_address {
       issues = issues.push(
         source_issue(

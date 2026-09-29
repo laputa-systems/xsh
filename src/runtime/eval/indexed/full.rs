@@ -29,7 +29,7 @@ use crate::syntax::node::{
 };
 use rustc_hash::FxHashMap;
 use smallvec::SmallVec;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem::size_of;
 use std::rc::Rc;
@@ -238,6 +238,11 @@ pub(in crate::runtime::eval) enum FullTag {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub(in crate::runtime::eval) enum FullPatternTag {
+    TagType,
+    RecordTest,
+    ResultTest,
+    TagTest,
+    ErrorTest,
     Wildcard,
     Bind,
     Type,
@@ -1100,6 +1105,7 @@ impl FullProgram {
             instruction_range,
             block_states: Some(RefCell::new(vec![0; self.store.blocks.len()])),
             slot_count: step.slot_count,
+            pattern_ceiling: Cell::new(usize::MAX),
             verified: false,
         };
         let location_words = [step.location];
@@ -1334,6 +1340,7 @@ impl<'a> FullFunctionView<'a> {
                 instruction_states: None,
                 block_states: None,
                 slot_count: function.slot_count,
+                pattern_ceiling: Cell::new(usize::MAX),
                 verified: true,
             },
         })
@@ -1388,6 +1395,7 @@ impl<'a> FullDriverStepView<'a> {
                 instruction_states: None,
                 block_states: None,
                 slot_count: step.slot_count,
+                pattern_ceiling: Cell::new(usize::MAX),
                 verified: true,
             },
         })
@@ -2919,6 +2927,7 @@ impl<'a> FullExecution<'a> {
                 instruction_states: None,
                 block_states: None,
                 slot_count: self.decoder.slot_count,
+                pattern_ceiling: Cell::new(usize::MAX),
                 verified: self.decoder.verified,
             },
         }
@@ -3291,6 +3300,7 @@ pub(in crate::runtime::eval) struct FullDecoder<'a> {
     instruction_states: Option<RefCell<Vec<u8>>>,
     block_states: Option<RefCell<Vec<u8>>>,
     slot_count: u32,
+    pattern_ceiling: Cell<usize>,
     verified: bool,
 }
 
@@ -3853,6 +3863,7 @@ impl FullVerifier {
                 instruction_states: Some(RefCell::new(vec![0; instruction_len])),
                 block_states: Some(RefCell::new(vec![0; store.blocks.len()])),
                 slot_count: function.slot_count,
+                pattern_ceiling: Cell::new(usize::MAX),
                 verified: false,
             };
             let body_id = IrBlockId::from_raw(function.body)
@@ -5392,6 +5403,7 @@ impl_vec_codec!(LoweredTopLevelSlot, BLOCK_LIST);
 impl_vec_codec!(String, BLOCK_LIST);
 impl_vec_codec!(Name, BLOCK_LIST);
 impl_vec_codec!((Name, usize), BLOCK_LIST);
+impl_vec_codec!((Name, BuildPatternId), BLOCK_LIST);
 impl_vec_codec!((Name, LoweredValue), BLOCK_LIST);
 impl_vec_codec!((Arc<str>, BuildExprId), BLOCK_LIST);
 impl_vec_codec!((Arc<str>, Vec<BuildStmtId>), BLOCK_LIST);
@@ -6024,6 +6036,27 @@ impl FullCodec for BuildPatternRow {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let mut payload = builder.take_payload();
         let tag = match self {
+            Self::TagType { variants } => { variants.encode(builder, &mut payload)?; FullPatternTag::TagType }
+            Self::RecordTest { fields } => {
+                fields.encode(builder, &mut payload)?;
+                FullPatternTag::RecordTest
+            }
+            Self::ResultTest { ok, inner } => {
+                ok.encode(builder, &mut payload)?;
+                inner.encode(builder, &mut payload)?;
+                FullPatternTag::ResultTest
+            }
+            Self::TagTest { name, fields } => {
+                name.encode(builder, &mut payload)?;
+                fields.encode(builder, &mut payload)?;
+                FullPatternTag::TagTest
+            }
+            Self::ErrorTest { family, variant, fields } => {
+                family.encode(builder, &mut payload)?;
+                variant.encode(builder, &mut payload)?;
+                fields.encode(builder, &mut payload)?;
+                FullPatternTag::ErrorTest
+            }
             Self::Wildcard => FullPatternTag::Wildcard,
             Self::Bind { slot } => {
                 slot.encode(builder, &mut payload)?;
@@ -6094,6 +6127,11 @@ impl FullCodec for BuildPatternRow {
         let data = decoder.store.pattern_data[index];
         let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
         let pattern = match tag {
+            FullPatternTag::TagType => Self::TagType { variants: Vec::decode(decoder, &mut payload)? },
+            FullPatternTag::RecordTest => Self::RecordTest { fields: Box::decode(decoder, &mut payload)? },
+            FullPatternTag::ResultTest => Self::ResultTest { ok: bool::decode(decoder, &mut payload)?, inner: BuildPatternId::decode(decoder, &mut payload)? },
+            FullPatternTag::TagTest => Self::TagTest { name: Name::decode(decoder, &mut payload)?, fields: Vec::decode(decoder, &mut payload)? },
+            FullPatternTag::ErrorTest => Self::ErrorTest { family: Name::decode(decoder, &mut payload)?, variant: Name::decode(decoder, &mut payload)?, fields: Box::decode(decoder, &mut payload)? },
             FullPatternTag::Wildcard => Self::Wildcard,
             FullPatternTag::Bind => Self::Bind {
                 slot: usize::decode(decoder, &mut payload)?,
@@ -6132,6 +6170,13 @@ impl FullCodec for BuildPatternRow {
 
     fn verify(decoder: &FullDecoder<'_>, input: &mut FullCursor<'_>) -> Result<(), IrVerifyError> {
         let index = input.raw()? as usize;
+        let parent = decoder.pattern_ceiling.get();
+        // Child patterns are committed first. Descending IDs rule out cycles
+        // while allowing immutable children to be shared by multiple parents.
+        if index >= parent {
+            return Err(IrVerifyError::new("nested pattern must precede its parent"));
+        }
+        decoder.pattern_ceiling.set(index);
         let tag = decoder
             .store
             .patterns
@@ -6141,6 +6186,21 @@ impl FullCodec for BuildPatternRow {
         let data = decoder.store.pattern_data[index];
         let mut payload = FullCursor::new(decoder.store.payload(data.range())?);
         match tag {
+            FullPatternTag::TagType => Vec::<Name>::verify(decoder, &mut payload)?,
+            FullPatternTag::RecordTest => Box::<Vec<(Name, BuildPatternId)>>::verify(decoder, &mut payload)?,
+            FullPatternTag::ResultTest => {
+                bool::verify(decoder, &mut payload)?;
+                BuildPatternId::verify(decoder, &mut payload)?;
+            }
+            FullPatternTag::TagTest => {
+                Name::verify(decoder, &mut payload)?;
+                Vec::<BuildPatternId>::verify(decoder, &mut payload)?;
+            }
+            FullPatternTag::ErrorTest => {
+                Name::verify(decoder, &mut payload)?;
+                Name::verify(decoder, &mut payload)?;
+                Box::<Vec<(Name, BuildPatternId)>>::verify(decoder, &mut payload)?;
+            }
             FullPatternTag::Wildcard => {}
             FullPatternTag::Bind => usize::verify(decoder, &mut payload)?,
             FullPatternTag::Type => {
@@ -6167,7 +6227,9 @@ impl FullCodec for BuildPatternRow {
                 BuildPatternIdSlots::verify(decoder, &mut payload)?;
             }
         }
-        payload.finish()
+        payload.finish()?;
+        decoder.pattern_ceiling.set(parent);
+        Ok(())
     }
 }
 
@@ -8095,6 +8157,20 @@ proc main() [error] {
             "function {function}: {}",
             error.message
         );
+    }
+
+    #[test]
+    fn verifier_rejects_nested_pattern_cycles_and_missing_children() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/pattern-tests.xsh");
+        let program = fixture("pattern-tests.xsh", source);
+        let parent = program.store.patterns.iter().position(|tag| *tag == FullPatternTag::ResultTest).unwrap();
+        let range = program.store.pattern_data[parent].range().bounds(program.store.extra.len()).unwrap();
+        let mut cycle = program.clone();
+        cycle.store.extra[range.start + 1] = parent as u32;
+        assert!(FullVerifier::verify(&cycle).unwrap_err().message.contains("nested pattern"));
+        let mut missing = program.clone();
+        missing.store.extra[range.start + 1] = u32::MAX;
+        assert!(FullVerifier::verify(&missing).is_err());
     }
 
     #[test]

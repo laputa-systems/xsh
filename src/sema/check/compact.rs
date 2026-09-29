@@ -1027,7 +1027,7 @@ impl CompactBodyProbe<'_> {
                 for _ in 0..scopes { self.pop_scope(); }
                 Type::Map(Box::new(item))
             }
-            ArenaExprKind::Match { value, arms } => {
+            ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
                 self.check_compact_expr(value);
                 let mut ty = None;
                 for arm in self.program.arena.match_expr_arms(arms) {

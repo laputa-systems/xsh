@@ -597,6 +597,25 @@ impl Checker {
                 left,
                 right,
             } => self.infer_null_comparison_narrowings_arena(arena, condition, left, right),
+            ArenaExprKind::PatternTest { value, arms } => {
+                let ArenaExprKind::Ident(name) = arena.arena.expr(value).kind else {
+                    return ConditionNarrowings::default();
+                };
+                let Some(binding) = self.lookup(name) else { return ConditionNarrowings::default(); };
+                if binding.mutable { return ConditionNarrowings::default(); }
+                let pattern = arena.arena.match_expr_arms(arms)[0].pattern;
+                let ty = match &arena.arena.pattern(pattern).kind {
+                    crate::syntax::arena::ArenaPatternKind::TestName { .. }
+                    | crate::syntax::arena::ArenaPatternKind::Type { binding: None, .. } => self.pattern_test_types.get(&pattern).cloned(),
+                    crate::syntax::arena::ArenaPatternKind::ErrorVariant { family, variant, .. } => Some(Type::ErrorVariant { family: *family, variant: *variant }),
+                    crate::syntax::arena::ArenaPatternKind::Facet(facet) => Some(Type::ErrorFacet(*facet)),
+                    _ => None,
+                };
+                ConditionNarrowings {
+                    when_true: ty.into_iter().map(|ty| Narrowing { name, ty }).collect(),
+                    when_false: Vec::new(),
+                }
+            }
             ArenaExprKind::Call { callee, args } => {
                 self.infer_record_has_narrowing_arena(arena, callee, args)
             }

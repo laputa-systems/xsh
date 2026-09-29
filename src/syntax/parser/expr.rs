@@ -138,7 +138,7 @@ impl<'a> Parser<'a> {
     ) -> Option<ArenaOnlyExpr> {
         self.bump();
         arena.begin_if_expr_branches();
-        let Some(condition) = self.parse_precedence_arena_only(0, arena) else {
+        let Some(condition) = self.parse_condition_arena_only(arena) else {
             arena.discard_if_expr_branches();
             return None;
         };
@@ -151,7 +151,7 @@ impl<'a> Parser<'a> {
         let mut else_value = None;
         while self.consume_keyword(Keyword::Else).is_some() {
             if self.consume_keyword(Keyword::If).is_some() {
-                let Some(condition) = self.parse_precedence_arena_only(0, arena) else {
+                let Some(condition) = self.parse_condition_arena_only(arena) else {
                     arena.discard_if_expr_branches();
                     return None;
                 };
@@ -271,6 +271,17 @@ impl<'a> Parser<'a> {
             || self.peek_tag(offset) == Some(TokenTag::RBrace)
             || (matches!(self.peek_tag(offset), Some(TokenTag::Ident | TokenTag::String))
                 && matches!(self.peek_tag(offset + 1), Some(TokenTag::Colon | TokenTag::Comma | TokenTag::RBrace)))
+    }
+
+    pub(super) fn parse_condition_arena_only(
+        &mut self,
+        arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<ArenaOnlyExpr> {
+        let previous = self.condition_expr;
+        self.condition_expr = true;
+        let condition = self.parse_precedence_arena_only(0, arena);
+        self.condition_expr = previous;
+        condition
     }
 
     pub(super) fn parse_expr_id_arena_only(
@@ -551,6 +562,33 @@ impl<'a> Parser<'a> {
             } else {
                 if self.current_binary_op().is_none() && self.continuation_binary_op().is_some() {
                     self.skip_newlines();
+                }
+                if self.current_tag() == TokenTag::Newline {
+                    let mut offset = 1;
+                    while self.peek_tag(offset) == Some(TokenTag::Newline) { offset += 1; }
+                    if self.peek_name(offset).is_some_and(|name| name == "is") { self.skip_newlines(); }
+                }
+                if self.at_ident("is") {
+                    if min_prec > 3 { break; }
+                    if let Some(pending) = pending_pipeline.take() { left.id = pending.seal(arena, left.span); }
+                    self.bump();
+                    self.skip_newlines();
+                    let (mut pattern, pattern_span) = self.parse_pattern_test_rhs_arena_only(arena)?;
+                    if let crate::syntax::arena::ArenaPatternKind::Binding(name) = arena.ast_arena().pattern(pattern).kind {
+                        pattern = arena.push_pattern_test_name(name, pattern_span);
+                    }
+                    if let crate::syntax::arena::ArenaPatternKind::ErrorVariant { family, variant, fields } = arena.ast_arena().pattern(pattern).kind
+                        && fields.len == 0
+                    {
+                        pattern = arena.push_pattern_test_name(crate::symbol::Name::intern(format!("{family}.{variant}")), pattern_span);
+                    }
+                    let span = self.span(left.span.start(), pattern_span.end());
+                    left = ArenaOnlyExpr {
+                        id: arena.push_pattern_test_expr(left.id, pattern, span),
+                        span,
+                        bare_ident: None,
+                    };
+                    continue;
                 }
                 let unsupported_integer_division = self.report_unsupported_integer_division();
                 let (op, prec, tokens) = if let Some(tokens) = unsupported_integer_division {

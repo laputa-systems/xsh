@@ -70,10 +70,7 @@ export pure docker_target_triple(host_arch: targets.HostArch, selected: Str) -> 
 ## Selects the automatic coverage backend from the preserved Alpine Linux contract.
 export proc automatic_backend(ctx: context.Context) [fs, process, error] -> Result[CoverageBackend] {
   let alpine_linux = p"/etc/alpine-release".exists()?
-  let cargo_available = match process.which("cargo") {
-    Ok(_) => true,
-    Err(_) => false,
-  }
+  let cargo_available = process.which("cargo") is Ok(_)
   var linker_available = false
 
   for name in ["cc", "clang", "gcc"] {

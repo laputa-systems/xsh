@@ -1696,6 +1696,11 @@ enum LoweredFmtPart {
 
 #[derive(Clone, Debug)]
 enum BuildPatternRow {
+    TagType { variants: Vec<Name> },
+    RecordTest { fields: Box<Vec<(Name, BuildPatternId)>> },
+    ResultTest { ok: bool, inner: BuildPatternId },
+    TagTest { name: Name, fields: Vec<BuildPatternId> },
+    ErrorTest { family: Name, variant: Name, fields: Box<Vec<(Name, BuildPatternId)>> },
     Wildcard,
     // `name => …`: always matches, binds the scrutinee to `slot`.
     Bind {

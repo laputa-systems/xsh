@@ -214,6 +214,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "list-concatenation",
     "slicing",
     "results",
+    "pattern-tests",
     "postfix-question",
     "optional-postfix",
     "fallback",
@@ -831,6 +832,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "glob-literals" => (
             "Defines filesystem glob literals.",
             "Glob expansion is an explicit filesystem operation with deterministic path values rather than shell word splitting.",
+        ),
+        "pattern-tests" => (
+            "Tests a value against a non-binding pattern.",
+            "`value is Pattern` evaluates the subject once and returns Bool without unwrapping or propagating a Result. RHS names resolve to types, nominal error facets, or constructors; unknown and ambiguous names are rejected. Constructor and record payloads may contain wildcards, literals, and nested non-binding patterns. Binding patterns and RHS alternation are rejected. Type tests retain the dynamic subject boundary; stable immutable subjects narrow the selected true branch. Use `!(value is Pattern)` for negation and `or` between complete tests. `is` shares equality precedence. `lint.boolean-pattern-test` safely replaces trivial boolean matches only when their complement, evaluation count, and comment retention are proved.",
         ),
         "display-strings" => (
             "Defines display-string interpolation.",

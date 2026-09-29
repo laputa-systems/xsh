@@ -1316,7 +1316,7 @@ impl<'a> Linter<'a> {
         // Their checked type alone cannot prove that removing context is safe.
         if matches!(
             init.kind,
-            ArenaExprKind::If { .. } | ArenaExprKind::Match { .. } | ArenaExprKind::Record(_)
+            ArenaExprKind::If { .. } | ArenaExprKind::Match { .. } | ArenaExprKind::PatternTest { .. } | ArenaExprKind::Record(_)
         ) {
             return false;
         }
@@ -1935,6 +1935,7 @@ impl<'a> Linter<'a> {
             self.arena.expr(initializer).kind,
             ArenaExprKind::If { .. }
                 | ArenaExprKind::Match { .. }
+                | ArenaExprKind::PatternTest { .. }
                 | ArenaExprKind::Binary {
                     op: BinaryOp::ResultFallback,
                     ..
@@ -2118,6 +2119,7 @@ impl<'a> Linter<'a> {
             self.arena.expr(ok_expr).kind,
             ArenaExprKind::If { .. }
                 | ArenaExprKind::Match { .. }
+                | ArenaExprKind::PatternTest { .. }
                 | ArenaExprKind::Binary {
                     op: BinaryOp::ResultFallback,
                     ..
@@ -2176,6 +2178,52 @@ impl<'a> Linter<'a> {
         actual.matches_expected(expected_ok) && expected_ok.matches_expected(actual)
     }
 
+    fn lint_boolean_match(&mut self, expr: ExprId) {
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::Match { value, arms } = expression.kind else { return; };
+        let [selected, complement] = self.arena.match_expr_arms(arms) else { return; };
+        let wildcard_complement = matches!(self.arena.pattern(complement.pattern).kind, ArenaPatternKind::Wildcard);
+        let result_complement = matches!(self.expr_types.get(&self.arena.expr(value).span), Some(Type::Result(_, _)))
+            && match (self.arena.pattern(selected.pattern).kind.clone(), self.arena.pattern(complement.pattern).kind.clone()) {
+                (ArenaPatternKind::Constructor { name: left, arg: Some(left_arg) }, ArenaPatternKind::Constructor { name: right, arg: Some(right_arg) }) => {
+                    ((left == "Ok" && right == "Err") || (left == "Err" && right == "Ok"))
+                        && matches!(self.arena.pattern(left_arg).kind, ArenaPatternKind::Wildcard)
+                        && matches!(self.arena.pattern(right_arg).kind, ArenaPatternKind::Wildcard)
+                }
+                _ => false,
+            };
+        if selected.guard.is_some() || complement.guard.is_some() || !(wildcard_complement || result_complement) { return; }
+        let (ArenaExprKind::Bool(yes), ArenaExprKind::Bool(no)) = (self.arena.expr(selected.value).kind, self.arena.expr(complement.value).kind) else { return; };
+        if yes == no { return; }
+        let span = expression.span;
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "boolean match can use a pattern test")
+            .with_code("lint.boolean-pattern-test")
+            .with_label(Label::secondary(span, "test the selected pattern with `is`"));
+        if self.pattern_test_fix_is_nonbinding(selected.pattern)
+            && self.source.get(span.range()).is_some_and(|source| !source.contains('#'))
+        {
+            let subject = self.arena.expr(value).span;
+            let pattern = self.arena.span(self.arena.pattern(selected.pattern).span);
+            if let (Some(subject), Some(pattern)) = (self.source.get(subject.range()), self.source.get(pattern.range())) {
+                let replacement = if yes { format!("(({subject}) is {pattern})") } else { format!("!(({subject}) is {pattern})") };
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(span, "use a non-binding pattern test", replacement));
+            }
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
+    fn pattern_test_fix_is_nonbinding(&self, pattern: PatternId) -> bool {
+        match self.arena.pattern(pattern).kind {
+            ArenaPatternKind::Wildcard | ArenaPatternKind::Literal(_) | ArenaPatternKind::Facet(_) | ArenaPatternKind::TestName { .. } => true,
+            ArenaPatternKind::Binding(name) => self.tag_variants.contains(name.as_str().as_str()),
+            ArenaPatternKind::Type { binding, .. } => binding.is_none(),
+            ArenaPatternKind::Constructor { arg, .. } => arg.is_none_or(|arg| self.pattern_test_fix_is_nonbinding(arg)),
+            ArenaPatternKind::Record { fields, .. } | ArenaPatternKind::ErrorVariant { fields, .. } => self.arena.pattern_fields(fields).iter().all(|field| self.pattern_test_fix_is_nonbinding(field.pattern)),
+            ArenaPatternKind::Tuple(patterns) => self.arena.pattern_ids(patterns).all(|pattern| self.pattern_test_fix_is_nonbinding(pattern)),
+            ArenaPatternKind::Alternation(_) => false,
+        }
+    }
+
     fn lint_pattern(&mut self, pattern: PatternId) {
         let arena_pattern = self.arena.pattern(pattern).clone();
         let span = self.arena.span(arena_pattern.span);
@@ -2206,6 +2254,7 @@ impl<'a> Linter<'a> {
                     self.lint_pattern(pat);
                 }
             }
+            ArenaPatternKind::TestName { ty, .. } => self.collect_type_expr_refs(ty),
             ArenaPatternKind::Wildcard
             | ArenaPatternKind::Literal(_)
             | ArenaPatternKind::ErrorVariant { .. }
@@ -3348,6 +3397,7 @@ impl<'a> Linter<'a> {
         if matches!(
             self.arena.expr(receiver).kind,
             ArenaExprKind::If { .. } | ArenaExprKind::Match { .. }
+                | ArenaExprKind::PatternTest { .. }
         ) {
             return;
         }
@@ -4120,7 +4170,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
             }
             out.push(else_value);
         }
-        ArenaExprKind::Match { value, arms } => {
+        ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
             out.push(value);
             for arm in arena.match_expr_arms(arms) {
                 out.extend(arm.guard);
@@ -4540,7 +4590,7 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
                 .any(|branch| refs(branch.condition) || refs(branch.value))
                 || refs(else_value)
         }
-        ArenaExprKind::Match { value, arms } => {
+        ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
             refs(value)
                 || arena
                     .match_expr_arms(arms)
@@ -4902,7 +4952,7 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
                 .any(|branch| rec(branch.condition) || rec(branch.value))
                 || rec(else_value)
         }
-        ArenaExprKind::Match { value, arms } => {
+        ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
             rec(value)
                 || arena
                     .match_expr_arms(arms)
@@ -5125,6 +5175,7 @@ impl LintExprVisitor<'_, '_> {
             self.linter.lint_comparison_chain(expr);
 
             self.linter.lint_optional_postfix(expr);
+            self.linter.lint_boolean_match(expr);
             self.linter.lint_path_roundtrip(expr);
             self.linter.lint_redundant_require(expr);
             self.linter.lint_redundant_single_interpolation(expr);
@@ -5182,7 +5233,7 @@ impl LintExprVisitor<'_, '_> {
                 }
                 self.visit_expr(else_value);
             }
-            ArenaExprKind::Match { value, arms } => {
+            ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
                 self.visit_expr(value);
                 for arm in arena.match_expr_arms(arms).to_vec() {
                     self.visit_match_expr_arm(&arm);
@@ -5899,6 +5950,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::MapComp { .. }
         | ArenaExprKind::If { .. }
         | ArenaExprKind::Match { .. }
+                | ArenaExprKind::PatternTest { .. }
         | ArenaExprKind::Call { .. }
         | ArenaExprKind::Field { .. }
         | ArenaExprKind::NullSafeField { .. }
@@ -5991,7 +6043,7 @@ fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
                     || expr_may_have_effects(arena, branch.value)
             }) || expr_may_have_effects(arena, else_value)
         }
-        ArenaExprKind::Match { value, arms } => {
+        ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
             expr_may_have_effects(arena, value)
                 || arena.match_expr_arms(arms).iter().any(|arm| {
                     arm.guard
@@ -6328,7 +6380,7 @@ fn collect_expr_effects(
             }
             collect_expr_effects(arena, else_value, effects, proc_effects);
         }
-        ArenaExprKind::Match { value, arms } => {
+        ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
             collect_expr_effects(arena, value, effects, proc_effects);
             for arm in arena.match_expr_arms(arms).to_vec() {
                 if let Some(g) = arm.guard {
@@ -7106,7 +7158,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                 }
                 self.scan_expr(else_value);
             }
-            ArenaExprKind::Match { value, arms } => {
+            ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
                 self.scan_expr(value);
                 for arm in self.arena().match_expr_arms(arms).to_vec() {
                     self.push_scope();
@@ -7378,7 +7430,8 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
             | ArenaPatternKind::Wildcard
             | ArenaPatternKind::Type { binding: None, .. }
             | ArenaPatternKind::Constructor { arg: None, .. }
-            | ArenaPatternKind::Facet(_) => {}
+            | ArenaPatternKind::Facet(_)
+            | ArenaPatternKind::TestName { .. } => {}
         }
     }
 
@@ -7794,7 +7847,7 @@ fn expr_flow(
             branches,
             else_value,
         } => if_expr_flow(arena, branches, else_value, terminating_call_spans),
-        ArenaExprKind::Match { value, arms } => {
+        ArenaExprKind::Match { value, arms } | ArenaExprKind::PatternTest { value, arms } => {
             let value = expr_flow(arena, value, terminating_call_spans);
             if !value.fallthrough {
                 return value;
