@@ -134,7 +134,7 @@ test test_collection_number_text_status_and_result_methods [process, error] {
   test.eq(extended.len(), 3)?
   test.ok("gamma" in extended)?
   test.eq(extended.get(0)?, "alpha")?
-  test.eq(extended.get(9, "fallback"), "fallback")?
+  test.eq((extended.get(9) ?? "fallback"), "fallback")?
   test.eq(["a", "b", "c"].join(":"), "a:b:c")?
   test.eq(3.float().format(precision: 1), "3.0")?
   test.eq(3.2.floor()?, 3)?
@@ -188,11 +188,11 @@ b
   test.eq("caf\u{e9}".count_chars(), 4)?
   test.eq("caf\u{e9}".count_bytes(), 5)?
   test.eq("caf\u{e9}".byte_len(), 5)?
-  test.eq("caf\u{e9}".byte_at(0), 99)?
-  test.eq("caf\u{e9}".byte_at(3), 195)?
-  test.eq("caf\u{e9}".byte_at(4), 169)?
-  test.eq("caf\u{e9}".byte_at(9), -1)?
-  test.eq("caf\u{e9}".byte_at(9, default: 0), 0)?
+  test.eq(("caf\u{e9}".byte_at(0) ?? -1), 99)?
+  test.eq(("caf\u{e9}".byte_at(3) ?? -1), 195)?
+  test.eq(("caf\u{e9}".byte_at(4) ?? -1), 169)?
+  test.eq("caf\u{e9}".byte_at(9), null)?
+  test.eq(("caf\u{e9}".byte_at(9) ?? 0), 0)?
   test.eq("caf\u{e9}".byte_slice(0, 3), "caf")?
   test.eq("caf\u{e9}".byte_slice(3), "\u{e9}")?
 
@@ -211,7 +211,7 @@ beta""".find("a", 1),
   test.eq(
     """alpha
 beta""".find("z"),
-    -1,
+    null,
   )?
 
   test.eq("42".parse_int()?, 42)?

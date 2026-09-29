@@ -5449,7 +5449,6 @@ impl Evaluator {
             FullTag::ExprStrByteAt => {
                 let receiver = indexed_raw(&mut payload, call_span)?;
                 let index = indexed_raw(&mut payload, call_span)?;
-                let default = indexed_optional_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let receiver = match self.eval_indexed_expr(execution, receiver, slots, span)? {
@@ -5465,23 +5464,8 @@ impl Evaluator {
                     }
                     ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
                 };
-                let default = match default {
-                    Some(value) => match self.eval_indexed_expr(execution, value, slots, span)? {
-                        ControlFlow::Continue(LoweredValue::Int(value)) => value,
-                        ControlFlow::Continue(_) => {
-                            return Err(RuntimeError::new(
-                                "type-error",
-                                "byte_at default expected Int",
-                            )
-                            .with_span(span));
-                        }
-                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                    },
-                    None => -1,
-                };
-                ControlFlow::Continue(LoweredValue::Int(lowered_str_byte_at_value(
-                    &receiver, index, default, span,
-                )?))
+                let byte = lowered_str_byte_at_value(&receiver, index, -1, span)?;
+                ControlFlow::Continue(if byte < 0 { LoweredValue::Null } else { LoweredValue::Int(byte) })
             }
             FullTag::ExprStrPredicate => {
                 let receiver = indexed_raw(&mut payload, call_span)?;

@@ -1,10 +1,10 @@
 pure normalize_df_mount(line: Str) -> Str {
   let fields = line.words()
-  if fields.get(0, "") == "Filesystem" {
+  if (fields.get(0) ?? "") == "Filesystem" {
     return fields.join(" ")
   }
 
-  return f"${fields.get(0, "")} ${fields.get(1, "")} ${fields.get(5, "")}"
+  return f"${(fields.get(0) ?? "")} ${(fields.get(1) ?? "")} ${(fields.get(5) ?? "")}"
 }
 
 proc normalize_df_mounts(text: Str) [error] -> Str {

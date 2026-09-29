@@ -7202,17 +7202,14 @@ impl_node_codec! {
         BuildExprRow::StrByteAt {
             receiver,
             index,
-            default,
             span,
         } => ExprStrByteAt {
             receiver: BuildExprId,
             index: BuildExprId,
-            default: Option<BuildExprId>,
             span: Span,
         } => BuildExprRow::StrByteAt {
             receiver,
             index,
-            default,
             span,
         },
         BuildExprRow::StrPredicate {
@@ -9065,9 +9062,44 @@ proc main() [error] {
     }
 
     #[test]
+    fn absence_lookups_execute_nullable_and_integer_slots_after_frontend_drop() {
+        run_with_large_stack(|| {
+            let source = "pure nullable(text: Str, position: Int) -> Int? { let byte = text.byte_at(position); byte }\npure sentinel(text: Str, position: Int) -> Int { let byte = text.byte_at(position) ?? -1; byte }\npure find(text: Str, position: Int) -> Int? { text.find(\":\", position) }\npure present() -> Int? { let entries: Map[Int?] = {present: null}; entries.get(\"present\") ?? 7 }\n";
+            let program = fixture("absence-lookups.xsh", source);
+            assert!(program.store.tags.contains(&FullTag::ExprStrByteAt));
+            assert!(program.store.tags.contains(&FullTag::IntStrByteAtSlot));
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                for (name, text, index, expected) in [
+                    ("nullable", "é", 0, Value::Int(195)), ("nullable", "é", 2, Value::Null),
+                    ("nullable", "é", -1, Value::Null), ("sentinel", "é", 0, Value::Int(195)),
+                    ("sentinel", "é", 2, Value::Int(-1)), ("find", ":x", 0, Value::Int(0)),
+                    ("find", "é:x", 0, Value::Int(2)), ("find", "é:x", 3, Value::Null),
+                ] {
+                    let args = [Value::Str(Arc::from(text)), Value::Int(index)];
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure, &args,
+                        Span::new(program.store.source_id, 0, 0),
+                    ).expect("lookup function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    assert_eq!(result.unwrap(), expected, "{name} index {index} recursive {recursive}");
+                }
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "present")), LoweredFunctionKind::Pure, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("present function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Null);
+            }
+        });
+    }
+
+    #[test]
     fn map_literals_verify_entry_flags_and_execute_both_indexed_routes() {
         run_with_large_stack(|| {
-            let source = "pure counts() -> Int {\n  let source: Map[Int] = {beta: 3}\n  let values: Map[Int] = {[\"alpha\"]: 1, alpha: 2, ...source}\n  return values.get(\"alpha\", 0) + values.get(\"beta\", 0)\n}\n";
+            let source = "pure counts() -> Int {\n  let source: Map[Int] = {beta: 3}\n  let values: Map[Int] = {[\"alpha\"]: 1, alpha: 2, ...source}\n  return (values.get(\"alpha\") ?? 0) + (values.get(\"beta\") ?? 0)\n}\n";
             let program = fixture("computed-map.xsh", source);
             let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprMapLiteral).expect("Map literal instruction");
             let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
@@ -9192,7 +9224,7 @@ proc configured() [] -> Int {
   let totals = [1, 2] |> reduce-by(sum: mode) { |item| {key: "all", value: item} }
   let columns = ["name"]
   [{name: "row"}] |> table.print(columns:)
-  return batches.len() + totals.get("all", 0)
+  return batches.len() + (totals.get("all") ?? 0)
 }
 "#;
             let program = fixture("stage-named-configuration.xsh", source);

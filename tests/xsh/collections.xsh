@@ -63,8 +63,8 @@ test test_local_accumulator_field_mutation [error] {
   counts["code"] = stats.code
   counts["comments"] = stats.comments
   test.eq(stats.blanks, 1)?
-  test.eq(counts.get("code", 0), 2)?
-  test.eq(counts.get("comments", 0), 1)?
+  test.eq((counts.get("code") ?? 0), 2)?
+  test.eq((counts.get("comments") ?? 0), 1)?
 }
 
 test test_compact_sugar_forms [error] { |ctx|
@@ -166,8 +166,8 @@ test test_multi_clause_map_comprehension_later_entries_win [error] {
     for number in entry.values
     if number != 2
   }
-  test.eq(by_key.get("a", 0), 4)?
-  test.eq(by_key.get("b", 0), 3)?
+  test.eq((by_key.get("a") ?? 0), 4)?
+  test.eq((by_key.get("b") ?? 0), 3)?
 }
 
 test test_multi_clause_comprehension_evaluates_only_reached_clauses [error] { |ctx|

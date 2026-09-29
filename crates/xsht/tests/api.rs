@@ -970,3 +970,13 @@ fn api_value_pipeline_retains_argument_placement_and_evaluation_contract() {
     assert!(stdout.contains("pipeline_join(\"[\", _, \"]\")"), "{stdout}");
     assert!(output.stderr.is_empty());
 }
+
+#[test]
+fn api_absence_lookups_preserves_byte_and_result_boundaries() {
+    let output = xsht(&["api", "language:core.absence-lookups"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    for fragment in ["successful zero", "negative/out-of-range", "Ok(null)", "typed errors", "ordered receiver/index/fallback", "checked lookup origin", "entries.get(\"missing\") ?? 7"] {
+        assert!(stdout.contains(fragment), "missing {fragment}: {stdout}");
+    }
+}

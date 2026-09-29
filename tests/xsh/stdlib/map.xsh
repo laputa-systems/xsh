@@ -3,7 +3,7 @@ test test_map_module_and_methods [error] {
   let m1 = m0.set("one", 1).set("two", 2)
   test.ok(m1.has("one"))?
   test.eq(m1.get("two")?, 2)?
-  test.eq(m1.get("missing", 99), 99)?
+  test.eq((m1.get("missing") ?? 99), 99)?
   test.eq(m1.keys()[0], "one")?
   test.eq(m1.values()[1], 2)?
   test.ok(! m1.remove("one").has("one"))?
@@ -32,8 +32,8 @@ test test_map_updates_preserve_older_values_and_nested_lists [error] {
 
 test test_map_index_updates_group_push_and_comprehension [error] {
   var counts: Map[Int] = {}
-  counts["pkg"] = counts.get("pkg", 0) + 1
-  counts["pkg"] = counts.get("pkg", 0) + 4
+  counts["pkg"] = (counts.get("pkg") ?? 0) + 1
+  counts["pkg"] = (counts.get("pkg") ?? 0) + 4
   test.eq(counts.get("pkg")?, 5)?
 
   let empty_groups: Map[List[Str]] = {}
@@ -210,7 +210,7 @@ proc spread() [io] -> Map[Int] {
   return {["same"]: 3}
 }
 let values = {[key("same")]: value(1), same: value(2), ...spread(), [key("last")]: value(4)}
-print values.get("same", 0) values.get("last", 0)
+print (values.get("same") ?? 0) (values.get("last") ?? 0)
 """)?
   test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "key same\nvalue 1\nvalue 2\nspread\nkey last\nvalue 4\n3 4\n")?
@@ -249,7 +249,7 @@ test test_map_literals_reject_wrong_key_context_bad_spreads_and_incompatible_val
 
 pure map_literal_return() -> Map[Int] { return {answer: 42} }
 pure map_literal_tail() -> Map[Int] { {answer: 43} }
-pure map_literal_parameter(input: Map[Int]) -> Int { return input.get("answer", 0) }
+pure map_literal_parameter(input: Map[Int]) -> Int { return (input.get("answer") ?? 0) }
 type MapLiteralEnvelope = {values: Map[Int]}
 
 test test_map_literals_expected_context_reaches_returns_arguments_and_nested_values [error] {

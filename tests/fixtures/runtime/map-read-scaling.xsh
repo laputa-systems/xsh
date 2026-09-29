@@ -20,7 +20,7 @@ proc main() [env, error, io] {
   var pass = 0
   while pass < passes {
     for key in keys {
-      total = total + values.get(key, 0)
+      total = total + (values.get(key) ?? 0)
     }
 
     pass = pass + 1

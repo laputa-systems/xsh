@@ -19,7 +19,7 @@ proc main(root: Path = p".", ...exts: List[Str]) [fs, error] {
 
   let counts = totals.keys()
     |> map { |ext|
-      let row = totals.get(ext, {files: 0, lines: 0})
+      let row = (totals.get(ext) ?? {files: 0, lines: 0})
       {ext: ext, files: row.files, lines: row.lines}
     }
     |> sort-by(desc: true) .lines

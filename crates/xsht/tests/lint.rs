@@ -4166,3 +4166,78 @@ fn signature_cli_migration_retains_comments_and_advanced_cli_policy() {
         assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-signature-cli")), "{source}: {diagnostics:?}");
     }
 }
+
+#[test]
+fn absence_lookup_literal_fallback_fix_rechecks_and_converges() {
+    let source = "let entries: Map[Int] = {one: 1}\nlet value = entries.get(\"missing\", 7)\nlet octet = \"a\".byte_at(2, -1)\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let mut fixes = output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.lookup-fallback"))
+        .map(|d| &d.fix_hints[0]).collect::<Vec<_>>();
+    assert_eq!(fixes.len(), 2);
+    fixes.sort_by_key(|fix| std::cmp::Reverse(fix.span.unwrap().start()));
+    let mut fixed = source.to_string();
+    for fix in fixes { fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap()); }
+    assert_parse_check_standalone("absence lookup fallback", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    let parsed = parse_lint_source(&formatted.formatted);
+    let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let second = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!second.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.lookup-fallback")));
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+}
+
+#[test]
+fn absence_lookup_fallback_fix_refuses_eager_effects_failure_comments_and_named_order() {
+    for source in [
+        "pure fallback() -> Int { 1 / 0 }\nlet values = [1]\nlet value = values.get(0, fallback())\n",
+        "let values = [1]\nlet value = values.get(0, 1 / 0)\n",
+        "let values = [1]\nlet value = values.get(\n  0, # preserve this explanation\n  7\n)\n",
+        "let values = [1]\nlet value = values.get(fallback: 7, index: 0)\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+        assert!(!output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.lookup-fallback")).any(|d| !d.fix_hints.is_empty()));
+    }
+}
+
+#[test]
+fn absence_lookup_sentinel_fix_requires_proven_immutable_origin() {
+    let source = "let position = \"a\".find(\"z\")\nlet alias = position\nlet found = alias != -1\nlet arbitrary: Int? = -1\nlet unrelated = arbitrary == -1\nvar mutable = \"a\".find(\"z\")\nlet unstable = mutable == -1\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let fixes = output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.lookup-absence")).collect::<Vec<_>>();
+    assert_eq!(fixes.len(), 1);
+    let hint = &fixes[0].fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
+    assert!(fixed.contains("alias != null"));
+    assert!(fixed.contains("arbitrary == -1"));
+    assert_parse_check_standalone("absence sentinel", &fixed);
+}
+
+#[test]
+fn absence_lookup_sentinel_proof_respects_shadowing_narrowing_and_missing_facts() {
+    let source = "let position = \"x\".find(\":\")\nlet direct = \"x\".find(\":\") == -1\n{ let position: Int? = -1; let unrelated = position == -1 }\nif position != null { let ordinary = position == -1 }\nlet commented = \"x\".find(\n  # retain absence explanation\n  \":\"\n) == -1\n";
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.cst.get().exact_text(), source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let fixes = output.diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.lookup-absence")).collect::<Vec<_>>();
+    assert_eq!(fixes.len(), 1);
+    let hint = &fixes[0].fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
+    assert!(fixed.contains("let direct = \"x\".find(\":\") == null"));
+    assert!(fixed.contains("let ordinary = position == -1"));
+    assert_parse_check_standalone("scoped absence lookup", &fixed);
+    let without_facts = Linter::lint(&parsed.arena, source, LintOptions::default());
+    assert!(!without_facts.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.lookup-absence")));
+}

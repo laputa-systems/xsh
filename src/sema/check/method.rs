@@ -431,20 +431,9 @@ impl Checker {
                 Type::Bool
             }
             "get" => {
-                let has_fallback = args.len() >= 2;
-                if has_fallback {
-                    self.check_standard_arg_shape_arena(arena, args, &["index", "fallback"], span);
-                } else {
-                    self.check_standard_arg_shape_arena(arena, args, &["index"], span);
-                }
+                self.check_standard_arg_shape_arena(arena, args, &["index"], span);
                 self.check_api_arg_arena(arena, source, args, 0, Some(&Type::Int));
-                if has_fallback {
-                    let fallback_ty =
-                        self.check_api_arg_arena(arena, source, args, 1, Some(&item_ty));
-                    merge_collection_item_ty(item_ty, fallback_ty)
-                } else {
-                    Type::Result(Box::new(item_ty), Box::new(Type::Error))
-                }
+                Type::Result(Box::new(item_ty), Box::new(Type::Error))
             }
             _ => {
                 self.check_method_args_arena(arena, source, args, method, false, span);
@@ -494,20 +483,9 @@ impl Checker {
                 Type::Map(Box::new(key_ty), Box::new(Type::List(Box::new(merged))))
             }
             "get" => {
-                let has_fallback = args.len() >= 2;
-                if has_fallback {
-                    self.check_standard_arg_shape_arena(arena, args, &["key", "fallback"], span);
-                } else {
-                    self.check_standard_arg_shape_arena(arena, args, &["key"], span);
-                }
+                self.check_standard_arg_shape_arena(arena, args, &["key"], span);
                 self.check_api_arg_arena(arena, source, args, 0, Some(&key_ty));
-                if has_fallback {
-                    let fallback_ty =
-                        self.check_api_arg_arena(arena, source, args, 1, Some(&item_ty));
-                    merge_collection_item_ty(item_ty, fallback_ty)
-                } else {
-                    Type::Result(Box::new(item_ty), Box::new(Type::Error))
-                }
+                Type::Result(Box::new(item_ty), Box::new(Type::Error))
             }
             "has" => {
                 self.check_standard_arg_shape_arena(arena, args, &["key"], span);

@@ -14,16 +14,16 @@ type SortOptions = {
 }
 
 pure numeric_key(line: Str) -> Int {
-  return line.trim().words().get(0, "0").parse_int() ?? 0
+  return (line.trim().words().get(0) ?? "0").parse_int() ?? 0
 }
 
 pure key_index(spec: Str) -> Int {
-  return (spec.split(",").get(0, "1").split(".").get(0, "1").parse_int() ?? 1) - 1
+  return (((spec.split(",").get(0) ?? "1").split(".").get(0) ?? "1").parse_int() ?? 1) - 1
 }
 
 pure field_key(line: Str, delimiter: Str, field: Int, fold_case: Bool) -> Str {
   let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
-  let key = parts.get(field, "")
+  let key = (parts.get(field) ?? "")
   return if fold_case { key.lower() } else { key }
 }
 

@@ -249,7 +249,7 @@ export proc compare_live_cpupower(
   let scratch = fs.tempdir()?
   defer scratch.close()?
   let version_output = cpupower_output(scratch, executable, "version", [executable, "--version"])?
-  let version = version_output.lines().get(0, "").trim()
+  let version = ((version_output.lines() |> collect).get(0) ?? "").trim()
   if ! version.starts_with("cpupower ") {
     return Err(cpupower_failure("cpupower version is unsupported"))
   }

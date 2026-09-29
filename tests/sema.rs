@@ -476,17 +476,17 @@ let numbers = [1].push(2)
 let more = numbers.extend([3])
 let flat = numbers.extend(more)
 let contains = flat.contains(3)
-let fallback: Int = flat.get(9, 4)
-let get_or_fallback: Int = flat.get(10, 5)
-let first: Int = flat.get(0, 0)
+let fallback: Int = (flat.get(9) ?? 4)
+let get_or_fallback: Int = (flat.get(10) ?? 5)
+let first: Int = (flat.get(0) ?? 0)
 var argv = ["cc"]
 argv = argv.extend([p"main.c", "-o", p"main.o"])
 let argv_command = process.command_argv(p"cc", argv)
 let m0: Map[Int] = {}
 let m1 = m0.set("one", 1)
 let value = m1.get("one")?
-let fallback = m1.get("missing", 2)
-let get_or_fallback = m1.get("missing", 3)
+let fallback = (m1.get("missing") ?? 2)
+let get_or_fallback = (m1.get("missing") ?? 3)
 let keys = m1.keys()
 let values = m1.values()
 let by_name = {row.name: row.version for row in [{name: "pkg", version: "1"}]}
@@ -730,7 +730,7 @@ fn checker_handles_fold_accumulator_plus_item_blocks() {
     let sum = check(
         r#"
 let total = [1, 2, 3] |> fold(0) { |acc, it| acc + it }
-let counted = ["a", "b", "a"] |> fold(map.empty()) { |acc, it| acc.set(it, acc.get(it, 0) + 1) }
+let counted = ["a", "b", "a"] |> fold(map.empty()) { |acc, it| acc.set(it, (acc.get(it) ?? 0) + 1) }
 "#,
     );
     assert_no_codes(
@@ -1927,7 +1927,7 @@ fn checker_accepts_sort_by_desc_named_argument() {
 
 #[test]
 fn checker_accepts_sort_by_any_typed_record_fields_from_map_get() {
-    // Map.empty() is Map[Any]; Map.get(k, 0) therefore yields an Any-typed
+    // Map.empty() is Map[Any]; Map.get(k) ?? 0 therefore yields an Any-typed
     // field. The map-accumulator pattern (and its list-comprehension
     // equivalent) sorts by that field at runtime with a supported scalar, so
     // the checker must accept it the same way the runtime does.
@@ -1936,11 +1936,11 @@ let counts = map.empty()
 let keys = ["b", "a"]
 let acc = counts.set("a", 2).set("b", 1)
 let by_count = keys
-  |> map { |k| {count: acc.get(k, 0), ext: k} }
+  |> map { |k| {count: (acc.get(k) ?? 0), ext: k} }
   |> sort-by .count
   |> collect()
 let by_count_comp = [
-  {count: acc.get(k, 0), ext: k}
+  {count: (acc.get(k) ?? 0), ext: k}
   for k in keys
 ] |> sort-by .count |> collect()
 "#;

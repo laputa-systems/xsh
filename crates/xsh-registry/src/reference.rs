@@ -227,6 +227,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "list-splicing",
     "list-element-assignment",
     "duration-arithmetic",
+    "absence-lookups",
     "slicing",
     "results",
     "pattern-tests",
@@ -835,6 +836,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "list-element-assignment" => (
             "Updates existing List elements below mutable local bindings.",
             "`values[index] = replacement` and `rows[index].count += 1` retain contextual element types and collection value semantics. Paths can mix List elements, existing record fields, and Map keys. Int indices use ordinary indexing: negative and out-of-range indices fail without clipping, appending, or padding. Selectors run once in path order, then RHS once, then the current root and old selected value are read. Operand mutations survive; an invalid update exposes no partial ancestor rebuild. Immutable roots, temporary receivers, slice writes, and Str/Bytes mutation are rejected. Assignment produces Unit.",
+        ),
+        "absence-lookups" => (
+            "Represents ordinary search and byte absence as null.",
+            "Str.find returns an Int byte offset or null; successful zero remains a hit. Str.byte_at and Bytes.byte_at return a byte Int or null for negative/out-of-range indices. List.get and Map.get retain their single-argument Result forms, including Ok(null); missing entries remain typed errors. Use ?? for explicit fallback. Removed fallback arguments may have evaluated eagerly: migration tooling fixes only proven inert alternatives, and effectful alternatives require ordered receiver/index/fallback snapshots before lookup. Sentinel-comparison rewrites require a checked lookup origin.",
         ),
         "duration-arithmetic" => (
             "Combines Duration values with checked millisecond arithmetic.",

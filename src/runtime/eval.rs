@@ -1487,7 +1487,6 @@ enum BuildExprRow {
     StrByteAt {
         receiver: BuildExprId,
         index: BuildExprId,
-        default: Option<BuildExprId>,
         span: Span,
     },
     StrPredicate {

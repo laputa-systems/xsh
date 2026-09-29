@@ -15,6 +15,15 @@ them to the owner and report that limit. Unfiltered `cargo test` includes
 `runtime::coverage` cases and two `runtime::examples` cases that launch
 `xsht fmt` or `xsht lint`, so agents use the filtered runtime gate below.
 
+## Nullable lookup APIs
+
+`target/debug/xsht test --jobs 1 tests/xsh/absence-lookups.xsh` covers byte
+offsets, zero hits, invalid starts, nullable bytes, present-null collection
+entries, removed overloads, eager snapshots, lazy fallback, and integer fast
+paths. Run the native Str/Bytes/List/Map modules, checker integration tests,
+indexed verifier tests, and `cargo test -p xsht --test integration absence_lookup`
+for migration proof, refusal, rechecking, and convergence.
+
 ## Boolean guards
 
 `target/debug/xsht test --jobs 1 tests/xsh/boolean-guards.xsh` covers once-only

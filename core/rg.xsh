@@ -243,7 +243,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   let pattern = if opts.pattern_option != "" {
     opts.pattern_option
   } else {
-    opts.operands.get(0, "")
+    (opts.operands.get(0) ?? "")
   }
   let path_args = if opts.pattern_option != "" { opts.operands } else { opts.operands |> drop(1) }
   var paths: List[Path] = [fp"${arg}" for arg in path_args]

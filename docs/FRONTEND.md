@@ -385,3 +385,11 @@ parser storage. Semantic consumers use checked `function_return_types` facts
 keyed by the body span. The return inference pass checks dependency components
 before callers and retains Bool tail value classifications. Exported and
 recursive pure signatures remain explicit.
+
+## Nullable lookup lowering
+
+Checked `Str.find` and byte lookup facts retain `Int?` through indexed lowering.
+The ordinary byte instruction produces `Int` or null. Integer byte slots are
+selected only when an explicit `??` supplies a proven inert Int literal; a
+direct nullable lookup cannot initialize an Int slot. Collection lookup
+instructions retain Result tags, including successful null payloads.

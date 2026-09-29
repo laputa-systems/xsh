@@ -275,7 +275,7 @@ test test_json_set_updates_the_named_position [error] {
   let tree: Any = empty.set("inner", empty.set("leaf", 0)).set("other", 1)
   expect_map("set keeps a Map", json.set(tree, ["other"], 2)?)?
   expect_map("set adds to a Map", json.set(tree, ["fresh"], 3)?)?
-  expect_map("set keeps a nested Map", json.set(tree, ["inner", "leaf"], 5)?.get("inner", null))?
+  expect_map("set keeps a nested Map", (json.set(tree, ["inner", "leaf"], 5)?.get("inner") ?? null))?
   test.eq(json.get(json.set(tree, ["inner", "leaf"], 5)?, ["inner", "leaf"])?, 5)?
   test.eq(json.get(json.set(tree, ["inner", "leaf"], 5)?, ["other"])?, 1)?
 
@@ -325,8 +325,8 @@ test test_json_remove_drops_the_named_position [error] {
   # Bound as `Any`: the inferred type of a `json.remove` result cannot take a
   # dynamic method call, so the binding names the type the walk already uses.
   let pruned: Any = json.remove(tree, ["inner", "leaf"])?
-  expect_map("remove keeps a nested Map", pruned.get("inner", null))?
-  test.eq(pruned.get("inner", null).require(Map[Any])?.has("leaf"), false)?
+  expect_map("remove keeps a nested Map", (pruned.get("inner") ?? null))?
+  test.eq((pruned.get("inner") ?? null).require(Map[Any])?.has("leaf"), false)?
   test.eq(json.get(pruned, ["inner", "leaf"], "gone"), "gone")?
 
   # Members the JSON codec would reject are ordinary values: they survive a

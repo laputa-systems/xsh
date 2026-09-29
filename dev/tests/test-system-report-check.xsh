@@ -2298,15 +2298,15 @@ test test_system_report_dmidecode_dump_relocates_smbios3_entry_point [error] {
   let dump = smbios_reference.craft_dmidecode_dump(entry, table)?
   test.eq(dump.len(), 38)?
   test.eq(dump.slice(16, 8), bytes.from_ints([32, 0, 0, 0, 0, 0, 0, 0])?)?
-  test.eq(dump.byte_at(5), 43)?
+  test.eq((dump.byte_at(5) ?? -1), 43)?
   test.eq(dump.slice(32, 6), table)?
   var checksum = 0
   for index in range(24) {
-    checksum += dump.byte_at(index)
+    checksum += (dump.byte_at(index) ?? -1)
   }
 
   test.eq(checksum % 256, 0)?
-  test.eq(entry.byte_at(17), 16)?
+  test.eq((entry.byte_at(17) ?? -1), 16)?
   test.error_kind(
     smbios_reference.craft_dmidecode_dump(
       bytes.from_ints([95, 83, 77, 51, 95, 60, 24, 3, 2, 0, 1, 0, 6, 0, 0, 0, 0, 16, 0, 0, 0, 0, 0, 0])?,
@@ -2357,17 +2357,17 @@ test test_system_report_dmidecode_dump_relocates_smbios2_entry_point [error] {
   let dump = smbios_reference.craft_dmidecode_dump(entry, table)?
   test.eq(dump.len(), 38)?
   test.eq(dump.slice(24, 4), bytes.from_ints([32, 0, 0, 0])?)?
-  test.eq(dump.byte_at(21), 25)?
+  test.eq((dump.byte_at(21) ?? -1), 25)?
   test.eq(dump.slice(32, 6), table)?
   var primary_checksum = 0
   for index in range(31) {
-    primary_checksum += dump.byte_at(index)
+    primary_checksum += (dump.byte_at(index) ?? -1)
   }
 
   test.eq(primary_checksum % 256, 0)?
   var dmi_checksum = 0
   for index in range(16, 31) {
-    dmi_checksum += dump.byte_at(index)
+    dmi_checksum += (dump.byte_at(index) ?? -1)
   }
 
   test.eq(dmi_checksum % 256, 0)?

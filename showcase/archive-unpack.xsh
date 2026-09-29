@@ -101,7 +101,7 @@ proc main(...argv: List[Str]) [fs, error] {
     return
   }
 
-  let archive_arg = opts.archive.get(0, "")
+  let archive_arg = (opts.archive.get(0) ?? "")
   let archive_path = fp"${archive_arg}"
   let name = archive_path.name()
   let is_zip = name.ends_with(".zip")

@@ -172,7 +172,7 @@ pure parse_global(args: List[Str]) -> Result[GlobalOptions] {
     }
 
     if arg.starts_with("--target=") {
-      target = arg.split("=", maxsplit: 1).get(1, "")
+      target = (arg.split("=", maxsplit: 1).get(1) ?? "")
       index += 1
       continue
     }

@@ -78,13 +78,13 @@ proc main(...argv: List[Str]) [fs, error] {
 
     let filter_col = parts[0].trim()
     let filter_val = parts[1].trim()
-    rows = rows |> where .get(filter_col, "") == filter_val
+    rows = rows |> where { (.get(filter_col) ?? "") == filter_val }
     print f"  ${rows.len()} row(s) match ${filter_col}=${filter_val}"
   }
 
   if opts.sort != "" {
     let sort_col = opts.sort
-    rows = rows |> sort-by .get(sort_col, "")
+    rows = rows |> sort-by { .get(sort_col) ?? "" }
     print f"  sorted by ${sort_col}"
   }
 
@@ -92,7 +92,7 @@ proc main(...argv: List[Str]) [fs, error] {
     let group_col = opts.group
 
     let groups = rows
-      |> group-by .get(group_col, "")
+      |> group-by { .get(group_col) ?? "" }
       |> sort-by(desc: true) .items.len()
 
     print f"  ${groups.len()} group(s) by ${group_col}"
@@ -117,7 +117,7 @@ proc main(...argv: List[Str]) [fs, error] {
   print header.join("\t")
 
   for row in rows {
-    let values = header |> map row.get(., "")
+    let values = header |> map { row.get(.) ?? "" }
     print values.join("\t")
   }
 }

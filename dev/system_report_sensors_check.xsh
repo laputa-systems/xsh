@@ -144,19 +144,19 @@ export pure compare_sensors_json(
   var candidate_indices: Map[Int] = {}
   for reading in before {
     let key = f"${reading.chip}:${reading.subfeature}"
-    before_chip_counts = before_chip_counts.set(key, before_chip_counts.get(key, 0) + 1)
+    before_chip_counts = before_chip_counts.set(key, (before_chip_counts.get(key) ?? 0) + 1)
   }
 
   for reading in after {
     let key = f"${reading.chip_key}:${reading.subfeature}"
-    after_counts = after_counts.set(key, after_counts.get(key, 0) + 1)
+    after_counts = after_counts.set(key, (after_counts.get(key) ?? 0) + 1)
     after_values = after_values.set(key, reading.value)
   }
 
   for index in range(candidate.channels.len()) {
     let item = candidate.channels[index]
     let key = f"${item.chip}:${item.channel}"
-    candidate_counts = candidate_counts.set(key, candidate_counts.get(key, 0) + 1)
+    candidate_counts = candidate_counts.set(key, (candidate_counts.get(key) ?? 0) + 1)
     candidate_indices = candidate_indices.set(key, index)
   }
 
@@ -167,11 +167,11 @@ export pure compare_sensors_json(
     continue when scale == null
     reference_count += 1
     let key = f"${reading.chip_key}:${reading.subfeature}"
-    let before_chip_matches = before_chip_counts.get(f"${reading.chip}:${reading.subfeature}", 0)
-    let after_matches = after_counts.get(key, 0)
-    let following = after_values.get(key, reading.value)
+    let before_chip_matches = (before_chip_counts.get(f"${reading.chip}:${reading.subfeature}") ?? 0)
+    let after_matches = (after_counts.get(key) ?? 0)
+    let following = (after_values.get(key) ?? reading.value)
     let candidate_key = f"${reading.chip}:${channel}"
-    let candidate_matches = candidate_counts.get(candidate_key, 0)
+    let candidate_matches = (candidate_counts.get(candidate_key) ?? 0)
     var raw: Int? = null
     if candidate_matches == 1 {
       raw = candidate.channels[candidate_indices.get(candidate_key)?].value

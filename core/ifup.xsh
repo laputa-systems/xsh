@@ -373,7 +373,7 @@ pure hex_nibble(code: Int) -> Int {
 }
 
 pure parse_mac(mac: Str) -> List[Int] {
-  [hex_nibble(part.byte_at(0)) * 16 + hex_nibble(part.byte_at(1)) for part in mac.split(":") if part != ""]
+  [hex_nibble((part.byte_at(0) ?? -1)) * 16 + hex_nibble((part.byte_at(1) ?? -1)) for part in mac.split(":") if part != ""]
 }
 
 pure empty_lease() -> Record {

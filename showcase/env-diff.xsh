@@ -53,29 +53,29 @@ proc main(...argv: List[Str]) [fs, error] {
 
   for k in keys_a {
     if ! env_b.has(k) {
-      print f"- ${k}=${env_a.get(k, "")}"
+      print f"- ${k}=${(env_a.get(k) ?? "")}"
       only_a += 1
     }
   }
 
   for k in keys_b {
     if ! env_a.has(k) {
-      print f"+ ${k}=${env_b.get(k, "")}"
+      print f"+ ${k}=${(env_b.get(k) ?? "")}"
       only_b += 1
     }
   }
 
   for k in keys_a {
-    if env_b.has(k) and env_a.get(k, "") != env_b.get(k, "") {
+    if env_b.has(k) and (env_a.get(k) ?? "") != (env_b.get(k) ?? "") {
       print f"~ ${k}"
-      print f"  - ${env_a.get(k, "")}"
-      print f"  + ${env_b.get(k, "")}"
+      print f"  - ${(env_a.get(k) ?? "")}"
+      print f"  + ${(env_b.get(k) ?? "")}"
       changed += 1
     }
   }
 
   let unchanged = keys_a
-    |> where env_b.has(.) and env_a.get(., "") == env_b.get(., "")
+    |> where env_b.has(.) and (env_a.get(.) ?? "") == (env_b.get(.) ?? "")
     |> count()
 
   print ""

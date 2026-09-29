@@ -25,13 +25,13 @@ error ArgvWordsError = Rejected(kind: Str, message: Str)
 # three-byte members of that set are matched by their UTF-8 bytes; every
 # remaining character is either ASCII or not whitespace at all.
 pure whitespace_width(text: Str, index: Int) -> Int {
-  let first = text.byte_at(index, -1)
+  let first = (text.byte_at(index) ?? -1)
   if first == 32 or 9 <= first <= 13 {
     return 1
   }
   if first == 194 {
     # U+0085, U+00A0
-    let second = text.byte_at(index + 1, -1)
+    let second = (text.byte_at(index + 1) ?? -1)
     if second == 133 or second == 160 {
       return 2
     }
@@ -39,27 +39,27 @@ pure whitespace_width(text: Str, index: Int) -> Int {
   }
   if first == 225 {
     # U+1680
-    if text.byte_at(index + 1, -1) == 154 and text.byte_at(index + 2, -1) == 128 {
+    if (text.byte_at(index + 1) ?? -1) == 154 and (text.byte_at(index + 2) ?? -1) == 128 {
       return 3
     }
     return 0
   }
   if first == 226 {
     # U+2000..U+200A, U+2028, U+2029, U+202F, and U+205F
-    let next = text.byte_at(index + 1, -1)
+    let next = (text.byte_at(index + 1) ?? -1)
     if next == 128 {
-      let last = text.byte_at(index + 2, -1)
+      let last = (text.byte_at(index + 2) ?? -1)
       if 128 <= last <= 138 or last == 168 or last == 169 or last == 175 {
         return 3
       }
-    } else if next == 129 and text.byte_at(index + 2, -1) == 159 {
+    } else if next == 129 and (text.byte_at(index + 2) ?? -1) == 159 {
       return 3
     }
     return 0
   }
   if first == 227 {
     # U+3000
-    if text.byte_at(index + 1, -1) == 128 and text.byte_at(index + 2, -1) == 128 {
+    if (text.byte_at(index + 1) ?? -1) == 128 and (text.byte_at(index + 2) ?? -1) == 128 {
       return 3
     }
     return 0
@@ -72,7 +72,7 @@ pure whitespace_width(text: Str, index: Int) -> Int {
 # Text is always valid UTF-8, so the leading byte decides. A byte that cannot
 # start a character reports width one, keeping the scan moving forward.
 pure character_width(text: Str, index: Int) -> Int {
-  let first = text.byte_at(index, -1)
+  let first = (text.byte_at(index) ?? -1)
   return 1 when first < 194
   return 2 when first < 224
   return 3 when first < 240
@@ -149,13 +149,13 @@ export pure argv_words(text: Str) -> Result[List[Str]] {
     + "d..........................sss.."
 
   # The class bytes of `classes`, bound by name for the comparisons below.
-  let ordinary_class = ".".byte_at(0, 0)
-  let whitespace_class = "w".byte_at(0, 0)
-  let single_quote_class = "q".byte_at(0, 0)
-  let double_quote_class = "Q".byte_at(0, 0)
-  let escape_class = "b".byte_at(0, 0)
-  let syntax_class = "s".byte_at(0, 0)
-  let expansion_class = "d".byte_at(0, 0)
+  let ordinary_class = (".".byte_at(0) ?? 0)
+  let whitespace_class = ("w".byte_at(0) ?? 0)
+  let single_quote_class = ("q".byte_at(0) ?? 0)
+  let double_quote_class = ("Q".byte_at(0) ?? 0)
+  let escape_class = ("b".byte_at(0) ?? 0)
+  let syntax_class = ("s".byte_at(0) ?? 0)
+  let expansion_class = ("d".byte_at(0) ?? 0)
 
   let separator = word_separator(text)
   let length = text.byte_len()
@@ -171,14 +171,14 @@ export pure argv_words(text: Str) -> Result[List[Str]] {
   var index = 0
   while index < length {
     # Skip the whitespace between words.
-    let lead = text.byte_at(index, -1)
+    let lead = (text.byte_at(index) ?? -1)
     if lead > 127 {
       let skip_width = whitespace_width(text, index)
       if skip_width > 0 {
         index = index + skip_width
         continue
       }
-    } else if classes.byte_at(lead, 0) == whitespace_class {
+    } else if (classes.byte_at(lead) ?? 0) == whitespace_class {
       index = index + 1
       continue
     }
@@ -189,7 +189,7 @@ export pure argv_words(text: Str) -> Result[List[Str]] {
     var word = ""
     var verbatim_start = index
     while index < length {
-      let current = text.byte_at(index, -1)
+      let current = (text.byte_at(index) ?? -1)
       if current > 127 {
         # A non-ASCII character continues the word unless it is whitespace.
         if whitespace_width(text, index) > 0 {
@@ -198,7 +198,7 @@ export pure argv_words(text: Str) -> Result[List[Str]] {
         index = index + character_width(text, index)
         continue
       }
-      let current_class = classes.byte_at(current, 0)
+      let current_class = (classes.byte_at(current) ?? 0)
       if current_class == ordinary_class {
         index = index + 1
         continue
@@ -211,7 +211,7 @@ export pure argv_words(text: Str) -> Result[List[Str]] {
         word = word + text.byte_slice(verbatim_start, index - verbatim_start)
         index = index + 1
         let quoted_start = index
-        while index < length and text.byte_at(index, -1) != 39 {
+        while index < length and (text.byte_at(index) ?? -1) != 39 {
           index = index + 1
         }
         if index >= length {
@@ -230,12 +230,12 @@ export pure argv_words(text: Str) -> Result[List[Str]] {
         var literal_start = index
         var closed = false
         while index < length {
-          let quoted = text.byte_at(index, -1)
+          let quoted = (text.byte_at(index) ?? -1)
           if quoted > 127 {
             index = index + character_width(text, index)
             continue
           }
-          let quoted_class = classes.byte_at(quoted, 0)
+          let quoted_class = (classes.byte_at(quoted) ?? 0)
           if quoted_class == double_quote_class {
             word = word + text.byte_slice(literal_start, index - literal_start)
             index = index + 1
@@ -275,9 +275,9 @@ export pure argv_words(text: Str) -> Result[List[Str]] {
         if index >= length {
           return rejected("trailing escape")
         }
-        let escaped = text.byte_at(index, -1)
+        let escaped = (text.byte_at(index) ?? -1)
         if escaped <= 127 {
-          let escaped_class = classes.byte_at(escaped, 0)
+          let escaped_class = (classes.byte_at(escaped) ?? 0)
           if escaped_class == syntax_class or escaped_class == expansion_class {
             return rejected(syntax_message(text, index))
           }

@@ -109,11 +109,11 @@ beta
   # item a Str, which the two-parameter binding types correctly.
   let fold_counts = ["a", "b", "a", "c"]
     |> fold(map.empty()) { |acc, it|
-      acc.set(it, acc.get(it, 0) + 1)
+      acc.set(it, (acc.get(it) ?? 0) + 1)
     }
-  test.eq(fold_counts.get("a", 0), 2)?
-  test.eq(fold_counts.get("b", 0), 1)?
-  test.eq(fold_counts.get("c", 0), 1)?
+  test.eq((fold_counts.get("a") ?? 0), 2)?
+  test.eq((fold_counts.get("b") ?? 0), 1)?
+  test.eq((fold_counts.get("c") ?? 0), 1)?
   test.eq(fold_counts.len(), 3)?
 
   test.eq(
@@ -394,7 +394,7 @@ proc main() [io, error] {
   let groups = numbers("group") |> group-by { |n| key(n) }
   print f"groups=${groups[0].key}:${groups[0].items.len()},${groups[1].key}:${groups[1].items.len()}"
   let counts = numbers("count") |> count { |n| key(n) }
-  print f"counts=${counts.get("1", 0)},${counts.get("2", 0)}"
+  print f"counts=${(counts.get("1") ?? 0)},${(counts.get("2") ?? 0)}"
   let unique = numbers("unique") |> unique-by { |n| key(n) }
   print f"unique=${unique[0]},${unique[1]}"
 }
@@ -808,10 +808,10 @@ test test_reduce_by_stream_aggregates [error] {
       {key: "all", value: n}
     }
 
-  test.eq(agg.get("even", {count: 0, total: 0}), {count: 3, total: 12})?
-  test.eq(agg.get("odd", {count: 0, total: 0}), {count: 3, total: 9})?
-  test.eq(lo.get("all", 0), 1)?
-  test.eq(hi.get("all", 0), 6)?
+  test.eq((agg.get("even") ?? {count: 0, total: 0}), {count: 3, total: 12})?
+  test.eq((agg.get("odd") ?? {count: 0, total: 0}), {count: 3, total: 9})?
+  test.eq((lo.get("all") ?? 0), 1)?
+  test.eq((hi.get("all") ?? 0), 6)?
 }
 
 test test_reduce_by_live_source_folds_each_item_before_next_pull [error] { |ctx|
@@ -835,7 +835,7 @@ proc main() [io, error] {
     |> reduce-by(sum: true, jobs: 1) { |n|
       {key: "all", value: observed(n)}
     }
-  print f"total=${groups.get("all", 0)}"
+  print f"total=${(groups.get("all") ?? 0)}"
 }
 """,
   )?
@@ -872,7 +872,7 @@ proc main() [fs, error] {
     |> reduce-by(sum: true) { |n|
       {key: "all", value: 10 / (1 - n)}
     }
-  print \${groups.get("all", 0)}
+  print \${(groups.get("all") ?? 0)}
 }
 """,
   )?
@@ -896,24 +896,24 @@ test test_reduce_by_jobs_hint_preserves_results [error] {
     }
 
   for k in serial.keys() {
-    test.eq(par.get(k, {count: 0, total: 0}), serial.get(k, {count: 0, total: 0}))?
+    test.eq((par.get(k) ?? {count: 0, total: 0}), (serial.get(k) ?? {count: 0, total: 0}))?
   }
 
   test.eq(par.keys().len(), 3)?
 
   test.eq(
-    (nums
+    ((nums
       |> reduce-by(min: true, jobs: 8) { |n|
         {key: "all", value: n}
-      }).get("all", -1),
+      }).get("all") ?? -1),
     0,
   )?
 
   test.eq(
-    (nums
+    ((nums
       |> reduce-by(max: true, jobs: 8) { |n|
         {key: "all", value: n}
-      }).get("all", -1),
+      }).get("all") ?? -1),
     49999,
   )?
 }
@@ -930,11 +930,11 @@ proc jobs(label: Str) [io] -> Int {
 proc main() [io, error] {
   let reduced = [1, 2]
     |> reduce-by(sum: true, jobs: jobs("reduce")) { |n| {key: "all", value: n} }
-  print f"total=${reduced.get("all", 0)}"
+  print f"total=${(reduced.get("all") ?? 0)}"
   let from_workers = [1, 2]
     |> par-map(jobs: 2) { |n| n }
     |> reduce-by(sum: true, jobs: jobs("after-map")) { |n| {key: "all", value: n} }
-  print f"worker-total=${from_workers.get("all", 0)}"
+  print f"worker-total=${(from_workers.get("all") ?? 0)}"
   print "done"
 }
 """,
@@ -983,7 +983,7 @@ stream numbers(pulled: Path) [fs, error] -> Stream[Int] {
 proc main() [fs, error] {
   let totals = numbers(Path("${pulled.display()}"))
     |> reduce-by(sum: true, jobs: zero_jobs(Path("${evaluated.display()}"))) { |n| {key: "all", value: n} }
-  print \${totals.get("all", 0)}
+  print \${(totals.get("all") ?? 0)}
 }
 """,
   )?
@@ -1015,7 +1015,7 @@ test test_reduce_by_jobs_rejects_static_zero_in_checker [error] { |ctx|
     """
 proc main() [error] {
   let grouped = [1] |> reduce-by(sum: true, jobs: 0) { |n| {key: "all", value: n} }
-  print \${grouped.get("all", 0)}
+  print \${(grouped.get("all") ?? 0)}
 }
 """,
   )?
@@ -1051,11 +1051,11 @@ test test_par_map_reduce_by_fuses_to_worker_aggregation [error] {
     }
 
   for k in unfused.keys() {
-    test.eq(fused.get(k, {count: 0, total: 0}), unfused.get(k, {count: 0, total: 0}))?
+    test.eq((fused.get(k) ?? {count: 0, total: 0}), (unfused.get(k) ?? {count: 0, total: 0}))?
   }
 
   test.eq(fused.keys().len(), 4)?
-  test.eq(fused.get("a", {count: 0, total: 0}), {count: 12500, total: 624950000})?
+  test.eq((fused.get("a") ?? {count: 0, total: 0}), {count: 12500, total: 624950000})?
 }
 
 test test_flat_map_identity_reduce_by_matches_direct_rows [error] {
@@ -1080,8 +1080,8 @@ test test_flat_map_identity_reduce_by_matches_direct_rows [error] {
       {key: row.key, value: {count: row.count, total: row.total}}
     }
 
-  test.eq(nested.get("even", {count: 0, total: 0}), direct.get("even", {count: 0, total: 0}))?
-  test.eq(nested.get("odd", {count: 0, total: 0}), {count: 500, total: 250000})?
+  test.eq((nested.get("even") ?? {count: 0, total: 0}), (direct.get("even") ?? {count: 0, total: 0}))?
+  test.eq((nested.get("odd") ?? {count: 0, total: 0}), {count: 500, total: 250000})?
 }
 
 test test_live_files_flat_map_reduce_by_matches_collected_rows [fs, error] { |ctx|
@@ -1110,8 +1110,8 @@ test test_live_files_flat_map_reduce_by_matches_collected_rows [fs, error] { |ct
       {key: row.ext, value: {count: row.count, size: row.size}}
     }
   test.eq(streamed, collected)?
-  test.eq(streamed.get("txt", {count: 0, size: 0}), {count: 2, size: 5})?
-  test.eq(streamed.get("md", {count: 0, size: 0}), {count: 1, size: 4})?
+  test.eq((streamed.get("txt") ?? {count: 0, size: 0}), {count: 2, size: 5})?
+  test.eq((streamed.get("md") ?? {count: 0, size: 0}), {count: 1, size: 4})?
 }
 
 test test_live_files_par_map_for_matches_collected_rows [fs, error] { |ctx|
@@ -1151,8 +1151,8 @@ test test_live_files_par_map_for_matches_collected_rows [fs, error] { |ctx|
     |> reduce-by(sum: true) { |row|
       {key: row.ext, value: {count: row.count, size: row.size}}
     }
-  test.eq({count: streamed_txt_count, size: streamed_txt_size}, collected.get("txt", {count: 0, size: 0}))?
-  test.eq({count: streamed_md_count, size: streamed_md_size}, collected.get("md", {count: 0, size: 0}))?
+  test.eq({count: streamed_txt_count, size: streamed_txt_size}, (collected.get("txt") ?? {count: 0, size: 0}))?
+  test.eq({count: streamed_md_count, size: streamed_md_size}, (collected.get("md") ?? {count: 0, size: 0}))?
   test.eq({count: streamed_txt_count, size: streamed_txt_size}, {count: 2, size: 5})?
   test.eq({count: streamed_md_count, size: streamed_md_size}, {count: 1, size: 4})?
 }
@@ -1186,7 +1186,7 @@ let reduced = (rows)
   |> reduce-by(sum: true) { |row|
     {key: row.key, value: {x: row.a, y: row.b}}
   }
-let g = reduced.get("g", {x: 0, y: 0})
+let g = (reduced.get("g") ?? {x: 0, y: 0})
 print f"x=\${g.x}"
 """,
   )?
@@ -1904,8 +1904,8 @@ test test_count_and_group_by_preserve_large_group_counts_and_order [error] {
       g.items
     }
 
-  test.eq(counts.get("even", 0), 10000)?
-  test.eq(counts.get("odd", 0), 10000)?
+  test.eq((counts.get("even") ?? 0), 10000)?
+  test.eq((counts.get("odd") ?? 0), 10000)?
   test.eq(groups.len(), 3)?
   test.eq(groups[0].len(), 6667)?
   test.eq(groups[0][0], 0)?
@@ -2244,7 +2244,7 @@ test test_sort_by_rejects_non_orderable_keys_at_runtime [error] { |ctx|
     """
 let rows = [{name: "b"}, {name: "a"}]
 let values = map.empty().set("key", ["not-orderable"])
-let key = values.get("key", 0)
+let key = (values.get("key") ?? 0)
 let out = (rows) |> sort-by { |_| key } |> collect()
 for r in out { print \${r.name} }
 """,
@@ -2256,7 +2256,7 @@ for r in out { print \${r.name} }
 }
 
 test test_sort_by_map_accumulator_any_typed_fields [error] {
-  # Map.empty() is Map[Any], so Map.get(k, 0) yields an Any-typed field. A
+  # Map.empty() is Map[Any], so Map.get(k) ?? 0 yields an Any-typed field. A
   # sort-by over such a field must checker-accept the same way the runtime does
   # (the actual value is a supported scalar Int), matching the loud-failure
   # gate in lower/ops.
@@ -2266,13 +2266,13 @@ test test_sort_by_map_accumulator_any_typed_fields [error] {
 
   let by_count = keys
     |> map { |k|
-      {count: acc.get(k, 0), ext: k}
+      {count: (acc.get(k) ?? 0), ext: k}
     }
     |> sort-by .count
   test.eq(by_count, [{count: 1, ext: "b"}, {count: 2, ext: "a"}])?
 
   # The list-comprehension equivalent accepts and sorts identically.
-  let by_count_comp = [{count: acc.get(k, 0), ext: k} for k in keys] |> sort-by .count
+  let by_count_comp = [{count: (acc.get(k) ?? 0), ext: k} for k in keys] |> sort-by .count
   test.eq(by_count_comp, by_count)?
 }
 

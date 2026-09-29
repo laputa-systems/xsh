@@ -35,7 +35,7 @@ proc main(input: Str = "") [fs, error] {
   var counts: Map[Int] = {}
 
   for entry in entries {
-    counts[entry.level] = counts.get(entry.level, 0) + 1
+    counts[entry.level] = (counts.get(entry.level) ?? 0) + 1
   }
 
   print f"parsed ${entries.len()} entries"

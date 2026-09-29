@@ -27,7 +27,7 @@ if show_size {
 
   let rows = stats.keys()
     |> map { |ext|
-      let totals = stats.get(ext, {count: 0, size: 0})
+      let totals = (stats.get(ext) ?? {count: 0, size: 0})
       let label = if ext == "" { "(none)" } else { ext }
       {ext: label, count: totals.count, size: totals.size}
     }
@@ -45,7 +45,7 @@ if show_size {
   let rows = counts.keys()
     |> map { |ext|
       let label = if ext == "" { "(none)" } else { ext }
-      {ext: label, count: counts.get(ext, 0)}
+      {ext: label, count: (counts.get(ext) ?? 0)}
     }
     |> sort-by .count
 

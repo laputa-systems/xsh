@@ -463,3 +463,12 @@ methods bind the registry's `ReceiverMapKey` and `ReceiverMapValue` parameters t
 the receiver before overload selection. Entry iteration retains `{key: K,
 value: V}` through both full and compact checking. The indexed semantic type pool
 stores both children and validates them before execution.
+## Lookup absence facts
+
+`Str.find`, `Str.byte_at`, and `Bytes.byte_at` produce `Int?`; a zero byte or
+offset is a successful value. Checked null guards refine these results to
+`Int`. Nullable arithmetic remains invalid until absence is handled.
+`List.get(index)` and `Map.get(key)` produce `Result[T]`, even when `T` is
+optional: a present null is successful data, and `??` handles only an error.
+The removed fallback overloads are recognized by migration tooling without
+providing an executable compatibility signature.

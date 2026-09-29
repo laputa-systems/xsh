@@ -1490,28 +1490,12 @@ pub(super) fn lowered_str_method_value(
         }
         "count_bytes" if args.is_empty() => Ok(LoweredValue::Int(text_value.len() as i64)),
         "byte_len" if args.is_empty() => Ok(LoweredValue::Int(text_value.len() as i64)),
-        "byte_at" if args.len() == 1 || args.len() == 2 => {
+        "byte_at" if args.len() == 1 => {
             let LoweredValue::Int(index) = &args[0] else {
                 return Err(RuntimeError::new("type-error", "byte_at expected Int").with_span(span));
             };
-            let default = match args.get(1) {
-                Some(LoweredValue::Int(value)) => *value,
-                Some(_) => {
-                    return Err(
-                        RuntimeError::new("type-error", "byte_at default expected Int")
-                            .with_span(span),
-                    );
-                }
-                None => -1,
-            };
-            Ok(LoweredValue::Int(
-                text_value
-                    .as_bytes()
-                    .get(usize::try_from(*index).unwrap_or(usize::MAX))
-                    .copied()
-                    .map(i64::from)
-                    .unwrap_or(default),
-            ))
+            Ok(usize::try_from(*index).ok().and_then(|index| text_value.as_bytes().get(index))
+                .map(|value| LoweredValue::Int(i64::from(*value))).unwrap_or(LoweredValue::Null))
         }
         "byte_slice" if args.len() == 1 || args.len() == 2 => {
             let LoweredValue::Int(offset) = &args[0] else {
@@ -1544,9 +1528,8 @@ pub(super) fn lowered_str_method_value(
                 }
                 None => 0,
             };
-            Ok(LoweredValue::Int(lowered_find_text_bytes(
-                text_value, needle, start,
-            )))
+            let position = lowered_find_text_bytes(text_value, needle, start);
+            Ok(if position < 0 { LoweredValue::Null } else { LoweredValue::Int(position) })
         }
         "starts_with" if args.len() == 1 => {
             let prefix = lowered_str_arg(&args[0], "starts_with", span)?;
@@ -1697,27 +1680,12 @@ pub(super) fn lowered_bytes_method_value(
         "sha512" if args.is_empty() => Ok(LoweredValue::Digest(Box::new(
             crate::modules::hash::digest_bytes(crate::modules::hash::HashAlgorithm::Sha512, bytes),
         ))),
-        "byte_at" if args.len() == 1 || args.len() == 2 => {
+        "byte_at" if args.len() == 1 => {
             let LoweredValue::Int(index) = &args[0] else {
                 return Err(RuntimeError::new("type-error", "byte_at expected Int").with_span(span));
             };
-            let default = match args.get(1) {
-                Some(LoweredValue::Int(value)) => *value,
-                Some(_) => {
-                    return Err(
-                        RuntimeError::new("type-error", "byte_at default expected Int")
-                            .with_span(span),
-                    );
-                }
-                None => -1,
-            };
-            Ok(LoweredValue::Int(
-                bytes
-                    .get(usize::try_from(*index).unwrap_or(usize::MAX))
-                    .copied()
-                    .map(i64::from)
-                    .unwrap_or(default),
-            ))
+            Ok(usize::try_from(*index).ok().and_then(|index| bytes.get(index))
+                .map(|value| LoweredValue::Int(i64::from(*value))).unwrap_or(LoweredValue::Null))
         }
         "slice" if args.len() == 1 || args.len() == 2 => {
             let LoweredValue::Int(offset) = &args[0] else {
@@ -2265,29 +2233,15 @@ pub(super) fn lowered_list_method_value(
         "contains" if args.len() == 1 => Ok(LoweredValue::Bool(
             items.iter().any(|item| item == &args[0]),
         )),
-        "get" if args.len() == 1 || args.len() == 2 => {
+        "get" if args.len() == 1 => {
             let LoweredValue::Int(index) = &args[0] else {
-                return Err(
-                    RuntimeError::new("type-error", "get expected Int index").with_span(span)
-                );
+                return Err(RuntimeError::new("type-error", "get expected Int index").with_span(span));
             };
-            if *index >= 0
-                && let Some(value) = items.get(*index as usize).cloned()
-            {
-                return if args.len() == 2 {
-                    Ok(value)
-                } else {
-                    Ok(LoweredValue::ResultOk(Box::new(value)))
-                };
-            }
-            if args.len() == 2 {
-                Ok(args[1].clone())
-            } else {
-                Ok(lowered_result_err(
-                    "index-out-of-bounds",
-                    format!("list index {index} is out of bounds"),
-                ))
-            }
+            let result = match usize::try_from(*index).ok().and_then(|index| items.get(index)) {
+                Some(value) => LoweredValue::ResultOk(Box::new(value.clone())),
+                None => lowered_result_err("index-out-of-bounds", format!("list index {index} is out of bounds")),
+            };
+            Ok(result)
         }
         "push" if args.len() == 1 => {
             let mut items = items;
@@ -2328,29 +2282,15 @@ pub(super) fn lowered_list_method_ref(
         "contains" if args.len() == 1 => Ok(Some(LoweredValue::Bool(
             items.iter().any(|item| item == &args[0]),
         ))),
-        "get" if args.len() == 1 || args.len() == 2 => {
+        "get" if args.len() == 1 => {
             let LoweredValue::Int(index) = &args[0] else {
-                return Err(
-                    RuntimeError::new("type-error", "get expected Int index").with_span(span)
-                );
+                return Err(RuntimeError::new("type-error", "get expected Int index").with_span(span));
             };
-            if *index >= 0
-                && let Some(value) = items.get(*index as usize).cloned()
-            {
-                return if args.len() == 2 {
-                    Ok(Some(value))
-                } else {
-                    Ok(Some(LoweredValue::ResultOk(Box::new(value))))
-                };
-            }
-            if args.len() == 2 {
-                Ok(Some(args[1].clone()))
-            } else {
-                Ok(Some(lowered_result_err(
-                    "index-out-of-bounds",
-                    format!("list index {index} is out of bounds"),
-                )))
-            }
+            let result = match usize::try_from(*index).ok().and_then(|index| items.get(index)) {
+                Some(value) => LoweredValue::ResultOk(Box::new(value.clone())),
+                None => lowered_result_err("index-out-of-bounds", format!("list index {index} is out of bounds")),
+            };
+            Ok(Some(result))
         }
         "join" if args.is_empty() || args.len() == 1 => {
             lowered_join_list(items, &args, span).map(Some)
@@ -2412,25 +2352,14 @@ fn lowered_map_method_ref(
             require_lowered_map_key_domain(&map, key, span)?;
             Ok(Some(LoweredValue::Bool(key.contains_key(&map))))
         }
-        "get" if args.len() == 1 || args.len() == 2 => {
+        "get" if args.len() == 1 => {
             let key = lowered_map_key_ref(&args[0], span)?;
             require_lowered_map_key_domain(&map, key, span)?;
-            match key.get(&map) {
-                Some(value) => Ok(Some(if args.len() == 2 {
-                    value.clone()
-                } else {
-                    LoweredValue::ResultOk(Box::new(value.clone()))
-                })),
-                None => match args.get(1) {
-                    Some(fallback) => Ok(Some(fallback.clone())),
-                    None => Ok(Some(LoweredValue::ResultErr(Box::new(Value::Error(
-                        Box::new(RuntimeError::new(
-                            "map-missing",
-                            format!("map has no key {key:?}"),
-                        )),
-                    ))))),
-                },
-            }
+            let result = match key.get(&map) {
+                Some(value) => LoweredValue::ResultOk(Box::new(value.clone())),
+                None => lowered_result_err("map-missing", format!("map has no key {key:?}")),
+            };
+            Ok(Some(result))
         }
         _ => Ok(None),
     }
@@ -2449,23 +2378,14 @@ pub(super) fn lowered_map_method_value(
             require_lowered_map_key_domain(&map, key, span)?;
             Ok(LoweredValue::Bool(key.contains_key(&map)))
         }
-        "get" if args.len() == 1 || args.len() == 2 => {
+        "get" if args.len() == 1 => {
             let key = lowered_map_key_ref(&args[0], span)?;
             require_lowered_map_key_domain(&map, key, span)?;
-            if let Some(value) = key.get(&map).cloned() {
-                return if args.len() == 2 {
-                    Ok(value)
-                } else {
-                    Ok(LoweredValue::ResultOk(Box::new(value)))
-                };
-            }
-            if args.len() == 2 {
-                Ok(args[1].clone())
-            } else {
-                Ok(LoweredValue::ResultErr(Box::new(Value::Error(Box::new(
-                    RuntimeError::new("map-missing", format!("map has no key {key:?}")),
-                )))))
-            }
+            let result = match key.get(&map) {
+                Some(value) => LoweredValue::ResultOk(Box::new(value.clone())),
+                None => lowered_result_err("map-missing", format!("map has no key {key:?}")),
+            };
+            Ok(result)
         }
         "set" if args.len() == 2 => {
             let key = lowered_map_key_ref(&args[0], span)?;

@@ -326,7 +326,7 @@ test test_value_fold_and_key_callbacks_have_ordinary_scopes [error] {
     let key = "all"
     if number == 1 { {key, value: number} } else { {key, value: number} }
   }
-  test.eq(grouped.get("all", 0), 3)?
+  test.eq((grouped.get("all") ?? 0), 3)?
   let sorted = [2, 1] |> sort-by { |number| let key = number; key } |> collect
   test.eq(sorted, [1, 2])?
 }

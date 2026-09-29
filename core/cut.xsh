@@ -7,8 +7,8 @@ pure selected_index(index: Int, spec: Str) -> Bool {
   for raw in spec.split(",") {
     if "-" in raw {
       let parts = raw.split("-")
-      let start = if parts.get(0, "") == "" { 1 } else { parts[0].parse_int() ?? 1 }
-      let end_text = parts.get(1, "")
+      let start = if (parts.get(0) ?? "") == "" { 1 } else { parts[0].parse_int() ?? 1 }
+      let end_text = (parts.get(1) ?? "")
 
       if end_text == "" {
         if position >= start {

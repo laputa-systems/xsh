@@ -180,7 +180,7 @@ fn single_positional_arena_call_arg(args: &[ArenaCallArg]) -> Option<ExprId> {
 fn lowered_str_byte_op(name: &str, args: &[BuildExprId]) -> bool {
     match name {
         "byte_len" => args.is_empty(),
-        "byte_at" => args.len() == 1 || args.len() == 2,
+        "byte_at" => args.len() == 1,
         _ => false,
     }
 }
@@ -201,7 +201,7 @@ fn lowered_method_call_args(name: Name, args: &[ArenaCallArg]) -> Option<Vec<Exp
         "strings" => named_method_call_args(args, &[], &["min_len"]),
         "wrap" => named_method_call_args(args, &["width"], &[]),
         "chunks" => named_method_call_args(args, &["size"], &[]),
-        "byte_at" => named_method_call_args(args, &["index"], &["default"]),
+        "byte_at" => named_method_call_args(args, &["index"], &[]),
         "byte_slice" | "slice" => named_method_call_args(args, &["offset"], &["length"]),
         "cancel" => named_method_call_args(args, &[], &["signal", "kill_after"]),
         "chmod" => named_method_call_args(args, &["mode"], &[]),
@@ -3638,6 +3638,13 @@ impl CompactLowerConstructProbe<'_, '_> {
         // use StmtFlow which correctly scopes to the innermost loop).
         // The check is removed — it was an early indexed-lowering safety measure that is no longer needed.
         let mut slots = SlotScope::from_names(params.iter().copied());
+        // Parameter contracts also govern local slot selection. Nullable reads
+        // must retain their checked type until an explicit fallback removes null.
+        for param in self.program.arena.params(def.params) {
+            slots.types.insert(param.name, compact_runtime_type_in_namespace(
+                &self.program.arena, param.ty, self.declarations, self.current_namespace,
+            ));
+        }
         let captures = self.append_immutable_top_level_captures(&mut slots);
         let blockers_before = self.output.blocker_events;
         let mut body = self
@@ -4758,6 +4765,12 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 Some(expected)
             }
+            ArenaExprKind::Binary { op: BinaryOp::ResultFallback, left, .. } => {
+                let left = self.infer_checked_expr_type_with_slots(left, slots)
+                    .or_else(|| self.bodies.expr_types.get(&left).cloned())
+                    .or_else(|| self.infer_checked_expr_type(left, &self.top_level_known))?;
+                match left { Type::Optional(inner) | Type::Result(inner, _) => Some(*inner), _ => None }
+            }
             ArenaExprKind::Pipeline { input, stages } => {
                 self.infer_checked_pipeline_type_with_slots(input, stages, slots)
             }
@@ -4846,16 +4859,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                     return match (&base_ty, args_vec.len()) {
                         (Type::List(item) | Type::Map(_, item), 1) => {
                             Some(Type::Result(item.clone(), Box::new(Type::Error)))
-                        }
-                        (Type::List(item) | Type::Map(_, item), 2) => {
-                            let fallback = compact_call_arg_expr(&args_vec[1])?;
-                            Some(
-                                self.infer_checked_expr_type(fallback, &self.top_level_known)
-                                    .or_else(|| {
-                                        self.infer_checked_expr_type_with_slots(fallback, slots)
-                                    })
-                                    .unwrap_or_else(|| item.as_ref().clone()),
-                            )
                         }
                         _ => None,
                     };
@@ -5225,13 +5228,6 @@ impl CompactLowerConstructProbe<'_, '_> {
             let value = self.infer_checked_get_value_type(base, args, known)?;
             return match args_vec.len() {
                 1 => Some(Type::Result(Box::new(value), Box::new(Type::Error))),
-                2 => {
-                    let fallback = compact_call_arg_expr(&args_vec[1])?;
-                    Some(
-                        self.infer_checked_expr_type(fallback, known)
-                            .unwrap_or(value),
-                    )
-                }
                 _ => None,
             };
         }
@@ -5640,13 +5636,6 @@ impl CompactLowerConstructProbe<'_, '_> {
             if name == "get" {
                 return match args_vec.len() {
                     1 => Some(LoweredType::Result),
-                    2 => {
-                        let fallback = compact_call_arg_expr(&args_vec[1])?;
-                        self.infer_checked_expr_type(fallback, known)
-                            .as_ref()
-                            .and_then(lowered_checked_type)
-                            .or_else(|| self.infer_lowered_expr_type(fallback, known))
-                    }
                     _ => None,
                 };
             }
@@ -10612,7 +10601,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                                 BuildExprRow::StrByteAt {
                                     receiver,
                                     index: args.next().unwrap(),
-                                    default: args.next(),
                                     span,
                                 }
                             )
@@ -13680,7 +13668,8 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             "split" => arg_count == 1 || arg_count == 2,
             "wrap" | "delete" | "starts_with" | "ends_with" | "contains" => arg_count == 1,
             "replace" | "translate" => arg_count == 2,
-            "byte_at" | "byte_slice" | "find" => arg_count == 1 || arg_count == 2,
+            "byte_at" => arg_count == 1,
+            "byte_slice" | "find" => arg_count == 1 || arg_count == 2,
             _ => false,
         },
         Type::Bytes => match name.as_str().as_str() {
@@ -13688,7 +13677,8 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             | "sha1" | "sha256" | "sha512" | "utf8" => arg_count == 0,
             "dump" | "strings" => arg_count <= 1,
             "chunks" | "compare" | "starts_with" | "ends_with" | "contains" => arg_count == 1,
-            "byte_at" | "slice" => arg_count == 1 || arg_count == 2,
+            "byte_at" => arg_count == 1,
+            "slice" => arg_count == 1 || arg_count == 2,
             _ => false,
         },
         Type::Digest => matches!(name.as_str().as_str(), "hex" | "base64") && arg_count == 0,
@@ -13722,14 +13712,14 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
         Type::List(_) => match name.as_str().as_str() {
             "collect" | "len" => arg_count == 0,
             "contains" | "push" | "extend" => arg_count == 1,
-            "get" => arg_count == 1 || arg_count == 2,
+            "get" => arg_count == 1,
             "join" => arg_count <= 1,
             _ => false,
         },
         Type::Map(_, _) => match name.as_str().as_str() {
             "len" | "keys" | "values" => arg_count == 0,
             "has" | "remove" => arg_count == 1,
-            "get" => arg_count == 1 || arg_count == 2,
+            "get" => arg_count == 1,
             "set" | "push" => arg_count == 2,
             _ => false,
         },
@@ -13772,7 +13762,8 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
             }
             "parse_float" => Some(Type::Result(Box::new(Type::Float), Box::new(Type::Error))),
             "count_lines" | "count_words" | "count_chars" | "count_bytes" | "byte_len"
-            | "byte_at" | "find" => Some(Type::Int),
+            => Some(Type::Int),
+            "byte_at" | "find" => Some(Type::Optional(Box::new(Type::Int))),
             "starts_with" | "ends_with" | "contains" => Some(Type::Bool),
             _ => None,
         },
@@ -13792,7 +13783,8 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name) -> Option<Type>
                 fields.insert(Name::intern("right"), Type::Int);
                 Some(Type::Record(fields))
             }
-            "count_lines" | "len" | "byte_at" => Some(Type::Int),
+            "count_lines" | "len" => Some(Type::Int),
+            "byte_at" => Some(Type::Optional(Box::new(Type::Int))),
             "starts_with" | "ends_with" | "contains" => Some(Type::Bool),
             "md5" | "sha1" | "sha256" | "sha512" => Some(Type::Digest),
             _ => None,
@@ -14160,9 +14152,7 @@ fn lowered_plain_method_type(name: Name) -> Option<LoweredType> {
         || name == "count_chars"
         || name == "count_bytes"
         || name == "byte_len"
-        || name == "byte_at"
         || name == "len"
-        || name == "find"
         || name == "bit_and"
         || name == "bit_or"
         || name == "clear_bits"
@@ -14311,32 +14301,22 @@ impl CompactLowerConstructProbe<'_, '_> {
                     _ => None,
                 }
             }
-            BuildExprRow::StrByteAt {
-                receiver,
-                index,
-                default,
-                span,
-            } => {
-                let receiver_row = {
-                    let scratch = self.scratch.borrow();
-                    scratch.expressions[receiver.index()].clone()
-                };
-                match receiver_row {
-                    BuildExprRow::Param(slot) => Some(push_build_row!(
-                        self,
-                        int,
-                        BuildIntRow::StrByteAtSlot {
-                            slot,
-                            index: self.lower_int_expr_candidate(index)?,
-                            default: match default {
-                                Some(value) => Some(self.lower_int_expr_candidate(value)?),
-                                None => None,
-                            },
-                            span: *span,
-                        }
-                    )),
-                    _ => None,
-                }
+            BuildExprRow::MatchExpr { value, arms, .. } => {
+                // Optional fallback lowers to an exhaustive null/present match.
+                // Fuse only a literal alternative; effects retain lazy evaluation.
+                let [(null_pattern, None, fallback), (present_pattern, None, present)] = arms.as_slice() else { return None; };
+                let scratch = self.scratch.borrow();
+                if !matches!(scratch.patterns[null_pattern.index()], BuildPatternRow::Literal(LoweredValue::Null)) { return None; }
+                let BuildPatternRow::Bind { slot: present_slot } = scratch.patterns[present_pattern.index()] else { return None; };
+                if !matches!(scratch.expressions[present.index()], BuildExprRow::Param(slot) if slot == present_slot) { return None; }
+                let BuildExprRow::StrByteAt { receiver, index, span } = scratch.expressions[value.index()].clone() else { return None; };
+                let BuildExprRow::Param(slot) = scratch.expressions[receiver.index()] else { return None; };
+                drop(scratch);
+                let default = self.lowered_inert_int_literal(*fallback)?;
+                Some(push_build_row!(self, int, BuildIntRow::StrByteAtSlot {
+                    slot, index: self.lower_int_expr_candidate(&index)?,
+                    default: if default == -1 { None } else { Some(push_build_row!(self, int, BuildIntRow::Int(default))) }, span,
+                }))
             }
             _ => None,
         }
@@ -14545,6 +14525,19 @@ impl CompactLowerConstructProbe<'_, '_> {
                         span: *span,
                     }
                 ))
+            }
+            _ => None,
+        }
+    }
+
+    fn lowered_inert_int_literal(&self, expr: BuildExprId) -> Option<i64> {
+        match self.scratch.borrow().expressions[expr.index()].clone() {
+            BuildExprRow::Int(value) => Some(value),
+            BuildExprRow::Binary { op: BinaryOp::Sub, left, right, .. } => {
+                let scratch = self.scratch.borrow();
+                match (&scratch.expressions[left.index()], &scratch.expressions[right.index()]) {
+                    (BuildExprRow::Int(0), BuildExprRow::Int(value)) => value.checked_neg(), _ => None,
+                }
             }
             _ => None,
         }
@@ -15029,13 +15022,12 @@ impl CompactLowerConstructProbe<'_, '_> {
         let BuildExprRow::StrByteAt {
             receiver,
             index,
-            default,
             ..
         } = self.scratch.borrow().expressions[value.index()].clone()
         else {
             return false;
         };
-        if self.scan_bytes_expr_slot(receiver) != Some(line_slot) || default.is_some() {
+        if self.scan_bytes_expr_slot(receiver) != Some(line_slot) {
             return false;
         }
         match (

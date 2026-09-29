@@ -57,10 +57,10 @@ proc main(...cmd: List[Str]) [time, error] {
   let mean = total / n
   let min_ms = (times |> min)?
   let max_ms = (times |> max)?
-  let p50 = sorted.get(n / 2, 0)
-  let p75 = sorted.get(n * 3 / 4, 0)
-  let p90 = sorted.get(n * 9 / 10, 0)
-  let p99 = sorted.get(n * 99 / 100, 0)
+  let p50 = (sorted.get(n / 2) ?? 0)
+  let p75 = (sorted.get(n * 3 / 4) ?? 0)
+  let p90 = (sorted.get(n * 9 / 10) ?? 0)
+  let p99 = (sorted.get(n * 99 / 100) ?? 0)
   let now_ms = time.now()
   print f"bench epoch_ms=${now_ms} n=${n} warmup=${opts.warmup}"
   print f"  mean=${mean}ms min=${min_ms}ms max=${max_ms}ms p50=${p50}ms p75=${p75}ms p90=${p90}ms p99=${p99}ms"

@@ -315,8 +315,8 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
       return Ok({records: records, complete: false, invalid_indices: invalid_indices})
     }
 
-    let record_type = data.byte_at(cursor)
-    let length = data.byte_at(cursor + 1)
+    let record_type = (data.byte_at(cursor) ?? -1)
+    let length = (data.byte_at(cursor + 1) ?? -1)
     if length < 4 or cursor + length > data.len() {
       return Ok({records: records, complete: false, invalid_indices: invalid_indices})
     }
@@ -325,7 +325,7 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
     let fields = smbios_reference_fields(data, cursor, record_type, length)?
     let strings_start = cursor + length
     var terminator = strings_start
-    while terminator + 1 < data.len() and (data.byte_at(terminator) != 0 or data.byte_at(terminator + 1) != 0) {
+    while terminator + 1 < data.len() and ((data.byte_at(terminator) ?? -1) != 0 or (data.byte_at(terminator + 1) ?? -1) != 0) {
       terminator += 1
     }
 
@@ -337,7 +337,7 @@ export pure parse_smbios_reference(data: Bytes) -> Result[SmbiosReference] {
     var string_start = strings_start
     while string_start < terminator {
       var string_end = string_start
-      while string_end < terminator and data.byte_at(string_end) != 0 {
+      while string_end < terminator and (data.byte_at(string_end) ?? -1) != 0 {
         string_end += 1
       }
 
@@ -680,7 +680,7 @@ pure smbios_checksum_is_zero(data: Bytes, offset: Int, length: Int) -> Bool {
 
   var sum = 0
   for index in range(offset, offset + length) {
-    sum += data.byte_at(index)
+    sum += (data.byte_at(index) ?? -1)
   }
 
   return sum % 256 == 0
@@ -698,7 +698,7 @@ export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Byt
     return Err(smbios_check_failure("SMBIOS entry point has an unsupported signature or length"))
   }
 
-  let entry_length = entry_point.byte_at(if is_v3 { 6 } else { 5 })
+  let entry_length = (entry_point.byte_at(if is_v3 { 6 } else { 5 }) ?? -1)
   let minimum_length = if is_v3 { 24 } else { 30 }
   let table_capacity = if is_v3 { bytes.unpack_le(entry_point, 4, 12)? } else { bytes.unpack_le(entry_point, 2, 22)? }
   if entry_length < minimum_length or entry_length > entry_point.len() or table_capacity < table.len() or ! smbios_checksum_is_zero(
@@ -714,13 +714,13 @@ export pure craft_dmidecode_dump(entry_point: Bytes, table: Bytes) -> Result[Byt
   let checksum_offset = if is_v3 { 5 } else { 21 }
   var prior_address_sum = 0
   for index in range(address_start, address_start + address_width) {
-    prior_address_sum += entry_point.byte_at(index)
+    prior_address_sum += (entry_point.byte_at(index) ?? -1)
   }
 
-  let relocated_checksum = (entry_point.byte_at(checksum_offset) + prior_address_sum - 32 + 256) % 256
+  let relocated_checksum = ((entry_point.byte_at(checksum_offset) ?? -1) + prior_address_sum - 32 + 256) % 256
   var header: List[Int] = []
   for index in range(32) {
-    var value = if index < entry_point.len() { entry_point.byte_at(index) } else { 0 }
+    var value = if index < entry_point.len() { (entry_point.byte_at(index) ?? -1) } else { 0 }
     if index == checksum_offset {
       value = relocated_checksum
     } else if index == address_start {
@@ -794,7 +794,7 @@ pure dmidecode_record_from_output(
   }
 
   let formatted = bytes.from_ints(formatted_octets)?
-  if length < 4 or formatted.byte_at(0) != record_type or formatted.byte_at(1) != length or bytes.unpack_le(
+  if length < 4 or (formatted.byte_at(0) ?? -1) != record_type or (formatted.byte_at(1) ?? -1) != length or bytes.unpack_le(
     formatted,
     2,
     2,
@@ -849,17 +849,17 @@ export pure parse_dmidecode_hex_output(output: Str) -> Result[List[DmidecodeHexR
         return Err(smbios_check_failure("dmidecode record header is malformed"))
       }
 
-      match parts[0].split(" ").get(1, "").parse_int() {
+      match (parts[0].split(" ").get(1) ?? "").parse_int() {
         Ok(value) => handle = value
         Err(_) => return Err(smbios_check_failure("dmidecode handle is malformed"))
       }
 
-      match parts[1].split(" ").get(2, "").parse_int() {
+      match (parts[1].split(" ").get(2) ?? "").parse_int() {
         Ok(value) => record_type = value
         Err(_) => return Err(smbios_check_failure("dmidecode record type is malformed"))
       }
 
-      match parts[2].split(" ").get(0, "").parse_int() {
+      match (parts[2].split(" ").get(0) ?? "").parse_int() {
         Ok(value) => length = value
         Err(_) => return Err(smbios_check_failure("dmidecode formatted length is malformed"))
       }

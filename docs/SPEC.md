@@ -3193,7 +3193,6 @@ List values expose collection operations as methods:
 - `.extend(more: List[T]) -> List[T]`.
 - `.contains(item: T) -> Bool`.
 - `.get(index: Int) -> Result[T]`.
-- `.get(index: Int, fallback: T) -> T`.
 - `.join(separator: Str = "") -> Str` (only when `T` is `Str`).
 
 `map`:
@@ -3202,12 +3201,21 @@ List values expose collection operations as methods:
   binding annotation or later typed API boundary. In those map-typed contexts,
   `{}` is equivalent to `map.empty()`.
 
+List and Map `.get` have one Result-returning lookup form. Missing entries
+retain their typed lookup errors unless the caller uses `?` or `??`; a present
+null value returns `Ok(null)` and does not invoke a Result fallback. The removed
+two-argument fallback overloads evaluated their fallback eagerly. Migration to
+`??` is automatic only for inert non-failing fallback expressions; effectful
+fallbacks need explicit snapshots that retain receiver, index/key, and fallback
+evaluation order. Str/Bytes byte access and Str search use null for ordinary
+absence, with no configurable fallback argument. Legacy numeric policy may be
+spelled `find(...) ?? -1`; nullable arithmetic remains invalid.
+
 Map values expose routine methods with receiver-bound key and value types:
 
 - `.len() -> Int`.
 - `.has(key: K) -> Bool`.
 - `.get(key: K) -> Result[V]`.
-- `.get(key: K, default: V) -> V`.
 - `.set(key: K, value: V) -> Map[K, V]`.
 - `.push(key: K, value: T) -> Map[K, List[T]]` for list-valued receivers;
   missing keys are created with a singleton list.
@@ -3267,12 +3275,15 @@ adapter `text.lines()` is available in pipelines.
 - `.count_chars() -> Int`, by Unicode scalar value.
 - `.count_bytes() -> Int`.
 - `.byte_len() -> Int`, equivalent to `.count_bytes()`.
-- `.byte_at(index: Int, default: Int = -1) -> Int`, returning the byte value at
-  byte index `index` or `default` when out of range.
+- `.byte_at(index: Int) -> Int?`, returning the byte value at a nonnegative
+  byte index, or null when out of range. Negative indices do not count from the end.
 - `.byte_slice(offset: Int, length: Int = rest) -> Str`, slicing by byte offset
   and length.
-- `.find(needle: Str, start: Int = 0) -> Int`, returning the byte index of
-  `needle` at or after byte index `start`, or `-1` when missing.
+- `.find(needle: Str, start: Int = 0) -> Int?`, returning the byte offset of
+  `needle` at or after byte index `start`, or null when missing or start is
+  negative or exceeds the byte length. An empty needle matches at any start
+  from zero through the byte length, including the end; starts may address
+  individual UTF-8 bytes. Subsequent byte slicing retains its UTF-8 boundary checks.
 - `.parse_int() -> Result[Int]`, accepting decimal, `0x` hexadecimal, `0o`
   octal, `0b` binary, `_` separators, and an optional leading sign.
 - `.parse_int_decimal() -> Result[Int]`, accepting only nonempty decimal
@@ -3358,8 +3369,9 @@ without first requiring valid UTF-8:
 - `.starts_with(prefix: Bytes) -> Bool`, `.ends_with(suffix: Bytes) -> Bool`,
   and `.contains(needle: Bytes) -> Bool` are byte searches.
 - `.lower() -> Bytes` lowercases ASCII bytes only, leaving other bytes intact.
-- `.byte_at(index: Int, default: Int = -1) -> Int` returns the byte value at
-  `index`, or `default` when out of range.
+- `.byte_at(index: Int) -> Int?` returns the byte value at
+  a nonnegative `index`, or null when out of range. Negative indices do not
+  count from the end; byte access does not decode UTF-8.
 
 `.slice()` rejects negative offsets and lengths and offsets past the end of the
 input. `.dump()` output is deterministic text for rendering or manifest data,
@@ -3970,7 +3982,7 @@ unpulled.
 `sort` and `sort-by` order by a defined key ordering. Supported items and
 projected keys are `Int`, `Str`, `Bool`, `Path`, and `Record`s whose fields are
 themselves supported (recursively). Statically-`Any`/unknown keys (for example
-an `Any`-typed record field produced by `Map.get(key, fallback)` on a
+an `Any`-typed record field produced by `Map.get(key) ?? fallback` on a
 `Map[Any]`) are also accepted because the runtime sorts the actual supported
 scalar value; such keys fail loudly at runtime only when the actual value is
 not orderable. Records compare field by field in sorted

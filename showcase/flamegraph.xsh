@@ -71,21 +71,21 @@ script;proc:format 1200
     |> where ! .starts_with("#") {
     let parts = line.split(" ")
     let stack = parts[0]
-    let count = json.decode(parts.get(1, "0"))?
-    raw[stack] = raw.get(stack, 0) + count
+    let count = json.decode((parts.get(1) ?? "0"))?
+    raw[stack] = (raw.get(stack) ?? 0) + count
   }
 
   # Expand each leaf stack into prefix cumulative counts.
   var cum: Map[Int] = {}
 
   for stack in raw.keys() {
-    let n = raw.get(stack, 0)
+    let n = (raw.get(stack) ?? 0)
     let frames = stack.split(";")
 
     for item in frames |> enumerate() {
       let prefix = frames |> take(item.index + 1)
       let key = prefix.join(";")
-      cum[key] = cum.get(key, 0) + n
+      cum[key] = (cum.get(key) ?? 0) + n
     }
   }
 
@@ -99,7 +99,7 @@ script;proc:format 1200
 
   for key in cum.keys() {
     let parts = key.split(";")
-    let frame: Frame = {key: key, name: parts[parts.len() - 1], depth: parts.len() - 1, count: cum.get(key, 0)}
+    let frame: Frame = {key: key, name: parts[parts.len() - 1], depth: parts.len() - 1, count: (cum.get(key) ?? 0)}
     all_frames = all_frames.push(frame)
   }
 
@@ -114,7 +114,7 @@ script;proc:format 1200
 
   for f in sorted {
     let pk = parent_key(f.key)
-    let x = x_cur.get(pk, 0)
+    let x = (x_cur.get(pk) ?? 0)
     x_cur[pk] = x + f.count
     x_cur[f.key] = x
     x_pos[f.key] = x
@@ -139,7 +139,7 @@ script;proc:format 1200
 
   for f in sorted {
     continue when total == 0
-    let x_count = x_pos.get(f.key, 0)
+    let x_count = (x_pos.get(f.key) ?? 0)
     let x_px = x_count * (svg_w - 4) / total + 2
     let w_px = f.count * (svg_w - 4) / total
     continue when w_px < 1

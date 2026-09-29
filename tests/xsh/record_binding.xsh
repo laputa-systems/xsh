@@ -33,7 +33,7 @@ test test_nested_record_iteration_and_comprehension_targets [error] {
   let selected = [target_name for {build: {jobs, target: target_name, ..}, ..} in configs if jobs > 1]
   test.eq(selected, ["native"])?
   let counts = {root: jobs for {root, build: {jobs, ..}, ..} in configs}
-  test.eq(counts.get("src", 0), 3)?
+  test.eq((counts.get("src") ?? 0), 3)?
 }
 
 pure record_config_result() -> Result[RecordConfig] {

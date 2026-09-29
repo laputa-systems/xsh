@@ -37,7 +37,7 @@ proc paste_parallel(paths: List[Str], delim: Str) [fs, error, io] {
   }
 
   for index in range(count) {
-    let row = [column.get(index, "") for column in columns]
+    let row = [(column.get(index) ?? "") for column in columns]
     print row.join(delim)
   }
 }

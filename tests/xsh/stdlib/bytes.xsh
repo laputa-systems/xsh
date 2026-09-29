@@ -67,8 +67,8 @@ WJj""".base64_decode()?,
   test.eq(report.lines().collect(), [b"  Header", b"alpha", b"TODO item", b"omega  "])?
   test.eq(report.count_lines(), 4)?
   test.eq(b"AbC\xff".lower(), b"abc\xff")?
-  test.eq(report.byte_at(2), 72)?
-  test.eq(report.byte_at(999, -1), -1)?
+  test.eq((report.byte_at(2) ?? -1), 72)?
+  test.eq((report.byte_at(999) ?? -1), -1)?
   test.eq(b"\0hello marker-one\0xx marker-two!!\xff".strings(min_len: 7)[0], "hello marker-one")?
   test.contains(b"hello".dump("hex-u8"), "68 65 6c 6c 6f")?
   test.eq(b"hello".dump("octal-u8"), "0000000 150 145 154 154 157")?

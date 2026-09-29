@@ -114,6 +114,7 @@ struct Binding {
     used: bool,
     report_unused: bool,
     comparison_stable: bool,
+    absence_lookup: bool,
 }
 
 pub struct Linter<'a> {
@@ -805,10 +806,12 @@ impl<'a> Linter<'a> {
                     self.lint_needless_annotation(target, false, type_expr, &initializer, exported);
                 }
                 self.lint_expr_or_run(&initializer);
+                let absence_lookup = match initializer { ArenaExprOrRun::Expr(value) => self.proven_absence_lookup(value), _ => false };
                 self.define_binding_target(target, stmt.span, true);
                 if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind {
                     if let Some(binding) = self.scopes.last_mut().and_then(|scope| scope.get_mut(name.as_str().as_str())) {
                         binding.comparison_stable = true;
+                        binding.absence_lookup = absence_lookup;
                     }
                 }
             }
@@ -4166,10 +4169,86 @@ impl<'a> Linter<'a> {
         }
     }
 
+    fn proven_absence_lookup(&self, expr: ExprId) -> bool {
+        let node = self.arena.expr(expr);
+        if self.expr_types.get(&node.span) != Some(&Type::Optional(Box::new(Type::Int))) { return false; }
+        match node.kind {
+            ArenaExprKind::Ident(name) => self.scopes.iter().rev().find_map(|scope| scope.get(name.as_str().as_str()))
+                .is_some_and(|binding| binding.absence_lookup && !binding.mutable) && !self.assigned_names.contains(&name),
+            ArenaExprKind::Call { callee, .. } => {
+                let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return false; };
+                match self.expr_types.get(&self.arena.expr(base).span) {
+                    Some(Type::Str) => matches!(name.as_str().as_str(), "find" | "byte_at"),
+                    Some(Type::Bytes) => name == "byte_at", _ => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn is_negative_one_literal(&self, expr: ExprId) -> bool {
+        let ArenaExprKind::Unary { op: UnaryOp::Neg, expr } = self.arena.expr(expr).kind else { return false; };
+        matches!(self.arena.expr(expr).kind, ArenaExprKind::Int(value) if self.arena.int_literal(value).value() == Some(1))
+    }
+
+    fn lint_lookup_sentinel(&mut self, expr: ExprId) {
+        let node = self.arena.expr(expr);
+        let ArenaExprKind::Binary { op: BinaryOp::Eq | BinaryOp::Ne, left, right } = node.kind else { return; };
+        let sentinel = if self.proven_absence_lookup(left) && self.is_negative_one_literal(right) { right }
+            else if self.proven_absence_lookup(right) && self.is_negative_one_literal(left) { left } else { return; };
+        if self.source[node.span.range()].contains('#') { return; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "lookup absence is null rather than a numeric sentinel")
+            .with_code("lint.lookup-absence")
+            .with_label(Label::secondary(node.span, "compare the proved lookup result with null"))
+            .with_fix_hint(FixHint::replacement(self.arena.expr(sentinel).span, "use absence", "null")));
+    }
+
+    /// Removing an eager argument is safe only when that argument cannot fail
+    /// or observe or change state. Effectful fallbacks require authored snapshots.
+    fn lint_removed_lookup_fallback(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        let receiver = self.arena.expr(base);
+        let Some(ty) = self.expr_types.get(&receiver.span) else { return; };
+        let expected = match (ty, name.as_str().as_str()) {
+            (Type::List(item) | Type::Map(item), "get") => item.as_ref(),
+            (Type::Str | Type::Bytes, "byte_at") => &Type::Int,
+            _ => return,
+        };
+        let [index, fallback] = self.arena.call_args(args) else { return; };
+        let diagnostic = Diagnostic::new(Severity::Warning, "lookup fallback arguments have been removed")
+            .with_code("lint.lookup-fallback")
+            .with_label(Label::secondary(span, "use the ordinary fallback expression"));
+        let (ArenaCallArgKind::Positional(index), ArenaCallArgKind::Positional(fallback)) = (&index.kind, &fallback.kind) else {
+            self.diagnostics.push(diagnostic.with_note("no automatic fix: named argument evaluation order is not proven equivalent"));
+            return;
+        };
+        let (index, fallback) = (*index, *fallback);
+        let fallback_node = self.arena.expr(fallback);
+        let fallback_type = match fallback_node.kind {
+            ArenaExprKind::Int(_) | ArenaExprKind::Unary { op: UnaryOp::Neg, .. } => Some(Type::Int),
+            ArenaExprKind::Bool(_) => Some(Type::Bool), ArenaExprKind::Null => Some(Type::Null),
+            ArenaExprKind::Str(_) => Some(Type::Str), ArenaExprKind::Bytes(_) => Some(Type::Bytes),
+            ArenaExprKind::Float(_) => Some(Type::Float), ArenaExprKind::Duration(_) => Some(Type::Duration),
+            ArenaExprKind::List(items) if items.is_empty() => Some(expected.clone()),
+            _ => None,
+        };
+        let inert = matches!(fallback_node.kind, ArenaExprKind::Int(_) | ArenaExprKind::Bool(_) | ArenaExprKind::Null | ArenaExprKind::Str(_)
+            | ArenaExprKind::Bytes(_) | ArenaExprKind::Float(_) | ArenaExprKind::Duration(_))
+            || matches!(fallback_node.kind, ArenaExprKind::Unary { op: UnaryOp::Neg, expr } if matches!(self.arena.expr(expr).kind, ArenaExprKind::Int(value) if self.arena.int_literal(value).value().and_then(i64::checked_neg).is_some()))
+            || matches!(fallback_node.kind, ArenaExprKind::List(items) if items.is_empty() && matches!(expected, Type::List(_)));
+        let safe = inert && fallback_type.is_some_and(|ty| ty.matches_expected(expected)) && !self.source[span.range()].contains('#');
+        self.diagnostics.push(if safe {
+            let replacement = format!("(({}).{}({}) ?? ({}))", &self.source[receiver.span.range()], name,
+                &self.source[self.arena.expr(index).span.range()], &self.source[fallback_node.span.range()]);
+            diagnostic.with_fix_hint(FixHint::replacement(span, "use a lazy inert fallback", replacement))
+        } else { diagnostic.with_note("no automatic fix: eager fallback effects, failure, comments, or argument order are not proven equivalent") });
+    }
+
     fn lint_call_style(&mut self, callee: ExprId, args: ArenaRange, span: Span) {
         self.lint_named_argument_forwarding(args, span);
         self.lint_path_constructor(callee, args, span);
         self.lint_duration_conversion(callee, args, span);
+        self.lint_removed_lookup_fallback(callee, args, span);
         self.lint_redundant_defaults(callee, args);
         self.lint_prefer_in(callee, args, span);
         self.lint_fs_root_receiver(callee, args, span);
@@ -5240,6 +5319,7 @@ impl<'a> Linter<'a> {
                     span,
                     used: false,
                     comparison_stable: false,
+                    absence_lookup: false,
                     report_unused: report_unused && name != "_",
                 },
             );
@@ -6737,6 +6817,7 @@ impl LintExprVisitor<'_, '_> {
             self.linter.lint_map_literal_chain(expr);
             self.linter.lint_prepared_regex(expr);
             self.linter.lint_comparison_chain(expr);
+            self.linter.lint_lookup_sentinel(expr);
 
             self.linter.lint_optional_postfix(expr);
             if let ArenaExprKind::Match { arms, .. } = self.linter.arena.expr(expr).kind {

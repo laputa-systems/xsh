@@ -1523,8 +1523,8 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             &["map", "lookup"],
         )),
         ("Map", "get") => Some((
-            "Reads a map value with or without a fallback.",
-            "The fallback overload distinguishes missing keys from stored values and never inserts the fallback.",
+            "Reads a map value as Result.",
+            "Missing keys return map-missing; present null values return Ok(null). Use ?? for explicit recovery; the two-argument fallback overload is removed.",
             &["map", "lookup", "fallback"],
         )),
         ("Map", "set") => Some((
@@ -1558,8 +1558,8 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             &["list", "lookup"],
         )),
         ("List", "get") => Some((
-            "Reads a list element with or without a fallback.",
-            "The fallback overload distinguishes an out-of-range index from a stored value and does not resize the list.",
+            "Reads a list element as Result.",
+            "Out-of-range indices return index-out-of-bounds; present null values return Ok(null). Use ?? for explicit recovery; the two-argument fallback overload is removed.",
             &["list", "lookup", "fallback"],
         )),
         ("List", "push") => Some((
@@ -1629,14 +1629,19 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
                 &["text", "count", "utf8"],
             ))
         }
-        ("Str", "byte_at" | "byte_slice") => Some((
+        ("Str", "byte_at") => Some((
+            "Reads one byte as Int or null.",
+            "The index is a nonnegative byte offset, independent of UTF-8 scalar boundaries. Negative and out-of-range indices return null; there is no configurable fallback argument.",
+            &["text", "utf8", "absence"],
+        )),
+        ("Str", "byte_slice") => Some((
             "Reads a byte position or range from UTF-8 text.",
             "Indices are byte offsets and must land on valid UTF-8 boundaries where a Str result is required.",
             &["text", "utf8", "bounds"],
         )),
         ("Str", "find") => Some((
             "Finds a text substring position.",
-            "The result uses the documented byte-offset convention and absence remains distinguishable.",
+            "The result is Int? with successful byte offsets, including zero, and null on a miss or invalid start. An empty needle matches at the start, including the end; negative starts do not count from the end.",
             &["text", "lookup", "offset"],
         )),
         ("Str", "parse_int") => Some((
@@ -1716,7 +1721,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("Bytes", "byte_at") => Some((
             "Reads one byte at an explicit offset.",
-            "The offset is bounds-checked and the result is independent of UTF-8 decoding.",
+            "The result is Int?; negative and out-of-range offsets return null. There is no configurable fallback argument and no UTF-8 decoding.",
             &["bytes", "lookup", "bounds"],
         )),
         ("Bytes", "count_lines") => Some((

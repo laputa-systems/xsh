@@ -100,7 +100,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
     },
   )?
   let operands = opts.operands
-  let pattern = operands.get(0, "")
+  let pattern = (operands.get(0) ?? "")
   let kind = opts.kind
   let ext = opts.ext
   let excludes = opts.excludes

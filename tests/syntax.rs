@@ -2491,8 +2491,8 @@ let label = render(
 
 #[test]
 fn formatter_preserves_multiline_match_expressions() {
-    let source = "let shebang = match fs.read_text(script) {\n  Ok(text_value) => text_value.split(\"\\n\").get(0, \"\")\n  Err(_) => \"\"\n}\n";
-    let expected = "let shebang = match fs.read_text(script) {\n  Ok(text_value) => text_value.split(\"\\n\").get(0, \"\"),\n  Err(_) => \"\",\n}\n";
+    let source = "let shebang = match fs.read_text(script) {\n  Ok(text_value) => (text_value.split(\"\\n\").get(0) ?? \"\")\n  Err(_) => \"\"\n}\n";
+    let expected = "let shebang = match fs.read_text(script) {\n  Ok(text_value) => text_value.split(\"\\n\").get(0) ?? \"\",\n  Err(_) => \"\",\n}\n";
 
     let formatted = Formatter::new().format_source(SourceId::new(0), source);
 

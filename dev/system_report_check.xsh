@@ -2741,8 +2741,8 @@ export pure compare_lscpu_topology(
 
     let package_key = f"${item.socket ?? -1}"
     let core_key = f"${package_key}/${item.core ?? -1}"
-    reference_packages = reference_packages.set(package_key, reference_packages.get(package_key, []).push(item.cpu))
-    reference_cores = reference_cores.set(core_key, reference_cores.get(core_key, []).push(item.cpu))
+    reference_packages = reference_packages.set(package_key, (reference_packages.get(package_key) ?? []).push(item.cpu))
+    reference_cores = reference_cores.set(core_key, (reference_cores.get(core_key) ?? []).push(item.cpu))
   }
 
   for index in range(candidate.len()) {
@@ -2756,8 +2756,8 @@ export pure compare_lscpu_topology(
     continue when item.package_id == null or item.core_id == null or (item.package_id ?? -1) < 0 or (item.core_id ?? -1) < 0
     let package_key = f"${item.package_id ?? -1}"
     let core_key = f"${package_key}/${item.core_id ?? -1}"
-    candidate_packages = candidate_packages.set(package_key, candidate_packages.get(package_key, []).push(item.id))
-    candidate_cores = candidate_cores.set(core_key, candidate_cores.get(core_key, []).push(item.id))
+    candidate_packages = candidate_packages.set(package_key, (candidate_packages.get(package_key) ?? []).push(item.id))
+    candidate_cores = candidate_cores.set(core_key, (candidate_cores.get(core_key) ?? []).push(item.id))
   }
 
   var missing_ids: List[Int] = []
@@ -2795,7 +2795,7 @@ export pure compare_lscpu_topology(
 
     if item.socket != null and item.core != null {
       let core_key = f"${item.socket ?? -1}/${item.core ?? -1}"
-      let expected_siblings = reference_cores.get(core_key, []) |> sort-by .
+      let expected_siblings = (reference_cores.get(core_key) ?? []) |> sort-by .
       if actual.thread_siblings != expected_siblings {
         sibling_mismatches = sibling_mismatches.push(f"${item.cpu}.thread_siblings")
       }
@@ -2949,7 +2949,7 @@ export pure compare_cpu_cache_sharing(
   for {key, value: source} in reference_by_key {
     for cpu_id in source.shared_cpus {
       let cpu_key = f"${cpu_id}"
-      expected_by_cpu = expected_by_cpu.set(cpu_key, expected_by_cpu.get(cpu_key, []).push(key))
+      expected_by_cpu = expected_by_cpu.set(cpu_key, (expected_by_cpu.get(cpu_key) ?? []).push(key))
     }
 
     if ! candidate_by_key.has(key) {
@@ -3028,15 +3028,15 @@ export pure compare_cpu_cache_sharing(
   }
 
   for cpu_key in expected_by_cpu.keys() {
-    let expected = expected_by_cpu.get(cpu_key, []) |> sort-by .
-    let actual = actual_by_cpu.get(cpu_key, []) |> sort-by .
+    let expected = (expected_by_cpu.get(cpu_key) ?? []) |> sort-by .
+    let actual = (actual_by_cpu.get(cpu_key) ?? []) |> sort-by .
     if expected != actual {
       relationship_mismatches = relationship_mismatches.push(f"${cpu_key}.cache_ids")
     }
   }
 
   for cpu_key in actual_by_cpu.keys() {
-    if ! expected_by_cpu.has(cpu_key) and actual_by_cpu.get(cpu_key, []).len() > 0 {
+    if ! expected_by_cpu.has(cpu_key) and (actual_by_cpu.get(cpu_key) ?? []).len() > 0 {
       relationship_mismatches = relationship_mismatches.push(f"${cpu_key}.cache_ids")
     }
   }
@@ -5958,7 +5958,7 @@ pure device_class_parent_ids(target: Str?) -> DeviceClassParentIds {
         pci = component
       }
 
-      let candidate = component.split(":").get(0, "")
+      let candidate = (component.split(":").get(0) ?? "")
       match parse_usb_topology_name(candidate) {
         Ok(_) => usb = candidate
         Err(_) => {}
@@ -7480,7 +7480,7 @@ export pure parse_proc_status_affinity(output: Str) -> Result[List[Int]] {
         return Err(check_failure("proc status repeats Cpus_allowed_list"))
       }
 
-      affinity = line.split(":", maxsplit: 1).get(1, "").trim()
+      affinity = (line.split(":", maxsplit: 1).get(1) ?? "").trim()
     }
   }
 
@@ -8658,7 +8658,7 @@ export pure parse_meminfo_reference(output: Str) -> Result[List[MeminfoReference
       return Err(check_failure("meminfo reference has an invalid value column count"))
     }
 
-    let source_unit = fields.get(1, "")
+    let source_unit = (fields.get(1) ?? "")
     if meminfo_byte_field(name) and source_unit != "kB" {
       return Err(check_failure("meminfo reference byte field has an invalid unit"))
     }
@@ -8735,7 +8735,7 @@ export pure compare_meminfo(
   }
 
   for item in before {
-    if ! after_by_name.has(item.name) or after[after_by_name.get(item.name, -1)].unit != item.unit {
+    if ! after_by_name.has(item.name) or after[(after_by_name.get(item.name) ?? -1)].unit != item.unit {
       return Err(check_failure("meminfo reference field or unit changed around candidate collection"))
     }
   }
@@ -8765,8 +8765,8 @@ export pure compare_meminfo(
     }
 
     matched_count += 1
-    let last = after[after_by_name.get(first.name, -1)]
-    let candidate = candidates[candidate_by_name.get(first.name, -1)]
+    let last = after[(after_by_name.get(first.name) ?? -1)]
+    let candidate = candidates[(candidate_by_name.get(first.name) ?? -1)]
     if candidate.unit != first.unit {
       mismatched_names = mismatched_names.push(first.name)
       continue
@@ -8884,7 +8884,7 @@ export pure compare_thp(
   }
 
   for item in before {
-    if ! after_by_name.has(item.name) or after[after_by_name.get(item.name, -1)].value != item.value {
+    if ! after_by_name.has(item.name) or after[(after_by_name.get(item.name) ?? -1)].value != item.value {
       return Err(check_failure("THP reference policy changed around collection"))
     }
   }
@@ -8912,7 +8912,7 @@ export pure compare_thp(
     }
 
     matched_count += 1
-    if candidate_by_name.get(item.name, "") != item.value {
+    if (candidate_by_name.get(item.name) ?? "") != item.value {
       mismatched_names = mismatched_names.push(item.name)
     }
   }
@@ -8967,7 +8967,7 @@ export pure compare_vulnerabilities(
   }
 
   for item in before {
-    if ! after_by_name.has(item.name) or after_by_name.get(item.name, "") != item.description {
+    if ! after_by_name.has(item.name) or (after_by_name.get(item.name) ?? "") != item.description {
       return Err(check_failure("vulnerability reference description changed around collection"))
     }
   }
@@ -8994,7 +8994,7 @@ export pure compare_vulnerabilities(
     }
 
     matched_count += 1
-    let candidate = candidate_by_name.get(item.name, {state: "", value: null, raw_bytes_base64: null})
+    let candidate = (candidate_by_name.get(item.name) ?? {state: "", value: null, raw_bytes_base64: null})
     if candidate.state != "observed" or candidate.value != item.description or candidate.raw_bytes_base64 != null {
       mismatched_names = mismatched_names.push(item.name)
     }
@@ -9259,8 +9259,8 @@ export pure compare_huge_pages(
     }
 
     matched_count += 1
-    let last = after[after_by_key.get(key, -1)]
-    let pool = candidates[candidate_by_key.get(key, -1)]
+    let last = after[(after_by_key.get(key) ?? -1)]
+    let pool = candidates[(candidate_by_key.get(key) ?? -1)]
     let fields: List[HugePageComparedField] = [
       {
         name: "total",
@@ -9475,7 +9475,7 @@ export pure compare_psi(
 
   for row in before {
     let key = psi_reference_key(row.resource, row.kind)
-    if ! after_by_key.has(key) or after[after_by_key.get(key, -1)].total_us < row.total_us {
+    if ! after_by_key.has(key) or after[(after_by_key.get(key) ?? -1)].total_us < row.total_us {
       return Err(check_failure("PSI reference identity changed or cumulative total decreased"))
     }
   }
@@ -9506,8 +9506,8 @@ export pure compare_psi(
     }
 
     matched_count += 1
-    let last = after[after_by_key.get(key, -1)]
-    let candidate = candidates[candidate_by_key.get(key, -1)]
+    let last = after[(after_by_key.get(key) ?? -1)]
+    let candidate = candidates[(candidate_by_key.get(key) ?? -1)]
     let total = candidate.total_us ?? -1
     if total < first.total_us or total > last.total_us {
       mismatched_fields = mismatched_fields.push(f"${key}.total_us")
@@ -10106,7 +10106,7 @@ pure pci_reference_optional_hex(fields: Map[Str], key: Str, width: Int) -> Resul
     return Ok(null)
   }
 
-  return pci_reference_hex(fields.get(key, ""), width)?
+  return pci_reference_hex((fields.get(key) ?? ""), width)?
 }
 
 pure pci_reference_argv() -> List[Str] {
@@ -10166,18 +10166,18 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
       return Err(check_failure("lspci reference is missing a required numeric identity"))
     }
 
-    let bdf = pci_reference_bdf(fields.get("Slot", ""))?
+    let bdf = pci_reference_bdf((fields.get("Slot") ?? ""))?
     if set.has(seen, bdf.address) {
       return Err(check_failure("lspci reference has a duplicate slot address"))
     }
 
     seen = set.add(seen, bdf.address)
-    let class_base = pci_reference_hex(fields.get("Class", ""), 4)?
+    let class_base = pci_reference_hex((fields.get("Class") ?? ""), 4)?
     let prog_if = pci_reference_optional_hex(fields, "ProgIf", 2)?
     let revision = pci_reference_optional_hex(fields, "Rev", 2)?
     var numa_node: Int? = null
     if fields.has("NUMANode") {
-      let numa_text = fields.get("NUMANode", "")
+      let numa_text = (fields.get("NUMANode") ?? "")
       for digit in numa_text.split("") {
         if digit not in "0123456789" {
           return Err(check_failure("lspci reference has a nondecimal NUMA node"))
@@ -10208,8 +10208,8 @@ export pure parse_lspci_vmm_numeric(output: Str) -> Result[List[PciReference]] {
       bus: bdf.bus,
       device: bdf.device,
       function: bdf.function,
-      vendor_id: pci_reference_hex(fields.get("Vendor", ""), 4)?,
-      device_id: pci_reference_hex(fields.get("Device", ""), 4)?,
+      vendor_id: pci_reference_hex((fields.get("Vendor") ?? ""), 4)?,
+      device_id: pci_reference_hex((fields.get("Device") ?? ""), 4)?,
       class_code: class_base * 256 + (prog_if ?? 0),
       prog_if: prog_if,
       revision: revision,
@@ -12098,7 +12098,7 @@ export pure compare_ip_links(candidate_json: Str, reference: List[IpLinkReferenc
     }
 
     matched_count += 1
-    let observed = candidate[candidate_by_id.get(id_key, 0)]
+    let observed = candidate[(candidate_by_id.get(id_key) ?? 0)]
     if observed.name.state != "observed" or observed.name.value != link.name {
       field_mismatches = field_mismatches.push(f"${link.ifindex}.name")
     }
@@ -16054,7 +16054,7 @@ export pure mount_usage_eligible_ids(mounts: List[MountReference]) -> List[Int] 
   for index in range(mounts.len()) {
     let mount = mounts[index]
     by_id = by_id.set(f"${mount.mount_id}", index)
-    target_counts = target_counts.set(mount.target, target_counts.get(mount.target, 0) + 1)
+    target_counts = target_counts.set(mount.target, (target_counts.get(mount.target) ?? 0) + 1)
   }
 
   var eligible: List[Int] = []
@@ -16071,8 +16071,8 @@ export pure mount_usage_eligible_ids(mounts: List[MountReference]) -> List[Int] 
       }
 
       seen = set.add(seen, key)
-      let current = mounts[by_id.get(key, -1)]
-      if ! mount_usage_local_filesystem(current.filesystem) or target_counts.get(current.target, 0) != 1 {
+      let current = mounts[(by_id.get(key) ?? -1)]
+      if ! mount_usage_local_filesystem(current.filesystem) or (target_counts.get(current.target) ?? 0) != 1 {
         safe = false
         break
       }
@@ -16196,8 +16196,8 @@ export pure compare_mount_usage(
     seen = set.add(seen, key)
     var matches = false
     if candidate.mount_id in eligible {
-      let first = before[before_by_id.get(key, -1)]
-      let last = after[after_by_id.get(key, -1)]
+      let first = before[(before_by_id.get(key) ?? -1)]
+      let last = after[(after_by_id.get(key) ?? -1)]
       let first_available = first.total_bytes != null
       let last_available = last.total_bytes != null
       if first_available != last_available or first.total_bytes != last.total_bytes {
@@ -16755,7 +16755,7 @@ export pure compare_kernel_parameters(
     }
 
     matched_count += 1
-    let source = reference[reference_by_key.get(key, -1)]
+    let source = reference[(reference_by_key.get(key) ?? -1)]
     if candidate.value.state != source.state or candidate.value.value != source.value or candidate.value.raw_bytes_base64 != source.raw_bytes_base64 {
       field_mismatches = field_mismatches.push(key)
     }
@@ -17367,7 +17367,7 @@ pure parse_reference_device_tree_strings(raw: Bytes) -> Result[List[Str]] {
   var start = 0
   var index = 0
   while index < raw.len() {
-    if raw.byte_at(index) == 0 {
+    if (raw.byte_at(index) ?? -1) == 0 {
       if index == start {
         return Err(check_failure("device-tree reference has an empty string"))
       }
@@ -18183,7 +18183,7 @@ export pure parse_proc_status_uid_reference(output: Str) -> Result[Int] {
       return Err(check_failure("process status reference has duplicate UID rows"))
     }
 
-    let columns = line.split(":", maxsplit: 1).get(1, "").replace("\t", " ").split(" ") |> where .trim() != ""
+    let columns = (line.split(":", maxsplit: 1).get(1) ?? "").replace("\t", " ").split(" ") |> where .trim() != ""
     if columns.len() != 4 {
       return Err(check_failure("process status reference has an incomplete UID row"))
     }
@@ -20067,7 +20067,7 @@ export pure compare_process_identity(
       continue
     }
 
-    let last = after[after_by_pid.get(key, -1)]
+    let last = after[(after_by_pid.get(key) ?? -1)]
     if first.start_ticks != last.start_ticks or first.parent_pid != last.parent_pid or first.uid != last.uid or first.command != last.command {
       unstable_count += 1
       continue
@@ -20079,7 +20079,7 @@ export pure compare_process_identity(
       continue
     }
 
-    let candidate = candidates[candidate_by_pid.get(key, -1)]
+    let candidate = candidates[(candidate_by_pid.get(key) ?? -1)]
     if candidate.start_ticks != first.start_ticks {
       missing_pids = missing_pids.push(first.pid)
       continue
@@ -20158,19 +20158,19 @@ export pure compare_process_resources(
   var mismatched_fields: List[Str] = []
   for first in before {
     let key = f"${first.pid}"
-    if ! after_by_pid.has(key) or after[after_by_pid.get(key, -1)].start_ticks != first.start_ticks {
+    if ! after_by_pid.has(key) or after[(after_by_pid.get(key) ?? -1)].start_ticks != first.start_ticks {
       unstable_count += 1
       continue
     }
 
     stable_count += 1
-    if ! candidate_by_pid.has(key) or candidates[candidate_by_pid.get(key, -1)].start_ticks != first.start_ticks {
+    if ! candidate_by_pid.has(key) or candidates[(candidate_by_pid.get(key) ?? -1)].start_ticks != first.start_ticks {
       missing_pids = missing_pids.push(first.pid)
       continue
     }
 
-    let last = after[after_by_pid.get(key, -1)]
-    let candidate = candidates[candidate_by_pid.get(key, -1)]
+    let last = after[(after_by_pid.get(key) ?? -1)]
+    let candidate = candidates[(candidate_by_pid.get(key) ?? -1)]
     matched_count += 1
     if first.thread_count == last.thread_count {
       scored_fields += 1
@@ -20925,7 +20925,7 @@ pure route_netlink_query_only(message: Str) -> Bool {
   }
 
   for encoded in messages |> drop(1) {
-    let message_type = encoded.split(",").get(0, "").split("}").get(0, "").split("]").get(0, "").trim()
+    let message_type = (((encoded.split(",").get(0) ?? "").split("}").get(0) ?? "").split("]").get(0) ?? "").trim()
     if message_type not in ["RTM_GETLINK", "RTM_GETADDR", "RTM_GETROUTE", "RTM_GETRULE"] {
       return false
     }
@@ -20937,7 +20937,7 @@ pure route_netlink_query_only(message: Str) -> Bool {
 # Route-netlink queries must address the kernel unicast port, not a user port or multicast group.
 pure route_netlink_kernel_destination(destination: Str) -> Bool {
   let fields = destination.split(",")
-  let family = fields.get(0, "").trim()
+  let family = (fields.get(0) ?? "").trim()
   if family != "{sa_family=AF_NETLINK" and family != "{nl_family=AF_NETLINK" {
     return false
   }
@@ -20945,7 +20945,7 @@ pure route_netlink_kernel_destination(destination: Str) -> Bool {
   var pid_fields = 0
   var group_fields = 0
   for part in fields |> drop(1) {
-    let field = part.trim().split("}").get(0, "").trim()
+    let field = (part.trim().split("}").get(0) ?? "").trim()
     if field.starts_with("nl_pid=") {
       if field != "nl_pid=0" {
         return false
@@ -20953,7 +20953,7 @@ pure route_netlink_kernel_destination(destination: Str) -> Bool {
 
       pid_fields += 1
     } else if field.starts_with("nl_groups=") {
-      let group_bits = field.split("=", maxsplit: 1).get(1, "")
+      let group_bits = (field.split("=", maxsplit: 1).get(1) ?? "")
       if group_bits == "" {
         return false
       }
@@ -21081,7 +21081,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
         violations = violations.push("incomplete file open trace")
       }
 
-      let flags = if open_name == "open" { arguments.get(1, "") } else { arguments.get(2, "") }
+      let flags = if open_name == "open" { (arguments.get(1) ?? "") } else { (arguments.get(2) ?? "") }
       if "O_WRONLY" in flags or "O_RDWR" in flags or "O_CREAT" in flags or "O_TRUNC" in flags or "O_APPEND" in flags {
         violations = violations.push("writable file open")
       }
@@ -21089,12 +21089,12 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
 
     for name in ["write", "writev"] {
       if traced_syscall(line, name) {
-        let descriptor = line.split(f"${name}(", maxsplit: 1)
-          .get(1, "")
+        let descriptor = (((line.split(f"${name}(", maxsplit: 1)
+          .get(1) ?? "")
           .split(",")
-          .get(0, "")
+          .get(0) ?? "")
           .split("<")
-          .get(0, "")
+          .get(0) ?? "")
           .trim()
         if descriptor != "1" and descriptor != "2" {
           violations = violations.push("write to non-output descriptor")
@@ -21109,7 +21109,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
     }
 
     if traced_syscall(line, "ioctl") {
-      let request = traced_call_arguments(line, "ioctl").get(1, "")
+      let request = (traced_call_arguments(line, "ioctl").get(1) ?? "")
       if request not in [
         "TIOCGWINSZ",
         "TCGETS",
@@ -21128,9 +21128,9 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
 
     if traced_syscall(line, "socket") {
       let arguments = traced_call_arguments(line, "socket")
-      let family = arguments.get(0, "")
-      let socket_type = arguments.get(1, "")
-      let protocol = arguments.get(2, "")
+      let family = (arguments.get(0) ?? "")
+      let socket_type = (arguments.get(1) ?? "")
+      let protocol = (arguments.get(2) ?? "")
       if family == "AF_NETLINK" and protocol not in ["NETLINK_ROUTE", "0"] {
         violations = violations.push("unexpected netlink protocol")
       } else if family == "AF_NETLINK" and ! socket_type.starts_with("SOCK_RAW") and ! socket_type.starts_with(
@@ -21157,7 +21157,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
     }
 
     if traced_syscall(line, "connect") {
-      let destination = traced_call_arguments(line, "connect").get(1, "")
+      let destination = (traced_call_arguments(line, "connect").get(1) ?? "")
       if destination.starts_with("{sa_family=AF_INET") or destination.starts_with("{sa_family=AF_PACKET") {
         violations = violations.push("external network syscall")
       } else if destination.starts_with("{sa_family=AF_UNIX") {
@@ -21168,7 +21168,7 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
     }
 
     if traced_syscall(line, "bind") {
-      let destination = traced_call_arguments(line, "bind").get(1, "")
+      let destination = (traced_call_arguments(line, "bind").get(1) ?? "")
       if destination.starts_with("{sa_family=AF_INET") or destination.starts_with("{sa_family=AF_PACKET") {
         violations = violations.push("external network syscall")
       } else if ! destination.starts_with("{sa_family=AF_NETLINK") and ! destination.starts_with(
@@ -21180,13 +21180,13 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
 
     if traced_syscall(line, "sendto") {
       let arguments = traced_call_arguments(line, "sendto")
-      let destination = arguments.get(4, "")
+      let destination = (arguments.get(4) ?? "")
       if destination.starts_with("{sa_family=AF_INET") or destination.starts_with("{sa_family=AF_PACKET") {
         violations = violations.push("external network syscall")
       } else if destination.starts_with("{sa_family=AF_NETLINK") or destination.starts_with("{nl_family=AF_NETLINK") {
         if ! route_netlink_kernel_destination(destination) {
           violations = violations.push("non-kernel netlink destination")
-        } else if ! route_netlink_query_only(arguments.get(1, "")) {
+        } else if ! route_netlink_query_only((arguments.get(1) ?? "")) {
           violations = violations.push("non-query netlink request")
         }
       } else {
@@ -21203,17 +21203,17 @@ export pure host_effect_trace_violations(trace: Str) -> List[Str] {
 # A relative source path needs either the known root cwd or a decoded absolute directory descriptor.
 pure unresolved_source_directory(line: Str, name: Str) -> Bool {
   let arguments = traced_call_arguments(line, name)
-  let source_argument = arguments.get(1, "")
+  let source_argument = (arguments.get(1) ?? "")
   if ! source_argument.starts_with("\"") {
     return false
   }
 
-  let source_path = source_argument.split("\"").get(1, "")
+  let source_path = (source_argument.split("\"").get(1) ?? "")
   if source_path.starts_with("/") {
     return false
   }
 
-  let directory = arguments.get(0, "")
+  let directory = (arguments.get(0) ?? "")
   if directory == "AT_FDCWD" {
     return false
   }
@@ -21246,7 +21246,7 @@ pure normalized_traced_path(argument: Str) -> List[Str] {
     return []
   }
 
-  let traced_path = argument.split("\"").get(1, "")
+  let traced_path = (argument.split("\"").get(1) ?? "")
   var components: List[Str] = []
   for component in traced_path.split("/") {
     continue when component == "" or component == "."
@@ -21265,22 +21265,22 @@ pure normalized_traced_path(argument: Str) -> List[Str] {
 # Resolves relative paths against a decoded descriptor path when strace provides one.
 pure normalized_traced_call_path(line: Str, name: Str, path_index: Int) -> List[Str] {
   let arguments = traced_call_arguments(line, name)
-  let argument = arguments.get(path_index, "")
+  let argument = (arguments.get(path_index) ?? "")
   if ! argument.starts_with("\"") {
     return []
   }
 
-  let traced_path = argument.split("\"").get(1, "")
+  let traced_path = (argument.split("\"").get(1) ?? "")
   if traced_path.starts_with("/") or path_index != 1 {
     return normalized_traced_path(argument)
   }
 
-  let descriptor_parts = arguments.get(0, "").split("<", maxsplit: 1)
+  let descriptor_parts = (arguments.get(0) ?? "").split("<", maxsplit: 1)
   if descriptor_parts.len() != 2 {
     return normalized_traced_path(argument)
   }
 
-  let directory = descriptor_parts[1].split(">", maxsplit: 1).get(0, "")
+  let directory = (descriptor_parts[1].split(">", maxsplit: 1).get(0) ?? "")
   if ! directory.starts_with("/") {
     return normalized_traced_path(argument)
   }
@@ -21411,12 +21411,12 @@ export pure replay_host_read_violations(trace: Str) -> List[Str] {
 export pure replay_host_read_violations_after_baseline(trace: Str, baseline: Str) -> List[Str] {
   var allowed: Map[Int] = {}
   for key in replay_host_read_keys(baseline) {
-    allowed = allowed.set(key, allowed.get(key, 0) + 1)
+    allowed = allowed.set(key, (allowed.get(key) ?? 0) + 1)
   }
 
   var violations: List[Str] = []
   for key in replay_host_read_keys(trace) {
-    let remaining = allowed.get(key, 0)
+    let remaining = (allowed.get(key) ?? 0)
     if remaining > 0 {
       allowed = allowed.set(key, remaining - 1)
     } else {
@@ -21750,10 +21750,10 @@ proc read_reference_tool_version(
   let error_output = scratch.read_text(error_name)?
   let busybox_lines = error_output.lines() |> where .starts_with("BusyBox")
   if status.exited_with(0) {
-    return output.lines().get(0, "unavailable")
+    return ((output.lines() |> collect).get(0) ?? "unavailable")
   }
 
-  return busybox_lines.get(0, "unavailable")
+  return (busybox_lines.get(0) ?? "unavailable")
 }
 
 # Brackets a candidate report with independent kernel identity observations.
@@ -22323,7 +22323,7 @@ pure parse_huge_page_size_reference(name: Str) -> Result[Int] {
     return Err(check_failure("huge-page reference has an invalid pool name"))
   }
 
-  let size_text = parts[1].split("kB").get(0, "")
+  let size_text = (parts[1].split("kB").get(0) ?? "")
   if f"${size_text}kB" != parts[1] {
     return Err(check_failure("huge-page reference has an invalid size suffix"))
   }
@@ -25578,9 +25578,9 @@ export pure fixture_single_test_passed(output: Str) -> Bool {
     return false
   }
 
-  let lines = output.trim().lines()
+  let lines = output.trim().lines() |> collect
   return """running 1 tests
-""" in output and lines.get(lines.len() - 1, "") == "test result: ok. 1 passed; 0 failed; 0 skipped"
+""" in output and (lines.get(lines.len() - 1) ?? "") == "test result: ok. 1 passed; 0 failed; 0 skipped"
 }
 
 ## Requires Cargo to report exactly one successful Rust fixture test.
@@ -25589,23 +25589,23 @@ export pure rust_fixture_single_test_passed(output: Str) -> Bool {
     return false
   }
 
-  let lines = output.trim().lines()
+  let lines = output.trim().lines() |> collect
   return """running 1 test
-""" in output and lines.get(lines.len() - 1, "")
+""" in output and (lines.get(lines.len() - 1) ?? "")
   .starts_with("test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured;")
 }
 
 ## Reports a failed test summary or the diagnostic from a command that could not start its test.
 export pure fixture_failure_summary(output: Str, stderr_output: Str) -> Str {
-  let result_lines = output.trim().lines()
-  let result = result_lines.get(result_lines.len() - 1, "")
+  let result_lines = output.trim().lines() |> collect
+  let result = (result_lines.get(result_lines.len() - 1) ?? "")
   if result.starts_with("test result:") {
     return result
   }
 
-  let error_lines = stderr_output.trim().lines()
+  let error_lines = stderr_output.trim().lines() |> collect
   if error_lines.len() > 0 {
-    return error_lines.get(error_lines.len() - 1, "")
+    return (error_lines.get(error_lines.len() - 1) ?? "")
   }
 
   if result != "" {
@@ -25716,12 +25716,9 @@ proc run_fixture_cases(
     var case_passed = true
     for test_name in fixture_case.tests {
       if test_results.has(test_name) {
-        if ! test_results.get(test_name, false) {
+        if ! (test_results.get(test_name) ?? false) {
           case_passed = false
-          print f"fixture ${fixture_case.scenario}: failed ${test_name} (${test_failures.get(
-            test_name,
-            "cached failure",
-          )})"
+          print f"fixture ${fixture_case.scenario}: failed ${test_name} (${(test_failures.get(test_name) ?? "cached failure")})"
         }
 
         continue
