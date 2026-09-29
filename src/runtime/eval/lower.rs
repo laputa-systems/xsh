@@ -12418,7 +12418,8 @@ impl CompactLowerConstructProbe<'_, '_> {
             let mut body = Vec::with_capacity(statements.len());
             if let Some((&tail, prefix)) = statements.split_last() {
                 for &stmt in prefix { body.push(self.lower_stmt_with_blocker_guard(stmt, slots, current_function, item_slot)?); }
-                if let Some(value) = self.lower_tail_stmt_as_expr(tail, slots, current_function, item_slot) {
+                if self.bodies.statement_positions.get(&tail) != Some(&crate::sema::check::StatementPosition::Statement)
+                    && let Some(value) = self.lower_tail_stmt_as_expr(tail, slots, current_function, item_slot) {
                     body.push(push_build_row!(self, stmt, BuildStmtRow::Value { value }));
                 } else {
                     body.push(self.lower_stmt_with_blocker_guard(tail, slots, current_function, item_slot)?);

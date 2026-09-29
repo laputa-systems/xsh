@@ -271,11 +271,29 @@ impl<'a> Parser<'a> {
     fn brace_starts_record_value(&self) -> bool {
         let mut offset = 1;
         while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
-        self.peek_tag(offset) == Some(TokenTag::Dot)
-            || self.peek_tag(offset) == Some(TokenTag::RBrace)
-            || (self.peek_label_name(offset).is_some() && self.peek_tag(offset + 1) == Some(TokenTag::Colon))
-            || (matches!(self.peek_tag(offset), Some(TokenTag::Ident | TokenTag::String))
-                && matches!(self.peek_tag(offset + 1), Some(TokenTag::Colon | TokenTag::Comma | TokenTag::RBrace)))
+        if matches!(self.peek_tag(offset), Some(TokenTag::Dot | TokenTag::RBrace)) { return true; }
+        if self.peek_tag(offset) == Some(TokenTag::LBracket) {
+            let mut depth = 1;
+            offset += 1;
+            while depth > 0 {
+                match self.peek_tag(offset) {
+                    Some(TokenTag::LBracket) => depth += 1,
+                    Some(TokenTag::RBracket) => depth -= 1,
+                    None | Some(TokenTag::Eof) => return false,
+                    _ => {}
+                }
+                offset += 1;
+            }
+            while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
+            return self.peek_tag(offset) == Some(TokenTag::Colon);
+        }
+        let shorthand = self.peek_tag(offset) == Some(TokenTag::Ident);
+        if self.peek_label_name(offset).is_none() && self.peek_tag(offset) != Some(TokenTag::String) { return false; }
+        offset += 1;
+        while self.peek_tag(offset) == Some(TokenTag::Dot) && self.peek_label_name(offset + 1).is_some() { offset += 2; }
+        while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
+        self.peek_tag(offset) == Some(TokenTag::Colon)
+            || (shorthand && matches!(self.peek_tag(offset), Some(TokenTag::Comma | TokenTag::RBrace)))
     }
 
     pub(super) fn parse_condition_arena_only(
@@ -969,7 +987,8 @@ impl<'a> Parser<'a> {
                 }
                 Some(ArenaOnlyExpr { id: arena.push_value_block_expr(block, span), span, bare_ident: None })
             }
-            (TokenTag::LBrace, _) => self.parse_record_arena_only(arena),
+            (TokenTag::LBrace, _) if self.brace_starts_record_value() => self.parse_record_arena_only(arena),
+            (TokenTag::LBrace, _) => self.parse_braced_value_expr_arena_only("lexical block", arena).map(|(expr, _)| expr),
             (TokenTag::LParen, _) => {
                 self.bump();
                 self.skip_newlines();

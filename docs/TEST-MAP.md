@@ -8,6 +8,11 @@ them to the owner and report that limit. Unfiltered `cargo test` includes
 
 ## List patterns
 
+Bare lexical block consumption, scope cleanup, and lexical transfers are covered
+by `target/debug/xsht test --jobs 1 tests/xsh/lexical-blocks.xsh`. The grammar and
+formatting distinction between blocks and literals is covered by
+`cargo test --test integration syntax::parser_and_formatter_preserve_bare_block_literal_distinctions`.
+
 `target/debug/xsht test --jobs 2 tests/xsh/list-pattern.xsh` covers exact and
 prefix lengths, nested captures, dynamic narrowing, rejected subjects, rest
 value semantics, guards, and conservative exhaustiveness. The shared matcher

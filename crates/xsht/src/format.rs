@@ -1181,6 +1181,10 @@ impl<'a> Writer<'a> {
     }
 
     fn write_block(&mut self, block_id: BlockId, indent: usize, output: &mut String) {
+        self.write_block_contents(block_id, indent, output, false);
+    }
+
+    fn write_block_contents(&mut self, block_id: BlockId, indent: usize, output: &mut String, preserve_value_shape: bool) {
         let block = self.arena.block(block_id);
         let params = self.arena.block_params(block.params).to_vec();
         let stmts: Vec<StmtId> = self.arena.stmt_ids(block.statements).collect();
@@ -1218,7 +1222,26 @@ impl<'a> Writer<'a> {
                     output.push('\n');
                 }
             }
-            self.write_stmt(*stmt_id, indent + 1, output);
+            let grouped = preserve_value_shape && index == 0 && params.is_empty();
+            match stmt.kind {
+                ArenaStmtKind::Expr(expr) if grouped && matches!(self.arena.expr(expr).kind, ArenaExprKind::Ident(_)) => {
+                    self.write_comments_before(stmt_span.start(), indent + 1, output);
+                    self.write_indent(indent + 1, output);
+                    output.push('(');
+                    self.write_expr(expr, 0, output);
+                    output.push(')');
+                    self.write_raw_trailing_comment(stmt_span.end(), output);
+                }
+                ArenaStmtKind::TailBareIdent(name) if grouped => {
+                    self.write_comments_before(stmt_span.start(), indent + 1, output);
+                    self.write_indent(indent + 1, output);
+                    output.push('(');
+                    output.push_str(name.as_str().as_str());
+                    output.push(')');
+                    self.write_raw_trailing_comment(stmt_span.end(), output);
+                }
+                _ => self.write_stmt(*stmt_id, indent + 1, output),
+            }
             previous_span = Some(stmt_span);
         }
         output.push('\n');
@@ -1753,7 +1776,7 @@ impl<'a> Writer<'a> {
                 self.write_type(*schema, output);
                 output.push(')');
             }
-            ArenaExprKind::ValueBlock(block) => self.write_block(*block, indent_for_expr(output), output),
+            ArenaExprKind::ValueBlock(block) => self.write_block_contents(*block, indent_for_expr(output), output, true),
             ArenaExprKind::Loop { block } => {
                 output.push_str("loop ");
                 self.write_block(*block, 0, output);

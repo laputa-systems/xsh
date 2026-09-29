@@ -90,6 +90,8 @@ pub struct CompactBodyProbeOutput {
     pub expr_types: FxHashMap<ExprId, Type>,
     pub statement_positions: FxHashMap<StmtId, super::StatementPosition>,
     pub block_types: FxHashMap<BlockId, Type>,
+    // Keep inferred value tails separate from contextual Unit consumption.
+    pub value_block_types: FxHashMap<ExprId, Type>,
 }
 
 impl Checker {
@@ -746,6 +748,9 @@ impl CompactBodyProbe<'_> {
             ArenaStmtKind::Expr(expr) => {
                 self.output.supported_statements += 1;
                 self.check_compact_expr(expr);
+                if matches!(self.program.arena.expr(expr).kind, ArenaExprKind::ValueBlock(_)) {
+                    self.apply_compact_expected(expr, &Type::Unit);
+                }
             }
             ArenaStmtKind::SignalHook(hook) => {
                 self.output.supported_statements += 1;
@@ -869,6 +874,10 @@ impl CompactBodyProbe<'_> {
                 }
                 ArenaStmtKind::Match { arms, .. } => {
                     for arm in self.program.arena.match_arms(arms).to_vec() { self.mark_tail_position(arm.block, consumes_value); }
+                }
+                ArenaStmtKind::Expr(expr) if matches!(self.program.arena.expr(expr).kind, ArenaExprKind::ValueBlock(_)) => {
+                    let expected = if consumes_value { self.output.value_block_types.get(&expr).cloned().unwrap_or(Type::Unknown) } else { Type::Unit };
+                    self.apply_compact_expected(expr, &expected);
                 }
                 _ => {}
             }
@@ -1044,8 +1053,11 @@ impl CompactBodyProbe<'_> {
             ArenaExprKind::ValueBlock(block) => {
                 self.push_scope();
                 self.check_compact_block_in_current_scope(block);
-                let ty = self.compact_block_tail_type(block);
                 self.mark_tail_position(block, true);
+                self.output.block_types.remove(&block);
+                let ty = self.compact_block_tail_type(block);
+                self.output.value_block_types.insert(id, ty.clone());
+                self.output.block_types.insert(block, ty.clone());
                 self.pop_scope();
                 ty
             }
@@ -1168,7 +1180,26 @@ impl CompactBodyProbe<'_> {
                     self.apply_compact_expected(entry.value, if entry.splice_span.is_some() { expected } else { item });
                 }
             },
-            ArenaExprKind::ValueBlock(block) => self.apply_compact_block_expected(block, expected),
+            ArenaExprKind::ValueBlock(block) => {
+                let consumes_value = expected != &Type::Unit && !expected.is_result_unit();
+                self.mark_tail_position(block, consumes_value);
+                self.apply_compact_block_expected(block, expected);
+                let tail = self.program.arena.stmt_ids(self.program.arena.block(block).statements).last();
+                if !consumes_value {
+                    if let Some(tail) = tail { self.output.statement_positions.insert(tail, super::StatementPosition::Statement); }
+                    self.output.expr_types.insert(expr, Type::Unit);
+                    self.output.block_types.insert(block, Type::Unit);
+                } else {
+                    self.output.block_types.remove(&block);
+                    let inferred = self.output.value_block_types.get(&expr).cloned().unwrap_or(Type::Unknown);
+                    let actual = match tail.map(|tail| self.program.arena.stmt(tail).kind) {
+                        Some(ArenaStmtKind::Expr(value)) => self.output.expr_types.get(&value).cloned().unwrap_or(inferred),
+                        _ => inferred,
+                    };
+                    self.output.expr_types.insert(expr, actual.clone());
+                    self.output.block_types.insert(block, actual);
+                }
+            }
             ArenaExprKind::If { branches, else_value } => {
                 for branch in self.program.arena.if_expr_branches(branches).to_vec() { self.apply_compact_expected(branch.value, expected); }
                 self.apply_compact_expected(else_value, expected);

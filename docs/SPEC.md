@@ -1320,6 +1320,16 @@ Incompatible reachable branch values are errors rather than implicit Any
 widening. Expression match arms preserve `{}`, shorthand/explicit record fields, quoted
 record keys, and spreads as record literals. Braces containing ordinary statements
 form value blocks; braces in an expression `if` delimit its branch block.
+Bare lexical blocks use this same value-block representation. In statement or
+Unit-consuming positions they consume Unit and retain boolean assertions and
+Result[Unit] propagation; explicit value positions and genuine value tails
+consume the final value. Braces are classified by their first entry's syntax,
+independently of expected type: empty braces, identifier shorthand, labeled or
+computed fields, and spreads remain literals. `{value}` is a shorthand record;
+`{ (value) }` is a value block, and formatting preserves those parentheses.
+Malformed field-shaped syntax retains literal diagnostics. A bare block adds
+only a lexical binding and cleanup scope; it adds no error or function-return
+boundary, module statement permission, or top-level integer-exit permission.
 Selected values are evaluated before scope cleanup; implicit Ok
 wrapping occurs only at the established Result boundary. Callback tails share this
 scope rule, including fold and keyed stages. Explicit callback returns retain the

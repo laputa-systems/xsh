@@ -762,6 +762,7 @@ impl<'a> Linter<'a> {
             } => {
                 self.lint_list_pattern(branches, else_block, stmt.span);
                 self.lint_if_as_guard(branches, else_block, stmt.span);
+                self.lint_lexical_block(branches, else_block, stmt.span);
                 for branch in self.arena.if_branches(branches).to_vec() {
                     self.lint_pattern_condition_block(branch.condition, branch.block);
                 }
@@ -4262,6 +4263,25 @@ impl<'a> Linter<'a> {
                     replacement,
                 )),
         );
+    }
+
+    fn lint_lexical_block(&mut self, branches: ArenaRange, else_block: Option<BlockId>, span: Span) {
+        if branches.len() != 1 || else_block.is_some()
+            || self.statement_positions.get(&span) != Some(&xsh::frontend::check::StatementPosition::Statement) { return; }
+        let branch = self.arena.if_branches(branches)[0].clone();
+        if !matches!(self.arena.expr(branch.condition).kind, ArenaExprKind::Bool(true)) { return; }
+        let block_span = self.arena.span(self.arena.block(branch.block).span);
+        if self.source.get(span.start()..block_span.start()).is_none_or(|prefix| prefix.contains('#')) { return; }
+        let Some(body) = self.source.get(block_span.range()) else { return; };
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(span.source_id, body);
+        if !parsed.diagnostics.is_empty() { return; }
+        let Some(statement) = parsed.arena.statement_ids().next() else { return; };
+        let ArenaStmtKind::Expr(expr) = parsed.arena.arena.stmt(statement).kind else { return; };
+        if !matches!(parsed.arena.arena.expr(expr).kind, ArenaExprKind::ValueBlock(_)) { return; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "use a lexical block for an unconditional scope")
+            .with_code("lint.lexical-block")
+            .with_label(Label::secondary(span, "retain the block's binding and cleanup scope"))
+            .with_fix_hint(FixHint::replacement(span, "use a lexical block", body.to_owned())));
     }
 
     fn lint_if_as_guard(&mut self, branches: ArenaRange, else_block: Option<BlockId>, span: Span) {

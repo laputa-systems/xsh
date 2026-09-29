@@ -3254,6 +3254,22 @@ fn formatter_round_trips_value_branch_blocks_and_record_arms() {
 }
 
 #[test]
+fn parser_and_formatter_preserve_bare_block_literal_distinctions() {
+    let source = "let value = 7\nlet record = {value}\nlet empty = {}\nlet named = {if: 1}\nlet computed = {[\"key\"]: 2}\nlet grouped = { (value) }\nlet result = { let next = 8; next }\nlet negative = { false }\n";
+    assert_parse_and_check(SourceId::new(0), source);
+    let first = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(first.diagnostics.is_empty(), "{:?}", first.diagnostics);
+    assert!(first.formatted.contains("(value)"));
+    assert_parse_and_check(SourceId::new(0), &first.formatted);
+    let second = Formatter::new().format_source(SourceId::new(0), &first.formatted);
+    assert_eq!(first.formatted, second.formatted);
+    for malformed in ["let bad = {field:}\n", "let bad = {[\"key\"]:}\n"] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), malformed);
+        assert!(!parsed.diagnostics.is_empty());
+    }
+}
+
+#[test]
 fn parser_named_argument_puns_keep_identifier_spans_and_formatting() {
     use xsh::frontend::syntax::arena::ArenaCallArgKind;
 
