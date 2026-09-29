@@ -2634,7 +2634,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::If { .. } => 18,
         ArenaExprKind::Match { .. } => 19,
         ArenaExprKind::Unary { .. } => 20,
-        ArenaExprKind::ComparisonChain(_) => 41,
+        ArenaExprKind::ComparisonChain(_) => 40,
         ArenaExprKind::Binary { .. } => 21,
         ArenaExprKind::Call { .. } => 22,
         ArenaExprKind::Field { .. } => 23,
@@ -3086,7 +3086,7 @@ fn compact_body_tail_command_blocker(
 
 const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 8];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 27];
-const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 40];
+const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 41];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 
@@ -4046,6 +4046,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let asserts = self.bodies.expr_types.get(&value) == Some(&Type::Bool);
                 let span = self.program.arena.stmt(id).span;
                 let value = self.lower_expr(value, &mut slots, None, None)?;
+                if asserts { self.mark_comparison_chain_assertion(value); }
                 let kind = if asserts { BuildTopKind::Stmt(push_build_row!(self, stmt, BuildStmtRow::Assert { value, span })) } else { BuildTopKind::Expr(value) };
                 Some(lowered_top_level(
                     &self.scratch,
@@ -6673,6 +6674,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let asserts = self.bodies.expr_types.get(&value) == Some(&Type::Bool);
                 let span = self.program.arena.stmt(id).span;
                 let value = self.lower_expr(value, slots, current_function, item_slot)?;
+                if asserts { self.mark_comparison_chain_assertion(value); }
                 Some(if asserts { push_build_row!(self, stmt, BuildStmtRow::Assert { value, span }) }
                     else { push_build_row!(self, stmt, BuildStmtRow::Expr { value, span }) })
             },
@@ -6689,6 +6691,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let asserts = slots.binding_type(name) == Some(&Type::Bool);
                 let span = self.program.arena.stmt(id).span;
                 let value = self.lower_bare_ident(name, slots)?;
+                if asserts { self.mark_comparison_chain_assertion(value); }
                 Some(if asserts { push_build_row!(self, stmt, BuildStmtRow::Assert { value, span }) }
                     else { push_build_row!(self, stmt, BuildStmtRow::Expr { value, span }) })
             }

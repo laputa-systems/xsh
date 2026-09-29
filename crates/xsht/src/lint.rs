@@ -6520,7 +6520,7 @@ fn collect_retry_expr_effects(
 fn binding_target_contains_name(arena: &AstArena, target: BindingTargetId, candidate: Name) -> bool {
     match arena.binding_target(target).kind {
         ArenaBindingTargetKind::Name(name) => name == candidate,
-        ArenaBindingTargetKind::Record { fields, .. } => arena.destructure_fields(fields).iter().any(|field| field.name == candidate),
+        ArenaBindingTargetKind::Record { fields, .. } => arena.destructure_fields(fields).iter().any(|field| binding_target_contains_name(arena, field.target, candidate)),
     }
 }
 

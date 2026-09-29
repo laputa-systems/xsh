@@ -872,7 +872,6 @@ impl<'a> Parser<'a> {
                 Some(ArenaOnlyExpr {
                     span: self.span(span.start(), self.previous_end()),
                     bare_ident: None,
-                    span: self.span(span.start(), self.previous_end()),
                     ..expr
                 })
             }
