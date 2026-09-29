@@ -10613,7 +10613,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             return Some(signature.return_ty.clone());
         }
         if def.return_ty_defaulted { return None; }
-        Some(compact_runtime_type(&self.program.arena, def.return_ty, self.declarations))
+        Some(compact_runtime_type_in_namespace(&self.program.arena, def.return_ty, self.declarations, function.namespace))
     }
 
     fn compact_unqualified_function_sig(

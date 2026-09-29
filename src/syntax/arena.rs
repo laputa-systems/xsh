@@ -3896,7 +3896,8 @@ impl AstArena {
                     value: ExprId::new(raw[0] as usize),
                     arms: ArenaRange::new(raw[1] as usize, raw[2] as usize),
                 }
-            }            ArenaExprTag::PatternCondition => {
+            }
+            ArenaExprTag::PatternCondition => {
                 let raw = range_slice(&self.extra, range_from_data(data));
                 ArenaExprKind::PatternCondition {
                     value: ExprId::new(raw[0] as usize),
@@ -6276,7 +6277,8 @@ impl ArenaLowerer<'_> {
             ArenaExprKind::PatternTest { value, arms } => {
                 let data = self.push_expr_extra(&[raw_expr_id(value), arms.start, arms.len]);
                 (ArenaExprTag::PatternTest, data)
-            }            ArenaExprKind::PatternCondition { value, arms } => {
+            }
+            ArenaExprKind::PatternCondition { value, arms } => {
                 let data = self.push_expr_extra(&[raw_expr_id(value), arms.start, arms.len]);
                 (ArenaExprTag::PatternCondition, data)
             }
