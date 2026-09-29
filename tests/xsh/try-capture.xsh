@@ -56,7 +56,7 @@ while rounds < 3 {
 print f"\${value} \${cleaned} \${rounds}"
 """)?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "cleanup\ncleanup\ncleanup\ncleanup\nfalse 1 3\n")?
+  test.eq(output.stdout, "cleanup\ncleanup\ncleanup\ncleanup\nfalse 4 3\n")?
 }
 
 proc test_try_assertions_capture_but_trace_has_no_retry_events(ctx: TestContext) [error] {
@@ -140,4 +140,29 @@ let value: Result[Int, SecondError] = try { fail()? }
 """)?
   test.ok(!output.success)?
   test.contains(output.stderr, "type mismatch")?
+}
+
+proc test_try_global_assignments_reach_cleanup_and_survive_transfer(ctx: TestContext) [error] {
+  let output = test.run_script(ctx, """
+var count = 0
+proc cleanup() -> Result[Unit] {
+  print f"cleanup \${count}"
+  count += 10
+}
+let value: Result[Int] = try {
+  count += 1
+  defer cleanup()?
+  count
+}
+print f"\${value?} \${count}"
+var rounds = 0
+while rounds < 2 {
+  rounds += 1
+  defer cleanup()?
+  continue
+}
+print \$count
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "cleanup 1\n1 11\ncleanup 11\ncleanup 21\n31\n")?
 }

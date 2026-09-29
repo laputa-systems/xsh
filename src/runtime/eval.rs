@@ -877,6 +877,13 @@ struct LoweredTopLevelSlot {
     mutable: bool,
 }
 
+// A driver owns slot copies of surrounding bindings. Script calls use scopes,
+// so their writes and direct slot writes must meet at each evaluation boundary.
+struct IndexedRootSlots {
+    address: usize,
+    bindings: Vec<(LoweredTopLevelSlot, LoweredValue)>,
+}
+
 #[derive(Clone, Debug)]
 struct LoweredTopLevelBinding {
     kind: LoweredType,
@@ -2788,6 +2795,7 @@ pub struct Evaluator {
     // `<xsh-stdlib:hash> verify_file` names a function in both. Comparing the
     // program by pointer identity, and keeping that program alive for as long
     // as the entry exists, is what makes the cached index valid.
+    indexed_root_slots: Option<IndexedRootSlots>,
     indexed_function_cache:
         FxHashMap<(LoweredFunctionKey, LoweredFunctionKind), (Arc<FullProgram>, usize)>,
     indexed_dynamic_functions: Arc<FxHashMap<QualifiedName, DynamicFunction>>,
@@ -3020,6 +3028,7 @@ impl Evaluator {
             scopes: vec![FxHashMap::default()],
             module_export_signatures: Arc::new(FxHashMap::default()),
             indexed_program: None,
+            indexed_root_slots: None,
             indexed_function_cache: FxHashMap::default(),
             indexed_dynamic_functions: Arc::new(FxHashMap::default()),
             lowered_slot_pool: Vec::new(),
@@ -3185,6 +3194,7 @@ impl Evaluator {
             scopes: shared.scopes.clone(),
             module_export_signatures: shared.module_export_signatures.clone(),
             indexed_program: shared.indexed_program.clone(),
+            indexed_root_slots: None,
             indexed_function_cache: FxHashMap::default(),
             indexed_dynamic_functions: shared.indexed_dynamic_functions.clone(),
             lowered_slot_pool: Vec::new(),

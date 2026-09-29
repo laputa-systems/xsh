@@ -1452,6 +1452,12 @@ impl Evaluator {
             slots[slot.slot] = value;
         }
         let header = Self::indexed_block_header(view.slot_count());
+        let previous_root_slots = self.indexed_root_slots.replace(super::super::IndexedRootSlots {
+            address: slots.as_ptr() as usize,
+            bindings: top_level_slots.iter().filter(|slot| slot.mutable)
+                .map(|slot| (slot.clone(), slots[slot.slot].clone())).collect(),
+        });
+        let result = (|| {
         let flow = match view.tag() {
             FullDriverTag::Skip => {
                 indexed_finish(payload, call_span)?;
@@ -1772,6 +1778,36 @@ impl Evaluator {
             }
         };
         Ok(Some(flow))
+        })();
+        let publication = self.sync_indexed_root_slots(&mut slots, call_span);
+        self.indexed_root_slots = previous_root_slots;
+        match (result, publication) {
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+            (Ok(flow), Ok(())) => Ok(flow),
+        }
+    }
+
+    fn sync_indexed_root_slots(&mut self, slots: &mut [LoweredValue], span: Span) -> Result<(), RuntimeError> {
+        let Some(mut root) = self.indexed_root_slots.take() else { return Ok(()); };
+        if root.address != slots.as_ptr() as usize {
+            self.indexed_root_slots = Some(root);
+            return Ok(());
+        }
+        let result = (|| {
+            for (binding, previous) in &mut root.bindings {
+                let slot = &mut slots[binding.slot];
+                if slot != previous {
+                    self.assign(&binding.name.as_str(), slot.clone().into_value(), span)?;
+                } else if let Some(value) = self.lookup(binding.name).and_then(|binding| lowered_value_from_runtime_any(&binding.value)) {
+                    *slot = value;
+                }
+                *previous = slot.clone();
+            }
+            Ok(())
+        })();
+        self.indexed_root_slots = Some(root);
+        result
     }
 
     pub(in crate::runtime::eval) fn call_indexed_direct(
@@ -2543,11 +2579,22 @@ impl Evaluator {
         // A statement that is about to overwrite a slot offers that slot to its
         // outermost expression; nested expressions (operands, arguments) must
         // see the slot as it is, because they may read it before the store.
-        let consuming = self.consuming_receiver.take();
+        self.sync_indexed_root_slots(slots, call_span)?;
+        let saved_consuming = self.consuming_receiver.take();
+        // Root bindings are also visible through scopes; taking their slot
+        // before assignment would publish a transient Unit to a called proc.
+        let consuming = saved_consuming.filter(|slot| !self.indexed_root_slots.as_ref().is_some_and(|root|
+            root.address == slots.as_ptr() as usize && root.bindings.iter().any(|(binding, _)| binding.slot == *slot)));
+
         let result =
             self.eval_indexed_expr_inner(execution, instruction, slots, call_span, consuming);
-        self.consuming_receiver = consuming;
-        result
+        self.consuming_receiver = saved_consuming;
+        let publication = self.sync_indexed_root_slots(slots, call_span);
+        match (result, publication) {
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+            (Ok(flow), Ok(())) => Ok(flow),
+        }
     }
 
     fn eval_indexed_expr_inner(
@@ -7275,7 +7322,14 @@ impl Evaluator {
         slots: &mut [LoweredValue],
         call_span: Span,
     ) -> Result<StmtFlow, RuntimeError> {
+        self.sync_indexed_root_slots(slots, call_span)?;
         let result = self.eval_indexed_stmt_inner(execution, instruction, header, slots, call_span);
+        let publication = self.sync_indexed_root_slots(slots, call_span);
+        let result = match (result, publication) {
+            (Err(error), _) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+            (Ok(flow), Ok(())) => Ok(flow),
+        };
         match (result, self.pending_value_block_flow.take()) {
             (Ok(_), Some(flow)) => Ok(flow),
             (result, _) => result,
