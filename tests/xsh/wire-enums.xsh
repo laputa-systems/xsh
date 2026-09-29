@@ -182,3 +182,34 @@ print (json.encode(decoded.require(List[State])?)? == encoded)
   test.ok(executed.success, executed.stderr)?
   test.eq(executed.stdout, "true\ntrue\ntrue\ncase rejected\ntrue\n")?
 }
+
+test test_wire_enum_typed_map_values_preserve_key_domains [error] { |ctx|
+  let executed = test.run_script(ctx, r"""enum State: Str { Ready = "ready", Empty = "" }
+const prepared: Map[Int, State] = {[1]: Ready, [2]: Empty}
+print (prepared.get(1)? == Ready)
+let source: Map[Int, Str] = {[1]: "ready", [2]: ""}
+let trusted = source.require(Map[UInt, State])?
+print (trusted.get(1)? == Ready)
+print json.encode(trusted.values())?
+let dynamic: Any = trusted
+match json.encode(dynamic) { Err(_) => print "non-Str JSON keys rejected"; Ok(_) => print "unexpected JSON success" }
+let raw = json.decode("{\"1\":\"ready\"}")?
+match raw.require(Map[UInt, State]) { Err(_) => print "raw keys rejected"; Ok(_) => print "unexpected key conversion" }
+let negative: Map[Int, Str] = {[-1]: "ready"}
+match negative.require(Map[UInt, State]) { Err(failure) => print $failure.message; Ok(_) => print "unexpected UInt success" }
+let invalid: Map[Int, Str] = {[1]: "ready", [2]: "unknown"}
+match invalid.require(Map[Int, State]) { Err(failure) => print $failure.message; Ok(_) => print "unexpected wire success" }
+print (invalid.get(1)? == "ready")
+let flags: Map[Bool, Str] = {[false]: "ready", [true]: ""}
+let converted = flags.require(Map[Bool, State])?
+print (converted.get(false)? == Ready)
+let actual: Any = source
+match actual { _ is Map[UInt, State] => print "unexpected type conversion"; _ => print "actual values checked" }
+""")?
+  test.ok(executed.success, executed.stderr)?
+  test.contains(executed.stdout, "true\ntrue\n[\"ready\",\"\"]\nnon-Str JSON keys rejected\nraw keys rejected\n")?
+  test.contains(executed.stdout, "UInt key")?
+  test.contains(executed.stdout, "unknown wire string")?
+  test.contains(executed.stdout, "$[2]")?
+  test.contains(executed.stdout, "true\ntrue\nactual values checked\n")?
+}

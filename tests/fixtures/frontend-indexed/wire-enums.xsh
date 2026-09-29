@@ -21,3 +21,9 @@ const prepared_wire_state = Ready
 pure wire_prepared() -> Result[Str] {
   return json.encode(prepared_wire_state)
 }
+
+pure wire_typed_map() -> Result[Str] {
+  let source: Map[Int, Str] = {[1]: "ready", [2]: ""}
+  let values = source.require(Map[UInt, WireState])?
+  return json.encode(values.values())
+}

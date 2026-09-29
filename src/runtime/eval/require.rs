@@ -49,7 +49,7 @@ impl PreparedSchema {
         match self {
             Self::WireEnum(mapping) => visit(mapping),
             Self::Record(fields) => fields.iter().all(|(_, schema)| schema.visit_wire_mappings(visit)),
-            Self::List(schema) | Self::Map(schema) | Self::Optional(schema) => schema.visit_wire_mappings(visit),
+            Self::List(schema) | Self::Map(_, schema) | Self::Optional(schema) => schema.visit_wire_mappings(visit),
             Self::Validate(_) => true,
         }
     }
@@ -136,7 +136,13 @@ impl PreparedSchema {
                 };
                 let mut converted = std::collections::BTreeMap::new();
                 for (key, item) in items {
-                    let item_path = match key.as_str() { Some(text) => format!("{path}[{text:?}]"), None => format!("{path}[{key:?}]") };
+                    let item_path = match &key {
+                        crate::map_key::MapKey::Str(text) => format!("{path}[{text:?}]"),
+                        crate::map_key::MapKey::Int(value) => format!("{path}[{value}]"),
+                        crate::map_key::MapKey::Bool(value) => format!("{path}[{value}]"),
+                        crate::map_key::MapKey::Duration(millis) => format!("{path}[{millis}ms]"),
+                        _ => format!("{path}[{key:?}]"),
+                    };
                     if !super::map_key_matches_type(&key, key_type) {
                         return Err(failure(format!("expected {key_type} key at {item_path}")));
                     }

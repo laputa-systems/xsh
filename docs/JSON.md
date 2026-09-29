@@ -50,8 +50,12 @@ JSON encoding and writing use those strings, including inside records and
 collections. Raw decoding still returns strings. Explicit `.require(Packet)`
 converts only enum slots, checks the whole value before returning it, reports
 unknown strings with field and index paths, and never fills missing defaults.
-Type patterns check existing enum values without conversion. Ordinary enums
-remain incompatible with JSON. `tests/xsh/wire-enums.xsh` covers these boundaries.
+Type patterns check existing enum values without conversion. Typed Map values
+retain their declared key domain during conversion, including UInt checks. Raw
+JSON objects can supply Str-keyed maps; numeric or other key domains require
+already typed maps. JSON encoding still rejects non-Str keys, and enums do not
+become a supported key domain. Ordinary enums remain incompatible with JSON.
+`tests/xsh/wire-enums.xsh` covers these boundaries.
 
 ## Do Not Schema Every Temporary Value
 

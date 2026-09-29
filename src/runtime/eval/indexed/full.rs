@@ -9598,7 +9598,7 @@ proc configured() [] -> Int {
                         true
                     }
                     PreparedSchema::Record(fields) => fields.iter_mut().any(|(_, schema)| change_mapping(Arc::make_mut(schema))),
-                    PreparedSchema::List(schema) | PreparedSchema::Map(schema) | PreparedSchema::Optional(schema) => change_mapping(Arc::make_mut(schema)),
+                    PreparedSchema::List(schema) | PreparedSchema::Map(_, schema) | PreparedSchema::Optional(schema) => change_mapping(Arc::make_mut(schema)),
                     PreparedSchema::Validate(_) => false,
                 }
             }
@@ -9620,6 +9620,7 @@ proc configured() [] -> Int {
                 for (name, arguments, expected) in [
                     ("wire_direct", Vec::new(), "\"ready\""),
                     ("wire_prepared", Vec::new(), "\"ready\""),
+                    ("wire_typed_map", Vec::new(), "[\"ready\",\"\"]"),
                     ("wire_round_trip", vec![Value::Str(Arc::from(raw))], "{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}"),
                     ("wire_nested", vec![Value::Str(Arc::from(format!("{{\"packet\":{raw}}}")))], "{\"packet\":{\"optional\":null,\"state\":\"ready\",\"values\":[\"\"]}}"),
                 ] {

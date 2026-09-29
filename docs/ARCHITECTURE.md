@@ -51,7 +51,9 @@ and constructor patterns. Legacy type-union recovery emits
 canonical declaring identity. Indexed tag constructors retain that identity and
 mapping after frontend drop. Explicit require lowers a cached `PreparedSchema`
 walk; both execution routes validate and convert a private value before returning
-it. The verifier checks mapping, schema, and constructor metadata before execution.
+it. Schemas and prepared constants register in the same declaring mapping pool
+as constructors; the verifier rejects independently altered mapping copies and
+checks schema and constructor metadata before execution.
 
 ## Checked key projections
 
