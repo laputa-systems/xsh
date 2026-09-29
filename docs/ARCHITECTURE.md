@@ -582,3 +582,11 @@ verifies nonempty, disjoint static paths. Both execution routes evaluate the
 base and replacements before `lowered_record_update_batch` rebuilds a private
 snapshot. A path trie groups shared ancestors and uses
 `lowered_record_field_mut` for copy on write, preserving untouched storage.
+Local Result capture uses `ArenaExprKind::Capture`, `BuildExprRow::Capture`,
+and verified `FullTag::ExprCapture` instructions. `Checker::begin_error_boundary`
+and `Checker::end_error_boundary` collect errors at the nearest propagation
+boundary. `eval_indexed_error_boundary_block` shares retry's lexical scope
+and defer execution while preserving `StmtFlow::Return`, `Break`, and
+`Continue` separately from `Propagate`. Checked cleanup propagation carries
+an internal origin marker across runtime-error transport; defects and abort
+never acquire that marker.

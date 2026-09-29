@@ -1668,7 +1668,6 @@ impl Checker {
             let previous_errors = self.with_initializer_errors.take();
             let previous_defer = std::mem::replace(&mut self.in_defer_block, true);
             let previous_loop = std::mem::replace(&mut self.loop_depth, 0);
-            let previous_retry = std::mem::replace(&mut self.retry_attempt_depth, 0);
             self.push_scope();
             // Cleanup reads mutable captures later, after current branch refinements may expire.
             let mut captures = FxHashMap::default();
@@ -1703,11 +1702,11 @@ impl Checker {
             self.in_defer_block = previous_defer;
             self.with_initializer_errors = previous_errors;
             self.loop_depth = previous_loop;
-            self.retry_attempt_depth = previous_retry;
             self.expr_types.insert(arena.arena.expr(expr).span, Type::Unit);
             return;
         }
         let ty = self.check_expr_or_run_arena(arena, source, value, None);
+        self.record_statement_error(&ty, span);
         match ty {
             Type::Unit | Type::Status | Type::Unknown => {}
             Type::Result(ok, _) if *ok == Type::Unit => {}

@@ -3742,3 +3742,17 @@ fn error_handler_headers_have_one_authoritative_parameter_range() {
     assert!(!formatted.formatted.contains("else |"));
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
 }
+
+#[test]
+fn try_capture_parser_formatter_preserves_value_body_and_result_tail() {
+    let source = "let value = try {\n  let nested = Ok(7)\n  nested\n}\nlet empty = try {}\nlet fields = {try: 7}\nrun printf try\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert!(parsed.arena.arena.expr_tags.iter().any(|tag| matches!(tag, xsh::frontend::syntax::arena::ArenaExprTag::Capture)));
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    let second = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(second.formatted, formatted.formatted);
+    let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &formatted.formatted);
+    assert!(reparsed.diagnostics.is_empty(), "{:?}", reparsed.diagnostics);
+}

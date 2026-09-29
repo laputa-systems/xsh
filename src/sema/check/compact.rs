@@ -860,7 +860,7 @@ impl CompactBodyProbe<'_> {
                 self.output.supported_statements += 1;
                 self.output.bindings += 1;
                 let expected = ty.map(|ty| self.type_from_arena(ty));
-                let actual = self.check_compact_expr_or_run(initializer);
+                let actual = match initializer { ArenaExprOrRun::Expr(expr) => self.check_compact_expr_expected(expr, expected.as_ref()), _ => self.check_compact_expr_or_run(initializer) };
                 let (ok, error) = match actual { Type::Result(ok, error) => (*ok, *error), other => (other, Type::Error) };
                 self.check_compact_error_handler(else_block, error);
                 self.define_binding_target(target, expected.unwrap_or(ok), false);
@@ -998,12 +998,16 @@ impl CompactBodyProbe<'_> {
     }
 
     fn check_compact_expr_expected(&mut self, id: ExprId, expected: Option<&Type>) -> Type {
-        let actual = self.check_compact_expr(id);
+        let actual = self.check_compact_expr_inner(id, expected);
         if let Some(expected) = expected { self.apply_compact_expected(id, expected); }
         self.output.expr_types.get(&id).cloned().unwrap_or(actual)
     }
 
     fn check_compact_expr(&mut self, id: ExprId) -> Type {
+        self.check_compact_expr_expected(id, None)
+    }
+
+    fn check_compact_expr_inner(&mut self, id: ExprId, expected: Option<&Type>) -> Type {
         self.output.expressions += 1;
         let ty = match self.program.arena.expr(id).kind {
             ArenaExprKind::Null => Type::Null,
@@ -1135,8 +1139,16 @@ impl CompactBodyProbe<'_> {
             ArenaExprKind::Capture(block) => {
                 self.push_scope();
                 self.check_compact_block_in_current_scope(block);
-                let ty = self.compact_block_tail_type(block);
-                self.mark_tail_position(block, true);
+                let mut ty = self.compact_block_tail_type(block);
+                if let Some(Type::Result(ok, _)) = expected {
+                    if ok.as_ref() == &Type::Unit {
+                        ty = Type::Unit;
+                        self.mark_tail_position(block, false);
+                        if let Some(tail) = self.program.arena.stmt_ids(self.program.arena.block(block).statements).last() {
+                            self.output.statement_positions.insert(tail, super::StatementPosition::Statement);
+                        }
+                    } else { self.mark_tail_position(block, true); }
+                } else { self.mark_tail_position(block, true); }
                 self.pop_scope();
                 Type::Result(Box::new(ty), Box::new(Type::Error))
             }

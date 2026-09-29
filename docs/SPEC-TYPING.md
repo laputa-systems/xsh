@@ -365,3 +365,12 @@ Unit value. Ordinary branch scopes apply the same null refinements in expression
 and statement syntax. Result success wrapping remains at the function boundary.
 `tests/xsh/value-blocks.xsh` covers branch values, Bool contexts, records, and
 lexical control transfer.
+
+### Local Result boundary inference
+
+`try` checks its value block against the expected Result success type and
+collects propagation errors at that boundary, separately from lexical returns.
+An inferred Result tail remains nested data; only propagation contributes its
+error family to the captured Result. A Unit success annotation consumes the
+tail as a statement, preserving Bool assertions and Result[Unit] propagation.
+Underconstrained error-only blocks require a success annotation.

@@ -129,7 +129,7 @@ pub const EFFECT_REFERENCES: &[EffectReference] = &[
     },
     EffectReference {
         name: "error",
-        covers: &["? propagation outside retry attempt blocks"],
+        covers: &["? propagation outside try/retry blocks"],
     },
 ];
 
@@ -222,6 +222,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "pattern-tests",
     "pattern-conditionals",
     "boolean-guards",
+    "try",
     "postfix-question",
     "optional-postfix",
     "fallback",
@@ -408,7 +409,7 @@ fn effect_doc(name: &str) -> ReferenceDoc {
         ),
         "error" => reference_doc(
             "Declares explicit error propagation with postfix ?.",
-            "The error effect is required when ? can propagate outside a retry attempt block; it does not describe a host capability.",
+            "The error effect is required when ? can propagate outside a try/retry block; it does not describe a host capability.",
             &["effect", "error", "propagation"],
         ),
         _ => panic!("missing effect documentation for {name}"),
@@ -825,9 +826,13 @@ fn core_doc(item: &str) -> ReferenceDoc {
             "Defines Result values and error families.",
             "Expected host failures remain Result data until ? or another explicit boundary propagates them.",
         ),
+        "try" => (
+            "Captures local Result propagation in a value block.",
+            "try executes once and wraps normal completion in Ok. Result tails remain nested data unless explicitly propagated. The nearest region captures question propagation and assertions after cleanup; lexical return and loop transfers retain their destinations. An expected Unit success consumes assertions as statements. Local capture requires host effects but no error effect solely for caught propagation, and emits no retry attempts.",
+        ),
         "postfix-question" => (
             "Defines postfix ? error propagation.",
-            "? unwraps a Result or returns its error and requires the declared error effect outside retry attempt blocks.",
+            "? unwraps a Result or returns its error and requires the declared error effect outside try/retry blocks.",
         ),
         "optional-postfix" => (
             "Guards Optional field, method, index, and slice operations.",

@@ -7134,7 +7134,11 @@ impl Evaluator {
             (ControlFlow::Continue(value) | ControlFlow::Break(value), None) => value,
         };
         match value {
-            LoweredValue::ResultErr(error) => Err(runtime_error_from_value(*error, span)),
+            LoweredValue::ResultErr(error) => {
+                let mut error = runtime_error_from_value(*error, span);
+                error.propagated = true;
+                Err(error)
+            },
             LoweredValue::ResultOk(_) | LoweredValue::Unit | LoweredValue::Status(_) => Ok(()),
             _ => Err(RuntimeError::new("defer-type", "deferred cleanup must produce Unit").with_span(span)),
         }
@@ -7196,7 +7200,8 @@ impl Evaluator {
         slots: &mut [LoweredValue], span: Span,
     ) -> Result<StmtFlow, RuntimeError> {
         match self.eval_indexed_statement_block(execution, block, header, slots, span) {
-            Err(error) if error.abort.is_none() && error.kind == "assertion-failed" => {
+            Err(mut error) if error.abort.is_none() && (error.propagated || error.kind == "assertion-failed") => {
+                error.propagated = false;
                 Ok(StmtFlow::Propagate(LoweredValue::ResultErr(Box::new(Value::Error(Box::new(error))))))
             }
             result => result,

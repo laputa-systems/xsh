@@ -559,6 +559,7 @@ stack boundaries.
 | embedded standard-module linkage and copied checker/runner binaries | `tests/stdlib_port.rs`, `tests/runtime/run.rs::copied_products_check_and_run_script_backed_calls_in_static_and_loaded_modules` |
 | OS-facing runtime behavior | `tests/xsh/stdlib/unix.xsh`, `tests/runtime/os.rs`, `tests/runtime/unix.rs`, `tests/runtime/linux.rs` |
 | `run_capture`, `spawn_managed`, and process execution | `tests/xsh/run.xsh`, `tests/xsh/stdlib/process.xsh`, `tests/runtime/process.rs`, `tests/runtime/run.rs` |
+| local Result capture, nested Result data, lexical exits, assertion and cleanup failures | `tests/xsh/try-capture.xsh` |
 | retry blocks | `tests/xsh/retry.xsh` |
 | stack depth and explicit lowered frames | `tests/runtime/stack_depth.rs` |
 | structured stream behavior | `tests/xsh/stdlib/streams.xsh` |

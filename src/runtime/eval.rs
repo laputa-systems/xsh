@@ -5801,6 +5801,7 @@ fn runtime_error_from_value(value: Value, span: Span) -> RuntimeError {
                 span: error.span.or(Some(span)),
                 contexts: error.contexts,
                 abort: None,
+                propagated: false,
                 family_name: Name::PROCESS_ERROR,
                 variant_name,
                 _symbols: symbols,

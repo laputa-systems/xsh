@@ -266,7 +266,7 @@ Reserved keywords:
 
 ```text
 and break continue defer else false for if in let match not null or proc pure
-retry return run spawn stream true type use var wait while yield
+retry return run spawn stream true try type use var wait while yield
 ```
 
 `not` is reserved only as part of the binary `not in` operator. Unary negation
@@ -865,13 +865,14 @@ arg_list     = arg ("," arg)* ","? ;
 arg          = expr | named_arg ;
 named_arg    = FIELD_LABEL ":" expr | IDENT ":" ;
 primary      = literal | IDENT | list_lit | record_lit | map_comp | if_expr | match_expr
-             | retry_expr | run_form | spawn_form | wait_form | "(" expr ")" ;
+             | capture_expr | retry_expr | run_form | spawn_form | wait_form | "(" expr ")" ;
 spawn_form   = "spawn" (run_form | expr) ;
 wait_form    = "wait" expr ;
 if_expr      = "if" condition "{" expr "}" ("else" "if" condition "{" expr "}")*
                "else" "{" expr "}" ;
 match_expr   = "match" expr "{" match_expr_arm* "}" ;
 match_expr_arm = pattern guard? "=>" expr ","? ;
+capture_expr = "try" block ;
 retry_expr   = "retry" "[" (expr ("," expr)* ","?)? "]" block ;
 ```
 
@@ -1123,6 +1124,33 @@ past the end is an error, whereas bracket slicing normalizes those bounds.
 constant suffixes; uncertain offsets, count arithmetic, effectful counts, and
 comments inside a call retain the method with an explanation. No fix introduces
 an addition that could overflow or changes a count into an end bound.
+
+### Local Result Capture
+
+`try { ... }` executes a value block once and produces `Result[T, E]`.
+Normal completion wraps the outgoing value in `Ok`; a Result tail is data,
+so `try { operation() }` retains a nested Result, while `try { operation()? }`
+propagates one layer into the local boundary. Empty bodies produce `Ok(Unit)`.
+An inferred Bool tail remains a value, including false; non-tail Bool statements
+and tails checked against Unit remain assertions. Non-tail Result[Unit]
+statements retain their ordinary automatic propagation.
+
+Explicit `?`, statement propagation, assertion failures, and plain-run failure
+are captured by the nearest try/retry boundary. Ordinary return, break, and
+continue keep their lexical destinations. In particular, `return Err(error)`
+leaves the enclosing function while `Err(error)?` targets the local boundary.
+Abort, cancellation transfers, checker failures, and evaluator defects are
+outside capture. Errors describing canceled operations remain ordinary data.
+
+The outgoing value is evaluated before the region's defers. Cleanup runs once
+before exposing the Result; a failed cleanup becomes Err when no primary failure
+exists, and an existing primary failure wins. Host effects remain required;
+locally caught propagation alone needs no outer error effect. Applying `?` to
+the resulting Result requires the usual outer error contract. Success and error
+types use annotation context and compatible nominal error families, with Error
+as the default when no narrower family is established. Error-only blocks with
+an unconstrained success type need a Result annotation. Capture emits no retry
+attempt metadata and performs no sleep.
 
 ### Retry Blocks
 

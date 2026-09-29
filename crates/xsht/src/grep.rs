@@ -188,6 +188,22 @@ fn match_expr_structural(
             *bindings = candidate;
             true
         }
+        (ArenaExprKind::Capture(pb), ArenaExprKind::Capture(tb)) => {
+            let ps = p.stmt_ids(p.block(*pb).statements).collect::<Vec<_>>();
+            let ts = t.stmt_ids(t.block(*tb).statements).collect::<Vec<_>>();
+            if ps.len() != ts.len() || !p.block(*pb).params.is_empty() || !t.block(*tb).params.is_empty() { return false; }
+            let mut candidate = bindings.clone();
+            for (ps, ts) in ps.into_iter().zip(ts) {
+                match (p.stmt(ps).kind, t.stmt(ts).kind) {
+                    (xsh::frontend::syntax::arena::ArenaStmtKind::Expr(pe), xsh::frontend::syntax::arena::ArenaStmtKind::Expr(te)) => {
+                        if !match_expr(p, pe, t, te, source, &mut candidate) { return false; }
+                    }
+                    _ => return false,
+                }
+            }
+            *bindings = candidate;
+            true
+        }
         (ArenaExprKind::Try(pe), ArenaExprKind::Try(te)) => {
             match_expr(p, *pe, t, *te, source, bindings)
         }
