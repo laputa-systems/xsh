@@ -3173,6 +3173,14 @@ Opaque records, optional fields, callable strings, dynamic values, source paths,
 conversions, and comments require manual review. Preserve distinct error kinds
 or source context with explicit error translation or context at that boundary.
 
+`lint.removed-record-require` can combine the exact identity edit with recognized
+syntax migrations across imports. The entire rewritten graph must parse and
+check before any source is written. Other checker failures still block the
+migration, including field access on an untyped removed-call result; those
+consumers need manual repair. Syntax/API repair precedes ordinary lint rewriting:
+a following pass can remove redundant validation or normalize layout after the
+source becomes valid.
+
 Record values also expose `.has(field: Str)`, `.get(field: Str) ->
 Result[Any]`, and `.keys()`. A literal or prepared constant Str key selecting a
 visible checked field preserves that field's type: `.get(key)` returns

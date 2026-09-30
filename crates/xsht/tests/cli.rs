@@ -9,7 +9,95 @@ use tempfile::TempDir;
 static SIGNAL_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
-fn removed_record_require_cli_fix_rechecks_and_converges() {
+fn mixed_enum_and_record_require_migration_rechecks_import_graph_and_converges_in_stages() {
+    let root = TempDir::new().expect("mixed migration fixture");
+    let entry = root.path().join("entry.xsh");
+    let module = root.path().join("choice.xsh");
+    fs::write(&module, "##! Choices.\n## A nominal choice.\nexport type Choice = Selected(Int) | Empty # retained café\n").unwrap();
+    fs::write(&entry, "use choice as c\n## A name.\nexport type Name = {name: Str}\nlet _ = record.require({name: \"café\"}, {name: \"Str\"})? # retained receiver\nlet choice: c.Choice = c.Selected(7)\nprint \"café\"\nmatch choice { c.Selected(number) => print $number; c.Empty => print \"empty\" }\n").unwrap();
+    let run = |arguments: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(arguments).current_dir(root.path()).output().unwrap();
+    let before = run(&["check", "entry.xsh"]);
+    assert!(!before.status.success());
+    let first = run(&["lint", "--fix", "entry.xsh"]);
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    let fixed_entry = fs::read_to_string(&entry).unwrap();
+    let fixed_module = fs::read_to_string(&module).unwrap();
+    assert!(fixed_entry.contains("({name: \"café\"}).require(Name)? # retained receiver"), "{fixed_entry}");
+    assert!(fixed_module.contains("export enum Choice {"), "{fixed_module}");
+    assert!(fixed_module.contains("# retained café"), "{fixed_module}");
+    let checked = run(&["check", "entry.xsh"]);
+    assert!(checked.status.success(), "{}", String::from_utf8_lossy(&checked.stderr));
+    let executed = run(&["trace", "entry.xsh"]);
+    assert!(executed.status.success(), "{}", String::from_utf8_lossy(&executed.stderr));
+    assert_eq!(String::from_utf8_lossy(&executed.stdout), "café\n7\n");
+    // Exact syntax/API repair makes ordinary lints available on the next pass;
+    // they can then remove identity schema validation and normalize layout.
+    let second = run(&["lint", "--fix", "entry.xsh"]);
+    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    let canonical_entry = fs::read_to_string(&entry).unwrap();
+    let canonical_module = fs::read_to_string(&module).unwrap();
+    assert!(canonical_entry.contains("# retained receiver"), "{canonical_entry}");
+    assert!(canonical_module.contains("# retained café"), "{canonical_module}");
+    let after = run(&["trace", "entry.xsh"]);
+    assert!(after.status.success(), "{}", String::from_utf8_lossy(&after.stderr));
+    assert_eq!(executed.stdout, after.stdout);
+    let third = run(&["lint", "--fix", "entry.xsh"]);
+    assert!(third.status.success(), "{}", String::from_utf8_lossy(&third.stderr));
+    assert_eq!(canonical_entry, fs::read_to_string(&entry).unwrap());
+    assert_eq!(canonical_module, fs::read_to_string(&module).unwrap());
+}
+
+#[test]
+fn mixed_enum_and_record_require_migration_refuses_unproved_identity() {
+    let root = TempDir::new().expect("unproved mixed migration fixture");
+    let entry = root.path().join("entry.xsh");
+    let module = root.path().join("choice.xsh");
+    let module_source = "##! Choices.\n## A nominal choice.\nexport type Choice = Selected(Int) | Empty\n";
+    let entry_source = "use choice as c\ntype Name = {name: Str}\nlet _ = record.require({name: 7}, {name: \"Str\"})?\nlet choice: c.Choice = c.Selected(7)\n";
+    fs::write(&entry, entry_source).unwrap();
+    fs::write(&module, module_source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["lint", "--fix", "entry.xsh"]).current_dir(root.path()).output().unwrap();
+    assert!(!output.status.success());
+    let diagnostic_text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    assert!(diagnostic_text.contains("lint.removed-record-require"), "{diagnostic_text}");
+    assert_eq!(entry_source, fs::read_to_string(&entry).unwrap());
+    assert_eq!(module_source, fs::read_to_string(&module).unwrap());
+}
+
+#[test]
+fn mixed_enum_and_record_require_migration_refuses_unrelated_import_graph_errors() {
+    for (broken_module, consumed_result) in [(false, false), (true, false), (false, true)] {
+        let root = TempDir::new().expect("rejected mixed migration fixture");
+        let entry = root.path().join("entry.xsh");
+        let module = root.path().join("choice.xsh");
+        let mut module_source = "##! Choices.\n## A nominal choice.\nexport type Choice = Selected(Int) | Empty # retained café\n".to_string();
+        let mut entry_source = "use choice as c\ntype Name = {name: Str}\nlet _ = record.require({name: \"café\"}, {name: \"Str\"})?\nlet choice: c.Choice = c.Selected(7)\nprint \"café\"\n".to_string();
+        let expected_code = if consumed_result {
+            // A removed API has no executable result type. Its consumer errors
+            // remain checker failures, even when the call has an identity fix.
+            entry_source = entry_source.replace("let _ =", "let value =");
+            entry_source.push_str("print $value.name\n");
+            "check.field-access"
+        } else {
+            if broken_module { module_source.push_str("let broken: Int = \"wrong\"\n"); }
+            else { entry_source.push_str("let broken: Int = \"wrong\"\n"); }
+            "check.type-mismatch"
+        };
+        fs::write(&entry, &entry_source).unwrap();
+        fs::write(&module, &module_source).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+            .args(["lint", "--fix", "entry.xsh"]).current_dir(root.path()).output().unwrap();
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains(expected_code), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(entry_source, fs::read_to_string(&entry).unwrap());
+        assert_eq!(module_source, fs::read_to_string(&module).unwrap());
+    }
+}
+
+#[test]
+fn removed_record_require_cli_fix_rechecks_and_converges_in_stages() {
     let root = TempDir::new().expect("record migration fixture");
     let entry = root.path().join("entry.xsh");
     fs::write(&entry, "export type Name = {name: Str}\nconst required = {name: \"Str\"}\nlet value = record.require({name: \"café\", extra: 7}, required)?\nprint $value.name\n").unwrap();
@@ -25,11 +113,17 @@ fn removed_record_require_cli_fix_rechecks_and_converges() {
     assert!(fixed.contains("café") || fixed.contains("caf\\u{e9}"));
     let after = run(&["check", "entry.xsh"]);
     assert!(after.status.success(), "{}", String::from_utf8_lossy(&after.stderr));
+    let before_ordinary_fixes = run(&["trace", "entry.xsh"]);
+    assert!(before_ordinary_fixes.status.success(), "{}", String::from_utf8_lossy(&before_ordinary_fixes.stderr));
     let second = run(&["lint", "--fix", "entry.xsh"]);
     assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
-    assert_eq!(fixed, fs::read_to_string(&entry).unwrap());
+    let canonical = fs::read_to_string(&entry).unwrap();
+    let third = run(&["lint", "--fix", "entry.xsh"]);
+    assert!(third.status.success(), "{}", String::from_utf8_lossy(&third.stderr));
+    assert_eq!(canonical, fs::read_to_string(&entry).unwrap());
     let executed = run(&["trace", "entry.xsh"]);
     assert!(executed.status.success(), "{}", String::from_utf8_lossy(&executed.stderr));
+    assert_eq!(before_ordinary_fixes.stdout, executed.stdout);
     assert!(String::from_utf8_lossy(&executed.stdout).contains("café"));
 }
 

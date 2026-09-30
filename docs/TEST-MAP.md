@@ -939,3 +939,9 @@ unconsumed producers and eager supplied arguments. Focused host
 checks use `cargo test --test integration default_parameter` and
 `cargo test -p xsht --test integration default_parameter`; broaden to syntax,
 checker, lint acceptance tests and indexed verifier tests after those pass.
+
+Mixed enum and removed-record migrations across imports are covered by
+`cargo test -p xsht --test integration cli::mixed_enum_and_record_require`.
+The isolated CLI fixtures pin normal graph rechecking, exact comment and Unicode
+retention, execution after repair, staged convergence, and refusal without partial writes
+for unrelated errors in the entry, an import, or a removed-result consumer.

@@ -15,6 +15,7 @@ pub(crate) fn migration_lint_code(code: Option<&str>) -> Option<&'static str> {
         Some("parse.block-header-migration") => Some("lint.block-header"),
         Some("parse.stream-option-migration") => Some("lint.stream-options"),
         Some("parse.enum-migration") => Some("lint.enum-declaration"),
+        Some("check.removed-record-require") => Some("lint.removed-record-require"),
         Some("parse.compatibility-vocabulary" | "check.compatibility-vocabulary") => Some("lint.compatibility-vocabulary"),
         Some("parse.env-scope-migration") => Some("lint.env-scope"),
         _ => None,
