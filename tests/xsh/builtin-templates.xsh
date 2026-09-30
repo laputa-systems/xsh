@@ -159,8 +159,8 @@ test test_builtin_templates_do_not_certify_dynamic_receiver_domains [fs, process
     r"""let values: Map[Str, Any] = {one: 1}; let selected: Result[Int] = values.get("one")""",
   ] {
     let candidate = test.temp_file(ctx, name: "dynamic-receiver.xsh", contents: bytes.from_text(source))?
-    let output = run.capture --text "xsht" check --strict $candidate ?
+    let output = run.capture --text "xsht" check $candidate ?
     test.ok(!output.status.exited_with(0), source)?
-    test.contains(output.stderr, "check.strict-any", output.stderr)?
+    test.contains(output.stderr, "check.dynamic-boundary", output.stderr)?
   }
 }
