@@ -4133,6 +4133,16 @@ item is pulled. `reduce-by` likewise requires its callback's direct `{key,
 value}` record; a fallible projection must use `?` explicitly.
 Use `each` when no accumulated value is needed.
 
+`where`, `any`, and `all` require a direct Bool callback result. `sort-by`
+requires a direct sortable key, and keyed `count` requires Str, Int, or Bool;
+Result wrappers require explicit `?` in these callbacks. Dynamic `Any` keys
+retain runtime validation. `map` and `par-map` preserve complete callback
+values, including Result and nominal error payloads. `group-by` and
+`unique-by` compare complete key values, including Result values, as data;
+a grouped record's `key` field retains that complete checked type.
+`flat-map` retains its collection boundary: a Result containing a List or
+Stream is unwrapped, and `Err` fails the stage before another expansion.
+
 `map`, `where`, `flat-map`, `each`, `tee`, `sort-by`, `group-by`,
 `unique-by`, `any`, and `all` also accept a statically resolved named
 callable: `map(normalize_name)`, `where(block: is_valid)`, or

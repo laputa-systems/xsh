@@ -118,8 +118,7 @@ impl Checker {
             StreamStageKind::Where => {
                 self.check_stage_no_args_arena(arena, stage);
                 let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                let predicate_ty = result_ok_or_self(&actual);
-                self.expect_type(&Type::Bool, &predicate_ty, stage_span);
+                self.expect_type(&Type::Bool, &actual, stage_span);
                 Type::Stream(Box::new(item_ty))
             }
             StreamStageKind::Map => {
@@ -134,7 +133,7 @@ impl Checker {
             StreamStageKind::ParMap => {
                 self.check_stage_no_args_arena(arena, stage);
                 let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                let output_ty = result_ok_or_self(&actual);
+                let output_ty = actual;
                 if output_ty == Type::Unit {
                     self.error(
                         stage_span,
@@ -185,7 +184,6 @@ impl Checker {
             StreamStageKind::SortBy => {
                 self.check_stage_no_args_arena(arena, stage);
                 let key_ty = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
-                let key_ty = result_ok_or_self(&key_ty);
                 if !is_sortable_key_type(&key_ty) {
                     self.error(
                         stage_span,
@@ -281,9 +279,7 @@ impl Checker {
             }
             StreamStageKind::GroupBy => {
                 self.check_stage_no_args_arena(arena, stage);
-                let key_ty = result_ok_or_self(
-                    &self.check_required_stream_block_arena(arena, source, stage, &item_ty),
-                );
+                let key_ty = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 Type::Stream(Box::new(Type::Record(btree_map(vec![
                     ("key".to_string(), key_ty),
                     ("items".to_string(), Type::List(Box::new(item_ty))),
@@ -320,9 +316,7 @@ impl Checker {
             }
             StreamStageKind::Any | StreamStageKind::All => {
                 self.check_stage_no_args_arena(arena, stage);
-                let actual = result_ok_or_self(
-                    &self.check_required_stream_block_arena(arena, source, stage, &item_ty),
-                );
+                let actual = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
                 self.expect_type(&Type::Bool, &actual, stage_span);
                 Type::Bool
             }
@@ -350,9 +344,10 @@ impl Checker {
                     self.error(stage_span, "count does not accept arguments", "check.arity");
                 }
                 if stage.block.is_some() {
-                    let _key_ty = result_ok_or_self(
-                        &self.check_required_stream_block_arena(arena, source, stage, &item_ty),
-                    );
+                    let key_ty = self.check_required_stream_block_arena(arena, source, stage, &item_ty);
+                    if !matches!(key_ty, Type::Str | Type::Int | Type::UInt | Type::Bool | Type::Any | Type::Unknown | Type::Invalid) {
+                        self.error(stage_span, "count keys must be Str, Int, or Bool", "check.stream-count-key");
+                    }
                     Type::Map(Box::new(Type::Str), Box::new(Type::Int))
                 } else {
                     Type::Int

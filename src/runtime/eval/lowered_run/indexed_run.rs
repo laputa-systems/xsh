@@ -493,6 +493,7 @@ impl Evaluator {
         ControlFlow::Break(value)
     }
 
+    /// Returned Result values stay in-band; only explicit propagation escapes.
     fn eval_indexed_par_map_item(
         &mut self,
         execution: &FullExecution<'_>,
@@ -523,18 +524,14 @@ impl Evaluator {
         };
         if let Some(flow) = self.pending_value_block_flow.take() {
             if let StmtFlow::Propagate(LoweredValue::ResultErr(error)) = flow {
-                return Err(runtime_error_from_value(*error, span));
+                let mut error = runtime_error_from_value(*error, span);
+                error.propagated = true;
+                return Err(error);
             }
             self.pending_value_block_flow = Some(flow);
             return Ok(item_result);
         }
-        Ok(match item_result {
-            LoweredValue::ResultOk(value) => *value,
-            LoweredValue::ResultErr(error) => {
-                return Err(runtime_error_from_value(*error, span));
-            }
-            value => value,
-        })
+        Ok(item_result)
     }
 
     fn eval_indexed_par_map_parallel(

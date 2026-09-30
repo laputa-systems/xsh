@@ -4432,3 +4432,63 @@ fn fold_complete_accumulator_contracts_match_full_and_compact_facts() {
         assert_eq!(pipelines, 1);
     }
 }
+
+#[test]
+fn stream_callback_result_contracts_publish_matching_full_and_compact_types() {
+    use xsh::frontend::check::Type;
+    use xsh::frontend::symbols::Name;
+    use xsh::frontend::syntax::arena::ArenaExprKind;
+    for stage in [
+        "map { |item| produce(item) }",
+        "par-map(jobs: 2) { |item| produce(item) }",
+        "where { |item| Ok(item > 0)? }",
+        "any { |item| Ok(item > 0)? }",
+        "all { |item| Ok(item > 0)? }",
+        "count { |item| Ok(item)? }",
+        "sort-by { |item| Ok(item)? }",
+        "group-by { |item| produce(item) }",
+        "unique-by { |item| produce(item) }",
+        "flat-map { |item| Ok([item]) }",
+    ] {
+        let source = format!("error ItemError = Stop(item: Int)\npure produce(item: Int) -> Result[Int, ItemError] {{ if item == 2 {{ Err(ItemError.Stop(item)) }} else {{ item }} }}\nlet values = [1, 2, 3] |> {stage}\n");
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, &source);
+        assert!(checked.diagnostics.is_empty(), "{stage}: {:?}", checked.diagnostics);
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        assert_eq!(checked.stream_stage_types.len(), declarations.stream_stage_types.len());
+        for (key, fact) in &checked.stream_stage_types {
+            let compact_fact = declarations.stream_stage_types.get(key).expect("checked stage retained");
+            assert_eq!(fact.input, compact_fact.input);
+            assert_eq!(fact.output, compact_fact.output);
+        }
+        let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        assert!(compact.diagnostics.is_empty(), "{stage}: {:?}", compact.diagnostics);
+        parsed.arena.symbol_owner().with_current(|| {
+            let payload = Type::Result(Box::new(Type::Int), Box::new(Type::ErrorFamily(Name::intern("ItemError"))));
+            let expected = if stage.starts_with("map ") || stage.starts_with("par-map") {
+                Type::List(Box::new(payload))
+            } else if stage.starts_with("any ") || stage.starts_with("all ") {
+                Type::Bool
+            } else if stage.starts_with("count ") {
+                Type::Map(Box::new(Type::Str), Box::new(Type::Int))
+            } else if stage.starts_with("group-by ") {
+                Type::List(Box::new(Type::Record(std::collections::BTreeMap::from([
+                    (Name::intern("key"), payload),
+                    (Name::intern("items"), Type::List(Box::new(Type::Int))),
+                ]))))
+            } else { Type::List(Box::new(Type::Int)) };
+            let mut pipelines = 0;
+            for (id, actual) in &compact.expr_types {
+                let expression = parsed.arena.arena.expr(*id);
+                if matches!(expression.kind, ArenaExprKind::StructuredPipeline { .. }) {
+                    assert_eq!(actual, &expected, "{stage}");
+                    assert_eq!(checked.expr_types.get(&expression.span), Some(actual));
+                    assert!(!actual.contains_inference());
+                    pipelines += 1;
+                }
+            }
+            assert_eq!(pipelines, 1, "{stage}");
+        });
+    }
+}

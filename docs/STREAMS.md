@@ -51,7 +51,13 @@ identity; erased callable values and bound methods require explicit blocks.
 `stage_accepts_callable` owns the supported body roles, while
 `stage_parameters` continues to own fixed configuration.
 
-Result-valued `map` calls stay in-band, and Bool predicates stay data.
+Result-valued `map` and `par-map` calls stay in-band. `where`, `any`, and
+`all` require direct Bool values; `sort-by` requires a direct sortable key,
+and keyed `count` requires Str, Int, or Bool. Use explicit `?` to propagate a
+fallible predicate or key. `group-by` and `unique-by` retain complete key
+values, including Result data, for equality; grouped key fields retain the
+same checked type. `flat-map` retains its existing collection boundary: it
+unwraps a Result containing a List or Stream and fails on `Err`.
 `each`/`tee` retain their automatic Unit propagation. `lint.stage-callable`
 only replaces an exact checked `f(item)` wrapper; `f(item)?`, additional
 arguments or statements, and comments retain their explicit blocks.
