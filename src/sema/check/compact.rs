@@ -1009,7 +1009,8 @@ impl CompactBodyProbe<'_> {
                         ArenaExprOrRun::Expr(expr) => {
                             let previous = self.expected_schema.clone();
                             self.expected_schema = self.return_schemas.last().cloned().flatten();
-                            let explicit_result = matches!(self.program.arena.expr(expr).kind, ArenaExprKind::Call { callee, .. } if matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Ok" || name == "Err"));
+                            let explicit_result = matches!(self.program.arena.expr(expr).kind, ArenaExprKind::Capture(_))
+                                || matches!(self.program.arena.expr(expr).kind, ArenaExprKind::Call { callee, .. } if matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Ok" || name == "Err"));
                             let context = expected.as_ref().map(|ty| if explicit_result { ty } else { ty.result_ok().unwrap_or(ty) });
                             if !explicit_result && expected.as_ref().is_some_and(Type::is_result) { self.expected_schema = self.expected_schema.as_ref().and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Success)).cloned(); }
                             self.check_compact_expr_expected(expr, context);

@@ -1425,6 +1425,8 @@ propagates one layer into the local boundary. Empty bodies produce `Ok(Unit)`.
 An inferred Bool tail remains a value, including false; non-tail Bool statements
 and tails checked against Unit remain assertions. Non-tail Result[Unit]
 statements retain their ordinary automatic propagation.
+The declared Result return type supplies this context for both a function tail
+and an explicit `return try { ... }`.
 
 Explicit `?`, statement propagation, assertion failures, and plain-run failure
 are captured by the nearest try/retry boundary. Ordinary return, break, and

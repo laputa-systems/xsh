@@ -296,12 +296,18 @@ test test_try_explicit_return_uses_result_annotation [error] { |ctx|
   let output = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
 proc assertion() [] -> Result[Unit] { return try { false } }
+proc success() [] -> Result[Unit] { return try { true } }
+proc predicate() [] -> Result[Bool] { return try { false } }
+proc nested() [] -> Result[Result[Unit]] { return try { Ok() } }
 proc failure() [] -> Result[Int, LocalError] {
   return try { Err(LocalError.Failed(message: "captured"))? }
 }
 print (assertion() is Err(_))
 print (failure() is Err(LocalError.Failed))
+print (success() is Ok(_))
+print (predicate() is Ok(false))
+print (nested() is Ok(Ok(_)))
 """)?
   test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "true\ntrue\n")?
+  test.eq(output.stdout, "true\ntrue\ntrue\ntrue\ntrue\n")?
 }
