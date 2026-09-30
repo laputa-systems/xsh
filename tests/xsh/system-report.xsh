@@ -3215,6 +3215,15 @@ test test_system_report_command_replays_saved_json_offline [fs, process, error] 
   test.contains(help, "--section NAME")?
 }
 
+test test_system_report_command_usage_retains_invalid_section_cause [process, error] { |ctx|
+  let outcome = run.capture --text --accept=[3] ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --section hardware ?
+  test.ok(outcome.status.exited_with(3))?
+  test.eq(outcome.stdout, "")?
+  test.contains(outcome.stderr, "error: SystemReportCliError.Usage:")?
+  test.contains(outcome.stderr, "caused by: SystemReportError.InvalidSection:")?
+  test.eq(outcome.stderr.split("unknown report section 'hardware'").len(), 3)?
+}
+
 test test_system_report_command_rejects_malformed_replay [fs, process, error] { |ctx|
   let report_path = test.temp_file(ctx, name: "system-report-invalid.json", contents: b"{invalid")?
   let stderr = test.temp_path(ctx, name: "system-report-invalid.stderr")

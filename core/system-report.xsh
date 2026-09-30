@@ -58,7 +58,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] {
   if options.section != "" {
     match system_report.parse_report_section(options.section) {
       Ok(_) => {}
-      Err(error) => return Err(SystemReportCliError.Usage(error.message))
+      Err(error) => return Err(SystemReportCliError.Usage(error.message), cause: error)
     }
   }
 
