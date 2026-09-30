@@ -604,7 +604,10 @@ difference.
 `Value`; attachment copies only the outer metadata and replaces its immediate
 cause. Link destruction consumes uniquely owned suffixes iteratively. Payload
 fields, nominal matching, Result typing, and internal abort transfers remain
-separate from this metadata.
+separate from this metadata. `Value::resource_reachable_values` in
+`src/runtime/value/resource_values.rs` borrows ordinary containers, error payloads,
+and typed causes iteratively, visiting shared descendants once. Owned host
+resource transfers use this complete traversal rather than diagnostic depth limits.
 
 `TraceError::from_value` snapshots causes into a flat bounded sequence of
 `TraceErrorDetail` values in `src/trace/error_causes.rs`. Rendering never walks an

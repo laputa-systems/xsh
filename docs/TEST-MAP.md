@@ -191,6 +191,7 @@ after the shell terminated it.
 
 | Change | Narrow command | Broader gate |
 |---|---|---|
+| Error payload/cause ownership transfers and long shared resource reachability | `target/debug/xsht test --jobs 1 tests/xsh/error-resource-ownership.xsh` and `cargo test -p xsh --lib resource_reachable_values -j1 -- --test-threads=1` | Rebuild exact debug xsh/xsht binaries; `tests/xsh/stdlib/process.xsh` and `tests/xsh/typed-causes.xsh` |
 | Typed causes, outer Result error inference, immutable aliases, context/process metadata, bounded diagnostics, and constructor frames | `target/debug/xsht test --jobs 1 tests/xsh/typed-causes.xsh` and `cargo test -p xsh --lib typed_cause -- --test-threads=1` | Syntax/checker gates, indexed verifier tests, `cargo test -p xsht --test integration typed_cause`; rebuild the exact debug xsh/xsht binaries before native tests |
 | Rust compile only | `cargo build` | relevant filtered package tests; unfiltered `cargo test` is owner-run |
 | `Lexer::lex_compact`, `Parser::parse_source_arena_only`, or formatter | targeted `cargo test --test integration syntax::TEST_NAME` | `cargo test --test integration syntax::` |

@@ -5500,45 +5500,24 @@ impl Evaluator {
         if source_scope == target_scope {
             return;
         }
-        match value {
-            Value::ProcessHandle(handle) => {
-                if let Some(live) = self.process_handles.get_mut(&handle.id)
-                    && live.owner_scope == source_scope
-                {
-                    live.owner_scope = target_scope;
+        for value in value.resource_reachable_values() {
+            match value {
+                Value::ProcessHandle(handle) => {
+                    if let Some(live) = self.process_handles.get_mut(&handle.id)
+                        && live.owner_scope == source_scope
+                    {
+                        live.owner_scope = target_scope;
+                    }
                 }
-            }
-            Value::NetJob(handle) => {
-                if let Some(live) = self.net_jobs.get_mut(&handle.id)
-                    && live.owner_scope == source_scope
-                {
-                    live.owner_scope = target_scope;
+                Value::NetJob(handle) => {
+                    if let Some(live) = self.net_jobs.get_mut(&handle.id)
+                        && live.owner_scope == source_scope
+                    {
+                        live.owner_scope = target_scope;
+                    }
                 }
+                _ => {}
             }
-            Value::List(values) => {
-                for value in values {
-                    self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
-                }
-            }
-            Value::Map(values) => {
-                for value in values.values() {
-                    self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
-                }
-            }
-            Value::Record(fields) | Value::Module(fields) => {
-                for (_, value) in fields {
-                    self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
-                }
-            }
-            Value::Result(ResultValue::Ok(value)) | Value::Result(ResultValue::Err(value)) => {
-                self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
-            }
-            Value::Tag { fields, .. } => {
-                for value in fields {
-                    self.transfer_owned_host_resources_in_value(value, source_scope, target_scope);
-                }
-            }
-            _ => {}
         }
     }
 

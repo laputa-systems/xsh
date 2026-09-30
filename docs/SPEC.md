@@ -1782,7 +1782,10 @@ family, facets, payload, or Result error type, and leaves other aliases unchange
 An explicit cause replaces the copy's immediate cause and preserves the supplied
 cause's chain, spans, contexts, and process status. Matching inspects the outer
 error only. A declared payload field named `cause` remains an ordinary field;
-metadata has no script introspection API. `ctx` adds context to the same failure,
+metadata has no script introspection API. Owned host resources reachable through
+error payloads or causes transfer with the escaping value, just as resources in
+ordinary containers do; diagnostic rendering limits do not limit ownership checks.
+`ctx` adds context to the same failure,
 whereas `cause` records a translation into a different failure.
 
 Tracebacks and structured traces retain actual nominal identities and render at
