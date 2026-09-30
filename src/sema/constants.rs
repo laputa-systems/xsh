@@ -820,6 +820,7 @@ pub struct PreparedConstants {
     pub global_bindings: FxHashMap<(Option<Name>, Name), ExprId>,
     pub diagnostics: Vec<crate::diagnostic::Diagnostic>,
     pub(crate) cli_wire_enums: crate::sema::wire_enums::PreparedWireEnums,
+    pub(crate) cli_command_plans: Arc<std::sync::Mutex<FxHashMap<((ExprId, Option<Name>), Option<(ExprId, Option<Name>)>), Result<Arc<crate::modules::cli::CliDescriptorPlan>, crate::runtime::value::RuntimeError>>>>,
     pub(crate) cli_plans: Arc<std::sync::Mutex<FxHashMap<(ExprId, bool), Result<Arc<crate::modules::cli::CliDescriptorPlan>, crate::runtime::value::RuntimeError>>>>,
 }
 
@@ -895,6 +896,49 @@ impl PreparedConstants {
         self.cli_descriptor_spans(arena, origin, &mut descriptor_origins, 0);
         let plan = crate::modules::cli::CliDescriptorPlan::normalize(schema, arena.expr(origin).span, policy, &descriptor_origins).map(Arc::new);
         self.cli_plans.lock().expect("descriptor cache lock").insert(key, plan.clone());
+        Some(plan)
+    }
+
+    fn cli_command_source(&self, arena: &AstArena, source: crate::sema::arguments::ArgumentValueSource)
+        -> Option<(LiteralConstant, ExprId, Option<Name>)> {
+        use crate::sema::arguments::ArgumentValueSource;
+        match source {
+            ArgumentValueSource::Expression(expression) => Some((self.analyze_expression(arena, expression)?, self.cli_descriptor_origin(arena, expression, 0), None)),
+            ArgumentValueSource::RecordField { record, field } => {
+                let LiteralConstant::Record(fields) = self.analyze_expression(arena, record)? else { return None; };
+                let value = fields.get(&field)?.clone();
+                let origin = self.cli_descriptor_origin(arena, record, 0);
+                if let ArenaExprKind::Record(entries) = arena.expr(origin).kind {
+                    for entry in arena.record_fields(entries) {
+                        if let ArenaRecordFieldKind::Named { name, value: expression, .. } = entry.kind && name == field {
+                            return Some((value, self.cli_descriptor_origin(arena, expression, 0), None));
+                        }
+                    }
+                }
+                Some((value, origin, Some(field)))
+            }
+            ArgumentValueSource::PositionalSplice(_) => None,
+        }
+    }
+
+    pub(crate) fn cli_commands_plan(&self, arena: &AstArena, commands: crate::sema::arguments::ArgumentValueSource, fallback: Option<crate::sema::arguments::ArgumentValueSource>)
+        -> Option<Result<Arc<crate::modules::cli::CliDescriptorPlan>, crate::runtime::value::RuntimeError>> {
+        let (constant, origin, field) = self.cli_command_source(arena, commands)?;
+        let fallback = match fallback { Some(source) => Some(self.cli_command_source(arena, source)?), None => None };
+        let key = ((origin, field), fallback.as_ref().map(|(_, origin, field)| (*origin, *field)));
+        if let Some(plan) = self.cli_command_plans.lock().expect("command descriptor cache lock").get(&key).cloned() { return Some(plan); }
+        let crate::runtime::value::Value::Record(schema) = cli_constant_value(&constant, &self.cli_wire_enums)? else { return None; };
+        let (fallback, fallback_span) = match fallback {
+            Some((constant, origin, _)) => {
+                let crate::runtime::value::Value::Record(record) = cli_constant_value(&constant, &self.cli_wire_enums)? else { return None; };
+                (Some(record), arena.expr(origin).span)
+            }
+            None => (None, arena.expr(origin).span),
+        };
+        let mut origins = BTreeMap::new();
+        self.cli_descriptor_spans(arena, origin, &mut origins, 0);
+        let plan = crate::modules::cli::CliDescriptorPlan::normalize_commands(schema, fallback, arena.expr(origin).span, &origins, fallback_span).map(Arc::new);
+        self.cli_command_plans.lock().expect("command descriptor cache lock").insert(key, plan.clone());
         Some(plan)
     }
 

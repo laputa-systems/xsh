@@ -2586,6 +2586,72 @@ let note: Str? = cfg.note
 }
 
 #[test]
+fn checker_cli_command_descriptors_match_inline_const_and_spread_shapes() {
+    let source = r#"
+const commands = {build: {positionals: ["root"], types: {root: "Path"}, rest: "raw"}}
+const invocation = {argv: ["build", "workspace"], commands: commands}
+let prepared = cli.commands(["build", "workspace"], commands)?
+let inline = cli.commands(["build", "workspace"], {build: {positionals: ["root"], types: {root: "Path"}, rest: "raw"}})?
+let spread = cli.commands(...invocation)?
+let root: Path = prepared.root
+proc dynamic(commands: Record) [error] -> Result[Record] { cli.commands([], commands) }
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut shapes = Vec::new();
+    for (id, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(id).span;
+        if source[span.range()].starts_with("cli.commands(") && !source[span.range()].ends_with('?') {
+            assert_eq!(checked.expr_types.get(&span), Some(&ty));
+            if source[span.range()].contains("cli.commands([],") { assert!(!shapes.contains(&ty)); }
+            else { shapes.push(ty); }
+        }
+    }
+    assert_eq!(shapes.len(), 3);
+    assert!(shapes.windows(2).all(|pair| pair[0] == pair[1]));
+    parsed.arena.symbol_owner().with_current(|| {
+        let xsh::frontend::check::Type::Result(value, _) = &shapes[0] else { panic!("command result") };
+        let xsh::frontend::check::Type::Record(fields) = value.as_ref() else { panic!("command fields") };
+        assert_eq!(fields.get(&xsh::frontend::symbols::Name::intern("root")), Some(&xsh::frontend::check::Type::Path));
+        assert_eq!(fields.len(), 4);
+    });
+}
+
+#[test]
+fn checker_cli_command_descriptors_keep_conditional_fields_and_dynamic_fallback_erased() {
+    let source = r#"
+const commands = {build: {positionals: ["root"], types: {root: "Path"}}, clean: {positionals: ["count"], types: {count: "Int"}}}
+let common = cli.commands(["build", "workspace"], commands)?
+proc fallback() [] -> Record { {rest: "raw"} }
+let dynamic = cli.commands([], "build", commands, fallback())?
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let mut common = None;
+    let mut dynamic = None;
+    for (span, ty) in &checked.expr_types {
+        let spelling = &source[span.range()];
+        if spelling == "cli.commands([\"build\", \"workspace\"], commands)" { common = Some(ty.clone()); }
+        if spelling == "cli.commands([], \"build\", commands, fallback())" { dynamic = Some(ty.clone()); }
+    }
+    parsed.arena.symbol_owner().with_current(|| {
+        let Some(xsh::frontend::check::Type::Result(value, _)) = &common else { panic!("known common result") };
+        let xsh::frontend::check::Type::Record(fields) = value.as_ref() else { panic!("common fields") };
+        assert_eq!(fields.len(), 2);
+        assert!(!fields.contains_key(&xsh::frontend::symbols::Name::intern("root")));
+        assert!(!fields.contains_key(&xsh::frontend::symbols::Name::intern("count")));
+    });
+    assert!(dynamic.is_some());
+    assert_ne!(common, dynamic);
+}
+
+#[test]
 fn checker_cli_constant_descriptors_match_inline_and_compact_facts() {
     let source = r#"
 const schema = {
@@ -2594,6 +2660,7 @@ const schema = {
   repeated: "List[UInt]",
   flag: {kind: "Bool", flag: false},
 }
+
 let constant = cli.parse([], schema)?
 let inline = cli.parse([], {
   item: {kind: "Int", form: "ITEM", required: false},
@@ -2625,6 +2692,30 @@ let full_item: Int? = full.values.item
     }
     assert_eq!(shapes.len(), 2);
     assert_eq!(shapes[0], shapes[1]);
+}
+
+#[test]
+fn checker_cli_dynamic_full_descriptors_keep_the_outcome_envelope() {
+    let source = r#"
+proc descriptor() [] -> Record { {count: {kind: "Int", default: 2}} }
+let full = cli.parse_full([], descriptor())?
+let warnings: List[Str] = full.warnings
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let (span, ty) = checked.expr_types.iter().find(|(span, _)| &source[span.range()] == "cli.parse_full([], descriptor())").unwrap();
+    let compact_ty = compact.expr_types.iter().find(|(id, _)| parsed.arena.arena.expr(**id).span == *span).unwrap().1;
+    assert_eq!(ty, compact_ty);
+    parsed.arena.symbol_owner().with_current(|| {
+        let xsh::frontend::check::Type::Result(value, _) = ty else { panic!("full result") };
+        let xsh::frontend::check::Type::Record(fields) = value.as_ref() else { panic!("full envelope") };
+        assert_eq!(fields.len(), 3);
+        assert_eq!(fields.get(&xsh::frontend::symbols::Name::intern("warnings")), Some(&xsh::frontend::check::Type::List(Box::new(xsh::frontend::check::Type::Str))));
+    });
 }
 
 #[test]

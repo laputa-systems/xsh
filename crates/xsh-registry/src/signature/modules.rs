@@ -473,7 +473,9 @@ fn cli_module() -> ModuleSig {
                     default_param("env", Type::Record(BTreeMap::new())),
                     default_param("command", Type::Str),
                 ],
-                result(Type::Record(BTreeMap::new())),
+                result(Type::Record(BTreeMap::from(crate::types::cli_full_fields(
+                    Type::Record(BTreeMap::new()), Type::Record(BTreeMap::new()), Type::List(Box::new(Type::Str)),
+                ).map(|(name, ty)| (name.to_string(), ty))))),
                 true,
                 RuntimeOp::CliParseFull,
             ),

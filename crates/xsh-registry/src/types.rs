@@ -126,3 +126,9 @@ mod tests {
         assert_eq!(CORE_BUILTIN_SYMBOLS, names.as_slice());
     }
 }
+
+/// The full CLI outcome always contains this envelope, independently of the
+/// descriptor that determines the values record's fields.
+pub fn cli_full_fields<T>(values: T, sources: T, warnings: T) -> [(&'static str, T); 3] {
+    [("values", values), ("sources", sources), ("warnings", warnings)]
+}

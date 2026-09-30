@@ -72,7 +72,7 @@ test test_args_parse_tokens_and_commands [error] {
   let usage = cli.usage({count: {kind: "Int", required: true}}, "demo")
   test.contains(usage, "usage: demo")?
 
-  let command_specs = {
+  const command_specs = {
     build: {
       positionals: [
         "root",
@@ -408,15 +408,15 @@ test test_cli_parse_advanced_descriptors [fs, error] {
   }
 
   let full = cli.parse_full(["--color", "-v", "--left", "a"], schema)?
-  let values: AdvancedArgs = full.values
+  let values = full.values.require(AdvancedArgs)?
   test.eq(values.color, "always")?
   test.eq(values.config.name(), "config.toml")?
   test.eq(values.workspace.name(), root.name())?
-  test.eq(full.values.count, 1)?
+  test.eq(values.count, 1)?
   test.eq(f"${values.timeout}", "1s")?
   test.ok(values.verbose)?
-  test.eq(full.sources.color, "argv")?
-  test.eq(full.sources.mode, "default")?
+  test.eq(full.sources.get("color")?.require(Str)?, "argv")?
+  test.eq(full.sources.get("mode")?.require(Str)?, "default")?
   test.eq(full.warnings.len(), 1)?
 
   let env_full = cli.parse_full(
@@ -426,7 +426,7 @@ test test_cli_parse_advanced_descriptors [fs, error] {
   )?
 
   test.eq(env_full.values.profile, "prod")?
-  test.eq(env_full.sources.profile, "env")?
+  test.eq(env_full.sources.get("profile")?.require(Str)?, "env")?
   let usage = cli.usage(schema, "demo")
   test.ok("usage: demo [OPTIONS]" in usage)?
   test.ok("--mode MODE" in usage)?

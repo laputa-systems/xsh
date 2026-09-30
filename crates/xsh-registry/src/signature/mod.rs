@@ -215,11 +215,13 @@ pub enum SemanticRule {
     SchemaValidation,
     ConstantKeyProjection,
     CliDescriptor,
+    CliCommands,
 }
 
 impl SemanticRule {
     fn for_operation(op: RuntimeOp) -> Self {
         match op {
+            RuntimeOp::CliCommands => Self::CliCommands,
             RuntimeOp::RecordGet => Self::ConstantKeyProjection,
             RuntimeOp::CliParse | RuntimeOp::CliApplet | RuntimeOp::CliParseFull => Self::CliDescriptor,
             _ => Self::Standard,
@@ -430,6 +432,8 @@ mod tests {
             let entry = cli.sig.functions.iter().find(|entry| entry.name == name).unwrap();
             assert!(entry.overloads.iter().all(|sig| sig.semantic_rule == SemanticRule::CliDescriptor));
         }
+        let commands = cli.sig.functions.iter().find(|entry| entry.name == "commands").unwrap();
+        assert!(commands.overloads.iter().all(|sig| sig.semantic_rule == SemanticRule::CliCommands));
         let record = spec.methods.iter().find(|entry| entry.receiver == MethodReceiver::Record).unwrap();
         let get = record.methods.iter().find(|entry| entry.name == "get").unwrap();
         assert!(get.overloads.iter().all(|sig| sig.sig.semantic_rule == SemanticRule::ConstantKeyProjection));

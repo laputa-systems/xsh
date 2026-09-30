@@ -8941,6 +8941,29 @@ proc main() [error] {
     }
 
     #[test]
+    fn cli_command_descriptor_plans_execute_both_indexed_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/cli-constant-commands.xsh");
+            let program = fixture("cli-constant-commands.xsh", source);
+            assert_eq!(program.store.prepared_cli_plans.len(), 1);
+            assert!(program.store.prepared_cli_plans[0].matches_operation(RuntimeOp::CliCommands));
+            assert!(!program.store.prepared_cli_plans[0].matches_operation(RuntimeOp::CliParse));
+            FullVerifier::verify(&program).unwrap();
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "command_values")),
+                    LoweredFunctionKind::Proc, &[], Span::new(program.store.source_id, 0, 0),
+                ).expect("command descriptor function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::ok(Value::Str(Arc::from("workspace/build"))));
+            }
+        });
+    }
+
+    #[test]
     fn cli_descriptor_plans_share_preparation_and_execute_both_indexed_routes() {
         run_with_large_stack(|| {
             let source = include_str!("../../../../tests/fixtures/frontend-indexed/cli-constant-descriptors.xsh");

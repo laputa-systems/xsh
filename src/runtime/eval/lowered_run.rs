@@ -4036,6 +4036,7 @@ impl Evaluator {
                         commands,
                         fallback_command,
                         span,
+                        cli_plan,
                     ),
                     span,
                 )?

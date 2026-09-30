@@ -884,6 +884,12 @@ fix convergence. Ordinary explicit CLI parsing remains covered by
 `tests/xsh/stdlib/cli.xsh`.
 ## Constant CLI descriptors
 
+`tests/xsh/stdlib/cli_commands_constants.xsh` covers common command shapes,
+options, rootless/fallback selection, imported composition, named spreads,
+dynamic validation, and rejection of unreachable invalid descriptors.
+`checker_cli_command_descriptors` pins full/compact parity;
+`cli_command_descriptor_plans` pins shared prepared plans on both indexed routes.
+
 `target/debug/xsht test --jobs 1 tests/xsh/stdlib/cli_constants.xsh` covers
 constant, imported, projected, and composed descriptors, defaults, aliases,
 repeated fields, explicit optional positionals, applet duplicate policy,

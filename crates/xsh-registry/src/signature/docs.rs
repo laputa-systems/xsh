@@ -356,7 +356,7 @@ fn function_doc(module: &str, function: &str) -> Option<DocRow> {
         )),
         ("cli", "commands") => Some((
             "Dispatches a typed subcommand schema.",
-            "Command and fallback descriptors own positional conversion and rest-argument behavior.",
+            "Command and fallback descriptors own positional conversion and rest-argument behavior. Literal and prepared const descriptors retain the fields common to every command/fallback shape; command-specific fields and genuinely dynamic descriptors still require explicit validation. The same normalized command plan supplies checking and runtime parsing.",
             &["cli", "subcommands", "typed"],
         )),
         ("module", "load") => Some((

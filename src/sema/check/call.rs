@@ -998,7 +998,18 @@ impl Checker {
         }
         instance.resolve(&self.type_constraints);
         let sig = &instance.signature;
-        let return_ty = if sig.semantic_rule == crate::modules::signature::SemanticRule::CliDescriptor {
+        let return_ty = if sig.semantic_rule == crate::modules::signature::SemanticRule::CliCommands {
+            let parameters = crate::sema::builtin_templates::callable_parameters(sig);
+            let plan = crate::sema::arguments::expand_named_arguments(arena, args, |expression| self.expr_types.get(&arena.arena.expr(expression).span).cloned()).ok()
+                .and_then(|expanded| crate::sema::arguments::bind_static_arguments(&parameters, &expanded).ok().and_then(|binding| {
+                    crate::modules::cli::command_descriptor_sources(&expanded, &binding.argument_slots, &sig.params.iter().map(|parameter| crate::symbol::Name::intern(parameter.name)).collect::<Vec<_>>())
+                })).and_then(|(commands, fallback)| self.prepared_constants.cli_commands_plan(&arena.arena, commands, fallback));
+            match plan {
+                Some(Ok(plan)) => plan.return_type(false),
+                Some(Err(error)) => { self.error(error.span.unwrap_or(span), &error.message, "check.cli-descriptor"); sig.return_ty.clone() }
+                None => sig.return_ty.clone(),
+            }
+        } else if sig.semantic_rule == crate::modules::signature::SemanticRule::CliDescriptor {
             self.infer_cli_descriptor_return_arena(arena, args, sig.op).unwrap_or_else(|| sig.return_ty.clone())
         } else { sig.return_ty.clone() };
         return_ty

@@ -203,49 +203,100 @@ pub(crate) enum ParsePolicy {
 pub(crate) struct CliDescriptorPlan {
     specs: BTreeMap<String, OptionSpec>,
     policy: ParsePolicy,
+    commands: Option<(BTreeMap<String, CommandSpec>, Option<CommandSpec>)>,
 }
 
 impl CliDescriptorPlan {
     pub(crate) fn normalize(schema: RecordMap, span: Span, policy: ParsePolicy, origins: &BTreeMap<String, Span>) -> Result<Self, RuntimeError> {
-        Ok(Self { specs: parse_schema_at(schema, span, policy, origins)?, policy })
+        Ok(Self { specs: parse_schema_at(schema, span, policy, origins)?, policy, commands: None })
+    }
+
+    pub(crate) fn normalize_commands(schema: RecordMap, fallback: Option<RecordMap>, span: Span, origins: &BTreeMap<String, Span>, fallback_span: Span) -> Result<Self, RuntimeError> {
+        let specs = parse_command_schema_at(schema, span, origins)?;
+        let fallback = fallback.map(|descriptor| parse_command_descriptor("fallback_command", Value::Record(descriptor), fallback_span)).transpose()?;
+        Ok(Self { specs: BTreeMap::new(), policy: ParsePolicy::Strict, commands: Some((specs, fallback)) })
     }
 
     pub(crate) fn matches_operation(&self, op: xsh_registry::RuntimeOp) -> bool {
         use xsh_registry::RuntimeOp;
+        if self.commands.is_some() { return op == RuntimeOp::CliCommands; }
         matches!((self.policy, op), (ParsePolicy::Applet, RuntimeOp::CliApplet)
             | (ParsePolicy::Strict, RuntimeOp::CliParse | RuntimeOp::CliParseFull))
     }
 
     pub(crate) fn values_type(&self) -> crate::sema::types::Type {
         use crate::sema::types::Type;
-        Type::Record(self.specs.iter().map(|(name, spec)| {
-            let scalar = match spec.value_ty {
-                ArgValueType::Str => Type::Str,
-                ArgValueType::Int | ArgValueType::UInt => Type::Int,
-                ArgValueType::Bool => Type::Bool,
-                ArgValueType::Path => Type::Path,
-                ArgValueType::Duration => Type::Duration,
-            };
-            // A forced non-Bool flag produces Bool for an unvalued spelling
-            // and its declared scalar for attached values or defaults.
-            let scalar = if spec.flag && scalar != Type::Bool { Type::Any } else { scalar };
-            let ty = if spec.repeated { Type::List(Box::new(scalar)) }
-                else if spec.flag || spec.required || spec.default.is_some() { scalar }
-                else { Type::Optional(Box::new(scalar)) };
-            (crate::symbol::Name::intern(name), ty)
-        }).collect())
+        if let Some((commands, fallback)) = &self.commands {
+            let mut shapes = commands.values().chain(fallback.iter()).map(command_value_type);
+            let mut common = shapes.next().unwrap_or_else(|| BTreeMap::from([
+                (crate::symbol::Name::intern("command"), Type::Str), (crate::symbol::Name::intern("action"), Type::Str),
+            ]));
+            for shape in shapes { common.retain(|name, ty| shape.get(name) == Some(ty)); }
+            return Type::Record(common);
+        }
+        option_values_type(&self.specs)
     }
 
     pub(crate) fn return_type(&self, full: bool) -> crate::sema::types::Type {
         use crate::sema::types::Type;
         let values = self.values_type();
-        let result = if full { Type::Record(BTreeMap::from([
-            (crate::symbol::Name::intern("values"), values),
-            (crate::symbol::Name::intern("sources"), Type::Record(BTreeMap::new())),
-            (crate::symbol::Name::intern("warnings"), Type::List(Box::new(Type::Str))),
-        ])) } else { values };
+        let result = if full { Type::Record(BTreeMap::from(xsh_registry::types::cli_full_fields(
+            values, Type::Record(BTreeMap::new()), Type::List(Box::new(Type::Str)),
+        ).map(|(name, ty)| (crate::symbol::Name::intern(name), ty)))) } else { values };
         Type::Result(Box::new(result), Box::new(Type::Error))
     }
+}
+
+fn command_scalar_type(value: ArgValueType) -> crate::sema::types::Type {
+    use crate::sema::types::Type;
+    match value { ArgValueType::Str => Type::Str, ArgValueType::Int => Type::Int, ArgValueType::UInt => Type::UInt,
+        ArgValueType::Bool => Type::Bool, ArgValueType::Path => Type::Path, ArgValueType::Duration => Type::Duration }
+}
+
+/// Every successful command record publishes only its own positional, option,
+/// and rest fields. The common result contract excludes conditional fields.
+fn command_value_type(spec: &CommandSpec) -> BTreeMap<crate::symbol::Name, crate::sema::types::Type> {
+    use crate::sema::types::Type;
+    let mut fields = BTreeMap::from([(crate::symbol::Name::intern("command"), Type::Str), (crate::symbol::Name::intern("action"), Type::Str)]);
+    if let Type::Record(options) = option_values_type(&spec.options) { fields.extend(options); }
+    for name in &spec.positionals { fields.insert(crate::symbol::Name::intern(name), command_scalar_type(spec.types.get(name).unwrap_or(&ArgValueType::Str).clone())); }
+    if let Some(rest) = &spec.rest { fields.insert(crate::symbol::Name::intern(rest), Type::List(Box::new(Type::Str))); }
+    fields
+}
+
+fn option_values_type(specs: &BTreeMap<String, OptionSpec>) -> crate::sema::types::Type {
+    use crate::sema::types::Type;
+    Type::Record(specs.iter().map(|(name, spec)| {
+        let scalar = match spec.value_ty {
+            ArgValueType::Str => Type::Str,
+            ArgValueType::Int | ArgValueType::UInt => Type::Int,
+            ArgValueType::Bool => Type::Bool,
+            ArgValueType::Path => Type::Path,
+            ArgValueType::Duration => Type::Duration,
+        };
+        // A forced non-Bool flag produces Bool for an unvalued spelling
+        // and its declared scalar for attached values or defaults.
+        let scalar = if spec.flag && scalar != Type::Bool { Type::Any } else { scalar };
+        let ty = if spec.repeated { Type::List(Box::new(scalar)) }
+            else if spec.flag || spec.required || spec.default.is_some() { scalar }
+            else { Type::Optional(Box::new(scalar)) };
+        (crate::symbol::Name::intern(name), ty)
+    }).collect())
+}
+
+pub(crate) fn command_descriptor_sources(
+    arguments: &[crate::sema::arguments::ExpandedArgument], slots: &[usize], parameters: &[crate::symbol::Name],
+) -> Option<(crate::sema::arguments::ArgumentValueSource, Option<crate::sema::arguments::ArgumentValueSource>)> {
+    let mut commands = None;
+    let mut fallback = None;
+    for (argument, slot) in arguments.iter().zip(slots) {
+        match parameters.get(*slot)?.as_str().as_str() {
+            "commands" => commands = Some(argument.value),
+            "fallback_command" => fallback = Some(argument.value),
+            _ => {}
+        }
+    }
+    Some((commands?, fallback))
 }
 
 pub(crate) fn descriptor_argument(args: &[crate::syntax::arena::ArenaCallArg]) -> Option<crate::syntax::arena::ExprId> {
@@ -331,20 +382,11 @@ pub(crate) fn parse_cli_full(
     }
     let parsed = parse_values(&argv, &specs, &env, span, ParsePolicy::Strict)
         .map_err(|error| cli_usage_error(error, usage_text(&specs, command)))?;
-    Ok(Value::ok(Value::Record(RecordMap::from([
-        (Arc::from("values"), Value::Record(parsed.values)),
-        (Arc::from("sources"), Value::Record(parsed.sources)),
-        (
-            Arc::from("warnings"),
-            Value::List(
-                parsed
-                    .warnings
-                    .into_iter()
-                    .map(|warning| Value::Str(warning.into()))
-                    .collect(),
-            ),
-        ),
-    ]))))
+    let fields = xsh_registry::types::cli_full_fields(
+        Value::Record(parsed.values), Value::Record(parsed.sources),
+        Value::List(parsed.warnings.into_iter().map(|warning| Value::Str(warning.into())).collect()),
+    );
+    Ok(Value::ok(Value::Record(RecordMap::from(fields.map(|(name, value)| (Arc::from(name), value))))))
 }
 
 pub(crate) fn render_usage(
@@ -362,14 +404,14 @@ pub(crate) fn parse_commands(
     commands: RecordMap,
     fallback_command: Option<RecordMap>,
     span: Span,
+    prepared: Option<&CliDescriptorPlan>,
 ) -> Result<Value, RuntimeError> {
-    let specs = parse_command_schema(commands, span)?;
-    let fallback = fallback_command
-        .map(|descriptor| {
-            parse_command_descriptor("fallback_command", Value::Record(descriptor), span)
-        })
-        .transpose()?;
-    let parsed = parse_command_values(&argv, &rootless_default, &specs, fallback.as_ref(), span)?;
+    let owned;
+    let plan = if let Some(plan) = prepared { plan } else {
+        owned = CliDescriptorPlan::normalize_commands(commands, fallback_command, span, &BTreeMap::new(), span)?; &owned
+    };
+    let Some((specs, fallback)) = &plan.commands else { return Err(cli_commands_error("invalid prepared command descriptor", span)); };
+    let parsed = parse_command_values(&argv, &rootless_default, specs, fallback.as_ref(), span)?;
     Ok(Value::ok(Value::Record(parsed)))
 }
 
@@ -630,13 +672,14 @@ fn validate_not_reserved_help(
     Ok(())
 }
 
-fn parse_command_schema(
+fn parse_command_schema_at(
     schema: RecordMap,
     span: Span,
+    origins: &BTreeMap<String, Span>,
 ) -> Result<BTreeMap<String, CommandSpec>, RuntimeError> {
     let mut specs = BTreeMap::new();
     for (name, descriptor) in schema {
-        let spec = parse_command_descriptor(&name, descriptor, span)?;
+        let spec = parse_command_descriptor(&name, descriptor, origins.get(name.as_ref()).copied().unwrap_or(span))?;
         for alias in &spec.aliases {
             let key = command_key(alias);
             if specs.insert(key, spec.clone()).is_some() {

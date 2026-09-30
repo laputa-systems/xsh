@@ -2889,6 +2889,9 @@ type inferred for `cli.parse` and `cli.applet`; `sources`
 maps fields to `"argv"`, `"env"`, `"default"`, or `"absent"`; `warnings`
 contains deprecation messages. `cli.usage` renders a plain usage string from
 the schema, includes the implicit `-h, --help` option, and skips hidden options.
+The outer envelope and `warnings: List[Str]` remain known when the descriptor
+is computed at runtime. Its `values` record requires explicit validation before
+typed field use; the source record's field names remain dynamic.
 
 `cli.commands` parses subcommand-style CLIs. The `commands` record maps command
 names to descriptors with `positionals: List[Str]`, optional `types: Record`
@@ -2902,6 +2905,20 @@ a known command or fallback command, that descriptor is used without consuming a
 command token. `fallback_command` can parse extension-style commands; with
 `command_like: true`, only relative slash-free, non-dot-prefixed tokens are
 accepted as fallback commands.
+
+A literal or prepared constant `commands` descriptor and optional fallback
+retain the successful record fields present with the same type in every possible
+command. Command options use the ordinary required, repeated, default, and
+nullable rules; positionals use their declared scalar type and rest values are
+`List[Str]`. Fields specific to one command are not promised by the common
+contract. A dynamic descriptor or fallback retains the erased result and needs
+explicit validation before typed use. Named spreads, imported constants,
+constant projections, and composition use the same preparation facts.
+Invalid known descriptors are diagnosed while checking, including unreachable
+calls. The prepared command plan uses the runtime command normalizer and is
+retained in indexed calls; dynamic descriptors normalize at runtime. This
+changes the timing of invalid constant-descriptor errors without executing
+source expressions or function defaults during preparation.
 
 `cli.tokens` is the lightweight BusyBox/getopt helper. It returns records with
 `kind: Str`, `name: Str`, and `value: Str`. `kind` is `"short"`, `"long"`, or

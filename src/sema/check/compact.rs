@@ -2204,6 +2204,7 @@ impl CompactBodyProbe<'_> {
         let mut instance = BuiltinInstantiation::new(&signature, template.as_ref(), receiver.as_ref(), &mut self.type_constraints, span).ok()?;
         let expected = if lifted { expected.and_then(|ty| if let Type::Optional(inner) = ty { Some(inner.as_ref()) } else { None }) } else { expected };
         if let Some(expected) = expected { instance.constrain_result(expected, &mut self.type_constraints, span).ok()?; }
+        let command_sources = crate::modules::cli::command_descriptor_sources(&expanded, &binding.argument_slots, &signature.params.iter().map(|parameter| crate::symbol::Name::intern(parameter.name)).collect::<Vec<_>>());
         for (entry, slot) in expanded.iter().zip(binding.argument_slots) {
             let parameter = self.type_constraints.resolve(&instance.signature.params[slot].ty).ok()?;
             let actual = match entry.value {
@@ -2214,6 +2215,14 @@ impl CompactBodyProbe<'_> {
             if self.type_constraints.constrain(&parameter, &actual, entry.span).is_err() { return Some(Type::Invalid); }
         }
         instance.resolve(&self.type_constraints);
+        if signature.semantic_rule == crate::modules::signature::SemanticRule::CliCommands
+            && let Some((commands, fallback)) = command_sources
+            && let Some(plan) = self.declarations.prepared_constants.cli_commands_plan(&self.program.arena, commands, fallback) {
+            match plan {
+                Ok(plan) => return Some(compact_postfix_result(plan.return_type(false), lifted)),
+                Err(error) => self.error(error.span.unwrap_or(self.program.arena.expr(callee).span), &error.message, "check.cli-descriptor"),
+            }
+        }
         if signature.semantic_rule == crate::modules::signature::SemanticRule::CliDescriptor
             && let Some(schema) = crate::modules::cli::descriptor_argument(&entries)
             && let Some(plan) = self.declarations.prepared_constants.cli_descriptor_plan(
