@@ -3858,7 +3858,8 @@ fn signature_cli_compact_metadata_keeps_typed_frames_without_callable_entries() 
     let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
     assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
     for (expression, ty) in compact.expr_types {
-        assert_eq!(checked.expr_types.get(&parsed.arena.arena.expr(expression).span), Some(&ty));
+        let span = parsed.arena.arena.expr(expression).span;
+        assert_eq!(checked.expr_types.get(&span), Some(&ty), "{}", &source[span.range()]);
     }
 }
 

@@ -2727,7 +2727,7 @@ fn numeric_result_type(left: Type, right: Type) -> Type {
         Type::Float
     } else if matches!(left, Type::Duration) && matches!(right, Type::Duration | Type::Int) {
         Type::Duration
-    } else if matches!(left, Type::Int) && matches!(right, Type::Int) {
+    } else if matches!(left, Type::Int | Type::UInt) && matches!(right, Type::Int | Type::UInt) {
         Type::Int
     } else {
         Type::Unknown
