@@ -3410,6 +3410,8 @@ impl<'a> FullDecoder<'a> {
                 FullPatternTag::ResultOk | FullPatternTag::ResultErr => captures.extend(Option::<usize>::decode(self, &mut payload)?),
                 FullPatternTag::ResultTest => { bool::decode(self, &mut payload)?; pending.push(payload.raw()? as usize); }
                 FullPatternTag::Tag => {
+                    // Enum payloads retain both the declaring type and variant names.
+                    Name::decode(self, &mut payload)?;
                     Name::decode(self, &mut payload)?;
                     captures.extend(BuildPatternIdSlots::decode(self, &mut payload)?.into_iter().flatten());
                 }
@@ -3418,7 +3420,10 @@ impl<'a> FullDecoder<'a> {
                     captures.extend(Box::<LoweredErrorPatternFields>::decode(self, &mut payload)?.iter().filter_map(|(_, slot)| *slot));
                 }
                 FullPatternTag::List | FullPatternTag::TagTest | FullPatternTag::Alternation => {
-                    if tag == FullPatternTag::TagTest { Name::decode(self, &mut payload)?; }
+                    if tag == FullPatternTag::TagTest {
+                        Name::decode(self, &mut payload)?;
+                        Name::decode(self, &mut payload)?;
+                    }
                     let mut children = self.pattern_list_cursor(&mut payload)?;
                     let count = children.raw()? as usize;
                     for index in 0..count {
@@ -8433,6 +8438,38 @@ proc main() [error] {
 "##,
         );
         assert!(program.store.tags.contains(&FullTag::StmtScanLines));
+    }
+
+    #[test]
+    fn enum_payload_alias_and_alternation_execute_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = r#"enum Event { Added(Str), Changed(Str), Count(Int) }
+pure render(event: Event) -> Str {
+  match event {
+    (Added(file) | Changed(file)) as original => {
+      let typed: Event = original
+      if typed is Added(_) { file } else { file }
+    }
+    Count(_) => "other"
+  }
+}
+pure selected() -> Str {
+  render(Added("one")) + ":" + render(Changed("two")) + ":" + render(Count(3))
+}
+"#;
+            let program = fixture("enum-payload-alias-and-alternation.xsh", source);
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "selected")), LoweredFunctionKind::Pure, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("enum payload function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Str("one:two:other".into()));
+            }
+        });
     }
 
     #[test]
