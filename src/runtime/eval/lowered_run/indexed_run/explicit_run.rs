@@ -868,13 +868,47 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Capture, .. }))
     }
 
+    fn boundary_survivor_scope(&self, index: usize, boundary: usize) -> u64 {
+        self.calls[index].work[..boundary].iter().rev().find_map(|work| match work {
+            FrameWork::Statements { scope_id: Some(scope), .. } => Some(*scope),
+            _ => None,
+        }).unwrap_or(self.calls[index].scope_id)
+    }
+
+    fn discarded_statement_scopes(&self, index: usize, keep: usize) -> Vec<u64> {
+        self.calls[index].work[keep..].iter().filter_map(|work| match work {
+            FrameWork::Statements { scope_id: Some(scope), .. } => Some(*scope),
+            _ => None,
+        }).collect()
+    }
+
+    fn crosses_context_scope(&self, index: usize, keep: usize) -> bool {
+        self.calls[index].work[keep..].iter().any(|work| matches!(work,
+            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. }))
+    }
+
     // Callee cleanup completes before searching its caller for a local capture.
     // The selected boundary remains live while its inner lexical scopes unwind.
     fn unwind_error_frame(&mut self, index: usize) -> Result<(), RuntimeError> {
-        let boundary = self.pending_error.as_ref().filter(|error|
+        let mut boundary = self.pending_error.as_ref().filter(|error|
             error.abort.is_none() && (error.propagated || error.kind == "assertion-failed"))
             .and_then(|_| self.capture_boundary(index));
-        let keep = boundary.map_or(0, |boundary| boundary + 1);
+        let mut keep = boundary.map_or(0, |boundary| boundary + 1);
+        if self.crosses_context_scope(index, keep)
+            && self.pending_error.as_ref().is_some_and(Evaluator::context_scope_runtime_error_escapes) {
+            self.evaluator.pending_traceback = None;
+            self.pending_error = Some(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(self.calls[index].call_span));
+            boundary = None;
+            keep = 0;
+        }
+        let survivor = boundary.map_or(self.calls[index].scope_id, |boundary| self.boundary_survivor_scope(index, boundary));
+        let sources = self.discarded_statement_scopes(index, keep);
+        if let Some(error) = self.pending_error.as_ref()
+            && error.abort.is_none() && (error.propagated || error.kind == "assertion-failed") {
+            for source in sources {
+                self.evaluator.transfer_owned_host_resources_in_runtime_error(error, source, survivor);
+            }
+        }
         if let Err(error) = self.discard_work_from(index, keep) {
             if error.abort.as_ref().is_some_and(|signal| signal.force) { return Err(error); }
             self.evaluator.report_cleanup_error(&error, self.calls[index].call_span);
@@ -3141,6 +3175,15 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
     fn complete_call(&mut self, index: usize, mut flow: StmtFlow) -> Result<(), RuntimeError> {
         if let StmtFlow::Propagate(value) = &flow
             && let Some(boundary) = self.capture_boundary(index) {
+            if self.crosses_context_scope(index, boundary + 1)
+                && Evaluator::context_scope_value_escapes(value) {
+                self.evaluator.pending_traceback = None;
+                return Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(self.calls[index].call_span));
+            }
+            let survivor = self.boundary_survivor_scope(index, boundary);
+            for source in self.discarded_statement_scopes(index, boundary + 1) {
+                self.evaluator.transfer_owned_host_resources_in_lowered_value(value, source, survivor);
+            }
             let contexts = self.calls[index].work[boundary + 1..].iter().rev().filter_map(|work| match work {
                 FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Context(context), .. } => Some(context.clone()),
                 _ => None,
@@ -3160,25 +3203,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Context(context), .. } => Some(context.clone()),
             _ => None,
         }).collect();
-        if let StmtFlow::Return(value) | StmtFlow::Break(Some(value)) = &flow {
+        if let StmtFlow::Return(value) | StmtFlow::Propagate(value) | StmtFlow::Break(Some(value)) = &flow {
             if self.calls[index].work.iter().any(|work| matches!(work, FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. }))
                 && Evaluator::context_scope_value_escapes(value) {
+                self.evaluator.pending_traceback = None;
                 return Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(self.calls[index].call_span));
             }
             let function_scope = self.calls[index].scope_id;
-            let current_scope = self.evaluator.current_scope_id();
-            if current_scope != function_scope {
-                self.evaluator
-                    .transfer_owned_host_resources_in_lowered_value(
-                        value,
-                        current_scope,
-                        function_scope,
-                    );
+            for source in self.discarded_statement_scopes(index, 0) {
+                self.evaluator.transfer_owned_host_resources_in_lowered_value(value, source, function_scope);
             }
         }
-        // A return may leave nested statement blocks. Transfer an escaping
-        // resource above, then close those blocks before running this
-        // function's defers.
+        // Lexical exits and checked failures retain resources from every
+        // discarded block before cleanup runs in the registering scopes.
         let cleanup = self.discard_work_from(index, 0);
         if cleanup.as_ref().err().is_some_and(|error| error.abort.as_ref().is_some_and(|signal| signal.force)) {
             return Err(cleanup.expect_err("forced cleanup abort"));
@@ -3440,6 +3477,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.evaluator
                     .write_back_lowered_captures(&header, &call.slots, call.call_span);
         }
+        if let Some(error) = self.pending_error.as_ref()
+            && error.abort.is_none() && (error.propagated || error.kind == "assertion-failed") {
+            let parent = self.evaluator.parent_owned_host_scope();
+            self.evaluator.transfer_owned_host_resources_in_runtime_error(error, call.scope_id, parent);
+        }
         // An active error remains primary; cleanup failure is intentionally
         // secondary, but the scope still must release its owned resources.
         let _ = self.cleanup_call_scopes(&mut call);
@@ -3522,6 +3564,11 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 call.scope_id,
                 parent_scope,
             );
+        }
+        if let Err(error) = &value
+            && error.abort.is_none() && (error.propagated || error.kind == "assertion-failed") {
+            let parent = self.evaluator.parent_owned_host_scope();
+            self.evaluator.transfer_owned_host_resources_in_runtime_error(error, call.scope_id, parent);
         }
         let cleanup = self.cleanup_call_scopes(&mut call);
         self.evaluator.recycle_lowered_slots(call.slots);

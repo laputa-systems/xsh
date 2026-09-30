@@ -371,6 +371,12 @@ impl Evaluator {
             matches!(value, Value::Stream(_) | Value::ProcessHandle(_) | Value::NetJob(_)))
     }
 
+    fn context_scope_runtime_error_escapes(error: &RuntimeError) -> bool {
+        error.abort.is_none() && (error.propagated || error.kind == "assertion-failed")
+            && error.resource_reachable_values().any(|value| matches!(value,
+                Value::Stream(_) | Value::ProcessHandle(_) | Value::NetJob(_)))
+    }
+
     pub(in crate::runtime::eval) fn context_scope_value_escapes(value: &LoweredValue) -> bool {
         match value {
             LoweredValue::Stream(_) | LoweredValue::ProcessHandle(_) | LoweredValue::NetJob(_) => true,
@@ -5688,8 +5694,14 @@ impl Evaluator {
                 let result = self.eval_indexed_statement_block(execution, body, &header, slots, span);
                 self.recursive_context_slots.pop();
                 let result = match result {
-                    Ok(StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Break(Some(value))) if Self::context_scope_value_escapes(&value) =>
-                        Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(span)),
+                    Ok(StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) | StmtFlow::Break(Some(value))) if Self::context_scope_value_escapes(&value) => {
+                        self.pending_traceback = None;
+                        Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(span))
+                    }
+                    Err(error) if Self::context_scope_runtime_error_escapes(&error) => {
+                        self.pending_traceback = None;
+                        Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(span))
+                    }
                     result => result,
                 };
                 let cleanup = self.exit_owned_host_scope(context_owner);
@@ -7745,8 +7757,12 @@ impl Evaluator {
         result: Result<StmtFlow, RuntimeError>,
     ) -> Result<StmtFlow, RuntimeError> {
         let parent_scope = self.parent_owned_host_scope();
-        if let Ok(StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Break(Some(value))) = &result {
+        if let Ok(StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) | StmtFlow::Break(Some(value))) = &result {
             self.transfer_owned_host_resources_in_value(&value.clone().into_value(), scope_id, parent_scope);
+        }
+        if let Err(error) = &result
+            && error.abort.is_none() && (error.propagated || error.kind == "assertion-failed") {
+            self.transfer_owned_host_resources_in_runtime_error(error, scope_id, parent_scope);
         }
         // Captures are iteration/branch locals. Retain escaping values before
         // releasing these references and the condition's temporary resources.
@@ -7784,11 +7800,11 @@ impl Evaluator {
         let parent_scope = self.parent_owned_host_scope();
         let result = self.eval_indexed_stmts(execution, statements, header, slots, call_span);
 
-        // A returned or value-carrying break can cross this lexical block. Its
-        // opaque host resources must survive the block cleanup with the parent.
+        // Outgoing values and checked failures retain their opaque resources
+        // in the parent before this lexical block closes.
         if let Ok(flow) = &result {
             match flow {
-                StmtFlow::Value(value) | StmtFlow::Return(value) => self.transfer_owned_host_resources_in_value(
+                StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Propagate(value) => self.transfer_owned_host_resources_in_value(
                     &value.clone().into_value(),
                     scope_id,
                     parent_scope,
@@ -7799,12 +7815,15 @@ impl Evaluator {
                     parent_scope,
                 ),
                 StmtFlow::None
-                | StmtFlow::Propagate(_)
                 | StmtFlow::Break(None)
                 | StmtFlow::Continue => {}
             }
         }
 
+        if let Err(error) = &result
+            && error.abort.is_none() && (error.propagated || error.kind == "assertion-failed") {
+            self.transfer_owned_host_resources_in_runtime_error(error, scope_id, parent_scope);
+        }
         let cleanup = self.exit_owned_host_scope(scope_id);
         match (result, cleanup) {
             (_, Err(error)) if error.abort.as_ref().is_some_and(|signal| signal.force) => Err(error),

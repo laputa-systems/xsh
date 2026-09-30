@@ -1815,7 +1815,11 @@ cause's chain, spans, contexts, and process status. Matching inspects the outer
 error only. A declared payload field named `cause` remains an ordinary field;
 metadata has no script introspection API. Owned host resources reachable through
 error payloads or causes transfer with the escaping value, just as resources in
-ordinary containers do; diagnostic rendering limits do not limit ownership checks.
+ordinary containers do. Checked propagation retains them before lexical cleanup
+and across local try/retry capture or callee error transport. A propagated payload
+or cause cannot carry live resources across a restored cd/env context; an inner
+try may consume the failure while that context is still active. Diagnostic rendering
+limits do not limit ownership checks.
 `ctx` adds context to the same failure,
 whereas `cause` records a translation into a different failure.
 

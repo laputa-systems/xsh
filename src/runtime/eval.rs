@@ -5497,10 +5497,22 @@ impl Evaluator {
         source_scope: u64,
         target_scope: u64,
     ) {
+        self.transfer_owned_host_resources_in_values(value.resource_reachable_values(), source_scope, target_scope);
+    }
+
+    fn transfer_owned_host_resources_in_runtime_error(
+        &mut self, error: &RuntimeError, source_scope: u64, target_scope: u64,
+    ) {
+        self.transfer_owned_host_resources_in_values(error.resource_reachable_values(), source_scope, target_scope);
+    }
+
+    fn transfer_owned_host_resources_in_values<'a>(
+        &mut self, values: impl Iterator<Item = &'a Value>, source_scope: u64, target_scope: u64,
+    ) {
         if source_scope == target_scope {
             return;
         }
-        for value in value.resource_reachable_values() {
+        for value in values {
             match value {
                 Value::ProcessHandle(handle) => {
                     if let Some(live) = self.process_handles.get_mut(&handle.id)

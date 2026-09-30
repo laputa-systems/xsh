@@ -1,4 +1,4 @@
-use super::{ResultValue, Value};
+use super::{ResultValue, RuntimeError, Value};
 use rustc_hash::FxHashSet;
 
 /// Borrowed containment includes error payloads and immutable causes so owned
@@ -7,6 +7,14 @@ use rustc_hash::FxHashSet;
 impl Value {
     pub(crate) fn resource_reachable_values(&self) -> impl Iterator<Item = &Value> {
         ResourceReachableValues { pending: vec![self], visited: FxHashSet::default() }
+    }
+}
+
+impl RuntimeError {
+    pub(crate) fn resource_reachable_values(&self) -> impl Iterator<Item = &Value> {
+        let pending = self.payload.iter().map(|(_, value)| value)
+            .chain(self.cause.iter().map(|cause| cause.as_value())).collect();
+        ResourceReachableValues { pending, visited: FxHashSet::default() }
     }
 }
 
@@ -40,7 +48,7 @@ impl<'a> Iterator for ResourceReachableValues<'a> {
 mod tests {
     use super::*;
     use crate::runtime::process::ProcessStatus;
-    use crate::runtime::value::{NetJobValue, RecordMap, RunError, RuntimeError};
+    use crate::runtime::value::{NetJobValue, RecordMap, RunError};
 
     #[test]
     fn resource_reachable_values_follow_error_payloads_and_process_causes() {

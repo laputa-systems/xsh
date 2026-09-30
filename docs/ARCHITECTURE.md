@@ -614,6 +614,11 @@ separate from this metadata. `Value::resource_reachable_values` in
 `src/runtime/value/resource_values.rs` borrows ordinary containers, error payloads,
 and typed causes iteratively, visiting shared descendants once. Owned host
 resource transfers use this complete traversal rather than diagnostic depth limits.
+Explicit capture transfers from every discarded statement scope to the surviving
+catcher scope before cleanup; recursive blocks promote checked failures to their
+parent. Runtime-error transport borrows payload/cause roots directly and preserves
+these resources through callee cleanup. Context scope rejection covers propagated
+values and checked runtime failures before restoration.
 
 `TraceError::from_value` snapshots causes into a flat bounded sequence of
 `TraceErrorDetail` values in `src/trace/error_causes.rs`. Rendering never walks an
