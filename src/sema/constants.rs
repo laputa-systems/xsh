@@ -377,6 +377,7 @@ impl RecordConstructors {
 
     fn contains_template_parameter(ty: &Type) -> bool {
         match ty {
+            Type::Inference(_) => true,
             Type::Tag(name) => name.as_str().starts_with("type parameter "),
             Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => Self::contains_template_parameter(inner),
             Type::Map(key, value) => Self::contains_template_parameter(key) || Self::contains_template_parameter(value),

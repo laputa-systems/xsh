@@ -329,7 +329,8 @@ impl Type {
         while let Some(ty) = pending.pop() {
             match ty {
                 Self::Inference(_) => return true,
-                Self::List(inner) | Self::Map(inner) | Self::Stream(inner) | Self::Optional(inner) => pending.push(inner),
+                Self::List(inner) | Self::Stream(inner) | Self::Optional(inner) => pending.push(inner),
+                Self::Map(key, value) => { pending.push(key); pending.push(value); }
                 Self::Result(ok, error) => { pending.push(ok); pending.push(error); }
                 Self::Record(fields) => pending.extend(fields.values()),
                 Self::Module(exports) => for export in exports.values() {
