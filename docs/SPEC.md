@@ -1427,6 +1427,9 @@ and tails checked against Unit remain assertions. Non-tail Result[Unit]
 statements retain their ordinary automatic propagation.
 The declared Result return type supplies this context for both a function tail
 and an explicit `return try { ... }`.
+Explicit Result constructors retain the complete annotation through enclosing
+match, conditional, and value-block tails. A Unit success payload preserves
+the enclosing Result as data at those value boundaries.
 
 Explicit `?`, statement propagation, assertion failures, and plain-run failure
 are captured by the nearest try/retry boundary. Ordinary return, break, and

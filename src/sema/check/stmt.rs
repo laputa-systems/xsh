@@ -2189,7 +2189,8 @@ impl Checker {
     ) -> Type {
         let stmt = arena.arena.stmt(id);
         self.statement_positions.insert(stmt.span, super::StatementPosition::Value);
-        if expected.is_some_and(|ty| ty == &Type::Unit || ty.is_result_unit()) {
+        if expected.is_some_and(|ty| ty == &Type::Unit || ty.is_result_unit())
+            && !(expected.is_some_and(Type::is_result_unit) && tail_stmt_uses_result_context_arena(arena, id)) {
             if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
                 let previous_tail = std::mem::replace(&mut self.context_scope_tail_value, false);
                 let context = tail_expr_context_arena(arena, expr_id, expected);
@@ -2424,19 +2425,47 @@ fn should_record_binding_annotation_arena(
     exported || annotation_type_is_nontrivial(ty)
 }
 
-#[allow(dead_code)]
+// Explicit Result tails consume the complete annotation through branch and
+// block boundaries. Their Unit success payload still leaves the Result as data.
+pub(super) fn tail_expr_uses_result_context_arena(arena: &ArenaProgram, expr: ExprId) -> bool {
+    match arena.arena.expr(expr).kind {
+        ArenaExprKind::Capture(_) => true,
+        ArenaExprKind::Call { callee, .. } => matches!(arena.arena.expr(callee).kind,
+            ArenaExprKind::Ident(name) if name == "Ok" || name == "Err"),
+        ArenaExprKind::ValueBlock(block) | ArenaExprKind::ErrorContext { block, .. } =>
+            arena.arena.stmt_ids(arena.arena.block(block).statements).last()
+                .is_some_and(|tail| tail_stmt_uses_result_context_arena(arena, tail)),
+        ArenaExprKind::Match { arms, .. } => arena.arena.match_expr_arms(arms).iter()
+            .any(|arm| tail_expr_uses_result_context_arena(arena, arm.value)),
+        ArenaExprKind::If { branches, else_value } =>
+            tail_expr_uses_result_context_arena(arena, else_value)
+                || arena.arena.if_expr_branches(branches).iter()
+                    .any(|branch| tail_expr_uses_result_context_arena(arena, branch.value)),
+        _ => false,
+    }
+}
+
+fn tail_stmt_uses_result_context_arena(arena: &ArenaProgram, stmt: StmtId) -> bool {
+    let block_uses_result = |block| arena.arena.stmt_ids(arena.arena.block(block).statements).last()
+        .is_some_and(|tail| tail_stmt_uses_result_context_arena(arena, tail));
+    match arena.arena.stmt(stmt).kind {
+        ArenaStmtKind::Expr(expr) => tail_expr_uses_result_context_arena(arena, expr),
+        ArenaStmtKind::Match { arms, .. } => arena.arena.match_arms(arms).iter()
+            .any(|arm| block_uses_result(arm.block)),
+        ArenaStmtKind::If { branches, else_block } =>
+            else_block.is_some_and(block_uses_result)
+                || arena.arena.if_branches(branches).iter().any(|branch| block_uses_result(branch.block)),
+        _ => false,
+    }
+}
+
 fn tail_expr_context_arena(
     arena: &ArenaProgram,
     expr_id: ExprId,
     expected: Option<&Type>,
 ) -> Option<Type> {
-    if matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::Capture(_)) {
-        return expected.cloned();
-    }
     let expected = expected?;
-    let explicit_result = matches!(arena.arena.expr(expr_id).kind,
-        ArenaExprKind::Call { callee, .. } if matches!(arena.arena.expr(callee).kind,
-            ArenaExprKind::Ident(name) if name == "Ok" || name == "Err"));
+    let explicit_result = tail_expr_uses_result_context_arena(arena, expr_id);
     Some(if explicit_result { expected.clone() } else { expected.result_ok().unwrap_or(expected).clone() })
 }
 

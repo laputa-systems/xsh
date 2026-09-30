@@ -1009,8 +1009,7 @@ impl CompactBodyProbe<'_> {
                         ArenaExprOrRun::Expr(expr) => {
                             let previous = self.expected_schema.clone();
                             self.expected_schema = self.return_schemas.last().cloned().flatten();
-                            let explicit_result = matches!(self.program.arena.expr(expr).kind, ArenaExprKind::Capture(_))
-                                || matches!(self.program.arena.expr(expr).kind, ArenaExprKind::Call { callee, .. } if matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Ok" || name == "Err"));
+                            let explicit_result = super::stmt::tail_expr_uses_result_context_arena(self.program, expr);
                             let context = expected.as_ref().map(|ty| if explicit_result { ty } else { ty.result_ok().unwrap_or(ty) });
                             if !explicit_result && expected.as_ref().is_some_and(Type::is_result) { self.expected_schema = self.expected_schema.as_ref().and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Success)).cloned(); }
                             self.check_compact_expr_expected(expr, context);
@@ -1307,7 +1306,7 @@ impl CompactBodyProbe<'_> {
         for (index, stmt) in ids.iter().copied().enumerate() {
             if index + 1 == ids.len() && let Some(expected) = expected
                 && let ArenaStmtKind::Expr(expr) = self.program.arena.stmt(stmt).kind {
-                let explicit_result = matches!(self.program.arena.expr(expr).kind, ArenaExprKind::Call { callee, .. } if matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Ok" || name == "Err"));
+                let explicit_result = super::stmt::tail_expr_uses_result_context_arena(self.program, expr);
                 let previous = self.expected_schema.clone();
                 let context = if explicit_result { expected } else { expected.result_ok().unwrap_or(expected) };
                 if !explicit_result && expected.is_result() { self.expected_schema = previous.as_ref().and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Success)).cloned(); }
@@ -1360,7 +1359,7 @@ impl CompactBodyProbe<'_> {
                     for arm in self.program.arena.match_arms(arms).to_vec() { self.mark_tail_position(arm.block, consumes_value); }
                 }
                 ArenaStmtKind::Expr(expr) if matches!(self.program.arena.expr(expr).kind, ArenaExprKind::ValueBlock(_)) => {
-                    let expected = if consumes_value { self.output.value_block_types.get(&expr).cloned().unwrap_or(Type::Unknown) } else { Type::Unit };
+                    let expected = if consumes_value || returns_result { self.output.value_block_types.get(&expr).cloned().unwrap_or(Type::Unknown) } else { Type::Unit };
                     self.apply_compact_expected(expr, &expected);
                 }
                 _ => {}
@@ -1691,7 +1690,8 @@ impl CompactBodyProbe<'_> {
                     self.push_scope();
                     if !matches!(self.program.arena.expr(id).kind, ArenaExprKind::PatternTest { .. }) { self.bind_compact_pattern(arm.pattern, &subject); }
                     if let Some(guard) = arm.guard { self.check_compact_expr(guard); }
-                    ty = Some(merge_types(ty, self.check_compact_expr(arm.value)));
+                    let context = if matches!(self.program.arena.expr(id).kind, ArenaExprKind::Match { .. }) { expected } else { None };
+                    ty = Some(merge_types(ty, self.check_compact_expr_expected(arm.value, context)));
                     self.pop_scope();
                 }
                 ty.unwrap_or(Type::Unknown)
@@ -1762,7 +1762,10 @@ impl CompactBodyProbe<'_> {
             }
             return;
         }
-        let expected = expected.result_ok().unwrap_or(expected);
+        let preserve_result = expected.is_result() && matches!(self.program.arena.expr(expr).kind,
+            ArenaExprKind::ValueBlock(_) | ArenaExprKind::ErrorContext { .. } | ArenaExprKind::Match { .. } | ArenaExprKind::If { .. })
+            && super::stmt::tail_expr_uses_result_context_arena(self.program, expr);
+        let expected = if preserve_result { expected } else { expected.result_ok().unwrap_or(expected) };
         if !matches!(expected, Type::Unit | Type::Unknown | Type::Invalid)
             && let Some(actual) = self.output.expr_types.get(&expr).cloned()
             && actual.contains_inference() {
@@ -1810,7 +1813,7 @@ impl CompactBodyProbe<'_> {
                 }
             },
             ArenaExprKind::ValueBlock(block) => {
-                let consumes_value = expected != &Type::Unit && !expected.is_result_unit();
+                let consumes_value = preserve_result || expected != &Type::Unit && !expected.is_result_unit();
                 self.mark_tail_position(block, consumes_value);
                 self.apply_compact_block_expected(block, expected);
                 let tail = self.program.arena.stmt_ids(self.program.arena.block(block).statements).last();
