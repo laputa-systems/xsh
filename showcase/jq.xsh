@@ -199,7 +199,7 @@ pure parse_value_b(s: Str, pos: Int) -> Result[Parsed] {
 
   if b == 34 {
     let r = scan_string_b(s, p)?
-    let str: Str = json.decode(r.raw)?
+    let str: Str = json.decode(r.raw)?.require(Str)?
     return Ok({val: JStr(str), pos: r.pos})
   }
 
@@ -270,7 +270,7 @@ pure parse_object_b(s: Str, pos: Int) -> Result[Parsed] {
     }
 
     let kr = scan_string_b(s, p)?
-    let key: Str = json.decode(kr.raw)?
+    let key: Str = json.decode(kr.raw)?.require(Str)?
     p = bws(s, kr.pos)
 
     if (s.byte_at(p) ?? -1) != 58 {
@@ -558,7 +558,7 @@ pure lex_string(chars: List[Str], pos: Int) -> Result[LexNum] {
       let chunk = litraw.join("")
 
       if chunk != "" {
-        let dec: Str = json.decode("\"" + chunk + "\"")?
+        let dec: Str = json.decode("\"" + chunk + "\"")?.require(Str)?
         parts = parts.push(RLit(dec))
       }
 
@@ -570,7 +570,7 @@ pure lex_string(chars: List[Str], pos: Int) -> Result[LexNum] {
         let chunk = litraw.join("")
 
         if chunk != "" {
-          let dec: Str = json.decode("\"" + chunk + "\"")?
+          let dec: Str = json.decode("\"" + chunk + "\"")?.require(Str)?
           parts = parts.push(RLit(dec))
         }
 
@@ -623,7 +623,7 @@ pure lex(s: Str) -> Result[List[Tok]] {
         p = r.pos
       } else if d == "\"" {
         let rs = scan_string(chars, p + 1)?
-        let name: Str = json.decode(rs.raw)?
+        let name: Str = json.decode(rs.raw)?.require(Str)?
         toks = toks.push(TField(name))
         p = rs.pos
       } else {

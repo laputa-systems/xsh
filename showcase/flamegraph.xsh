@@ -71,7 +71,7 @@ script;proc:format 1200
     |> where ! .starts_with("#") {
     let parts = line.split(" ")
     let stack = parts[0]
-    let count = json.decode((parts.get(1) ?? "0"))?
+    let count = json.decode((parts.get(1) ?? "0"))?.require(Int)?
     raw[stack] = (raw.get(stack) ?? 0) + count
   }
 

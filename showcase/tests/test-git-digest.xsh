@@ -3,6 +3,30 @@ test test_git_digest_usage [process, error] {
   test.contains(output, "usage:")?
 }
 
+test test_git_digest_counts_integer_statistics_and_binary_placeholders [fs, process, error] { |ctx|
+  let repo = test.temp_dir(ctx, name: "git-digest-counts")?
+  run git -C $repo init --quiet ?
+  run git -C $repo config user.name Tester ?
+  run git -C $repo config user.email "tester@example.invalid" ?
+  fp"${repo}/text.txt".write("base\n")?
+  run git -C $repo add -A ?
+  run git -C $repo -c core.hooksPath=/dev/null commit --quiet -m base ?
+  run git -C $repo branch base ?
+  fp"${repo}/text.txt".write("base\nextra\n")?
+  fp"${repo}/binary.dat".write(b"\x00binary")?
+  run git -C $repo add -A ?
+  run git -C $repo -c core.hooksPath=/dev/null commit --quiet -m changed ?
+  let script = fp"${fs.cwd()?}/showcase/git-digest.xsh"
+  let output_file = fp"${repo}/digest.out"
+  let error_file = fp"${repo}/digest.err"
+  let command = process.command_argv("xsh", ["xsh", script, "--", "--base", "base"], cwd: repo, stdout: output_file, stderr: error_file)
+  let status = process.run(command)?
+  test.ok(status.exited_with(0), error_file.read_text()?)?
+  let output = output_file.read_text()?
+  test.contains(output, "2 file(s) changed  +1 -0")?
+  test.contains(output, "binary.dat")?
+}
+
 test test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting [fs, process, env, error] { |ctx|
   if system.uname()?.sysname != "Linux" {
     test.skip("creating non-UTF-8 path components requires the pinned Linux filesystem")
