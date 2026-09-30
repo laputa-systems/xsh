@@ -696,7 +696,7 @@ stack boundaries.
 | `run_capture`, `spawn_managed`, and process execution | `tests/xsh/run.xsh`, `tests/xsh/stdlib/process.xsh`, `tests/runtime/process.rs`, `tests/runtime/run.rs` |
 | local Result capture, nested Result data, lexical exits, assertion and cleanup failures | `tests/xsh/try-capture.xsh` |
 | retry blocks, selective nominal/facet patterns, error identity, cleanup and selection trace | `tests/xsh/retry.xsh` |
-| stack depth and explicit lowered frames | `tests/runtime/stack_depth.rs` |
+| stack depth and explicit lowered frames | `tests/runtime/stack_depth.rs` (including Result projections inside native arguments, operand order, and error cleanup); `tests/xsh/expression-continuations.xsh` pins ordinary and traced native argument order and dispatch boundaries |
 | structured stream behavior | `tests/xsh/stdlib/streams.xsh` |
 | Structured stage named configuration, spreads, modes, entry timing, and migration | `tests/xsh/stream-options.xsh`, `tests/syntax.rs::stream_stage_flags_are_fatal_migration_diagnostics_with_exact_fixes`, and xsht CLI migration tests |
 | stream argv and signal process boundaries | `tests/runtime/streams.rs` |

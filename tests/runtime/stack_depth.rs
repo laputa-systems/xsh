@@ -126,6 +126,25 @@ fn small_stack_nested_result_record_materialization_does_not_abort() {
 }
 
 #[test]
+fn small_stack_result_projections_in_native_arguments_do_not_abort() {
+    let output = run_small_stack_stress(
+        "stack-depth-nested-result-projections",
+        include_str!("../fixtures/runtime/stack-depth/nested-result-projections.xsh"),
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "7\n");
+}
+
+#[test]
+fn small_stack_projection_arguments_preserve_order_and_error_cleanup() {
+    let output = run_small_stack_stress(
+        "stack-depth-projection-argument-order",
+        include_str!("../fixtures/runtime/stack-depth/projection-argument-order.xsh"),
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap(),
+        "base\nbase cleanup\nindex\nexpected\nbase\nbase cleanup\nouter cleanup\ntrue\n");
+}
+
+#[test]
 fn small_stack_nested_format_method_calls_do_not_abort() {
     let output = run_small_stack_stress(
         "stack-depth-nested-format-method-calls",

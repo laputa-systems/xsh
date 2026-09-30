@@ -131,6 +131,10 @@ enum FrameContinuation {
         assertion: bool,
         next: Box<FrameContinuation>,
     },
+    Field { name: String, span: Span, next: Box<FrameContinuation> },
+    IndexBase { instruction: u32, span: Span, next: Box<FrameContinuation> },
+    IndexValue { base: LoweredValue, span: Span, next: Box<FrameContinuation> },
+    ModuleArguments { op: super::RuntimeOp, cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>, args: Vec<Option<u32>>, position: usize, values: Vec<Option<LoweredValue>>, span: Span, next: Box<FrameContinuation> },
     BinaryLeft {
         op: BinaryOp,
         right: u32,
@@ -322,7 +326,11 @@ fn with_initializer_handler(mut continuation: &FrameContinuation) -> Option<(Opt
     loop {
         continuation = match continuation {
             FrameContinuation::WithBinding { else_param_slot, else_body, span, .. } => return Some((*else_param_slot, *else_body, *span)),
-            FrameContinuation::ComparisonLeft { next, .. }
+            FrameContinuation::Field { next, .. }
+            | FrameContinuation::IndexBase { next, .. }
+            | FrameContinuation::IndexValue { next, .. }
+            | FrameContinuation::ModuleArguments { next, .. }
+            | FrameContinuation::ComparisonLeft { next, .. }
             | FrameContinuation::ComparisonRight { next, .. }
             | FrameContinuation::BinaryLeft { next, .. }
             | FrameContinuation::BinaryRight { next, .. }
@@ -2173,6 +2181,38 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 indexed_finish(payload, span)?;
                 self.push_expr(index, callee, value_span, FrameContinuation::DynamicCallee { args, span: value_span, next: Box::new(next) });
             }
+            FullTag::ExprField => {
+                let base = indexed_raw(&mut payload, span)?;
+                let name = indexed_string(&mut payload, &self.calls[index].execution, span)?.to_string();
+                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                if let Some(base) = Evaluator::indexed_field_chain_ref(&self.calls[index].execution, base, &self.calls[index].slots, value_span)?
+                    && let Some(value) = super::lowered_record_field_value(base, &name)
+                {
+                    self.push_value(index, FrameValue::Value(value), next);
+                    return Ok(());
+                }
+                self.push_expr(index, base, value_span, FrameContinuation::Field { name, span: value_span, next: Box::new(next) });
+            }
+            FullTag::ExprIndex => {
+                let base = indexed_raw(&mut payload, span)?;
+                let instruction = indexed_raw(&mut payload, span)?;
+                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, base, value_span, FrameContinuation::IndexBase { instruction, span: value_span, next: Box::new(next) });
+            }
+            FullTag::ExprModuleCall => {
+                let op = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let cli_plan = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let (_, mut encoded_args) = self.calls[index].execution.block(&mut payload, BLOCK_LIST).map_err(|error| indexed_error(error, span))?;
+                let len = indexed_raw(&mut encoded_args, span)? as usize;
+                let mut args = Vec::with_capacity(len);
+                for _ in 0..len { args.push(indexed_optional_raw(&mut encoded_args, span)?); }
+                indexed_finish(encoded_args, span)?;
+                let value_span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.step_module_arguments(index, op, cli_plan, args, 0, Vec::new(), value_span, next)?;
+            }
             FullTag::ExprCall | FullTag::ExprSelfCall | FullTag::ExprDirectPureCall => {
                 let function = if matches!(tag, FullTag::ExprCall | FullTag::ExprDirectPureCall) {
                     indexed_decode(&mut payload, &self.calls[index].execution, span)?
@@ -2256,6 +2296,31 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             };
         }
         match next {
+            FrameContinuation::Field { name, span, next } => match value {
+                FrameValue::Value(base) => {
+                    let value = self.evaluator.indexed_field_value(base, &name, span)?;
+                    self.push_value(index, FrameValue::Value(value), *next);
+                }
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::IndexBase { instruction, span, next } => match value {
+                FrameValue::Value(base) => self.push_expr(index, instruction, span, FrameContinuation::IndexValue { base, span, next }),
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::IndexValue { base, span, next } => match value {
+                FrameValue::Value(value) => {
+                    let value = super::lowered_index_value(base, value, span)?;
+                    self.push_value(index, FrameValue::Value(value), *next);
+                }
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
+            FrameContinuation::ModuleArguments { op, cli_plan, args, position, mut values, span, next } => match value {
+                FrameValue::Value(value) => {
+                    values.push(Some(value));
+                    self.step_module_arguments(index, op, cli_plan, args, position + 1, values, span, *next)?;
+                }
+                FrameValue::Break(value) => self.push_value(index, FrameValue::Break(value), *next),
+            },
             FrameContinuation::WithBinding { bindings, position, body, else_param_slot, else_body, span } => {
                 let value = match value {
                     FrameValue::Value(value) => value,
@@ -3376,6 +3441,27 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 },
             );
         }
+        Ok(())
+    }
+
+    // Argument holes preserve omitted native defaults; present operands run once
+    // in source order without retaining recursive evaluator frames across calls.
+    fn step_module_arguments(
+        &mut self, index: usize, op: super::RuntimeOp,
+        cli_plan: Option<Arc<crate::modules::cli::CliDescriptorPlan>>,
+        args: Vec<Option<u32>>, mut position: usize,
+        mut values: Vec<Option<LoweredValue>>, span: Span, next: FrameContinuation,
+    ) -> Result<(), RuntimeError> {
+        while let Some(argument) = args.get(position).copied() {
+            if let Some(instruction) = argument {
+                self.push_expr(index, instruction, span, FrameContinuation::ModuleArguments { op, cli_plan, args, position, values, span, next: Box::new(next) });
+                return Ok(());
+            }
+            values.push(None);
+            position += 1;
+        }
+        let flow = self.evaluator.eval_indexed_module_call_values(op, super::super::NativeArgumentValues::new(values), span, cli_plan.as_deref())?;
+        self.push_value(index, match flow { ControlFlow::Continue(value) => FrameValue::Value(value), ControlFlow::Break(value) => FrameValue::Break(value) }, next);
         Ok(())
     }
 

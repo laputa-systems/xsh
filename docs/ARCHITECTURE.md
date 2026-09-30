@@ -392,7 +392,11 @@ The executable frontend has stable owners rather than a migration path:
   finalized canonical identities.
 - `src/runtime/eval/lowered_run/indexed_run.rs` owns instruction decoding and
   execution. Its `explicit_run.rs` child owns the heap-backed call, work, and
-  continuation frames; it is the only recursive-language-call executor.
+  continuation frames; it is the only recursive-language-call executor. Field
+  bases, index operands, and native module arguments are scheduled on these
+  frames before dispatch. Calls nested in projections therefore do not retain
+  recursive operand evaluation on the native stack. Native argument holes and
+  source order are preserved, and both dispatch paths share module tracing.
 - `src/runtime/eval.rs` owns installation, dynamic-function registration, slot
   pooling, and evaluator/session lifetime. It never owns a second executable
   representation.

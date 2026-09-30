@@ -2848,6 +2848,33 @@ impl Evaluator {
         }
     }
 
+    fn eval_indexed_module_call_values(
+        &mut self, op: RuntimeOp, values: super::NativeArgumentValues,
+        span: Span, cli_plan: Option<&crate::modules::cli::CliDescriptorPlan>,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        if !self.trace_enabled {
+            return self.eval_lowered_module_call_values(op, values, span, cli_plan);
+        }
+        let trace_name = crate::modules::signature::api_spec()
+            .op_trace_name(op)
+            .map(str::to_string);
+        let rooted = trace_name.as_deref().is_some_and(|name| name.starts_with("FsRoot."));
+        self.trace_enter(
+            if rooted { TraceKind::MethodCall } else { TraceKind::ModuleCall },
+            Some(span),
+            trace_name.as_deref(),
+            TracePayload::None,
+        );
+        let result = self.eval_lowered_module_call_values(op, values, span, cli_plan);
+        self.trace_exit(
+            if rooted { TraceKind::MethodResult } else { TraceKind::ModuleResult },
+            Some(span),
+            trace_name.as_deref(),
+            TracePayload::None,
+        );
+        result
+    }
+
     fn eval_indexed_expr_inner(
         &mut self,
         execution: &FullExecution<'_>,
@@ -6451,27 +6478,7 @@ impl Evaluator {
                 }
                 indexed_finish(args, span)?;
                 let values = super::NativeArgumentValues::new(values);
-                if !self.trace_enabled {
-                    return self.eval_lowered_module_call_values(op, values, span, cli_plan.as_deref());
-                }
-                let trace_name = crate::modules::signature::api_spec()
-                    .op_trace_name(op)
-                    .map(str::to_string);
-                let rooted = trace_name.as_deref().is_some_and(|name| name.starts_with("FsRoot."));
-                self.trace_enter(
-                    if rooted { TraceKind::MethodCall } else { TraceKind::ModuleCall },
-                    Some(span),
-                    trace_name.as_deref(),
-                    TracePayload::None,
-                );
-                let result = self.eval_lowered_module_call_values(op, values, span, cli_plan.as_deref());
-                self.trace_exit(
-                    if rooted { TraceKind::MethodResult } else { TraceKind::ModuleResult },
-                    Some(span),
-                    trace_name.as_deref(),
-                    TracePayload::None,
-                );
-                return result;
+                return self.eval_indexed_module_call_values(op, values, span, cli_plan.as_deref());
             }
             FullTag::ExprProcessCommandArgv => {
                 let target = indexed_raw(&mut payload, call_span)?;
