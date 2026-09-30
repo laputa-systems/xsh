@@ -1756,9 +1756,10 @@ run.text printf "%s" ${label} ?
     };
     let params = arena.params(arena.function_def(p1).params);
     assert!(params.iter().all(|param| param.ty_defaulted));
-    assert!(arena.type_expr_named(params[0].ty, "Int"));
-    assert!(arena.type_expr_named(params[1].ty, "Bool"));
-    assert!(arena.type_expr_named(params[2].ty, "Path"));
+    assert!(params.iter().all(|param| arena.type_expr_data[param.ty.index()].lhs == xsh::frontend::symbols::Name::UNKNOWN.symbol().raw()));
+    let checked = Checker::check_arena(&output.arena, "");
+    let types = params.iter().map(|param| checked.parameter_types.get(&arena.span(param.span)).unwrap()).collect::<Vec<_>>();
+    assert_eq!(types, vec![&xsh::frontend::check::Type::Int, &xsh::frontend::check::Type::Bool, &xsh::frontend::check::Type::Path]);
     let ArenaStmtKind::Assign { op, .. } = arena.stmt(root[3]).kind else {
         panic!("expected assignment");
     };
@@ -3966,4 +3967,22 @@ fn parser_context_scopes_keep_nested_expression_spans_and_body_modes() {
     let ArenaExprKind::ContextScope { input, value_body: true, .. } = arena.expr(scope).kind else { panic!("value body"); };
     assert_eq!(&source[arena.expr(input).span.range()], "{X: 7}");
     assert_eq!(&source[arena.expr(scope).span.range()], "env ({X: 7}) { false }");
+}
+
+#[test]
+fn default_parameter_parser_retains_omission_without_synthesizing_source_types() {
+    let source = "const config = {jobs: 4}\npure choose(jobs = config.jobs + 1, label = \"café\") -> Int { jobs }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    assert_eq!(parsed.cst.get().exact_text(), source);
+    assert!(parsed.arena.arena.function_defs.iter().flat_map(|def| parsed.arena.arena.params(def.params)).all(|param| param.ty_defaulted));
+    let output = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let formatted = output.formatted;
+    assert!(formatted.contains("jobs = config.jobs + 1"));
+    assert!(!formatted.contains("Unknown"));
+    let reparsed = Parser::parse_source_arena_only(SourceId::new(0), &formatted);
+    assert!(reparsed.diagnostics.is_empty(), "{:?}", reparsed.diagnostics);
+    assert!(Checker::check_arena(&reparsed.arena, &formatted).diagnostics.is_empty());
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted).formatted, formatted);
 }

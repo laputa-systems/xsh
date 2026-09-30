@@ -930,3 +930,11 @@ Run `tests/xsh/stdlib/env.xsh`, the syntax and sema integration targets, indexed
 verifier unit tests, and xsht scope tooling acceptance tests for the full gate.
 `cargo test -p xsh --lib context_scope_` checks native environment bytes,
 fatal and forced cleanup, and dynamic outer assignment on both evaluator routes.
+Default parameter declarations are covered by `tests/xsh/default-parameters.xsh`:
+constant/import projections, already permitted calls, lexical shadowing, lazy
+omission, supplied argument order, cleanup and error propagation. Native
+coverage also pairs explicit and inferred lazy producer defaults, including
+unconsumed producers and eager supplied arguments. Focused host
+checks use `cargo test --test integration default_parameter` and
+`cargo test -p xsht --test integration default_parameter`; broaden to syntax,
+checker, lint acceptance tests and indexed verifier tests after those pass.

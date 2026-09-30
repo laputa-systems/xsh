@@ -3585,48 +3585,34 @@ impl CompactLowerConstructProbe<'_, '_> {
         let mut param_rest: LoweredParamRest = Default::default();
         let mut param_defaults: LoweredParamDefaults = Default::default();
         let mut params: LoweredParamNames = Default::default();
-        for param in self.program.arena.params(def.params) {
-            let kind = match lowered_arena_type(&self.program.arena, param.ty, self.declarations) {
-                Some(kind) => kind,
-                None => {
-                    self.last_blocker_detail = Some((
-                        self.program.arena.type_expr_span(param.ty),
-                        format!("unsupported parameter type for `{}`", param.name.as_str()),
-                    ));
-                    return Err(CompactFunctionBlocker::ParamType);
-                }
-            };
-            let expected_default = compact_runtime_type_in_namespace(&self.program.arena, param.ty, self.declarations, self.current_namespace);
-            let default = match param.default {
-                Some(expr) => match self.declarations.prepared_constants.analyze_expression(&self.program.arena, expr)
-                    .map(|value| value.in_type(&expected_default)).as_ref().and_then(|value| lower_literal_constant(value, Some(&self.declarations.wire_enums)))
+        let mut checked_params = Vec::new();
+        let mut expression_defaults = Vec::new();
+        for (index, param) in self.program.arena.params(def.params).iter().enumerate() {
+            let expected = self.declarations.parameter_types.get(&self.program.arena.span(param.span)).cloned()
+                .unwrap_or_else(|| compact_runtime_type_in_namespace(&self.program.arena, param.ty, self.declarations, self.current_namespace));
+            let kind = match &expected {
+                Type::Optional(_) | Type::Null => Some(LoweredType::Any),
+                _ => lowered_checked_type(&expected),
+            }.ok_or(CompactFunctionBlocker::ParamType)?;
+            let check = if param.ty_defaulted {
+                lowered_type_needs_static_check(kind).then(|| LoweredTypeCheck { schema: None, ty: expected.clone(), name: Arc::from(expected.to_string()) })
+            } else { compact_type_check(kind, &self.program.arena, param.ty, self.declarations, self.current_namespace) };
+            let default = if let Some(expr) = param.default {
+                let prepared = self.declarations.prepared_constants.analyze_expression(&self.program.arena, expr)
+                    .map(|constant| constant.in_type(&expected)).and_then(|constant| lower_literal_constant(&constant, Some(&self.declarations.wire_enums)))
                     .filter(|value| lowered_value_matches(kind, value))
-                    .or_else(|| lower_const_param_default(&self.program.arena, expr, kind, Some(&expected_default))) {
-                    Some(default) => Some(default),
-                    None => {
-                        self.last_blocker_detail = Some((
-                            self.program.arena.expr(expr).span,
-                            format!(
-                                "unsupported default value for parameter `{}`",
-                                param.name.as_str()
-                            ),
-                        ));
-                        return Err(CompactFunctionBlocker::ParamDefault);
-                    }
-                },
-                None => None,
-            };
+                    .or_else(|| lower_const_param_default(&self.program.arena, expr, kind, Some(&expected)));
+                if let Some(value) = prepared { Some(value) } else {
+                    expression_defaults.push((index, expr, kind, check.clone()));
+                    Some(LoweredValue::OmittedArgument)
+                }
+            } else { None };
             param_kinds.push(kind);
-            param_checks.push(compact_type_check(
-                kind,
-                &self.program.arena,
-                param.ty,
-                self.declarations,
-                self.current_namespace,
-            ));
+            param_checks.push(check);
             param_rest.push(param.rest);
             param_defaults.push(default);
             params.push(param.name);
+            checked_params.push(expected);
         }
         if !def.test_declaration && !self.program.arena.block(def.body).params.is_empty() {
             self.last_blocker_detail = Some((
@@ -3640,16 +3626,23 @@ impl CompactLowerConstructProbe<'_, '_> {
         // NOTE: nested loops are supported by the lowered runtime (break/continue
         // use StmtFlow which correctly scopes to the innermost loop).
         // The check is removed — it was an early indexed-lowering safety measure that is no longer needed.
-        let mut slots = SlotScope::from_names(params.iter().copied());
-        // Parameter contracts also govern local slot selection. Nullable reads
-        // must retain their checked type until an explicit fallback removes null.
-        for param in self.program.arena.params(def.params) {
-            slots.types.insert(param.name, compact_runtime_type_in_namespace(
-                &self.program.arena, param.ty, self.declarations, self.current_namespace,
-            ));
-        }
+        // Parameter slots exist at entry, but their names are hidden while
+        // lowering defaults so every default resolves in the outer environment.
+        let mut slots = SlotScope::from_names([]);
+        for _ in &params { slots.reserve("parameter"); }
         let captures = self.append_immutable_top_level_captures(&mut slots);
         let blockers_before = self.output.blocker_events;
+        let mut default_prefix = Vec::new();
+        for (slot, expr, kind, check) in expression_defaults {
+            let value = self.lower_expr(expr, &mut slots, Some(def.name), None)
+                .ok_or(CompactFunctionBlocker::ParamDefault)?;
+            default_prefix.push(push_build_row!(self, stmt, BuildStmtRow::DefaultParameter { slot, value, kind, check, span: self.program.arena.expr(expr).span }));
+        }
+        for (slot, (name, ty)) in params.iter().copied().zip(checked_params).enumerate() {
+            slots.indices.insert(name, slot);
+            slots.types.insert(name, ty);
+            slots.captures.remove(&name);
+        }
         let mut body = self
             .lower_tail_block(def.body, &mut slots, Some(def.name), None)
             .ok_or_else(|| {
@@ -3663,6 +3656,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                 }
                 CompactFunctionBlocker::Body
             })?;
+        default_prefix.append(&mut body);
+        body = default_prefix;
         // The construct probe is permissive: it substitutes `Unit` for any
         // sub-expression/statement it cannot lower so it can finish traversing
         // and tally blockers. That placeholder must never be committed as real
@@ -15669,7 +15664,8 @@ pub(super) fn lowered_body_can_return(scratch: &BuildScratch, statements: &[Buil
             // guard alone never guarantees a return.
             BuildStmtRow::Guard { .. } => false,
             BuildStmtRow::With { body, else_body, .. } => lowered_body_can_return(scratch, body) && lowered_body_can_return(scratch, else_body),
-            BuildStmtRow::Let { .. }
+            BuildStmtRow::DefaultParameter { .. }
+            | BuildStmtRow::Let { .. }
             | BuildStmtRow::LetRecord { .. }
             | BuildStmtRow::LetInt { .. }
             | BuildStmtRow::LetBool { .. }

@@ -1,3 +1,4 @@
+use crate::runtime::eval::lowered_run::validate_parameter_default;
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::map_key::MapKey;
 use super::{LoweredMapCursor, LoweredScalarCursor};
@@ -101,6 +102,7 @@ enum FrameContinuation {
         span: Span,
     },
     Store(usize),
+    ParameterDefault { slot: usize, kind: LoweredType, check: Option<LoweredTypeCheck>, span: Span },
     Assign {
         slot: usize,
         op: AssignOp,
@@ -1241,6 +1243,18 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             span,
         )?;
         match tag {
+            FullTag::StmtDefaultParameter => {
+                let slot = indexed_decode::<usize>(&mut payload, &self.calls[index].execution, span)?;
+                let value = indexed_raw(&mut payload, span)?;
+                let kind = indexed_decode::<LoweredType>(&mut payload, &self.calls[index].execution, span)?;
+                let check = indexed_decode::<Option<LoweredTypeCheck>>(&mut payload, &self.calls[index].execution, span)?;
+                let span = indexed_decode::<Span>(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                if matches!(self.calls[index].slots[slot], LoweredValue::OmittedArgument) {
+                    self.push_expr(index, value, span, FrameContinuation::ParameterDefault { slot, kind, check, span });
+                }
+                Ok(())
+            }
             FullTag::StmtLet => {
                 let slot: usize = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
                 let value = indexed_raw(&mut payload, span)?;
@@ -2182,6 +2196,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     self.push_statement_block(index, else_body, span)?;
                 }
                 FrameValue::Value(other) => return Err(RuntimeError::new("type-error", format!("guard expected Result, found {}", other.type_name())).with_span(span)),
+            },
+            FrameContinuation::ParameterDefault { slot, kind, check, span } => match value {
+                FrameValue::Value(value) => {
+                    validate_parameter_default(&value, kind, check.as_ref(), span)?;
+                    self.calls[index].slots[slot] = value;
+                    self.calls[index].slot_scopes[slot] = self.evaluator.current_scope_id();
+                }
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::Store(slot) => match value {
                 FrameValue::Value(value) => {

@@ -423,6 +423,15 @@ arms is still precise.
 
 ## Callable Values
 
+Defaulted parameter types come from checked declaration expressions. An omitted
+annotation is resolved before callers from constants, projections, primitive
+operations and established callable signatures. Null and unconstrained empty
+collections require annotations; body uses and supplied arguments never anchor
+an omitted parameter. Default names resolve outside the callable's parameters.
+Declaration cycles that cannot establish a material type require an explicit
+annotation. Named schemas, UInt constraints, optional domains and contextual
+conversions remain explicit unless complete rechecking proves equivalence.
+
 Named pure functions and procs have statically checked parameters and return
 types. Private pure returns may be inferred from their definitions, independently
 of declaration and caller order. Return inference accepts concrete compatible

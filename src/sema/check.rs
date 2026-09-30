@@ -38,6 +38,8 @@ mod expr;
 mod infer_effects;
 #[path = "check/infer_return.rs"]
 mod infer_return;
+#[path = "check/infer_param.rs"]
+mod infer_param;
 #[path = "check/method.rs"]
 mod method;
 #[path = "check/pattern.rs"]
@@ -93,6 +95,7 @@ pub struct CheckOutput {
     pub annotation_facts: Vec<AnnotationFact>,
     pub function_return_types: BTreeMap<Span, Type>,
     pub record_constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
+    pub parameter_types: BTreeMap<Span, Type>,
     pub reveal_types: Vec<Diagnostic>,
     pub expr_types: BTreeMap<Span, Type>,
     pub projections: BTreeMap<Span, CheckedProjection>,
@@ -262,6 +265,7 @@ pub(super) enum ModuleContractEntryKind {
 
 #[derive(Clone, Debug)]
 pub(super) struct ContractParam {
+    source: crate::syntax::arena::ArenaParam,
     name: Name,
     ty: TypeAnnRef,
     defaulted: bool,
@@ -350,6 +354,7 @@ pub struct Checker {
     definitely_exiting_block_spans: BTreeSet<Span>,
     options: CheckOptions,
     function_return_types: BTreeMap<Span, Type>,
+    parameter_types: BTreeMap<Span, Type>,
     pipeline_hole_types: BTreeMap<Span, Type>,
     inferred_returns: Option<Vec<(Type, Span)>>,
     inferred_propagations: Vec<(Type, Span)>,
@@ -433,6 +438,7 @@ impl Checker {
                 annotation_facts: checker.annotation_facts,
                 function_return_types: checker.function_return_types,
                 record_constructor_instances: checker.record_constructor_instances,
+                parameter_types: checker.parameter_types,
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
                 projections: checker.projections,
@@ -524,6 +530,7 @@ impl Checker {
                 annotation_facts: checker.annotation_facts,
                 function_return_types: checker.function_return_types,
                 record_constructor_instances: checker.record_constructor_instances,
+                parameter_types: checker.parameter_types,
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
                 projections: checker.projections,
@@ -583,6 +590,7 @@ impl Checker {
             definitely_exiting_block_spans: BTreeSet::new(),
             options,
             function_return_types: BTreeMap::new(),
+            parameter_types: BTreeMap::new(),
             pipeline_hole_types: BTreeMap::new(),
             inferred_returns: None,
             inferred_propagations: Vec::new(),
@@ -704,7 +712,10 @@ impl Checker {
         self.collect_user_modules_arena(program, type_program.clone(), source);
         self.collect_type_imports_arena(program, program.statement_ids());
         self.collect_definitions_arena(program, type_program, source, program.statement_ids());
-        self.infer_local_pure_returns(program, source, &program.statement_ids().collect::<Vec<_>>());
+        let statements = program.statement_ids().collect::<Vec<_>>();
+        self.infer_default_parameter_types(program, source, &statements);
+        self.infer_local_pure_returns(program, source, &statements);
+        self.infer_default_parameter_types(program, source, &statements);
         for stmt in program.statement_ids() {
             self.check_stmt_arena(program, source, stmt);
         }

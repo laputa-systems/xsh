@@ -393,3 +393,20 @@ The ordinary byte instruction produces `Int` or null. Integer byte slots are
 selected only when an explicit `??` supplies a proven inert Int literal; a
 direct nullable lookup cannot initialize an Int slot. Collection lookup
 instructions retain Result tags, including successful null payloads.
+Omitted defaulted parameter annotations are retained by `ArenaParam::ty_defaulted`.
+The placeholder `ty` is parser storage; semantic consumers read
+`CheckOutput::parameter_types` and `CompactDeclOutput::parameter_types`, keyed by
+parameter span. Declaration analysis checks defaults in their outer lexical
+environment and publishes only concrete canonical substitutions. It runs before
+callers and after private return dependencies are established.
+
+Prepared defaults retain their compact values. Other checked defaults lower to
+`BuildStmtRow::DefaultParameter` at callee entry. Argument binding preserves an
+unforgeable private omission marker; entry evaluates only marked slots, in
+parameter order, after all supplied arguments. The shared call frame evaluates
+default expressions and their cleanup without introducing a new return or error
+boundary. A lazy producer executes this entry prefix on its first pull; supplied
+arguments are still bound during the call, and a producer stopped before its
+first pull executes no defaults. `FullParam` records expression-default presence separately from the
+semantic signature's defaulted flag; omission markers cannot be encoded as
+literal values.

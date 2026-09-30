@@ -3,6 +3,8 @@
 //! (`refresh_lowered_pures`, `call_lowered_pure`) stay in the parent.
 
 use crate::map_key::{MapKey, MapKeyRef};
+use super::LoweredTypeCheck;
+
 use crate::modules::{
     RuntimeOp, api_spec, archive as archive_module, bytes as bytes_module, cli as cli_module,
     diff as diff_module, dns as dns_module, elf as elf_module, fs as fs_module,
@@ -3402,12 +3404,23 @@ fn lowered_runtime_arg_matches_param(
         .is_none_or(|check| value_matches_static_type(value, &check.ty))
 }
 
+fn validate_parameter_default(value: &LoweredValue, kind: LoweredType, check: Option<&LoweredTypeCheck>, span: Span) -> Result<(), RuntimeError> {
+    if lowered_value_matches(kind, value) && check.is_none_or(|check| lowered_value_matches_static_type(value, &check.ty)) {
+        Ok(())
+    } else {
+        Err(RuntimeError::new("type-error", format!("parameter default expected {}, found {}", check.map_or_else(|| lowered_type_name(kind), |check| check.name.as_ref()), value.type_name())).with_span(span))
+    }
+}
+
 fn lowered_value_matches_param(
     lowered: &FunctionHeader,
     index: usize,
     kind: LoweredType,
     value: &LoweredValue,
 ) -> bool {
+    if matches!(value, LoweredValue::OmittedArgument) {
+        return lowered.param_defaults.get(index).is_some_and(|default| matches!(default, Some(LoweredValue::OmittedArgument)));
+    }
     lowered_value_matches(kind, value)
         && lowered_param_check(lowered, index)
             .is_none_or(|check| lowered_value_matches_static_type(value, &check.ty))

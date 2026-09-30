@@ -4031,3 +4031,46 @@ fn constant_key_projection_guarded_access_keeps_optional_result_layers() {
         assert_eq!(checked.expr_types.get(&span), compact.expr_types.get(&id));
     }
 }
+
+#[test]
+fn default_parameter_types_are_checked_declaration_facts_shared_with_compact() {
+    let source = "const config = {jobs: 4}\npure choose(jobs = config.jobs + 1) -> Int { jobs }\nlet a = choose()\nlet b = choose(jobs: 9)\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    assert_eq!(checked.parameter_types, declarations.parameter_types);
+    assert_eq!(checked.parameter_types.values().collect::<Vec<_>>(), vec![&xsh::frontend::check::Type::Int]);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    for (id, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(id).span;
+        if &source[span.range()] == "jobs" { assert_eq!(checked.expr_types.get(&span), Some(&ty)); }
+    }
+}
+
+#[test]
+fn default_parameter_inference_needs_own_default_anchor_and_never_body_or_callers() {
+    for source in [
+        "pure choose(value = null) -> Str { value.trim() }\nlet x = choose(\"anchored caller\")\n",
+        "pure choose(value = []) -> List[Int] { value }\nlet x = choose([1])\n",
+        "pure choose(first: Int = 1, second = first) -> Int { second }\n",
+        "pure choose(value = later) -> Int { value }\nlet later = 4\nlet supplied = choose(9)\n",
+    ] {
+        let checked = check(source);
+        assert!(checked.iter().any(|code| code.as_deref() == Some("check.infer-param")), "{:?}", checked);
+    }
+}
+
+#[test]
+fn default_parameter_contract_headers_keep_checked_omitted_literal_types() {
+    let source = "type Runner = module { export pure choose(value = 4) -> Int }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(checked.parameter_types.values().any(|ty| *ty == xsh::frontend::check::Type::Int));
+    let compact = Checker::check_compact_declarations(&parsed.arena);
+    assert_eq!(compact.parameter_types, checked.parameter_types);
+}

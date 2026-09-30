@@ -361,7 +361,9 @@ impl Checker {
                 }
             }
         }
+        self.infer_default_parameter_types(program, source, &stmt_ids);
         self.infer_local_pure_returns(program, source, &stmt_ids);
+        self.infer_default_parameter_types(program, source, &stmt_ids);
         let mut exports = UserModuleSig::default();
         for stmt_id in &stmt_ids {
             let stmt = program.arena.stmt(*stmt_id);
@@ -564,7 +566,7 @@ impl Checker {
                 .iter()
                 .map(|param| FunctionParamSig {
                     name: param.name,
-                    ty: self.type_from_arena(program, param.ty),
+                    ty: self.checked_parameter_type(program, param).unwrap_or_else(|| if param.ty_defaulted { Type::Unknown } else { self.type_from_arena(program, param.ty) }),
                     schema_expectation: self.record_constructors.annotation_expectation(&program.arena, param.ty, self.current_namespace).ok(),
                     defaulted: param.default.is_some(),
                     rest: param.rest,
@@ -894,6 +896,7 @@ fn params_arena(program: Arc<ArenaProgram>, range: ArenaRange) -> Vec<ContractPa
         .params(range)
         .iter()
         .map(|param| ContractParam {
+            source: param.clone(),
             name: param.name,
             ty: TypeAnnRef::new(program.clone(), param.ty),
             defaulted: param.default.is_some() || param.ty_defaulted,
@@ -1045,7 +1048,7 @@ impl Checker {
                         }
                         | ArenaModuleContractEntryKind::Pure { params, return_ty } => {
                             for param in arena.arena.params(*params) {
-                                self.type_from_arena(arena, param.ty);
+                                self.infer_checked_parameter(arena, source, param);
                             }
                             self.type_from_arena(arena, *return_ty);
                         }

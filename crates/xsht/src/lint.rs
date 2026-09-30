@@ -1094,6 +1094,29 @@ impl<'a> Linter<'a> {
             .with_fix_hint(FixHint::deletion(deletion, "infer the private pure return")));
     }
 
+    fn lint_default_parameter_annotation(&mut self, param: &xsh::frontend::syntax::arena::ArenaParam) {
+        if param.ty_defaulted || param.default.is_none() || param.rest || self.annotation_refs_user_type(param.ty) { return; }
+        let span = self.arena.type_expr_span(param.ty);
+        let param_span = self.arena.span(param.span);
+        let Some(prefix) = self.source.get(param_span.start()..span.start()) else { return; };
+        let Some(colon) = prefix.rfind(':') else { return; };
+        let start = param_span.start() + colon;
+        let Some(annotation) = self.source.get(start..span.end()) else { return; };
+        if annotation.contains('#') { return; }
+        let mut rewritten = self.source.to_string();
+        rewritten.replace_range(start..span.end(), "");
+        if self.return_removal_before.is_none() {
+            self.return_removal_before = Some(checked_return_removal_facts(self.source, span.source_id, None));
+        }
+        let before = self.return_removal_before.as_ref().unwrap();
+        let after = checked_return_removal_facts(&rewritten, span.source_id, Some((start, span.end() - start)));
+        if before.is_none() || before != &after { return; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "default establishes exactly the declared parameter type")
+            .with_code("lint.default-param-type")
+            .with_label(Label::secondary(span, "checked signatures, expression types, effects and conversions remain identical"))
+            .with_fix_hint(FixHint::deletion(Span::new(span.source_id, start, span.end()), "infer the parameter type from its default")));
+    }
+
     fn checked_effect_fact(&self, body: Span) -> Option<&xsh::frontend::check::FunctionEffectFact> {
         let mut matches = self.checked_effects.iter().filter_map(|(id, fact)| (id.body == body).then_some(fact));
         let fact = matches.next()?;
@@ -1255,6 +1278,7 @@ impl<'a> Linter<'a> {
             self.collect_type_expr_refs(def.return_ty);
         }
         for param in self.arena.params(def.params).to_vec() {
+            self.lint_default_parameter_annotation(&param);
             if !param.ty_defaulted {
                 self.collect_type_expr_refs(param.ty);
             }
@@ -9766,6 +9790,7 @@ struct CheckedReturnRemovalFacts {
     expressions: Vec<(usize, usize, String)>,
     statements: Vec<(usize, usize, xsh::frontend::check::StatementPosition)>,
     returns: Vec<(usize, usize, String)>,
+    parameters: Vec<(usize, usize, String)>,
     effects: BTreeMap<String, Option<Vec<Effect>>>,
 }
 
@@ -9782,6 +9807,7 @@ fn checked_return_removal_facts(source: &str, source_id: xsh::frontend::source::
         expressions: checked.expr_types.iter().map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
         statements: checked.statement_positions.iter().map(|(span, position)| (original_offset(span.start()), original_offset(span.end()), *position)).collect(),
         returns: checked.function_return_types.iter().map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
+        parameters: checked.parameter_types.iter().map(|(span, ty)| (original_offset(span.start()), original_offset(span.end()), checked_return_type_shape(ty))).collect(),
         effects: checked.callable_effects.into_iter().map(|(name, effects)| {
             let effects = effects.map(|mut effects| { effects.sort_by_key(Effect::as_str); effects.dedup(); effects });
             (name, effects)

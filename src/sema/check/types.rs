@@ -403,7 +403,7 @@ impl Checker {
                 .into_iter()
                 .map(|param| CallableParamType {
                     name: param.name,
-                    ty: self.type_from_ann(&param.ty),
+                    ty: if param.source.ty_defaulted { self.infer_checked_parameter(&param.ty.program, "", &param.source) } else { self.type_from_ann(&param.ty) },
                     defaulted: param.defaulted,
                     rest: param.rest,
                 })

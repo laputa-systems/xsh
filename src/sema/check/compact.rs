@@ -28,6 +28,7 @@ pub struct CompactDeclOutput {
     pub diagnostics: Vec<Diagnostic>,
     pub function_return_types: BTreeMap<crate::source::Span, Type>,
     pub function_effect_facts: BTreeMap<super::EffectDeclarationId, super::FunctionEffectFact>,
+    pub parameter_types: BTreeMap<crate::source::Span, Type>,
     pub types: FxHashMap<Name, CompactTypeDefInfo>,
     pub record_schema_fields: FxHashMap<Name, BTreeMap<Name, TypeExprId>>,
     pub tag_variants_by_name: FxHashMap<Name, TagVariantInfo>,
@@ -111,7 +112,7 @@ impl Checker {
     pub fn check_compact_declarations(program: &ArenaProgram) -> CompactDeclOutput {
         program.symbol_owner().with_current(|| {
             let has_generic_schemas = program.arena.type_defs.iter().any(|definition| !definition.type_parameters.is_empty());
-            let needs_checked_facts = has_generic_schemas || program.arena.function_defs.iter().any(|def| def.return_ty_defaulted
+            let needs_checked_facts = has_generic_schemas || program.arena.params.iter().any(|param| param.ty_defaulted) || program.arena.function_defs.iter().any(|def| !def.params.is_empty()) || program.arena.function_defs.iter().any(|def| def.return_ty_defaulted
                 && program.arena.type_expr_tags[def.return_ty.index()] == ArenaTypeExprTag::Named)
                 || program.arena.stmt_tags.iter().any(|tag| matches!(tag, crate::syntax::arena::ArenaStmtTag::ProcDef | crate::syntax::arena::ArenaStmtTag::Let | crate::syntax::arena::ArenaStmtTag::LetExprNoTy));
             let inferred = needs_checked_facts.then(|| Checker::check_arena(program, ""));
@@ -126,6 +127,7 @@ impl Checker {
                         inferred.as_ref()?.record_constructor_instances.get(&expression.span).map(|fact| (callee, fact.ty.clone()))
                     }).collect(),
                     static_callable_aliases: inferred.as_ref().map(|checked| checked.static_callable_aliases.clone()).unwrap_or_default(),
+                    parameter_types: inferred.as_ref().map(|checked| checked.parameter_types.clone()).unwrap_or_default(),
                     function_return_types: inferred.as_ref().map(|checked| checked.function_return_types.clone()).unwrap_or_default(),
                     ..CompactDeclOutput::default()
                 },
@@ -151,7 +153,7 @@ impl Checker {
             if let Some(checked) = inferred {
                 output.diagnostics.extend(checked.diagnostics.into_iter().filter(|diagnostic|
                     has_generic_schemas && matches!(diagnostic.code.as_deref(), Some("check.constructor-inference" | "check.record-constructor" | "check.type-mismatch"))
-                        || matches!(diagnostic.code.as_deref(), Some("check.infer-return" | "check.required-return"))));
+                        || matches!(diagnostic.code.as_deref(), Some("check.infer-return" | "check.required-return" | "check.infer-param"))));
             }
             output
         })
@@ -545,7 +547,7 @@ impl CompactDeclCollector {
             .iter()
             .map(|param| CallableParamType {
                 name: param.name,
-                ty: Type::from_arena(&program.arena, param.ty),
+                ty: self.output.parameter_types.get(&program.arena.span(param.span)).cloned().unwrap_or_else(|| Type::from_arena(&program.arena, param.ty)),
                 defaulted: param.default.is_some(),
                 rest: param.rest,
             })
@@ -1136,12 +1138,12 @@ impl CompactBodyProbe<'_> {
         let saved_scopes = self.scopes.clone();
         self.push_compact_deferred_capture_scope();
         for param in self.program.arena.params(def.params) {
-            let ty = self.type_from_arena(param.ty);
-            self.current_scope_mut()
-                .insert(param.name, CompactBinding::new(ty, false));
-            if let Some(default) = param.default {
-                self.check_compact_expr(default);
-            }
+            if let Some(default) = param.default { self.check_compact_expr(default); }
+        }
+        for param in self.program.arena.params(def.params) {
+            let ty = self.declarations.parameter_types.get(&self.program.arena.span(param.span)).cloned()
+                .unwrap_or_else(|| self.type_from_arena(param.ty));
+            self.current_scope_mut().insert(param.name, CompactBinding::new(ty, false));
         }
         let body_span = self.program.arena.span(self.program.arena.block(def.body).span);
         let expected = self.declarations.function_return_types.get(&body_span).cloned()

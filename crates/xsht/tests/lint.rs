@@ -4536,5 +4536,38 @@ fn generic_record_constructor_alias_fix_preserves_conversion_and_ambiguous_evide
         let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
         let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-generic-record-constructor")).unwrap();
         assert!(diagnostic.fix_hints.is_empty(), "{source}");
+}
+
+#[test]
+fn default_parameter_annotation_fixes_recheck_preserve_comments_and_converge() {
+    let source = "# café precedes every edit.\nconst defaults = {jobs: 4}\npure next() -> Int { 3 }\npure choose(jobs: Int = defaults.jobs + 1, value: Int = next()) -> Int {\n  # café remains attached to the body.\n  jobs + value\n}\nlet result = choose(value: 7)\n";
+    let parsed = parse_lint_source(source);
+    let output = Linter::lint(&parsed.arena, source, LintOptions::default());
+    let fixes = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.default-param-type")).collect::<Vec<_>>();
+    assert_eq!(fixes.len(), 2, "{:?}", output.diagnostics);
+    let mut fixed = source.to_string();
+    for diagnostic in fixes.into_iter().rev() {
+        let hint = &diagnostic.fix_hints[0];
+        fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+    }
+    assert!(fixed.contains("jobs = defaults.jobs + 1, value = next()"));
+    assert!(fixed.contains("# café remains attached to the body."));
+    assert_parse_check_standalone("semantic default types", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.default-param-type")));
+}
+
+#[test]
+fn default_parameter_annotation_keeps_domains_context_and_ambiguous_defaults() {
+    for source in [
+        "pure choose(value: UInt = 4) -> UInt { value }\n",
+        "pure choose(value: Int? = 4) -> Int? { value }\n",
+        "pure choose(value: Int? = null) -> Int? { value }\n",
+        "pure choose(value: List[Int] = []) -> List[Int] { value }\n",
+        "type Config { jobs: Int }\npure choose(value: Config = {jobs: 4}) -> Config { value }\n",
+        "pure choose(value:\n# keep this contract comment\nInt = 4) -> Int { value }\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.default-param-type")), "{source}");
     }
 }

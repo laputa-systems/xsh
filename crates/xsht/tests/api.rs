@@ -826,6 +826,9 @@ fn api_private_pure_returns_explain_definition_inference_and_explicit_boundaries
     let output = xsht(&["api", "language:core.pure-functions"]);
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    for fragment in ["Defaulted parameters infer concrete checked types", "null and unconstrained empty collections", "only for omitted slots", "build_defaults.jobs + 1", "jobs = initial_jobs()"] {
+        assert!(stdout.contains(fragment), "{stdout}");
+    }
     assert!(stdout.contains("Private helpers"), "{stdout}");
     assert!(stdout.contains("recursive"), "{stdout}");
     assert!(stdout.contains("pure add(left: Int, right: Int) {"), "{stdout}");

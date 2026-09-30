@@ -2445,34 +2445,6 @@ impl<'a> ArenaProgramBuilder<'a> {
         id
     }
 
-    /// Infer a parameter's type name from its (already-built) default expression,
-    /// mirroring `inferred_param_type`.
-    pub fn infer_param_type_name(&self, default: ExprId) -> Option<Name> {
-        let name = match self.lowerer.arena.expr(default).kind {
-            ArenaExprKind::Bool(_) => "Bool",
-            ArenaExprKind::Int(_) => "Int",
-            ArenaExprKind::Float(_) => "Float",
-            ArenaExprKind::Duration(_) => "Duration",
-            ArenaExprKind::Str(_) | ArenaExprKind::FmtString(_) => "Str",
-            ArenaExprKind::Bytes(_) => "Bytes",
-            ArenaExprKind::Regex(_) => "Regex",
-            ArenaExprKind::PathStr(_) | ArenaExprKind::PathFmtString(_) => "Path",
-            ArenaExprKind::Call { callee, args } => {
-                let ArenaExprKind::Ident(callee_name) = self.lowerer.arena.expr(callee).kind else {
-                    return None;
-                };
-                match callee_name.as_str().as_str() {
-                    "Path" if args.len() == 1 => "Path",
-                    "Error" => "Error",
-                    "RunError" => "RunError",
-                    _ => return None,
-                }
-            }
-            _ => return None,
-        };
-        Some(Name::intern(name))
-    }
-
     pub fn push_loop(&mut self, block: BlockId, span: Span) -> StmtId {
         let id = self
             .lowerer

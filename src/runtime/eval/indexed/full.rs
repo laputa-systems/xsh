@@ -246,6 +246,7 @@ pub(in crate::runtime::eval) enum FullTag {
     StmtBreakValue,
     StmtContinue,
     StmtDefer,
+    StmtDefaultParameter,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1328,7 +1329,9 @@ impl<'a> FullFunctionView<'a> {
                 })
             });
             param_rest.push(param.flags & 1 != 0);
-            param_defaults.push(if cold.is_none_or(|cold| cold.default == IR_NONE) {
+            param_defaults.push(if param.flags & 4 != 0 {
+                Some(LoweredValue::OmittedArgument)
+            } else if cold.is_none_or(|cold| cold.default == IR_NONE) {
                 None
             } else {
                 let raw = [cold.expect("checked above").default];
@@ -1856,6 +1859,7 @@ impl FullBuilder {
                 let type_id = self.intern_lowered_type(body.param_kinds[index])?;
                 let default = body.param_defaults[index]
                     .as_ref()
+                    .filter(|value| !matches!(value, LoweredValue::OmittedArgument))
                     .map(|value| self.encode_value_id(value))
                     .transpose()?
                     .unwrap_or(IR_NONE);
@@ -1865,7 +1869,8 @@ impl FullBuilder {
                     .transpose()?
                     .unwrap_or(IR_NONE);
                 let flags = u8::from(body.param_rest[index])
-                    | u8::from(body.param_defaults[index].is_some()) << 1;
+                    | u8::from(body.param_defaults[index].is_some()) << 1
+                    | u8::from(matches!(body.param_defaults[index], Some(LoweredValue::OmittedArgument))) << 2;
                 let name_id = self.intern_string(&name.as_str())?.raw();
                 let param = u32::try_from(self.store.params.len())
                     .map_err(|_| IrBuildError::format("parameter_overflow", None, 0, 0))?;
@@ -1882,7 +1887,7 @@ impl FullBuilder {
                         validation,
                     });
                 }
-                signature_params.push((name, type_id, u32::from(flags)));
+                signature_params.push((name, type_id, u32::from(flags & 0b11)));
             }
             for capture in &body.captures {
                 let slot = u32::try_from(capture.slot)
@@ -3983,7 +3988,7 @@ impl FullVerifier {
             for param in &store.params[params.clone()] {
                 store.string(param.name)?;
                 store.semantic.type_tag(param.type_id)?;
-                if param.flags & !0b11 != 0 {
+                if param.flags & !0b111 != 0 {
                     return Err(IrVerifyError::new("parameter flags are invalid"));
                 }
             }
@@ -4039,6 +4044,36 @@ impl FullVerifier {
             }
             decoder.finish_function()?;
             let body_payload = store.payload(body_block.instructions)?;
+            let mut default_slots = BTreeSet::new();
+            let mut entry_open = true;
+            let mut previous_default = None;
+            for &instruction in body_payload.iter().skip(1) {
+                let tag = store.tags[instruction as usize];
+                if tag != FullTag::StmtDefaultParameter { entry_open = false; continue; }
+                if !entry_open { return Err(IrVerifyError::new("parameter defaults must precede the callable body")); }
+                let words = store.payload(store.data[instruction as usize].range())?;
+                let slot = words[0] as usize;
+                if slot >= params.len() || store.params[params.start + slot].flags & 4 == 0
+                    || previous_default.is_some_and(|previous| slot <= previous) {
+                    return Err(IrVerifyError::new("parameter default entry does not match its parameter"));
+                }
+                previous_default = Some(slot);
+                default_slots.insert(slot);
+            }
+            let entry_count = store.tags[decoder.instruction_range.clone()].iter()
+                .filter(|tag| **tag == FullTag::StmtDefaultParameter).count();
+            if entry_count != default_slots.len() { return Err(IrVerifyError::new("parameter default entry must belong to its callable prefix")); }
+            for (slot, param) in store.params[params.clone()].iter().enumerate() {
+                if param.flags & 4 != 0 {
+                    if param.flags & 2 == 0 || param.flags & 1 != 0 || !default_slots.contains(&slot) {
+                        return Err(IrVerifyError::new("expression default metadata requires a non-rest defaulted parameter entry"));
+                    }
+                    if store.param_cold.binary_search_by_key(&((params.start + slot) as u32), |cold| cold.param).ok()
+                        .is_some_and(|index| store.param_cold[index].default != IR_NONE) {
+                        return Err(IrVerifyError::new("expression defaults cannot also carry a prepared literal"));
+                    }
+                }
+            }
             if body_payload.first().copied() == Some(0) {
                 return Err(IrVerifyError::new(format!(
                     "function {index} has an empty body"
@@ -5250,6 +5285,7 @@ impl FullCodec for LoweredValue {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         let mut payload = builder.take_payload();
         let tag = match self {
+            Self::OmittedArgument => return Err(IrBuildError::format("omitted_argument_literal", None, 0, 0)),
             Self::Null => FullValueTag::Null,
             Self::Unit => FullValueTag::Unit,
             Self::Int(value) => {
@@ -7684,6 +7720,13 @@ impl_node_codec! {
 
 impl_node_codec! {
     BuildStmtRow {
+        BuildStmtRow::DefaultParameter { slot, value, kind, check, span } => StmtDefaultParameter {
+            slot: usize,
+            value: BuildExprId,
+            kind: LoweredType,
+            check: Option<LoweredTypeCheck>,
+            span: Span,
+        } => BuildStmtRow::DefaultParameter { slot, value, kind, check, span },
         BuildStmtRow::Let { slot, value } => StmtLet {
             slot: usize,
             value: BuildExprId,
@@ -9948,6 +9991,53 @@ proc scoped() [io, error] -> Int {
                 assert_eq!(evaluator.env.snapshot_clone(), original_env);
             }
         });
+    }
+
+    #[test]
+    fn default_parameter_calls_preserve_both_indexed_execution_routes_after_frontend_drop() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/default-parameters.xsh");
+            let program = Arc::new(fixture("default-parameters.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for recursive in [false, true] {
+                for (name, expected) in [("choose", 4), ("nested", 5), ("supplied", 9)] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                        &[], Span::new(program.store.source_id, 0, 0),
+                    ).expect("defaulted function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    assert_eq!(result.unwrap(), Value::Int(expected));
+                }
+                for (name, succeeds) in [("caught", false), ("skipped", true)] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                        &[], Span::new(program.store.source_id, 0, 0),
+                    ).expect("defaulted Result function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    assert!(matches!(result.unwrap(), Value::Result(crate::runtime::value::ResultValue::Ok(_))) == succeeds);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn default_parameter_verifier_rejects_missing_or_inconsistent_entry_metadata() {
+        let source = include_str!("../../../../tests/fixtures/frontend-indexed/default-parameters.xsh");
+        let program = fixture("default-parameters.xsh", source);
+        let parameter = program.store.params.iter().position(|param| param.flags & 4 != 0).unwrap();
+        let mut missing_default = program.clone();
+        missing_default.store.params[parameter].flags &= !2;
+        assert!(FullVerifier::verify(&missing_default).unwrap_err().message.contains("non-rest defaulted parameter entry"));
+        let mut inconsistent_entry = program.clone();
+        inconsistent_entry.store.params[parameter].flags &= !4;
+        assert!(FullVerifier::verify(&inconsistent_entry).unwrap_err().message.contains("entry does not match"));
+        let mut rest_default = program;
+        rest_default.store.params[parameter].flags |= 1;
+        assert!(FullVerifier::verify(&rest_default).unwrap_err().message.contains("non-rest defaulted parameter entry"));
     }
 
 }

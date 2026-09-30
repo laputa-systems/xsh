@@ -78,7 +78,7 @@ impl Checker {
             _ => return None,
         };
         Some(CallableAlias { name, pure, signature: FunctionSig {
-            effect_declaration: None, inferred_effects: false, explicit_return: true, is_alias: false, definition: None,
+            return_schema: None, effect_declaration: None, inferred_effects: false, explicit_return: true, is_alias: false, definition: None,
             params: sig.params.iter().map(|param| FunctionParamSig { schema_expectation: None, name: param.name, ty: param.ty.clone(), defaulted: param.defaulted, rest: param.rest }).collect(),
             return_ty: (*sig.return_ty).clone(), effects: sig.effects.clone(),
         } })

@@ -1070,6 +1070,7 @@ struct LoweredAssignPath(Vec<LoweredAssignStep>);
 
 #[derive(Clone, Debug)]
 enum BuildStmtRow {
+    DefaultParameter { slot: usize, value: BuildExprId, kind: LoweredType, check: Option<LoweredTypeCheck>, span: Span },
     Let {
         slot: usize,
         value: BuildExprId,
@@ -2159,6 +2160,8 @@ fn assign_lowered_bytes_view(slot: &mut LoweredValue, bytes: &Arc<[u8]>, start: 
 
 #[derive(Clone, Debug)]
 enum LoweredValue {
+    // This private marker survives argument binding only until callee entry.
+    OmittedArgument,
     Null,
     Unit,
     Int(i64),
@@ -2461,7 +2464,7 @@ impl PartialEq for LoweredValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::Null, Self::Null) => true,
-            (Self::Unit, Self::Unit) => true,
+            (Self::Unit, Self::Unit) | (Self::OmittedArgument, Self::OmittedArgument) => true,
             (Self::Int(left), Self::Int(right)) => left == right,
             (Self::Float(left), Self::Float(right)) => left == right,
             (Self::Duration(left), Self::Duration(right)) => left == right,
@@ -2537,6 +2540,7 @@ impl PartialEq for LoweredValue {
 impl LoweredValue {
     fn into_value(self) -> Value {
         match self {
+            Self::OmittedArgument => unreachable!("omitted argument escaped callee entry"),
             Self::Null => Value::Null,
             Self::Unit => Value::Unit,
             Self::Int(value) => Value::Int(value),
@@ -2619,6 +2623,7 @@ impl LoweredValue {
     fn type_name(&self) -> &'static str {
         match self {
             Self::Null => "Null",
+            Self::OmittedArgument => "omitted argument",
             Self::Unit => "Unit",
             Self::Int(_) => "Int",
             Self::Float(_) => "Float",

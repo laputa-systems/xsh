@@ -819,17 +819,7 @@ impl<'a> Parser<'a> {
                         break;
                     };
                     let default_span = self.span(default_start, self.previous_end());
-                    let ty_id = match arena.infer_param_type_name(default_id) {
-                        Some(type_name) => arena.push_named_type_expr(type_name, default_span),
-                        None => {
-                            self.diagnostic_at(
-                                default_span,
-                                "defaulted parameter needs an explicit type",
-                                "parse.inferred-param-type",
-                            );
-                            unknown_type_expr(arena, default_span)
-                        }
-                    };
+                    let ty_id = unknown_type_expr(arena, default_span);
                     (ty_id, true, Some(default_id), default_span.end())
                 } else {
                     self.diagnostic_here(

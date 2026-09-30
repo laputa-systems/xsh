@@ -1,3 +1,4 @@
+use crate::runtime::eval::lowered_run::validate_parameter_default;
 use crate::runtime::eval::lowered_ops::lowered_record_update_batch;
 use crate::map_key::MapKey;
 use super::{
@@ -7938,6 +7939,23 @@ impl Evaluator {
     ) -> Result<StmtFlow, RuntimeError> {
         let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
         match tag {
+            FullTag::StmtDefaultParameter => {
+                let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
+                let value = indexed_raw(&mut payload, call_span)?;
+                let kind = indexed_decode::<LoweredType>(&mut payload, execution, call_span)?;
+                let check = indexed_decode::<Option<LoweredTypeCheck>>(&mut payload, execution, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                if matches!(slots[slot], LoweredValue::OmittedArgument) {
+                    let value = match self.eval_indexed_expr(execution, value, slots, span)? {
+                        ControlFlow::Continue(value) => value,
+                        ControlFlow::Break(value) => return Ok(self.pending_value_block_flow.take().unwrap_or(StmtFlow::Propagate(value))),
+                    };
+                    validate_parameter_default(&value, kind, check.as_ref(), span)?;
+                    slots[slot] = value;
+                }
+                Ok(StmtFlow::None)
+            }
             FullTag::StmtLet => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
                 self.declare_recursive_context_slot(slots, slot);

@@ -1475,10 +1475,24 @@ effect_list  = "[" (IDENT ("," IDENT)*)? "]" ;
 return_stmt  = "return" expr_or_run? terminator ;
 ```
 
-Parameters without an explicit type require a default expression whose type is
-syntactically clear. Supported inferred defaults include `Bool`, `Int`,
-`Duration`, `Str`, `Bytes`, `Regex`, and `Path` literals. Parameters
-without defaults and rest parameters require an explicit type.
+A defaulted parameter may omit its type when ordinary semantic checking of its
+default establishes one concrete type. Constants, imported constants, field
+projections, primitive expressions, and already permitted calls retain their
+checked types. Null and unconstrained empty collections require an annotation;
+callers and the function body do not supply parameter constraints. Parameters
+without defaults and rest parameters retain their explicit type requirements.
+
+Defaults resolve in the callee's lexical declaration environment, with no access
+to other parameters. Supplied arguments evaluate eagerly in source order;
+defaults for omitted slots evaluate once in parameter order before the body.
+Ordinary callable defaults run during the call. A lazy stream producer evaluates
+its omitted expression defaults on the first pull, before executing its body;
+an unconsumed producer evaluates no expression defaults. Supplying a slot skips
+its default. Default expressions retain ordinary effects, propagation and cleanup
+within the callable; no additional callable boundary is introduced.
+CLI entrypoint defaults retain their stricter preparation-only value contract.
+Signature dependencies must establish concrete types without guessing through a
+cycle; an explicit type provides a boundary where inference cannot resolve.
 
 Private pure functions may omit `-> Type`. Infer from typed parameters,
 checked callee signatures, explicit returns, and reachable fallthrough tails;

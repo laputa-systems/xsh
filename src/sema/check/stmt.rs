@@ -1227,7 +1227,7 @@ impl Checker {
                     "check.rest-position",
                 );
             }
-            let param_ty = self.type_from_arena(arena, param.ty);
+            let param_ty = self.infer_checked_parameter(arena, source, param);
             if param.rest && !matches!(param_ty, Type::List(_)) {
                 self.error(
                     arena.arena.type_expr_span(param.ty),
@@ -1261,6 +1261,7 @@ impl Checker {
             let schema = (!param.ty_defaulted).then(|| self.record_constructors.annotation_expectation(&arena.arena, param.ty, self.current_namespace).ok()).flatten();
             param_types.push((param.name, param_span, param_ty, schema));
         }
+        self.publish_parameter_types(arena, def);
         for (name, span, ty, schema) in param_types {
             let mut binding = Binding::new(ty, false);
             binding.schema_expectation = schema;
@@ -1365,7 +1366,7 @@ impl Checker {
                     "check.rest-position",
                 );
             }
-            let param_ty = self.type_from_arena(arena, param.ty);
+            let param_ty = self.infer_checked_parameter(arena, source, param);
             if param.rest && !matches!(param_ty, Type::List(_)) {
                 self.error(
                     arena.arena.type_expr_span(param.ty),
@@ -1390,6 +1391,7 @@ impl Checker {
             let schema = (!param.ty_defaulted).then(|| self.record_constructors.annotation_expectation(&arena.arena, param.ty, self.current_namespace).ok()).flatten();
             param_types.push((param.name, param_span, param_ty, schema));
         }
+        self.publish_parameter_types(arena, def);
         for (name, span, ty, schema) in param_types {
             let mut binding = Binding::new(ty, false);
             binding.schema_expectation = schema;
