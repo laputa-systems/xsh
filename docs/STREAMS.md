@@ -22,6 +22,11 @@ Three result shapes:
   require materialization keep their ordinary expression boundary. A raw
   script producer is also pulled by the loop one item at a time.
 
+`Str.lines()` and `Bytes.lines()` are materialized List sources. Their
+`.collect()` calls preserve the existing element domain without pulling a live
+producer; `Path.lines()` and `Path.bytes_lines()` retain their lazy Stream
+contracts.
+
 Structured stage configuration uses ordinary named arguments, identifier puns,
 and statically known nonempty record spreads. The canonical parameter types,
 defaults, positional roles, and validation categories are defined by

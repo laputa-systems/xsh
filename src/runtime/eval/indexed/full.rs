@@ -8198,6 +8198,27 @@ run true
     }
 
     #[test]
+    fn builtin_templates_execute_checked_calls_after_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/builtin-templates.xsh");
+            let program = Arc::new(fixture("builtin-templates.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            for recursive in [false, true] {
+                for (name, expected) in [("nested_templates", Value::Int(7)), ("fresh_templates", Value::Int(8)), ("absent_templates", Value::Bool(true)), ("materialized_templates", Value::Int(6)), ("discarded_templates", Value::Unit)] {
+                    let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                    evaluator.indexed_program = Some(Arc::clone(&program));
+                    let mut call = || evaluator.call_indexed_direct(
+                        LoweredFunctionKey::Name(program_name(&program, name)), LoweredFunctionKind::Pure,
+                        &[], Span::new(program.store.source_id, 0, 0),
+                    ).expect("template function exists");
+                    let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                    assert_eq!(result.unwrap(), expected);
+                }
+            }
+        });
+    }
+
+    #[test]
     fn stage_callable_ordinary_calls_execute_after_frontend_drop_on_both_routes() {
         run_with_large_stack(|| {
             let source = "pure increment(item: Int, amount: Int = 2) -> Int { item + amount }\npure positive(item: Int) -> Bool { item > 3 }\npure result(item: Int) -> Result[Int] { Ok(item) }\npure value() -> Int { [1, 2, 3] |> map(increment) |> where(positive) |> sum }\npure results() -> Bool { let values = [3] |> map(result); values[0] is Ok(3) }\n";

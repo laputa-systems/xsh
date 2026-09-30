@@ -537,14 +537,14 @@ let contains = flat.contains(3)
 let fallback: Int = (flat.get(9) ?? 4)
 let get_or_fallback: Int = (flat.get(10) ?? 5)
 let first: Int = (flat.get(0) ?? 0)
-var argv = ["cc"]
+var argv: List[Any] = ["cc"]
 argv = argv.extend([p"main.c", "-o", p"main.o"])
 let argv_command = process.command_argv(p"cc", argv)
 let m0: Map[Int] = {}
 let m1 = m0.set("one", 1)
 let value = m1.get("one")?
-let fallback = (m1.get("missing") ?? 2)
-let get_or_fallback = (m1.get("missing") ?? 3)
+let map_fallback = (m1.get("missing") ?? 2)
+let map_get_or_fallback = (m1.get("missing") ?? 3)
 let keys = m1.keys()
 let values = m1.values()
 let by_name = {row.name: row.version for row in [{name: "pkg", version: "1"}]}
@@ -4118,4 +4118,29 @@ fn inferred_require_full_and_compact_targets_preserve_schema_identity() {
         assert_eq!(checked.requirement_targets.get(&parsed.arena.arena.expr(expr).span), Some(&target));
         assert_eq!(target.context.instances[0].arguments, vec![xsh::frontend::check::Type::Int]);
     }
+}
+
+#[test]
+fn builtin_template_checked_facts_agree_on_full_and_compact_routes() {
+    let source = "error Nested = Missing(code: Int)\npure value(items: List[Result[List[Int], Nested]], table: Map[Int, List[Int]]) -> Int {\n  let one = items.get(index: 0)\n  let two = table.set(value: [2], key: 1)\n  let three = two.keys()\n  let four = two.values()\n  three.len() + four.len()\n}\npure dynamic(items: List[Any]) -> Unit { let value = items.get(0) }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut calls = 0;
+    for (id, ty) in &compact.expr_types {
+        let span = parsed.arena.arena.expr(*id).span;
+        if ["items.get(index: 0)", "table.set(value: [2], key: 1)", "two.keys()", "two.values()", "items.get(0)"].contains(&&source[span.range()]) {
+            assert_eq!(checked.expr_types.get(&span), Some(ty), "{}", &source[span.range()]);
+            assert!(!ty.contains_inference());
+            if &source[span.range()] == "items.get(0)" {
+                assert_eq!(ty.result_ok(), Some(&xsh::frontend::check::Type::Any));
+            }
+            calls += 1;
+        }
+    }
+    assert_eq!(calls, 5);
 }

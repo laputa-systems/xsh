@@ -15,3 +15,8 @@ a stable error location.
 an explicit indexed method operation. It guards the requirement that this form
 remain executable rather than becoming a placeholder instruction or selecting a
 different evaluator.
+
+`builtin-templates.xsh` retains nested collection domains, ordinary named and
+spread binding, fresh map constraints, and lazy Optional method arguments after
+frontend state has been dropped. The indexed verifier and both execution routes
+consume the same prepared builtin calls.

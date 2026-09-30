@@ -1547,6 +1547,11 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             "The result is a snapshot collection in canonical scalar key order. Key types remain the receiver key domain; native Bytes and Path keys preserve byte identity.",
             &["map", "collection"],
         )),
+        ("List", "collect") => Some((
+            "Returns an already materialized list.",
+            "Elements keep their existing checked domain and order; no live source is pulled.",
+            &["list", "materialization", "ownership"],
+        )),
         ("List", "len") => Some((
             "Returns the number of list elements.",
             "The count is a pure snapshot of the list value.",
@@ -1731,7 +1736,7 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
         )),
         ("Bytes", "lines") => Some((
             "Splits bytes into line-oriented chunks.",
-            "The operation is byte-oriented and does not require valid UTF-8; each emitted chunk remains Bytes.",
+            "The operation materializes a List[Bytes] from the existing buffer and does not require valid UTF-8.",
             &["bytes", "lines", "streaming"],
         )),
         ("Bytes", "lower") => Some((

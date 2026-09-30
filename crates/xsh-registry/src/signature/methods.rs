@@ -546,6 +546,13 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
             receiver: MethodReceiver::List,
             methods: method_map(vec![
                 method(
+                    "collect",
+                    Vec::new(),
+                    Type::List(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Element))),
+                    true,
+                    RuntimeOp::StreamCollect,
+                ),
+                method(
                     "len",
                     Vec::new(),
                     Type::Int,
@@ -633,7 +640,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 method(
                     "lines",
                     Vec::new(),
-                    Type::Stream(Box::new(Type::Str)),
+                    Type::List(Box::new(Type::Str)),
                     true,
                     RuntimeOp::TextStreamLines,
                 ),
@@ -897,7 +904,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 method(
                     "lines",
                     Vec::new(),
-                    Type::Stream(Box::new(Type::Bytes)),
+                    Type::List(Box::new(Type::Bytes)),
                     true,
                     RuntimeOp::BytesStreamLines,
                 ),

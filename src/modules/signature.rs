@@ -273,13 +273,6 @@ pub struct MethodSig {
     pub receiver_ty: Option<Type>,
 }
 
-impl MethodSig {
-    pub fn concrete_return_ty(&self, receiver_ty: &Type) -> Type {
-        crate::sema::builtin_templates::concrete_method_signature(self, receiver_ty)
-            .map(|signature| signature.return_ty).unwrap_or(Type::Unknown)
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct ParamSig {
     pub name: &'static str,

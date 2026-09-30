@@ -196,7 +196,7 @@ test test_multi_clause_comprehension_pulls_streams_lazily_and_closes [error] { |
   let output = test.run_script(
     ctx,
     r"""
-proc closed(label: Str) [io] { print f"close ${label}" }
+proc closed(label: Str) [io] -> Unit { print f"close ${label}" }
 stream numbers(label: Str) [io] -> Stream[Int] {
   defer closed(label)
   for number in [1, 2] {
@@ -222,7 +222,7 @@ test test_multi_clause_comprehension_failure_closes_nested_streams [error] { |ct
   let output = test.run_script(
     ctx,
     r"""
-proc closed(label: Str) [io] { print f"close ${label}" }
+proc closed(label: Str) [io] -> Unit { print f"close ${label}" }
 stream numbers(label: Str) [io] -> Stream[Int] {
   defer closed(label)
   for number in [1, 2] {
@@ -270,7 +270,7 @@ test test_multi_clause_comprehension_propagation_retains_result_and_cleanup [err
     ctx,
     r"""
 error FixtureError = Failure(message: Str)
-proc closed(label: Str) [io] { print f"close ${label}" }
+proc closed(label: Str) [io] -> Unit { print f"close ${label}" }
 stream numbers(label: Str) [io] -> Stream[Int] {
   defer closed(label)
   yield 1

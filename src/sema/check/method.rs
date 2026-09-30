@@ -100,6 +100,12 @@ impl Checker {
                 self.schema_expectation_for_expr(arena, base),
             );
         }
+        if matches!(base_ty, Type::Stream(_)) {
+            return self.check_registered_method_arena(
+                arena, source, MethodReceiver::Stream, name, args, span, &base_ty,
+                "check.unknown-method", expected, self.schema_expectation_for_expr(arena, base),
+            );
+        }
         if matches!(base_ty, Type::List(_)) {
             return self.check_registered_method_arena(
                 arena,
@@ -133,7 +139,8 @@ impl Checker {
                 arena, source, MethodReceiver::Record, name, args, span,
                 &if matches!(base_ty, Type::Module(_)) { Type::Record(Default::default()) } else { base_ty.clone() }, "check.unknown-method", expected, self.schema_expectation_for_expr(arena, base),
             );
-            if name == "get" && let Type::Result(_, error) = &result
+            if api_spec().method_overloads(MethodReceiver::Record, name).is_some_and(|methods| methods.iter().any(|method| method.sig.semantic_rule == crate::modules::signature::SemanticRule::ConstantKeyProjection))
+                && let Type::Result(_, error) = &result
                 && let Some(projection) = crate::sema::projection::resolve_get_projection(
                     &arena.arena, &self.prepared_constants, base, &base_ty, args,
                 )

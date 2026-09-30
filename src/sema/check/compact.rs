@@ -2106,7 +2106,7 @@ impl CompactBodyProbe<'_> {
             }
         }
         if let ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } = callee_expr.kind
-            && name == "get"
+            && api_spec().method_overloads(crate::modules::signature::MethodReceiver::Record, &name.as_str()).is_some_and(|methods| methods.iter().any(|method| method.sig.semantic_rule == crate::modules::signature::SemanticRule::ConstantKeyProjection))
             && let Some(receiver) = self.output.expr_types.get(&base).cloned()
         {
             let guarded = matches!(callee_expr.kind, ArenaExprKind::NullSafeField { .. });

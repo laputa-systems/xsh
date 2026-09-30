@@ -4005,10 +4005,14 @@ requires ordering, grouping, or parallel work may buffer their input. This is
 the preferred form when items are consumed once and the list is not needed.
 
 **Lazy sources.** `fs.walk`/`fs.files`/`fs.dirs`, `Path.lines()`,
-`Path.bytes_lines()`, `Str.lines()`, `Bytes.lines()`, `run.stream`, and
+`Path.bytes_lines()`, `run.stream`, and
 user-defined `stream` producers yield live streams. Pipelines and direct `for`
 loops consume these streams item by item until a materializing boundary or a
 terminal stage requires a final value.
+
+`Str.lines()` and `Bytes.lines()` materialize typed lists from an existing
+buffer. `List.collect()` preserves that already materialized list; only
+`Stream.collect()` pulls a live source. Both forms preserve the element domain.
 
 **Integer sequences.** `range(n)` and `range(start, n)` are builtin call
 expressions that produce `Stream[Int]`, usable as pipeline sources or directly

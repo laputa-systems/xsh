@@ -2256,11 +2256,9 @@ for r in out { print \${r.name} }
 }
 
 test test_sort_by_map_accumulator_any_typed_fields [error] {
-  # Map.empty() is Map[Any], so Map.get(k) ?? 0 yields an Any-typed field. A
-  # sort-by over such a field must checker-accept the same way the runtime does
-  # (the actual value is a supported scalar Int), matching the loud-failure
-  # gate in lower/ops.
-  let counts = map.empty()
+  # The explicit dynamic value domain survives integer additions. Sorting
+  # still validates each actual key as an orderable scalar at runtime.
+  let counts: Map[Str, Any] = map.empty()
   let keys = ["b", "a"]
   let acc = counts.set("a", 2).set("b", 1)
 
