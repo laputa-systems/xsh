@@ -8,6 +8,22 @@ type CoverageHits = {tests: Int, examples: Int}
 
 type CoverageTotal = {covered: Int, total: Int}
 
+// API identifiers are JSON object keys; their counter records are checked individually.
+type SuiteCoverageReport = {standard_apis: List[Str], api_hits: Record}
+
+type CoverageTotalRow = {group: Str, covered: Int, total: Int}
+
+type CoveredApiRow = {api_id: Str, tests: Int, examples: Int, total: Int}
+
+type CoverageReport = {
+  suites: List[SuiteInput],
+  api_hits: Map[CoverageHits],
+  standard_apis: List[Str],
+  totals: List[CoverageTotalRow],
+  uncovered: List[Str],
+  covered: List[CoveredApiRow],
+}
+
 pure repo_path(root: Path, value: Str) -> Path {
   if value.starts_with("/") {
     return fp"${value}"
@@ -74,7 +90,7 @@ proc discover_suites(root: Path) [fs, error] -> Result[List[Suite]] {
       |> sort-by .path {
       let parent = entry.path.parent()
 
-      if ! seen.get(parent.display(), false) {
+      if ! (seen.get(parent.display()) ?? false) {
         seen[parent.display()] = true
         suites = suites.push({name: relative_display(root, parent)?, path: parent})
       }
@@ -89,7 +105,7 @@ proc run_suites(
   suites: List[Suite],
   out_dir: Path,
   xsht: Path,
-) [fs, process, error, io] -> Result[List[SuiteInput]] {
+) [fs, process, env, error, io] -> Result[List[SuiteInput]] {
   out_dir.mkdir()?
   var outputs: List[SuiteInput] = []
   var failed = false
@@ -123,26 +139,29 @@ proc run_suites(
   return outputs
 }
 
-proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[Record] {
+proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[CoverageReport] {
   var api_hits: Map[CoverageHits] = {}
   var standard_apis: Map[Bool] = {}
 
   for input in inputs {
-    let data: Record = json.read(repo_path(root, input.path))?
-    let standard: List[Str] = data.get("standard_apis")?
+    let data = json.read(repo_path(root, input.path))?.require(SuiteCoverageReport)?
+    let standard = data.standard_apis
 
     for api_id in standard {
       standard_apis[api_id] = true
     }
 
-    let raw_hits: Record = data.get("api_hits")?
+    let raw_hits = data.api_hits
 
     for api_id in raw_hits.keys() {
-      let raw: Record = raw_hits.get(api_id)?
-      let tests: Int = raw.get("tests") ?? 0
-      let examples: Int = raw.get("examples") ?? 0
-      let current = api_hits.get(api_id, {tests: 0, examples: 0})
-      api_hits[api_id] = {tests: current.tests + tests, examples: current.examples + examples}
+      let raw = raw_hits.get(api_id)?.require(Record)?
+      // Missing counters retain zero before their values are checked together.
+      let hits = {
+        tests: raw.get("tests") ?? 0,
+        examples: raw.get("examples") ?? 0,
+      }.require(CoverageHits)?
+      let current = api_hits.get(api_id) ?? {tests: 0, examples: 0}
+      api_hits[api_id] = {tests: current.tests + hits.tests, examples: current.examples + hits.examples}
     }
   }
 
@@ -150,19 +169,19 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[R
   var totals: Map[CoverageTotal] = {}
 
   for api_id in sorted_standard {
-    let group_name = api_id.split(".").get(0, "other")
-    let current = totals.get(group_name, {covered: 0, total: 0})
+    let group_name = api_id.split(".").get(0) ?? "other"
+    let current = totals.get(group_name) ?? {covered: 0, total: 0}
     let covered = if api_hits.has(api_id) { 1 } else { 0 }
     totals[group_name] = {covered: current.covered + covered, total: current.total + 1}
   }
 
-  let total_rows = [
+  let total_rows: List[CoverageTotalRow] = [
     {group: group_name, covered: totals.get(group_name)?.covered, total: totals.get(group_name)?.total}
     for group_name in totals.keys() |> sort
   ]
 
   let uncovered = sorted_standard |> where ! api_hits.has(.)
-  var covered_rows: List[Record] = []
+  var covered_rows: List[CoveredApiRow] = []
 
   for api_id in api_hits.keys() |> sort {
     let hits = api_hits.get(api_id)?
@@ -183,19 +202,19 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[R
   }
 }
 
-proc render_text(report: Record) [error] -> Result[Str] {
+proc render_text(report: CoverageReport) [error] -> Result[Str] {
   var lines = ["coverage report", "API coverage"]
-  let totals: List[Record] = report.get("totals")?
+  let totals = report.totals
 
   for row in totals {
-    let group_name: Str = row.get("group")?
-    let covered: Int = row.get("covered")?
-    let total: Int = row.get("total")?
+    let group_name = row.group
+    let covered = row.covered
+    let total = row.total
     lines = lines.push(f"${group_name}: ${covered}/${total}")
   }
 
   lines = lines.extend(["", "uncovered standard APIs"])
-  let uncovered: List[Str] = report.get("uncovered")?
+  let uncovered = report.uncovered
 
   if uncovered.len() == 0 {
     lines = lines.push("  none")
@@ -216,14 +235,14 @@ proc render_text(report: Record) [error] -> Result[Str] {
   }
 
   lines = lines.extend(["", "APIs covered by examples/tests"])
-  let covered_rows: List[Record] = report.get("covered")?
+  let covered_rows = report.covered
 
   if covered_rows.len() == 0 {
     lines = lines.push("  none")
   } else {
     for row in covered_rows {
-      let api_id: Str = row.get("api_id")?
-      let total: Int = row.get("total")?
+      let api_id = row.api_id
+      let total = row.total
       lines = lines.push(f"  ${api_id}: ${total}")
     }
   }

@@ -1,3 +1,13 @@
+type CoverageReport = {standard_apis: List[Str], api_hits: Record}
+
+type CoverageHitCounts = {tests: Int, examples: Int}
+
+proc coverage_merge_script(source: Str, root: Path) [error] -> Result[Str] {
+  return source.replace("proc main(", "proc coverage_main(")
+    + "\nlet root = p" + json.encode(root.display())?
+    + "\nlet report = merge_reports(root, [{name: \"sample\", path: \"input.json\"}])?\nprint json.encode(report)?\n"
+}
+
 test test_combined_coverage_report_includes_standard_api_hits [fs, process, env, error] { |ctx|
   let repo = fs.cwd()?
   let root = test.temp_dir(ctx, name: "combined-coverage")?.resolve()?
@@ -26,10 +36,47 @@ test test_combined_coverage_report_includes_standard_api_hits [fs, process, env,
     test.ok(status.exited_with(0), stdout.read_text()? + stderr.read_text()?)?
   } ?
 
-  let report: Record = json.read(report_path)?
-  let standard_apis: List[Str] = report.get("standard_apis")?
-  let api_hits: Record = report.get("api_hits")?
+  let report = json.read(report_path)?.require(CoverageReport)?
+  let standard_apis = report.standard_apis
+  let api_hits = report.api_hits
   test.ok(standard_apis.len() > 0)?
   test.ok(api_hits.keys().len() > 0)?
   test.ok(text_path.exists()?)?
+}
+
+test test_coverage_report_wire_counts_keep_missing_defaults_and_reject_invalid_values [fs, process, error] { |ctx|
+  let repo = fs.cwd()?
+  let root = test.temp_dir(ctx, name: "coverage-wire")?.resolve()?
+  let input = fp"${root}/input.json"
+  let source = fp"${repo}/tools/xsh-cov.xsh".read_text()?
+  let script = coverage_merge_script(source, root)?
+
+  for example in [
+    {json: r"""{"standard_apis":["module.cpu.count"],"api_hits":{"module.cpu.count":{}}}""", tests: 0, examples: 0},
+    {json: r"""{"standard_apis":["module.cpu.count"],"api_hits":{"module.cpu.count":{"tests":2}}}""", tests: 2, examples: 0},
+    {json: r"""{"standard_apis":["module.cpu.count"],"api_hits":{"module.cpu.count":{"tests":2,"examples":3,"extra":true}}}""", tests: 2, examples: 3},
+  ] {
+    input.write(example.json)?
+    let output = test.run_script(ctx, script)?
+    assert output.success, output.stderr
+    let report = json.decode(output.stdout)?.require(CoverageReport)?
+    let hits = report.api_hits.get("module.cpu.count")?.require(CoverageHitCounts)?
+    report.standard_apis == ["module.cpu.count"]
+    hits.tests == example.tests
+    hits.examples == example.examples
+  }
+
+  for invalid in [
+    r"""{"standard_apis":[1],"api_hits":{}}""",
+    r"""{"standard_apis":[],"api_hits":[]}""",
+    r"""{"standard_apis":[],"api_hits":{"module.cpu.count":null}}""",
+    r"""{"standard_apis":[],"api_hits":{"module.cpu.count":{"tests":"2"}}}""",
+    r"""{"standard_apis":[],"api_hits":{"module.cpu.count":{"examples":null}}}""",
+  ] {
+    input.write(invalid)?
+    let output = test.run_script(ctx, script)?
+    output.status != 0
+    output.stdout == ""
+    assert output.stderr.contains("schema"), output.stderr
+  }
 }
