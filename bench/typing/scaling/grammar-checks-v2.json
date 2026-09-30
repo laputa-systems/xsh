@@ -1,0 +1,138 @@
+{
+  "binary": {
+    "path": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+    "sha256": "b2f76a542e62906577723f815772c8a45b2ebab97924fac7e0fb78581862dbcb"
+  },
+  "checks": [
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-typing-scaling-26znxele/entry.xsh"
+      ],
+      "environment": {
+        "XSH_MODULE_PATH": "/var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-typing-scaling-26znxele"
+      },
+      "exit_status": 0,
+      "family": "immutable_aliases",
+      "source_index_sha256": "58d402d1153d7208ae6cff0f931d7e87af51370b9830917fa441b09fe136d6d1",
+      "stderr": "",
+      "stdout": "",
+      "units": 3,
+      "variant": "annotated"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-typing-scaling-w4p0xj47/entry.xsh"
+      ],
+      "environment": {
+        "XSH_MODULE_PATH": "/var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-typing-scaling-w4p0xj47"
+      },
+      "exit_status": 0,
+      "family": "generic_forwarding",
+      "source_index_sha256": "7c12a22d88062992a77588c2a791d8a4bca83cfa2f047fd2a276a4e1bca46d2d",
+      "stderr": "",
+      "stdout": "",
+      "units": 3,
+      "variant": "annotated"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-typing-scaling-q2u72lt8/entry.xsh"
+      ],
+      "environment": {
+        "XSH_MODULE_PATH": "/var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-typing-scaling-q2u72lt8"
+      },
+      "exit_status": 0,
+      "family": "wide_records",
+      "source_index_sha256": "9ecda7861f33c7cf2c81e2ccd28799e589cbe8e395615ab5791754090a01d6d0",
+      "stderr": "",
+      "stdout": "",
+      "units": 3,
+      "variant": "annotated"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-typing-scaling-dv24zdzp/entry.xsh"
+      ],
+      "environment": {
+        "XSH_MODULE_PATH": "/var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-typing-scaling-dv24zdzp"
+      },
+      "exit_status": 0,
+      "family": "nested_constraints",
+      "source_index_sha256": "9ff5c6947277c81471e241484cf4b398bbacc57eb04348bd26084395ea5cb97a",
+      "stderr": "",
+      "stdout": "",
+      "units": 3,
+      "variant": "annotated"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-typing-scaling-ckjwdpm6/entry.xsh"
+      ],
+      "environment": {
+        "XSH_MODULE_PATH": "/var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-typing-scaling-ckjwdpm6"
+      },
+      "exit_status": 0,
+      "family": "declaration_components",
+      "source_index_sha256": "7952265160b572a5e7605ece960e6d8e13ecf3807857cf2f717a0a3390119123",
+      "stderr": "",
+      "stdout": "",
+      "units": 3,
+      "variant": "annotated"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-typing-scaling-eptjli23/entry.xsh"
+      ],
+      "environment": {
+        "XSH_MODULE_PATH": "/var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-typing-scaling-eptjli23"
+      },
+      "exit_status": 0,
+      "family": "module_diamonds",
+      "source_index_sha256": "4ba8e7665cb28ad3ab3d5b9c586c1cc9fee8b8d20f73e594d81910af8eda0ce2",
+      "stderr": "",
+      "stdout": "",
+      "units": 3,
+      "variant": "annotated"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-typing-scaling-wanr5f4r/entry.xsh"
+      ],
+      "environment": {
+        "XSH_MODULE_PATH": "/var/folders/tb/mq41rvt94470b3lwmq67s0zc0000gn/T/xsh-typing-scaling-wanr5f4r"
+      },
+      "exit_status": 0,
+      "family": "resolvable_overloads",
+      "source_index_sha256": "200a015193eadeaa20abfb74baf59b7006205b553e08efd9429647b4b18ecf65",
+      "stderr": "",
+      "stdout": "",
+      "units": 3,
+      "variant": "annotated"
+    }
+  ],
+  "generator_sha256": "d81832ea2b803b15cb210083c24ba8eb7b7370d0f49dd190d78242931535d3e8",
+  "purpose": "Small annotated grammar witnesses only; no full-size scaling or inferred-semantic pass is claimed.",
+  "reproduce": [
+    "python3",
+    "bench/typing/scaling/check_grammar.py",
+    "--xsht",
+    "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+    "--output",
+    "{new_report_path}"
+  ],
+  "schema_version": 1
+}

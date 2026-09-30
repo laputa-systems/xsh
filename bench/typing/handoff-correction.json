@@ -1,0 +1,126 @@
+{
+  "schema_version": 1,
+  "reason": "User reopened the preceding ergonomics task; removed callsite migrations and runtime/scope corrections must precede inference.",
+  "historical_revision": "877a114d6dc403db32c50f035b38aab7f193147a",
+  "settled_handoff_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+  "historical_checkout": "/Users/josh/d/laputa-systems/xsh-typing-campaign",
+  "historical_baseline": "/Users/josh/d/laputa-systems/xsh-typing-baseline",
+  "current_candidate": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2",
+  "current_baseline": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2",
+  "created_at": "2026-09-30T19:56:42.743684+00:00",
+  "historical_files": [
+    {
+      "path": "README.md",
+      "sha256": "10b33b0c6b4de158ac1f7f2c8c8cbbeabb11243f0c5c3957a56a78afa099faf6"
+    },
+    {
+      "path": "annotations.json",
+      "sha256": "c3ddbbd8a0fc23e67f4f6221c30a7fe6544c019b6ce619dfdb2e199deee87c0f"
+    },
+    {
+      "path": "baseline-build.json",
+      "sha256": "c4d907693692561e0032dcbb9b82cae8b796a4940eb9b1c541a65efbc3e87a72"
+    },
+    {
+      "path": "baseline-execution-build.json",
+      "sha256": "65663a6b76e936988164874668f78fc82e1350481ef318622acca6f40e6a7bb2"
+    },
+    {
+      "path": "baseline-frontend-preflight.json",
+      "sha256": "a4e4b66f26d7d7185231616b84f532b11b159f25ad25f0c14bee465cecc6d471"
+    },
+    {
+      "path": "baseline-interactive-completion.log",
+      "sha256": "9a68842daf90997ed8023dc7177d05292534ef1ff8ae018daf7a945d69f72851"
+    },
+    {
+      "path": "baseline-prepare-preflight.json",
+      "sha256": "0592bd007cae8c055f03c4364106d4b3d8638c3abc19d8b2a7c1f90822acdffd"
+    },
+    {
+      "path": "baseline-process-group.log",
+      "sha256": "47e5a604f92870e2e38380a1615dd49a675f2246190c4c211ddafc3044ca78a0"
+    },
+    {
+      "path": "baseline-retention.json",
+      "sha256": "fa0cb50a3a8c115971e03f407c76c23b6ec3924fb0a4679dac586cf0b791fa8f"
+    },
+    {
+      "path": "baseline-runtime-extra-preflight.json",
+      "sha256": "6d530c8b1a4fda1521f36fa0e615f2f2a65ed2f1b0509a405151b8a206469b0d"
+    },
+    {
+      "path": "baseline-runtime-preflight.json",
+      "sha256": "830c15cde4971f04a1b57ab71f97c34bd75e811dc7331ab1645fcda0fd63a957"
+    },
+    {
+      "path": "baseline-semantic.log",
+      "sha256": "3b2ae8ca2c2ebdcd381c2bf1a5cbfe4033ab2f869d566effe40652ac2d192e68"
+    },
+    {
+      "path": "baseline-syntax.log",
+      "sha256": "bb9cb467318098d84cc0d160fac3be09170024a5353acc2d0489283b89d6f43e"
+    },
+    {
+      "path": "baseline-verification.json",
+      "sha256": "c6003dab629e1bacb9139d08fc7c4a5ce12b2d33ac1ad48b657c677cecb0ee6c"
+    },
+    {
+      "path": "cohort-selection.json",
+      "sha256": "657ebb424d07a484a39c12bdd2a127c344bbe2b5a8ef33aa5923a110e56dadbe"
+    },
+    {
+      "path": "freeze_manifest.py",
+      "sha256": "8c5dbdfe2e68f7af1f24a8364f11dd9f81e1f44a10746e085c982759399db4dc"
+    },
+    {
+      "path": "host-conditions.json",
+      "sha256": "50974d3bba2043a96f63521fb510e7abaf22905caf16fa34aea260517917af54"
+    },
+    {
+      "path": "manifest.json",
+      "sha256": "ffc4c7bc3544ed4cae1199b144f65a06f149e895a571f7a702ad2c9446ed9bb8"
+    },
+    {
+      "path": "measurement-policy.json",
+      "sha256": "cb2eb6936e182eca0369616bc09f823c742969d4faa9f5d599c3b8ac679790e8"
+    },
+    {
+      "path": "operations.json",
+      "sha256": "f3704071c065ba0ce0fa42320c2a75f936084f0527ecb0f81e449eb0d445e5bb"
+    },
+    {
+      "path": "owner-audit.json",
+      "sha256": "e3d3874bf8a8be6abc4b18c1287ba044c5c951e8aa7cc6494d508ee43d3b4a5f"
+    },
+    {
+      "path": "resource-limits.json",
+      "sha256": "373394f34dc954ecb188621886866daef97fcb101f5710ee0234ca6acf2c69d8"
+    },
+    {
+      "path": "results.json",
+      "sha256": "64e04c3de24fb8771590a1ddfb98d87517199e8136c7d99055220ec27a5a36f6"
+    },
+    {
+      "path": "retention-accounting.json",
+      "sha256": "811ec84f53004d0e60bddd4feff9ba3aeab99d7967e5e1dce2ebbe5f375588da"
+    },
+    {
+      "path": "run.py",
+      "sha256": "06de7151a02e49c442f11aa0458e3a1a66c750a67ab0ecf9583ac7fe00f94e1e"
+    },
+    {
+      "path": "scaling-manifest.json",
+      "sha256": "9b638255fac65a38a21dac58876d2e0aafb79252d79b85dd46025c7f5e5fdf4e"
+    },
+    {
+      "path": "semantic-cases.json",
+      "sha256": "14c41841da59e73ed100425cfcc6d6314fd5ed551ad05e43bee9e66b9f9e3580"
+    }
+  ],
+  "frozen_denominators_unchanged": true,
+  "frozen_cohort_inputs_unchanged": true,
+  "prior_measurements_retained": "measurements/baseline-*.jsonl retain their original run IDs, revision, products and manifest provenance. They are historical evidence, not settled-handoff final acceptance.",
+  "new_measurements_required": true,
+  "inference_implementation_started": false
+}

@@ -1,0 +1,53 @@
+{
+  "command": [
+    "/private/tmp/xsh-typing-retained-facts-baseline-v2",
+    "combined-compact-first",
+    "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/tests/xsh/run.xsh"
+  ],
+  "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+  "pid": 86673,
+  "started_at": "2026-09-30T20:18:15.365425+00:00",
+  "ended_at": "2026-09-30T20:18:15.395960+00:00",
+  "wall_ms": 29.682292,
+  "raw_wait_status": 0,
+  "exit_status": 0,
+  "signal": null,
+  "user_cpu_ms": 15.34,
+  "system_cpu_ms": 3.3169999999999997,
+  "peak_rss_bytes": 15908864,
+  "max_rss_bytes": 4294967296,
+  "raw_maxrss": 15908864,
+  "raw_maxrss_unit": "bytes",
+  "collector": "os.wait4 direct-child rusage",
+  "timeout_seconds": 60,
+  "load_before": [
+    6.22607421875,
+    6.69580078125,
+    6.07568359375
+  ],
+  "load_after": [
+    6.22607421875,
+    6.69580078125,
+    6.07568359375
+  ],
+  "stdout_path": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/baseline-retained-raw-v2/native-run/combined-compact-first.stdout",
+  "stderr_path": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/baseline-retained-raw-v2/native-run/combined-compact-first.stderr",
+  "status": "passed",
+  "invalid_reasons": [],
+  "exec_error": null,
+  "stdout_sha256": "f0320e42e25c69edc73679cb45125ab4678860ce56ff644bf0fc906374cb26a4",
+  "stdout_bytes": 1825,
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_bytes": 0,
+  "stdin_path": "/dev/null",
+  "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "environment_sha256": "63b73724488d07a0f6a1a1ed00d12a3affb41ef6074df9289c0ad7aeed79c6a8",
+  "phase_metrics_ms": null,
+  "product_report": null,
+  "workload_id": "native-run",
+  "mode": "combined-compact-first",
+  "environment_overrides": {
+    "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev"
+  },
+  "profiling_only": true
+}

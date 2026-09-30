@@ -1,0 +1,53 @@
+{
+  "command": [
+    "/private/tmp/xsh-typing-retained-facts-baseline-v2",
+    "prepared",
+    "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/core/lib/system_report_live.xsh"
+  ],
+  "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+  "pid": 86781,
+  "started_at": "2026-09-30T20:18:53.519713+00:00",
+  "ended_at": "2026-09-30T20:19:01.736691+00:00",
+  "wall_ms": 8215.703834,
+  "raw_wait_status": 0,
+  "exit_status": 0,
+  "signal": null,
+  "user_cpu_ms": 7719.043,
+  "system_cpu_ms": 431.873,
+  "peak_rss_bytes": 1149452288,
+  "max_rss_bytes": 4294967296,
+  "raw_maxrss": 1149452288,
+  "raw_maxrss_unit": "bytes",
+  "collector": "os.wait4 direct-child rusage",
+  "timeout_seconds": 60,
+  "load_before": [
+    5.37109375,
+    6.4052734375,
+    5.99560546875
+  ],
+  "load_after": [
+    5.47412109375,
+    6.39208984375,
+    5.99560546875
+  ],
+  "stdout_path": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/baseline-retained-raw-v2/system-report-live/prepared.stdout",
+  "stderr_path": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/baseline-retained-raw-v2/system-report-live/prepared.stderr",
+  "status": "passed",
+  "invalid_reasons": [],
+  "exec_error": null,
+  "stdout_sha256": "042cf41d051739b39741ef5f1dd074165e3992405cdb3120f6c43b6be552e12a",
+  "stdout_bytes": 1028,
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_bytes": 0,
+  "stdin_path": "/dev/null",
+  "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "environment_sha256": "63b73724488d07a0f6a1a1ed00d12a3affb41ef6074df9289c0ad7aeed79c6a8",
+  "phase_metrics_ms": null,
+  "product_report": null,
+  "workload_id": "system-report-live",
+  "mode": "prepared",
+  "environment_overrides": {
+    "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev"
+  },
+  "profiling_only": true
+}

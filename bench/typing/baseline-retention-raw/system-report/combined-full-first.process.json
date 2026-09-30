@@ -1,0 +1,51 @@
+{
+  "command": [
+    "/private/tmp/xsh-typing-retained-facts-baseline",
+    "combined-full-first",
+    "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/core/system-report.xsh"
+  ],
+  "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized",
+  "pid": 50994,
+  "started_at": "2026-09-30T16:44:15.951469+00:00",
+  "ended_at": "2026-09-30T16:44:24.105343+00:00",
+  "wall_ms": 8152.661166,
+  "raw_wait_status": 0,
+  "exit_status": 0,
+  "signal": null,
+  "user_cpu_ms": 7779.884,
+  "system_cpu_ms": 340.558,
+  "peak_rss_bytes": 1139195904,
+  "max_rss_bytes": 4294967296,
+  "raw_maxrss": 1139195904,
+  "raw_maxrss_unit": "bytes",
+  "collector": "os.wait4 direct-child rusage",
+  "timeout_seconds": 60,
+  "load_before": [
+    3.7529296875,
+    3.99267578125,
+    3.72607421875
+  ],
+  "load_after": [
+    3.6923828125,
+    3.97607421875,
+    3.7216796875
+  ],
+  "stdout_path": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/baseline-retention-raw/system-report/combined-full-first.stdout",
+  "stderr_path": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/baseline-retention-raw/system-report/combined-full-first.stderr",
+  "status": "passed",
+  "invalid_reasons": [],
+  "exec_error": null,
+  "stdout_sha256": "f97d9fba675f23994dcd9f8f1969cb8729dade856a2c1a2623a56e0c08a3d8db",
+  "stdout_bytes": 1914,
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_bytes": 0,
+  "stdin_path": "/dev/null",
+  "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "environment_sha256": "88e919b67cd68361456f39166859668a2c617cb75ca03efd2625901ad6c152f1",
+  "workload_id": "system-report",
+  "mode": "combined-full-first",
+  "environment_overrides": {
+    "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/dev"
+  },
+  "profiling_only": true
+}

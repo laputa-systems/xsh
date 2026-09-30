@@ -1,0 +1,519 @@
+{
+  "schema_version": 1,
+  "sources": [
+    {
+      "source": "core/basename.xsh",
+      "original_sha256": "75b87702357097841201a5e2d4ce31b78345f9ba2ce16a82e420171e67960429",
+      "stabilized_sha256": "75b87702357097841201a5e2d4ce31b78345f9ba2ce16a82e420171e67960429",
+      "original_bytes": 1087,
+      "stabilized_bytes": 1087,
+      "insertions": []
+    },
+    {
+      "source": "core/ifdown.xsh",
+      "original_sha256": "a6dd1d129d970461aed5d5bdb93dba94697cec2defece7833d1c928bc03b445a",
+      "stabilized_sha256": "840c0957b2e8e3006ca9425f2d2dcbca232c865093368985802b2e58d83b1384",
+      "original_bytes": 11730,
+      "stabilized_bytes": 11842,
+      "insertions": [
+        {
+          "original_byte": 6000,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:12:run_hook"
+        },
+        {
+          "original_byte": 6624,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:13:run_parts"
+        },
+        {
+          "original_byte": 7358,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:14:state_remove_iface"
+        },
+        {
+          "original_byte": 7811,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:15:teardown_dhcp"
+        },
+        {
+          "original_byte": 8478,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:16:teardown_static"
+        },
+        {
+          "original_byte": 8920,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:17:deconfigure_interface"
+        },
+        {
+          "original_byte": 10857,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:20:main"
+        }
+      ]
+    },
+    {
+      "source": "core/ifup.xsh",
+      "original_sha256": "c837d25130b7f60181455c74e28a35f778d2f529b95e5b6460514f919c6aa55a",
+      "stabilized_sha256": "620322df177ef1945498b52c19440e0b905dbfecf3353135d1b7675a41c18127",
+      "original_bytes": 17188,
+      "stabilized_bytes": 17316,
+      "insertions": [
+        {
+          "original_byte": 6461,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:12:mark_configured"
+        },
+        {
+          "original_byte": 6919,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:13:run_hook"
+        },
+        {
+          "original_byte": 7542,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:14:run_parts"
+        },
+        {
+          "original_byte": 13793,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:24:write_resolv_conf"
+        },
+        {
+          "original_byte": 14025,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:25:configure_dhcp"
+        },
+        {
+          "original_byte": 14561,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:26:configure_static"
+        },
+        {
+          "original_byte": 15041,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:27:configure_interface"
+        },
+        {
+          "original_byte": 16366,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:29:main"
+        }
+      ]
+    },
+    {
+      "source": "core/lib/system_report.xsh",
+      "original_sha256": "3e84ac9fb41506200ba596d4a06f516c5f715a77015da98ed430bd8ce34efdab",
+      "stabilized_sha256": "3e84ac9fb41506200ba596d4a06f516c5f715a77015da98ed430bd8ce34efdab",
+      "original_bytes": 113868,
+      "stabilized_bytes": 113868,
+      "insertions": []
+    },
+    {
+      "source": "core/lib/system_report_collect.xsh",
+      "original_sha256": "dab288a3d8549fde024bdeaefed3d3ab8d5fb08cf6ac23d01202a89cae294375",
+      "stabilized_sha256": "dab288a3d8549fde024bdeaefed3d3ab8d5fb08cf6ac23d01202a89cae294375",
+      "original_bytes": 34781,
+      "stabilized_bytes": 34781,
+      "insertions": []
+    },
+    {
+      "source": "core/lib/system_report_live.xsh",
+      "original_sha256": "d6df59f8a79bb91a19813ca9cf3cd3577f075d1f7a360aa614893ecf6571c826",
+      "stabilized_sha256": "d6df59f8a79bb91a19813ca9cf3cd3577f075d1f7a360aa614893ecf6571c826",
+      "original_bytes": 228854,
+      "stabilized_bytes": 228854,
+      "insertions": []
+    },
+    {
+      "source": "core/pwd.xsh",
+      "original_sha256": "7f0215ef713e02b529df6f57dc7fb76eb4b34e389fd17bbe1669aa45cf65a2e8",
+      "stabilized_sha256": "3f42de9464fe82c27c13b8145744cad4358b20f54cb0d2783616e8f2b7c39e6a",
+      "original_bytes": 337,
+      "stabilized_bytes": 353,
+      "insertions": [
+        {
+          "original_byte": 143,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:0:main"
+        }
+      ]
+    },
+    {
+      "source": "core/system-report.xsh",
+      "original_sha256": "b5412aa41e9a9969c33e5053ee50f86ad119b3344f5afcc70cc38b74137c98d7",
+      "stabilized_sha256": "ae319c3aa0baf9215417619c8d3273670b066076773a4d0221d02643b0468cc8",
+      "original_bytes": 4139,
+      "stabilized_bytes": 4155,
+      "insertions": [
+        {
+          "original_byte": 438,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:0:main"
+        }
+      ]
+    },
+    {
+      "source": "dev/bench.xsh",
+      "original_sha256": "0bbc58fdb7df4dd348d4a260779695ce6aeca39f2659fa4dcd645ed23e9657d9",
+      "stabilized_sha256": "0bbc58fdb7df4dd348d4a260779695ce6aeca39f2659fa4dcd645ed23e9657d9",
+      "original_bytes": 1772,
+      "stabilized_bytes": 1772,
+      "insertions": []
+    },
+    {
+      "source": "dev/build.xsh",
+      "original_sha256": "cd81392bea4d7f7c698e9c7b920b1197307abab2276c58abd03e630634de55aa",
+      "stabilized_sha256": "cd81392bea4d7f7c698e9c7b920b1197307abab2276c58abd03e630634de55aa",
+      "original_bytes": 6232,
+      "stabilized_bytes": 6232,
+      "insertions": []
+    },
+    {
+      "source": "dev/context.xsh",
+      "original_sha256": "62c04213c27e38de40bf280f0e0b157cd84a4c66dbb13c855e31bb279063708b",
+      "stabilized_sha256": "62c04213c27e38de40bf280f0e0b157cd84a4c66dbb13c855e31bb279063708b",
+      "original_bytes": 2296,
+      "stabilized_bytes": 2296,
+      "insertions": []
+    },
+    {
+      "source": "dev/coverage.xsh",
+      "original_sha256": "93e15950ce0676208a25ae25ac2c4823c3676ed30f945fe7667c6420b5df60d1",
+      "stabilized_sha256": "93e15950ce0676208a25ae25ac2c4823c3676ed30f945fe7667c6420b5df60d1",
+      "original_bytes": 5574,
+      "stabilized_bytes": 5574,
+      "insertions": []
+    },
+    {
+      "source": "dev/dist.xsh",
+      "original_sha256": "e2abe1915f5d042d0b1e93d5d703d12a2eaaafe427eab8f618f70671401685b5",
+      "stabilized_sha256": "e2abe1915f5d042d0b1e93d5d703d12a2eaaafe427eab8f618f70671401685b5",
+      "original_bytes": 3840,
+      "stabilized_bytes": 3840,
+      "insertions": []
+    },
+    {
+      "source": "dev/docker.xsh",
+      "original_sha256": "2612b98f2ebeb5deda736de9a391c4f4537cad0c066083ba2febaea58147311b",
+      "stabilized_sha256": "2612b98f2ebeb5deda736de9a391c4f4537cad0c066083ba2febaea58147311b",
+      "original_bytes": 3900,
+      "stabilized_bytes": 3900,
+      "insertions": []
+    },
+    {
+      "source": "dev/install.xsh",
+      "original_sha256": "34260f10e4d1b243ecc8a81b08091f1094aa875df7de9d5d68512cbcfc59c8e9",
+      "stabilized_sha256": "34260f10e4d1b243ecc8a81b08091f1094aa875df7de9d5d68512cbcfc59c8e9",
+      "original_bytes": 6437,
+      "stabilized_bytes": 6437,
+      "insertions": []
+    },
+    {
+      "source": "dev/internal.xsh",
+      "original_sha256": "73b8e213778a3e13021f521ac8b8f38e020f2ea7be672dff1dfc1a6ec96e82fb",
+      "stabilized_sha256": "73b8e213778a3e13021f521ac8b8f38e020f2ea7be672dff1dfc1a6ec96e82fb",
+      "original_bytes": 5464,
+      "stabilized_bytes": 5464,
+      "insertions": []
+    },
+    {
+      "source": "dev/main.xsh",
+      "original_sha256": "d3a0723cd49f9be00c7602f4abcd3d7063a300feda69bc781dd90a2428ed6c56",
+      "stabilized_sha256": "1a7abad6490eb81317583443864e7005e31a530a400b984b6932c6f061324635",
+      "original_bytes": 11572,
+      "stabilized_bytes": 11604,
+      "insertions": [
+        {
+          "original_byte": 7115,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:6:dispatch"
+        },
+        {
+          "original_byte": 11227,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:7:main"
+        }
+      ]
+    },
+    {
+      "source": "dev/release.xsh",
+      "original_sha256": "9976c2b23a15c34267ad0f2d3a5169d3bb87901451d2f5b8d7b9f717acd37ef0",
+      "stabilized_sha256": "9976c2b23a15c34267ad0f2d3a5169d3bb87901451d2f5b8d7b9f717acd37ef0",
+      "original_bytes": 6846,
+      "stabilized_bytes": 6846,
+      "insertions": []
+    },
+    {
+      "source": "dev/stage.xsh",
+      "original_sha256": "3e7eb9e8cc28f7d665e44a8a154cf39ae7a1c6d4950a86c1303f08374d8035d8",
+      "stabilized_sha256": "3e7eb9e8cc28f7d665e44a8a154cf39ae7a1c6d4950a86c1303f08374d8035d8",
+      "original_bytes": 1737,
+      "stabilized_bytes": 1737,
+      "insertions": []
+    },
+    {
+      "source": "dev/stage_contract.xsh",
+      "original_sha256": "0111d90b4198f31fd0d64264db48e196a6e5fa8fb58ac9ca03547eae677f2fab",
+      "stabilized_sha256": "0111d90b4198f31fd0d64264db48e196a6e5fa8fb58ac9ca03547eae677f2fab",
+      "original_bytes": 471,
+      "stabilized_bytes": 471,
+      "insertions": []
+    },
+    {
+      "source": "dev/system_report_check.xsh",
+      "original_sha256": "cc0999abbc086d615a7b9c638047cb102e58c97381fe8485563e3a58b9349570",
+      "stabilized_sha256": "0a016fc19705f6f71991cc772847efc7e34db37ab9a1cf14ac5fe5082088a7f5",
+      "original_bytes": 1010649,
+      "stabilized_bytes": 1010905,
+      "insertions": [
+        {
+          "original_byte": 700523,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:382:validate_fixture_test_definitions"
+        },
+        {
+          "original_byte": 721287,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:399:audit_no_subprocess_case"
+        },
+        {
+          "original_byte": 744049,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:409:compare_live_namespaces"
+        },
+        {
+          "original_byte": 747764,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:410:print_cpu_id_set_result"
+        },
+        {
+          "original_byte": 749486,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:412:compare_live_meminfo"
+        },
+        {
+          "original_byte": 775671,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:425:compare_live_swaps"
+        },
+        {
+          "original_byte": 781165,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:428:compare_live_pci_identity"
+        },
+        {
+          "original_byte": 835180,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:449:compare_live_storage"
+        },
+        {
+          "original_byte": 840520,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:450:compare_live_queue"
+        },
+        {
+          "original_byte": 846135,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:451:compare_live_mounts"
+        },
+        {
+          "original_byte": 852247,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:453:compare_live_mount_usage"
+        },
+        {
+          "original_byte": 858669,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:455:compare_live_modules"
+        },
+        {
+          "original_byte": 863282,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:457:compare_live_kernel_command_line"
+        },
+        {
+          "original_byte": 869872,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:460:compare_live_kernel_parameters"
+        },
+        {
+          "original_byte": 895124,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:468:compare_live_cpu_sets"
+        },
+        {
+          "original_byte": 900543,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:469:compare_live_processes"
+        }
+      ]
+    },
+    {
+      "source": "dev/system_report_smbios_check.xsh",
+      "original_sha256": "4df914edd6b8a89651b5264f983d7347503c79a5180b1dbdad785dd2edc13df2",
+      "stabilized_sha256": "4df914edd6b8a89651b5264f983d7347503c79a5180b1dbdad785dd2edc13df2",
+      "original_bytes": 45758,
+      "stabilized_bytes": 45758,
+      "insertions": []
+    },
+    {
+      "source": "dev/targets.xsh",
+      "original_sha256": "3fdd16d01e7ca5f3a2fc2eb02eafe46b34c6c54b98c5ece530ccaa06f6c7280f",
+      "stabilized_sha256": "3fdd16d01e7ca5f3a2fc2eb02eafe46b34c6c54b98c5ece530ccaa06f6c7280f",
+      "original_bytes": 9133,
+      "stabilized_bytes": 9133,
+      "insertions": []
+    },
+    {
+      "source": "dev/test_workflows.xsh",
+      "original_sha256": "e627fcd45329887f16f3b323cba7e3ddf20b85a46a466258fb31c6d3c9ac1bdd",
+      "stabilized_sha256": "e627fcd45329887f16f3b323cba7e3ddf20b85a46a466258fb31c6d3c9ac1bdd",
+      "original_bytes": 1798,
+      "stabilized_bytes": 1798,
+      "insertions": []
+    },
+    {
+      "source": "dev/tests/test-system-report-check.xsh",
+      "original_sha256": "815b9627b42831f4f22348f4790ee4ce04156a9fea726c8f3d77dea5a231a217",
+      "stabilized_sha256": "815b9627b42831f4f22348f4790ee4ce04156a9fea726c8f3d77dea5a231a217",
+      "original_bytes": 362254,
+      "stabilized_bytes": 362254,
+      "insertions": []
+    },
+    {
+      "source": "dev/verify.xsh",
+      "original_sha256": "8985cda36a507bb63158f779aa284bcd31b8136d8517265f3e273c77e17d2a46",
+      "stabilized_sha256": "8985cda36a507bb63158f779aa284bcd31b8136d8517265f3e273c77e17d2a46",
+      "original_bytes": 3045,
+      "stabilized_bytes": 3045,
+      "insertions": []
+    },
+    {
+      "source": "examples/processes.xsh",
+      "original_sha256": "766edfc1764857a32213cdad6638aa98164be3bb3939232f9c008dacaf2fd718",
+      "stabilized_sha256": "7dc32e3a1fb9aba2c8973e3aed03449e984f6d6e7808af28836fd83d32a772de",
+      "original_bytes": 921,
+      "stabilized_bytes": 937,
+      "insertions": [
+        {
+          "original_byte": 41,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:0:run_checks"
+        }
+      ]
+    },
+    {
+      "source": "examples/streams.xsh",
+      "original_sha256": "7b40eec7e28dc4cb2b9ee3a28432209bdd8ac12d0ec842faa1228f1e27214190",
+      "stabilized_sha256": "7b40eec7e28dc4cb2b9ee3a28432209bdd8ac12d0ec842faa1228f1e27214190",
+      "original_bytes": 868,
+      "stabilized_bytes": 868,
+      "insertions": []
+    },
+    {
+      "source": "showcase/jq.xsh",
+      "original_sha256": "369000d97ac938ea0e32031e48867220a6df47da9d4bba31651c50cb0c84861d",
+      "stabilized_sha256": "f75703cdb960bbf687869fbe60163e54627188402f5af8e1d27098b80dab7462",
+      "original_bytes": 111501,
+      "stabilized_bytes": 111517,
+      "insertions": [
+        {
+          "original_byte": 111207,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:188:main"
+        }
+      ]
+    },
+    {
+      "source": "showcase/tokei.xsh",
+      "original_sha256": "57dc8315d370f5b79fb3717c967b47679776869f8e91b38537affcdb672f0611",
+      "stabilized_sha256": "1e451b7dcd68b5dde2781ab899428db360c5f582c991939d88ad958563100588",
+      "original_bytes": 44513,
+      "stabilized_bytes": 44545,
+      "insertions": [
+        {
+          "original_byte": 33628,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:34:json_main"
+        },
+        {
+          "original_byte": 37273,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:35:main"
+        }
+      ]
+    },
+    {
+      "source": "tests/fixtures/sema/invalid/unchecked-json-boundary.xsh",
+      "original_sha256": "cc8f38a996deb22832def98109a8dd85e86942c5122f855d461c239ea137e26c",
+      "stabilized_sha256": "cc8f38a996deb22832def98109a8dd85e86942c5122f855d461c239ea137e26c",
+      "original_bytes": 88,
+      "stabilized_bytes": 88,
+      "insertions": []
+    },
+    {
+      "source": "tests/fixtures/sema/valid-proc-command.xsh",
+      "original_sha256": "429cf2dd96f220703d022a68661d6ddfcfde8782a6eff5e12344cba4dddd7bf4",
+      "stabilized_sha256": "844f202bf60bcf8aa21af1f591cfdc757a58c7c31cc021e8f385acd7bfec4c03",
+      "original_bytes": 62,
+      "stabilized_bytes": 78,
+      "insertions": [
+        {
+          "original_byte": 24,
+          "utf8_text": "-> Result[Unit] ",
+          "owner": "function:0:compile"
+        }
+      ]
+    },
+    {
+      "source": "tests/xsh/local-inference.xsh",
+      "original_sha256": "937e6541b1db7b0da414d1019e188f031376e4d40101f545bfa2a51c93e6cb09",
+      "stabilized_sha256": "937e6541b1db7b0da414d1019e188f031376e4d40101f545bfa2a51c93e6cb09",
+      "original_bytes": 9574,
+      "stabilized_bytes": 9574,
+      "insertions": []
+    },
+    {
+      "source": "tests/xsh/result-contexts.xsh",
+      "original_sha256": "9eb6864029a9b4620ab2f01df6083ef93307a994d7e032bfc39e0716594bea06",
+      "stabilized_sha256": "9eb6864029a9b4620ab2f01df6083ef93307a994d7e032bfc39e0716594bea06",
+      "original_bytes": 1715,
+      "stabilized_bytes": 1715,
+      "insertions": []
+    },
+    {
+      "source": "tests/xsh/run.xsh",
+      "original_sha256": "9bdbdebda2ddc3635d9399928e841010afb06b1f270cafd112d197aeddf576e2",
+      "stabilized_sha256": "9bdbdebda2ddc3635d9399928e841010afb06b1f270cafd112d197aeddf576e2",
+      "original_bytes": 21065,
+      "stabilized_bytes": 21065,
+      "insertions": []
+    },
+    {
+      "source": "tests/xsh/stdlib/methods.xsh",
+      "original_sha256": "da04b1689903d0f5ae90fb5554dcfb6f3c7d981604feec9a16f9df04e4b6ee57",
+      "stabilized_sha256": "da04b1689903d0f5ae90fb5554dcfb6f3c7d981604feec9a16f9df04e4b6ee57",
+      "original_bytes": 7906,
+      "stabilized_bytes": 7906,
+      "insertions": []
+    },
+    {
+      "source": "tests/xsh/stdlib/streams.xsh",
+      "original_sha256": "c5c55a64e0ea7fad1653dddfc3f5be20598f8139af031a7cadd62d8d8da096f6",
+      "stabilized_sha256": "c5c55a64e0ea7fad1653dddfc3f5be20598f8139af031a7cadd62d8d8da096f6",
+      "original_bytes": 64549,
+      "stabilized_bytes": 64549,
+      "insertions": []
+    },
+    {
+      "source": "tests/xsh/system-report.xsh",
+      "original_sha256": "3af12927f7a8c81b3e6a4f111bd44e8e1c06e95b910ac32b5359a92b9a5c35af",
+      "stabilized_sha256": "3af12927f7a8c81b3e6a4f111bd44e8e1c06e95b910ac32b5359a92b9a5c35af",
+      "original_bytes": 260915,
+      "stabilized_bytes": 260915,
+      "insertions": []
+    }
+  ]
+}

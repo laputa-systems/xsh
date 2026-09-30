@@ -1,0 +1,11 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized] target(s) in 0.18s
+     Running tests/integration.rs (target/debug/build/xsh/66797801bced6191/out/integration-66797801bced6191)
+
+running 1 test
+test runtime::os::os_process_group_boundary_leaves_new_session_to_harness_cleanup ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 814 filtered out; finished in 1.28s
+

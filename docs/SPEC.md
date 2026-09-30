@@ -178,9 +178,9 @@ The implemented v1 surface includes:
 - Newline and semicolon statement terminators.
 - `use`, `export`, `let`, `var`, `proc`, `pure`, `type`, `return`, `defer`,
   `if`, `else`, `while`, `for`, `break`, `continue`, and `match`.
-- Required parameter lists, concrete return inference for private `pure` helpers, default
-  `Result[Unit]` returns for annotation-free `proc`, typed defaults for simple
-  defaulted parameters, plus default and rest parameters.
+- Required, defaulted, and rest parameter lists; declaration-defined rank-1
+  inference for omitted parameters, returns, producer items, and callable effects.
+  Empty/no-value ordinary procs retain `Result[Unit]` success.
 - Expression-style pure and proc calls, plus fully qualified standard-module
   command calls for effectful APIs returning `Result[Unit]`.
 - `Ok(value)`, `Err(value)`, `Result`, `error.fail(message)`, postfix `?`,
@@ -918,8 +918,8 @@ are required.
 
 Builtin collection contracts preserve their checked receiver parameters through
 arguments and results, including nested containers and nominal Result errors.
-Each call instantiates its own internal signature parameters; this does not add
-generic functions or expression-level type arguments. Concrete operands must
+Each call instantiates its own internal signature parameters, sharing the
+rank-1 declaration inference rules without adding expression-level type arguments. Concrete operands must
 fit the established collection type. An erased Any element remains dynamic;
 inserting one known value cannot establish the type of older elements.
 Overloads are selected from receiver and argument contracts, never from a
@@ -1556,51 +1556,57 @@ removes its redundant traceback frame; the original callable frame remains.
 Definitions:
 
 ```ebnf
-proc_def     = "proc" PROC_IDENT "(" param_list? ")" effect_list? "->" type_expr block ;
+proc_def     = "proc" PROC_IDENT "(" param_list? ")" effect_list? ("->" type_expr)? block ;
 pure_def     = "pure" IDENT "(" param_list? ")" ("->" type_expr)? block ;
-stream_def   = "stream" IDENT "(" param_list? ")" effect_list? "->" "Stream" "[" type_expr "]" block ;
+stream_def   = "stream" IDENT "(" param_list? ")" effect_list? ("->" "Stream" "[" type_expr "]")? block ;
 param_list   = param ("," param)* ","? ;
-param        = IDENT (":" type_expr ("=" expr)? | "=" expr) ;
+param        = IDENT (":" type_expr)? ("=" expr)? ;
 effect_list  = "[" (IDENT ("," IDENT)*)? "]" ;
 return_stmt  = "return" expr_or_run? terminator ;
 ```
 
-A defaulted parameter may omit its type when ordinary semantic checking of its
-default establishes one concrete type. Constants, imported constants, field
-projections, primitive expressions, and already permitted calls retain their
-checked types. Null and unconstrained empty collections require an annotation;
-callers and the function body do not supply parameter constraints. Parameters
-without defaults and rest parameters retain their explicit type requirements.
+Required, defaulted, and rest parameter types, ordinary returns, producer item
+types, and finite callable effects may be omitted when declaration constraints
+establish a complete checked relationship. Definitions and declaration dependencies
+establish reusable rank-1 schemes; each call gets a fresh instantiation and callers
+never train the definition. Complete exported schemes are allowed; written public
+promises and module-contract signatures remain checked boundaries. Monomorphic
+recursion is permitted when its declaration constraints solve, while polymorphic
+recursion and independently polymorphic callback parameters are unsupported.
 
 Defaults resolve in the callee's lexical declaration environment, with no access
 to other parameters. Supplied arguments evaluate eagerly in source order;
 defaults for omitted slots evaluate once in parameter order before the body.
-Ordinary callable defaults run during the call. A lazy stream producer evaluates
-its omitted expression defaults on the first pull, before executing its body;
+A lazy stream producer evaluates omitted expression defaults on first pull;
 an unconsumed producer evaluates no expression defaults. Supplying a slot skips
-its default. Default expressions retain ordinary effects, propagation and cleanup
-within the callable; no additional callable boundary is introduced.
-CLI entrypoint defaults retain their stricter preparation-only value contract.
-Signature dependencies must establish concrete types without guessing through a
-cycle; an explicit type provides a boundary where inference cannot resolve.
+its default. Defaults retain effects, propagation, and cleanup; CLI entrypoint
+defaults retain preparation-only restrictions.
 
-Private pure functions may omit `-> Type`. Infer from typed parameters,
-checked callee signatures, explicit returns, and reachable fallthrough tails;
-call sites provide no return context. A final Bool is a value. Non-tail
-statements retain their statement behavior. Compatible branches must produce a
-concrete shape; inconsistent value/missing-return paths require an annotation.
-Empty collections without another source of element type, error-only returns,
-and dynamic return shapes report `check.infer-return`.
+An omitted ordinary Bool tail returns false as data. A quantified payload has
+one fixed elaboration before generalization, including when instantiated as Bool,
+Unit, Optional, or Result. Concrete non-tail Bool expressions assert; a still-generic
+non-tail expression whose statement behavior depends on its type requires explicit
+discard or a sufficient contract. `let _ = expression` discards the final value
+without suppressing explicit propagation, effects, cleanup, or control transfers
+inside its initializer. Written Unit/Result[Unit] and native-test bodies retain
+statement-consuming behavior. Empty/no-value ordinary procs retain Result[Unit]
+success unless explicitly contracted otherwise.
 
-Local callable definitions are analyzed in declaration dependency order.
-Captured values retain visibility from the lexical prefix before the function
-definition. Every
-unannotated pure member of a recursive dependency component reports
-`check.required-return`; exported pure functions and module-contract signatures
-also retain explicit return annotations. Inference does not create a Result
-boundary from `?`: the body must independently determine a compatible Result,
-or declare its return type. Annotation-driven conversions, contextual schema
-constraints, and implicit Ok wrapping retain their declared boundary.
+Outward `?` in an omitted ordinary body establishes one success/error relationship
+from normal completions and propagated failures. Independently established Result
+returns remain Results without double wrapping; quantified Result payloads retain
+once-selected nesting, and explicit `Ok(result)` requests nesting. An ambiguous
+payload-versus-Result interpretation or underconstrained error-only success
+boundary requires an annotation. Non-completing paths contribute no invented Unit
+value. An explicit data-return proc retains its separate out-of-band propagation
+channel; inference never forces every explicitly annotated proc into a Result API.
+
+Statement and Result decisions are solved frontend facts. Call instantiation,
+discarded results, runtime values, and optimization cannot change them. Lexical
+return/break/continue, try/retry capture, defer cleanup, producer laziness and
+cancellation retain their existing targets and timing. `docs/SPEC-TYPING.md` owns
+the full decision matrix and `bench/typing/semantic-cases.json` records preserved
+observations separately from intentionally newly accepted relationships.
 
 Pure functions are called with expression syntax:
 
@@ -1700,15 +1706,17 @@ proc build() [fs, process, error] -> Result[Status] { ... }
 proc get_time() [time] -> Int { ... }
 ```
 
-An ordinary private proc without an effect clause receives a checked effective
-summary from its body and resolved callees. Explicit clauses, including `[]`,
-remain checked upper bounds. A proc with an empty inferred summary remains a
-proc; pure/proc separation and return typing are unchanged.
+Ordinary pure/proc/stream definitions, exported or private, receive inferred
+effective and required summaries from bodies, defaults, and declaration dependencies
+when effect clauses are omitted. Explicit clauses, including deliberately written
+public promises and `[]`, remain checked upper bounds. An empty inferred proc
+summary retains proc kind. Producer work and omitted defaults remain latent until
+the established pull boundary; supplied arguments retain their eager effects.
 
-Missing clauses at exported APIs, module contracts, CLI entries, native test
-entries, and stream declarations remain unrestricted. Conventional `proc main`
-also retains its entry contract. A private implementation cannot establish an
-exported callable alias contract merely through inference.
+Written module contracts and host entrypoint promises retain their boundaries.
+An omitted outer entry summary does not erase the requirements of work it executes.
+Native-test bodies retain statement consumption. Opaque external callable effects
+remain unknown; omitted syntax is not an effect-erasure boundary.
 
 **Effect set.**
 
@@ -1743,7 +1751,8 @@ specific effects when a proc does not need stdin/stdout.
   whether its return type is `Result`; a propagated failure exits that proc and
   becomes the caller-visible failure, while a successful value keeps the
   declared return type.
-- Unrestricted procs (no annotation) may call anything — no restriction.
+- Ordinary omitted-clause definitions infer the requirements of checked work.
+  Opaque unrestricted external contracts remain unknown to restricted callers.
 - Diagnostic code: `check.effect-violation`.
 
 **Inference.** The checker records resolved calls and direct requirements, then
@@ -1806,8 +1815,9 @@ started workers finish their cleanup before the transfer reaches its lexical own
 Function bodies use a contextual tail-value rule. If the final statement in a
 `proc` or `pure` body is an expression statement, that expression produces the
 function result. If the final statement is a command statement, the command's
-statement result produces the function result. A final expression-style proc
-call that returns `Result[Unit]` propagates failure and produces `Unit`. A
+statement result produces the function result. In a statement-consuming tail, an established expression-style proc
+call that returns `Result[Unit]` propagates failure and produces `Unit`. An omitted
+ordinary value tail is classified after declaration constraints resolve its type. A
 final plain `run ...` in statement position asserts success and produces
 `Unit`.
 `lint.redundant-tail-return` removes explicit returns from checked function

@@ -1,0 +1,51 @@
+{
+  "command": [
+    "/private/tmp/xsh-typing-retained-facts-baseline",
+    "combined-full-first",
+    "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/core/lib/system_report_live.xsh"
+  ],
+  "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized",
+  "pid": 51802,
+  "started_at": "2026-09-30T16:49:01.850860+00:00",
+  "ended_at": "2026-09-30T16:49:09.586228+00:00",
+  "wall_ms": 7733.838958,
+  "raw_wait_status": 0,
+  "exit_status": 0,
+  "signal": null,
+  "user_cpu_ms": 7432.78,
+  "system_cpu_ms": 262.326,
+  "peak_rss_bytes": 1114963968,
+  "max_rss_bytes": 4294967296,
+  "raw_maxrss": 1114963968,
+  "raw_maxrss_unit": "bytes",
+  "collector": "os.wait4 direct-child rusage",
+  "timeout_seconds": 60,
+  "load_before": [
+    2.8564453125,
+    3.68798828125,
+    3.703125
+  ],
+  "load_after": [
+    2.78759765625,
+    3.65966796875,
+    3.69287109375
+  ],
+  "stdout_path": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/baseline-retention-raw/system-report-live/combined-full-first.stdout",
+  "stderr_path": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/baseline-retention-raw/system-report-live/combined-full-first.stderr",
+  "status": "passed",
+  "invalid_reasons": [],
+  "exec_error": null,
+  "stdout_sha256": "c75425c9a664acc62220ce13423394e1a69ee1e35c6852dca32bc42f1388d8ba",
+  "stdout_bytes": 1914,
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_bytes": 0,
+  "stdin_path": "/dev/null",
+  "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "environment_sha256": "88e919b67cd68361456f39166859668a2c617cb75ca03efd2625901ad6c152f1",
+  "workload_id": "system-report-live",
+  "mode": "combined-full-first",
+  "environment_overrides": {
+    "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/dev"
+  },
+  "profiling_only": true
+}

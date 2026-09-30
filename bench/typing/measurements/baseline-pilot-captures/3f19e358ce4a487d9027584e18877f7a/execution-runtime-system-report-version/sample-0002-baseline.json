@@ -1,0 +1,1 @@
+{"schema_version":1,"status":0,"preparation_ms":5736.173333,"execution_ms":1.0618750000000001,"total_ms":5737.235208,"stdout_bytes":24,"stderr_bytes":0,"clock":"std::time::Instant","execution_scope":"one prepared run including normal evaluator teardown; output and report writes excluded"}

@@ -1,0 +1,51 @@
+{
+  "command": [
+    "/private/tmp/xsh-typing-retained-facts-baseline",
+    "full",
+    "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/showcase/jq.xsh"
+  ],
+  "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized",
+  "pid": 51466,
+  "started_at": "2026-09-30T16:46:17.078206+00:00",
+  "ended_at": "2026-09-30T16:46:17.146585+00:00",
+  "wall_ms": 67.039459,
+  "raw_wait_status": 0,
+  "exit_status": 0,
+  "signal": null,
+  "user_cpu_ms": 45.308,
+  "system_cpu_ms": 5.6530000000000005,
+  "peak_rss_bytes": 29622272,
+  "max_rss_bytes": 4294967296,
+  "raw_maxrss": 29622272,
+  "raw_maxrss_unit": "bytes",
+  "collector": "os.wait4 direct-child rusage",
+  "timeout_seconds": 60,
+  "load_before": [
+    4.23974609375,
+    4.24658203125,
+    3.86865234375
+  ],
+  "load_after": [
+    4.23974609375,
+    4.24658203125,
+    3.86865234375
+  ],
+  "stdout_path": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/baseline-retention-raw/showcase-jq/full.stdout",
+  "stderr_path": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/baseline-retention-raw/showcase-jq/full.stderr",
+  "status": "passed",
+  "invalid_reasons": [],
+  "exec_error": null,
+  "stdout_sha256": "3225cf040825e6d3805225aae7f85aa64b4a96923e748af42c00eb097e7212ea",
+  "stdout_bytes": 1821,
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_bytes": 0,
+  "stdin_path": "/dev/null",
+  "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "environment_sha256": "88e919b67cd68361456f39166859668a2c617cb75ca03efd2625901ad6c152f1",
+  "workload_id": "showcase-jq",
+  "mode": "full",
+  "environment_overrides": {
+    "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/dev"
+  },
+  "profiling_only": true
+}

@@ -1,0 +1,9 @@
+err[check.dynamic-boundary]: unchecked Any cannot establish Record; validate with `.require(Type)` or use a checked type pattern
+  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/tests/fixtures/sema/invalid/unchecked-json-boundary.xsh:2:16
+  let row: Row = json.decode("{\"name\":\"demo\"}")?
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unchecked Any cannot establish Record; validate with `.require(Type)` or use a checked type pattern
+
+err[check.dynamic-boundary]: unchecked Any cannot establish Record; validate with `.require(Type)` or use a checked type pattern
+  /Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/tests/fixtures/sema/invalid/unchecked-json-boundary.xsh:2:16
+  let row: Row = json.decode("{\"name\":\"demo\"}")?
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unchecked Any cannot establish Record; validate with `.require(Type)` or use a checked type pattern

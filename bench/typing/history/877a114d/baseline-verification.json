@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "runs": [
+    {
+      "id": "baseline-semantic",
+      "source_revision": "877a114d6dc403db32c50f035b38aab7f193147a",
+      "working_directory": "/Users/josh/d/laputa-systems/xsh-typing-baseline",
+      "command": "CARGO_BUILD_JOBS=4 cargo test --locked -p xsh --test integration sema:: -- --test-threads=1",
+      "exit_status": 0,
+      "status": "passed",
+      "passed": 173,
+      "failed": 0,
+      "filtered_out": 642,
+      "features": [
+        "native-tests",
+        "net",
+        "tools"
+      ],
+      "profile": "dev",
+      "evidence_file": "baseline-semantic.log",
+      "evidence_sha256": "3b2ae8ca2c2ebdcd381c2bf1a5cbfe4033ab2f869d566effe40652ac2d192e68",
+      "owner_run_exclusions": []
+    },
+    {
+      "id": "baseline-syntax",
+      "source_revision": "877a114d6dc403db32c50f035b38aab7f193147a",
+      "working_directory": "/Users/josh/d/laputa-systems/xsh-typing-baseline",
+      "command": "CARGO_BUILD_JOBS=4 cargo test --locked -p xsh --test integration syntax:: -- --skip syntax::formatter_is_idempotent_on_package_corpus --test-threads=1",
+      "exit_status": 0,
+      "status": "passed",
+      "passed": 155,
+      "failed": 0,
+      "filtered_out": 660,
+      "features": [
+        "native-tests",
+        "net",
+        "tools"
+      ],
+      "profile": "dev",
+      "evidence_file": "baseline-syntax.log",
+      "evidence_sha256": "bb9cb467318098d84cc0d160fac3be09170024a5353acc2d0489283b89d6f43e",
+      "owner_run_exclusions": [
+        "syntax::formatter_is_idempotent_on_package_corpus"
+      ]
+    },
+    {
+      "id": "baseline-interactive-completion",
+      "source_revision": "877a114d6dc403db32c50f035b38aab7f193147a",
+      "command": "CARGO_BUILD_JOBS=4 cargo test --locked -p xsh --test integration runtime::interactive::parity::extended::layout_dump_ctrl_p_leaves_the_screen_alone -- --exact --test-threads=1",
+      "working_directory": "/Users/josh/d/laputa-systems/xsh-typing-baseline",
+      "profile": "dev",
+      "features": [
+        "native-tests",
+        "net",
+        "tools"
+      ],
+      "exit_status": 101,
+      "status": "failed",
+      "passed": 0,
+      "failed": 1,
+      "evidence_file": "baseline-interactive-completion.log",
+      "evidence_sha256": "9a68842daf90997ed8023dc7177d05292534ef1ff8ae018daf7a945d69f72851",
+      "classification": "independently reproduced pre-existing completion golden directory-order mismatch"
+    },
+    {
+      "id": "baseline-process-group",
+      "source_revision": "877a114d6dc403db32c50f035b38aab7f193147a",
+      "command": "CARGO_BUILD_JOBS=4 cargo test --locked -p xsh --test integration runtime::os::os_process_group_boundary_leaves_new_session_to_harness_cleanup -- --exact --test-threads=1",
+      "working_directory": "/Users/josh/d/laputa-systems/xsh-typing-baseline",
+      "profile": "dev",
+      "features": [
+        "native-tests",
+        "net",
+        "tools"
+      ],
+      "exit_status": 0,
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "evidence_file": "baseline-process-group.log",
+      "evidence_sha256": "47e5a604f92870e2e38380a1615dd49a675f2246190c4c211ddafc3044ca78a0",
+      "classification": "earlier process-group timeout not reproduced on this fresh baseline"
+    }
+  ],
+  "remaining_baseline_checks": "Pre-existing completion golden is frozen with independent baseline evidence. The earlier process-group timeout is not classified as a persistent baseline failure."
+}

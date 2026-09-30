@@ -1,0 +1,29 @@
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:1:16
+  proc mark(label, value) { let _ = time.now(); print $label; value }
+                 ^ expected `:` or default value after parameter name
+
+err[parse.expected-token]: expected `)` after parameters
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:1:16
+  proc mark(label, value) { let _ = time.now(); print $label; value }
+                 ^ expected `)` after parameters
+
+err[parse.expected-token]: expected `{` to start block
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:1:16
+  proc mark(label, value) { let _ = time.now(); print $label; value }
+                 ^ expected `{` to start block
+
+err[parse.expected-expression]: expected expression
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:1:67
+  proc mark(label, value) { let _ = time.now(); print $label; value }
+                                                                    ^ expected expression
+
+err[parse.required-return]: stream producer return annotations are required
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:2:41
+  stream child(item = mark("default", 7)) {
+                                          ^ stream producer return annotations are required
+
+err[parse.required-return]: stream producer return annotations are required
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-acceptance/inferred-producer-lifecycle.xsh:7:17
+  stream parent() { defer { print "parent-close" }; yield @child() }
+                  ^ stream producer return annotations are required

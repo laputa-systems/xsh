@@ -1,0 +1,237 @@
+{
+  "schema_version": 1,
+  "rows": [
+    {
+      "id": "runtime-basename",
+      "source": "core/basename.xsh",
+      "variant": "original",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/core/basename.xsh",
+        "--",
+        "/tmp/typing/name.txt"
+      ],
+      "status": 0,
+      "stdout": "name.txt\n",
+      "stderr": "",
+      "stdout_sha256": "df703ba066601a93be29a1fd48fcb1a221e3c52306a2c572a187ba5b0b1f8f93",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.047536125013721175
+    },
+    {
+      "id": "runtime-basename",
+      "source": "core/basename.xsh",
+      "variant": "stabilized",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/core/basename.xsh",
+        "--",
+        "/tmp/typing/name.txt"
+      ],
+      "status": 0,
+      "stdout": "name.txt\n",
+      "stderr": "",
+      "stdout_sha256": "df703ba066601a93be29a1fd48fcb1a221e3c52306a2c572a187ba5b0b1f8f93",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.024333249995834194
+    },
+    {
+      "id": "runtime-example-streams",
+      "source": "examples/streams.xsh",
+      "variant": "original",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/examples/streams.xsh",
+        "--"
+      ],
+      "status": 0,
+      "stdout": "files 3 source 2\ndocs/README.md:19 src/lib.xsh:37 src/main.xsh:11\nlargest main.xsh 11\n",
+      "stderr": "",
+      "stdout_sha256": "e034dcee157fc88b7fcd2d1da36b1c6a4f7d63de8ea6f313f1f0d2e9c03743dd",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.025772250010049902
+    },
+    {
+      "id": "runtime-example-streams",
+      "source": "examples/streams.xsh",
+      "variant": "stabilized",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/examples/streams.xsh",
+        "--"
+      ],
+      "status": 0,
+      "stdout": "files 3 source 2\ndocs/README.md:19 src/lib.xsh:37 src/main.xsh:11\nlargest main.xsh 11\n",
+      "stderr": "",
+      "stdout_sha256": "e034dcee157fc88b7fcd2d1da36b1c6a4f7d63de8ea6f313f1f0d2e9c03743dd",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.020441999993636273
+    },
+    {
+      "id": "runtime-example-processes",
+      "source": "examples/processes.xsh",
+      "variant": "original",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/examples/processes.xsh",
+        "--"
+      ],
+      "status": 0,
+      "stdout": "host true true true true\nidentity true true true true\nsignal true true\ncommands true true true true\n",
+      "stderr": "",
+      "stdout_sha256": "d19be72029e694bd7494b1cd163d07c5cfc8000d07566caeaf9401da319088d9",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.1557878330058884
+    },
+    {
+      "id": "runtime-example-processes",
+      "source": "examples/processes.xsh",
+      "variant": "stabilized",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/examples/processes.xsh",
+        "--"
+      ],
+      "status": 0,
+      "stdout": "host true true true true\nidentity true true true true\nsignal true true\ncommands true true true true\n",
+      "stderr": "",
+      "stdout_sha256": "d19be72029e694bd7494b1cd163d07c5cfc8000d07566caeaf9401da319088d9",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.14448287500999868
+    },
+    {
+      "id": "runtime-dev-help",
+      "source": "dev/main.xsh",
+      "variant": "original",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/dev/main.xsh",
+        "--",
+        "--help"
+      ],
+      "status": 0,
+      "stdout": "XSH development lifecycle\n\nusage: cargo dev COMMAND [OPTIONS]\n\ncommands:\n  build\n  check [lint]\n  lint --fix\n  test [xsh|linux|macos] [--ci]\n  coverage [--backend native|docker]\n  bench [--fast|--syscalls]\n  dist [--target TRIPLE] [--docker auto|always|never] [--ci]\n  install\n  release smoke|package|core|validate [--tag RELEASE-TAG]\n  system-report-check [--manifest FILE] [--run-fixtures --xsh-bin FILE --xsht-bin FILE --cargo-bin FILE]\n                      [--run-macos-fixtures --xsh-bin FILE --xsht-bin FILE]\n                      [--capture-cpu-bundle NEW_DIRECTORY | --replay-cpu-bundle DIRECTORY]\n                      [--capture-cpufreq-bundle NEW_DIRECTORY | --replay-cpufreq-bundle DIRECTORY]\n                      [--capture-cpu-topology-bundle NEW_DIRECTORY | --replay-cpu-topology-bundle DIRECTORY]\n                      [--capture-memory-bundle NEW_DIRECTORY | --replay-memory-bundle DIRECTORY]\n                      [--capture-pressure-bundle NEW_DIRECTORY | --replay-pressure-bundle DIRECTORY]\n                      [--capture-swaps-bundle NEW_DIRECTORY | --replay-swaps-bundle DIRECTORY]\n                      [--capture-os-release-bundle NEW_DIRECTORY | --replay-os-release-bundle DIRECTORY]\n                      [--capture-uptime-bundle NEW_DIRECTORY | --replay-uptime-bundle DIRECTORY]\n                      [--capture-dmi-identity-bundle NEW_DIRECTORY | --replay-dmi-identity-bundle DIRECTORY]\n                      [--capture-device-tree-bundle NEW_DIRECTORY | --replay-device-tree-bundle DIRECTORY]\n                      [--capture-kernel-command-line-bundle NEW_DIRECTORY | --replay-kernel-command-line-bundle DIRECTORY]\n                      [--capture-kernel-modules-bundle NEW_DIRECTORY | --replay-kernel-modules-bundle DIRECTORY]\n                      [--capture-vulnerabilities-bundle NEW_DIRECTORY | --replay-vulnerabilities-bundle DIRECTORY]\n                      [--capture-mountinfo-bundle NEW_DIRECTORY | --replay-mountinfo-bundle DIRECTORY]\n                      [--capture-kernel-parameters-bundle NEW_DIRECTORY | --replay-kernel-parameters-bundle DIRECTORY]\n                      [--capture-thermal-bundle NEW_DIRECTORY | --replay-thermal-bundle DIRECTORY]\n                      [--capture-hwmon-bundle NEW_DIRECTORY | --replay-hwmon-bundle DIRECTORY]\n                      [--capture-block-bundle NEW_DIRECTORY | --replay-block-bundle DIRECTORY]\n                      [--capture-cgroup2-bundle NEW_DIRECTORY | --replay-cgroup2-bundle DIRECTORY]\n                      [--capture-process-bundle NEW_DIRECTORY | --replay-process-bundle DIRECTORY]\n                      [--capture-power-supply-bundle NEW_DIRECTORY | --replay-power-supply-bundle DIRECTORY]\n                      [--capture-powercap-bundle NEW_DIRECTORY | --replay-powercap-bundle DIRECTORY]\n                      [--capture-pci-bundle NEW_DIRECTORY | --replay-pci-bundle DIRECTORY]\n                      [--capture-usb-bundle NEW_DIRECTORY | --replay-usb-bundle DIRECTORY]\n                      [--capture-smbios-bundle NEW_DIRECTORY | --replay-smbios-bundle DIRECTORY]\n                      [--corroborate-smbios-bundle DIRECTORY --dmidecode-bin FILE]\n                      [--compare-cpu] [--compare-cpu-topology] [--compare-cpu-cache]\n                      [--compare-cpufreq] [--compare-cpuidle]\n                      [--compare-cpupower --cpupower-bin FILE]\n                      [--compare-cpu-scope] [--compare-cgroup-v2]\n                      [--compare-vulnerabilities] [--compare-huge-pages]\n                      [--compare-pressure]\n                      [--compare-swaps] [--compare-storage] [--compare-queue]\n                      [--compare-mounts] [--compare-mount-usage] [--compare-modules]\n                      [--compare-command-line] [--compare-parameters]\n                      [--compare-identity] [--compare-namespaces]\n                      [--compare-pci] [--compare-pci-bindings] [--compare-pci-links]\n                      [--compare-usb-topology] [--compare-usb-ids] [--compare-usb-power]\n                      [--compare-usb-interfaces]\n                      [--compare-lsusb --lsusb-bin FILE]\n                      [--compare-power-supplies]\n                      [--compare-powercap]\n                      [--compare-device-classes]\n                      [--compare-hwmon]\n                      [--compare-sensors-json --sensors-bin FILE]\n                      [--compare-smbios]\n                      [--compare-thermal]\n                      [--no-subprocess --xsh-bin FILE --script FILE]\n\ninternal container commands are intentionally omitted from public help.\n\n",
+      "stderr": "",
+      "stdout_sha256": "f84c0ae82d4c277b23a3ed5a15756096648443e9efadd6233505faefbb08fb4a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 3.408464708001702
+    },
+    {
+      "id": "runtime-dev-help",
+      "source": "dev/main.xsh",
+      "variant": "stabilized",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/dev/main.xsh",
+        "--",
+        "--help"
+      ],
+      "status": 0,
+      "stdout": "XSH development lifecycle\n\nusage: cargo dev COMMAND [OPTIONS]\n\ncommands:\n  build\n  check [lint]\n  lint --fix\n  test [xsh|linux|macos] [--ci]\n  coverage [--backend native|docker]\n  bench [--fast|--syscalls]\n  dist [--target TRIPLE] [--docker auto|always|never] [--ci]\n  install\n  release smoke|package|core|validate [--tag RELEASE-TAG]\n  system-report-check [--manifest FILE] [--run-fixtures --xsh-bin FILE --xsht-bin FILE --cargo-bin FILE]\n                      [--run-macos-fixtures --xsh-bin FILE --xsht-bin FILE]\n                      [--capture-cpu-bundle NEW_DIRECTORY | --replay-cpu-bundle DIRECTORY]\n                      [--capture-cpufreq-bundle NEW_DIRECTORY | --replay-cpufreq-bundle DIRECTORY]\n                      [--capture-cpu-topology-bundle NEW_DIRECTORY | --replay-cpu-topology-bundle DIRECTORY]\n                      [--capture-memory-bundle NEW_DIRECTORY | --replay-memory-bundle DIRECTORY]\n                      [--capture-pressure-bundle NEW_DIRECTORY | --replay-pressure-bundle DIRECTORY]\n                      [--capture-swaps-bundle NEW_DIRECTORY | --replay-swaps-bundle DIRECTORY]\n                      [--capture-os-release-bundle NEW_DIRECTORY | --replay-os-release-bundle DIRECTORY]\n                      [--capture-uptime-bundle NEW_DIRECTORY | --replay-uptime-bundle DIRECTORY]\n                      [--capture-dmi-identity-bundle NEW_DIRECTORY | --replay-dmi-identity-bundle DIRECTORY]\n                      [--capture-device-tree-bundle NEW_DIRECTORY | --replay-device-tree-bundle DIRECTORY]\n                      [--capture-kernel-command-line-bundle NEW_DIRECTORY | --replay-kernel-command-line-bundle DIRECTORY]\n                      [--capture-kernel-modules-bundle NEW_DIRECTORY | --replay-kernel-modules-bundle DIRECTORY]\n                      [--capture-vulnerabilities-bundle NEW_DIRECTORY | --replay-vulnerabilities-bundle DIRECTORY]\n                      [--capture-mountinfo-bundle NEW_DIRECTORY | --replay-mountinfo-bundle DIRECTORY]\n                      [--capture-kernel-parameters-bundle NEW_DIRECTORY | --replay-kernel-parameters-bundle DIRECTORY]\n                      [--capture-thermal-bundle NEW_DIRECTORY | --replay-thermal-bundle DIRECTORY]\n                      [--capture-hwmon-bundle NEW_DIRECTORY | --replay-hwmon-bundle DIRECTORY]\n                      [--capture-block-bundle NEW_DIRECTORY | --replay-block-bundle DIRECTORY]\n                      [--capture-cgroup2-bundle NEW_DIRECTORY | --replay-cgroup2-bundle DIRECTORY]\n                      [--capture-process-bundle NEW_DIRECTORY | --replay-process-bundle DIRECTORY]\n                      [--capture-power-supply-bundle NEW_DIRECTORY | --replay-power-supply-bundle DIRECTORY]\n                      [--capture-powercap-bundle NEW_DIRECTORY | --replay-powercap-bundle DIRECTORY]\n                      [--capture-pci-bundle NEW_DIRECTORY | --replay-pci-bundle DIRECTORY]\n                      [--capture-usb-bundle NEW_DIRECTORY | --replay-usb-bundle DIRECTORY]\n                      [--capture-smbios-bundle NEW_DIRECTORY | --replay-smbios-bundle DIRECTORY]\n                      [--corroborate-smbios-bundle DIRECTORY --dmidecode-bin FILE]\n                      [--compare-cpu] [--compare-cpu-topology] [--compare-cpu-cache]\n                      [--compare-cpufreq] [--compare-cpuidle]\n                      [--compare-cpupower --cpupower-bin FILE]\n                      [--compare-cpu-scope] [--compare-cgroup-v2]\n                      [--compare-vulnerabilities] [--compare-huge-pages]\n                      [--compare-pressure]\n                      [--compare-swaps] [--compare-storage] [--compare-queue]\n                      [--compare-mounts] [--compare-mount-usage] [--compare-modules]\n                      [--compare-command-line] [--compare-parameters]\n                      [--compare-identity] [--compare-namespaces]\n                      [--compare-pci] [--compare-pci-bindings] [--compare-pci-links]\n                      [--compare-usb-topology] [--compare-usb-ids] [--compare-usb-power]\n                      [--compare-usb-interfaces]\n                      [--compare-lsusb --lsusb-bin FILE]\n                      [--compare-power-supplies]\n                      [--compare-powercap]\n                      [--compare-device-classes]\n                      [--compare-hwmon]\n                      [--compare-sensors-json --sensors-bin FILE]\n                      [--compare-smbios]\n                      [--compare-thermal]\n                      [--no-subprocess --xsh-bin FILE --script FILE]\n\ninternal container commands are intentionally omitted from public help.\n\n",
+      "stderr": "",
+      "stdout_sha256": "f84c0ae82d4c277b23a3ed5a15756096648443e9efadd6233505faefbb08fb4a",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 3.4461247500003083
+    },
+    {
+      "id": "runtime-system-report-version",
+      "source": "core/system-report.xsh",
+      "variant": "original",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/core/system-report.xsh",
+        "--",
+        "-V"
+      ],
+      "status": 0,
+      "stdout": "system-report schema v1\n",
+      "stderr": "",
+      "stdout_sha256": "1ada8f4e048c22b8d96c22b81ea8750ace4e5e52da608ad3703bd4243dc90fd7",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 6.370575416993233
+    },
+    {
+      "id": "runtime-system-report-version",
+      "source": "core/system-report.xsh",
+      "variant": "stabilized",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/core/system-report.xsh",
+        "--",
+        "-V"
+      ],
+      "status": 0,
+      "stdout": "system-report schema v1\n",
+      "stderr": "",
+      "stdout_sha256": "1ada8f4e048c22b8d96c22b81ea8750ace4e5e52da608ad3703bd4243dc90fd7",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 5.928325540997321
+    },
+    {
+      "id": "runtime-jq",
+      "source": "showcase/jq.xsh",
+      "variant": "original",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/showcase/jq.xsh",
+        "--",
+        ".name"
+      ],
+      "status": 0,
+      "stdout": "\"typing\"\n",
+      "stderr": "",
+      "stdout_sha256": "069aa820c69ff5fce0d37dc8532440e78a5be9be2f593023788a4cb3700ac434",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.13270149999880232
+    },
+    {
+      "id": "runtime-jq",
+      "source": "showcase/jq.xsh",
+      "variant": "stabilized",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/showcase/jq.xsh",
+        "--",
+        ".name"
+      ],
+      "status": 0,
+      "stdout": "\"typing\"\n",
+      "stderr": "",
+      "stdout_sha256": "069aa820c69ff5fce0d37dc8532440e78a5be9be2f593023788a4cb3700ac434",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.1275053329882212
+    },
+    {
+      "id": "runtime-valid-annotated",
+      "source": "tests/fixtures/sema/valid-proc-command.xsh",
+      "variant": "original",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/tests/fixtures/sema/valid-proc-command.xsh",
+        "--"
+      ],
+      "status": 0,
+      "stdout": "main.c\n",
+      "stderr": "",
+      "stdout_sha256": "46c6a8aa2ccbb3baf0d457767a15b8be0c4531cfc321c157193fa65d0f64c444",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.019779499998549
+    },
+    {
+      "id": "runtime-valid-annotated",
+      "source": "tests/fixtures/sema/valid-proc-command.xsh",
+      "variant": "stabilized",
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/tests/fixtures/sema/valid-proc-command.xsh",
+        "--"
+      ],
+      "status": 0,
+      "stdout": "main.c\n",
+      "stderr": "",
+      "stdout_sha256": "46c6a8aa2ccbb3baf0d457767a15b8be0c4531cfc321c157193fa65d0f64c444",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.02154645799600985
+    }
+  ]
+}

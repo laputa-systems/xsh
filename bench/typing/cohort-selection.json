@@ -1,0 +1,1330 @@
+{
+  "schema_version": 1,
+  "snapshot_commit": "877a114d6dc403db32c50f035b38aab7f193147a",
+  "status": "frozen-source-closures-and-stabilization",
+  "selection_policy": {
+    "required_strata": [
+      "small-startup",
+      "substantial-core",
+      "substantial-dev",
+      "complete-system-report-graph",
+      "stream-heavy",
+      "broad-stdlib",
+      "import-heavy-diamond",
+      "largest-native",
+      "largest-type-heavy",
+      "valid-annotated",
+      "invalid-annotated"
+    ],
+    "ranking": "Add measured maxima for semantic_retained_bytes and semantic_type_count from the existing frontend-stats facilities across core/dev/examples/showcase/tests/xsh; existing required strata are never removed.",
+    "source_site_identity": "source relative path + original byte SHA256 + parser syntactic site byte span; count shared imported source once."
+  },
+  "workloads": [
+    {
+      "id": "small-pwd",
+      "entry": "core/pwd.xsh",
+      "stratum": "small-startup",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "core/pwd.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "small-basename",
+      "entry": "core/basename.xsh",
+      "stratum": "small-startup",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "core/basename.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "core-ifup",
+      "entry": "core/ifup.xsh",
+      "stratum": "substantial-core",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "core/ifup.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "not-applicable-macos-live-host"
+    },
+    {
+      "id": "system-report",
+      "entry": "core/system-report.xsh",
+      "stratum": "complete-system-report-graph",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "core/lib/system_report.xsh",
+        "core/lib/system_report_collect.xsh",
+        "core/lib/system_report_live.xsh",
+        "core/system-report.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "not-applicable-macos-live-host"
+    },
+    {
+      "id": "dev-main",
+      "entry": "dev/main.xsh",
+      "stratum": "import-heavy-diamond-dev",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "dev/bench.xsh",
+        "dev/build.xsh",
+        "dev/context.xsh",
+        "dev/coverage.xsh",
+        "dev/dist.xsh",
+        "dev/docker.xsh",
+        "dev/install.xsh",
+        "dev/internal.xsh",
+        "dev/main.xsh",
+        "dev/release.xsh",
+        "dev/stage.xsh",
+        "dev/stage_contract.xsh",
+        "dev/system_report_check.xsh",
+        "dev/targets.xsh",
+        "dev/test_workflows.xsh",
+        "dev/verify.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "dev-system-report-check",
+      "entry": "dev/system_report_check.xsh",
+      "stratum": "largest-dev",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "dev/context.xsh",
+        "dev/system_report_check.xsh",
+        "dev/targets.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "example-streams",
+      "entry": "examples/streams.xsh",
+      "stratum": "stream-heavy",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "examples/streams.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "example-processes",
+      "entry": "examples/processes.xsh",
+      "stratum": "broad-stdlib",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "examples/processes.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "native-system-report",
+      "entry": "tests/xsh/system-report.xsh",
+      "stratum": "largest-native",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "core/lib/system_report.xsh",
+        "tests/xsh/system-report.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "native-run",
+      "entry": "tests/xsh/run.xsh",
+      "stratum": "native-process-boundary",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "tests/xsh/run.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "native-streams",
+      "entry": "tests/xsh/stdlib/streams.xsh",
+      "stratum": "stream-heavy-native",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "tests/xsh/stdlib/streams.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "native-methods",
+      "entry": "tests/xsh/stdlib/methods.xsh",
+      "stratum": "broad-stdlib-native",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "tests/xsh/stdlib/methods.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "native-local-inference",
+      "entry": "tests/xsh/local-inference.xsh",
+      "stratum": "inference-contract",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "tests/xsh/local-inference.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "native-results",
+      "entry": "tests/xsh/result-contexts.xsh",
+      "stratum": "result-semantics",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "tests/xsh/result-contexts.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "showcase-jq",
+      "entry": "showcase/jq.xsh",
+      "stratum": "type-heavy-production",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "showcase/jq.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "showcase-tokei",
+      "entry": "showcase/tokei.xsh",
+      "stratum": "type-heavy-production",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "showcase/tokei.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "valid-annotated",
+      "entry": "tests/fixtures/sema/valid-proc-command.xsh",
+      "stratum": "valid-annotated",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "tests/fixtures/sema/valid-proc-command.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "invalid-annotated",
+      "entry": "tests/fixtures/sema/invalid/unchecked-json-boundary.xsh",
+      "stratum": "invalid-annotated",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "tests/fixtures/sema/invalid/unchecked-json-boundary.xsh"
+      ],
+      "frontend": "expected-rejection",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "system-report-model",
+      "entry": "core/lib/system_report.xsh",
+      "stratum": "largest-type-heavy-model",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "core/lib/system_report.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "system-report-live",
+      "entry": "core/lib/system_report_live.xsh",
+      "stratum": "largest-type-heavy-live",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "core/lib/system_report.xsh",
+        "core/lib/system_report_collect.xsh",
+        "core/lib/system_report_live.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "not-applicable-macos-live-host"
+    },
+    {
+      "id": "system-report-collect",
+      "entry": "core/lib/system_report_collect.xsh",
+      "stratum": "largest-type-heavy-collect",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "core/lib/system_report.xsh",
+        "core/lib/system_report_collect.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "not-applicable-macos-live-host"
+    },
+    {
+      "id": "native-dev-system-report-check",
+      "entry": "dev/tests/test-system-report-check.xsh",
+      "stratum": "largest-native-dev",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "dev/context.xsh",
+        "dev/system_report_check.xsh",
+        "dev/system_report_smbios_check.xsh",
+        "dev/targets.xsh",
+        "dev/tests/test-system-report-check.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "host-safe-observation-or-native-harness"
+    },
+    {
+      "id": "core-ifdown-producer",
+      "entry": "core/ifdown.xsh",
+      "stratum": "maintained-stream-producer",
+      "closure_status": "resolved-by-baseline-loader",
+      "closure": [
+        "core/ifdown.xsh"
+      ],
+      "frontend": "valid-or-baseline-diagnostic-audited",
+      "runtime_platform": "not-applicable-macos-live-host"
+    }
+  ],
+  "selection_evidence": {
+    "stats_path": "bench/typing/cohort/type-heavy-scan.json",
+    "stats_file_count": 356,
+    "ranking_note": "semantic_retained_bytes uses the legacy estimator and is selection evidence only; independent accounting is required for acceptance budgets.",
+    "semantic_bytes_top7": [
+      {
+        "path": "core/system-report.xsh",
+        "semantic_retained_bytes": 77929923,
+        "diagnostics": 0
+      },
+      {
+        "path": "core/lib/system_report_live.xsh",
+        "semantic_retained_bytes": 76110683,
+        "diagnostics": 0
+      },
+      {
+        "path": "core/lib/system_report_collect.xsh",
+        "semantic_retained_bytes": 48783391,
+        "diagnostics": 0
+      },
+      {
+        "path": "core/lib/system_report.xsh",
+        "semantic_retained_bytes": 46046316,
+        "diagnostics": 0
+      },
+      {
+        "path": "dev/main.xsh",
+        "semantic_retained_bytes": 45505061,
+        "diagnostics": 0
+      },
+      {
+        "path": "dev/system_report_check.xsh",
+        "semantic_retained_bytes": 43245876,
+        "diagnostics": 0
+      },
+      {
+        "path": "tests/xsh/system-report.xsh",
+        "semantic_retained_bytes": 10612530,
+        "diagnostics": 2
+      }
+    ],
+    "type_nodes_top7": [
+      {
+        "path": "dev/main.xsh",
+        "ast_type_count": 6962,
+        "diagnostics": 0
+      },
+      {
+        "path": "dev/system_report_check.xsh",
+        "ast_type_count": 6688,
+        "diagnostics": 0
+      },
+      {
+        "path": "core/system-report.xsh",
+        "ast_type_count": 2914,
+        "diagnostics": 0
+      },
+      {
+        "path": "core/lib/system_report_live.xsh",
+        "ast_type_count": 2887,
+        "diagnostics": 0
+      },
+      {
+        "path": "core/lib/system_report_collect.xsh",
+        "ast_type_count": 1916,
+        "diagnostics": 0
+      },
+      {
+        "path": "core/lib/system_report.xsh",
+        "ast_type_count": 1720,
+        "diagnostics": 0
+      },
+      {
+        "path": "showcase/jq.xsh",
+        "ast_type_count": 1184,
+        "diagnostics": 0
+      }
+    ],
+    "semantic_type_count_top7": [
+      {
+        "path": "dev/main.xsh",
+        "semantic_type_count": 149955,
+        "diagnostics": 0
+      },
+      {
+        "path": "dev/system_report_check.xsh",
+        "semantic_type_count": 141953,
+        "diagnostics": 0
+      },
+      {
+        "path": "core/system-report.xsh",
+        "semantic_type_count": 47244,
+        "diagnostics": 0
+      },
+      {
+        "path": "core/lib/system_report_live.xsh",
+        "semantic_type_count": 46417,
+        "diagnostics": 0
+      },
+      {
+        "path": "dev/tests/test-system-report-check.xsh",
+        "semantic_type_count": 25329,
+        "diagnostics": 3
+      },
+      {
+        "path": "tests/xsh/system-report.xsh",
+        "semantic_type_count": 24712,
+        "diagnostics": 2
+      },
+      {
+        "path": "showcase/jq.xsh",
+        "semantic_type_count": 20890,
+        "diagnostics": 0
+      }
+    ]
+  },
+  "module_roots": [
+    ".",
+    "dev"
+  ],
+  "module_roots_authority": "xsht-config.ini module_path",
+  "sources": [
+    {
+      "path": "core/basename.xsh",
+      "original_sha256": "75b87702357097841201a5e2d4ce31b78345f9ba2ce16a82e420171e67960429",
+      "stabilized_sha256": "75b87702357097841201a5e2d4ce31b78345f9ba2ce16a82e420171e67960429",
+      "original_bytes": 1087,
+      "stabilized_bytes": 1087,
+      "imports": [],
+      "workload_ids": [
+        "small-basename"
+      ]
+    },
+    {
+      "path": "core/ifdown.xsh",
+      "original_sha256": "a6dd1d129d970461aed5d5bdb93dba94697cec2defece7833d1c928bc03b445a",
+      "stabilized_sha256": "840c0957b2e8e3006ca9425f2d2dcbca232c865093368985802b2e58d83b1384",
+      "original_bytes": 11730,
+      "stabilized_bytes": 11842,
+      "imports": [],
+      "workload_ids": [
+        "core-ifdown-producer"
+      ]
+    },
+    {
+      "path": "core/ifup.xsh",
+      "original_sha256": "c837d25130b7f60181455c74e28a35f778d2f529b95e5b6460514f919c6aa55a",
+      "stabilized_sha256": "620322df177ef1945498b52c19440e0b905dbfecf3353135d1b7675a41c18127",
+      "original_bytes": 17188,
+      "stabilized_bytes": 17316,
+      "imports": [],
+      "workload_ids": [
+        "core-ifup"
+      ]
+    },
+    {
+      "path": "core/lib/system_report.xsh",
+      "original_sha256": "3e84ac9fb41506200ba596d4a06f516c5f715a77015da98ed430bd8ce34efdab",
+      "stabilized_sha256": "3e84ac9fb41506200ba596d4a06f516c5f715a77015da98ed430bd8ce34efdab",
+      "original_bytes": 113868,
+      "stabilized_bytes": 113868,
+      "imports": [],
+      "workload_ids": [
+        "system-report",
+        "native-system-report",
+        "system-report-model",
+        "system-report-live",
+        "system-report-collect"
+      ]
+    },
+    {
+      "path": "core/lib/system_report_collect.xsh",
+      "original_sha256": "dab288a3d8549fde024bdeaefed3d3ab8d5fb08cf6ac23d01202a89cae294375",
+      "stabilized_sha256": "dab288a3d8549fde024bdeaefed3d3ab8d5fb08cf6ac23d01202a89cae294375",
+      "original_bytes": 34781,
+      "stabilized_bytes": 34781,
+      "imports": [
+        {
+          "path": "system_report",
+          "resolved": "core/lib/system_report.xsh",
+          "span": [
+            69,
+            97
+          ]
+        }
+      ],
+      "workload_ids": [
+        "system-report",
+        "system-report-live",
+        "system-report-collect"
+      ]
+    },
+    {
+      "path": "core/lib/system_report_live.xsh",
+      "original_sha256": "d6df59f8a79bb91a19813ca9cf3cd3577f075d1f7a360aa614893ecf6571c826",
+      "stabilized_sha256": "d6df59f8a79bb91a19813ca9cf3cd3577f075d1f7a360aa614893ecf6571c826",
+      "original_bytes": 228854,
+      "stabilized_bytes": 228854,
+      "imports": [
+        {
+          "path": "system_report",
+          "resolved": "core/lib/system_report.xsh",
+          "span": [
+            82,
+            110
+          ]
+        },
+        {
+          "path": "system_report_collect",
+          "resolved": "core/lib/system_report_collect.xsh",
+          "span": [
+            110,
+            150
+          ]
+        }
+      ],
+      "workload_ids": [
+        "system-report",
+        "system-report-live"
+      ]
+    },
+    {
+      "path": "core/pwd.xsh",
+      "original_sha256": "7f0215ef713e02b529df6f57dc7fb76eb4b34e389fd17bbe1669aa45cf65a2e8",
+      "stabilized_sha256": "3f42de9464fe82c27c13b8145744cad4358b20f54cb0d2783616e8f2b7c39e6a",
+      "original_bytes": 337,
+      "stabilized_bytes": 353,
+      "imports": [],
+      "workload_ids": [
+        "small-pwd"
+      ]
+    },
+    {
+      "path": "core/system-report.xsh",
+      "original_sha256": "b5412aa41e9a9969c33e5053ee50f86ad119b3344f5afcc70cc38b74137c98d7",
+      "stabilized_sha256": "ae319c3aa0baf9215417619c8d3273670b066076773a4d0221d02643b0468cc8",
+      "original_bytes": 4139,
+      "stabilized_bytes": 4155,
+      "imports": [
+        {
+          "path": "lib.system_report",
+          "resolved": "core/lib/system_report.xsh",
+          "span": [
+            11,
+            50
+          ]
+        },
+        {
+          "path": "lib.system_report_live",
+          "resolved": "core/lib/system_report_live.xsh",
+          "span": [
+            50,
+            95
+          ]
+        }
+      ],
+      "workload_ids": [
+        "system-report"
+      ]
+    },
+    {
+      "path": "dev/bench.xsh",
+      "original_sha256": "0bbc58fdb7df4dd348d4a260779695ce6aeca39f2659fa4dcd645ed23e9657d9",
+      "stabilized_sha256": "0bbc58fdb7df4dd348d4a260779695ce6aeca39f2659fa4dcd645ed23e9657d9",
+      "original_bytes": 1772,
+      "stabilized_bytes": 1772,
+      "imports": [
+        {
+          "path": "context",
+          "resolved": "dev/context.xsh",
+          "span": [
+            76,
+            88
+          ]
+        },
+        {
+          "path": "stage",
+          "resolved": "dev/stage.xsh",
+          "span": [
+            88,
+            108
+          ]
+        }
+      ],
+      "workload_ids": [
+        "dev-main"
+      ]
+    },
+    {
+      "path": "dev/build.xsh",
+      "original_sha256": "cd81392bea4d7f7c698e9c7b920b1197307abab2276c58abd03e630634de55aa",
+      "stabilized_sha256": "cd81392bea4d7f7c698e9c7b920b1197307abab2276c58abd03e630634de55aa",
+      "original_bytes": 6232,
+      "stabilized_bytes": 6232,
+      "imports": [
+        {
+          "path": "context",
+          "resolved": "dev/context.xsh",
+          "span": [
+            76,
+            88
+          ]
+        },
+        {
+          "path": "stage",
+          "resolved": "dev/stage.xsh",
+          "span": [
+            88,
+            108
+          ]
+        },
+        {
+          "path": "targets",
+          "resolved": "dev/targets.xsh",
+          "span": [
+            108,
+            120
+          ]
+        }
+      ],
+      "workload_ids": [
+        "dev-main"
+      ]
+    },
+    {
+      "path": "dev/context.xsh",
+      "original_sha256": "62c04213c27e38de40bf280f0e0b157cd84a4c66dbb13c855e31bb279063708b",
+      "stabilized_sha256": "62c04213c27e38de40bf280f0e0b157cd84a4c66dbb13c855e31bb279063708b",
+      "original_bytes": 2296,
+      "stabilized_bytes": 2296,
+      "imports": [
+        {
+          "path": "targets",
+          "resolved": "dev/targets.xsh",
+          "span": [
+            74,
+            103
+          ]
+        }
+      ],
+      "workload_ids": [
+        "dev-main",
+        "dev-system-report-check",
+        "native-dev-system-report-check"
+      ]
+    },
+    {
+      "path": "dev/coverage.xsh",
+      "original_sha256": "93e15950ce0676208a25ae25ac2c4823c3676ed30f945fe7667c6420b5df60d1",
+      "stabilized_sha256": "93e15950ce0676208a25ae25ac2c4823c3676ed30f945fe7667c6420b5df60d1",
+      "original_bytes": 5574,
+      "stabilized_bytes": 5574,
+      "imports": [
+        {
+          "path": "context",
+          "resolved": "dev/context.xsh",
+          "span": [
+            76,
+            88
+          ]
+        },
+        {
+          "path": "docker",
+          "resolved": "dev/docker.xsh",
+          "span": [
+            88,
+            99
+          ]
+        },
+        {
+          "path": "stage",
+          "resolved": "dev/stage.xsh",
+          "span": [
+            99,
+            119
+          ]
+        },
+        {
+          "path": "targets",
+          "resolved": "dev/targets.xsh",
+          "span": [
+            119,
+            131
+          ]
+        }
+      ],
+      "workload_ids": [
+        "dev-main"
+      ]
+    },
+    {
+      "path": "dev/dist.xsh",
+      "original_sha256": "e2abe1915f5d042d0b1e93d5d703d12a2eaaafe427eab8f618f70671401685b5",
+      "stabilized_sha256": "e2abe1915f5d042d0b1e93d5d703d12a2eaaafe427eab8f618f70671401685b5",
+      "original_bytes": 3840,
+      "stabilized_bytes": 3840,
+      "imports": [
+        {
+          "path": "context",
+          "resolved": "dev/context.xsh",
+          "span": [
+            87,
+            99
+          ]
+        },
+        {
+          "path": "docker",
+          "resolved": "dev/docker.xsh",
+          "span": [
+            99,
+            110
+          ]
+        },
+        {
+          "path": "stage",
+          "resolved": "dev/stage.xsh",
+          "span": [
+            110,
+            130
+          ]
+        },
+        {
+          "path": "targets",
+          "resolved": "dev/targets.xsh",
+          "span": [
+            130,
+            142
+          ]
+        },
+        {
+          "path": "verify",
+          "resolved": "dev/verify.xsh",
+          "span": [
+            142,
+            153
+          ]
+        }
+      ],
+      "workload_ids": [
+        "dev-main"
+      ]
+    },
+    {
+      "path": "dev/docker.xsh",
+      "original_sha256": "2612b98f2ebeb5deda736de9a391c4f4537cad0c066083ba2febaea58147311b",
+      "stabilized_sha256": "2612b98f2ebeb5deda736de9a391c4f4537cad0c066083ba2febaea58147311b",
+      "original_bytes": 3900,
+      "stabilized_bytes": 3900,
+      "imports": [
+        {
+          "path": "context",
+          "resolved": "dev/context.xsh",
+          "span": [
+            78,
+            90
+          ]
+        },
+        {
+          "path": "stage",
+          "resolved": "dev/stage.xsh",
+          "span": [
+            90,
+            110
+          ]
+        }
+      ],
+      "workload_ids": [
+        "dev-main"
+      ]
+    },
+    {
+      "path": "dev/install.xsh",
+      "original_sha256": "34260f10e4d1b243ecc8a81b08091f1094aa875df7de9d5d68512cbcfc59c8e9",
+      "stabilized_sha256": "34260f10e4d1b243ecc8a81b08091f1094aa875df7de9d5d68512cbcfc59c8e9",
+      "original_bytes": 6437,
+      "stabilized_bytes": 6437,
+      "imports": [
+        {
+          "path": "context",
+          "resolved": "dev/context.xsh",
+          "span": [
+            86,
+            98
+          ]
+        },
+        {
+          "path": "stage",
+          "resolved": "dev/stage.xsh",
+          "span": [
+            98,
+            118
+          ]
+        },
+        {
+          "path": "targets",
+          "resolved": "dev/targets.xsh",
+          "span": [
+            118,
+            130
+          ]
+        }
+      ],
+      "workload_ids": [
+        "dev-main"
+      ]
+    },
+    {
+      "path": "dev/internal.xsh",
+      "original_sha256": "73b8e213778a3e13021f521ac8b8f38e020f2ea7be672dff1dfc1a6ec96e82fb",
+      "stabilized_sha256": "73b8e213778a3e13021f521ac8b8f38e020f2ea7be672dff1dfc1a6ec96e82fb",
+      "original_bytes": 5464,
+      "stabilized_bytes": 5464,
+      "imports": [
+        {
+          "path": "build",
+          "resolved": "dev/build.xsh",
+          "span": [
+            82,
+            92
+          ]
+        },
+        {
+          "path": "context",
+          "resolved": "dev/context.xsh",
+          "span": [
+            92,
+            104
+          ]
+        },
+        {
+          "path": "dist",
+          "resolved": "dev/dist.xsh",
+          "span": [
+            104,
+            113
+          ]
+        },
+        {
+          "path": "stage",
+          "resolved": "dev/stage.xsh",
+          "span": [
+            113,
+            133
+          ]
+        },
+        {
+          "path": "targets",
+          "resolved": "dev/targets.xsh",
+          "span": [
+            133,
+            145
+          ]
+        }
+      ],
+      "workload_ids": [
+        "dev-main"
+      ]
+    },
+    {
+      "path": "dev/main.xsh",
+      "original_sha256": "d3a0723cd49f9be00c7602f4abcd3d7063a300feda69bc781dd90a2428ed6c56",
+      "stabilized_sha256": "1a7abad6490eb81317583443864e7005e31a530a400b984b6932c6f061324635",
+      "original_bytes": 11572,
+      "stabilized_bytes": 11604,
+      "imports": [
+        {
+          "path": "bench",
+          "resolved": "dev/bench.xsh",
+          "span": [
+            179,
+            203
+          ]
+        },
+        {
+          "path": "build",
+          "resolved": "dev/build.xsh",
+          "span": [
+            203,
+            223
+          ]
+        },
+        {
+          "path": "context",
+          "resolved": "dev/context.xsh",
+          "span": [
+            223,
+            248
+          ]
+        },
+        {
+          "path": "coverage",
+          "resolved": "dev/coverage.xsh",
+          "span": [
+            248,
+            282
+          ]
+        },
+        {
+          "path": "dist",
+          "resolved": "dev/dist.xsh",
+          "span": [
+            282,
+            308
+          ]
+        },
+        {
+          "path": "install",
+          "resolved": "dev/install.xsh",
+          "span": [
+            308,
+            337
+          ]
+        },
+        {
+          "path": "internal",
+          "resolved": "dev/internal.xsh",
+          "span": [
+            337,
+            372
+          ]
+        },
+        {
+          "path": "release",
+          "resolved": "dev/release.xsh",
+          "span": [
+            372,
+            396
+          ]
+        },
+        {
+          "path": "system_report_check",
+          "resolved": "dev/system_report_check.xsh",
+          "span": [
+            396,
+            438
+          ]
+        },
+        {
+          "path": "test_workflows",
+          "resolved": "dev/test_workflows.xsh",
+          "span": [
+            438,
+            466
+          ]
+        }
+      ],
+      "workload_ids": [
+        "dev-main"
+      ]
+    },
+    {
+      "path": "dev/release.xsh",
+      "original_sha256": "9976c2b23a15c34267ad0f2d3a5169d3bb87901451d2f5b8d7b9f717acd37ef0",
+      "stabilized_sha256": "9976c2b23a15c34267ad0f2d3a5169d3bb87901451d2f5b8d7b9f717acd37ef0",
+      "original_bytes": 6846,
+      "stabilized_bytes": 6846,
+      "imports": [
+        {
+          "path": "context",
+          "resolved": "dev/context.xsh",
+          "span": [
+            87,
+            99
+          ]
+        },
+        {
+          "path": "stage",
+          "resolved": "dev/stage.xsh",
+          "span": [
+            99,
+            119
+          ]
+        },
+        {
+          "path": "targets",
+          "resolved": "dev/targets.xsh",
+          "span": [
+            119,
+            131
+          ]
+        },
+        {
+          "path": "verify",
+          "resolved": "dev/verify.xsh",
+          "span": [
+            131,
+            142
+          ]
+        }
+      ],
+      "workload_ids": [
+        "dev-main"
+      ]
+    },
+    {
+      "path": "dev/stage.xsh",
+      "original_sha256": "3e7eb9e8cc28f7d665e44a8a154cf39ae7a1c6d4950a86c1303f08374d8035d8",
+      "stabilized_sha256": "3e7eb9e8cc28f7d665e44a8a154cf39ae7a1c6d4950a86c1303f08374d8035d8",
+      "original_bytes": 1737,
+      "stabilized_bytes": 1737,
+      "imports": [
+        {
+          "path": "stage_contract",
+          "resolved": "dev/stage_contract.xsh",
+          "span": [
+            67,
+            98
+          ]
+        }
+      ],
+      "workload_ids": [
+        "dev-main"
+      ]
+    },
+    {
+      "path": "dev/stage_contract.xsh",
+      "original_sha256": "0111d90b4198f31fd0d64264db48e196a6e5fa8fb58ac9ca03547eae677f2fab",
+      "stabilized_sha256": "0111d90b4198f31fd0d64264db48e196a6e5fa8fb58ac9ca03547eae677f2fab",
+      "original_bytes": 471,
+      "stabilized_bytes": 471,
+      "imports": [],
+      "workload_ids": [
+        "dev-main"
+      ]
+    },
+    {
+      "path": "dev/system_report_check.xsh",
+      "original_sha256": "cc0999abbc086d615a7b9c638047cb102e58c97381fe8485563e3a58b9349570",
+      "stabilized_sha256": "0a016fc19705f6f71991cc772847efc7e34db37ab9a1cf14ac5fe5082088a7f5",
+      "original_bytes": 1010649,
+      "stabilized_bytes": 1010905,
+      "imports": [
+        {
+          "path": "context",
+          "resolved": "dev/context.xsh",
+          "span": [
+            74,
+            86
+          ]
+        }
+      ],
+      "workload_ids": [
+        "dev-main",
+        "dev-system-report-check",
+        "native-dev-system-report-check"
+      ]
+    },
+    {
+      "path": "dev/system_report_smbios_check.xsh",
+      "original_sha256": "4df914edd6b8a89651b5264f983d7347503c79a5180b1dbdad785dd2edc13df2",
+      "stabilized_sha256": "4df914edd6b8a89651b5264f983d7347503c79a5180b1dbdad785dd2edc13df2",
+      "original_bytes": 45758,
+      "stabilized_bytes": 45758,
+      "imports": [
+        {
+          "path": "context",
+          "resolved": "dev/context.xsh",
+          "span": [
+            82,
+            94
+          ]
+        }
+      ],
+      "workload_ids": [
+        "native-dev-system-report-check"
+      ]
+    },
+    {
+      "path": "dev/targets.xsh",
+      "original_sha256": "3fdd16d01e7ca5f3a2fc2eb02eafe46b34c6c54b98c5ece530ccaa06f6c7280f",
+      "stabilized_sha256": "3fdd16d01e7ca5f3a2fc2eb02eafe46b34c6c54b98c5ece530ccaa06f6c7280f",
+      "original_bytes": 9133,
+      "stabilized_bytes": 9133,
+      "imports": [],
+      "workload_ids": [
+        "dev-main",
+        "dev-system-report-check",
+        "native-dev-system-report-check"
+      ]
+    },
+    {
+      "path": "dev/test_workflows.xsh",
+      "original_sha256": "e627fcd45329887f16f3b323cba7e3ddf20b85a46a466258fb31c6d3c9ac1bdd",
+      "stabilized_sha256": "e627fcd45329887f16f3b323cba7e3ddf20b85a46a466258fb31c6d3c9ac1bdd",
+      "original_bytes": 1798,
+      "stabilized_bytes": 1798,
+      "imports": [
+        {
+          "path": "context",
+          "resolved": "dev/context.xsh",
+          "span": [
+            67,
+            79
+          ]
+        },
+        {
+          "path": "docker",
+          "resolved": "dev/docker.xsh",
+          "span": [
+            79,
+            90
+          ]
+        },
+        {
+          "path": "stage",
+          "resolved": "dev/stage.xsh",
+          "span": [
+            90,
+            110
+          ]
+        }
+      ],
+      "workload_ids": [
+        "dev-main"
+      ]
+    },
+    {
+      "path": "dev/tests/test-system-report-check.xsh",
+      "original_sha256": "815b9627b42831f4f22348f4790ee4ce04156a9fea726c8f3d77dea5a231a217",
+      "stabilized_sha256": "815b9627b42831f4f22348f4790ee4ce04156a9fea726c8f3d77dea5a231a217",
+      "original_bytes": 362254,
+      "stabilized_bytes": 362254,
+      "imports": [
+        {
+          "path": "system_report_check",
+          "resolved": "dev/system_report_check.xsh",
+          "span": [
+            0,
+            41
+          ]
+        },
+        {
+          "path": "system_report_smbios_check",
+          "resolved": "dev/system_report_smbios_check.xsh",
+          "span": [
+            41,
+            92
+          ]
+        }
+      ],
+      "workload_ids": [
+        "native-dev-system-report-check"
+      ]
+    },
+    {
+      "path": "dev/verify.xsh",
+      "original_sha256": "8985cda36a507bb63158f779aa284bcd31b8136d8517265f3e273c77e17d2a46",
+      "stabilized_sha256": "8985cda36a507bb63158f779aa284bcd31b8136d8517265f3e273c77e17d2a46",
+      "original_bytes": 3045,
+      "stabilized_bytes": 3045,
+      "imports": [
+        {
+          "path": "context",
+          "resolved": "dev/context.xsh",
+          "span": [
+            76,
+            88
+          ]
+        },
+        {
+          "path": "stage",
+          "resolved": "dev/stage.xsh",
+          "span": [
+            88,
+            108
+          ]
+        }
+      ],
+      "workload_ids": [
+        "dev-main"
+      ]
+    },
+    {
+      "path": "examples/processes.xsh",
+      "original_sha256": "766edfc1764857a32213cdad6638aa98164be3bb3939232f9c008dacaf2fd718",
+      "stabilized_sha256": "7dc32e3a1fb9aba2c8973e3aed03449e984f6d6e7808af28836fd83d32a772de",
+      "original_bytes": 921,
+      "stabilized_bytes": 937,
+      "imports": [],
+      "workload_ids": [
+        "example-processes"
+      ]
+    },
+    {
+      "path": "examples/streams.xsh",
+      "original_sha256": "7b40eec7e28dc4cb2b9ee3a28432209bdd8ac12d0ec842faa1228f1e27214190",
+      "stabilized_sha256": "7b40eec7e28dc4cb2b9ee3a28432209bdd8ac12d0ec842faa1228f1e27214190",
+      "original_bytes": 868,
+      "stabilized_bytes": 868,
+      "imports": [],
+      "workload_ids": [
+        "example-streams"
+      ]
+    },
+    {
+      "path": "showcase/jq.xsh",
+      "original_sha256": "369000d97ac938ea0e32031e48867220a6df47da9d4bba31651c50cb0c84861d",
+      "stabilized_sha256": "f75703cdb960bbf687869fbe60163e54627188402f5af8e1d27098b80dab7462",
+      "original_bytes": 111501,
+      "stabilized_bytes": 111517,
+      "imports": [],
+      "workload_ids": [
+        "showcase-jq"
+      ]
+    },
+    {
+      "path": "showcase/tokei.xsh",
+      "original_sha256": "57dc8315d370f5b79fb3717c967b47679776869f8e91b38537affcdb672f0611",
+      "stabilized_sha256": "1e451b7dcd68b5dde2781ab899428db360c5f582c991939d88ad958563100588",
+      "original_bytes": 44513,
+      "stabilized_bytes": 44545,
+      "imports": [],
+      "workload_ids": [
+        "showcase-tokei"
+      ]
+    },
+    {
+      "path": "tests/fixtures/sema/invalid/unchecked-json-boundary.xsh",
+      "original_sha256": "cc8f38a996deb22832def98109a8dd85e86942c5122f855d461c239ea137e26c",
+      "stabilized_sha256": "cc8f38a996deb22832def98109a8dd85e86942c5122f855d461c239ea137e26c",
+      "original_bytes": 88,
+      "stabilized_bytes": 88,
+      "imports": [],
+      "workload_ids": [
+        "invalid-annotated"
+      ]
+    },
+    {
+      "path": "tests/fixtures/sema/valid-proc-command.xsh",
+      "original_sha256": "429cf2dd96f220703d022a68661d6ddfcfde8782a6eff5e12344cba4dddd7bf4",
+      "stabilized_sha256": "844f202bf60bcf8aa21af1f591cfdc757a58c7c31cc021e8f385acd7bfec4c03",
+      "original_bytes": 62,
+      "stabilized_bytes": 78,
+      "imports": [],
+      "workload_ids": [
+        "valid-annotated"
+      ]
+    },
+    {
+      "path": "tests/xsh/local-inference.xsh",
+      "original_sha256": "937e6541b1db7b0da414d1019e188f031376e4d40101f545bfa2a51c93e6cb09",
+      "stabilized_sha256": "937e6541b1db7b0da414d1019e188f031376e4d40101f545bfa2a51c93e6cb09",
+      "original_bytes": 9574,
+      "stabilized_bytes": 9574,
+      "imports": [],
+      "workload_ids": [
+        "native-local-inference"
+      ]
+    },
+    {
+      "path": "tests/xsh/result-contexts.xsh",
+      "original_sha256": "9eb6864029a9b4620ab2f01df6083ef93307a994d7e032bfc39e0716594bea06",
+      "stabilized_sha256": "9eb6864029a9b4620ab2f01df6083ef93307a994d7e032bfc39e0716594bea06",
+      "original_bytes": 1715,
+      "stabilized_bytes": 1715,
+      "imports": [],
+      "workload_ids": [
+        "native-results"
+      ]
+    },
+    {
+      "path": "tests/xsh/run.xsh",
+      "original_sha256": "9bdbdebda2ddc3635d9399928e841010afb06b1f270cafd112d197aeddf576e2",
+      "stabilized_sha256": "9bdbdebda2ddc3635d9399928e841010afb06b1f270cafd112d197aeddf576e2",
+      "original_bytes": 21065,
+      "stabilized_bytes": 21065,
+      "imports": [],
+      "workload_ids": [
+        "native-run"
+      ]
+    },
+    {
+      "path": "tests/xsh/stdlib/methods.xsh",
+      "original_sha256": "da04b1689903d0f5ae90fb5554dcfb6f3c7d981604feec9a16f9df04e4b6ee57",
+      "stabilized_sha256": "da04b1689903d0f5ae90fb5554dcfb6f3c7d981604feec9a16f9df04e4b6ee57",
+      "original_bytes": 7906,
+      "stabilized_bytes": 7906,
+      "imports": [],
+      "workload_ids": [
+        "native-methods"
+      ]
+    },
+    {
+      "path": "tests/xsh/stdlib/streams.xsh",
+      "original_sha256": "c5c55a64e0ea7fad1653dddfc3f5be20598f8139af031a7cadd62d8d8da096f6",
+      "stabilized_sha256": "c5c55a64e0ea7fad1653dddfc3f5be20598f8139af031a7cadd62d8d8da096f6",
+      "original_bytes": 64549,
+      "stabilized_bytes": 64549,
+      "imports": [],
+      "workload_ids": [
+        "native-streams"
+      ]
+    },
+    {
+      "path": "tests/xsh/system-report.xsh",
+      "original_sha256": "3af12927f7a8c81b3e6a4f111bd44e8e1c06e95b910ac32b5359a92b9a5c35af",
+      "stabilized_sha256": "3af12927f7a8c81b3e6a4f111bd44e8e1c06e95b910ac32b5359a92b9a5c35af",
+      "original_bytes": 260915,
+      "stabilized_bytes": 260915,
+      "imports": [
+        {
+          "path": "core.lib.system_report",
+          "resolved": "core/lib/system_report.xsh",
+          "span": [
+            0,
+            43
+          ]
+        }
+      ],
+      "workload_ids": [
+        "native-system-report"
+      ]
+    }
+  ],
+  "original_unique_source_count": 38,
+  "original_unique_bytes": 2424439,
+  "source_closure_sha256": "a2d5cbc79d309f89d28eec4a7677371aea411469c842a609901f0e230040f56b",
+  "configuration": {
+    "path": "xsht-config.ini",
+    "sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+    "variants": [
+      "original",
+      "stabilized"
+    ]
+  }
+}

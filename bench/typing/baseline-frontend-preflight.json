@@ -1,0 +1,2172 @@
+{
+  "schema_version": 1,
+  "source_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+  "binary_identities": {
+    "xsh": {
+      "path": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+      "sha256": "565964730bde38a12f4a4c4e5c0a3c22ddb0c9ac89f9cacd8c76e08b59f3436c"
+    },
+    "xsht": {
+      "path": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+      "sha256": "b2f76a542e62906577723f815772c8a45b2ebab97924fac7e0fb78581862dbcb"
+    }
+  },
+  "provenance": {
+    "baseline_commit": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+    "candidate_commit": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+    "frozen_source_snapshot_commit": "877a114d6dc403db32c50f035b38aab7f193147a",
+    "binary_identities": {
+      "xsh": {
+        "path": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "sha256": "565964730bde38a12f4a4c4e5c0a3c22ddb0c9ac89f9cacd8c76e08b59f3436c"
+      },
+      "xsht": {
+        "path": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "sha256": "b2f76a542e62906577723f815772c8a45b2ebab97924fac7e0fb78581862dbcb"
+      }
+    },
+    "build_settings": {
+      "toolchain": "nightly-2026-09-15",
+      "profile": "release",
+      "default_features": [
+        "native-tests",
+        "net",
+        "tools"
+      ],
+      "build_observation": "Products supplied after successful optimized build; this verifier performs no build."
+    },
+    "timeout_seconds_per_process": 60,
+    "annotation_denominators": {
+      "eligible_local": 778,
+      "eligible_internal": 2807,
+      "eligible_parameters": 1368,
+      "eligible_returns": 746,
+      "eligible_producer_items": 1,
+      "eligible_effects": 692
+    },
+    "frozen_annotation_inventory_sha256": "c3ddbbd8a0fc23e67f4f6221c30a7fe6544c019b6ce619dfdb2e199deee87c0f",
+    "source_closure_sha256": "a2d5cbc79d309f89d28eec4a7677371aea411469c842a609901f0e230040f56b",
+    "original_unique_source_count": 38,
+    "original_unique_bytes": 2424439
+  },
+  "rows": [
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/core/pwd.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:26.086371+00:00",
+      "elapsed_ns": 12846042,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/small-pwd-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/small-pwd-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.012846042,
+      "id": "small-pwd",
+      "source": "core/pwd.xsh",
+      "variant": "stabilized",
+      "source_sha256": "3f42de9464fe82c27c13b8145744cad4358b20f54cb0d2783616e8f2b7c39e6a",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/core/basename.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:26.125304+00:00",
+      "elapsed_ns": 17134792,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/small-basename-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/small-basename-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.017134792,
+      "id": "small-basename",
+      "source": "core/basename.xsh",
+      "variant": "stabilized",
+      "source_sha256": "75b87702357097841201a5e2d4ce31b78345f9ba2ce16a82e420171e67960429",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/core/ifup.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:26.192535+00:00",
+      "elapsed_ns": 50219209,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/core-ifup-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/core-ifup-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.050219209,
+      "id": "core-ifup",
+      "source": "core/ifup.xsh",
+      "variant": "stabilized",
+      "source_sha256": "620322df177ef1945498b52c19440e0b905dbfecf3353135d1b7675a41c18127",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/core/system-report.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:32.688900+00:00",
+      "elapsed_ns": 6196105583,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 6.196105583,
+      "id": "system-report",
+      "source": "core/system-report.xsh",
+      "variant": "stabilized",
+      "source_sha256": "ae319c3aa0baf9215417619c8d3273670b066076773a4d0221d02643b0468cc8",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev/main.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:42.368317+00:00",
+      "elapsed_ns": 3553026458,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/dev-main-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/dev-main-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 3.553026458,
+      "id": "dev-main",
+      "source": "dev/main.xsh",
+      "variant": "stabilized",
+      "source_sha256": "1a7abad6490eb81317583443864e7005e31a530a400b984b6932c6f061324635",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev/system_report_check.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:48.733921+00:00",
+      "elapsed_ns": 2737084667,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/dev-system-report-check-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/dev-system-report-check-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 2.737084667,
+      "id": "dev-system-report-check",
+      "source": "dev/system_report_check.xsh",
+      "variant": "stabilized",
+      "source_sha256": "0a016fc19705f6f71991cc772847efc7e34db37ab9a1cf14ac5fe5082088a7f5",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/examples/streams.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:51.493868+00:00",
+      "elapsed_ns": 20792500,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/example-streams-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/example-streams-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.0207925,
+      "id": "example-streams",
+      "source": "examples/streams.xsh",
+      "variant": "stabilized",
+      "source_sha256": "7b40eec7e28dc4cb2b9ee3a28432209bdd8ac12d0ec842faa1228f1e27214190",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/examples/processes.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:51.535655+00:00",
+      "elapsed_ns": 23070625,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/example-processes-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/example-processes-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.023070625,
+      "id": "example-processes",
+      "source": "examples/processes.xsh",
+      "variant": "stabilized",
+      "source_sha256": "7dc32e3a1fb9aba2c8973e3aed03449e984f6d6e7808af28836fd83d32a772de",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/tests/xsh/system-report.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:58.483622+00:00",
+      "elapsed_ns": 6918957917,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-system-report-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-system-report-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 6.918957917,
+      "id": "native-system-report",
+      "source": "tests/xsh/system-report.xsh",
+      "variant": "stabilized",
+      "source_sha256": "3af12927f7a8c81b3e6a4f111bd44e8e1c06e95b910ac32b5359a92b9a5c35af",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/tests/xsh/run.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:05.438739+00:00",
+      "elapsed_ns": 30163916,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-run-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-run-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.030163916,
+      "id": "native-run",
+      "source": "tests/xsh/run.xsh",
+      "variant": "stabilized",
+      "source_sha256": "9bdbdebda2ddc3635d9399928e841010afb06b1f270cafd112d197aeddf576e2",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/tests/xsh/stdlib/streams.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:05.522385+00:00",
+      "elapsed_ns": 48473083,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-streams-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-streams-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.048473083,
+      "id": "native-streams",
+      "source": "tests/xsh/stdlib/streams.xsh",
+      "variant": "stabilized",
+      "source_sha256": "c5c55a64e0ea7fad1653dddfc3f5be20598f8139af031a7cadd62d8d8da096f6",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/tests/xsh/stdlib/methods.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:05.598876+00:00",
+      "elapsed_ns": 23944458,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-methods-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-methods-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.023944458,
+      "id": "native-methods",
+      "source": "tests/xsh/stdlib/methods.xsh",
+      "variant": "stabilized",
+      "source_sha256": "da04b1689903d0f5ae90fb5554dcfb6f3c7d981604feec9a16f9df04e4b6ee57",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/tests/xsh/local-inference.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:05.649370+00:00",
+      "elapsed_ns": 23642292,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-local-inference-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-local-inference-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.023642292,
+      "id": "native-local-inference",
+      "source": "tests/xsh/local-inference.xsh",
+      "variant": "stabilized",
+      "source_sha256": "937e6541b1db7b0da414d1019e188f031376e4d40101f545bfa2a51c93e6cb09",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/tests/xsh/result-contexts.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:05.693562+00:00",
+      "elapsed_ns": 16175750,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-results-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-results-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.01617575,
+      "id": "native-results",
+      "source": "tests/xsh/result-contexts.xsh",
+      "variant": "stabilized",
+      "source_sha256": "9eb6864029a9b4620ab2f01df6083ef93307a994d7e032bfc39e0716594bea06",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/showcase/jq.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:05.841433+00:00",
+      "elapsed_ns": 132800291,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/showcase-jq-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/showcase-jq-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.132800291,
+      "id": "showcase-jq",
+      "source": "showcase/jq.xsh",
+      "variant": "stabilized",
+      "source_sha256": "f75703cdb960bbf687869fbe60163e54627188402f5af8e1d27098b80dab7462",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/showcase/tokei.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:06.051116+00:00",
+      "elapsed_ns": 75387584,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/showcase-tokei-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/showcase-tokei-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.075387584,
+      "id": "showcase-tokei",
+      "source": "showcase/tokei.xsh",
+      "variant": "stabilized",
+      "source_sha256": "1e451b7dcd68b5dde2781ab899428db360c5f582c991939d88ad958563100588",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/tests/fixtures/sema/valid-proc-command.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:06.149241+00:00",
+      "elapsed_ns": 19892541,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/valid-annotated-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/valid-annotated-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.019892541,
+      "id": "valid-annotated",
+      "source": "tests/fixtures/sema/valid-proc-command.xsh",
+      "variant": "stabilized",
+      "source_sha256": "844f202bf60bcf8aa21af1f591cfdc757a58c7c31cc021e8f385acd7bfec4c03",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/tests/fixtures/sema/invalid/unchecked-json-boundary.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:06.190566+00:00",
+      "elapsed_ns": 16123291,
+      "exit_status": 2,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/invalid-annotated-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/invalid-annotated-stabilized.stderr",
+        "bytes": 962,
+        "sha256": "05a253c0e2000269a3bfae92503fa5cb0b3c995dca6b4bcd9d801388ec02c467"
+      },
+      "stderr": "err[check.dynamic-boundary]: unchecked Any cannot establish Record; validate with `.require(Type)` or use a checked type pattern\n  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/tests/fixtures/sema/invalid/unchecked-json-boundary.xsh:2:16\n  let row: Row = json.decode(\"{\\\"name\\\":\\\"demo\\\"}\")?\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unchecked Any cannot establish Record; validate with `.require(Type)` or use a checked type pattern\n\nerr[check.dynamic-boundary]: unchecked Any cannot establish Record; validate with `.require(Type)` or use a checked type pattern\n  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/tests/fixtures/sema/invalid/unchecked-json-boundary.xsh:2:16\n  let row: Row = json.decode(\"{\\\"name\\\":\\\"demo\\\"}\")?\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unchecked Any cannot establish Record; validate with `.require(Type)` or use a checked type pattern\n",
+      "stderr_sha256": "05a253c0e2000269a3bfae92503fa5cb0b3c995dca6b4bcd9d801388ec02c467",
+      "wall_seconds": 0.016123291,
+      "id": "invalid-annotated",
+      "source": "tests/fixtures/sema/invalid/unchecked-json-boundary.xsh",
+      "variant": "stabilized",
+      "source_sha256": "cc8f38a996deb22832def98109a8dd85e86942c5122f855d461c239ea137e26c",
+      "expected_exit_status": 2,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/core/lib/system_report.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:07.427680+00:00",
+      "elapsed_ns": 1192662041,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-model-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-model-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 1.192662041,
+      "id": "system-report-model",
+      "source": "core/lib/system_report.xsh",
+      "variant": "stabilized",
+      "source_sha256": "3e84ac9fb41506200ba596d4a06f516c5f715a77015da98ed430bd8ce34efdab",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/core/lib/system_report_live.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:14.540599+00:00",
+      "elapsed_ns": 5968675792,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-live-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-live-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 5.968675792,
+      "id": "system-report-live",
+      "source": "core/lib/system_report_live.xsh",
+      "variant": "stabilized",
+      "source_sha256": "d6df59f8a79bb91a19813ca9cf3cd3577f075d1f7a360aa614893ecf6571c826",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/core/lib/system_report_collect.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:22.237695+00:00",
+      "elapsed_ns": 1707979000,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-collect-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-collect-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 1.707979,
+      "id": "system-report-collect",
+      "source": "core/lib/system_report_collect.xsh",
+      "variant": "stabilized",
+      "source_sha256": "dab288a3d8549fde024bdeaefed3d3ab8d5fb08cf6ac23d01202a89cae294375",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev/tests/test-system-report-check.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:28.762999+00:00",
+      "elapsed_ns": 4784994583,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-dev-system-report-check-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-dev-system-report-check-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 4.784994583,
+      "id": "native-dev-system-report-check",
+      "source": "dev/tests/test-system-report-check.xsh",
+      "variant": "stabilized",
+      "source_sha256": "815b9627b42831f4f22348f4790ee4ce04156a9fea726c8f3d77dea5a231a217",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/core/ifdown.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:33.587743+00:00",
+      "elapsed_ns": 37839542,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/core-ifdown-producer-stabilized.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/core-ifdown-producer-stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.037839542,
+      "id": "core-ifdown-producer",
+      "source": "core/ifdown.xsh",
+      "variant": "stabilized",
+      "source_sha256": "840c0957b2e8e3006ca9425f2d2dcbca232c865093368985802b2e58d83b1384",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    }
+  ],
+  "original_rows": [
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/core/pwd.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:26.065071+00:00",
+      "elapsed_ns": 19530250,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/small-pwd-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/small-pwd-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.01953025,
+      "id": "small-pwd",
+      "source": "core/pwd.xsh",
+      "variant": "original",
+      "source_sha256": "7f0215ef713e02b529df6f57dc7fb76eb4b34e389fd17bbe1669aa45cf65a2e8",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/core/basename.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:26.100807+00:00",
+      "elapsed_ns": 23826791,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/small-basename-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/small-basename-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.023826791,
+      "id": "small-basename",
+      "source": "core/basename.xsh",
+      "variant": "original",
+      "source_sha256": "75b87702357097841201a5e2d4ce31b78345f9ba2ce16a82e420171e67960429",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/core/ifup.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:26.143796+00:00",
+      "elapsed_ns": 47786917,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/core-ifup-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/core-ifup-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.047786917,
+      "id": "core-ifup",
+      "source": "core/ifup.xsh",
+      "variant": "original",
+      "source_sha256": "c837d25130b7f60181455c74e28a35f778d2f529b95e5b6460514f919c6aa55a",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/core/system-report.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:26.244735+00:00",
+      "elapsed_ns": 6443219500,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 6.4432195,
+      "id": "system-report",
+      "source": "core/system-report.xsh",
+      "variant": "original",
+      "source_sha256": "b5412aa41e9a9969c33e5053ee50f86ad119b3344f5afcc70cc38b74137c98d7",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev/main.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:38.886705+00:00",
+      "elapsed_ns": 3480601125,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/dev-main-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/dev-main-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 3.480601125,
+      "id": "dev-main",
+      "source": "dev/main.xsh",
+      "variant": "original",
+      "source_sha256": "d3a0723cd49f9be00c7602f4abcd3d7063a300feda69bc781dd90a2428ed6c56",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev/system_report_check.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:45.922969+00:00",
+      "elapsed_ns": 2809270750,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/dev-system-report-check-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/dev-system-report-check-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 2.80927075,
+      "id": "dev-system-report-check",
+      "source": "dev/system_report_check.xsh",
+      "variant": "original",
+      "source_sha256": "cc0999abbc086d615a7b9c638047cb102e58c97381fe8485563e3a58b9349570",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/examples/streams.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:51.473193+00:00",
+      "elapsed_ns": 19972166,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/example-streams-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/example-streams-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.019972166,
+      "id": "example-streams",
+      "source": "examples/streams.xsh",
+      "variant": "original",
+      "source_sha256": "7b40eec7e28dc4cb2b9ee3a28432209bdd8ac12d0ec842faa1228f1e27214190",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/examples/processes.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:51.516007+00:00",
+      "elapsed_ns": 18637500,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/example-processes-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/example-processes-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.0186375,
+      "id": "example-processes",
+      "source": "examples/processes.xsh",
+      "variant": "original",
+      "source_sha256": "766edfc1764857a32213cdad6638aa98164be3bb3939232f9c008dacaf2fd718",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/tests/xsh/system-report.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:18:51.560163+00:00",
+      "elapsed_ns": 6922318375,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-system-report-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-system-report-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 6.922318375,
+      "id": "native-system-report",
+      "source": "tests/xsh/system-report.xsh",
+      "variant": "original",
+      "source_sha256": "3af12927f7a8c81b3e6a4f111bd44e8e1c06e95b910ac32b5359a92b9a5c35af",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/tests/xsh/run.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:05.404498+00:00",
+      "elapsed_ns": 33213125,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-run-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-run-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.033213125,
+      "id": "native-run",
+      "source": "tests/xsh/run.xsh",
+      "variant": "original",
+      "source_sha256": "9bdbdebda2ddc3635d9399928e841010afb06b1f270cafd112d197aeddf576e2",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/tests/xsh/stdlib/streams.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:05.471104+00:00",
+      "elapsed_ns": 50326209,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-streams-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-streams-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.050326209,
+      "id": "native-streams",
+      "source": "tests/xsh/stdlib/streams.xsh",
+      "variant": "original",
+      "source_sha256": "c5c55a64e0ea7fad1653dddfc3f5be20598f8139af031a7cadd62d8d8da096f6",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/tests/xsh/stdlib/methods.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:05.572893+00:00",
+      "elapsed_ns": 25098458,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-methods-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-methods-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.025098458,
+      "id": "native-methods",
+      "source": "tests/xsh/stdlib/methods.xsh",
+      "variant": "original",
+      "source_sha256": "da04b1689903d0f5ae90fb5554dcfb6f3c7d981604feec9a16f9df04e4b6ee57",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/tests/xsh/local-inference.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:05.624580+00:00",
+      "elapsed_ns": 23851500,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-local-inference-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-local-inference-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.0238515,
+      "id": "native-local-inference",
+      "source": "tests/xsh/local-inference.xsh",
+      "variant": "original",
+      "source_sha256": "937e6541b1db7b0da414d1019e188f031376e4d40101f545bfa2a51c93e6cb09",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/tests/xsh/result-contexts.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:05.674677+00:00",
+      "elapsed_ns": 18077125,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-results-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-results-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.018077125,
+      "id": "native-results",
+      "source": "tests/xsh/result-contexts.xsh",
+      "variant": "original",
+      "source_sha256": "9eb6864029a9b4620ab2f01df6083ef93307a994d7e032bfc39e0716594bea06",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/showcase/jq.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:05.711067+00:00",
+      "elapsed_ns": 129456791,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/showcase-jq-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/showcase-jq-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.129456791,
+      "id": "showcase-jq",
+      "source": "showcase/jq.xsh",
+      "variant": "original",
+      "source_sha256": "369000d97ac938ea0e32031e48867220a6df47da9d4bba31651c50cb0c84861d",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/showcase/tokei.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:05.976089+00:00",
+      "elapsed_ns": 74270959,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/showcase-tokei-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/showcase-tokei-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.074270959,
+      "id": "showcase-tokei",
+      "source": "showcase/tokei.xsh",
+      "variant": "original",
+      "source_sha256": "57dc8315d370f5b79fb3717c967b47679776869f8e91b38537affcdb672f0611",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/tests/fixtures/sema/valid-proc-command.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:06.128291+00:00",
+      "elapsed_ns": 20193250,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/valid-annotated-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/valid-annotated-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.02019325,
+      "id": "valid-annotated",
+      "source": "tests/fixtures/sema/valid-proc-command.xsh",
+      "variant": "original",
+      "source_sha256": "429cf2dd96f220703d022a68661d6ddfcfde8782a6eff5e12344cba4dddd7bf4",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/tests/fixtures/sema/invalid/unchecked-json-boundary.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:06.170727+00:00",
+      "elapsed_ns": 18906625,
+      "exit_status": 2,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/invalid-annotated-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/invalid-annotated-original.stderr",
+        "bytes": 958,
+        "sha256": "59a041d308fe9cba01db56a589a77c502eac2a35f631c8526d228cee706de0ad"
+      },
+      "stderr": "err[check.dynamic-boundary]: unchecked Any cannot establish Record; validate with `.require(Type)` or use a checked type pattern\n  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/tests/fixtures/sema/invalid/unchecked-json-boundary.xsh:2:16\n  let row: Row = json.decode(\"{\\\"name\\\":\\\"demo\\\"}\")?\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unchecked Any cannot establish Record; validate with `.require(Type)` or use a checked type pattern\n\nerr[check.dynamic-boundary]: unchecked Any cannot establish Record; validate with `.require(Type)` or use a checked type pattern\n  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/tests/fixtures/sema/invalid/unchecked-json-boundary.xsh:2:16\n  let row: Row = json.decode(\"{\\\"name\\\":\\\"demo\\\"}\")?\n                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unchecked Any cannot establish Record; validate with `.require(Type)` or use a checked type pattern\n",
+      "stderr_sha256": "59a041d308fe9cba01db56a589a77c502eac2a35f631c8526d228cee706de0ad",
+      "wall_seconds": 0.018906625,
+      "id": "invalid-annotated",
+      "source": "tests/fixtures/sema/invalid/unchecked-json-boundary.xsh",
+      "variant": "original",
+      "source_sha256": "cc8f38a996deb22832def98109a8dd85e86942c5122f855d461c239ea137e26c",
+      "expected_exit_status": 2,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/core/lib/system_report.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:06.208265+00:00",
+      "elapsed_ns": 1218301708,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-model-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-model-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 1.218301708,
+      "id": "system-report-model",
+      "source": "core/lib/system_report.xsh",
+      "variant": "original",
+      "source_sha256": "3e84ac9fb41506200ba596d4a06f516c5f715a77015da98ed430bd8ce34efdab",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/core/lib/system_report_live.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:08.622729+00:00",
+      "elapsed_ns": 5916589084,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-live-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-live-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 5.916589084,
+      "id": "system-report-live",
+      "source": "core/lib/system_report_live.xsh",
+      "variant": "original",
+      "source_sha256": "d6df59f8a79bb91a19813ca9cf3cd3577f075d1f7a360aa614893ecf6571c826",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/core/lib/system_report_collect.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:20.511333+00:00",
+      "elapsed_ns": 1725432209,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-collect-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/system-report-collect-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 1.725432209,
+      "id": "system-report-collect",
+      "source": "core/lib/system_report_collect.xsh",
+      "variant": "original",
+      "source_sha256": "dab288a3d8549fde024bdeaefed3d3ab8d5fb08cf6ac23d01202a89cae294375",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev/tests/test-system-report-check.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:23.947684+00:00",
+      "elapsed_ns": 4814151917,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-dev-system-report-check-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/native-dev-system-report-check-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 4.814151917,
+      "id": "native-dev-system-report-check",
+      "source": "dev/tests/test-system-report-check.xsh",
+      "variant": "original",
+      "source_sha256": "815b9627b42831f4f22348f4790ee4ce04156a9fea726c8f3d77dea5a231a217",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "check",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/core/ifdown.xsh"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline-v2/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T20:19:33.550222+00:00",
+      "elapsed_ns": 36655708,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/core-ifdown-producer-original.stdout",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stdout": "",
+      "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderr_raw": {
+        "path": "bench/typing/measurements/preflight-v2/frontend/core-ifdown-producer-original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "stderr": "",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "wall_seconds": 0.036655708,
+      "id": "core-ifdown-producer",
+      "source": "core/ifdown.xsh",
+      "variant": "original",
+      "source_sha256": "a6dd1d129d970461aed5d5bdb93dba94697cec2defece7833d1c928bc03b445a",
+      "expected_exit_status": 0,
+      "preserved_signature": true,
+      "status": "passed"
+    }
+  ],
+  "comparisons": [
+    {
+      "id": "small-pwd",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "small-basename",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "core-ifup",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "system-report",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "dev-main",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "dev-system-report-check",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "example-streams",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "example-processes",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "native-system-report",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "native-run",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "native-streams",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "native-methods",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "native-local-inference",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "native-results",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "showcase-jq",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "showcase-tokei",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "valid-annotated",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "invalid-annotated",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "system-report-model",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "system-report-live",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "system-report-collect",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "native-dev-system-report-check",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    },
+    {
+      "id": "core-ifdown-producer",
+      "status": "passed",
+      "original_stabilized_signatures_equal": true
+    }
+  ],
+  "status": "passed",
+  "counts": {
+    "roots_per_variant": 23,
+    "valid_per_variant": 22,
+    "intentional_invalid_per_variant": 1,
+    "observations": 46
+  },
+  "verification_helpers": {
+    "verify.py": {
+      "path": "bench/typing/measurements/preflight-v2/verify.py",
+      "sha256": "8dc72b1dbc4acf3077a94fb0858e9998670088ad4e1c658565091497d32e0c70"
+    },
+    "reconcile.py": {
+      "path": "bench/typing/measurements/preflight-v2/reconcile.py",
+      "sha256": "b1540408af28958c8c3a10a29a60d2100d896b243c56a9380424b82e6c6b24dc"
+    }
+  },
+  "inputs_unchanged": true,
+  "binary_unchanged": true,
+  "frozen_annotation_inventory_unchanged": true,
+  "completed_utc": "2026-09-30T20:23:06.113513+00:00"
+}

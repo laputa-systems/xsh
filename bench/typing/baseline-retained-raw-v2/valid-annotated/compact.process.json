@@ -1,0 +1,53 @@
+{
+  "command": [
+    "/private/tmp/xsh-typing-retained-facts-baseline-v2",
+    "compact",
+    "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/tests/fixtures/sema/valid-proc-command.xsh"
+  ],
+  "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized",
+  "pid": 86726,
+  "started_at": "2026-09-30T20:18:18.049737+00:00",
+  "ended_at": "2026-09-30T20:18:18.068840+00:00",
+  "wall_ms": 18.134458,
+  "raw_wait_status": 0,
+  "exit_status": 0,
+  "signal": null,
+  "user_cpu_ms": 4.333,
+  "system_cpu_ms": 3.312,
+  "peak_rss_bytes": 12533760,
+  "max_rss_bytes": 4294967296,
+  "raw_maxrss": 12533760,
+  "raw_maxrss_unit": "bytes",
+  "collector": "os.wait4 direct-child rusage",
+  "timeout_seconds": 60,
+  "load_before": [
+    6.04736328125,
+    6.65087890625,
+    6.0634765625
+  ],
+  "load_after": [
+    6.04736328125,
+    6.65087890625,
+    6.0634765625
+  ],
+  "stdout_path": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/baseline-retained-raw-v2/valid-annotated/compact.stdout",
+  "stderr_path": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/baseline-retained-raw-v2/valid-annotated/compact.stderr",
+  "status": "passed",
+  "invalid_reasons": [],
+  "exec_error": null,
+  "stdout_sha256": "8596e887da5f7881a45f9424627dd9fb6b6f4fd0c1b1d35210e8ad5d8b8ccebd",
+  "stdout_bytes": 1899,
+  "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "stderr_bytes": 0,
+  "stdin_path": "/dev/null",
+  "stdin_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "environment_sha256": "63b73724488d07a0f6a1a1ed00d12a3affb41ef6074df9289c0ad7aeed79c6a8",
+  "phase_metrics_ms": null,
+  "product_report": null,
+  "workload_id": "valid-annotated",
+  "mode": "compact",
+  "environment_overrides": {
+    "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/cohort/stabilized/dev"
+  },
+  "profiling_only": true
+}

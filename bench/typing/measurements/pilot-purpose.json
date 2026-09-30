@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "purpose": "Baseline noise pilot: both sides use the identical immutable baseline compiler/source/products and identical stabilized workloads. Side candidate is a second invocation of that baseline, never an implemented candidate.",
+  "sample_policy": "five warmups per side then15alternating pairs per workload; no final p95 acceptance",
+  "source_revision": "877a114d6dc403db32c50f035b38aab7f193147a",
+  "manifest_sha256": "ffc4c7bc3544ed4cae1199b144f65a06f149e895a571f7a702ad2c9446ed9bb8",
+  "applicable_timing_workloads": 62
+}

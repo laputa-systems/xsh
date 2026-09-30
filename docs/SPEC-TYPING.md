@@ -7,10 +7,9 @@ remains authoritative for the language as a whole; when this document and
 ## Goals
 
 The checker prevents mistakes at script boundaries without turning ordinary
-script code into annotation-heavy application code. Inference is local and
-predictable. Types should become explicit at module, function, schema checks, and
-process boundaries, while local bindings normally inherit the type of their
-initializer.
+script code into annotation-heavy application code. Inference establishes reusable declaration relationships from definitions,
+independently of callers. Explicit annotations express deliberate domain, schema,
+effect, or public promises; omitted types do not weaken dynamic or host boundaries.
 
 The checker must keep going after an error when it can do so without producing
 misleading follow-up diagnostics. Recovery types are implementation details and
@@ -442,36 +441,48 @@ arms is still precise.
 
 ## Callable Values
 
-Defaulted parameter types come from checked declaration expressions. An omitted
-annotation is resolved before callers from constants, projections, primitive
-operations and established callable signatures. Null and unconstrained empty
-collections require annotations; body uses and supplied arguments never anchor
-an omitted parameter. Default names resolve outside the callable's parameters.
-Declaration cycles that cannot establish a material type require an explicit
-annotation. Named schemas, UInt constraints, optional domains and contextual
-conversions remain explicit unless complete rechecking proves equivalence.
+Required, defaulted, and rest parameter annotations, returns, producer item
+annotations, and finite callable effects may be inferred from the definition and
+its declaration dependencies. Analyze each declaration independently of its callers;
+instantiate each completed rank-1 scheme freshly at a call. Exported definitions
+may publish complete inferred schemes. Written module-contract signatures retain
+their promises. A callback parameter or collection element is monomorphic within
+one instantiation; it does not acquire an independently quantified scheme.
 
-Named pure functions and procs have statically checked parameters and return
-types. Private pure returns may be inferred from their definitions, independently
-of declaration and caller order. Return inference accepts concrete compatible
-shapes, preserves explicit Result boundaries, and requires annotations for
-recursive components, exported functions, and underdetermined shapes. Checked
-return facts are shared with indexed preparation and annotation tooling.
-First-class `Pure` and `Proc` values are dynamic callable handles used for
-module contracts and runtime-loaded APIs. Their `.call(...)` method returns
-`Any` or `Result[Any]` because the concrete signature is known only to the
-runtime contract validator.
+Defaults participate in declaration constraints, but never acquire access to other
+parameters. Supplied arguments evaluate in written source order; omitted defaults
+evaluate once in parameter order in the declaration environment. Producer defaults
+remain delayed until first pull, and CLI defaults retain their preparation-only
+restriction. Explicit annotations still supply contextual conversion, validation,
+nominal, UInt, and optional-domain boundaries. An unresolved executable overload or
+underconstrained boundary requires a local annotation rather than caller training,
+dynamic fallback, or an invented success value.
 
-Proc calls are effectful. Pure functions may call only pure functions and pure
-standard APIs. Restricted procs may call only APIs whose effects are covered by
-their effective effect set. Ordinary private procs without a clause infer a
-finite transitive summary from checked bodies; explicit clauses remain upper
-bounds. Recursive summaries are a least fixed point independent of declaration
-order. Opaque or unrestricted dependencies remain unknown and cannot satisfy a
-restricted caller. Local error capture erases outward `error` only. Public,
-module-contract, CLI/test entry, conventional `main`, and stream boundaries keep
-an unrestricted missing-clause contract. Checked effect facts and inference
-provenance are shared by compact signatures, tooling, and static alias checks.
+Callable signatures remain checked facts through compatible aliases, conditionals,
+fields, containers, parameters, mutable slots, and returns. Preserve callable kind,
+parameter/default relationships, return shape, and latent effects. Referencing,
+storing, or returning a callable executes neither its body nor its defaults.
+Explicit `Pure`/`Proc` erasure and runtime-loaded dynamic handles retain their
+existing dynamic `.call(...)` contract and runtime validation.
+
+Proc calls retain proc kind even when their inferred effect summary is empty.
+Pure functions may call only pure functions and pure standard APIs. Restricted
+callables may call only APIs whose effects are covered by their effective bound.
+Ordinary pure/proc/stream definitions, exported or private, infer finite effective
+and required summaries from bodies, defaults, and declaration dependencies when
+clauses are omitted. Explicit clauses, including deliberately written public
+promises and `[]`, remain upper bounds. Recursive summaries are a least fixed
+point independent of declaration order; retained callable signatures carry latent
+effect relationships through application.
+
+Producer body work and omitted defaults remain latent until the established pull
+boundary. Supplied arguments retain their eager effects. An opaque or unrestricted
+external dependency has unknown effects, never an empty summary, and cannot
+satisfy a restricted caller. Local error capture erases outward `error` only.
+Written module contracts and host entrypoint promises retain their boundaries;
+an omitted outer entry summary does not erase requirements of work it executes.
+Native-test bodies remain statement consumers. Checked effect facts and inference
+provenance are shared by frontend consumers, tooling, and callable alias checks.
 
 ## Diagnostics
 
@@ -486,25 +497,77 @@ guessing a misleading concrete type.
 
 ## Checked Statement and Value Positions
 
-The checker records `StatementPosition` for each checked statement in
-`CheckOutput::statement_positions`; compact body facts retain the same distinction
-by `StmtId`. Initializers and call/return payloads consume values. Function tails
-consume their declared non-Unit value, and callback/retry tails infer their result
-before classifying booleans. Unit and Result[Unit] tails retain statement behavior.
-A Bool in statement position asserts; a Bool in value position retains false.
-`assert condition, message` always consumes Unit and requires concrete Bool and
-Str, rejecting Any, Status, Optional, and Result wrappers. Both expressions are
-checked with ordinary effects and propagation, including a message skipped at
-runtime. The assertion establishes no continuation refinement. Local try/retry error
-inference includes the nominal AssertionError failure, as for a bare Bool statement.
+Statement consumption and Result elaboration are declaration decisions. Resolve
+them after constraints establish enough information and before generalization;
+record them in the solved frontend facts consumed by lowering and tooling.
+Instantiation, candidate trials, discarded call results, optimizer liveness, and
+runtime values cannot choose a different meaning.
 
-Value branches may contain lexical statements followed by a compatible tail.
-Every reachable value branch must agree; `if` requires `else`, and `match` must
-cover its subject without relying on guards. Diverging branches contribute no
-Unit value. Ordinary branch scopes apply the same null refinements in expression
-and statement syntax. Result success wrapping remains at the function boundary.
-`tests/xsh/value-blocks.xsh` covers branch values, Bool contexts, records, and
-lexical control transfer.
+| Context | Meaning |
+|---|---|
+| Omitted ordinary pure/proc tail established as Bool | Return Bool data, including false. |
+| Omitted ordinary tail quantified as `T` | Return `T` with the same elaboration at every instantiation, including Bool, Unit, Optional, and Result. |
+| Written Unit/Result[Unit] boundary or native test body | Consume statements; retain established Bool assertions and implicit propagation. |
+| Non-tail Bool established by declaration constraints | Assert under the ordinary statement contract. |
+| Non-tail operation with established implicit propagation | Preserve the operation's checked callable kind and Result shape. |
+| Non-tail quantified value whose behavior still depends on `T` | Reject locally; request explicit discard or a sufficient contract. |
+| `let _ = expression` | Discard the resulting value; retain explicit `?`, effects, cleanup, and control transfers inside the initializer. |
+| Omitted ordinary body with normal payloads and outward `?` | Infer one success/error relationship and select its Result elaboration once. |
+| Normal completion independently established as a Result | Preserve the Result interpretation without adding another wrapper. |
+| Quantified payload later instantiated as Result | Preserve the selected payload wrapper and nesting; never flatten dynamically. |
+| Explicit `Ok(result)` | Preserve requested nesting. |
+| Ambiguous payload-versus-Result boundary | Request an annotation rather than search over control-flow meanings. |
+| Empty/no-value ordinary proc | Retain Result[Unit] success unless explicitly contracted otherwise. |
+| Error-only or underconstrained success boundary | Require context or an annotation; invent neither success data nor a public Never type. |
+| Non-completing path | Contribute no manufactured Unit/value; retain its internal control-flow fact. |
+
+An explicitly annotated proc retains its data return separately from its
+out-of-band propagation channel. For example, a proc returning Int with `[error]`
+may use `?`; a successful call produces Int and a failure exits the proc through
+the established channel. Omitted boundaries infer the success type from normal
+completions and the error type from propagated failures, using existing nominal
+error joins. An explicit return is a value and cannot be reinterpreted merely to
+make an inferred boundary fit.
+
+`assert condition, message` consumes Unit and requires concrete Bool and Str,
+rejecting Any, Status, Optional, and Result wrappers. Both expressions are
+checked with ordinary effects and propagation, including a message skipped at
+runtime. The assertion establishes no continuation refinement. Local try/retry
+error inference includes the nominal AssertionError failure, as for a bare Bool
+statement. Native tests retain their Result[Unit] body contract.
+
+Every reachable value branch must agree; value `if` requires `else`, and value
+`match` must cover its subject without relying on guards. Diverging branches
+contribute no Unit value. Returns, loop transfers, retry attempts, deferred cleanup,
+and cancellation retain their lexical targets and timing. A try body captures
+one layer; a Result-valued tail remains nested success data unless explicitly
+propagated. Callback Bool remains a value where the callback consumes Bool, while
+Unit-consuming callbacks retain their statement rules.
+
+Producer item inference uses reachable yield and delegation sites in the producer's
+definition. `stream` fixes callable kind; inferred empty effects cannot promote a
+proc to pure. Creation remains lazy, inferred types never materialize a producer,
+and cancellation runs delegated child cleanup before parent cleanup. Process
+Status remains process data under its established statement and explicit-discard
+rules.
+
+### Executable semantic observations
+
+`bench/typing/semantic-cases.json` records independent ordinary CLI sources,
+immutable baseline observations, candidate observations, and which differences are
+intentional acceptance or rejection. `tests/xsh/typing-inference-preserved.xsh`
+preserves written annotations and established contexts;
+`typing-inference-targets.xsh` specifies new accepted relationships;
+`typing-inference-negative.xsh` requires semantic rejection after parsing rather
+than counting the older parser's required-annotation error as evidence.
+
+The baseline compiler leaves omitted public/main/stream effect clauses unrestricted,
+defaults a nonempty omitted proc to Result[Unit], requires
+required/rest parameter annotations, and limits omitted private pure returns.
+These historical facts are not the declaration inference contract above. The
+preserved cohort keeps purposeful explicit boundaries when reproducing those
+observations. Original annotation-specific coverage remains alongside the new
+contracts until its genuinely invalid replacement is established.
 
 ### Local Result boundary inference
 

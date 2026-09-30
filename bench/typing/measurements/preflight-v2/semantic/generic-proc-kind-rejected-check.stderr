@@ -1,0 +1,9 @@
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-rejection/generic-proc-kind-rejected.xsh:1:18
+  proc silent(value) { value }
+                   ^ expected `:` or default value after parameter name
+
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-rejection/generic-proc-kind-rejected.xsh:2:15
+  pure bad(value) { silent(value) }
+                ^ expected `:` or default value after parameter name

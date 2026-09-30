@@ -1,0 +1,4 @@
+err[check.try-success-type]: cannot infer try success type; annotate Result success type
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/preserved/try-error-only-rejected.xsh:2:14
+  let result = try { Err(LocalError.Bad("unknown"))? }
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ cannot infer try success type; annotate Result success type

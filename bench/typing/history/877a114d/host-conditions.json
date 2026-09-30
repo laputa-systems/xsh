@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-09-30T16:50:41.849139+00:00",
+  "observations": [
+    {
+      "command": [
+        "pmset",
+        "-g",
+        "therm"
+      ],
+      "exit_status": 0,
+      "stdout": "Note: No thermal warning level has been recorded\nNote: No performance warning level has been recorded\nNote: No CPU power status has been recorded\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "pmset",
+        "-g",
+        "batt"
+      ],
+      "exit_status": 0,
+      "stdout": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=7995491)\t100%; charged; 0:00 remaining present: true\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "sysctl",
+        "-n",
+        "hw.model",
+        "hw.ncpu",
+        "hw.memsize"
+      ],
+      "exit_status": 0,
+      "stdout": "MacBookPro18,3\n10\n34359738368\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "sw_vers"
+      ],
+      "exit_status": 0,
+      "stdout": "ProductName:\t\tmacOS\nProductVersion:\t\t27.0\nBuildVersion:\t\t26A428\n",
+      "stderr": ""
+    }
+  ],
+  "unrelated_processes_terminated": false,
+  "filesystem_caches_flushed": false
+}

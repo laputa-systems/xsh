@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-09-30T18:27:11.483015+00:00",
+  "observations": [
+    {
+      "command": [
+        "pmset",
+        "-g",
+        "therm"
+      ],
+      "exit_status": 0,
+      "stdout": "Note: No thermal warning level has been recorded\nNote: No performance warning level has been recorded\nNote: No CPU power status has been recorded\n",
+      "stderr": ""
+    },
+    {
+      "command": [
+        "pmset",
+        "-g",
+        "batt"
+      ],
+      "exit_status": 0,
+      "stdout": "Now drawing from 'AC Power'\n -InternalBattery-0 (id=7995491)\t100%; charged; 0:00 remaining present: true\n",
+      "stderr": ""
+    }
+  ],
+  "noise_summary": "noise-summary.json",
+  "unrelated_processes_terminated": false,
+  "filesystem_caches_flushed": false
+}

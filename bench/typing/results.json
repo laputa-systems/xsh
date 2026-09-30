@@ -1,0 +1,139 @@
+{
+  "schema_version": 1,
+  "denominators": {
+    "eligible_local": 778,
+    "eligible_internal": 2807,
+    "eligible_parameters": 1368,
+    "eligible_returns": 746,
+    "eligible_producer_items": 1,
+    "eligible_effects": 692
+  },
+  "minimum_joint_removals": {
+    "local": 740,
+    "internal": 2386
+  },
+  "status": "incomplete",
+  "current_gate": "B",
+  "last_passed_gate": "A",
+  "baseline_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+  "cohort_original_revision": "877a114d6dc403db32c50f035b38aab7f193147a",
+  "manifest_sha256": "b7fec300627901dc975643dcb33dd8005a85aec09406f36fcfffff04a2567b70",
+  "historical_results": "history/877a114d/results.json",
+  "gates": {
+    "A": {
+      "status": "passed",
+      "reason": "Corrected immutable source/products, frozen cohort/denominators/operations, semantic/runtime observations, retained accounting and executable targets reconcile. Extensive quiet benchmarking removed by explicit user amendment."
+    },
+    "B": {
+      "status": "in-progress",
+      "reason": "Shared inference core and early normal indexed execution are next; no implementation acceptance claimed."
+    },
+    "C": {
+      "status": "not-run",
+      "reason": "prerequisite gate has not passed"
+    },
+    "D": {
+      "status": "not-run",
+      "reason": "prerequisite gate has not passed"
+    },
+    "E": {
+      "status": "not-run",
+      "reason": "prerequisite gate has not passed"
+    },
+    "F": {
+      "status": "not-run",
+      "reason": "prerequisite gate has not passed"
+    },
+    "G": {
+      "status": "not-run",
+      "reason": "prerequisite gate has not passed"
+    }
+  },
+  "records": [
+    {
+      "kind": "gate-a-artifact",
+      "artifact": "baseline-build.json",
+      "artifact_sha256": "11ef4920170be67022568e3c70945e5afb2747c9c83ecdb0d04d60b56c07ea19",
+      "source_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+      "candidate_inference_pass_claim": false
+    },
+    {
+      "kind": "gate-a-artifact",
+      "artifact": "baseline-verification.json",
+      "artifact_sha256": "668cb173cc705bf3de6b5c4fb6cbd8328e3d655a2965eb9b697627751aff67c3",
+      "source_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+      "candidate_inference_pass_claim": false
+    },
+    {
+      "kind": "gate-a-artifact",
+      "artifact": "baseline-frontend-preflight.json",
+      "artifact_sha256": "b54e0cf4b585ed632088aac65af8ab2d7d122e1739182e9b5bc2806fb363ac07",
+      "source_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+      "candidate_inference_pass_claim": false
+    },
+    {
+      "kind": "gate-a-artifact",
+      "artifact": "baseline-prepare-preflight-v2.json",
+      "artifact_sha256": "6db24a4dbaa38c35bb737fefc32293f787e38d61413531ecfce53ae42e195401",
+      "source_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+      "candidate_inference_pass_claim": false
+    },
+    {
+      "kind": "gate-a-artifact",
+      "artifact": "baseline-runtime-preflight.json",
+      "artifact_sha256": "4b672c7db7774c0ad09d6eaaf00e7bb3b6ad5743acff0a16b75f48376dfde0f6",
+      "source_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+      "candidate_inference_pass_claim": false
+    },
+    {
+      "kind": "gate-a-artifact",
+      "artifact": "baseline-runtime-extra-preflight.json",
+      "artifact_sha256": "c34fa49aeda773cfcf2057092d4bad27a12b4d4da6baaea889f0d1e9ac714d24",
+      "source_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+      "candidate_inference_pass_claim": false
+    },
+    {
+      "kind": "gate-a-artifact",
+      "artifact": "baseline-semantic-matrix-preflight-v2.json",
+      "artifact_sha256": "f8e4808d089162cd13a472582a0f361c312d486e52fe45824ebf1e63c4f0c2a5",
+      "source_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+      "candidate_inference_pass_claim": false
+    },
+    {
+      "kind": "gate-a-artifact",
+      "artifact": "baseline-retained-v2.json",
+      "artifact_sha256": "2d49d3af706fea11effcf0a5a7464e8c6bb50235e1d995a38a787852222075b0",
+      "source_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+      "candidate_inference_pass_claim": false
+    },
+    {
+      "kind": "gate-a-artifact",
+      "artifact": "benchmark-amendment.json",
+      "artifact_sha256": "1891f92f5adf50ce85b0960f8322c0d5840c12b5c0f936edd07ac485f59812af",
+      "source_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
+      "candidate_inference_pass_claim": false
+    },
+    {
+      "kind": "gate-a-execution",
+      "artifact": "measurements/baseline-v2-observe.jsonl",
+      "artifact_sha256": "ffe8fa4132c7c30bc7d603802c012f7ff753d097309d947505728993eb2ad3fc",
+      "status": "passed",
+      "scope": "62 product observations; no final statistical acceptance claim"
+    },
+    {
+      "kind": "gate-a-execution",
+      "artifact": "measurements/gate-a-candidate-debug-build.log",
+      "artifact_sha256": "ede81a5d4099d9b413d88e80b6d4f0daaf9b1332684c0e595d48a4d7b9cfd38d",
+      "status": "passed",
+      "scope": "exact xsh/xsht debug products"
+    },
+    {
+      "kind": "gate-a-execution",
+      "artifact": "measurements/gate-a-target-harness-check.log",
+      "artifact_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "status": "passed",
+      "scope": "all five native target harness modules check; nested future-language programs remain pending"
+    }
+  ],
+  "inference_implementation_started": false
+}

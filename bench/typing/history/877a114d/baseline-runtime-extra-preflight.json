@@ -1,0 +1,1586 @@
+{
+  "schema_version": 1,
+  "status": "passed-with-retained-oracle-correction",
+  "scope": "Gate A supplemental baseline runtime preflight only",
+  "compiler_source_changed": false,
+  "frozen_cohort_or_eligibility_changed": false,
+  "binary_identities": {
+    "xsh": {
+      "path": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+      "sha256": "2c858beb98b72e9ea30463ab42d6a1b71852c5ac092713aad9f6addb1d48df0d"
+    },
+    "xsht": {
+      "path": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+      "sha256": "aa25900d6c8c0fc00009377942ae4279d229d2d3450860b45d04d07b25b707d0"
+    }
+  },
+  "timeout_seconds_per_process": 90,
+  "cli_contract": {
+    "usage": "xsht test --jobs 1 --exact MODULE.xsh::NAME",
+    "no_source_or_filter_options": true,
+    "cwd_policy": "Each variant uses its frozen cwd because xsht discovers test_roots from cwd/xsht-config.ini; final baseline/candidate comparisons use the stabilized cwd for both products.",
+    "exactly_one_native_case_required": true
+  },
+  "sampling": {
+    "kind": "untimed-acceptance-preflight-with-elapsed-observation",
+    "samples_per_variant_case": 1,
+    "performance_acceptance": false
+  },
+  "inputs": [
+    {
+      "path": "bench/typing/runtime-fixtures/tokei-input/.hidden.rs",
+      "bytes": 15,
+      "sha256": "8d0afcd49380942dde254abe9864a0ccdfac0551aecf4d90c770fda35f1e2e09"
+    },
+    {
+      "path": "bench/typing/runtime-fixtures/tokei-input/.tokeignore",
+      "bytes": 8,
+      "sha256": "a6c7e3c5ddd823efc8b7a30853eabc152dac866843bd7a39dc4a29e0a0eb68b3"
+    },
+    {
+      "path": "bench/typing/runtime-fixtures/tokei-input/README.md",
+      "bytes": 40,
+      "sha256": "a226f0cbda4912c31dbdaa624d5958ea5f8df3c0ddd7cb72501b078f9cdd7bb8"
+    },
+    {
+      "path": "bench/typing/runtime-fixtures/tokei-input/data.json",
+      "bytes": 12,
+      "sha256": "e5f1eb4d806641698a35efe20e098efd20d7d57a9b90ee69079d5bb650920726"
+    },
+    {
+      "path": "bench/typing/runtime-fixtures/tokei-input/ignored/skip.rs",
+      "bytes": 16,
+      "sha256": "502ffd801a4c90a0a1d0e0ca132c173caeee8a42167630a4d6a4ce1729147dea"
+    },
+    {
+      "path": "bench/typing/runtime-fixtures/tokei-input/main.rs",
+      "bytes": 50,
+      "sha256": "dd7b3a0450a3099db825fd38ba254916002096ff9ea40d72bb3a87eb09d6e12e"
+    }
+  ],
+  "selected_native_cases": [
+    {
+      "id": "native-system-report-bounded-number",
+      "source": "tests/xsh/system-report.xsh",
+      "test": "test_system_report_bounded_number_respects_source_state_and_json_range",
+      "observations": [
+        "signed -5000 remains valid; unsigned -5000 is malformed",
+        "9007199254740991 remains representable; 9007199254740992 and integer overflow report range failure",
+        "nondecimal input is malformed; leading-zero decimal 007 gives 7",
+        "absent, truncated, and permission-denied source states retain their structured meanings"
+      ],
+      "effects": "loads frozen collectors/model modules; all observations are synthetic SourceRead values; no live host collection"
+    },
+    {
+      "id": "native-dev-report-reference",
+      "source": "dev/tests/test-system-report-check.xsh",
+      "test": "test_system_report_lscpu_reference_parser_keeps_sparse_online_ids",
+      "observations": [
+        "synthetic JSON online CPU ids are exactly [0,65]",
+        "repeated CPU identity rejects with SystemReportCheckError.Invalid",
+        "wrong online field type rejects with schema error"
+      ],
+      "effects": "pure parsing of three inline JSON fixtures; no external lscpu invocation"
+    },
+    {
+      "id": "native-methods-aliases",
+      "source": "tests/xsh/stdlib/methods.xsh",
+      "test": "test_list_concatenation_and_compound_assignment_preserve_aliases",
+      "observations": [
+        "list compound assignment preserves earlier aliases through append and self-concatenation",
+        "empty lists gain one fixed element type",
+        "record-field and typed Map[List[Int]] updates preserve aliases"
+      ],
+      "effects": "pure collection operations and native assertions"
+    },
+    {
+      "id": "native-stream-lifecycle",
+      "source": "tests/xsh/stdlib/streams.xsh",
+      "test": "test_stream_producers_are_lazy_and_run_defers_on_stop",
+      "observations": [
+        "nested script stdout is exactly false\\n0\\nrow 0\\nclosed\\n",
+        "producer creation performs no write; first pull yields 0; stop runs defer and prevents later rows"
+      ],
+      "effects": "harness-owned temporary marker/row paths; nested script uses exact baseline xsh and cleans temporary resources"
+    },
+    {
+      "id": "native-process-capture",
+      "source": "tests/xsh/run.xsh",
+      "test": "test_run_capture_record_captures_status_stdout_and_stderr",
+      "observations": [
+        "text capture exits with status7, stdout out, stderr err",
+        "byte capture has stdout length2 and one NUL byte on stderr"
+      ],
+      "effects": "isolated sh processes emit fixed bytes; head reads one constant byte from /dev/zero; no files or live Linux state"
+    },
+    {
+      "id": "native-local-inference",
+      "source": "tests/xsh/local-inference.xsh",
+      "test": "empty_list_collects_loop_contributions_before_earlier_reads",
+      "observations": [
+        "nested script stdout is exactly second\\n",
+        "loop contributions establish one List[Path] lifetime type before earlier alias reads"
+      ],
+      "effects": "harness-owned nested script executed by exact baseline xsh; no filesystem effects beyond harness temporary script"
+    },
+    {
+      "id": "native-result-context",
+      "source": "tests/xsh/result-contexts.xsh",
+      "test": "test_result_return_match_preserves_constructor_context",
+      "observations": [
+        "nested script stdout is exactly true\\ntrue\\n7\\n11\\ntrue\\n13\\n",
+        "Result-returning match preserves numeric tag conversion, bare success wrapping, explicit Err and Ok, and block returns"
+      ],
+      "effects": "harness-owned nested script executed by exact baseline xsh; fixed in-memory JSON literals"
+    }
+  ],
+  "runs": [
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/system-report.xsh::test_system_report_bounded_number_respects_source_state_and_json_range"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:46:53.842928+00:00",
+      "elapsed_ns": 10560702792,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/native-system-report-bounded-number/original.stdout",
+        "bytes": 175,
+        "sha256": "5787364183bdd143f249d019a39a5c50db47f0423dd88ebd4835e0039cf76e33"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/native-system-report-bounded-number/original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "native-system-report-bounded-number",
+      "variant": "original",
+      "kind": "native-fixture",
+      "source_sha256": "3af12927f7a8c81b3e6a4f111bd44e8e1c06e95b910ac32b5359a92b9a5c35af",
+      "config_sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/system\\-report\\.xsh::test_system_report_bounded_number_respects_source_state_and_json_range \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native_case_count": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "semantic_oracle": "The exact native test body independently asserts the observations listed in selected_native_cases."
+      },
+      "status": "passed",
+      "stdout_pattern_matched": true,
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/system-report.xsh::test_system_report_bounded_number_respects_source_state_and_json_range"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:47:04.407903+00:00",
+      "elapsed_ns": 10773087500,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/native-system-report-bounded-number/stabilized.stdout",
+        "bytes": 175,
+        "sha256": "e8de1331d11527b937dea0cb2cbabff002470fb706c4543f5b4442ec950ceb95"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/native-system-report-bounded-number/stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "native-system-report-bounded-number",
+      "variant": "stabilized",
+      "kind": "native-fixture",
+      "source_sha256": "3af12927f7a8c81b3e6a4f111bd44e8e1c06e95b910ac32b5359a92b9a5c35af",
+      "config_sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/system\\-report\\.xsh::test_system_report_bounded_number_respects_source_state_and_json_range \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native_case_count": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "semantic_oracle": "The exact native test body independently asserts the observations listed in selected_native_cases."
+      },
+      "status": "passed",
+      "stdout_pattern_matched": true,
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "dev/tests/test-system-report-check.xsh::test_system_report_lscpu_reference_parser_keeps_sparse_online_ids"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:47:15.183126+00:00",
+      "elapsed_ns": 6671102083,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/native-dev-report-reference/original.stdout",
+        "bytes": 180,
+        "sha256": "417b7f8635e68aadb3f91aeaa053ba0e0bc86cafb687a32b921854eac5d1080f"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/native-dev-report-reference/original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "native-dev-report-reference",
+      "variant": "original",
+      "kind": "native-fixture",
+      "source_sha256": "815b9627b42831f4f22348f4790ee4ce04156a9fea726c8f3d77dea5a231a217",
+      "config_sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ndev/tests/test\\-system\\-report\\-check\\.xsh::test_system_report_lscpu_reference_parser_keeps_sparse_online_ids \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native_case_count": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "semantic_oracle": "The exact native test body independently asserts the observations listed in selected_native_cases."
+      },
+      "status": "passed",
+      "stdout_pattern_matched": true,
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "dev/tests/test-system-report-check.xsh::test_system_report_lscpu_reference_parser_keeps_sparse_online_ids"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:47:21.858747+00:00",
+      "elapsed_ns": 6771169208,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/native-dev-report-reference/stabilized.stdout",
+        "bytes": 180,
+        "sha256": "417b7f8635e68aadb3f91aeaa053ba0e0bc86cafb687a32b921854eac5d1080f"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/native-dev-report-reference/stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "native-dev-report-reference",
+      "variant": "stabilized",
+      "kind": "native-fixture",
+      "source_sha256": "815b9627b42831f4f22348f4790ee4ce04156a9fea726c8f3d77dea5a231a217",
+      "config_sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ndev/tests/test\\-system\\-report\\-check\\.xsh::test_system_report_lscpu_reference_parser_keeps_sparse_online_ids \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native_case_count": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "semantic_oracle": "The exact native test body independently asserts the observations listed in selected_native_cases."
+      },
+      "status": "passed",
+      "stdout_pattern_matched": true,
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/stdlib/methods.xsh::test_list_concatenation_and_compound_assignment_preserve_aliases"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:47:28.632573+00:00",
+      "elapsed_ns": 3254174750,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/native-methods-aliases/original.stdout",
+        "bytes": 169,
+        "sha256": "1406f93525878a01d569819b13b2756d88b9ded91be41cb7667fd639fec188f2"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/native-methods-aliases/original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "native-methods-aliases",
+      "variant": "original",
+      "kind": "native-fixture",
+      "source_sha256": "da04b1689903d0f5ae90fb5554dcfb6f3c7d981604feec9a16f9df04e4b6ee57",
+      "config_sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/stdlib/methods\\.xsh::test_list_concatenation_and_compound_assignment_preserve_aliases \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native_case_count": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "semantic_oracle": "The exact native test body independently asserts the observations listed in selected_native_cases."
+      },
+      "status": "passed",
+      "stdout_pattern_matched": true,
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/stdlib/methods.xsh::test_list_concatenation_and_compound_assignment_preserve_aliases"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:47:31.889530+00:00",
+      "elapsed_ns": 3232787916,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/native-methods-aliases/stabilized.stdout",
+        "bytes": 169,
+        "sha256": "1406f93525878a01d569819b13b2756d88b9ded91be41cb7667fd639fec188f2"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/native-methods-aliases/stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "native-methods-aliases",
+      "variant": "stabilized",
+      "kind": "native-fixture",
+      "source_sha256": "da04b1689903d0f5ae90fb5554dcfb6f3c7d981604feec9a16f9df04e4b6ee57",
+      "config_sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/stdlib/methods\\.xsh::test_list_concatenation_and_compound_assignment_preserve_aliases \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native_case_count": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "semantic_oracle": "The exact native test body independently asserts the observations listed in selected_native_cases."
+      },
+      "status": "passed",
+      "stdout_pattern_matched": true,
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/stdlib/streams.xsh::test_stream_producers_are_lazy_and_run_defers_on_stop"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:47:35.124187+00:00",
+      "elapsed_ns": 3283750958,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/native-stream-lifecycle/original.stdout",
+        "bytes": 159,
+        "sha256": "d4193935eae9af18d21c82964082f8dbe121b186772fcfc70dde574954e4a7e9"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/native-stream-lifecycle/original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "native-stream-lifecycle",
+      "variant": "original",
+      "kind": "native-fixture",
+      "source_sha256": "c5c55a64e0ea7fad1653dddfc3f5be20598f8139af031a7cadd62d8d8da096f6",
+      "config_sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/stdlib/streams\\.xsh::test_stream_producers_are_lazy_and_run_defers_on_stop \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native_case_count": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "semantic_oracle": "The exact native test body independently asserts the observations listed in selected_native_cases."
+      },
+      "status": "passed",
+      "stdout_pattern_matched": true,
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/stdlib/streams.xsh::test_stream_producers_are_lazy_and_run_defers_on_stop"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:47:38.411057+00:00",
+      "elapsed_ns": 3269628083,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/native-stream-lifecycle/stabilized.stdout",
+        "bytes": 159,
+        "sha256": "9d9c9df0fb96da49cda18385cd35d3bdb59ebd16d4d09d566ecf4905098df0c6"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/native-stream-lifecycle/stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "native-stream-lifecycle",
+      "variant": "stabilized",
+      "kind": "native-fixture",
+      "source_sha256": "c5c55a64e0ea7fad1653dddfc3f5be20598f8139af031a7cadd62d8d8da096f6",
+      "config_sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/stdlib/streams\\.xsh::test_stream_producers_are_lazy_and_run_defers_on_stop \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native_case_count": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "semantic_oracle": "The exact native test body independently asserts the observations listed in selected_native_cases."
+      },
+      "status": "passed",
+      "stdout_pattern_matched": true,
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/run.xsh::test_run_capture_record_captures_status_stdout_and_stderr"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:47:41.683277+00:00",
+      "elapsed_ns": 3530727500,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/native-process-capture/original.stdout",
+        "bytes": 153,
+        "sha256": "2fd630bdbea4f8fd012d42106b2b84b2accec0c5bca2271e2f05a6bde7235132"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/native-process-capture/original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "native-process-capture",
+      "variant": "original",
+      "kind": "native-fixture",
+      "source_sha256": "9bdbdebda2ddc3635d9399928e841010afb06b1f270cafd112d197aeddf576e2",
+      "config_sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/run\\.xsh::test_run_capture_record_captures_status_stdout_and_stderr \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native_case_count": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "semantic_oracle": "The exact native test body independently asserts the observations listed in selected_native_cases."
+      },
+      "status": "passed",
+      "stdout_pattern_matched": true,
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/run.xsh::test_run_capture_record_captures_status_stdout_and_stderr"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:47:45.217787+00:00",
+      "elapsed_ns": 3255003125,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/native-process-capture/stabilized.stdout",
+        "bytes": 153,
+        "sha256": "1812a5959c482151029b55e7493f33a4842dd3b598220db1173288f5150aaa67"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/native-process-capture/stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "native-process-capture",
+      "variant": "stabilized",
+      "kind": "native-fixture",
+      "source_sha256": "9bdbdebda2ddc3635d9399928e841010afb06b1f270cafd112d197aeddf576e2",
+      "config_sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/run\\.xsh::test_run_capture_record_captures_status_stdout_and_stderr \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native_case_count": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "semantic_oracle": "The exact native test body independently asserts the observations listed in selected_native_cases."
+      },
+      "status": "passed",
+      "stdout_pattern_matched": true,
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/local-inference.xsh::empty_list_collects_loop_contributions_before_earlier_reads"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:47:48.474886+00:00",
+      "elapsed_ns": 3117131834,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/native-local-inference/original.stdout",
+        "bytes": 166,
+        "sha256": "e63546aa31fac22076e8629e64afdf626be59c349a7c314b85458694304e5bca"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/native-local-inference/original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "native-local-inference",
+      "variant": "original",
+      "kind": "native-fixture",
+      "source_sha256": "937e6541b1db7b0da414d1019e188f031376e4d40101f545bfa2a51c93e6cb09",
+      "config_sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/local\\-inference\\.xsh::empty_list_collects_loop_contributions_before_earlier_reads \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native_case_count": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "semantic_oracle": "The exact native test body independently asserts the observations listed in selected_native_cases."
+      },
+      "status": "passed",
+      "stdout_pattern_matched": true,
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/local-inference.xsh::empty_list_collects_loop_contributions_before_earlier_reads"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:47:51.594067+00:00",
+      "elapsed_ns": 3073300292,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/native-local-inference/stabilized.stdout",
+        "bytes": 166,
+        "sha256": "bbac6d05caf28f32805c83f729f54c09c04611b450f59221adf5a5c4b7d723f1"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/native-local-inference/stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "native-local-inference",
+      "variant": "stabilized",
+      "kind": "native-fixture",
+      "source_sha256": "937e6541b1db7b0da414d1019e188f031376e4d40101f545bfa2a51c93e6cb09",
+      "config_sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/local\\-inference\\.xsh::empty_list_collects_loop_contributions_before_earlier_reads \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native_case_count": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "semantic_oracle": "The exact native test body independently asserts the observations listed in selected_native_cases."
+      },
+      "status": "passed",
+      "stdout_pattern_matched": true,
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/result-contexts.xsh::test_result_return_match_preserves_constructor_context"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:47:54.669412+00:00",
+      "elapsed_ns": 3122684000,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/native-result-context/original.stdout",
+        "bytes": 161,
+        "sha256": "aab0fa4f30bb9b34af208ef18bc4a5fb51835f3f32efa9ce31c9465caffde965"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/native-result-context/original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "native-result-context",
+      "variant": "original",
+      "kind": "native-fixture",
+      "source_sha256": "9eb6864029a9b4620ab2f01df6083ef93307a994d7e032bfc39e0716594bea06",
+      "config_sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/result\\-contexts\\.xsh::test_result_return_match_preserves_constructor_context \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native_case_count": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "semantic_oracle": "The exact native test body independently asserts the observations listed in selected_native_cases."
+      },
+      "status": "passed",
+      "stdout_pattern_matched": true,
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/result-contexts.xsh::test_result_return_match_preserves_constructor_context"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:47:57.794320+00:00",
+      "elapsed_ns": 3092470000,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/native-result-context/stabilized.stdout",
+        "bytes": 161,
+        "sha256": "aab0fa4f30bb9b34af208ef18bc4a5fb51835f3f32efa9ce31c9465caffde965"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/native-result-context/stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "native-result-context",
+      "variant": "stabilized",
+      "kind": "native-fixture",
+      "source_sha256": "9eb6864029a9b4620ab2f01df6083ef93307a994d7e032bfc39e0716594bea06",
+      "config_sha256": "696dc24a926a91ac21ec9660a2a1f2ab61eeb02ad6a502c12f1914d54acfce1d",
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/result\\-contexts\\.xsh::test_result_return_match_preserves_constructor_context \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "native_case_count": 1,
+        "passed": 1,
+        "failed": 0,
+        "skipped": 0,
+        "semantic_oracle": "The exact native test body independently asserts the observations listed in selected_native_cases."
+      },
+      "status": "passed",
+      "stdout_pattern_matched": true,
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/showcase/tokei.xsh",
+        "--",
+        "--json",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:48:00.888688+00:00",
+      "elapsed_ns": 79216875,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/tokei-tiny/original.stdout",
+        "bytes": 1656,
+        "sha256": "ec262234070507d9e5d42c55c57fadd96130565b893ba2936fd036f16fbf4392"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/tokei-tiny/original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "showcase-tokei-tiny",
+      "variant": "original",
+      "kind": "runtime-program",
+      "source_sha256": "57dc8315d370f5b79fb3717c967b47679776869f8e91b38537affcdb672f0611",
+      "oracle_failure": "",
+      "status": "failed",
+      "expected": {
+        "exit_status": 0,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": null,
+        "semantic_assertions": {
+          "top_level_languages": [
+            "JSON",
+            "Rust",
+            "Markdown",
+            "Total"
+          ],
+          "rust": {
+            "code": 3,
+            "comments": 1,
+            "blanks": 1,
+            "reports": 1
+          },
+          "json": {
+            "code": 1,
+            "reports": 1
+          },
+          "markdown_rust_child_code": 1,
+          "total": {
+            "code": 5,
+            "comments": 5,
+            "blanks": 2
+          },
+          "hidden_and_ignored_sources_absent": true
+        }
+      },
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/showcase/tokei.xsh",
+        "--",
+        "--json",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:48:00.969690+00:00",
+      "elapsed_ns": 74306125,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/tokei-tiny/stabilized.stdout",
+        "bytes": 1656,
+        "sha256": "ec262234070507d9e5d42c55c57fadd96130565b893ba2936fd036f16fbf4392"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/tokei-tiny/stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "showcase-tokei-tiny",
+      "variant": "stabilized",
+      "kind": "runtime-program",
+      "source_sha256": "1e451b7dcd68b5dde2781ab899428db360c5f582c991939d88ad958563100588",
+      "oracle_failure": "",
+      "status": "failed",
+      "expected": {
+        "exit_status": 0,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": null,
+        "semantic_assertions": {
+          "top_level_languages": [
+            "JSON",
+            "Rust",
+            "Markdown",
+            "Total"
+          ],
+          "rust": {
+            "code": 3,
+            "comments": 1,
+            "blanks": 1,
+            "reports": 1
+          },
+          "json": {
+            "code": 1,
+            "reports": 1
+          },
+          "markdown_rust_child_code": 1,
+          "total": {
+            "code": 5,
+            "comments": 5,
+            "blanks": 2
+          },
+          "hidden_and_ignored_sources_absent": true
+        }
+      },
+      "attempt": 1
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/showcase/tokei.xsh",
+        "--",
+        "--json",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/original/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:51:51.255727+00:00",
+      "elapsed_ns": 83036292,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/tokei-tiny-retry/original.stdout",
+        "bytes": 1656,
+        "sha256": "ec262234070507d9e5d42c55c57fadd96130565b893ba2936fd036f16fbf4392"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/tokei-tiny-retry/original.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "showcase-tokei-tiny",
+      "variant": "original",
+      "kind": "runtime-program",
+      "attempt": 2,
+      "status": "passed",
+      "source_sha256": "57dc8315d370f5b79fb3717c967b47679776869f8e91b38537affcdb672f0611",
+      "expected": {
+        "exit_status": 0,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "ec262234070507d9e5d42c55c57fadd96130565b893ba2936fd036f16fbf4392",
+        "semantic_assertions": {
+          "top_level_languages": [
+            "JSON",
+            "Rust",
+            "Markdown",
+            "Total"
+          ],
+          "rust": {
+            "code": 3,
+            "comments": 1,
+            "blanks": 1,
+            "reports": 1
+          },
+          "json": {
+            "code": 1,
+            "reports": 1
+          },
+          "markdown": {
+            "comments": 3,
+            "blanks": 1,
+            "reports": 1
+          },
+          "markdown_rust_child_code": 1,
+          "total": {
+            "code": 5,
+            "comments": 4,
+            "blanks": 2
+          },
+          "hidden_and_ignored_sources_absent": true
+        }
+      },
+      "decoded_stdout": {
+        "path": "bench/typing/runtime-fixtures/tokei-original-expected.json",
+        "bytes": 2841,
+        "sha256": "fd9e7a293ead9881a72cf8b1adf933104c310cb3ddefe60d001edf498edfae37"
+      }
+    },
+    {
+      "command": [
+        "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/showcase/tokei.xsh",
+        "--",
+        "--json",
+        "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input"
+      ],
+      "cwd": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized",
+      "environment_overlay": {
+        "XSH_MODULE_PATH": "/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized:/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/cohort/stabilized/dev",
+        "CARGO_BIN_EXE_xsh": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsh",
+        "CARGO_BIN_EXE_xsht": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/xsht",
+        "PATH": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release:/usr/bin:/bin",
+        "NO_COLOR": "1"
+      },
+      "started_utc": "2026-09-30T16:51:51.341917+00:00",
+      "elapsed_ns": 83228959,
+      "exit_status": 0,
+      "timeout": false,
+      "children_killed_and_reaped_on_timeout": false,
+      "stdout": {
+        "path": "bench/typing/runtime-fixtures/raw/tokei-tiny-retry/stabilized.stdout",
+        "bytes": 1656,
+        "sha256": "ec262234070507d9e5d42c55c57fadd96130565b893ba2936fd036f16fbf4392"
+      },
+      "stderr": {
+        "path": "bench/typing/runtime-fixtures/raw/tokei-tiny-retry/stabilized.stderr",
+        "bytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "workload_id": "showcase-tokei-tiny",
+      "variant": "stabilized",
+      "kind": "runtime-program",
+      "attempt": 2,
+      "status": "passed",
+      "source_sha256": "1e451b7dcd68b5dde2781ab899428db360c5f582c991939d88ad958563100588",
+      "expected": {
+        "exit_status": 0,
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout_sha256": "ec262234070507d9e5d42c55c57fadd96130565b893ba2936fd036f16fbf4392",
+        "semantic_assertions": {
+          "top_level_languages": [
+            "JSON",
+            "Rust",
+            "Markdown",
+            "Total"
+          ],
+          "rust": {
+            "code": 3,
+            "comments": 1,
+            "blanks": 1,
+            "reports": 1
+          },
+          "json": {
+            "code": 1,
+            "reports": 1
+          },
+          "markdown": {
+            "comments": 3,
+            "blanks": 1,
+            "reports": 1
+          },
+          "markdown_rust_child_code": 1,
+          "total": {
+            "code": 5,
+            "comments": 4,
+            "blanks": 2
+          },
+          "hidden_and_ignored_sources_absent": true
+        }
+      },
+      "decoded_stdout": {
+        "path": "bench/typing/runtime-fixtures/tokei-stabilized-expected.json",
+        "bytes": 2841,
+        "sha256": "fd9e7a293ead9881a72cf8b1adf933104c310cb3ddefe60d001edf498edfae37"
+      }
+    }
+  ],
+  "comparisons": [
+    {
+      "workload_id": "native-system-report-bounded-number",
+      "status": "passed",
+      "oracle": "stdout equality after replacing only the single selected native test elapsed duration",
+      "normalized_stdout_sha256": "c808aec7c8d64e09b16c7cfb32e5e543a4c2ccc83a5bb118ade36777e2e39269"
+    },
+    {
+      "workload_id": "native-dev-report-reference",
+      "status": "passed",
+      "oracle": "stdout equality after replacing only the single selected native test elapsed duration",
+      "normalized_stdout_sha256": "696c8d62e4733759d4dc6296a78c6534ef29f5dfa92612fb7a8576926f305d29"
+    },
+    {
+      "workload_id": "native-methods-aliases",
+      "status": "passed",
+      "oracle": "stdout equality after replacing only the single selected native test elapsed duration",
+      "normalized_stdout_sha256": "ca1a9cd6159e57efa55632b0c48bea33b48f0a90b74bd5c4bfd7126e90605429"
+    },
+    {
+      "workload_id": "native-stream-lifecycle",
+      "status": "passed",
+      "oracle": "stdout equality after replacing only the single selected native test elapsed duration",
+      "normalized_stdout_sha256": "74efa94fe10519400eb09d2fde8552d01226772cca95f8d36a33a06c7326d2ab"
+    },
+    {
+      "workload_id": "native-process-capture",
+      "status": "passed",
+      "oracle": "stdout equality after replacing only the single selected native test elapsed duration",
+      "normalized_stdout_sha256": "445af698b3a3300f3706127b2af24b8fff24ea004cb04bbaf2cda2760087e53f"
+    },
+    {
+      "workload_id": "native-local-inference",
+      "status": "passed",
+      "oracle": "stdout equality after replacing only the single selected native test elapsed duration",
+      "normalized_stdout_sha256": "20f6d1ab42f251663e3d297090fe15fcb07e031eaad0391eac9b8b5e1e5dfc1f"
+    },
+    {
+      "workload_id": "native-result-context",
+      "status": "passed",
+      "oracle": "stdout equality after replacing only the single selected native test elapsed duration",
+      "normalized_stdout_sha256": "c1699f471ae99c4e1e6d607210c2ddc47c0d1ad6d3697c2f41e6e26da2b14b8b"
+    },
+    {
+      "workload_id": "showcase-tokei-tiny",
+      "status": "passed",
+      "oracle": "exact stdout bytes for the same frozen tiny directory",
+      "stdout_sha256": "ec262234070507d9e5d42c55c57fadd96130565b893ba2936fd036f16fbf4392"
+    },
+    {
+      "workload_id": "showcase-tokei-tiny",
+      "attempt": 2,
+      "status": "passed",
+      "oracle": "exact stdout bytes for unchanged tiny input after independently accounting for embedded child code",
+      "stdout_sha256": "ec262234070507d9e5d42c55c57fadd96130565b893ba2936fd036f16fbf4392"
+    }
+  ],
+  "failures": [
+    {
+      "workload_id": "showcase-tokei-tiny",
+      "variant": "original",
+      "reason": "fixed tiny-input JSON observation oracle failed",
+      "stdout": "{\"JSON\":{\"blanks\":0,\"children\":{},\"code\":1,\"comments\":0,\"inaccurate\":false,\"reports\":[{\"name\":\"/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input/data.json\",\"stats\":{\"blanks\":0,\"blobs\":{},\"code\":1,\"comments\":0}}]},\"Markdown\":{\"blanks\":1,\"children\":{\"Rust\":[{\"name\":\"/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input/README.md\",\"stats\":{\"blanks\":0,\"blobs\":{},\"code\":1,\"comments\":0}}]},\"code\":0,\"comments\":3,\"inaccurate\":false,\"reports\":[{\"name\":\"/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input/README.md\",\"stats\":{\"blanks\":1,\"blobs\":{\"Rust\":{\"blanks\":0,\"blobs\":{},\"code\":1,\"comments\":0}},\"code\":0,\"comments\":3}}]},\"Rust\":{\"blanks\":1,\"children\":{},\"code\":3,\"comments\":1,\"inaccurate\":false,\"reports\":[{\"name\":\"/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input/main.rs\",\"stats\":{\"blanks\":1,\"blobs\":{},\"code\":3,\"comments\":1}}]},\"Total\":{\"blanks\":2,\"children\":{\"JSON\":[{\"name\":\"/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input/data.json\",\"stats\":{\"blanks\":0,\"blobs\":{},\"code\":1,\"comments\":0}}],\"Markdown\":[{\"name\":\"/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input/README.md\",\"stats\":{\"blanks\":1,\"blobs\":{\"Rust\":{\"blanks\":0,\"blobs\":{},\"code\":1,\"comments\":0}},\"code\":0,\"comments\":3}}],\"Rust\":[{\"name\":\"/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input/main.rs\",\"stats\":{\"blanks\":1,\"blobs\":{},\"code\":3,\"comments\":1}}]},\"code\":5,\"comments\":4,\"inaccurate\":false,\"reports\":[]}}\n",
+      "stderr": "",
+      "classification": "test-oracle-miscalculation",
+      "resolution": "A fenced Rust code line contributes to the Rust child code count, not Markdown comments; Total comments are4. Raw failed oracle records remain unchanged."
+    },
+    {
+      "workload_id": "showcase-tokei-tiny",
+      "variant": "stabilized",
+      "reason": "fixed tiny-input JSON observation oracle failed",
+      "stdout": "{\"JSON\":{\"blanks\":0,\"children\":{},\"code\":1,\"comments\":0,\"inaccurate\":false,\"reports\":[{\"name\":\"/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input/data.json\",\"stats\":{\"blanks\":0,\"blobs\":{},\"code\":1,\"comments\":0}}]},\"Markdown\":{\"blanks\":1,\"children\":{\"Rust\":[{\"name\":\"/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input/README.md\",\"stats\":{\"blanks\":0,\"blobs\":{},\"code\":1,\"comments\":0}}]},\"code\":0,\"comments\":3,\"inaccurate\":false,\"reports\":[{\"name\":\"/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input/README.md\",\"stats\":{\"blanks\":1,\"blobs\":{\"Rust\":{\"blanks\":0,\"blobs\":{},\"code\":1,\"comments\":0}},\"code\":0,\"comments\":3}}]},\"Rust\":{\"blanks\":1,\"children\":{},\"code\":3,\"comments\":1,\"inaccurate\":false,\"reports\":[{\"name\":\"/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input/main.rs\",\"stats\":{\"blanks\":1,\"blobs\":{},\"code\":3,\"comments\":1}}]},\"Total\":{\"blanks\":2,\"children\":{\"JSON\":[{\"name\":\"/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input/data.json\",\"stats\":{\"blanks\":0,\"blobs\":{},\"code\":1,\"comments\":0}}],\"Markdown\":[{\"name\":\"/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input/README.md\",\"stats\":{\"blanks\":1,\"blobs\":{\"Rust\":{\"blanks\":0,\"blobs\":{},\"code\":1,\"comments\":0}},\"code\":0,\"comments\":3}}],\"Rust\":[{\"name\":\"/Users/josh/d/laputa-systems/xsh-typing-campaign/bench/typing/runtime-fixtures/tokei-input/main.rs\",\"stats\":{\"blanks\":1,\"blobs\":{},\"code\":3,\"comments\":1}}]},\"code\":5,\"comments\":4,\"inaccurate\":false,\"reports\":[]}}\n",
+      "stderr": "",
+      "classification": "test-oracle-miscalculation",
+      "resolution": "A fenced Rust code line contributes to the Rust child code count, not Markdown comments; Total comments are4. Raw failed oracle records remain unchanged."
+    }
+  ],
+  "inputs_unchanged": true,
+  "binary_identities_unchanged": true,
+  "completed_utc": "2026-09-30T16:48:01.070212+00:00",
+  "oracle_corrections": [
+    {
+      "workload_id": "showcase-tokei-tiny",
+      "old_expected_total_comments": 5,
+      "correct_expected_total_comments": 4,
+      "reason": "README.md has three Markdown comment lines, one blank line, and one Rust child code line; main.rs has one additional comment.",
+      "source_or_input_change": false,
+      "compiler_change": false,
+      "historical_records_retained": true
+    }
+  ],
+  "observation_workloads": [
+    {
+      "variant": "stabilized",
+      "cwd": "cohort/stabilized",
+      "timeout_seconds": 60,
+      "env": {
+        "XSH_MODULE_PATH": "{root}/cohort/stabilized:{root}/cohort/stabilized/dev",
+        "NO_COLOR": "1",
+        "CARGO_BIN_EXE_xsh": "{xsh}"
+      },
+      "applicability": {
+        "status": "applicable",
+        "reason": "Offline fixture with isolated effects; no live Linux execution."
+      },
+      "id": "native-system-report-bounded-number",
+      "kind": "native-compatibility-observation",
+      "source": "cohort/stabilized/tests/xsh/system-report.xsh",
+      "commandTemplate": [
+        "{xsht}",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/system-report.xsh::test_system_report_bounded_number_respects_source_state_and_json_range"
+      ],
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/system\\-report\\.xsh::test_system_report_bounded_number_respects_source_state_and_json_range \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "asserted_observations": [
+        "signed -5000 remains valid; unsigned -5000 is malformed",
+        "9007199254740991 remains representable; 9007199254740992 and integer overflow report range failure",
+        "nondecimal input is malformed; leading-zero decimal 007 gives 7",
+        "absent, truncated, and permission-denied source states retain their structured meanings"
+      ],
+      "execution_scope": "loads frozen collectors/model modules; all observations are synthetic SourceRead values; no live host collection",
+      "performance_acceptance": false,
+      "nested_product_requirement": "The native harness must resolve xsh from the same delivered product set as xsht; supplemental baseline preflights pin CARGO_BIN_EXE_xsh to the immutable baseline executable."
+    },
+    {
+      "variant": "stabilized",
+      "cwd": "cohort/stabilized",
+      "timeout_seconds": 60,
+      "env": {
+        "XSH_MODULE_PATH": "{root}/cohort/stabilized:{root}/cohort/stabilized/dev",
+        "NO_COLOR": "1",
+        "CARGO_BIN_EXE_xsh": "{xsh}"
+      },
+      "applicability": {
+        "status": "applicable",
+        "reason": "Offline fixture with isolated effects; no live Linux execution."
+      },
+      "id": "native-dev-report-reference",
+      "kind": "native-compatibility-observation",
+      "source": "cohort/stabilized/dev/tests/test-system-report-check.xsh",
+      "commandTemplate": [
+        "{xsht}",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "dev/tests/test-system-report-check.xsh::test_system_report_lscpu_reference_parser_keeps_sparse_online_ids"
+      ],
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ndev/tests/test\\-system\\-report\\-check\\.xsh::test_system_report_lscpu_reference_parser_keeps_sparse_online_ids \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "asserted_observations": [
+        "synthetic JSON online CPU ids are exactly [0,65]",
+        "repeated CPU identity rejects with SystemReportCheckError.Invalid",
+        "wrong online field type rejects with schema error"
+      ],
+      "execution_scope": "pure parsing of three inline JSON fixtures; no external lscpu invocation",
+      "performance_acceptance": false,
+      "nested_product_requirement": "The native harness must resolve xsh from the same delivered product set as xsht; supplemental baseline preflights pin CARGO_BIN_EXE_xsh to the immutable baseline executable."
+    },
+    {
+      "variant": "stabilized",
+      "cwd": "cohort/stabilized",
+      "timeout_seconds": 60,
+      "env": {
+        "XSH_MODULE_PATH": "{root}/cohort/stabilized:{root}/cohort/stabilized/dev",
+        "NO_COLOR": "1",
+        "CARGO_BIN_EXE_xsh": "{xsh}"
+      },
+      "applicability": {
+        "status": "applicable",
+        "reason": "Offline fixture with isolated effects; no live Linux execution."
+      },
+      "id": "native-methods-aliases",
+      "kind": "native-compatibility-observation",
+      "source": "cohort/stabilized/tests/xsh/stdlib/methods.xsh",
+      "commandTemplate": [
+        "{xsht}",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/stdlib/methods.xsh::test_list_concatenation_and_compound_assignment_preserve_aliases"
+      ],
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/stdlib/methods\\.xsh::test_list_concatenation_and_compound_assignment_preserve_aliases \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "asserted_observations": [
+        "list compound assignment preserves earlier aliases through append and self-concatenation",
+        "empty lists gain one fixed element type",
+        "record-field and typed Map[List[Int]] updates preserve aliases"
+      ],
+      "execution_scope": "pure collection operations and native assertions",
+      "performance_acceptance": false,
+      "nested_product_requirement": "The native harness must resolve xsh from the same delivered product set as xsht; supplemental baseline preflights pin CARGO_BIN_EXE_xsh to the immutable baseline executable."
+    },
+    {
+      "variant": "stabilized",
+      "cwd": "cohort/stabilized",
+      "timeout_seconds": 60,
+      "env": {
+        "XSH_MODULE_PATH": "{root}/cohort/stabilized:{root}/cohort/stabilized/dev",
+        "NO_COLOR": "1",
+        "CARGO_BIN_EXE_xsh": "{xsh}"
+      },
+      "applicability": {
+        "status": "applicable",
+        "reason": "Offline fixture with isolated effects; no live Linux execution."
+      },
+      "id": "native-stream-lifecycle",
+      "kind": "native-compatibility-observation",
+      "source": "cohort/stabilized/tests/xsh/stdlib/streams.xsh",
+      "commandTemplate": [
+        "{xsht}",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/stdlib/streams.xsh::test_stream_producers_are_lazy_and_run_defers_on_stop"
+      ],
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/stdlib/streams\\.xsh::test_stream_producers_are_lazy_and_run_defers_on_stop \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "asserted_observations": [
+        "nested script stdout is exactly false\\n0\\nrow 0\\nclosed\\n",
+        "producer creation performs no write; first pull yields 0; stop runs defer and prevents later rows"
+      ],
+      "execution_scope": "harness-owned temporary marker/row paths; nested script uses exact baseline xsh and cleans temporary resources",
+      "performance_acceptance": false,
+      "nested_product_requirement": "The native harness must resolve xsh from the same delivered product set as xsht; supplemental baseline preflights pin CARGO_BIN_EXE_xsh to the immutable baseline executable."
+    },
+    {
+      "variant": "stabilized",
+      "cwd": "cohort/stabilized",
+      "timeout_seconds": 60,
+      "env": {
+        "XSH_MODULE_PATH": "{root}/cohort/stabilized:{root}/cohort/stabilized/dev",
+        "NO_COLOR": "1",
+        "CARGO_BIN_EXE_xsh": "{xsh}"
+      },
+      "applicability": {
+        "status": "applicable",
+        "reason": "Offline fixture with isolated effects; no live Linux execution."
+      },
+      "id": "native-process-capture",
+      "kind": "native-compatibility-observation",
+      "source": "cohort/stabilized/tests/xsh/run.xsh",
+      "commandTemplate": [
+        "{xsht}",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/run.xsh::test_run_capture_record_captures_status_stdout_and_stderr"
+      ],
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/run\\.xsh::test_run_capture_record_captures_status_stdout_and_stderr \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "asserted_observations": [
+        "text capture exits with status7, stdout out, stderr err",
+        "byte capture has stdout length2 and one NUL byte on stderr"
+      ],
+      "execution_scope": "isolated sh processes emit fixed bytes; head reads one constant byte from /dev/zero; no files or live Linux state",
+      "performance_acceptance": false,
+      "nested_product_requirement": "The native harness must resolve xsh from the same delivered product set as xsht; supplemental baseline preflights pin CARGO_BIN_EXE_xsh to the immutable baseline executable."
+    },
+    {
+      "variant": "stabilized",
+      "cwd": "cohort/stabilized",
+      "timeout_seconds": 60,
+      "env": {
+        "XSH_MODULE_PATH": "{root}/cohort/stabilized:{root}/cohort/stabilized/dev",
+        "NO_COLOR": "1",
+        "CARGO_BIN_EXE_xsh": "{xsh}"
+      },
+      "applicability": {
+        "status": "applicable",
+        "reason": "Offline fixture with isolated effects; no live Linux execution."
+      },
+      "id": "native-local-inference",
+      "kind": "native-compatibility-observation",
+      "source": "cohort/stabilized/tests/xsh/local-inference.xsh",
+      "commandTemplate": [
+        "{xsht}",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/local-inference.xsh::empty_list_collects_loop_contributions_before_earlier_reads"
+      ],
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/local\\-inference\\.xsh::empty_list_collects_loop_contributions_before_earlier_reads \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "asserted_observations": [
+        "nested script stdout is exactly second\\n",
+        "loop contributions establish one List[Path] lifetime type before earlier alias reads"
+      ],
+      "execution_scope": "harness-owned nested script executed by exact baseline xsh; no filesystem effects beyond harness temporary script",
+      "performance_acceptance": false,
+      "nested_product_requirement": "The native harness must resolve xsh from the same delivered product set as xsht; supplemental baseline preflights pin CARGO_BIN_EXE_xsh to the immutable baseline executable."
+    },
+    {
+      "variant": "stabilized",
+      "cwd": "cohort/stabilized",
+      "timeout_seconds": 60,
+      "env": {
+        "XSH_MODULE_PATH": "{root}/cohort/stabilized:{root}/cohort/stabilized/dev",
+        "NO_COLOR": "1",
+        "CARGO_BIN_EXE_xsh": "{xsh}"
+      },
+      "applicability": {
+        "status": "applicable",
+        "reason": "Offline fixture with isolated effects; no live Linux execution."
+      },
+      "id": "native-result-context",
+      "kind": "native-compatibility-observation",
+      "source": "cohort/stabilized/tests/xsh/result-contexts.xsh",
+      "commandTemplate": [
+        "{xsht}",
+        "test",
+        "--jobs",
+        "1",
+        "--exact",
+        "tests/xsh/result-contexts.xsh::test_result_return_match_preserves_constructor_context"
+      ],
+      "expected": {
+        "exit_status": 0,
+        "stdout_pattern": "\\Arunning 1 tests\\ntests/xsh/result\\-contexts\\.xsh::test_result_return_match_preserves_constructor_context \\.\\.\\. ok (?:[0-9]+ms|[0-9]+(?:\\.[0-9])?s|[0-9]+m(?:[0-9]+s)?|[0-9]+h(?:[0-9]+m)?)\\ntest result: ok\\. 1 passed; 0 failed; 0 skipped\\n\\Z",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "asserted_observations": [
+        "nested script stdout is exactly true\\ntrue\\n7\\n11\\ntrue\\n13\\n",
+        "Result-returning match preserves numeric tag conversion, bare success wrapping, explicit Err and Ok, and block returns"
+      ],
+      "execution_scope": "harness-owned nested script executed by exact baseline xsh; fixed in-memory JSON literals",
+      "performance_acceptance": false,
+      "nested_product_requirement": "The native harness must resolve xsh from the same delivered product set as xsht; supplemental baseline preflights pin CARGO_BIN_EXE_xsh to the immutable baseline executable."
+    }
+  ],
+  "workloads": [
+    {
+      "variant": "stabilized",
+      "cwd": "cohort/stabilized",
+      "timeout_seconds": 60,
+      "env": {
+        "XSH_MODULE_PATH": "{root}/cohort/stabilized:{root}/cohort/stabilized/dev",
+        "NO_COLOR": "1"
+      },
+      "applicability": {
+        "status": "applicable",
+        "reason": "Offline fixture with isolated effects; no live Linux execution."
+      },
+      "id": "runtime-tokei-tiny",
+      "kind": "runtime",
+      "source": "cohort/stabilized/showcase/tokei.xsh",
+      "commandTemplate": [
+        "{xsh}",
+        "{source}",
+        "--",
+        "--json",
+        "{root}/runtime-fixtures/tokei-input"
+      ],
+      "expected": {
+        "exit_status": 0,
+        "stdout_sha256": "ec262234070507d9e5d42c55c57fadd96130565b893ba2936fd036f16fbf4392",
+        "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "semantic_assertions": {
+        "top_level_languages": [
+          "JSON",
+          "Rust",
+          "Markdown",
+          "Total"
+        ],
+        "rust": {
+          "code": 3,
+          "comments": 1,
+          "blanks": 1,
+          "reports": 1
+        },
+        "json": {
+          "code": 1,
+          "reports": 1
+        },
+        "markdown": {
+          "comments": 3,
+          "blanks": 1,
+          "reports": 1
+        },
+        "markdown_rust_child_code": 1,
+        "total": {
+          "code": 5,
+          "comments": 4,
+          "blanks": 2
+        },
+        "hidden_and_ignored_sources_absent": true
+      },
+      "frozen_input_directory": "runtime-fixtures/tokei-input"
+    }
+  ],
+  "accepted_native_runs": 14,
+  "accepted_tokei_runs": 2,
+  "retained_initial_oracle_failures": 2,
+  "unresolved_failures": [],
+  "frozen_expectation_sha256": "781fd1eb7908de02f604536c4e8840748a458f72d5d745bce31e6831d2332c68",
+  "template_corrections": [
+    {
+      "reason": "Proposed measurement templates must use the authoritative 60-second process guard and native subprocesses must use the matching delivered xsh product.",
+      "prior_timeout_seconds": 90,
+      "timeout_seconds": 60,
+      "native_env_added": {
+        "CARGO_BIN_EXE_xsh": "{xsh}"
+      },
+      "prior_frozen_expectation_sha256": "5b27d2065a67cb13be62d32227861901f1fbcefaa15548dcdde961655e882a7d",
+      "frozen_expectation_sha256": "781fd1eb7908de02f604536c4e8840748a458f72d5d745bce31e6831d2332c68",
+      "historical_preflight_timeout_seconds": 90,
+      "historical_runs_and_oracles_unchanged": true,
+      "global_resource_limits_changed": false,
+      "source_or_input_change": false,
+      "measurement_rerun_required": true
+    }
+  ]
+}

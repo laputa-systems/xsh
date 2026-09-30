@@ -1,0 +1,11 @@
+{
+  "status": "failed",
+  "reason": "collector expected severity in frozen signatures; frozen diagnostic snapshots contain only code and message",
+  "exception": "KeyError: severity",
+  "root": "invalid-annotated",
+  "completed_summary_roots": 17,
+  "completed_raw_process_roots": 18,
+  "process_data_invalidated": false,
+  "source_snapshot": "collector-first-pass.py",
+  "partial_summary": "first-pass-partial-summary.json"
+}

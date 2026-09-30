@@ -1,0 +1,5 @@
+# Fixture
+
+```rust
+fn embedded() {}
+```

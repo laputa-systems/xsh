@@ -1,0 +1,4 @@
+err[check.unresolved-name]: unresolved name
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/preserved/annotated-default-parameter-scope-rejected.xsh:1:38
+  pure bad(left: Int = 1, right: Int = left) -> Int { right }
+                                       ^^^^ unresolved name

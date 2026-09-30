@@ -1,0 +1,1674 @@
+{
+  "schema_version": 1,
+  "baseline_commit": "877a114d",
+  "status": "collector-verified; final-cohort-collection-owned-by-measurement-harness",
+  "collector": {
+    "source": "bench/typing/retained_facts.rs",
+    "builder": "bench/typing/build_retained_facts.py",
+    "profiling_only": true,
+    "global_allocator": "xsh::mem_track::CountingAllocator wrapping std::alloc::System",
+    "units": "bytes requested in successful allocator operations; allocator metadata, size-class rounding, page retention, native library allocations, and RSS excluded",
+    "process_model": "one mode and entry per new process; frontend construction and every selective drop run on the same thread",
+    "tracking_interval": "continuous begin_stage before entry read/load/parse until every owned frontend or prepared object is dropped; no end_stage between construction and drops",
+    "untracked_owned_values": "CLI argument storage is created before tracking and retained beyond end_stage; it cannot be freed inside the measured interval",
+    "snapshot_storage": "fixed inline array; no formatting, JSON generation, printing, or allocating result storage between live snapshots",
+    "allocation_traffic": "mem_track alloc_count counts alloc/alloc_zeroed and growing realloc events; alloc_bytes counts allocation requests and growing realloc deltas, rather than the entire replacement block on realloc",
+    "rss": "collected separately from unmodified production binaries; these heap request bytes are never substituted for process RSS"
+  },
+  "retained_fact_contract": {
+    "roots": [
+      "complete CheckOutput, including all maps, sets, annotations, diagnostics, prepared constants, call facts, effects, requirements, projections, and inferred binding/parameter/return facts",
+      "complete CompactDeclOutput, including all declaration maps, qualified maps, schema/default/constant/wire-enum/CLI preparation, diagnostics, and checked consumer views",
+      "complete CompactBodyProbeOutput, including all expression/block/stage/handler types, requirements, projections, diagnostics, and classification sets"
+    ],
+    "bytes": "exact decrease in allocator live request bytes across root destruction when allocation traffic is unchanged; otherwise unavailable/null",
+    "owner_context": "parsed arena, source map, and an explicit SymbolOwner clone stay alive until all fact roots have been destroyed",
+    "inline_storage": "size_of of each materialized output value reported separately once; never added per recursively visited Type or boxed root; inline bytes excluded from mandatory heap comparison",
+    "shared_storage": "counted once in combined union when its last fact owner is dropped; opposite drop orders expose storage held by the other fact view",
+    "scope": "whole finalized frontend output owner retention, including non-type fields; no unsupported claim that only exact typing nodes were isolated",
+    "candidate_policy": "repeat identical source/load/options/lifetime modes against candidate libxsh; include every candidate finalized solved graph/interface pool owner in the root set before freezing candidate measurements; do not leave a solved graph outside the drop roots and call it source/environment",
+    "environment_exclusions": "source, arena/CST/token data and symbol interner ownership remain separately visible in later teardown snapshots; their allocations are not recursively charged to every referring fact"
+  },
+  "modes": {
+    "full": "normal parse/load/full check, followed by full CheckOutput destruction with parsed/source/symbol owners retained",
+    "compact": "normal parse/load/full check records baseline status; discard full output before materializing compact declarations and body views, then destroy both compact roots",
+    "combined-full-first": "retain normal full CheckOutput and both compact outputs together; destroy full, body, declaration roots in that order",
+    "combined-compact-first": "retain the same three roots; destroy body, declaration, full roots in that order",
+    "prepared": "prepare_benchmark_script returns an opaque fully prepared script after the runner has released frontend state; drop it without running any user instruction",
+    "prepared-symbol-context": "extra parse/load retains only its SymbolOwner through prepared artifact destruction; prepared-only names may still cause cleanup allocations; construction traffic includes extra parse and cannot measure ordinary cold startup"
+  },
+  "comparison": {
+    "mandatory_compatibility_bytes": "fact_union_heap_bytes from combined-full-first, validated against combined-compact-first; all finalized typing/interface roots and duplicated consumer views included",
+    "independent_outputs": "full and compact mode fact_union_heap_bytes; these separate constructions are not blindly summed because the combined construction may share backing storage",
+    "shared_lifetime_check": "compare full_drop_heap_bytes and compact_drop_heap_bytes across opposite combined drop orders; each pair must sum to that run's unique union",
+    "observation_check": "All fact modes match in parse/full checker status, expression fact count, source closure count/bytes, and unchanged diagnostic fingerprint. Reference rows independently compare unmodified baseline xsht check exit status and uninstrumented ordinary verified-preparation probe status. Future final cohort collection must retain the same observation checks.",
+    "diagnostic_fingerprint": "DefaultHasher over unchanged diagnostic messages/codes/spans/severities and labels, computed without formatting; toolchain-local consistency fingerprint, not a source identity hash",
+    "invalid_collection": "nonzero helper exit, missing JSON, absent tracking, drop-time allocation, changed baseline status, or inconsistent opposite-order union is a collection failure; absent counters never become zero"
+  },
+  "reconciliation": {
+    "facts_finalized_live_bytes": "independent live snapshot before any fact root destruction",
+    "fact_drop_delta": "observed union owner destruction, not a recursive type or map-capacity estimate",
+    "parsed_source_symbol_deltas": "separate observed owner teardown net live differences; signed because symbol release may allocate reusable interner capacity",
+    "final_external_residual_live_bytes": "observed allocations still live after every explicitly owned object is gone; process globals/interner reusable capacity remain disclosed rather than forced to zero",
+    "equation": "facts-finalized live = observed fact drop + observed parsed drop + observed source drop + observed symbol-owner drop + observed final external residual",
+    "raw_evidence": "all boundary snapshots include live bytes, peak bytes, allocation event count, and requested allocation traffic so reconciliation is auditable"
+  },
+  "prepared_after_frontend_drop": {
+    "bytes": "exact opaque prepared-owner drop delta on successful preparation; includes evaluator, indexed store, execution plan, environment/source/symbol ownership and retained RunOptions",
+    "execution": "none; owner is destroyed before run",
+    "typing_only_heap_bytes": null,
+    "prepared_pool_bytes": null,
+    "unavailable_reason": "public prepared-script facade does not expose the encapsulated evaluator or independently attributable pool owners; no internal source instrumentation was added",
+    "cleanup_traffic": "prepared_drop_net_heap_bytes is the signed observed live decrease; prepared_drop_alloc_count/bytes disclose destruction-time traffic; exact owner-only bytes remain null when that traffic is nonzero",
+    "symbol_context": "prepared-symbol-context holds parsed names externally until after artifact drop; exact bytes exclude externally owned symbols and interner storage; preparation-only symbols can still require cleanup allocation"
+  },
+  "work_counters": {
+    "type_row_scheme_constraint_reason_nodes": null,
+    "unifications_occurs_level_visits_instantiations": null,
+    "row_visits_candidate_tests_queue_wakeups_revisits": null,
+    "effect_edges_source_body_visits_module_solves": null,
+    "flow_fixed_point_visits_diagnostic_rendering": null,
+    "reason": "baseline does not expose mutable solver work counters through this collector"
+  },
+  "verification": {
+    "self_tests": [
+      "boxed_type_single_heap_allocation",
+      "record_alias_owns_independent_backing",
+      "shared_graph_last_owner_drop"
+    ],
+    "reference_measurements": [
+      {
+        "entry": "tests/fixtures/sema/valid-proc-command.xsh",
+        "entry_sha256": "429cf2dd96f220703d022a68661d6ddfcfde8782a6eff5e12344cba4dddd7bf4",
+        "measurements": [
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "full",
+            "tracking_active": true,
+            "parse_errors": 0,
+            "full_check_errors": 0,
+            "full_output_present": true,
+            "diagnostic_fingerprint": "d1fba762150c532c",
+            "compact_errors": null,
+            "source_files": 1,
+            "source_bytes": 62,
+            "full_expr_types": 4,
+            "compact_expr_types": null,
+            "fact_union_heap_bytes": 3516,
+            "full_drop_heap_bytes": 3516,
+            "compact_drop_heap_bytes": null,
+            "fact_drop_exact": true,
+            "facts_stack_storage_bytes": 864,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_pool_bytes": null,
+            "solver_work_counters": null,
+            "reconciliation": {
+              "facts_finalized_live_bytes": 1018705,
+              "facts_drop_net_bytes": 3516,
+              "parsed_drop_net_bytes": 1358,
+              "source_drop_net_bytes": 577,
+              "symbol_drop_net_bytes": 124,
+              "final_external_residual_live_bytes": 1013130,
+              "reconciled": true
+            },
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "full_finalized",
+                "live_bytes": 1018705,
+                "peak_bytes": 1061250,
+                "alloc_count": 17457,
+                "alloc_bytes": 1503591
+              },
+              {
+                "name": "facts_finalized",
+                "live_bytes": 1018705,
+                "peak_bytes": 1061250,
+                "alloc_count": 17457,
+                "alloc_bytes": 1503591
+              },
+              {
+                "name": "full_dropped",
+                "live_bytes": 1015189,
+                "peak_bytes": 1061250,
+                "alloc_count": 17457,
+                "alloc_bytes": 1503591
+              },
+              {
+                "name": "body_dropped",
+                "live_bytes": 1015189,
+                "peak_bytes": 1061250,
+                "alloc_count": 17457,
+                "alloc_bytes": 1503591
+              },
+              {
+                "name": "all_facts_dropped",
+                "live_bytes": 1015189,
+                "peak_bytes": 1061250,
+                "alloc_count": 17457,
+                "alloc_bytes": 1503591
+              },
+              {
+                "name": "parsed_dropped",
+                "live_bytes": 1013831,
+                "peak_bytes": 1061250,
+                "alloc_count": 17457,
+                "alloc_bytes": 1503591
+              },
+              {
+                "name": "sources_dropped",
+                "live_bytes": 1013254,
+                "peak_bytes": 1061250,
+                "alloc_count": 17457,
+                "alloc_bytes": 1503591
+              },
+              {
+                "name": "symbol_owner_dropped",
+                "live_bytes": 1013130,
+                "peak_bytes": 1061250,
+                "alloc_count": 17458,
+                "alloc_bytes": 1503607
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "compact",
+            "tracking_active": true,
+            "parse_errors": 0,
+            "full_check_errors": 0,
+            "full_output_present": true,
+            "diagnostic_fingerprint": "d1fba762150c532c",
+            "compact_errors": 0,
+            "source_files": 1,
+            "source_bytes": 62,
+            "full_expr_types": 4,
+            "compact_expr_types": 5,
+            "fact_union_heap_bytes": 13692,
+            "full_drop_heap_bytes": null,
+            "compact_drop_heap_bytes": 13692,
+            "fact_drop_exact": true,
+            "facts_stack_storage_bytes": 1760,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_pool_bytes": null,
+            "solver_work_counters": null,
+            "reconciliation": {
+              "facts_finalized_live_bytes": 1028881,
+              "facts_drop_net_bytes": 13692,
+              "parsed_drop_net_bytes": 1358,
+              "source_drop_net_bytes": 577,
+              "symbol_drop_net_bytes": 124,
+              "final_external_residual_live_bytes": 1013130,
+              "reconciled": true
+            },
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "full_finalized",
+                "live_bytes": 1018705,
+                "peak_bytes": 1061250,
+                "alloc_count": 17457,
+                "alloc_bytes": 1503591
+              },
+              {
+                "name": "full_discarded_before_compact",
+                "live_bytes": 1015189,
+                "peak_bytes": 1061250,
+                "alloc_count": 17457,
+                "alloc_bytes": 1503591
+              },
+              {
+                "name": "facts_finalized",
+                "live_bytes": 1028881,
+                "peak_bytes": 1075804,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "full_dropped",
+                "live_bytes": 1028881,
+                "peak_bytes": 1075804,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "body_dropped",
+                "live_bytes": 1028265,
+                "peak_bytes": 1075804,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "all_facts_dropped",
+                "live_bytes": 1015189,
+                "peak_bytes": 1075804,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "parsed_dropped",
+                "live_bytes": 1013831,
+                "peak_bytes": 1075804,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "sources_dropped",
+                "live_bytes": 1013254,
+                "peak_bytes": 1075804,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "symbol_owner_dropped",
+                "live_bytes": 1013130,
+                "peak_bytes": 1075804,
+                "alloc_count": 19059,
+                "alloc_bytes": 1817993
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "combined-full-first",
+            "tracking_active": true,
+            "parse_errors": 0,
+            "full_check_errors": 0,
+            "full_output_present": true,
+            "diagnostic_fingerprint": "d1fba762150c532c",
+            "compact_errors": 0,
+            "source_files": 1,
+            "source_bytes": 62,
+            "full_expr_types": 4,
+            "compact_expr_types": 5,
+            "fact_union_heap_bytes": 17208,
+            "full_drop_heap_bytes": 3516,
+            "compact_drop_heap_bytes": 13692,
+            "fact_drop_exact": true,
+            "facts_stack_storage_bytes": 2624,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_pool_bytes": null,
+            "solver_work_counters": null,
+            "reconciliation": {
+              "facts_finalized_live_bytes": 1032397,
+              "facts_drop_net_bytes": 17208,
+              "parsed_drop_net_bytes": 1358,
+              "source_drop_net_bytes": 577,
+              "symbol_drop_net_bytes": 124,
+              "final_external_residual_live_bytes": 1013130,
+              "reconciled": true
+            },
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "full_finalized",
+                "live_bytes": 1018705,
+                "peak_bytes": 1061250,
+                "alloc_count": 17457,
+                "alloc_bytes": 1503591
+              },
+              {
+                "name": "facts_finalized",
+                "live_bytes": 1032397,
+                "peak_bytes": 1079320,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "full_dropped",
+                "live_bytes": 1028881,
+                "peak_bytes": 1079320,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "body_dropped",
+                "live_bytes": 1028265,
+                "peak_bytes": 1079320,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "all_facts_dropped",
+                "live_bytes": 1015189,
+                "peak_bytes": 1079320,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "parsed_dropped",
+                "live_bytes": 1013831,
+                "peak_bytes": 1079320,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "sources_dropped",
+                "live_bytes": 1013254,
+                "peak_bytes": 1079320,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "symbol_owner_dropped",
+                "live_bytes": 1013130,
+                "peak_bytes": 1079320,
+                "alloc_count": 19059,
+                "alloc_bytes": 1817993
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "combined-compact-first",
+            "tracking_active": true,
+            "parse_errors": 0,
+            "full_check_errors": 0,
+            "full_output_present": true,
+            "diagnostic_fingerprint": "d1fba762150c532c",
+            "compact_errors": 0,
+            "source_files": 1,
+            "source_bytes": 62,
+            "full_expr_types": 4,
+            "compact_expr_types": 5,
+            "fact_union_heap_bytes": 17208,
+            "full_drop_heap_bytes": 3516,
+            "compact_drop_heap_bytes": 13692,
+            "fact_drop_exact": true,
+            "facts_stack_storage_bytes": 2624,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_pool_bytes": null,
+            "solver_work_counters": null,
+            "reconciliation": {
+              "facts_finalized_live_bytes": 1032397,
+              "facts_drop_net_bytes": 17208,
+              "parsed_drop_net_bytes": 1358,
+              "source_drop_net_bytes": 577,
+              "symbol_drop_net_bytes": 124,
+              "final_external_residual_live_bytes": 1013130,
+              "reconciled": true
+            },
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "full_finalized",
+                "live_bytes": 1018705,
+                "peak_bytes": 1061250,
+                "alloc_count": 17457,
+                "alloc_bytes": 1503591
+              },
+              {
+                "name": "facts_finalized",
+                "live_bytes": 1032397,
+                "peak_bytes": 1079320,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "body_dropped",
+                "live_bytes": 1031781,
+                "peak_bytes": 1079320,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "compact_dropped",
+                "live_bytes": 1018705,
+                "peak_bytes": 1079320,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "all_facts_dropped",
+                "live_bytes": 1015189,
+                "peak_bytes": 1079320,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "parsed_dropped",
+                "live_bytes": 1013831,
+                "peak_bytes": 1079320,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "sources_dropped",
+                "live_bytes": 1013254,
+                "peak_bytes": 1079320,
+                "alloc_count": 19058,
+                "alloc_bytes": 1817977
+              },
+              {
+                "name": "symbol_owner_dropped",
+                "live_bytes": 1013130,
+                "peak_bytes": 1079320,
+                "alloc_count": 19059,
+                "alloc_bytes": 1817993
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "prepared",
+            "tracking_active": true,
+            "preparation_succeeded": true,
+            "preparation_exit_status": null,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_drop_net_heap_bytes": 3421,
+            "prepared_drop_alloc_bytes": 16,
+            "prepared_drop_alloc_count": 1,
+            "prepared_pool_bytes": null,
+            "prepared_typing_only_heap_bytes": null,
+            "solver_work_counters": null,
+            "final_external_residual_live_bytes": 1013130,
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "before_preparation",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "prepared_after_frontend_drop",
+                "live_bytes": 1016551,
+                "peak_bytes": 1081373,
+                "alloc_count": 19215,
+                "alloc_bytes": 1831873
+              },
+              {
+                "name": "prepared_dropped",
+                "live_bytes": 1013130,
+                "peak_bytes": 1081373,
+                "alloc_count": 19216,
+                "alloc_bytes": 1831889
+              },
+              {
+                "name": "symbol_context_dropped",
+                "live_bytes": 1013130,
+                "peak_bytes": 1081373,
+                "alloc_count": 19216,
+                "alloc_bytes": 1831889
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "prepared-symbol-context",
+            "tracking_active": true,
+            "preparation_succeeded": true,
+            "preparation_exit_status": null,
+            "prepared_after_frontend_drop_heap_bytes": 3389,
+            "prepared_drop_net_heap_bytes": 3389,
+            "prepared_drop_alloc_bytes": 0,
+            "prepared_drop_alloc_count": 0,
+            "prepared_pool_bytes": null,
+            "prepared_typing_only_heap_bytes": null,
+            "solver_work_counters": null,
+            "final_external_residual_live_bytes": 1013130,
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "before_preparation",
+                "live_bytes": 1013254,
+                "peak_bytes": 1050901,
+                "alloc_count": 16729,
+                "alloc_bytes": 1357983
+              },
+              {
+                "name": "prepared_after_frontend_drop",
+                "live_bytes": 1016643,
+                "peak_bytes": 1081465,
+                "alloc_count": 19292,
+                "alloc_bytes": 1835905
+              },
+              {
+                "name": "prepared_dropped",
+                "live_bytes": 1013254,
+                "peak_bytes": 1081465,
+                "alloc_count": 19292,
+                "alloc_bytes": 1835905
+              },
+              {
+                "name": "symbol_context_dropped",
+                "live_bytes": 1013130,
+                "peak_bytes": 1081465,
+                "alloc_count": 19293,
+                "alloc_bytes": 1835921
+              }
+            ]
+          }
+        ],
+        "baseline_xsht_check": {
+          "exit_status": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "uninstrumented_preparation_probe": {
+          "exit_status": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "status_observations_preserved": true
+      },
+      {
+        "entry": "tests/fixtures/sema/invalid/unchecked-json-boundary.xsh",
+        "entry_sha256": "cc8f38a996deb22832def98109a8dd85e86942c5122f855d461c239ea137e26c",
+        "measurements": [
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "full",
+            "tracking_active": true,
+            "parse_errors": 0,
+            "full_check_errors": 2,
+            "full_output_present": true,
+            "diagnostic_fingerprint": "0d125183d014eed5",
+            "compact_errors": null,
+            "source_files": 1,
+            "source_bytes": 88,
+            "full_expr_types": 3,
+            "compact_expr_types": null,
+            "fact_union_heap_bytes": 2866,
+            "full_drop_heap_bytes": 2866,
+            "compact_drop_heap_bytes": null,
+            "fact_drop_exact": true,
+            "facts_stack_storage_bytes": 864,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_pool_bytes": null,
+            "solver_work_counters": null,
+            "reconciliation": {
+              "facts_finalized_live_bytes": 1079196,
+              "facts_drop_net_bytes": 2866,
+              "parsed_drop_net_bytes": 1568,
+              "source_drop_net_bytes": 584,
+              "symbol_drop_net_bytes": 208,
+              "final_external_residual_live_bytes": 1073970,
+              "reconciled": true
+            },
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "full_finalized",
+                "live_bytes": 1079196,
+                "peak_bytes": 1130806,
+                "alloc_count": 19023,
+                "alloc_bytes": 1748702
+              },
+              {
+                "name": "facts_finalized",
+                "live_bytes": 1079196,
+                "peak_bytes": 1130806,
+                "alloc_count": 19023,
+                "alloc_bytes": 1748702
+              },
+              {
+                "name": "full_dropped",
+                "live_bytes": 1076330,
+                "peak_bytes": 1130806,
+                "alloc_count": 19023,
+                "alloc_bytes": 1748702
+              },
+              {
+                "name": "body_dropped",
+                "live_bytes": 1076330,
+                "peak_bytes": 1130806,
+                "alloc_count": 19023,
+                "alloc_bytes": 1748702
+              },
+              {
+                "name": "all_facts_dropped",
+                "live_bytes": 1076330,
+                "peak_bytes": 1130806,
+                "alloc_count": 19023,
+                "alloc_bytes": 1748702
+              },
+              {
+                "name": "parsed_dropped",
+                "live_bytes": 1074762,
+                "peak_bytes": 1130806,
+                "alloc_count": 19023,
+                "alloc_bytes": 1748702
+              },
+              {
+                "name": "sources_dropped",
+                "live_bytes": 1074178,
+                "peak_bytes": 1130806,
+                "alloc_count": 19023,
+                "alloc_bytes": 1748702
+              },
+              {
+                "name": "symbol_owner_dropped",
+                "live_bytes": 1073970,
+                "peak_bytes": 1130806,
+                "alloc_count": 19025,
+                "alloc_bytes": 1748734
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "compact",
+            "tracking_active": true,
+            "parse_errors": 0,
+            "full_check_errors": 2,
+            "full_output_present": true,
+            "diagnostic_fingerprint": "0d125183d014eed5",
+            "compact_errors": 2,
+            "source_files": 1,
+            "source_bytes": 88,
+            "full_expr_types": 3,
+            "compact_expr_types": 5,
+            "fact_union_heap_bytes": 13852,
+            "full_drop_heap_bytes": null,
+            "compact_drop_heap_bytes": 13852,
+            "fact_drop_exact": true,
+            "facts_stack_storage_bytes": 1760,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_pool_bytes": null,
+            "solver_work_counters": null,
+            "reconciliation": {
+              "facts_finalized_live_bytes": 1090182,
+              "facts_drop_net_bytes": 13852,
+              "parsed_drop_net_bytes": 1568,
+              "source_drop_net_bytes": 584,
+              "symbol_drop_net_bytes": 208,
+              "final_external_residual_live_bytes": 1073970,
+              "reconciled": true
+            },
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "full_finalized",
+                "live_bytes": 1079196,
+                "peak_bytes": 1130806,
+                "alloc_count": 19023,
+                "alloc_bytes": 1748702
+              },
+              {
+                "name": "full_discarded_before_compact",
+                "live_bytes": 1076330,
+                "peak_bytes": 1130806,
+                "alloc_count": 19023,
+                "alloc_bytes": 1748702
+              },
+              {
+                "name": "facts_finalized",
+                "live_bytes": 1090182,
+                "peak_bytes": 1145582,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "full_dropped",
+                "live_bytes": 1090182,
+                "peak_bytes": 1145582,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "body_dropped",
+                "live_bytes": 1089802,
+                "peak_bytes": 1145582,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "all_facts_dropped",
+                "live_bytes": 1076330,
+                "peak_bytes": 1145582,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "parsed_dropped",
+                "live_bytes": 1074762,
+                "peak_bytes": 1145582,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "sources_dropped",
+                "live_bytes": 1074178,
+                "peak_bytes": 1145582,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "symbol_owner_dropped",
+                "live_bytes": 1073970,
+                "peak_bytes": 1145582,
+                "alloc_count": 21215,
+                "alloc_bytes": 2116131
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "combined-full-first",
+            "tracking_active": true,
+            "parse_errors": 0,
+            "full_check_errors": 2,
+            "full_output_present": true,
+            "diagnostic_fingerprint": "0d125183d014eed5",
+            "compact_errors": 2,
+            "source_files": 1,
+            "source_bytes": 88,
+            "full_expr_types": 3,
+            "compact_expr_types": 5,
+            "fact_union_heap_bytes": 16718,
+            "full_drop_heap_bytes": 2866,
+            "compact_drop_heap_bytes": 13852,
+            "fact_drop_exact": true,
+            "facts_stack_storage_bytes": 2624,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_pool_bytes": null,
+            "solver_work_counters": null,
+            "reconciliation": {
+              "facts_finalized_live_bytes": 1093048,
+              "facts_drop_net_bytes": 16718,
+              "parsed_drop_net_bytes": 1568,
+              "source_drop_net_bytes": 584,
+              "symbol_drop_net_bytes": 208,
+              "final_external_residual_live_bytes": 1073970,
+              "reconciled": true
+            },
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "full_finalized",
+                "live_bytes": 1079196,
+                "peak_bytes": 1130806,
+                "alloc_count": 19023,
+                "alloc_bytes": 1748702
+              },
+              {
+                "name": "facts_finalized",
+                "live_bytes": 1093048,
+                "peak_bytes": 1148448,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "full_dropped",
+                "live_bytes": 1090182,
+                "peak_bytes": 1148448,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "body_dropped",
+                "live_bytes": 1089802,
+                "peak_bytes": 1148448,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "all_facts_dropped",
+                "live_bytes": 1076330,
+                "peak_bytes": 1148448,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "parsed_dropped",
+                "live_bytes": 1074762,
+                "peak_bytes": 1148448,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "sources_dropped",
+                "live_bytes": 1074178,
+                "peak_bytes": 1148448,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "symbol_owner_dropped",
+                "live_bytes": 1073970,
+                "peak_bytes": 1148448,
+                "alloc_count": 21215,
+                "alloc_bytes": 2116131
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "combined-compact-first",
+            "tracking_active": true,
+            "parse_errors": 0,
+            "full_check_errors": 2,
+            "full_output_present": true,
+            "diagnostic_fingerprint": "0d125183d014eed5",
+            "compact_errors": 2,
+            "source_files": 1,
+            "source_bytes": 88,
+            "full_expr_types": 3,
+            "compact_expr_types": 5,
+            "fact_union_heap_bytes": 16718,
+            "full_drop_heap_bytes": 2866,
+            "compact_drop_heap_bytes": 13852,
+            "fact_drop_exact": true,
+            "facts_stack_storage_bytes": 2624,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_pool_bytes": null,
+            "solver_work_counters": null,
+            "reconciliation": {
+              "facts_finalized_live_bytes": 1093048,
+              "facts_drop_net_bytes": 16718,
+              "parsed_drop_net_bytes": 1568,
+              "source_drop_net_bytes": 584,
+              "symbol_drop_net_bytes": 208,
+              "final_external_residual_live_bytes": 1073970,
+              "reconciled": true
+            },
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "full_finalized",
+                "live_bytes": 1079196,
+                "peak_bytes": 1130806,
+                "alloc_count": 19023,
+                "alloc_bytes": 1748702
+              },
+              {
+                "name": "facts_finalized",
+                "live_bytes": 1093048,
+                "peak_bytes": 1148448,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "body_dropped",
+                "live_bytes": 1092668,
+                "peak_bytes": 1148448,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "compact_dropped",
+                "live_bytes": 1079196,
+                "peak_bytes": 1148448,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "all_facts_dropped",
+                "live_bytes": 1076330,
+                "peak_bytes": 1148448,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "parsed_dropped",
+                "live_bytes": 1074762,
+                "peak_bytes": 1148448,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "sources_dropped",
+                "live_bytes": 1074178,
+                "peak_bytes": 1148448,
+                "alloc_count": 21213,
+                "alloc_bytes": 2116099
+              },
+              {
+                "name": "symbol_owner_dropped",
+                "live_bytes": 1073970,
+                "peak_bytes": 1148448,
+                "alloc_count": 21215,
+                "alloc_bytes": 2116131
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "prepared",
+            "tracking_active": true,
+            "preparation_succeeded": false,
+            "preparation_exit_status": 2,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_drop_net_heap_bytes": 1024,
+            "prepared_drop_alloc_bytes": 0,
+            "prepared_drop_alloc_count": 0,
+            "prepared_pool_bytes": null,
+            "prepared_typing_only_heap_bytes": null,
+            "solver_work_counters": null,
+            "final_external_residual_live_bytes": 1073970,
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "before_preparation",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "prepared_after_frontend_drop",
+                "live_bytes": 1074994,
+                "peak_bytes": 1129943,
+                "alloc_count": 19030,
+                "alloc_bytes": 1750398
+              },
+              {
+                "name": "prepared_dropped",
+                "live_bytes": 1073970,
+                "peak_bytes": 1129943,
+                "alloc_count": 19030,
+                "alloc_bytes": 1750398
+              },
+              {
+                "name": "symbol_context_dropped",
+                "live_bytes": 1073970,
+                "peak_bytes": 1129943,
+                "alloc_count": 19030,
+                "alloc_bytes": 1750398
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "prepared-symbol-context",
+            "tracking_active": true,
+            "preparation_succeeded": false,
+            "preparation_exit_status": 2,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_drop_net_heap_bytes": 1024,
+            "prepared_drop_alloc_bytes": 0,
+            "prepared_drop_alloc_count": 0,
+            "prepared_pool_bytes": null,
+            "prepared_typing_only_heap_bytes": null,
+            "solver_work_counters": null,
+            "final_external_residual_live_bytes": 1073970,
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "before_preparation",
+                "live_bytes": 1013322,
+                "peak_bytes": 1051266,
+                "alloc_count": 16737,
+                "alloc_bytes": 1358452
+              },
+              {
+                "name": "prepared_after_frontend_drop",
+                "live_bytes": 1075186,
+                "peak_bytes": 1130055,
+                "alloc_count": 19112,
+                "alloc_bytes": 1754820
+              },
+              {
+                "name": "prepared_dropped",
+                "live_bytes": 1074162,
+                "peak_bytes": 1130055,
+                "alloc_count": 19112,
+                "alloc_bytes": 1754820
+              },
+              {
+                "name": "symbol_context_dropped",
+                "live_bytes": 1073970,
+                "peak_bytes": 1130055,
+                "alloc_count": 19113,
+                "alloc_bytes": 1754836
+              }
+            ]
+          }
+        ],
+        "baseline_xsht_check": {
+          "exit_status": 2,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "569a48d94fdc54bf499c1555544be94f47be5d4071383b4b325c86fe84fedf31"
+        },
+        "uninstrumented_preparation_probe": {
+          "exit_status": 2,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "569a48d94fdc54bf499c1555544be94f47be5d4071383b4b325c86fe84fedf31"
+        },
+        "status_observations_preserved": true
+      },
+      {
+        "entry": "core/pwd.xsh",
+        "entry_sha256": "7f0215ef713e02b529df6f57dc7fb76eb4b34e389fd17bbe1669aa45cf65a2e8",
+        "measurements": [
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "full",
+            "tracking_active": true,
+            "parse_errors": 0,
+            "full_check_errors": 0,
+            "full_output_present": true,
+            "diagnostic_fingerprint": "d1fba762150c532c",
+            "compact_errors": null,
+            "source_files": 1,
+            "source_bytes": 337,
+            "full_expr_types": 16,
+            "compact_expr_types": null,
+            "fact_union_heap_bytes": 15028,
+            "full_drop_heap_bytes": 15028,
+            "compact_drop_heap_bytes": null,
+            "fact_drop_exact": true,
+            "facts_stack_storage_bytes": 864,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_pool_bytes": null,
+            "solver_work_counters": null,
+            "reconciliation": {
+              "facts_finalized_live_bytes": 1128145,
+              "facts_drop_net_bytes": 15028,
+              "parsed_drop_net_bytes": 3481,
+              "source_drop_net_bytes": 886,
+              "symbol_drop_net_bytes": 408,
+              "final_external_residual_live_bytes": 1108342,
+              "reconciled": true
+            },
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "full_finalized",
+                "live_bytes": 1128145,
+                "peak_bytes": 1195321,
+                "alloc_count": 19592,
+                "alloc_bytes": 1943538
+              },
+              {
+                "name": "facts_finalized",
+                "live_bytes": 1128145,
+                "peak_bytes": 1195321,
+                "alloc_count": 19592,
+                "alloc_bytes": 1943538
+              },
+              {
+                "name": "full_dropped",
+                "live_bytes": 1113117,
+                "peak_bytes": 1195321,
+                "alloc_count": 19592,
+                "alloc_bytes": 1943538
+              },
+              {
+                "name": "body_dropped",
+                "live_bytes": 1113117,
+                "peak_bytes": 1195321,
+                "alloc_count": 19592,
+                "alloc_bytes": 1943538
+              },
+              {
+                "name": "all_facts_dropped",
+                "live_bytes": 1113117,
+                "peak_bytes": 1195321,
+                "alloc_count": 19592,
+                "alloc_bytes": 1943538
+              },
+              {
+                "name": "parsed_dropped",
+                "live_bytes": 1109636,
+                "peak_bytes": 1195321,
+                "alloc_count": 19592,
+                "alloc_bytes": 1943538
+              },
+              {
+                "name": "sources_dropped",
+                "live_bytes": 1108750,
+                "peak_bytes": 1195321,
+                "alloc_count": 19592,
+                "alloc_bytes": 1943538
+              },
+              {
+                "name": "symbol_owner_dropped",
+                "live_bytes": 1108342,
+                "peak_bytes": 1195321,
+                "alloc_count": 19595,
+                "alloc_bytes": 1943602
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "compact",
+            "tracking_active": true,
+            "parse_errors": 0,
+            "full_check_errors": 0,
+            "full_output_present": true,
+            "diagnostic_fingerprint": "d1fba762150c532c",
+            "compact_errors": 0,
+            "source_files": 1,
+            "source_bytes": 337,
+            "full_expr_types": 16,
+            "compact_expr_types": 25,
+            "fact_union_heap_bytes": 28466,
+            "full_drop_heap_bytes": null,
+            "compact_drop_heap_bytes": 28466,
+            "fact_drop_exact": true,
+            "facts_stack_storage_bytes": 1760,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_pool_bytes": null,
+            "solver_work_counters": null,
+            "reconciliation": {
+              "facts_finalized_live_bytes": 1141583,
+              "facts_drop_net_bytes": 28466,
+              "parsed_drop_net_bytes": 3481,
+              "source_drop_net_bytes": 886,
+              "symbol_drop_net_bytes": 408,
+              "final_external_residual_live_bytes": 1108342,
+              "reconciled": true
+            },
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "full_finalized",
+                "live_bytes": 1128145,
+                "peak_bytes": 1195321,
+                "alloc_count": 19592,
+                "alloc_bytes": 1943538
+              },
+              {
+                "name": "full_discarded_before_compact",
+                "live_bytes": 1113117,
+                "peak_bytes": 1195321,
+                "alloc_count": 19592,
+                "alloc_bytes": 1943538
+              },
+              {
+                "name": "facts_finalized",
+                "live_bytes": 1141583,
+                "peak_bytes": 1224374,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "full_dropped",
+                "live_bytes": 1141583,
+                "peak_bytes": 1224374,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "body_dropped",
+                "live_bytes": 1137139,
+                "peak_bytes": 1224374,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "all_facts_dropped",
+                "live_bytes": 1113117,
+                "peak_bytes": 1224374,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "parsed_dropped",
+                "live_bytes": 1109636,
+                "peak_bytes": 1224374,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "sources_dropped",
+                "live_bytes": 1108750,
+                "peak_bytes": 1224374,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "symbol_owner_dropped",
+                "live_bytes": 1108342,
+                "peak_bytes": 1224374,
+                "alloc_count": 23203,
+                "alloc_bytes": 2617135
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "combined-full-first",
+            "tracking_active": true,
+            "parse_errors": 0,
+            "full_check_errors": 0,
+            "full_output_present": true,
+            "diagnostic_fingerprint": "d1fba762150c532c",
+            "compact_errors": 0,
+            "source_files": 1,
+            "source_bytes": 337,
+            "full_expr_types": 16,
+            "compact_expr_types": 25,
+            "fact_union_heap_bytes": 43494,
+            "full_drop_heap_bytes": 15028,
+            "compact_drop_heap_bytes": 28466,
+            "fact_drop_exact": true,
+            "facts_stack_storage_bytes": 2624,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_pool_bytes": null,
+            "solver_work_counters": null,
+            "reconciliation": {
+              "facts_finalized_live_bytes": 1156611,
+              "facts_drop_net_bytes": 43494,
+              "parsed_drop_net_bytes": 3481,
+              "source_drop_net_bytes": 886,
+              "symbol_drop_net_bytes": 408,
+              "final_external_residual_live_bytes": 1108342,
+              "reconciled": true
+            },
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "full_finalized",
+                "live_bytes": 1128145,
+                "peak_bytes": 1195321,
+                "alloc_count": 19592,
+                "alloc_bytes": 1943538
+              },
+              {
+                "name": "facts_finalized",
+                "live_bytes": 1156611,
+                "peak_bytes": 1239402,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "full_dropped",
+                "live_bytes": 1141583,
+                "peak_bytes": 1239402,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "body_dropped",
+                "live_bytes": 1137139,
+                "peak_bytes": 1239402,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "all_facts_dropped",
+                "live_bytes": 1113117,
+                "peak_bytes": 1239402,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "parsed_dropped",
+                "live_bytes": 1109636,
+                "peak_bytes": 1239402,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "sources_dropped",
+                "live_bytes": 1108750,
+                "peak_bytes": 1239402,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "symbol_owner_dropped",
+                "live_bytes": 1108342,
+                "peak_bytes": 1239402,
+                "alloc_count": 23203,
+                "alloc_bytes": 2617135
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "combined-compact-first",
+            "tracking_active": true,
+            "parse_errors": 0,
+            "full_check_errors": 0,
+            "full_output_present": true,
+            "diagnostic_fingerprint": "d1fba762150c532c",
+            "compact_errors": 0,
+            "source_files": 1,
+            "source_bytes": 337,
+            "full_expr_types": 16,
+            "compact_expr_types": 25,
+            "fact_union_heap_bytes": 43494,
+            "full_drop_heap_bytes": 15028,
+            "compact_drop_heap_bytes": 28466,
+            "fact_drop_exact": true,
+            "facts_stack_storage_bytes": 2624,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_pool_bytes": null,
+            "solver_work_counters": null,
+            "reconciliation": {
+              "facts_finalized_live_bytes": 1156611,
+              "facts_drop_net_bytes": 43494,
+              "parsed_drop_net_bytes": 3481,
+              "source_drop_net_bytes": 886,
+              "symbol_drop_net_bytes": 408,
+              "final_external_residual_live_bytes": 1108342,
+              "reconciled": true
+            },
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "full_finalized",
+                "live_bytes": 1128145,
+                "peak_bytes": 1195321,
+                "alloc_count": 19592,
+                "alloc_bytes": 1943538
+              },
+              {
+                "name": "facts_finalized",
+                "live_bytes": 1156611,
+                "peak_bytes": 1239402,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "body_dropped",
+                "live_bytes": 1152167,
+                "peak_bytes": 1239402,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "compact_dropped",
+                "live_bytes": 1128145,
+                "peak_bytes": 1239402,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "all_facts_dropped",
+                "live_bytes": 1113117,
+                "peak_bytes": 1239402,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "parsed_dropped",
+                "live_bytes": 1109636,
+                "peak_bytes": 1239402,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "sources_dropped",
+                "live_bytes": 1108750,
+                "peak_bytes": 1239402,
+                "alloc_count": 23200,
+                "alloc_bytes": 2617071
+              },
+              {
+                "name": "symbol_owner_dropped",
+                "live_bytes": 1108342,
+                "peak_bytes": 1239402,
+                "alloc_count": 23203,
+                "alloc_bytes": 2617135
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "prepared",
+            "tracking_active": true,
+            "preparation_succeeded": true,
+            "preparation_exit_status": null,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_drop_net_heap_bytes": 10111,
+            "prepared_drop_alloc_bytes": 64,
+            "prepared_drop_alloc_count": 3,
+            "prepared_pool_bytes": null,
+            "prepared_typing_only_heap_bytes": null,
+            "solver_work_counters": null,
+            "final_external_residual_live_bytes": 1108342,
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "before_preparation",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "prepared_after_frontend_drop",
+                "live_bytes": 1118453,
+                "peak_bytes": 1240624,
+                "alloc_count": 23518,
+                "alloc_bytes": 2644609
+              },
+              {
+                "name": "prepared_dropped",
+                "live_bytes": 1108342,
+                "peak_bytes": 1240624,
+                "alloc_count": 23521,
+                "alloc_bytes": 2644673
+              },
+              {
+                "name": "symbol_context_dropped",
+                "live_bytes": 1108342,
+                "peak_bytes": 1240624,
+                "alloc_count": 23521,
+                "alloc_bytes": 2644673
+              }
+            ]
+          },
+          {
+            "schema_version": 1,
+            "collector": "allocation-request-owner-drop",
+            "mode": "prepared-symbol-context",
+            "tracking_active": true,
+            "preparation_succeeded": true,
+            "preparation_exit_status": null,
+            "prepared_after_frontend_drop_heap_bytes": null,
+            "prepared_drop_net_heap_bytes": 9951,
+            "prepared_drop_alloc_bytes": 16,
+            "prepared_drop_alloc_count": 1,
+            "prepared_pool_bytes": null,
+            "prepared_typing_only_heap_bytes": null,
+            "solver_work_counters": null,
+            "final_external_residual_live_bytes": 1108342,
+            "snapshots": [
+              {
+                "name": "start",
+                "live_bytes": 0,
+                "peak_bytes": 0,
+                "alloc_count": 0,
+                "alloc_bytes": 0
+              },
+              {
+                "name": "before_preparation",
+                "live_bytes": 1047426,
+                "peak_bytes": 1087841,
+                "alloc_count": 16769,
+                "alloc_bytes": 1430261
+              },
+              {
+                "name": "prepared_after_frontend_drop",
+                "live_bytes": 1118605,
+                "peak_bytes": 1240776,
+                "alloc_count": 23627,
+                "alloc_bytes": 2653007
+              },
+              {
+                "name": "prepared_dropped",
+                "live_bytes": 1108654,
+                "peak_bytes": 1240776,
+                "alloc_count": 23628,
+                "alloc_bytes": 2653023
+              },
+              {
+                "name": "symbol_context_dropped",
+                "live_bytes": 1108342,
+                "peak_bytes": 1240776,
+                "alloc_count": 23630,
+                "alloc_bytes": 2653071
+              }
+            ]
+          }
+        ],
+        "baseline_xsht_check": {
+          "exit_status": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "uninstrumented_preparation_probe": {
+          "exit_status": 0,
+          "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "status_observations_preserved": true
+      }
+    ],
+    "build_provenance": {
+      "library_root": "/Users/josh/d/laputa-systems/xsh-typing-baseline",
+      "library_path": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/build/xsh/d86f876784ff39f3/out/libxsh-d86f876784ff39f3.rlib",
+      "library_sha256": "25b63e793bef6af4e5746943c9e231ba6bf3df8dfbcca0881c4059e9c1e1307b",
+      "metadata_path": "/Users/josh/d/laputa-systems/xsh-typing-baseline/target/release/build/xsh/d86f876784ff39f3/out/libxsh-d86f876784ff39f3.rmeta",
+      "metadata_sha256": "6d60b2909bb6579aa7b5c4c6818f97612a0ae768c51b268e63e3616cdb112d79",
+      "helper_source_sha256": "04521684f2b972d0e2de34621c561cc2bfa4083ec1245178bbf52fb497ceae59",
+      "builder_source_sha256": "a0eeee1c19241539e31a6985f2b1c2ff2fcf52b3d106b54fe9daa603c8d826f1",
+      "helper_binary": "/private/tmp/xsh-typing-retained-facts-baseline",
+      "helper_binary_sha256": "d43aa3357fc99173a376c3464080ff2605887393e850e8423cf025632d3a52b9",
+      "rustc": "rustc 1.100.0-nightly (574ff7d98 2026-09-14)\nbinary: rustc\ncommit-hash: 574ff7d98bd6d037e5236a8453029173b32631fd\ncommit-date: 2026-09-14\nhost: aarch64-apple-darwin\nrelease: 1.100.0-nightly\nLLVM version: 23.1.1",
+      "self_test": {
+        "status": "passed",
+        "tests": [
+          "boxed_type_single_heap_allocation",
+          "record_alias_owns_independent_backing",
+          "shared_graph_last_owner_drop"
+        ]
+      },
+      "profiling_only": true,
+      "product_binaries_modified": false,
+      "features": "inherited from existing libxsh; native-tests preparation facade required",
+      "compiler_options": [
+        "--edition=2024",
+        "-C opt-level=3",
+        "-C debuginfo=0",
+        "-C lto=thin"
+      ],
+      "product_probe": {
+        "source_sha256": "bf1a0e3c1d33d213c21fe4bbb2ff87ff00e315be9576f35b715ca87f97385cb4",
+        "binary": "/private/tmp/xsh-typing-product-probe-baseline",
+        "binary_sha256": "090d00d5e10774cec08bfc932f7672ef4e1c5bfa11b34c25b7a9ce60b815ff61",
+        "allocator": "System, matching production macOS entrypoints",
+        "instrumentation": "none; no custom allocator, clock reads, or work counters",
+        "scope": "whole process through verified preparation and teardown; user instructions never executed"
+      }
+    },
+    "unmodified_baseline_observation_comparison": "passed on valid-proc-command, invalid unchecked-json-boundary, and core/pwd; final cohort comparison remains required"
+  }
+}

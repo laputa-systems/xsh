@@ -1,0 +1,26 @@
+running 24 tests
+tests/xsh/typing-inference-preserved.xsh::annotated_default_parameter_scope_rejected ... ok 16ms
+tests/xsh/typing-inference-preserved.xsh::annotated_effect_bound_rejected ... ok 18ms
+tests/xsh/typing-inference-preserved.xsh::annotated_value_result_statement_rejected ... ok 15ms
+tests/xsh/typing-inference-preserved.xsh::callback_bool_and_result_data ... ok 14ms
+tests/xsh/typing-inference-preserved.xsh::default_order_and_outer_scope ... ok 10ms
+tests/xsh/typing-inference-preserved.xsh::discard_bool_result ... ok 14ms
+tests/xsh/typing-inference-preserved.xsh::discard_initializer_propagation ... ok 14ms
+tests/xsh/typing-inference-preserved.xsh::discard_keeps_control_transfer ... ok 10ms
+tests/xsh/typing-inference-preserved.xsh::empty_proc_success ... ok 11ms
+tests/xsh/typing-inference-preserved.xsh::explicit_data_proc_outward_propagation ... ok 11ms
+tests/xsh/typing-inference-preserved.xsh::explicit_nested_error ... ok 15ms
+tests/xsh/typing-inference-preserved.xsh::explicit_payloads ... ok 14ms
+tests/xsh/typing-inference-preserved.xsh::explicit_propagation_failure ... ok 10ms
+tests/xsh/typing-inference-preserved.xsh::non_tail_concrete_bool ... ok 14ms
+tests/xsh/typing-inference-preserved.xsh::omitted_private_pure_payloads ... ok 10ms
+tests/xsh/typing-inference-preserved.xsh::producer_lazy_default_delegation_cancellation ... ok 16ms
+tests/xsh/typing-inference-preserved.xsh::retry_lexical_return_and_cleanup ... ok 14ms
+tests/xsh/typing-inference-preserved.xsh::statement_result_unit_proc ... ok 10ms
+tests/xsh/typing-inference-preserved.xsh::status_as_data ... ok 28ms
+tests/xsh/typing-inference-preserved.xsh::try_error_only_rejected ... ok 12ms
+tests/xsh/typing-inference-preserved.xsh::try_loop_transfers_and_cleanup ... ok 14ms
+tests/xsh/typing-inference-preserved.xsh::try_one_layer_and_nesting ... ok 11ms
+tests/xsh/typing-inference-preserved.xsh::unit_consuming_assertions ... ok 14ms
+tests/xsh/typing-inference-preserved.xsh::unreachable_does_not_add_unit ... ok 13ms
+test result: ok. 24 passed; 0 failed; 0 skipped

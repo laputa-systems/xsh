@@ -1,0 +1,24 @@
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:21
+  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }
+                      ^ expected `:` or default value after parameter name
+
+err[parse.expected-token]: expected `)` after parameters
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:21
+  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }
+                      ^ expected `)` after parameters
+
+err[parse.expected-token]: expected `{` to start block
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:21
+  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }
+                      ^ expected `{` to start block
+
+err[parse.expected-expression]: expected expression
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:55
+  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }
+                                                        ^^^^ expected expression
+
+err[parse.expected-expression]: expected expression
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-rejection/inferred-result-payload-versus-boundary-rejected.xsh:1:74
+  pure ambiguous(value, flag: Bool) { if flag { value } else { Ok(value) } }
+                                                                           ^ expected expression

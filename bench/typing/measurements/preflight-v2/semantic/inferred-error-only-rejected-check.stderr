@@ -1,0 +1,4 @@
+err[check.infer-return]: pure `failed` needs a return annotation: its return shape is underdetermined
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-rejection/inferred-error-only-rejected.xsh:2:1
+  pure failed() { Err(LocalError.Bad("unknown success")) }
+  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ pure `failed` needs a return annotation: its return shape is underdetermined

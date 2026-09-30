@@ -1,0 +1,227 @@
+{
+  "schema_version": 1,
+  "status": "incomplete",
+  "current_gate": "A",
+  "last_passed_gate": null,
+  "baseline_revision": "877a114d6dc403db32c50f035b38aab7f193147a",
+  "manifest_sha256": "ffc4c7bc3544ed4cae1199b144f65a06f149e895a571f7a702ad2c9446ed9bb8",
+  "denominators": {
+    "eligible_local": 778,
+    "eligible_internal": 2807,
+    "eligible_parameters": 1368,
+    "eligible_returns": 746,
+    "eligible_producer_items": 1,
+    "eligible_effects": 692
+  },
+  "minimum_joint_removals": {
+    "local": 740,
+    "internal": 2386
+  },
+  "gates": {
+    "A": {
+      "status": "incomplete",
+      "reason": "Scope and noise verification ready, final baseline collection interrupted when the user reopened the ergonomics handoff prerequisite. Historical evidence retained; settled handoff and final sample sets required."
+    },
+    "B": {
+      "status": "not-run",
+      "reason": "prerequisite gate has not passed"
+    },
+    "C": {
+      "status": "not-run",
+      "reason": "prerequisite gate has not passed"
+    },
+    "D": {
+      "status": "not-run",
+      "reason": "prerequisite gate has not passed"
+    },
+    "E": {
+      "status": "not-run",
+      "reason": "prerequisite gate has not passed"
+    },
+    "F": {
+      "status": "not-run",
+      "reason": "prerequisite gate has not passed"
+    },
+    "G": {
+      "status": "not-run",
+      "reason": "prerequisite gate has not passed"
+    }
+  },
+  "records": [
+    {
+      "kind": "retained-fact-accounting",
+      "artifact": "baseline-retention.json",
+      "artifact_sha256": "fa0cb50a3a8c115971e03f407c76c23b6ec3924fb0a4679dac586cf0b791fa8f",
+      "status": "passed",
+      "candidate_inference_pass_claim": false
+    },
+    {
+      "kind": "original-stabilized-runtime-observations",
+      "artifact": "baseline-runtime-extra-preflight.json",
+      "artifact_sha256": "6d530c8b1a4fda1521f36fa0e615f2f2a65ed2f1b0509a405151b8a206469b0d",
+      "status": "passed",
+      "candidate_inference_pass_claim": false
+    },
+    {
+      "kind": "baseline-observations",
+      "artifact": "measurements/baseline-observe.jsonl",
+      "artifact_sha256": "d2a5509a274c359d0bba54f08b3edf7f085ab93584126e38a8de0bd512f4d69f",
+      "run_ids": [
+        "3b2d4bc4a31a470cb0405fa670a0c994"
+      ],
+      "process_count": 62,
+      "status": "passed",
+      "measurement_acceptance": false
+    },
+    {
+      "kind": "baseline-observations",
+      "artifact": "measurements/baseline-native-observe.jsonl",
+      "artifact_sha256": "fb6957eb6d4a0db5f6ede088b8fdef93a9587c6a21dd17d74fdaf34e4304ad99",
+      "run_ids": [
+        "dbe09304fc7149a2ad951b42d4065aab"
+      ],
+      "process_count": 7,
+      "status": "passed",
+      "measurement_acceptance": false
+    },
+    {
+      "kind": "baseline-rust-verification",
+      "id": "baseline-semantic",
+      "source_revision": "877a114d6dc403db32c50f035b38aab7f193147a",
+      "working_directory": "/Users/josh/d/laputa-systems/xsh-typing-baseline",
+      "command": "CARGO_BUILD_JOBS=4 cargo test --locked -p xsh --test integration sema:: -- --test-threads=1",
+      "exit_status": 0,
+      "status": "passed",
+      "passed": 173,
+      "failed": 0,
+      "filtered_out": 642,
+      "features": [
+        "native-tests",
+        "net",
+        "tools"
+      ],
+      "profile": "dev",
+      "evidence_file": "baseline-semantic.log",
+      "evidence_sha256": "3b2ae8ca2c2ebdcd381c2bf1a5cbfe4033ab2f869d566effe40652ac2d192e68",
+      "owner_run_exclusions": []
+    },
+    {
+      "kind": "baseline-rust-verification",
+      "id": "baseline-syntax",
+      "source_revision": "877a114d6dc403db32c50f035b38aab7f193147a",
+      "working_directory": "/Users/josh/d/laputa-systems/xsh-typing-baseline",
+      "command": "CARGO_BUILD_JOBS=4 cargo test --locked -p xsh --test integration syntax:: -- --skip syntax::formatter_is_idempotent_on_package_corpus --test-threads=1",
+      "exit_status": 0,
+      "status": "passed",
+      "passed": 155,
+      "failed": 0,
+      "filtered_out": 660,
+      "features": [
+        "native-tests",
+        "net",
+        "tools"
+      ],
+      "profile": "dev",
+      "evidence_file": "baseline-syntax.log",
+      "evidence_sha256": "bb9cb467318098d84cc0d160fac3be09170024a5353acc2d0489283b89d6f43e",
+      "owner_run_exclusions": [
+        "syntax::formatter_is_idempotent_on_package_corpus"
+      ]
+    },
+    {
+      "kind": "baseline-rust-verification",
+      "id": "baseline-interactive-completion",
+      "source_revision": "877a114d6dc403db32c50f035b38aab7f193147a",
+      "command": "CARGO_BUILD_JOBS=4 cargo test --locked -p xsh --test integration runtime::interactive::parity::extended::layout_dump_ctrl_p_leaves_the_screen_alone -- --exact --test-threads=1",
+      "working_directory": "/Users/josh/d/laputa-systems/xsh-typing-baseline",
+      "profile": "dev",
+      "features": [
+        "native-tests",
+        "net",
+        "tools"
+      ],
+      "exit_status": 101,
+      "status": "failed",
+      "passed": 0,
+      "failed": 1,
+      "evidence_file": "baseline-interactive-completion.log",
+      "evidence_sha256": "9a68842daf90997ed8023dc7177d05292534ef1ff8ae018daf7a945d69f72851",
+      "classification": "independently reproduced pre-existing completion golden directory-order mismatch"
+    },
+    {
+      "kind": "baseline-rust-verification",
+      "id": "baseline-process-group",
+      "source_revision": "877a114d6dc403db32c50f035b38aab7f193147a",
+      "command": "CARGO_BUILD_JOBS=4 cargo test --locked -p xsh --test integration runtime::os::os_process_group_boundary_leaves_new_session_to_harness_cleanup -- --exact --test-threads=1",
+      "working_directory": "/Users/josh/d/laputa-systems/xsh-typing-baseline",
+      "profile": "dev",
+      "features": [
+        "native-tests",
+        "net",
+        "tools"
+      ],
+      "exit_status": 0,
+      "status": "passed",
+      "passed": 1,
+      "failed": 0,
+      "evidence_file": "baseline-process-group.log",
+      "evidence_sha256": "47e5a604f92870e2e38380a1615dd49a675f2246190c4c211ddafc3044ca78a0",
+      "classification": "earlier process-group timeout not reproduced on this fresh baseline"
+    },
+    {
+      "kind": "semantic-preserved-observations",
+      "artifact": "semantic-cases.json",
+      "status": "passed",
+      "executed": 24,
+      "scope": "historically accepted or rejected contracts match their independent frozen observations"
+    },
+    {
+      "kind": "semantic-intentional-new-contracts",
+      "artifact": "semantic-cases.json",
+      "status": "not-run",
+      "pending_acceptances": 8,
+      "pending_rejections": 6,
+      "reason": "baseline rejection is captured; new semantic boundaries have not been implemented or verified"
+    },
+    {
+      "kind": "host-measurement-tests",
+      "status": "passed",
+      "command": "python3 -B -m unittest discover -s bench/typing -p test_run.py",
+      "passed": 25,
+      "harness_sha256": "06de7151a02e49c442f11aa0458e3a1a66c750a67ab0ecf9583ac7fe00f94e1e"
+    },
+    {
+      "kind": "scaling-generator-tests",
+      "status": "passed",
+      "command": "python3 -B -m unittest discover -s bench/typing/scaling -p test_scaling.py",
+      "passed": 9,
+      "actual_solver_scaling_status": "not-run"
+    },
+    {
+      "kind": "baseline-noise-pilot",
+      "status": "passed",
+      "artifact": "measurements/baseline-pilot.jsonl",
+      "workloads": 62,
+      "pairs_per_workload": 15,
+      "reason": "collection passed; ten small median uncertainties resolved by full200-pair sets"
+    },
+    {
+      "kind": "baseline-noise-full-verification",
+      "status": "passed",
+      "artifact": "measurements/noise-summary.json",
+      "workloads": 10,
+      "pairs_per_workload": 200,
+      "new_candidate_compiler": false
+    },
+    {
+      "kind": "baseline-final-interruption",
+      "artifact": "measurements/baseline-final-interruption.json",
+      "status": "interrupted",
+      "gate_pass_claim": false
+    }
+  ],
+  "solver_work_counters": null,
+  "candidate_annotation_reduction": null,
+  "candidate_runtime_or_performance_acceptance": null,
+  "prepared_instruction_evidence_bytes": null
+}

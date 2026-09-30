@@ -1,0 +1,4 @@
+err[parse.expected-param-type]: expected `:` or default value after parameter name
+  /Users/josh/d/laputa-systems/xsh-typing-campaign-v2/bench/typing/semantic-cases/intentional-rejection/generic-effect-bound-rejected.xsh:1:15
+  proc bad(value) [] { let _ = time.now(); value }
+                ^ expected `:` or default value after parameter name

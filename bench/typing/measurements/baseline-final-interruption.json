@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "status": "interrupted",
+  "interrupted_at": "2026-09-30T18:55:31.438619+00:00",
+  "reason": "User reopened the ergonomics prerequisite after finding removed standard membership call sites; compiler handoff must be settled before further baseline or inference work.",
+  "artifact": "measurements/baseline-final.jsonl",
+  "artifact_sha256": "9ace0828363c6c0df34f4ceb5108dfa302687f25330e449c05c15d000f40bff0",
+  "rows_retained": 1463,
+  "completed_workload_summaries": [
+    "frontend-small-pwd",
+    "startup-small-pwd",
+    "frontend-small-basename",
+    "startup-small-basename",
+    "frontend-core-ifup",
+    "startup-core-ifup",
+    "frontend-system-report",
+    "startup-system-report"
+  ],
+  "process_rows": 1454,
+  "gate_pass_claim": false,
+  "method": "SIGINT to collector followed by SIGTERM after current child was reaped; collector exit 143. No samples deleted.",
+  "child_cleanup": "No baseline release product processes remained in a subsequent ps audit."
+}
