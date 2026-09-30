@@ -1,2 +1,2 @@
 let files = fs.files(p".")?.collect()
-print $files
+for file in files { print ${file.path.display()} }
