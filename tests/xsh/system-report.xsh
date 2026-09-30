@@ -54,7 +54,7 @@ type SystemReportModel = module {
   export pure parse_cpu_list(text: Str) -> Result[List[Int]]
   export pure select_report_section(report: Record, selected: Str) -> Result[Record]
   export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str]
-  export pure decode_report_json(text: Str) -> Result[Record]
+  export pure decode_report_json(text: Str) -> Result[report_model.SystemReport]
   export pure render_text(report: Record, full: Bool, sensitive: Bool) -> Result[Str]
 }
 
@@ -2647,10 +2647,10 @@ test test_system_report_assembles_network_links_addresses_routes_and_rules [fs, 
 
 test test_system_report_section_selection_marks_excluded_domains [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
-  let source = json_report_fixture()
+  let source = json_report_fixture().require(report_model.SystemReportJson)?
   let report = model.decode_report_json(json.encode(source)?)?
-  let cpu_only = model.select_report_section(report, "cpu")?
-  let cpu_only_wire = json.decode(model.encode_report_json(cpu_only, true, false)?)?
+  let cpu_only = model.select_report_section(report, "cpu")?.require(report_model.SystemReport)?
+  let cpu_only_wire = json.decode(model.encode_report_json(cpu_only, true, false)?)?.require(report_model.SystemReportJson)?
   let cpu_only_text = model.render_text(cpu_only, true, false)?
 
   test.eq(cpu_only.identity.hostname.value, "workstation-name")?
@@ -2694,10 +2694,10 @@ test test_system_report_section_selection_marks_excluded_domains [fs, error] {
 
 test test_system_report_json_round_trip_and_redaction [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
-  let source = json_report_fixture()
+  let source = json_report_fixture().require(report_model.SystemReportJson)?
   let encoded_source = json.encode(source)?
   let decoded = model.decode_report_json(encoded_source)?
-  let decoded_wire = json.decode(model.encode_report_json(decoded, true, false)?)?
+  let decoded_wire = json.decode(model.encode_report_json(decoded, true, false)?)?.require(report_model.SystemReportJson)?
 
   test.eq(decoded.schema_version, 1)?
   test.eq(decoded_wire.source_mode, "synthetic_fixture")?
@@ -2708,7 +2708,7 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
 
   let safe_json = model.encode_report_json(decoded, false, false)?
   let safe = model.decode_report_json(safe_json)?
-  let safe_wire = json.decode(safe_json)?
+  let safe_wire = json.decode(safe_json)?.require(report_model.SystemReportJson)?
   let safe_text = model.render_text(decoded, true, false)?
   test.ok(safe.redacted)?
   test.eq(safe_wire.identity.status.state, "complete")?
@@ -2734,22 +2734,19 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
   test.ok("0000:00:1f.6" not in safe_text)?
   test.eq(safe_wire.issues[1].field, "functions.redacted.vendor_id")?
   test.ok("private PCI source path" not in safe_json)?
-  let vulnerability = safe.cpu.vulnerabilities[0]
-  if vulnerability != null {
+  if let Ok(vulnerability) = safe.cpu.vulnerabilities.get(0) {
     test.eq(vulnerability.description.value, "mitigation active")?
   } else {
     test.fail("CPU vulnerability fixture did not round-trip")?
   }
 
-  let swap = safe.memory.swaps[0]
-  if swap != null {
+  if let Ok(swap) = safe.memory.swaps.get(0) {
     test.eq(safe_wire.memory.swaps[0].name.state, "redacted")?
   } else {
     test.fail("swap fixture did not round-trip")?
   }
 
-  let usb_device = safe.usb.devices[0]
-  if usb_device != null {
+  if let Ok(usb_device) = safe.usb.devices.get(0) {
     test.eq(safe_wire.usb.devices[0].sysfs_name, null)?
     test.eq(safe_wire.usb.devices[0].port_path, null)?
     test.eq(safe_wire.usb.devices[0].bus_number, null)?
@@ -2765,8 +2762,7 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
     test.fail("USB fixture did not round-trip")?
   }
 
-  let block_device = safe.storage.devices[0]
-  if block_device != null {
+  if let Ok(block_device) = safe.storage.devices.get(0) {
     test.eq(safe_wire.storage.devices[0].name, null)?
     test.eq(safe_wire.storage.devices[0].major, null)?
     test.eq(block_device.parent_pci_function_index, 1)?
@@ -2778,8 +2774,7 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
     test.fail("block device fixture did not round-trip")?
   }
 
-  let mount = safe.storage.mounts[0]
-  if mount != null {
+  if let Ok(mount) = safe.storage.mounts.get(0) {
     test.eq(safe_wire.storage.mounts[0].major, null)?
     test.eq(safe_wire.storage.mounts[0].minor, null)?
     test.eq(safe_wire.storage.mounts[0].block_device_index, 0)?
@@ -2795,12 +2790,10 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
     test.fail("mount fixture did not round-trip")?
   }
 
-  let link = safe.network.links[0]
-  if link != null {
+  if let Ok(link) = safe.network.links.get(0) {
     test.eq(safe_wire.network.links[0].mac.state, "redacted")?
     test.eq(safe_wire.network.links[0].attributes[0].data.state, "redacted")?
-    let address = link.addresses[0]
-    if address != null {
+    if let Ok(address) = link.addresses.get(0) {
       test.eq(safe_wire.network.links[0].addresses[0].address.state, "redacted")?
     } else {
       test.fail("network address fixture did not round-trip")?
@@ -2809,8 +2802,7 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
     test.fail("network link fixture did not round-trip")?
   }
 
-  let safe_route = safe.network.routes[0]
-  if safe_route != null {
+  if let Ok(safe_route) = safe.network.routes.get(0) {
     test.eq(safe_route.output_ifindex, 2)?
     test.eq(safe_route.nexthops[0].ifindex, 2)?
     test.eq(safe_route.gateway.state, report_model.Redacted)?
@@ -2822,10 +2814,8 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
 
   test.eq(safe_wire.sensors.channels[0].label.state, "redacted")?
   test.ok("private-sensor-label" not in safe_json)?
-  let firmware_record = safe.firmware.records[0]
-  if firmware_record != null {
-    let firmware_string = firmware_record.strings[0]
-    if firmware_string != null {
+  if let Ok(firmware_record) = safe.firmware.records.get(0) {
+    if let Ok(firmware_string) = firmware_record.strings.get(0) {
       test.eq(safe_wire.firmware.records[0].strings[0].state, "redacted")?
     } else {
       test.fail("firmware string fixture did not round-trip")?
@@ -2834,25 +2824,21 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
     test.fail("firmware record fixture did not round-trip")?
   }
 
-  let kernel_parameter = safe.kernel.parameters[0]
-  if kernel_parameter != null {
+  if let Ok(kernel_parameter) = safe.kernel.parameters.get(0) {
     test.eq(safe_wire.kernel.parameters[0].value.state, "redacted")?
   } else {
     test.fail("kernel parameter fixture did not round-trip")?
   }
 
-  let process_item = safe.processes.processes[0]
-  if process_item != null {
+  if let Ok(process_item) = safe.processes.processes.get(0) {
     test.eq(process_item.command.value, "worker")?
     test.eq(safe_wire.processes.processes[0].cgroup.state, "redacted")?
   } else {
     test.fail("process fixture did not round-trip")?
   }
 
-  let device = safe.devices.devices[0]
-  if device != null {
-    let attribute = device.attributes[0]
-    if attribute != null {
+  if let Ok(device) = safe.devices.devices.get(0) {
+    if let Ok(attribute) = device.attributes.get(0) {
       test.eq(safe_wire.devices.devices[0].attributes[0].value.state, "redacted")?
     } else {
       test.fail("device attribute fixture did not round-trip")?
@@ -2861,8 +2847,7 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
     test.fail("device fixture did not round-trip")?
   }
 
-  let issue = safe.issues[0]
-  if issue != null {
+  if let Ok(issue) = safe.issues.get(0) {
     test.eq(safe_wire.issues[0].detail.state, "redacted")?
   } else {
     test.fail("issue fixture did not round-trip")?
@@ -3114,7 +3099,7 @@ test test_system_report_replay_withholds_mount_credentials_in_sensitive_json [fs
 
 test test_system_report_text_output_escapes_untrusted_controls [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
-  let source = json_report_fixture()
+  let source = json_report_fixture().require(report_model.SystemReportJson)?
   let hostile_scope = {
     ...source.scope,
     host_claim: "host\u{202e}name\u{1b}[31m",
@@ -3143,7 +3128,7 @@ attack""" not in rendered,
 
 test test_system_report_full_text_renders_numeric_relationship_lists [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
-  let source = json_report_fixture()
+  let source = json_report_fixture().require(report_model.SystemReportJson)?
   let cache = {
     id: 3,
     sysfs_index: 0,
@@ -3159,7 +3144,7 @@ test test_system_report_full_text_renders_numeric_relationship_lists [fs, error]
     ],
   }
   let with_cache = json.set(source, ["cpu", "caches"], [cache])?
-  let disk = json.get(source, ["storage", "devices", 0])?.require(Record)?
+  let disk = source.storage.devices[0]
   let with_devices = json.set(
     with_cache,
     ["storage", "devices"],
@@ -3244,7 +3229,7 @@ test test_system_report_command_rejects_malformed_replay [fs, process, error] { 
   test.contains(utf8_stderr.read_text()?, "not valid UTF-8")?
 
   let unsupported_path = test.temp_path(ctx, name: "system-report-unsupported-schema.json")
-  unsupported_path.write(json.encode({...json_report_fixture(), schema_version: 99})?)?
+  unsupported_path.write(json.encode({...json_report_fixture().require(report_model.SystemReportJson)?, schema_version: 99})?)?
   let unsupported_stderr = test.temp_path(ctx, name: "system-report-unsupported-schema.stderr")
   let unsupported_status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $unsupported_path 2> $unsupported_stderr
   test.ok(! unsupported_status.exited_with(0))?
