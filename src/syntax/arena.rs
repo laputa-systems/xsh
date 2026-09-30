@@ -3132,6 +3132,10 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.push_expr_kind(ArenaExprKind::ErrorContext { message, block }, span)
     }
 
+    pub fn push_context_scope_expr(&mut self, kind: ContextScopeKind, input: ExprId, block: BlockId, value_body: bool, span: Span) -> ExprId {
+        self.lowerer.push_expr_kind(ArenaExprKind::ContextScope { kind, input, block, value_body }, span)
+    }
+
     pub fn push_value_block_expr(&mut self, block: BlockId, span: Span) -> ExprId {
         self.lowerer.push_expr_kind(ArenaExprKind::ValueBlock(block), span)
     }
@@ -4159,6 +4163,11 @@ impl AstArena {
             ArenaExprTag::Capture => ArenaExprKind::Capture(BlockId::new(data.lhs as usize)),
             ArenaExprTag::ValueBlock => ArenaExprKind::ValueBlock(BlockId::new(data.lhs as usize)),
             ArenaExprTag::ErrorContext => ArenaExprKind::ErrorContext { message: ExprId::new(data.lhs as usize), block: BlockId::new(data.rhs as usize) },
+            ArenaExprTag::CdScope | ArenaExprTag::EnvScope | ArenaExprTag::CdStatementScope | ArenaExprTag::EnvStatementScope => ArenaExprKind::ContextScope {
+                kind: if matches!(tag, ArenaExprTag::CdScope | ArenaExprTag::CdStatementScope) { ContextScopeKind::Cwd } else { ContextScopeKind::Env },
+                input: ExprId::new(data.lhs as usize), block: BlockId::new(data.rhs as usize),
+                value_body: matches!(tag, ArenaExprTag::CdScope | ArenaExprTag::EnvScope),
+            },
             ArenaExprTag::Loop => ArenaExprKind::Loop {
                 block: BlockId::new(data.lhs as usize),
             },
@@ -5256,6 +5265,10 @@ pub enum ArenaExprTag {
     Retry,
     ValueBlock,
     ErrorContext,
+    CdScope,
+    EnvScope,
+    CdStatementScope,
+    EnvStatementScope,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -5293,6 +5306,9 @@ impl ArenaCompQualifier {
         match self { Self::For { span, .. } | Self::If { span, .. } => span }
     }
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ContextScopeKind { Cwd, Env }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ArenaExprKind {
@@ -5413,6 +5429,7 @@ pub enum ArenaExprKind {
     },
     ValueBlock(BlockId),
     ErrorContext { message: ExprId, block: BlockId },
+    ContextScope { kind: ContextScopeKind, input: ExprId, block: BlockId, value_body: bool },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -6554,6 +6571,14 @@ impl ArenaLowerer<'_> {
             ArenaExprKind::Capture(block) => (ArenaExprTag::Capture, ArenaExprData::new(raw_block_id(block), 0)),
             ArenaExprKind::ValueBlock(block) => (ArenaExprTag::ValueBlock, ArenaExprData::new(raw_block_id(block), 0)),
             ArenaExprKind::ErrorContext { message, block } => (ArenaExprTag::ErrorContext, ArenaExprData::new(raw_expr_id(message), raw_block_id(block))),
+            ArenaExprKind::ContextScope { kind, input, block, value_body } => (
+                match (kind, value_body) {
+                    (ContextScopeKind::Cwd, true) => ArenaExprTag::CdScope,
+                    (ContextScopeKind::Env, true) => ArenaExprTag::EnvScope,
+                    (ContextScopeKind::Cwd, false) => ArenaExprTag::CdStatementScope,
+                    (ContextScopeKind::Env, false) => ArenaExprTag::EnvStatementScope,
+                }, ArenaExprData::new(raw_expr_id(input), raw_block_id(block)),
+            ),
             ArenaExprKind::Loop { block } => (
                 ArenaExprTag::Loop,
                 ArenaExprData::new(raw_block_id(block), 0),

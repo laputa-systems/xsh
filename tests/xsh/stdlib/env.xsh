@@ -17,12 +17,12 @@ pure int_failure(result: Result[Int]) -> Str {
 }
 
 test test_env_get_or_yields_the_fallback_only_for_an_unset_name [env, error] {
-  env {
-    XSH_ENV_EMPTY = ""
-    XSH_ENV_TEXT = "value"
-    XSH_ENV_SPACED = "  keep  "
-    XSH_ENV_UNICODE = "h\u{e9}llo"
-  } {
+  env ({
+    XSH_ENV_EMPTY: "",
+    XSH_ENV_TEXT: "value",
+    XSH_ENV_SPACED: "  keep  ",
+    XSH_ENV_UNICODE: "h\u{e9}llo",
+  }) {
     # An unset name yields the fallback, defaulted or explicit, and the
     # fallback is not evaluated when the name is set.
     test.eq(env.get_or("XSH_ENV_ABSENT")?, "")?
@@ -48,22 +48,22 @@ test test_env_get_or_yields_the_fallback_only_for_an_unset_name [env, error] {
 }
 
 test test_env_bool_accepts_only_the_baseline_spellings [env, error] {
-  env {
-    XSH_ENV_BOOL_ONE = "1"
-    XSH_ENV_BOOL_TRUE = "true"
-    XSH_ENV_BOOL_YES = "yes"
-    XSH_ENV_BOOL_ON = "on"
-    XSH_ENV_BOOL_MIXED = "  TRUE  "
-    XSH_ENV_BOOL_ZERO = "0"
-    XSH_ENV_BOOL_FALSE = "false"
-    XSH_ENV_BOOL_NO = "no"
-    XSH_ENV_BOOL_OFF = "off"
-    XSH_ENV_BOOL_Y = "y"
-    XSH_ENV_BOOL_T = "t"
-    XSH_ENV_BOOL_TWO = "2"
-    XSH_ENV_BOOL_EMPTY = ""
-    XSH_ENV_BOOL_FRENCH = "vrai"
-  } {
+  env ({
+    XSH_ENV_BOOL_ONE: "1",
+    XSH_ENV_BOOL_TRUE: "true",
+    XSH_ENV_BOOL_YES: "yes",
+    XSH_ENV_BOOL_ON: "on",
+    XSH_ENV_BOOL_MIXED: "  TRUE  ",
+    XSH_ENV_BOOL_ZERO: "0",
+    XSH_ENV_BOOL_FALSE: "false",
+    XSH_ENV_BOOL_NO: "no",
+    XSH_ENV_BOOL_OFF: "off",
+    XSH_ENV_BOOL_Y: "y",
+    XSH_ENV_BOOL_T: "t",
+    XSH_ENV_BOOL_TWO: "2",
+    XSH_ENV_BOOL_EMPTY: "",
+    XSH_ENV_BOOL_FRENCH: "vrai",
+  }) {
     # The four accepted spellings, plus one that differs only in case and
     # surrounding white space.
     test.eq(env.bool("XSH_ENV_BOOL_ONE")?, true)?
@@ -98,23 +98,23 @@ test test_env_bool_accepts_only_the_baseline_spellings [env, error] {
 }
 
 test test_env_int_parses_the_baseline_grammar [env, error] {
-  env {
-    XSH_ENV_INT_ZERO = "0"
-    XSH_ENV_INT_PLAIN = "42"
-    XSH_ENV_INT_SPACED = "  42  "
-    XSH_ENV_INT_TABBED = """	7
-"""
-    XSH_ENV_INT_NBSP = "\u{a0}42"
-    XSH_ENV_INT_PLUS = "+42"
-    XSH_ENV_INT_MINUS = "-42"
-    XSH_ENV_INT_PADDED = " -00042 "
-    XSH_ENV_INT_ZEROED = "007"
-    XSH_ENV_INT_MANY_ZEROS = "000000000000000000000000000000000000000000042"
-    XSH_ENV_INT_MAX = "9223372036854775807"
-    XSH_ENV_INT_MAX_ZEROED = "0000009223372036854775807"
-    XSH_ENV_INT_MIN = "-9223372036854775808"
-    XSH_ENV_INT_MIN_ZEROED = "-0009223372036854775808"
-  } {
+  env ({
+    XSH_ENV_INT_ZERO: "0",
+    XSH_ENV_INT_PLAIN: "42",
+    XSH_ENV_INT_SPACED: "  42  ",
+    XSH_ENV_INT_TABBED: """	7
+""",
+    XSH_ENV_INT_NBSP: "\u{a0}42",
+    XSH_ENV_INT_PLUS: "+42",
+    XSH_ENV_INT_MINUS: "-42",
+    XSH_ENV_INT_PADDED: " -00042 ",
+    XSH_ENV_INT_ZEROED: "007",
+    XSH_ENV_INT_MANY_ZEROS: "000000000000000000000000000000000000000000042",
+    XSH_ENV_INT_MAX: "9223372036854775807",
+    XSH_ENV_INT_MAX_ZEROED: "0000009223372036854775807",
+    XSH_ENV_INT_MIN: "-9223372036854775808",
+    XSH_ENV_INT_MIN_ZEROED: "-0009223372036854775808",
+  }) {
     test.eq(env.int("XSH_ENV_INT_ZERO")?, 0)?
     test.eq(env.int("XSH_ENV_INT_PLAIN")?, 42)?
     test.eq(env.int("XSH_ENV_INT_SPACED")?, 42)?
@@ -142,25 +142,25 @@ test test_env_int_parses_the_baseline_grammar [env, error] {
 }
 
 test test_env_int_rejects_unparsable_and_out_of_range_text [env, error] {
-  env {
-    XSH_ENV_BAD_EMPTY = ""
-    XSH_ENV_BAD_SPACES = "   "
-    XSH_ENV_BAD_PLUS = "+"
-    XSH_ENV_BAD_MINUS = "-"
-    XSH_ENV_BAD_DOUBLE_SIGN = "--5"
-    XSH_ENV_BAD_MIXED_SIGN = "+-5"
-    XSH_ENV_BAD_UNDERSCORE = "1_000"
-    XSH_ENV_BAD_HEX = "0x10"
-    XSH_ENV_BAD_OCTAL = "0o10"
-    XSH_ENV_BAD_FLOAT = "1.5"
-    XSH_ENV_BAD_INNER_SPACE = "4 2"
-    XSH_ENV_BAD_TRAILING = "42a"
-    XSH_ENV_BAD_LEADING = "a42"
-    XSH_ENV_BAD_UNICODE = "\u{664}\u{662}"
-    XSH_ENV_BAD_OVER = "9223372036854775808"
-    XSH_ENV_BAD_OVER_ZEROED = "09223372036854775808"
-    XSH_ENV_BAD_UNDER = "-9223372036854775809"
-  } {
+  env ({
+    XSH_ENV_BAD_EMPTY: "",
+    XSH_ENV_BAD_SPACES: "   ",
+    XSH_ENV_BAD_PLUS: "+",
+    XSH_ENV_BAD_MINUS: "-",
+    XSH_ENV_BAD_DOUBLE_SIGN: "--5",
+    XSH_ENV_BAD_MIXED_SIGN: "+-5",
+    XSH_ENV_BAD_UNDERSCORE: "1_000",
+    XSH_ENV_BAD_HEX: "0x10",
+    XSH_ENV_BAD_OCTAL: "0o10",
+    XSH_ENV_BAD_FLOAT: "1.5",
+    XSH_ENV_BAD_INNER_SPACE: "4 2",
+    XSH_ENV_BAD_TRAILING: "42a",
+    XSH_ENV_BAD_LEADING: "a42",
+    XSH_ENV_BAD_UNICODE: "\u{664}\u{662}",
+    XSH_ENV_BAD_OVER: "9223372036854775808",
+    XSH_ENV_BAD_OVER_ZEROED: "09223372036854775808",
+    XSH_ENV_BAD_UNDER: "-9223372036854775809",
+  }) {
     # Each of these is a present value, so the fallback of 7 is never used: it
     # is passed to prove that a failed conversion is reported rather than
     # silently defaulted, and that an empty value is not mistaken for an
@@ -206,9 +206,9 @@ test test_env_conversions_read_the_scoped_overlay [env, error] {
       test.eq(env.bool("XSH_ENV_OVERLAY_BOOL", true)?, true)?
       test.eq(env.get_or("XSH_ENV_OVERLAY_ABSENT", "fallback")?, "fallback")?
 
-      env {
-        XSH_ENV_OVERLAY_BOOL = "off"
-      } {
+      env ({
+        XSH_ENV_OVERLAY_BOOL: "off",
+      }) {
         test.eq(env.bool("XSH_ENV_OVERLAY_BOOL", true)?, false)?
         test.eq(env.get_or("XSH_ENV_OVERLAY")?, "inner")?
       } ?
@@ -323,13 +323,13 @@ test test_path_literals_method_sugar_and_expr_env_blocks [fs, process, env, erro
   let child = fp"${root}/${child_name}"
   root.mkdir()?
 
-  env {
-    HOME = root
-    CHILD = child
-    DIGEST = b"abc".sha256().hex()
-    ENCODED = b"abc".base64()
-    COUNT = 3
-  } {
+  env ({
+    HOME: root,
+    CHILD: child,
+    DIGEST: b"abc".sha256().hex(),
+    ENCODED: b"abc".base64(),
+    COUNT: 3,
+  }) {
     let home = env.Path.HOME?
     let encoded = env.Str.ENCODED?
     let decoded = encoded.base64_decode()?

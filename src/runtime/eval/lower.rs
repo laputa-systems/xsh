@@ -2284,7 +2284,7 @@ fn compact_collect_expr_call_edges(
             compact_collect_expr_call_edges(program, key, namespace, index_of, edges);
             compact_collect_expr_call_edges(program, value, namespace, index_of, edges);
         }
-        ArenaExprKind::ErrorContext { message, block } => {
+        ArenaExprKind::ErrorContext { message, block } | ArenaExprKind::ContextScope { input: message, block, .. } => {
             compact_collect_expr_call_edges(program, message, namespace, index_of, edges);
             compact_collect_block_call_edges(program, block, namespace, index_of, edges);
         }
@@ -2696,6 +2696,7 @@ fn compact_expr_kind_index(kind: ArenaExprKind) -> usize {
         ArenaExprKind::ErrorContext { .. } => 44,
         ArenaExprKind::Regex(_) => 41,
         ArenaExprKind::ValuePipelineCall { .. } => 43,
+        ArenaExprKind::ContextScope { .. } => 45,
     }
 }
 
@@ -2748,6 +2749,7 @@ fn compact_expr_kind_label(kind: ArenaExprKind) -> &'static str {
         ArenaExprKind::ErrorContext { .. } => "error_context",
         ArenaExprKind::Regex(_) => "regex_literal",
         ArenaExprKind::ValuePipelineCall { .. } => "value_pipeline_call",
+        ArenaExprKind::ContextScope { .. } => "context_scope",
     }
 }
 
@@ -3200,7 +3202,7 @@ fn compact_body_tail_command_blocker(
 
 const _: [(); COMPACT_TYPE_EXPR_TAG_COUNT] = [(); 9];
 const _: [(); COMPACT_STMT_KIND_COUNT] = [(); 30];
-const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 45];
+const _: [(); COMPACT_EXPR_KIND_COUNT] = [(); 46];
 const _: [(); COMPACT_CALL_BLOCKER_KIND_COUNT] = [(); 6];
 const _: [(); COMPACT_COMMAND_BLOCKER_KIND_COUNT] = [(); 6];
 
@@ -8536,6 +8538,11 @@ impl CompactLowerConstructProbe<'_, '_> {
                 let body = if statement_body { self.lower_block(block, slots, current_function, item_slot)? }
                     else { self.lower_retry_block(block, slots, current_function, item_slot)? };
                 Some(push_build_row!(self, expr, BuildExprRow::ErrorContext { message, body, span }))
+            }
+            ArenaExprKind::ContextScope { kind, input, block, .. } => {
+                let input = self.lower_expr(input, slots, current_function, item_slot)?;
+                let body = self.lower_retry_block(block, slots, current_function, item_slot)?;
+                Some(push_build_row!(self, expr, BuildExprRow::ContextScope { kind, input, body, span }))
             }
             ArenaExprKind::ValueBlock(block) => self.lower_block_value_expr(block, slots, current_function, item_slot),
             ArenaExprKind::Loop { block } => Some(push_build_row!(

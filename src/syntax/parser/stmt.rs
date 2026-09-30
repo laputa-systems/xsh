@@ -74,6 +74,30 @@ impl<'a> Parser<'a> {
                 self.parse_export_arena_only(start, arena)
             }
             (TokenTag::Ident | TokenTag::ProcIdent, _) => {
+                if self.current_name().is_some_and(|name| name == "env") && self.peek_tag(1) == Some(TokenTag::LBrace) {
+                    let saved = self.index;
+                    self.bump();
+                    let legacy = self.lookahead_is_env_expr_assignment_block();
+                    self.index = saved;
+                    if legacy {
+                        let scope = self.parse_legacy_env_scope_arena_only(arena)?;
+                        let value = if self.consume(TokenKindMatch::Question).is_some() {
+                            arena.push_try_expr(scope, self.span(start, self.previous_end()))
+                        } else { scope };
+                        let end = self.expect_terminator();
+                        arena.push_expr_statement(value, self.span(start, end));
+                        return Some(());
+                    }
+                }
+                if self.current_name().is_some_and(|name| name == "env" || name == "cd") && self.lookahead_is_context_scope() {
+                    let scope = self.parse_context_scope_arena_only(arena, false)?;
+                    let value = if self.consume(TokenKindMatch::Question).is_some() {
+                        arena.push_try_expr(scope.id, self.span(start, self.previous_end()))
+                    } else { scope.id };
+                    let end = self.expect_terminator();
+                    arena.push_expr_statement(value, self.span(start, end));
+                    return Some(());
+                }
                 if self.current_name().is_some_and(|name| name == "cli")
                     && self.peek_tag(1) == Some(TokenTag::Ident)
                     && self.peek_tag(2) == Some(TokenTag::LParen)

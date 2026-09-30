@@ -1215,9 +1215,27 @@ impl CompactBodyProbe<'_> {
         self.output.block_types.insert(id, ty);
     }
 
+    fn mark_context_scope_value(&mut self, expr: ExprId) {
+        match self.program.arena.expr(expr).kind {
+            ArenaExprKind::ContextScope { block, .. } => {
+                self.mark_tail_position(block, true);
+                self.output.block_types.remove(&block);
+                let ty = self.compact_block_tail_type(block);
+                self.output.block_types.insert(block, ty.clone());
+                self.output.expr_types.insert(expr, Type::Result(Box::new(ty), Box::new(Type::Error)));
+            }
+            ArenaExprKind::Try(inner) => {
+                self.mark_context_scope_value(inner);
+                if let Some(Type::Result(ok, _)) = self.output.expr_types.get(&inner).cloned() { self.output.expr_types.insert(expr, *ok); }
+            }
+            _ => {}
+        }
+    }
+
     fn mark_tail_position(&mut self, block: BlockId, consumes_value: bool) {
         let ids = self.program.arena.stmt_ids(self.program.arena.block(block).statements).collect::<Vec<_>>();
         if let Some(&tail) = ids.last() {
+            if consumes_value && let ArenaStmtKind::Expr(expr) = self.program.arena.stmt(tail).kind { self.mark_context_scope_value(expr); }
             let returns_result = match self.program.arena.stmt(tail).kind {
                 ArenaStmtKind::Expr(expr) => self.output.expr_types.get(&expr).is_some_and(Type::is_result),
                 _ => false,
@@ -1453,10 +1471,25 @@ impl CompactBodyProbe<'_> {
                 self.check_compact_expr(message);
                 self.push_scope();
                 self.check_compact_block_in_current_scope(block);
-                let ty = self.compact_block_tail_type(block);
                 self.mark_tail_position(block, true);
+                self.output.block_types.remove(&block);
+                let ty = self.compact_block_tail_type(block);
                 self.pop_scope();
                 ty
+            }
+            ArenaExprKind::ContextScope { input, block, value_body, .. } => {
+                self.check_compact_expr(input);
+                self.push_scope();
+                self.check_compact_block_in_current_scope(block);
+                self.mark_tail_position(block, value_body);
+                if !value_body && let Some(tail) = self.program.arena.stmt_ids(self.program.arena.block(block).statements).last() {
+                    self.output.statement_positions.insert(tail, super::StatementPosition::Statement);
+                }
+                self.output.block_types.remove(&block);
+                let ty = if value_body { self.compact_block_tail_type(block) } else { Type::Unit };
+                self.output.block_types.insert(block, ty.clone());
+                self.pop_scope();
+                Type::Result(Box::new(ty), Box::new(Type::Error))
             }
             ArenaExprKind::ValueBlock(block) => {
                 self.push_scope();
@@ -1495,8 +1528,9 @@ impl CompactBodyProbe<'_> {
                 }
                 self.push_scope();
                 self.check_compact_block_in_current_scope(block);
-                let ty = self.compact_block_tail_type(block);
                 self.mark_tail_position(block, true);
+                self.output.block_types.remove(&block);
+                let ty = self.compact_block_tail_type(block);
                 self.pop_scope();
                 Type::Result(Box::new(ty), Box::new(Type::Error))
             }
@@ -1581,6 +1615,15 @@ impl CompactBodyProbe<'_> {
     // Expected container types determine the meaning of brace literals, rather
     // than converting a Record after its expressions have already been lowered.
     fn apply_compact_expected(&mut self, expr: ExprId, expected: &Type) {
+        if let ArenaExprKind::ContextScope { block, value_body, .. } = self.program.arena.expr(expr).kind {
+            if let Type::Result(ok, _) = expected && (value_body || **ok != Type::Unit) {
+                self.mark_tail_position(block, true);
+                self.apply_compact_block_expected(block, ok);
+                self.output.block_types.insert(block, ok.as_ref().clone());
+                self.output.expr_types.insert(expr, expected.clone());
+            }
+            return;
+        }
         let expected = expected.result_ok().unwrap_or(expected);
         match self.program.arena.expr(expr).kind {
             ArenaExprKind::MapComp { key, value, .. } => if let Type::Map(expected_key, item) = expected {

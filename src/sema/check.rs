@@ -318,6 +318,9 @@ pub struct Checker {
     proven_nonnull_fallback_receivers: BTreeSet<Span>,
     current_namespace: Option<Name>,
     scopes: Vec<FxHashMap<Name, Binding>>,
+    context_scope_depths: Vec<usize>,
+    /// A statement-shaped scope consumes its body only in a value tail.
+    context_scope_tail_value: bool,
     procs: FxHashMap<Name, FunctionSig>,
     pures: FxHashMap<Name, FunctionSig>,
     streams: FxHashMap<Name, FunctionSig>,
@@ -534,6 +537,8 @@ impl Checker {
         let mut checker = Self {
             static_callable_aliases: BTreeMap::new(),
             scopes: vec![FxHashMap::default()],
+            context_scope_depths: Vec::new(),
+            context_scope_tail_value: false,
             procs: FxHashMap::default(),
             pures: FxHashMap::default(),
             streams: FxHashMap::default(),

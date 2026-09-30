@@ -1131,6 +1131,7 @@ pub(crate) enum ScriptStreamStep {
         child: ScriptStreamState,
         span: Span,
         scopes: Vec<u64>,
+        context: Option<crate::runtime::eval::ScopedProducerContext>,
     },
 }
 
@@ -1151,7 +1152,7 @@ pub(crate) trait ScriptStream: Send {
 
     /// Removes an active child before cancellation, retaining parent scopes
     /// while the driver stops the child first.
-    fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>);
+    fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>, Option<crate::runtime::eval::ScopedProducerContext>);
 
     /// Stops a producer early, running the defers its body registered.
     fn cancel(

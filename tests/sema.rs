@@ -1530,11 +1530,11 @@ let part = b"abcd".slice(1, 2)
 let dump = b"abcd".dump("hex-u8")
 let markers = b"\0abcd\0".strings(3)
 let comparison = b"abc".compare(b"abd")
-env {
-  HOME = root
-  CC = formatted_child.display()
-  JOBS = 4
-} {
+env ({
+  HOME: root,
+  CC: formatted_child.display(),
+  JOBS: 4,
+}) {
   print ${trimmed} ${lines[0]} ${digest}
 } ?
 "#,

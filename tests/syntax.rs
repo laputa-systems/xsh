@@ -2,7 +2,7 @@ use xsh::frontend::check::Checker;
 use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::arena::{
     ArenaAssignTargetKind, ArenaBindingTargetKind, ArenaBuilderEntryKind, ArenaCommand,
-    ArenaCommandArgKind, ArenaEnvAssignmentValue, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
+    ArenaCommandArgKind, ArenaExprKind, ArenaExprOrRun, ArenaFmtPart,
     ArenaPatternKind, ArenaRecordFieldKind, ArenaPipeStageKind, ArenaSpawnTarget, ArenaStmtKind, ArenaTypeDefBody,
     ArenaWordPart, ExprId, StmtId,
 };
@@ -791,10 +791,10 @@ fn parser_accepts_path_literals_and_expr_env_blocks() {
 let root = ./src
 let cc = /usr/bin/cc
 let parent = ../src/main.c
-env {
-  HOME = root
-  JOBS = cpu.count()
-} {
+env ({
+  HOME: root,
+  JOBS: cpu.count(),
+}) {
   run make -C p\"src\" ?
 } ?
 ",
@@ -809,16 +809,9 @@ env {
         ));
     }
     let root: Vec<_> = output.arena.statement_ids().collect();
-    let ArenaStmtKind::Command(cmd_id) = arena.stmt(root[3]).kind else {
-        panic!("expected env command");
-    };
-    let ArenaCommand::Core { env, .. } = &arena.command_stmt(cmd_id).command else {
-        panic!("expected core command");
-    };
-    assert!(matches!(
-        arena.env_assignments(*env)[0].value,
-        ArenaEnvAssignmentValue::Expr(_)
-    ));
+    let ArenaStmtKind::Expr(expr) = arena.stmt(root[3]).kind else { panic!("expected environment scope"); };
+    let ArenaExprKind::Try(scope) = arena.expr(expr).kind else { panic!("expected propagation"); };
+    assert!(matches!(arena.expr(scope).kind, ArenaExprKind::ContextScope { kind: xsh::frontend::syntax::arena::ContextScopeKind::Env, value_body: false, .. }));
 }
 
 #[test]
@@ -3960,4 +3953,17 @@ fn parser_and_formatter_preserve_accept_policy_expressions() {
     assert_parse_and_check(SourceId::new(0), &formatted.formatted);
     let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
     assert_eq!(again.formatted, formatted.formatted);
+}
+
+#[test]
+fn parser_context_scopes_keep_nested_expression_spans_and_body_modes() {
+    let source = "let selected = env ({X: 7}) { false }?\nenv ({X: 8}) { print ok }?\n";
+    let output = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+    let arena = &output.arena.arena;
+    let init = root_let_init_expr(&output, 0);
+    let ArenaExprKind::Try(scope) = arena.expr(init).kind else { panic!("scope propagation"); };
+    let ArenaExprKind::ContextScope { input, value_body: true, .. } = arena.expr(scope).kind else { panic!("value body"); };
+    assert_eq!(&source[arena.expr(input).span.range()], "{X: 7}");
+    assert_eq!(&source[arena.expr(scope).span.range()], "env ({X: 7}) { false }");
 }

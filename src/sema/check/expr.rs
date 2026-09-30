@@ -276,6 +276,42 @@ impl Checker {
                 self.pop_scope();
                 ty
             }
+            ArenaExprKind::ContextScope { kind, input, block, value_body } => {
+                use crate::syntax::arena::ContextScopeKind;
+                let tail_value = std::mem::replace(&mut self.context_scope_tail_value, false);
+                if self.in_pure { self.error(expr.span, "context scopes are not allowed in pure functions", "check.pure-effect"); }
+                self.require_effect(crate::syntax::node::Effect::Env, expr.span, "context scopes");
+                let input_type = self.check_expr_arena(arena, source, *input, None);
+                match kind {
+                    ContextScopeKind::Cwd => if !matches!(input_type, Type::Path | Type::Str | Type::Unknown | Type::Invalid) {
+                        self.error(arena.arena.expr(*input).span, "cwd scope requires Path or Str", "check.context-scope-input");
+                    },
+                    ContextScopeKind::Env => {
+                        let values = match &input_type {
+                            Type::Record(fields) => Some(fields.values().collect::<Vec<_>>()),
+                            Type::Map(key, value) if **key == Type::Str => Some(vec![value.as_ref()]),
+                            Type::Unknown | Type::Invalid => None,
+                            _ => { self.error(arena.arena.expr(*input).span, "environment overlay requires a Record or string-keyed Map", "check.context-scope-input"); None },
+                        };
+                        if let Some(values) = values && values.into_iter().any(|ty| !ty.can_be_argv_item()) {
+                            self.error(arena.arena.expr(*input).span, "environment values must convert to one scalar argv item", "check.env-value");
+                        }
+                    }
+                }
+                self.context_scope_depths.push(self.scopes.len());
+                self.push_scope();
+                let body_type = if *value_body || tail_value || matches!(expected, Some(Type::Result(ok, _)) if **ok != Type::Unit) {
+                    let expected = match expected { Some(Type::Result(ok, _)) => Some(ok.as_ref()), _ => None };
+                    self.check_tail_block_arena(arena, source, *block, expected)
+                } else { self.check_block_arena(arena, source, *block); Type::Unit };
+                self.pop_scope();
+                self.context_scope_depths.pop();
+                if !body_type.can_escape_context_scope() {
+                    self.error(expr.span, "a live producer or host handle cannot escape a restored context", "check.context-scope-escape");
+                }
+                self.context_scope_tail_value = tail_value;
+                Type::Result(Box::new(body_type), Box::new(Type::Error))
+            }
             ArenaExprKind::ValueBlock(block) => {
                 if let Some(param) = arena.arena.block_params(arena.arena.block(*block).params).first() {
                     self.error(arena.arena.span(param.span), "parameter value blocks require a Result fallback", "check.fallback-block-context");
@@ -1836,7 +1872,7 @@ mod arena_tests {
         assert_stmts_arena_match_raised("print ${1 + 2}");
         assert_stmts_arena_match_raised("print bad_ident");
         assert_stmts_arena_match_raised("cd \"/tmp\" {\n  print \"in tmp\"\n}");
-        assert_stmts_arena_match_raised("env {\n  FOO = \"bar\"\n} {\n  print \"in env\"\n}");
+        assert_stmts_arena_match_raised("env ({\n  FOO: \"bar\",\n}) {\n  print \"in env\"\n}");
         assert_stmts_arena_match_raised("run false");
         assert_stmts_arena_match_raised("git status");
         assert_stmts_arena_match_raised("some_unresolved_bareword");

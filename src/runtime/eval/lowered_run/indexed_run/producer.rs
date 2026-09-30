@@ -39,6 +39,7 @@ pub(super) struct ScriptProducer {
     /// A delegated child retains its one-shot cursor while this frame suspends.
     /// A proc that returns a stream uses the same cursor after its frame ends.
     delegated: Option<DelegatedSource>,
+    context: Option<crate::runtime::eval::ScopedProducerContext>,
 }
 
 /// A single active source; List and Stream cursors cannot coexist.
@@ -110,7 +111,7 @@ impl crate::runtime::value::ScriptStream for ScriptProducer {
         self.delegated = None;
     }
 
-    fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>) {
+    fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>, Option<crate::runtime::eval::ScopedProducerContext>) {
         let child = self.delegated.take().and_then(|source| match source {
             DelegatedSource::Stream { value, .. } => value.script().cloned(),
             DelegatedSource::List(_) => None,
@@ -118,7 +119,7 @@ impl crate::runtime::value::ScriptStream for ScriptProducer {
         let scopes = if self.started && !self.finished {
             self.frame.as_ref().expect("suspended producer frame").open_scopes()
         } else { Vec::new() };
-        (child, scopes)
+        (child, scopes, self.context.clone())
     }
 
     fn cancel(&mut self, evaluator: &mut Evaluator, span: Span) -> Result<(), RuntimeError> {
@@ -168,6 +169,7 @@ impl Evaluator {
             started: false,
             finished: false,
             delegated: None,
+            context: None,
         });
         // The evaluator keeps a handle so a producer the program can no longer
         // reach can still be stopped, which is what runs its defers.
@@ -224,6 +226,20 @@ impl Evaluator {
 
     /// Resume the frame or hand a retained child to the pull driver.
     pub(super) fn pull_script_producer(
+        &mut self, producer: &mut ScriptProducer, span: Span,
+    ) -> Result<ScriptStreamStep, RuntimeError> {
+        let consumer = self.producer_context();
+        let resumed_context = producer.context.take();
+        let isolated = resumed_context.is_some();
+        if let Some(context) = resumed_context { self.swap_producer_context(context); }
+        let result = self.pull_script_producer_active(producer, span);
+        let suspended_scope = producer.frame.as_ref().is_some_and(ProducerFrameState::has_context_scope);
+        if suspended_scope { producer.context = Some(self.producer_context()); }
+        if isolated || suspended_scope { self.swap_producer_context(consumer); }
+        result
+    }
+
+    fn pull_script_producer_active(
         &mut self,
         producer: &mut ScriptProducer,
         span: Span,
@@ -336,6 +352,16 @@ impl Evaluator {
     /// Stop a producer early: run the defers its body registered and close the
     /// scopes it opened, exactly once, without running the rest of the body.
     pub(super) fn cancel_script_producer(
+        &mut self, producer: &mut ScriptProducer, span: Span,
+    ) -> Result<(), RuntimeError> {
+        let context = producer.context.take();
+        let consumer = context.map(|context| self.swap_producer_context(context));
+        let result = self.cancel_script_producer_active(producer, span);
+        if let Some(consumer) = consumer { self.swap_producer_context(consumer); }
+        result
+    }
+
+    fn cancel_script_producer_active(
         &mut self,
         producer: &mut ScriptProducer,
         span: Span,
@@ -393,7 +419,7 @@ impl Evaluator {
                     let scopes = if producer.finished { Vec::new() } else {
                         producer.frame.as_ref().expect("suspended producer frame").open_scopes()
                     };
-                    return Ok(Some(ScriptStreamStep::Delegate { child: child.clone(), span: *span, scopes }));
+                    return Ok(Some(ScriptStreamStep::Delegate { child: child.clone(), span: *span, scopes, context: producer.frame.as_ref().is_some_and(ProducerFrameState::has_context_scope).then(|| self.producer_context()) }));
                 }
                 (value.next_live(*span), *span)
             }
@@ -477,7 +503,7 @@ impl ProcessProducer {
 impl crate::runtime::value::ScriptStream for ProcessProducer {
     fn finished(&self) -> bool { self.finished }
     fn delegated_finished(&mut self) {}
-    fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>) { (None, Vec::new()) }
+    fn take_delegated(&mut self) -> (Option<ScriptStreamState>, Vec<u64>, Option<crate::runtime::eval::ScopedProducerContext>) { (None, Vec::new(), None) }
     fn cancel(&mut self, evaluator: &mut Evaluator, _span: Span) -> Result<(), RuntimeError> {
         self.process.cancel();
         self.finish(evaluator, Some(super::RunError::new("canceled", "process stream canceled")));

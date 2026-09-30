@@ -218,6 +218,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "bindings",
     "constants",
     "procs",
+    "context-scopes",
     "pure-functions",
     "records",
     "field-labels",
@@ -833,6 +834,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "value-pipelines" => (
             "Places an ordinary pipeline input in a checked call.",
             "A bare method call uses the input as its receiver; a qualified function call inserts it as the first argument. Exactly one whole positional or named argument may be _ to select the input position instead. Nested, embedded, spread and multiple holes are rejected. Input evaluates once before the callee or receiver and other arguments, which retain ordinary source order. Optional calls skip their other arguments when absent, after input evaluation. Explicit ? retains its Result propagation boundary. Structured stream stages retain their existing dispatch and do not accept holes as per-item mapping.",
+        ),
+        "context-scopes" => (
+            "Produces values while temporarily selecting cwd or environment.",
+            "`cd (path) { tail }` and `env (overlay) { tail }` return Result[T, Error] after restoration. Result tails remain nested; body ? propagates to its enclosing boundary. Defers run inside the selected context, and lexical transfers and cancellation restore it. Environment overlays accept finite Records or string-keyed Maps with scalar argv-convertible values; null does not unset a name. Live producers and host handles cannot escape. Command-word statement scopes remain supported.",
         ),
         "procs" => (
             "Defines procedure declarations and calls.",

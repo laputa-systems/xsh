@@ -4436,3 +4436,61 @@ fn wire_enum_mapping_expression_walk_preserves_wire_bytes_in_safe_edits() {
     let rewritten = Checker::check_compact_declarations(&reparsed.arena).wire_enums;
     assert_eq!(original.mappings.values().next().unwrap().variants.values().next(), rewritten.mappings.values().next().unwrap().variants.values().next());
 }
+
+#[test]
+fn context_scope_scaffold_fix_preserves_checked_value_type_and_converges() {
+    let source = "proc example() [env, error] {\n  var selected = \"\"\n  env ({XSH_SCOPE: \"inner\"}) { selected = env.get(\"XSH_SCOPE\")? }?\n  print $selected\n}\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-context-scope-value")).expect("fresh scaffold");
+    assert_eq!(diagnostic.fix_hints.len(), 1);
+    let fix = &diagnostic.fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+    assert_parse_check_standalone("context scope", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty());
+    let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(again.formatted, formatted.formatted);
+    let parsed = parse_lint_source(&formatted.formatted);
+    let checked = Checker::check_arena(&parsed.arena, &formatted.formatted);
+    let second = Linter::lint(&parsed.arena, &formatted.formatted, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    assert!(!second.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-context-scope-value")));
+}
+
+#[test]
+fn context_scope_scaffold_declines_cleanup_comments_and_placeholder_reads() {
+    for source in [
+        "on TERM [env, error] { let ignored = env.get(\"X\")?; }\nproc example() [env, error] { var selected = \"\"; env ({X: \"inner\"}) { selected = env.get(\"X\")? }?; print $selected }\n",
+        "proc example() [env, error] { var selected = \"\"; defer { print $selected }; env ({X: \"inner\"}) { selected = env.get(\"X\")? }?; print $selected }\n",
+        "proc example() [env, error] { var selected = \"\"; env ({X: \"inner\"}) { # assignment timing\n selected = env.get(\"X\")? }?; print $selected }\n",
+        "proc example() [env, error] { var selected = \"\"; env ({X: selected}) { selected = env.get(\"X\")? }?; print $selected }\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+        assert!(diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-context-scope-value")).all(|diagnostic| diagnostic.fix_hints.is_empty()));
+    }
+}
+
+#[test]
+fn context_scope_environment_migration_preserves_comments_and_rechecks() {
+    let source = "env {\n  X = \"one\" # selected once\n  Y = 2;\n} { print ${env.get(\"X\")?} }?\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert_eq!(parsed.diagnostics.len(), 1, "{:?}", parsed.diagnostics);
+    let diagnostic = &parsed.diagnostics[0];
+    assert_eq!(diagnostic.code.as_deref(), Some("parse.env-scope-migration"));
+    let mut edits = diagnostic.fix_hints.iter().collect::<Vec<_>>();
+    edits.sort_by_key(|hint| std::cmp::Reverse(hint.span.unwrap().start()));
+    let mut fixed = source.to_string();
+    for hint in edits { fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap()); }
+    assert!(fixed.contains("# selected once"));
+    assert_parse_check_standalone("explicit environment overlay", &fixed);
+    let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
+    assert_eq!(again.formatted, formatted.formatted);
+}

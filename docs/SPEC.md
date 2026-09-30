@@ -1064,7 +1064,7 @@ arg_list     = arg ("," arg)* ","? ;
 arg          = expr | named_arg | "..." expr | "@" expr ;
 named_arg    = FIELD_LABEL ":" expr | IDENT ":" ;
 primary      = literal | IDENT | list_lit | record_lit | map_comp | if_expr | match_expr
-             | capture_expr | retry_expr | context_expr | run_form | spawn_form | wait_form | "(" expr ")" ;
+             | capture_expr | retry_expr | context_expr | context_scope_expr | run_form | spawn_form | wait_form | "(" expr ")" ;
 spawn_form   = "spawn" (run_form | expr) ;
 wait_form    = "wait" expr ;
 if_expr      = "if" condition "{" expr "}" ("else" "if" condition "{" expr "}")*
@@ -1072,6 +1072,7 @@ if_expr      = "if" condition "{" expr "}" ("else" "if" condition "{" expr "}")*
 match_expr   = "match" expr "{" match_expr_arm* "}" ;
 match_expr_arm = pattern guard? "=>" expr ","? ;
 capture_expr = "try" block ;
+context_scope_expr = ("cd" | "env") "(" expr ")" block ;
 retry_expr   = "retry" "[" (expr ("," expr)* ","?)? "]" ("on" "(" pattern ")")? block ;
 context_expr = "ctx" expr block ;
 ```
@@ -2147,11 +2148,9 @@ module_command = STANDARD_MODULE "." IDENT command_arg* ;
 core_command = ("print" | "eprint") command_arg*
              | "cd" command_arg block
              | "env" env_assignment* block
-             | "env" env_expr_assignments block
+             | "env" "(" expr ")" block
              ;
 env_assignment = IDENT "=" command_arg ;
-env_expr_assignments = "{" env_expr_assignment* "}" ;
-env_expr_assignment = IDENT "=" expr terminator ;
 ```
 
 Core command names are reserved in command position and cannot be shadowed by
@@ -2226,9 +2225,13 @@ map to snake_case parameter names, so `--missing-ok` means
 `missing_ok: true`. Non-`Bool` named arguments use expression-call syntax.
 
 For scoped environment overlays, `env NAME=value { ... }` uses command-word
-conversion. `env { NAME = expr } { ... }` evaluates expressions and converts
-each result to one environment value with the same argv-item conversion used by
-external commands.
+conversion. `env (overlay) { ... }` evaluates one Record or `Map[Str, V]`
+before entering the body and converts each supplied value with the existing
+argv-item conversion. Null is a supplied unsupported value, rather than an
+unset request. Every name and value must satisfy the existing environment name,
+NUL, and native encoding checks. Inherited environment bytes remain unchanged.
+The former `env { NAME = expression } { ... }` form is rejected with a narrow
+migration to a parenthesized ordinary record literal.
 
 Command-style proc calls are not accepted. Use expression-call syntax so
 argument boundaries and types remain explicit.
@@ -2245,9 +2248,26 @@ Script stdout and stderr are byte streams. Text-producing APIs append UTF-8
 bytes; `io.write_stdout_bytes` appends bytes exactly and does not check
 UTF-8.
 
-`cd path { ... }` changes the evaluator cwd context while the block runs. It
-returns `Result[Unit, Error]` and must restore the previous cwd after success,
-after `Err`, and after runtime failure.
+`cd path { ... }` changes the evaluator cwd context while its statement body
+runs and returns `Result[Unit, Error]`. Parenthesized `cd (path) { ... }` and
+`env (overlay) { ... }` in a value position consume the ordinary body tail and
+return `Result[T, Error]`. A Result-valued tail remains nested; a false predicate
+tail is data in a value body. Statement scopes retain command and assertion
+classification, including plain statement-position runs.
+
+These scopes restore the evaluator's previous context on normal completion,
+propagation, lexical return, loop transfer, cancellation, and runtime failure.
+Inner defers execute before restoration under the scoped context; existing
+primary and cleanup failure precedence applies. Entering or restoring a scope
+follows its Result contract, while body `?` retains its enclosing function,
+retry, or explicit `try` destination. A scope does not capture body failures
+locally. Use `try` when local capture of the whole operation is intended.
+Neither scope mutates the embedding host process's global context. Live
+producers or handles cannot escape a scope as its value, through an outer
+assignment, a lexical return, or a yielded item. Consume them inside the body.
+A producer containing a scope may yield ordinary data: its selected cwd/env is
+private while suspended and is reattached for pulls, delegated children, and
+cancellation cleanup. Consumers retain their own context between pulls.
 
 ## 10. Process Execution
 

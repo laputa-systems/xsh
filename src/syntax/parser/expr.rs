@@ -752,11 +752,50 @@ impl<'a> Parser<'a> {
         self.peek_tag(offset) == Some(TokenTag::Pipe)
     }
 
+    pub(super) fn lookahead_is_context_scope(&self) -> bool {
+        if !self.current_name().is_some_and(|name| name == "cd" || name == "env") || self.peek_tag(1) != Some(TokenTag::LParen) { return false; }
+        let mut depth = 0;
+        let mut offset = 1;
+        while let Some(tag) = self.peek_tag(offset) {
+            match tag {
+                TokenTag::LParen => depth += 1,
+                TokenTag::RParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        offset += 1;
+                        while matches!(self.peek_tag(offset), Some(TokenTag::Newline | TokenTag::Comment)) { offset += 1; }
+                        return self.peek_tag(offset) == Some(TokenTag::LBrace);
+                    }
+                }
+                TokenTag::Eof => return false,
+                _ => {}
+            }
+            offset += 1;
+        }
+        false
+    }
+
+    pub(super) fn parse_context_scope_arena_only(&mut self, arena: &mut ArenaProgramBuilder<'_>, value_body: bool) -> Option<ArenaOnlyExpr> {
+        let start = self.current_start();
+        let kind = if self.current_name()? == "cd" { crate::syntax::arena::ContextScopeKind::Cwd } else { crate::syntax::arena::ContextScopeKind::Env };
+        self.bump();
+        self.expect(TokenKindMatch::LParen, "expected `(` before scoped context input")?;
+        let input = self.parse_expr_id_arena_only(arena)?;
+        self.expect(TokenKindMatch::RParen, "expected `)` after scoped context input")?;
+        self.skip_separators();
+        let block = self.parse_block_arena_only(arena)?;
+        let span = self.span(start, self.previous_end());
+        Some(ArenaOnlyExpr { id: arena.push_context_scope_expr(kind, input, block, value_body, span), span, bare_ident: None })
+    }
+
     pub(super) fn parse_primary_arena_only(
         &mut self,
         arena: &mut ArenaProgramBuilder<'_>,
     ) -> Option<ArenaOnlyExpr> {
         let span = self.current_span();
+        if self.current_tag() == TokenTag::Ident && self.lookahead_is_context_scope() {
+            return self.parse_context_scope_arena_only(arena, true);
+        }
         match (self.current_tag(), self.current_keyword()) {
             (TokenTag::Keyword, Some(Keyword::Null)) => {
                 self.bump();

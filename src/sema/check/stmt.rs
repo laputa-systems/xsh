@@ -1186,6 +1186,7 @@ impl Checker {
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
         let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
         let previous_boundary_errors = std::mem::take(&mut self.error_boundary_errors);
+        let previous_context_scopes = std::mem::take(&mut self.context_scope_depths);
         let previous_return = self.current_return.clone();
         let previous_return_schema = self.return_schema.clone();
         let previous_expected_schema = self.expected_schema.clone();
@@ -1300,6 +1301,7 @@ impl Checker {
         self.with_initializer_errors = previous_errors;
         self.retry_attempt_depth = previous_boundary_depth;
         self.error_boundary_errors = previous_boundary_errors;
+        self.context_scope_depths = previous_context_scopes;
     }
 
     pub(super) fn check_stream_function_arena(
@@ -1313,6 +1315,7 @@ impl Checker {
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
         let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
         let previous_boundary_errors = std::mem::take(&mut self.error_boundary_errors);
+        let previous_context_scopes = std::mem::take(&mut self.context_scope_depths);
         let previous_return = self.current_return.clone();
         let previous_yield = self.current_yield.clone();
         let previous_pure = self.in_pure;
@@ -1398,6 +1401,7 @@ impl Checker {
         self.with_initializer_errors = previous_errors;
         self.retry_attempt_depth = previous_boundary_depth;
         self.error_boundary_errors = previous_boundary_errors;
+        self.context_scope_depths = previous_context_scopes;
     }
 
     pub(super) fn check_signal_hook_arena(
@@ -1612,6 +1616,10 @@ impl Checker {
         if op == AssignOp::Set {
             let actual = self.check_expr_or_run_arena(arena, source, value, Some(&target_ty));
             let value_span = expr_or_run_span_arena(arena, value);
+            if !actual.can_escape_context_scope()
+                && self.context_scope_depths.last().is_some_and(|depth| self.scopes.iter().rposition(|scope| scope.contains_key(&name)).is_some_and(|owner| owner < *depth)) {
+                self.error(value_span, "a live producer or host handle cannot escape through an outer assignment", "check.context-scope-escape");
+            }
             self.expect_type(&target_ty, &actual, value_span);
             self.invalidate_binding_projection_arena(arena, target, name);
             return;
@@ -1759,6 +1767,9 @@ impl Checker {
                 self.check_expr_with_schema_arena(arena, source, value, context.as_ref(), schema)
             })
             .unwrap_or(Type::Unit);
+        if !self.context_scope_depths.is_empty() && !actual.can_escape_context_scope() {
+            self.error(span, "a live producer or host handle cannot escape through a lexical return", "check.context-scope-escape");
+        }
         if self.inference_reachable && let Some(returns) = &mut self.inferred_returns {
             returns.push((actual.clone(), span));
         }
@@ -1789,6 +1800,9 @@ impl Checker {
         let value_span = arena.arena.expr(value).span;
         match actual {
             Type::List(item) | Type::Stream(item) => {
+                if !self.context_scope_depths.is_empty() && !item.can_escape_context_scope() {
+                    self.error(value_span, "a delegated live producer or host handle cannot escape a context", "check.context-scope-escape");
+                }
                 if let Some(expected) = expected {
                     self.expect_type(&expected, &item, value_span);
                 }
@@ -1833,6 +1847,9 @@ impl Checker {
                 "check.yield-stream",
             );
             return;
+        }
+        if !self.context_scope_depths.is_empty() && !actual.can_escape_context_scope() {
+            self.error(value_span, "a live producer or host handle cannot escape through yield", "check.context-scope-escape");
         }
         self.expect_type(&expected, &actual, value_span);
     }
@@ -2040,7 +2057,9 @@ impl Checker {
                     | ArenaStmtKind::Continue
             );
             for &stmt_id in non_tail {
+                let previous_tail = std::mem::replace(&mut self.context_scope_tail_value, false);
                 self.check_non_tail_stmt_arena(arena, source, stmt_id);
+                self.context_scope_tail_value = previous_tail;
                 if self.inferred_returns.is_some() && self.return_inference_stmt_returns(arena, stmt_id) { self.inference_reachable = false; }
             }
             if tail_producing {
@@ -2130,7 +2149,9 @@ impl Checker {
         self.statement_positions.insert(stmt.span, super::StatementPosition::Value);
         if expected.is_some_and(|ty| ty == &Type::Unit || ty.is_result_unit()) {
             if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
+                let previous_tail = std::mem::replace(&mut self.context_scope_tail_value, false);
                 let actual = self.check_expr_arena(arena, source, expr_id, expected);
+                self.context_scope_tail_value = previous_tail;
                 if actual.is_result() {
                     if expected.is_some_and(Type::is_result_unit) { return actual; }
                     if expr_ty_auto_propagates(&actual) { return Type::Unit; }
@@ -2152,12 +2173,15 @@ impl Checker {
             }
             ArenaStmtKind::Expr(expr_id) => {
                 let ctx = tail_expr_context_arena(arena, expr_id, expected);
+                let previous = std::mem::replace(&mut self.context_scope_tail_value, true);
                 let schema = self.expected_schema.as_ref().map(|schema| {
                     if matches!(expected, Some(Type::Result(_, _))) && !matches!(ctx, Some(Type::Result(_, _))) {
                         schema.children.get(&crate::sema::constants::SchemaComponent::Success).cloned().unwrap_or_default()
                     } else { schema.clone() }
                 });
-                self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), ctx.as_ref(), schema)
+                let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), ctx.as_ref(), schema);
+                self.context_scope_tail_value = previous;
+                ty
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 self.check_tail_bare_ident_arena(arena, source, name, stmt.span)

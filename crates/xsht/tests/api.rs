@@ -1006,3 +1006,13 @@ fn api_process_accept_policy_documents_actual_status_and_completion_boundary() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("accept: List[Int] = default"), "{stdout}");
 }
+
+#[test]
+fn api_context_scopes_describes_restoration_and_demonstrates_value_forms() {
+    let output = xsht(&["api", "language:core.context-scopes"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("body ? propagates"), "{stdout}");
+    assert!(stdout.contains("env ({CC:"), "{stdout}");
+    assert!(stdout.contains("cd (p\".\")"), "{stdout}");
+}

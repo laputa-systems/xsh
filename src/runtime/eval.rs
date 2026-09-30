@@ -291,7 +291,7 @@ pub const COMPACT_TOP_LEVEL_BLOCKER_KIND_COUNT: usize = 11;
 pub const COMPACT_FUNCTION_BLOCKER_KIND_COUNT: usize = 6;
 pub const COMPACT_TYPE_EXPR_TAG_COUNT: usize = 9;
 pub const COMPACT_STMT_KIND_COUNT: usize = 30;
-pub const COMPACT_EXPR_KIND_COUNT: usize = 45;
+pub const COMPACT_EXPR_KIND_COUNT: usize = 46;
 pub const COMPACT_CALL_BLOCKER_KIND_COUNT: usize = 6;
 pub const COMPACT_COMMAND_BLOCKER_KIND_COUNT: usize = 6;
 
@@ -1533,6 +1533,7 @@ enum BuildExprRow {
     Capture { body: Vec<BuildStmtId>, span: Span },
     ValueBlock { body: Vec<BuildStmtId>, span: Span },
     ErrorContext { message: BuildExprId, body: Vec<BuildStmtId>, span: Span },
+    ContextScope { kind: crate::syntax::arena::ContextScopeKind, input: BuildExprId, body: Vec<BuildStmtId>, span: Span },
     Loop {
         body: Vec<BuildStmtId>,
         span: Span,
@@ -2765,6 +2766,13 @@ fn lowered_method_name(name: &str) -> bool {
     LOWERED_METHOD_NAMES.contains(&name)
 }
 
+/// A suspended producer's evaluator context is reattached only while it runs.
+#[derive(Clone)]
+pub(crate) struct ScopedProducerContext {
+    cwd: PathBuf,
+    env: RuntimeEnv,
+}
+
 #[derive(Clone, Debug)]
 enum RuntimeEnv {
     Inherited,
@@ -2878,6 +2886,9 @@ pub struct Evaluator {
     consuming_receiver: Option<usize>,
     pending_value_block_flow: Option<StmtFlow>,
     cleanup_error_contexts: Vec<ErrorContext>,
+    // Synchronous context bodies record their lexical locals separately from
+    // outer slots, so dynamic resource assignments obey the same escape rule.
+    recursive_context_slots: Vec<(usize, FxHashSet<usize>)>,
     trace_events: Vec<TraceEvent>,
     event_stack: Vec<TraceFrame>,
     call_stack: Vec<TracebackFrame>,
@@ -3111,6 +3122,7 @@ impl Evaluator {
             consuming_receiver: None,
             pending_value_block_flow: None,
             cleanup_error_contexts: Vec::new(),
+            recursive_context_slots: Vec::new(),
             trace_events: Vec::new(),
             event_stack: Vec::new(),
             call_stack: Vec::new(),
@@ -3276,6 +3288,7 @@ impl Evaluator {
             consuming_receiver: None,
             pending_value_block_flow: None,
             cleanup_error_contexts: Vec::new(),
+            recursive_context_slots: Vec::new(),
             trace_events: Vec::new(),
             event_stack: Vec::new(),
             call_stack: Vec::new(),
@@ -5362,6 +5375,17 @@ impl Evaluator {
                 "host-resource cleanup produced invalid control flow",
             )),
             Err(error) => Err(error),
+        }
+    }
+
+    fn producer_context(&self) -> ScopedProducerContext {
+        ScopedProducerContext { cwd: self.cwd.clone(), env: self.env.clone() }
+    }
+
+    fn swap_producer_context(&mut self, context: ScopedProducerContext) -> ScopedProducerContext {
+        ScopedProducerContext {
+            cwd: std::mem::replace(&mut self.cwd, context.cwd),
+            env: std::mem::replace(&mut self.env, context.env),
         }
     }
 

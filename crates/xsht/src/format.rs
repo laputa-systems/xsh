@@ -1853,6 +1853,15 @@ impl<'a> Writer<'a> {
                 self.write_type(*schema, output);
                 output.push(')');
             }
+            ArenaExprKind::ContextScope { kind, input, block, .. } => {
+                output.push_str(match kind {
+                    xsh::frontend::syntax::arena::ContextScopeKind::Cwd => "cd (",
+                    xsh::frontend::syntax::arena::ContextScopeKind::Env => "env (",
+                });
+                self.write_expr(*input, 0, output);
+                output.push_str(") ");
+                self.write_block(*block, indent_for_expr(output), output);
+            }
             ArenaExprKind::ErrorContext { message, block } => {
                 output.push_str("ctx ");
                 self.write_expr(*message, 0, output);

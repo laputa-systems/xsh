@@ -151,9 +151,7 @@ impl<'a> Parser<'a> {
                 block = Some(id);
             }
             CoreCommand::Env => {
-                if self.lookahead_is_env_expr_assignment_block() {
-                    env = self.parse_env_expr_assignment_block_arena_only(arena)?;
-                } else {
+                {
                     arena.begin_env_assignments();
                     while !self.at(TokenKindMatch::LBrace) && !self.at(TokenKindMatch::Eof) {
                         if self.parse_env_assignment_arena_only(arena).is_none() {
@@ -466,37 +464,45 @@ impl<'a> Parser<'a> {
         Some(())
     }
 
-    pub(super) fn parse_env_expr_assignment_block_arena_only(
-        &mut self,
-        arena: &mut ArenaProgramBuilder<'_>,
-    ) -> Option<ArenaRange> {
-        self.expect(
-            TokenKindMatch::LBrace,
-            "expected `{` to start env assignments",
-        )?;
+    pub(super) fn parse_legacy_env_scope_arena_only(
+        &mut self, arena: &mut ArenaProgramBuilder<'_>,
+    ) -> Option<ExprId> {
+        let start = self.current_start();
+        let introducer = self.current_span();
+        self.bump();
+        let opening = self.expect(TokenKindMatch::LBrace, "expected environment assignments")?;
+        let mut diagnostic = Diagnostic::error("expression environment assignments require an explicit overlay")
+            .with_code("parse.env-scope-migration")
+            .with_label(Label::primary(introducer, "use `env ({NAME: value}) { body }`"))
+            .with_fix_hint(FixHint::replacement(introducer, "open explicit overlay", "env ("));
         self.skip_separators();
-        arena.begin_env_assignments();
+        let mut fields = Vec::new();
         while !self.at(TokenKindMatch::RBrace) && !self.at(TokenKindMatch::Eof) {
-            let start = self.current_start();
-            let Some(name) = self.expect_ident("expected environment name") else {
-                arena.discard_env_assignments();
-                return None;
-            };
-            self.expect(TokenKindMatch::Equals, "expected `=` in env assignment");
-            let Some(value_id) = self.parse_expr_id_arena_only(arena) else {
-                arena.discard_env_assignments();
-                return None;
-            };
-            let end = self.expect_terminator();
-            arena.push_env_assignment_input(
-                name,
-                ArenaEnvAssignmentValue::Expr(value_id),
-                self.span(start, end),
-            );
+            let field_start = self.current_start();
+            let name = self.expect_ident("expected environment name")?;
+            let equals = self.expect(TokenKindMatch::Equals, "expected `=` in env assignment")?;
+            let value = self.parse_expr_id_arena_only(arena)?;
+            let value_end = self.previous_end();
+            diagnostic = diagnostic.with_fix_hint(FixHint::replacement(equals, "use a record field", ":"));
+            if self.current_tag() == TokenTag::Semicolon {
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(self.current_span(), "separate overlay fields", ","));
+            } else {
+                diagnostic = diagnostic.with_fix_hint(FixHint::replacement(self.span(value_end, value_end), "separate overlay fields", ","));
+            }
+            fields.push(crate::syntax::arena::ArenaRecordFieldInput::Named { name, value, span: self.span(field_start, value_end) });
+            self.expect_terminator();
             self.skip_separators();
         }
-        self.expect(TokenKindMatch::RBrace, "expected `}` after env assignments");
-        Some(arena.finish_env_assignments())
+        let closing = self.expect(TokenKindMatch::RBrace, "expected `}` after env assignments")?;
+        diagnostic = diagnostic.with_fix_hint(FixHint::replacement(closing, "close explicit overlay", "})"));
+        self.diagnostics.push(diagnostic);
+        arena.begin_record_fields();
+        for field in fields { arena.push_record_field_input(field); }
+        let fields = arena.finish_record_fields();
+        let input = arena.push_record_expr(fields, self.span(opening.start(), closing.end()));
+        self.skip_separators();
+        let block = self.parse_block_arena_only(arena)?;
+        Some(arena.push_context_scope_expr(crate::syntax::arena::ContextScopeKind::Env, input, block, false, self.span(start, self.previous_end())))
     }
 
     pub(super) fn parse_redirection_arena_only(

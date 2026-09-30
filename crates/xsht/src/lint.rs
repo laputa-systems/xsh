@@ -3077,7 +3077,93 @@ impl<'a> Linter<'a> {
         }
     }
 
+    /// A fresh placeholder can disappear only when no cleanup or body work
+    /// observes its earlier initialization. Keep mutation semantics for later use.
+    fn lint_context_scope_scaffolds(&mut self, stmts: &[StmtId]) {
+        for pair in stmts.windows(2) {
+            let declaration = self.arena.stmt(pair[0]);
+            let ArenaStmtKind::Var { target, initializer: ArenaExprOrRun::Expr(initial), .. } = declaration.kind else { continue; };
+            let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind else { continue; };
+            if !matches!(self.arena.expr(initial).kind, ArenaExprKind::Int(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bool(_) | ArenaExprKind::PathStr(_)) { continue; }
+            let statement = self.arena.stmt(pair[1]);
+            let (input, block, cwd) = match statement.kind {
+                ArenaStmtKind::Expr(expr) => {
+                    let ArenaExprKind::Try(scope) = self.arena.expr(expr).kind else { continue; };
+                    let ArenaExprKind::ContextScope { input, block, kind, value_body: false } = self.arena.expr(scope).kind else { continue; };
+                    (input, block, kind == xsh::frontend::syntax::arena::ContextScopeKind::Cwd)
+                }
+                ArenaStmtKind::Command(command) => {
+                    let command = self.arena.command_stmt(command);
+                    let ArenaCommand::Core { name: CoreCommand::Cd, args, block: Some(block), .. } = command.command else { continue; };
+                    let [argument] = self.arena.command_args(args) else { continue; };
+                    let ArenaCommandArgKind::Typed(input) = argument.kind else { continue; };
+                    if !command.propagate { continue; }
+                    (input, block, true)
+                }
+                _ => continue,
+            };
+            let body: Vec<_> = self.arena.stmt_ids(self.arena.block(block).statements).collect();
+            let [assignment] = body.as_slice() else { continue; };
+            let assignment = self.arena.stmt(*assignment);
+            let ArenaStmtKind::Assign { target, op: AssignOp::Set, value: ArenaExprOrRun::Expr(value) } = assignment.kind else { continue; };
+            if !matches!(self.arena.assign_target(target).kind, ArenaAssignTargetKind::Name(found) if found == name)
+                || expr_references_name(self.arena, input, name) || expr_references_name(self.arena, value, name) { continue; }
+            if self.expr_types.get(&self.arena.expr(initial).span).is_none()
+                || self.expr_types.get(&self.arena.expr(initial).span) != self.expr_types.get(&self.arena.expr(value).span) { continue; }
+            let edit = Span::new(declaration.span.source_id, declaration.span.start(), statement.span.end());
+            let mut diagnostic = Diagnostic::warning("a fresh placeholder can consume the scope value")
+                .with_code("lint.prefer-context-scope-value")
+                .with_label(Label::secondary(edit, "initialize directly from the restored context"));
+            // Cleanup captures, signal handlers, and comments can observe or explain the original
+            // assignment timing; leave those scaffolds for an explicit edit.
+            fn scalar_atom(arena: &AstArena, expr: ExprId) -> bool {
+                matches!(arena.expr(expr).kind, ArenaExprKind::Ident(_) | ArenaExprKind::Int(_) | ArenaExprKind::Str(_) | ArenaExprKind::Bool(_) | ArenaExprKind::PathStr(_))
+            }
+            let stable_input = scalar_atom(self.arena, input) || match self.arena.expr(input).kind {
+                ArenaExprKind::Record(fields) => self.arena.record_fields(fields).iter().all(|field| match field.kind {
+                    ArenaRecordFieldKind::Named { value, .. } => scalar_atom(self.arena, value),
+                    ArenaRecordFieldKind::Shorthand { .. } => true,
+                    _ => false,
+                }),
+                _ => false,
+            };
+            let mut selected_value = value;
+            if let ArenaExprKind::Try(inner) = self.arena.expr(selected_value).kind { selected_value = inner; }
+            let stable_value = scalar_atom(self.arena, selected_value) || match self.arena.expr(selected_value).kind {
+                ArenaExprKind::Call { callee, args } => match self.arena.expr(callee).kind {
+                    ArenaExprKind::Field { base, name: method } => match self.arena.expr(base).kind {
+                        ArenaExprKind::Ident(module) => ["env", "fs"].contains(&module.as_str().as_str())
+                            && !self.scopes.iter().any(|scope| scope.contains_key(module.as_str().as_str()))
+                            && xsh::api::api_spec().module_overloads(&module.as_str(), &method.as_str()).is_some()
+                            && self.arena.call_args(args).iter().all(|arg| match arg.kind {
+                                ArenaCallArgKind::Positional(value) | ArenaCallArgKind::Named { value, .. } => scalar_atom(self.arena, value),
+                                _ => false,
+                            }),
+                        _ => false,
+                    },
+                    _ => false,
+                },
+                _ => false,
+            };
+            if stable_input && stable_value && self.arena.signal_hooks.is_empty()
+                && !self.source.contains("defer") && !self.source[edit.range()].contains('#') {
+                let prefix = &self.source[declaration.span.start()..self.arena.expr(initial).span.start()];
+                let input = &self.source[self.arena.expr(input).span.range()];
+                let value = &self.source[self.arena.expr(value).span.range()];
+                let replacement = format!("{prefix}{} ({input}) {{ {value} }}?\n", if cwd { "cd" } else { "env" });
+                let mut candidate = self.source.to_string();
+                candidate.replace_range(edit.range(), &replacement);
+                let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(edit.source_id, &candidate);
+                if parsed.diagnostics.is_empty() && xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate).diagnostics.is_empty() {
+                    diagnostic = diagnostic.with_fix_hint(FixHint::replacement(edit, "consume the scope tail directly", replacement));
+                }
+            }
+            self.diagnostics.push(diagnostic);
+        }
+    }
+
     fn lint_statement_sequence(&mut self, stmts: &[StmtId]) {
+        self.lint_context_scope_scaffolds(stmts);
         self.lint_record_destructuring(stmts);
         self.lint_fresh_map_initializations(stmts);
         self.lint_list_element_reconstruction(stmts);
@@ -6004,7 +6090,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
         ArenaExprKind::Wait(form) => out.push(form.target),
         ArenaExprKind::BuilderCall { call, .. } => out.push(call),
         ArenaExprKind::Require { value, .. } => out.push(value),
-        ArenaExprKind::ErrorContext { message, .. } => out.push(message),
+        ArenaExprKind::ErrorContext { message, .. } | ArenaExprKind::ContextScope { input: message, .. } => out.push(message),
         ArenaExprKind::Retry { delays, .. } => out.extend(arena.expr_ids(delays)),
         ArenaExprKind::Null
         | ArenaExprKind::Bool(_)
@@ -6032,7 +6118,7 @@ fn expr_child_exprs(arena: &AstArena, expr: ExprId) -> Vec<ExprId> {
 fn expr_child_blocks(arena: &AstArena, expr: ExprId) -> Vec<BlockId> {
     let mut out = Vec::new();
     match arena.expr(expr).kind {
-        ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } | ArenaExprKind::Retry { block, .. } | ArenaExprKind::ErrorContext { block, .. } => out.push(block),
+        ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } | ArenaExprKind::Retry { block, .. } | ArenaExprKind::ErrorContext { block, .. } | ArenaExprKind::ContextScope { block, .. } => out.push(block),
         ArenaExprKind::Pipeline { stages, .. } => {
             for stage in arena.pipe_stages(stages).to_vec() {
                 if let ArenaPipeStageKind::Stream(stage) = stage.kind
@@ -6469,7 +6555,8 @@ fn expr_references_name(arena: &AstArena, expr: ExprId, name: Name) -> bool {
                         }
                     })
         }
-        ArenaExprKind::ValueBlock(_) | ArenaExprKind::ErrorContext { .. } => true,
+        ArenaExprKind::ValueBlock(_) | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. } => true,
         ArenaExprKind::Capture(_) | ArenaExprKind::Loop { .. } | ArenaExprKind::Retry { .. } => false,
         ArenaExprKind::Null
         | ArenaExprKind::Bool(_)
@@ -6774,7 +6861,7 @@ fn expr_contains_read_text_lines_call(arena: &AstArena, expr: ExprId) -> bool {
                     })
         }
         ArenaExprKind::Require { value, .. } => rec(value),
-        ArenaExprKind::ErrorContext { message, block } => expr_contains_read_text_lines_call(arena, message) || block_contains_read_text_lines_call(arena, block),
+        ArenaExprKind::ErrorContext { message, block } | ArenaExprKind::ContextScope { input: message, block, .. } => expr_contains_read_text_lines_call(arena, message) || block_contains_read_text_lines_call(arena, block),
         ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => block_contains_read_text_lines_call(arena, block),
         ArenaExprKind::Retry { delays, block, .. } => {
             arena.expr_ids(delays).any(rec) || block_contains_read_text_lines_call(arena, block)
@@ -7117,7 +7204,7 @@ impl LintExprVisitor<'_, '_> {
                 self.visit_expr(value);
                 self.linter.collect_type_expr_refs(schema);
             }
-            ArenaExprKind::ErrorContext { message, block } => {
+            ArenaExprKind::ErrorContext { message, block } | ArenaExprKind::ContextScope { input: message, block, .. } => {
                 self.visit_expr(message);
                 self.linter.lint_block(block);
             }
@@ -7825,6 +7912,7 @@ fn is_safe_const_expr(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::ValueBlock(_)
         | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
         | ArenaExprKind::Loop { .. }
         | ArenaExprKind::Retry { .. } => false,
     }
@@ -7925,6 +8013,7 @@ fn expr_may_have_effects(arena: &AstArena, expr: ExprId) -> bool {
         | ArenaExprKind::Capture(_)
         | ArenaExprKind::ValueBlock(_)
         | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::ContextScope { .. }
         | ArenaExprKind::Loop { .. }
         | ArenaExprKind::Retry { .. } => true,
     }
@@ -8616,7 +8705,7 @@ impl<'analysis, 'arena> CallableEdgeScanner<'analysis, 'arena> {
                 self.scan_expr(call);
                 self.scan_builder_block(block);
             }
-            ArenaExprKind::ErrorContext { message, block } => { self.scan_expr(message); self.scan_block(block); }
+            ArenaExprKind::ErrorContext { message, block } | ArenaExprKind::ContextScope { input: message, block, .. } => { self.scan_expr(message); self.scan_block(block); }
             ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) | ArenaExprKind::Loop { block } => self.scan_block(block),
             ArenaExprKind::Retry { delays, block, .. } => {
                 for delay in self.arena().expr_ids(delays).collect::<Vec<_>>() {
@@ -9344,6 +9433,7 @@ fn expr_flow(
             ))
         }
         ArenaExprKind::Require { value, .. } => expr_flow(arena, value, terminating_call_spans),
+        ArenaExprKind::ContextScope { input, block, .. } => expr_flow(arena, input, terminating_call_spans).then(FlowSummary::fallthrough().union(block_flow(arena, block, terminating_call_spans))),
         ArenaExprKind::ErrorContext { message, block } => expr_flow(arena, message, terminating_call_spans).then(block_flow(arena, block, terminating_call_spans)),
         ArenaExprKind::Capture(block) | ArenaExprKind::ValueBlock(block) => block_flow(arena, block, terminating_call_spans),
         ArenaExprKind::Loop { block } => loop_flow(arena, block, terminating_call_spans),

@@ -163,6 +163,7 @@ pub(in crate::runtime::eval) enum FullTag {
     ExprCapture,
     ExprValueBlock,
     ExprErrorContext,
+    ExprContextScope,
     ExprLoop,
     ExprRetry,
     ExprFsFiles,
@@ -2727,6 +2728,7 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
     tags.iter().fold(0, |effects, tag| {
         effects
             | match tag {
+                FullTag::ExprContextScope => EFFECT_CWD | EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE,
                 FullTag::StmtCd => EFFECT_CWD | EFFECT_HOST | EFFECT_TRACE,
                 FullTag::StmtEnv => EFFECT_ENV | EFFECT_HOST | EFFECT_TRACE,
                 FullTag::ExprRunCapture
@@ -4286,6 +4288,13 @@ macro_rules! impl_word_codec {
 }
 
 impl_word_codec!(u32, |value: &u32| Ok(*value), |raw| raw);
+impl_word_codec!(crate::syntax::arena::ContextScopeKind,
+    |value: &crate::syntax::arena::ContextScopeKind| Ok(match value { crate::syntax::arena::ContextScopeKind::Cwd => 0, crate::syntax::arena::ContextScopeKind::Env => 1 }),
+    |raw: Result<u32, IrVerifyError>| raw.and_then(|raw| match raw {
+        0 => Ok(crate::syntax::arena::ContextScopeKind::Cwd),
+        1 => Ok(crate::syntax::arena::ContextScopeKind::Env),
+        _ => Err(IrVerifyError::new("context scope kind is invalid")),
+    }));
 impl FullCodec for usize {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
         if builder.current_owner.is_none() {
@@ -7343,6 +7352,9 @@ impl_node_codec! {
         BuildExprRow::ErrorContext { message, body, span } => ExprErrorContext {
             message: BuildExprId, body: Vec<BuildStmtId>, span: Span,
         } => BuildExprRow::ErrorContext { message, body, span },
+        BuildExprRow::ContextScope { kind, input, body, span } => ExprContextScope {
+            kind: crate::syntax::arena::ContextScopeKind, input: BuildExprId, body: Vec<BuildStmtId>, span: Span,
+        } => BuildExprRow::ContextScope { kind, input, body, span },
         BuildExprRow::ValueBlock { body, span } => ExprValueBlock {
             body: Vec<BuildStmtId>, span: Span,
         } => BuildExprRow::ValueBlock { body, span },
@@ -8059,9 +8071,9 @@ while index < 3 {
   index += 1
 }
 
-env {
-  TOP_LEVEL_DRIVER_BOUNDARY = "indexed"
-} {
+env ({
+  TOP_LEVEL_DRIVER_BOUNDARY: "indexed",
+}) {
   print "indexed"
 }
 
@@ -9803,6 +9815,137 @@ proc checked() [process, error] {
                 let mut invalid_presence = program.clone();
                 invalid_presence.store.extra[payload.end - value_offset - 1] = 2;
                 assert!(FullVerifier::verify(&invalid_presence).is_err());
+            }
+        });
+    }
+
+    #[test]
+    fn context_scope_dynamic_outer_assignment_is_rejected_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = r#"stream rows() [] -> Stream[Int] { yield 1 }
+proc hidden() [] -> Any { rows() }
+proc scoped() [env, error] -> Int {
+  var output: Any = null
+  let ignored = env ({XSH_SCOPE_ASSIGNMENT: "inner"}) { output = hidden(); 7 }
+  99
+}
+proc local() [env, error] -> Int {
+  env ({XSH_SCOPE_ASSIGNMENT: "inner"}) { var output: Any = null; output = hidden(); 7 }?
+}
+"#;
+            let program = Arc::new(fixture("context-scope-assignment.xsh", source));
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                    .with_env_var(b"XSH_SCOPE_ASSIGNMENT".to_vec(), b"outer".to_vec());
+                let original_env = evaluator.env.snapshot_clone();
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "scoped")), LoweredFunctionKind::Proc, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("scope function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap_err().kind, "context-scope-escape");
+                assert_eq!(evaluator.env.snapshot_clone(), original_env);
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "local")), LoweredFunctionKind::Proc, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("scope function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(7));
+                assert_eq!(evaluator.env.snapshot_clone(), original_env);
+            }
+        });
+    }
+
+    #[test]
+    fn context_scope_force_abort_restores_evaluator_state_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = r#"proc fail() [io, error] -> Int { abort(23, force: true); 9 }
+proc scoped() [io, error] -> Int {
+  let ignored = cd (p"/") {
+    let ignored = env ({XSH_FORCE_SCOPE: "inner"}) { fail() }
+    7
+  }
+  99
+}
+"#;
+            let program = Arc::new(fixture("context-scope-force.xsh", source));
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                    .with_env_var(b"XSH_FORCE_SCOPE".to_vec(), b"outer".to_vec())
+                    .with_env_var(b"XSH_RAW_INHERITED".to_vec(), b"raw\xff bytes".to_vec());
+                let original_cwd = evaluator.cwd.clone();
+                let original_env = evaluator.env.snapshot_clone();
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "scoped")), LoweredFunctionKind::Proc, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("scope function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert!(result.unwrap_err().abort.is_some_and(|signal| signal.force));
+                assert_eq!(evaluator.cwd, original_cwd);
+                assert_eq!(evaluator.env.snapshot_clone(), original_env);
+            }
+        });
+    }
+
+    #[test]
+    fn context_scope_verifies_payload_and_preserves_native_environment_bytes() {
+        run_with_large_stack(|| {
+            let source = "proc selected(value: Path) [env, error] -> Result[Int] { env ({XSH_NATIVE_SCOPE: value}) { 7 } }\n";
+            let program = fixture("context-scope-native.xsh", source);
+            let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprContextScope).expect("scope instruction");
+            let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
+            let mut bad_kind = program.clone();
+            bad_kind.store.extra[payload.start] = 2;
+            assert!(FullVerifier::verify(&bad_kind).is_err());
+            let mut bad_input = program.clone();
+            bad_input.store.extra[payload.start + 1] = u32::MAX;
+            assert!(FullVerifier::verify(&bad_input).is_err());
+            let program = Arc::new(program);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                    .with_env_var(b"XSH_RAW_INHERITED".to_vec(), b"raw\xff bytes".to_vec());
+                let original_env = evaluator.env.snapshot_clone();
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let argument = Value::Path(PathValue::new(b"raw\xfe name".to_vec()).unwrap());
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "selected")), LoweredFunctionKind::Proc, &[argument.clone()],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("scope function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert!(result.is_ok(), "{result:?}");
+                assert_eq!(evaluator.env.snapshot_clone(), original_env);
+            }
+        });
+    }
+
+    #[test]
+    fn context_scope_fatal_body_restores_state_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = r#"proc fatal() [env, error] -> Int {
+  let ignored = cd (p"/") {
+    let ignored = env ({XSH_FATAL_SCOPE: "inner"}) { let zero = 0; 1 / zero }
+    7
+  }
+  99
+}
+"#;
+            let program = Arc::new(fixture("context-scope-fatal.xsh", source));
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone())
+                    .with_env_var(b"XSH_FATAL_SCOPE".to_vec(), b"outer".to_vec());
+                let original_cwd = evaluator.cwd.clone();
+                let original_env = evaluator.env.snapshot_clone();
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "fatal")), LoweredFunctionKind::Proc, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("scope function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert!(result.unwrap_err().abort.is_none());
+                assert_eq!(evaluator.cwd, original_cwd);
+                assert_eq!(evaluator.env.snapshot_clone(), original_env);
             }
         });
     }

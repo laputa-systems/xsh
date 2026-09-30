@@ -59,6 +59,15 @@ The implementation is intentionally split into three responsibilities:
   safe signal recording, handler restoration, and child signal-disposition
   reset before exec.
 
+Value scopes `cd (path) { tail }` and `env (overlay) { tail }` select evaluator
+state without changing process-global cwd or environment. Entering a scope
+validates its input before the body starts. Environment values use the existing
+scalar argv conversion, including native Path bytes and NUL rejection; inherited
+raw environment bytes remain unchanged. Scope cleanup and defers finish before
+restoration, including lexical transfers and cancellation. A live producer or
+host handle cannot escape after restoration. `Result` wrapping records normal
+completion and entry errors; body propagation keeps its enclosing destination.
+
 No layer is allowed to smuggle host behavior around the others. The process
 substrate does not decide XSH control flow. Signal handlers do not inspect
 evaluator state. The evaluator does not perform raw `waitpid` or `tcsetpgrp`

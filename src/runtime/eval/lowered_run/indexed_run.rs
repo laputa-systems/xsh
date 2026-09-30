@@ -283,6 +283,12 @@ fn decode_assign_path<'a>(execution: &FullExecution<'a>, payload: &mut FullPaylo
 }
 
 #[derive(Clone)]
+enum ContextScopeRestore {
+    Cwd { previous: std::path::PathBuf, span: Span },
+    Env(super::super::RuntimeEnv),
+}
+
+#[derive(Clone)]
 enum IndexedCompQualifier {
     For { target: LoweredCompTarget, iter: u32, span: Span },
     If { condition: u32, span: Span },
@@ -319,6 +325,112 @@ fn lowered_comp_iterable(value: LoweredValue, span: Span) -> Result<LoweredValue
 }
 
 impl Evaluator {
+    fn enter_indexed_context_scope(&mut self, kind: crate::syntax::arena::ContextScopeKind, value: LoweredValue, span: Span) -> Result<ContextScopeRestore, RuntimeError> {
+        match kind {
+            crate::syntax::arena::ContextScopeKind::Cwd => {
+                let target = lowered_path_like_arg(value, "cd", span)?;
+                let previous = self.cwd.clone();
+                let next = self.host_path(&target);
+                match fs_module::cd_target_is_dir(&next) {
+                    Ok(true) => {},
+                    Ok(false) => return Err(RuntimeError::new("cwd-not-directory", "cwd target is not a directory").with_span(span)),
+                    Err(error) => return Err(RuntimeError::new("cwd", error.to_string()).with_span(span)),
+                }
+                self.trace_enter(TraceKind::CwdEnter, Some(span), Some("cd"), TracePayload::Cwd {
+                    previous: TraceArg::bytes(path_bytes(&previous)), current: TraceArg::bytes(path_bytes(&next)),
+                });
+                self.cwd = next;
+                Ok(ContextScopeRestore::Cwd { previous, span })
+            }
+            crate::syntax::arena::ContextScopeKind::Env => {
+                let fields = match value {
+                    LoweredValue::Record(fields) => fields.iter().map(|(name, value)| (name.to_string(), value.clone())).collect::<Vec<_>>(),
+                    LoweredValue::RecordVec(fields) => fields.iter().map(|(name, value)| (name.to_string(), value.clone())).collect(),
+                    LoweredValue::Map(fields) => fields.iter().map(|(name, value)| {
+                        let name = name.as_str().ok_or_else(|| RuntimeError::new("env-name", "environment overlay keys must be Str").with_span(span))?;
+                        Ok((name.to_string(), value.clone()))
+                    }).collect::<Result<Vec<_>, RuntimeError>>()?,
+                    _ => return Err(RuntimeError::new("type-error", "environment overlay requires Record or string-keyed Map").with_span(span)),
+                };
+                let mut overlay = BTreeMap::new();
+                for (name, value) in fields {
+                    check_env_name(&name, span)?;
+                    let value = super::super::value_to_argv_bytes(value.into_value(), span)?;
+                    overlay.insert(name.into_bytes(), value);
+                }
+                let previous = self.env.clone();
+                self.env.extend(overlay);
+                Ok(ContextScopeRestore::Env(previous))
+            }
+        }
+    }
+
+    pub(in crate::runtime::eval) fn context_scope_runtime_value_escapes(value: &Value) -> bool {
+        match value {
+            Value::Stream(_) | Value::ProcessHandle(_) | Value::NetJob(_) => true,
+            Value::List(items) => items.iter().any(Self::context_scope_runtime_value_escapes),
+            Value::Map(fields) => fields.values().any(Self::context_scope_runtime_value_escapes),
+            Value::Record(fields) | Value::Module(fields) => fields.iter().any(|(_, value)| Self::context_scope_runtime_value_escapes(value)),
+            Value::Result(crate::runtime::value::ResultValue::Ok(value) | crate::runtime::value::ResultValue::Err(value)) => Self::context_scope_runtime_value_escapes(value),
+            Value::Tag { fields, .. } => fields.iter().any(Self::context_scope_runtime_value_escapes),
+            Value::Error(error) => error.payload.iter().any(|(_, value)| Self::context_scope_runtime_value_escapes(value)),
+            _ => false,
+        }
+    }
+
+    pub(in crate::runtime::eval) fn context_scope_value_escapes(value: &LoweredValue) -> bool {
+        match value {
+            LoweredValue::Stream(_) | LoweredValue::ProcessHandle(_) | LoweredValue::NetJob(_) => true,
+            LoweredValue::List(items) => items.iter().any(Self::context_scope_value_escapes),
+            LoweredValue::SharedList(items) => items.iter().any(Self::context_scope_value_escapes),
+            LoweredValue::Map(fields) => fields.values().any(Self::context_scope_value_escapes),
+            LoweredValue::Record(fields) | LoweredValue::Module(fields) => fields.values().any(Self::context_scope_value_escapes),
+            LoweredValue::RecordVec(fields) => fields.iter().any(|(_, value)| Self::context_scope_value_escapes(value)),
+            LoweredValue::Tag(tag) => tag.fields.iter().any(Self::context_scope_value_escapes),
+            LoweredValue::ResultOk(value) => Self::context_scope_value_escapes(value),
+            LoweredValue::Error(value) | LoweredValue::ResultErr(value) => Self::context_scope_runtime_value_escapes(value),
+            _ => false,
+        }
+    }
+
+    fn declare_recursive_context_slot(&mut self, slots: &[LoweredValue], slot: usize) {
+        let identity = slots.as_ptr() as usize;
+        for (owner, locals) in &mut self.recursive_context_slots {
+            if *owner == identity { locals.insert(slot); }
+        }
+    }
+
+    fn declare_recursive_context_target(&mut self, slots: &[LoweredValue], target: &LoweredCompTarget) {
+        match target {
+            LoweredCompTarget::Slot(slot) => self.declare_recursive_context_slot(slots, *slot),
+            LoweredCompTarget::Record { fields } => {
+                for (_, target, _) in fields { self.declare_recursive_context_target(slots, target); }
+            }
+            LoweredCompTarget::Discard => {}
+        }
+    }
+
+    fn check_recursive_context_assignment(&self, slots: &[LoweredValue], slot: usize, value: &LoweredValue, span: Span) -> Result<(), RuntimeError> {
+        if Self::context_scope_value_escapes(value) && self.recursive_context_slots.iter().any(|(owner, locals)|
+            *owner == slots.as_ptr() as usize && !locals.contains(&slot)) {
+            return Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape through an outer assignment").with_span(span));
+        }
+        Ok(())
+    }
+
+    fn restore_indexed_context_scope(&mut self, restore: ContextScopeRestore) {
+        match restore {
+            ContextScopeRestore::Cwd { previous, span } => {
+                let current = self.cwd.clone();
+                self.cwd = previous.clone();
+                self.trace_exit(TraceKind::CwdExit, Some(span), Some("cd"), TracePayload::Cwd {
+                    previous: TraceArg::bytes(path_bytes(&current)), current: TraceArg::bytes(path_bytes(&previous)),
+                });
+            }
+            ContextScopeRestore::Env(previous) => { self.env = previous; }
+        }
+    }
+
     /// The index `function`/`kind` resolves to inside `program`.
     ///
     /// The program is part of the cache key because one evaluator resolves the
@@ -5561,6 +5673,45 @@ impl Evaluator {
                 };
                 ControlFlow::Continue(super::super::require::require_value(self, value, &check, span))
             }
+            FullTag::ExprContextScope => {
+                let kind = indexed_decode::<crate::syntax::arena::ContextScopeKind>(&mut payload, execution, call_span)?;
+                let input = indexed_raw(&mut payload, call_span)?;
+                let body = indexed_raw(&mut payload, call_span)?;
+                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+                indexed_finish(payload, call_span)?;
+                let value = match self.eval_indexed_expr(execution, input, slots, span)? {
+                    ControlFlow::Continue(value) => value,
+                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                };
+                let restore = match self.enter_indexed_context_scope(kind, value, span) {
+                    Ok(restore) => restore,
+                    Err(error) => return Ok(ControlFlow::Continue(lowered_result_err_value(error))),
+                };
+                let header = Self::indexed_block_header(slots.len());
+                // Keep resources owned by the context until the escaping value
+                // has been checked, so rejected handles close before restoration.
+                let context_owner = self.enter_owned_host_scope();
+                self.recursive_context_slots.push((slots.as_ptr() as usize, Default::default()));
+                let result = self.eval_indexed_statement_block(execution, body, &header, slots, span);
+                self.recursive_context_slots.pop();
+                let result = match result {
+                    Ok(StmtFlow::Value(value) | StmtFlow::Return(value) | StmtFlow::Break(Some(value))) if Self::context_scope_value_escapes(&value) =>
+                        Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(span)),
+                    result => result,
+                };
+                let cleanup = self.exit_owned_host_scope(context_owner);
+                self.restore_indexed_context_scope(restore);
+                let result = match (result, cleanup) {
+                    (Err(primary), Err(secondary)) => { self.report_cleanup_error(&secondary, span); Err(primary) },
+                    (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+                    (Ok(flow), Ok(())) => Ok(flow),
+                };
+                match result? {
+                    StmtFlow::Value(value) => ControlFlow::Continue(lowered_result_ok(value)),
+                    StmtFlow::None => ControlFlow::Continue(lowered_result_ok(LoweredValue::Unit)),
+                    flow => self.preserve_lexical_expression_flow(flow),
+                }
+            }
             FullTag::ExprCapture => {
                 let body = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
@@ -7789,6 +7940,7 @@ impl Evaluator {
         match tag {
             FullTag::StmtLet => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
+                self.declare_recursive_context_slot(slots, slot);
                 let value = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
                 match self.eval_indexed_expr(execution, value, slots, call_span)? {
@@ -7804,6 +7956,7 @@ impl Evaluator {
                 for _ in 0..count {
                     let slot = indexed_decode::<usize>(&mut binding_words, execution, call_span)?;
                     let value = indexed_raw(&mut binding_words, call_span)?;
+                    self.declare_recursive_context_slot(slots, slot);
                     bindings.push((slot, value));
                 }
                 indexed_finish(binding_words, call_span)?;
@@ -7843,6 +7996,7 @@ impl Evaluator {
             }
             FullTag::StmtGuard => {
                 let target = indexed_decode::<LoweredCompTarget>(&mut payload, execution, call_span)?;
+                self.declare_recursive_context_target(slots, &target);
                 let value = indexed_raw(&mut payload, call_span)?;
                 let else_param_slot =
                     indexed_decode::<Option<usize>>(&mut payload, execution, call_span)?;
@@ -7882,6 +8036,7 @@ impl Evaluator {
             FullTag::StmtLetRecord => {
                 let source = indexed_raw(&mut payload, call_span)?;
                 let target = indexed_decode::<LoweredCompTarget>(&mut payload, execution, call_span)?;
+                self.declare_recursive_context_target(slots, &target);
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
                 indexed_finish(payload, call_span)?;
                 let source = match self.eval_indexed_expr(execution, source, slots, call_span)? {
@@ -7893,6 +8048,7 @@ impl Evaluator {
             }
             FullTag::StmtLetInt => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
+                self.declare_recursive_context_slot(slots, slot);
                 let value = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
                 match self.eval_indexed_typed_int(execution, value, slots, call_span)? {
@@ -7903,6 +8059,7 @@ impl Evaluator {
             }
             FullTag::StmtLetBool => {
                 let slot = indexed_decode::<usize>(&mut payload, execution, call_span)?;
+                self.declare_recursive_context_slot(slots, slot);
                 let value = indexed_raw(&mut payload, call_span)?;
                 indexed_finish(payload, call_span)?;
                 match self.eval_indexed_typed_bool(execution, value, slots, call_span)? {
@@ -7929,6 +8086,7 @@ impl Evaluator {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
                 };
+                self.check_recursive_context_assignment(slots, slot, &value, span)?;
                 slots[slot] = match op {
                     AssignOp::Set => value,
                     _ => apply_indexed_assignment(&mut slots[slot], op, value, singleton, span)?,
@@ -7959,6 +8117,7 @@ impl Evaluator {
                         }
                     }
                 };
+                self.check_recursive_context_assignment(slots, slot, &value, span)?;
                 let current = super::super::lowered_ops::lowered_record_field_mut(
                     &mut slots[slot], Name::intern(field.as_ref()), span,
                 )?;
@@ -7990,6 +8149,7 @@ impl Evaluator {
                     ControlFlow::Continue(value) => value,
                     ControlFlow::Break(value) => return Ok(StmtFlow::Return(value)),
                 };
+                self.check_recursive_context_assignment(slots, slot, &value, span)?;
                 apply_indexed_path_assignment(&mut slots[slot], &selectors, op, value, singleton, span)?;
                 Ok(StmtFlow::None)
             }
@@ -8318,6 +8478,7 @@ impl Evaluator {
                 } else {
                     LoweredCompTarget::Slot(indexed_decode::<usize>(&mut payload, execution, call_span)?)
                 };
+                self.declare_recursive_context_target(slots, &target);
                 let iter = indexed_raw(&mut payload, call_span)?;
                 let body = indexed_raw(&mut payload, call_span)?;
                 let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;

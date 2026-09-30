@@ -93,6 +93,7 @@ pub(crate) fn source(id: &str) -> Option<String> {
         }
         "language.stream.fold" => include_str!("../../../docs/snippets/api/stream-fold.xsh"),
         "language.stream.reduce" => include_str!("../../../docs/snippets/api/stream-reduce.xsh"),
+        "language.core.context-scopes" => include_str!("../../../docs/snippets/api/core-context-scopes.xsh"),
         "language.core.procs" => include_str!("../../../docs/snippets/api/core-procs.xsh"),
         "language.core.pure-functions" => {
             include_str!("../../../docs/snippets/api/core-pure-functions.xsh")

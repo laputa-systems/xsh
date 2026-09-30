@@ -16,7 +16,7 @@ use super::{
     append_lowered_list_element, append_lowered_map_literal, lowered_map_literal_key,  apply_indexed_assignment, indexed_assignment_operand, lowered_binary_value, lowered_bytes_parts,
     lowered_freeze_large_slot_list, lowered_match_no_arm,
     lowered_record_vec_append_or_replace_unsorted, lowered_record_vec_or_stats,
-    lowered_return_value, lowered_splice_arg_items,
+    lowered_return_value, lowered_splice_arg_items, lowered_result_ok, lowered_result_err_value,
     lowered_str_parts, lowered_value_from_runtime_any, 
     push_lowered_fmt_value, push_lowered_native_fmt_value, capture_checked_error,
 };
@@ -112,6 +112,7 @@ enum FrameContinuation {
     Return,
     BlockValue,
     ErrorContextEntry { body: u32, span: Span, next: Box<FrameContinuation> },
+    ContextScopeEntry { kind: crate::syntax::arena::ContextScopeKind, body: u32, span: Span, next: Box<FrameContinuation> },
     Discard(Span),
     ComparisonLeft {
         pairs: Vec<(BinaryOp, u32, Span)>,
@@ -344,6 +345,7 @@ enum ExpressionBoundaryPolicy {
     Value,
     Context(crate::runtime::value::ErrorContext),
     Capture,
+    Scope(super::ContextScopeRestore),
 }
 
 enum FrameWork {
@@ -696,6 +698,10 @@ impl ProducerFrameState {
         scopes
     }
 
+    pub(super) fn has_context_scope(&self) -> bool {
+        self.work.iter().any(|work| matches!(work, FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. }))
+    }
+
     /// Enters the body's call scope, so its slots belong to a live scope.
     pub(super) fn start(&mut self, scope_id: u64) {
         self.scope_id = scope_id;
@@ -902,6 +908,20 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     call.call_span,
                 );
             }
+            // Forced discard skips user defers but still closes inner owned
+            // scopes before restoring each evaluator context in lexical order.
+            for work in call.work.drain(..).rev() {
+                match work {
+                    FrameWork::Statements { scope_id: Some(scope_id), .. } => {
+                        if call.block_scopes.last() == Some(&scope_id) {
+                            call.block_scopes.pop();
+                            let _ = self.evaluator.exit_owned_host_scope(scope_id);
+                        }
+                    }
+                    FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(restore), .. } => self.evaluator.restore_indexed_context_scope(restore),
+                    _ => {}
+                }
+            }
             let _ = self.cleanup_call_scopes(&mut call);
             self.evaluator.recycle_lowered_slots(call.slots);
             self.evaluator.call_stack.pop();
@@ -1094,6 +1114,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameWork::ExpressionBoundary { policy, next } => {
                 let value = match policy {
                     ExpressionBoundaryPolicy::Capture => LoweredValue::ResultOk(Box::new(LoweredValue::Unit)),
+                    ExpressionBoundaryPolicy::Scope(restore) => {
+                        self.evaluator.restore_indexed_context_scope(restore);
+                        lowered_result_ok(LoweredValue::Unit)
+                    }
                     _ => LoweredValue::Unit,
                 };
                 self.push_value(index, FrameValue::Value(value), next);
@@ -1647,6 +1671,14 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                 self.calls[index].work.push(FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Capture, next });
                 self.push_statement_block(index, body, span)?;
             }
+            FullTag::ExprContextScope => {
+                let kind = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                let input = indexed_raw(&mut payload, span)?;
+                let body = indexed_raw(&mut payload, span)?;
+                let span = indexed_decode(&mut payload, &self.calls[index].execution, span)?;
+                indexed_finish(payload, span)?;
+                self.push_expr(index, input, span, FrameContinuation::ContextScopeEntry { kind, body, span, next: Box::new(next) });
+            }
             FullTag::ExprErrorContext => {
                 let message = indexed_raw(&mut payload, span)?;
                 let body = indexed_raw(&mut payload, span)?;
@@ -2162,6 +2194,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::Assign { slot, op, singleton, span } => match value {
                 FrameValue::Value(value) => {
+                    self.check_context_assignment(index, slot, &value, span)?;
                     let value = apply_indexed_assignment(&mut self.calls[index].slots[slot], op, value, singleton, span)?;
                     let owner_scope = self.calls[index].slot_scopes[slot];
                     let source_scope = self.evaluator.current_scope_id();
@@ -2186,6 +2219,7 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::AssignPath(state) => match value {
                 FrameValue::Value(value) => {
+                    self.check_context_assignment(index, state.slot, &value, state.span)?;
                     apply_indexed_path_assignment(&mut self.calls[index].slots[state.slot], &state.selectors, state.op, value, state.singleton, state.span)?;
                     self.evaluator.transfer_owned_host_resources_in_lowered_value(
                         &self.calls[index].slots[state.slot], self.evaluator.current_scope_id(), self.calls[index].slot_scopes[state.slot],
@@ -2200,6 +2234,16 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             FrameContinuation::BlockValue => return match value {
                 FrameValue::Value(value) => self.complete_expression_value(index, value),
                 FrameValue::Break(value) => self.complete_call(index, StmtFlow::Propagate(value)),
+            },
+            FrameContinuation::ContextScopeEntry { kind, body, span, next } => match value {
+                FrameValue::Value(value) => match self.evaluator.enter_indexed_context_scope(kind, value, span) {
+                    Ok(restore) => {
+                        self.calls[index].work.push(FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(restore), next: *next });
+                        self.push_statement_block(index, body, span)?;
+                    }
+                    Err(error) => self.push_value(index, FrameValue::Value(lowered_result_err_value(error)), *next),
+                },
+                FrameValue::Break(value) => return self.complete_call(index, StmtFlow::Propagate(value)),
             },
             FrameContinuation::ErrorContextEntry { body, span, next } => match value {
                 FrameValue::Value(value) => {
@@ -2943,6 +2987,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             },
             FrameContinuation::Yield => match value {
                 FrameValue::Value(value) => {
+                    if self.calls[index].work.iter().any(|work| matches!(work, FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. }))
+                        && Evaluator::context_scope_value_escapes(&value) {
+                        return Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape through yield").with_span(self.calls[index].call_span));
+                    }
                     // The frame keeps everything after this statement on its
                     // work stack; the puller receives the value.
                     self.suspended = Some(ProducerSuspension::Yielded(value));
@@ -2984,16 +3032,34 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         }
     }
 
+    fn check_context_assignment(&self, index: usize, slot: usize, value: &LoweredValue, span: Span) -> Result<(), RuntimeError> {
+        if !Evaluator::context_scope_value_escapes(value) { return Ok(()); }
+        let Some(boundary) = self.calls[index].work.iter().rposition(|work| matches!(work,
+            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. })) else { return Ok(()); };
+        let owner = self.calls[index].slot_scopes[slot];
+        if self.calls[index].work[boundary + 1..].iter().any(|work| matches!(work,
+            FrameWork::Statements { scope_id: Some(scope), .. } if *scope == owner)) { return Ok(()); }
+        Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape through an outer assignment").with_span(span))
+    }
+
     fn complete_expression_value(&mut self, index: usize, value: LoweredValue) -> Result<(), RuntimeError> {
         let Some(boundary) = self.calls[index].work.iter().rposition(|work| matches!(work, FrameWork::ExpressionBoundary { .. })) else {
             return self.complete_call(index, StmtFlow::Value(value));
         };
+        if matches!(&self.calls[index].work[boundary], FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. })
+            && Evaluator::context_scope_value_escapes(&value) {
+            return Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(self.calls[index].call_span));
+        }
         self.evaluator.transfer_owned_host_resources_in_lowered_value(&value,
             self.evaluator.current_scope_id(), self.evaluator.parent_owned_host_scope());
         self.discard_work_from(index, boundary + 1)?;
         let Some(FrameWork::ExpressionBoundary { policy, next }) = self.calls[index].work.pop() else { unreachable!() };
         let value = match policy {
             ExpressionBoundaryPolicy::Capture => LoweredValue::ResultOk(Box::new(value)),
+            ExpressionBoundaryPolicy::Scope(restore) => {
+                self.evaluator.restore_indexed_context_scope(restore);
+                lowered_result_ok(value)
+            }
             _ => value,
         };
         self.push_value(index, FrameValue::Value(value), next);
@@ -3023,6 +3089,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             _ => None,
         }).collect();
         if let StmtFlow::Return(value) | StmtFlow::Break(Some(value)) = &flow {
+            if self.calls[index].work.iter().any(|work| matches!(work, FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(_), .. }))
+                && Evaluator::context_scope_value_escapes(value) {
+                return Err(RuntimeError::new("context-scope-escape", "a live producer or host handle cannot escape a restored context").with_span(self.calls[index].call_span));
+            }
             let function_scope = self.calls[index].scope_id;
             let current_scope = self.evaluator.current_scope_id();
             if current_scope != function_scope {
@@ -3888,7 +3958,8 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
         let previous_contexts = self.install_cleanup_contexts();
         let discarded = self.calls[index].work.split_off(keep);
         let mut first_error = None;
-        for work in discarded.into_iter().rev() {
+        let mut discarded = discarded.into_iter().rev();
+        while let Some(work) = discarded.next() {
             let result = match work {
                 FrameWork::ClearSlots(slots) => {
                     for slot in slots { self.calls[index].slots[slot] = LoweredValue::Unit; }
@@ -3907,6 +3978,10 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
                     }
                     Ok(())
                 }
+                FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(restore), .. } => {
+                    self.evaluator.restore_indexed_context_scope(restore);
+                    Ok(())
+                }
                 FrameWork::CompCleanup(streams) => self.cleanup_comp_streams(streams),
                 FrameWork::Statements { scope_id: Some(scope_id), .. } => self.exit_block_scope(index, scope_id, false),
                 FrameWork::ForStream { mut stream, span, .. } => self.evaluator.stream_cancel(&mut stream, span),
@@ -3915,6 +3990,19 @@ impl<'a, 'p> ExplicitFrames<'a, 'p> {
             };
             if let Err(error) = result {
                 if error.abort.as_ref().is_some_and(|signal| signal.force) {
+                    for work in discarded {
+                        match work {
+                            FrameWork::Statements { scope_id: Some(scope_id), .. } => {
+                                if self.calls[index].block_scopes.last() == Some(&scope_id) {
+                                    self.calls[index].block_scopes.pop();
+                                    self.calls[index].block_defer_offsets.pop();
+                                    let _ = self.evaluator.exit_owned_host_scope(scope_id);
+                                }
+                            }
+                            FrameWork::ExpressionBoundary { policy: ExpressionBoundaryPolicy::Scope(restore), .. } => self.evaluator.restore_indexed_context_scope(restore),
+                            _ => {}
+                        }
+                    }
                     self.evaluator.cleanup_error_contexts = previous_contexts;
                     return Err(error);
                 }

@@ -667,3 +667,19 @@ fn grep_and_refactor_reach_wire_enum_mapping_expressions() {
     assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
     assert!(xsh::frontend::check::Checker::check_arena(&parsed.arena, &fixed).diagnostics.is_empty());
 }
+
+#[test]
+fn context_scope_grep_and_refactor_preserve_input_body_and_scope_kind() {
+    let root = TempDir::new().unwrap();
+    let file = root.path().join("scope.xsh");
+    fs::write(&file, "let selected = env ({X: 7}) { 9 }\nlet other = cd (p\".\") { 9 }\n").unwrap();
+    let output = grep_scripts("env (EXPR) { BODY }", &paths(&file));
+    assert_eq!(output.status, 0, "{}", output_text(&output.stderr));
+    assert!(output_text(&output.stdout).contains("env ({X: 7}) { 9 }"));
+    assert!(!output_text(&output.stdout).contains("cd ("));
+    let fixed = refactor_scripts("env (EXPR) { BODY }", "env (EXPR) { BODY }", &paths(&file), false);
+    assert_eq!(fixed.status, 0, "{}", output_text(&fixed.stderr));
+    let source = fs::read_to_string(&file).unwrap();
+    assert!(source.contains("env ({X: 7}) {"));
+    assert!(source.contains("cd (p\".\") {"));
+}

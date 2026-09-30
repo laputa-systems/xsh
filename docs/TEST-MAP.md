@@ -918,3 +918,13 @@ missing-path errors, every run result mode, exact comment/argv preservation,
 shorthand wire keys, shadowing, invalid arguments, rechecking and idempotence.
 The migrated syntax and checker fixtures remain under `tests/syntax.rs` and
 `tests/sema.rs`; public inventory is checked through native API queries.
+## Cwd and environment value scopes
+
+`target/debug/xsht test --jobs 1 tests/xsh/context-scopes.xsh` covers tail values,
+nested Results, entry failure, source order, lexical transfers, transparent
+propagation, nested restoration, defer timing, and producer escape rejection.
+It also checks suspended and delegated producer isolation and cancellation cleanup.
+Run `tests/xsh/stdlib/env.xsh`, the syntax and sema integration targets, indexed
+verifier unit tests, and xsht scope tooling acceptance tests for the full gate.
+`cargo test -p xsh --lib context_scope_` checks native environment bytes,
+fatal and forced cleanup, and dynamic outer assignment on both evaluator routes.

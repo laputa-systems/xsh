@@ -140,6 +140,19 @@ impl Type {
     pub fn is_map_key(&self) -> bool {
         matches!(self, Self::Str | Self::Int | Self::UInt | Self::Bool | Self::Bytes | Self::Path | Self::Duration)
     }
+
+    /// Context restoration cannot outlive a producer or live host handle.
+    pub(crate) fn can_escape_context_scope(&self) -> bool {
+        match self {
+            Self::Stream(_) | Self::ProcessHandle | Self::NetJob => false,
+            Self::List(item) | Self::Optional(item) => item.can_escape_context_scope(),
+            Self::Map(_, item) => item.can_escape_context_scope(),
+            Self::Result(ok, error) => ok.can_escape_context_scope() && error.can_escape_context_scope(),
+            Self::Record(fields) => fields.values().all(Self::can_escape_context_scope),
+            _ => true,
+        }
+    }
+
     /// Checked item facts for direct loops and comprehension clauses.
     pub(crate) fn iteration_item_type(&self) -> Option<Type> {
         match self {

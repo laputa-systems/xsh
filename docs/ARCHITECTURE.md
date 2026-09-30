@@ -882,3 +882,13 @@ edits after ordinary name/receiver resolution; the parser recovers canonical run
 heads with fatal diagnostics. `migration_lint_code` and
 `migrate_workspace_syntax` combine those edits across each loaded source and
 validate the entire overlay with ordinary preparation before publishing changes.
+### Cwd and environment expression boundaries
+
+`ArenaExprKind::ContextScope` retains the input, body, and whether the body is
+consumed as a value. The checked type is `Result[T, Error]`; lowering emits
+`BuildExprRow::ContextScope` with ordinary tail-value rows. Both indexed routes
+enter evaluator state once, finish scoped cleanup, and restore before wrapping
+normal completion. `ExpressionBoundaryPolicy::Scope` unwinds transparently for
+lexical transfers and propagation. Suspended producers retain
+`ScopedProducerContext` while their frame owns a scope boundary; pulls and
+cancellation swap it with the consumer context, including delegated children.

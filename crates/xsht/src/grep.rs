@@ -219,6 +219,12 @@ fn match_expr_structural(
             *bindings = candidate;
             true
         }
+        (ArenaExprKind::ContextScope { kind: pk, input: pi, block: pb, value_body: pv }, ArenaExprKind::ContextScope { kind: tk, input: ti, block: tb, value_body: tv }) => {
+            let mut candidate = bindings.clone();
+            if pk != tk || pv != tv || !match_expr(p, *pi, t, *ti, source, &mut candidate) || !match_context_block(p, *pb, t, *tb, source, &mut candidate) { return false; }
+            *bindings = candidate;
+            true
+        }
         (ArenaExprKind::ErrorContext { message: pm, block: pb }, ArenaExprKind::ErrorContext { message: tm, block: tb }) => {
             let mut candidate = bindings.clone();
             if !match_expr(p, *pm, t, *tm, source, &mut candidate) || !match_context_block(p, *pb, t, *tb, source, &mut candidate) { return false; }
@@ -519,7 +525,7 @@ fn build_replacement_text(
             }
             Some(text)
         }
-        ArenaExprKind::ErrorContext { message, block } => {
+        ArenaExprKind::ErrorContext { message, block } | ArenaExprKind::ContextScope { input: message, block, .. } => {
             let description = build_replacement_text(arena, *message, m, target_source, pattern_source)?;
             let mut text = pattern_source.get(expr.span.range())?.to_string();
             let message_span = arena.expr(*message).span;
