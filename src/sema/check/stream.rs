@@ -30,10 +30,18 @@ impl Checker {
             return input_ty;
         };
         let mut current = if first.kind.is_adapter() {
-            self.check_adapter_stage_arena(arena, source, first, input_ty)
+            let output = self.check_adapter_stage_arena(arena, source, first, input_ty.clone());
+            self.stream_stage_types.insert((self.current_namespace, arena.arena.span(first.span)),
+                super::CheckedStreamStage { input: input_ty, output: output.clone() });
+            output
         } else {
             match stream_type_from_input(input_ty) {
-                Some(ty) => self.check_stream_stage_arena(arena, source, first, ty),
+                Some(ty) => {
+                    let output = self.check_stream_stage_arena(arena, source, first, ty.clone());
+                    self.stream_stage_types.insert((self.current_namespace, arena.arena.span(first.span)),
+                        super::CheckedStreamStage { input: ty, output: output.clone() });
+                    output
+                },
                 None => {
                     self.error(
                         arena.arena.expr(input).span,
@@ -46,7 +54,10 @@ impl Checker {
         };
 
         for stage in rest {
-            current = self.check_stream_stage_arena(arena, source, stage, current);
+            let input = current;
+            current = self.check_stream_stage_arena(arena, source, stage, input.clone());
+            self.stream_stage_types.insert((self.current_namespace, arena.arena.span(stage.span)),
+                super::CheckedStreamStage { input, output: current.clone() });
         }
         match current {
             Type::Stream(item) => Type::List(item),

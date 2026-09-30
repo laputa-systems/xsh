@@ -4335,3 +4335,73 @@ let lengths = {lines: rows.len(), values: values.len()}
     }
     assert_eq!(found, 4);
 }
+
+#[test]
+fn compact_stream_stage_result_matrix_matches_canonical_checked_facts() {
+    let source = r#"
+let parallel = ["a"] |> par-map { |value| value.byte_len() }
+let batches = [1, 2] |> batch(count: 2)
+let numbered = ["a"] |> enumerate
+let pairs = ["a"] |> zip([1])
+let generated = ["a"] |> range(start: 0, end: 2)
+let groups = ["a"] |> group-by { |value| value }
+let sum = [1, 2] |> sum
+let first = [1, 2] |> first
+let last = [1, 2] |> last
+let minimum = [1, 2] |> min
+let maximum = [1, 2] |> max
+let accumulators = [1, 2] |> reduce-by(sum: true) { |value| {key: "n", value: value} }
+let folded = [1, 2] |> fold(0) { |acc, value| Ok(acc + value)? }
+let reduced = [1, 2] |> reduce(0) { |acc, value| Ok(acc + value)? }
+let lines = "a\nb\n" |> text.lines
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut pipelines = 0;
+    for (id, actual) in &compact.expr_types {
+        let expression = parsed.arena.arena.expr(*id);
+        if matches!(expression.kind, xsh::frontend::syntax::arena::ArenaExprKind::StructuredPipeline { .. }) {
+            assert_eq!(Some(actual), checked.expr_types.get(&expression.span), "{}", &source[expression.span.range()]);
+            assert!(!actual.contains_inference());
+            pipelines += 1;
+        }
+    }
+    assert_eq!(pipelines, 15);
+}
+
+#[test]
+fn canonical_stream_stage_facts_distinguish_equal_spans_in_modules() {
+    use xsh::frontend::check::Type;
+    use xsh::frontend::symbols::Name;
+    use xsh::frontend::syntax::arena::{ArenaExprKind, ArenaExprOrRun, ArenaProgramBuilder, ArenaStmtKind};
+    let mut builder = ArenaProgramBuilder::with_token_capacity(64);
+    let entry = Parser::parse_source_into_arena_builder(SourceId::new(0), "", &mut builder);
+    for (name, source) in [("left", "let value = [1] |> sum\n"), ("right", "let value = [1] |> min\n")] {
+        let fragment = Parser::parse_source_into_arena_builder(SourceId::new(0), source, &mut builder);
+        assert!(fragment.diagnostics.is_empty(), "{:?}", fragment.diagnostics);
+        let name = builder.symbol_owner().with_current(|| Name::intern(name));
+        builder.push_arena_module(name.to_string(), name, fragment.statements);
+    }
+    let program = builder.finish_with_statements(entry.statements);
+    let declarations = Checker::check_compact_declarations(&program);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    let compact = Checker::probe_compact_bodies(&program, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut span = None;
+    for (index, module) in program.modules.iter().enumerate() {
+        let statement = program.module_statements(module).next().expect("module binding");
+        let ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(expression), .. } = program.arena.stmt(statement).kind else { panic!("binding") };
+        let ArenaExprKind::StructuredPipeline { stages, .. } = program.arena.expr(expression).kind else { panic!("pipeline") };
+        let stage_span = program.arena.span(program.arena.stream_stages(stages)[0].span);
+        if let Some(previous) = span { assert_eq!(stage_span, previous); }
+        span = Some(stage_span);
+        let expected = if index == 0 { Type::Int } else { Type::Result(Box::new(Type::Int), Box::new(Type::Error)) };
+        assert_eq!(declarations.stream_stage_types.get(&(Some(module.name), stage_span)).map(|fact| &fact.output), Some(&expected));
+        assert_eq!(compact.expr_types.get(&expression), Some(&expected));
+    }
+}

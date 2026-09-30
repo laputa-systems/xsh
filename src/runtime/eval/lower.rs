@@ -4817,9 +4817,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaExprKind::Pipeline { input, stages } => {
                 self.infer_checked_pipeline_type_with_slots(input, stages, slots)
             }
-            ArenaExprKind::StructuredPipeline { input, stages } => {
-                self.infer_checked_structured_pipeline_type_with_slots(input, stages, slots)
-            }
+            ArenaExprKind::StructuredPipeline { .. } => self.bodies.expr_types.get(&value).cloned(),
             ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
                 if let Some(ty) = self.infer_checked_env_field_type(base, name) {
                     return Some(ty);
@@ -5008,22 +5006,6 @@ impl CompactLowerConstructProbe<'_, '_> {
             let ArenaPipeStageKind::Stream(stage) = &stage.kind else {
                 continue;
             };
-            current = self.infer_checked_stream_stage_type_with_slots(&current, stage, slots)?;
-        }
-        Some(current)
-    }
-
-    fn infer_checked_structured_pipeline_type_with_slots(
-        &self,
-        input: ExprId,
-        stages: crate::syntax::arena::ArenaRange,
-        slots: &SlotScope,
-    ) -> Option<Type> {
-        let mut current = self
-            .infer_checked_expr_type(input, &self.top_level_known)
-            .or_else(|| self.infer_checked_expr_type_with_slots(input, slots))?;
-        current = current.result_ok().cloned().unwrap_or(current);
-        for stage in self.program.arena.stream_stages(stages) {
             current = self.infer_checked_stream_stage_type_with_slots(&current, stage, slots)?;
         }
         Some(current)
@@ -8129,21 +8111,15 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaExprKind::StructuredPipeline { input, stages } => {
                 let stages = self.program.arena.stream_stages(stages).to_vec();
                 let mut lowered_stages = Vec::with_capacity(stages.len());
-                let mut current_ty = self
-                    .infer_checked_expr_type(input, &self.top_level_known)
-                    .or_else(|| self.infer_checked_expr_type_with_slots(input, slots))
-                    .map(|ty| ty.result_ok().cloned().unwrap_or(ty));
                 for stage in &stages {
-                    let item_ty = current_ty.as_ref().and_then(stream_item_type);
+                    let input_ty = self.declarations.stream_stage_types
+                        .get(&(self.current_namespace, self.program.arena.span(stage.span)))?.input.clone();
                     lowered_stages.push(self.lower_pipeline_stage(
                         stage,
                         slots,
                         current_function,
-                        item_ty,
+                        stream_item_type(&input_ty),
                     )?);
-                    current_ty = current_ty.and_then(|ty| {
-                        self.infer_checked_stream_stage_type_with_slots(&ty, stage, slots)
-                    });
                 }
                 self.fuse_par_map_flat_map_reduce_by(&mut lowered_stages);
                 Some(push_build_row!(

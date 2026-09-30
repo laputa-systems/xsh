@@ -26,6 +26,10 @@ impl Checker {
         for (span, ty) in &mut self.expr_types {
             finalize_type(constraints, ty, *span, &mut reported, diagnostics);
         }
+        for ((_, span), fact) in &mut self.stream_stage_types {
+            finalize_type(constraints, &mut fact.input, *span, &mut reported, diagnostics);
+            finalize_type(constraints, &mut fact.output, *span, &mut reported, diagnostics);
+        }
         for (span, ty) in &mut self.function_return_types {
             finalize_type(constraints, ty, *span, &mut reported, diagnostics);
         }

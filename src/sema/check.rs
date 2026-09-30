@@ -90,6 +90,14 @@ pub enum StatementPosition {
     Value,
 }
 
+/// A stage retains its checked input context and output contract independently
+/// of the enclosing pipeline's final result.
+#[derive(Clone, Debug)]
+pub struct CheckedStreamStage {
+    pub input: Type,
+    pub output: Type,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct CheckOutput {
     pub static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
@@ -106,6 +114,7 @@ pub struct CheckOutput {
     pub requirement_expected_targets: BTreeMap<Span, RequirementTarget>,
     pub reveal_types: Vec<Diagnostic>,
     pub expr_types: BTreeMap<Span, Type>,
+    pub stream_stage_types: BTreeMap<(Option<Name>, Span), CheckedStreamStage>,
     pub projections: BTreeMap<Span, CheckedProjection>,
     pub statement_positions: BTreeMap<Span, StatementPosition>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
@@ -357,6 +366,7 @@ pub struct Checker {
     annotation_facts: Vec<AnnotationFact>,
     reveal_types: Vec<Diagnostic>,
     expr_types: BTreeMap<Span, Type>,
+    stream_stage_types: BTreeMap<(Option<Name>, Span), CheckedStreamStage>,
     projections: BTreeMap<Span, CheckedProjection>,
     statement_positions: BTreeMap<Span, StatementPosition>,
     pattern_test_types: FxHashMap<crate::syntax::arena::PatternId, Type>,
@@ -455,6 +465,7 @@ impl Checker {
                 requirement_expected_targets: checker.requirement_expected_targets,
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
+                stream_stage_types: checker.stream_stage_types,
                 projections: checker.projections,
                 statement_positions: checker.statement_positions,
                 function_effect_facts: checker.effect_graph.facts(&checker.effect_summaries),
@@ -549,6 +560,7 @@ impl Checker {
                 requirement_expected_targets: checker.requirement_expected_targets,
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
+                stream_stage_types: checker.stream_stage_types,
                 projections: checker.projections,
                 statement_positions: checker.statement_positions,
                 function_effect_facts: checker.effect_graph.facts(&checker.effect_summaries),
@@ -602,6 +614,7 @@ impl Checker {
             annotation_facts: Vec::new(),
             reveal_types: Vec::new(),
             expr_types: BTreeMap::new(),
+            stream_stage_types: BTreeMap::new(),
             projections: BTreeMap::new(),
             statement_positions: BTreeMap::new(),
             pattern_test_types: FxHashMap::default(),

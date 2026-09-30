@@ -19,6 +19,8 @@ use crate::syntax::node::{Effect, EnvGetKind};
 
 #[derive(Clone, Debug, Default)]
 pub struct CompactDeclOutput {
+    // Namespace and source identity distinguish equal offsets in imported units.
+    pub stream_stage_types: BTreeMap<(Option<Name>, crate::source::Span), super::CheckedStreamStage>,
     pub static_callable_aliases: BTreeMap<crate::source::Span, super::StaticCallableAlias>,
     pub local_binding_types: BTreeMap<crate::source::Span, Type>,
     pub record_constructors: super::RecordConstructors,
@@ -133,6 +135,7 @@ impl Checker {
                         let ArenaExprKind::Call { callee, .. } = expression.kind else { return None; };
                         checked.record_constructor_instances.get(&expression.span).map(|fact| (callee, fact.ty.clone()))
                     }).collect(),
+                    stream_stage_types: checked.stream_stage_types.clone(),
                     static_callable_aliases: checked.static_callable_aliases.clone(),
                     parameter_types: checked.parameter_types.clone(),
                     local_binding_types: checked.local_binding_types.clone(),
@@ -2367,25 +2370,13 @@ impl CompactBodyProbe<'_> {
 
     fn check_compact_stream_stages(&mut self, stages: crate::syntax::arena::ArenaRange, mut current: Type) -> Type {
         for stage in self.program.arena.stream_stages(stages) {
-            let item = match &current { Type::List(item) | Type::Stream(item) => item.as_ref().clone(), _ => Type::Any };
+            let fact = self.declarations.stream_stage_types.get(&(self.current_namespace, self.program.arena.span(stage.span)));
+            let input = fact.map(|fact| &fact.input).unwrap_or(&current);
+            let item = match input { Type::List(item) | Type::Stream(item) => item.as_ref().clone(), _ => Type::Any };
             self.check_compact_stream_stage_with_item(stage, item);
-            use crate::syntax::node::StreamStageKind;
-            let callback = crate::sema::stage_arguments::stage_callable_argument(self.program, stage, |expr| self.output.expr_types.get(&expr).cloned())
-                .ok().flatten().and_then(|(callee, _)| self.output.stage_callable_types.get(&callee).cloned())
-                .or_else(|| stage.block.and_then(|block| self.output.block_types.get(&block).cloned()));
-            current = match (stage.kind.clone(), callback) {
-                (StreamStageKind::Map, Some(value)) => Type::List(Box::new(value)),
-                (StreamStageKind::FlatMap, Some(Type::List(item) | Type::Stream(item))) => Type::List(item),
-                (StreamStageKind::Count, _) if stage.block.is_some() => Type::Map(Box::new(Type::Str), Box::new(Type::Int)),
-                (StreamStageKind::Count, _) => Type::Int,
-                (StreamStageKind::JsonLines | StreamStageKind::JsonStream, _) => Type::List(Box::new(Type::Any)),
-                (StreamStageKind::Any | StreamStageKind::All, _) => Type::Bool,
-                (StreamStageKind::Each, _) => Type::Unit,
-                (StreamStageKind::Fold | StreamStageKind::Reduce, Some(value)) => value,
-                _ => current,
-            };
+            current = fact.map(|fact| fact.output.clone()).unwrap_or(Type::Unknown);
         }
-        current
+        if let Type::Stream(item) = current { Type::List(item) } else { current }
     }
 
     fn check_compact_stream_stage(&mut self, stream: &crate::syntax::arena::ArenaStreamStage) {

@@ -2716,3 +2716,19 @@ for row in counts { print f"${row.ext}:${row.count}" }
   test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "md:1\nrs:2\n")?
 }
+
+
+test test_pipeline_stage_facts_retain_terminal_and_callback_types_in_procedures [error] { |ctx|
+  let output = test.run_script(ctx, r"""
+proc summarize() [error] {
+  let folded = [1, 2] |> fold(0) { |acc, value| acc + value }
+  let grouped = ["a", "a"] |> group-by { |value| value }
+  let sizes = grouped |> map { |row| row.items.len() }
+  let batched = [1, 2] |> batch(count: 2) |> map { |items| items.len() }
+  print f"${folded.float()}:${sizes[0]}:${batched[0]}"
+}
+summarize()
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "3:2:2\n")?
+}

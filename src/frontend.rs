@@ -9,7 +9,7 @@ pub mod check {
     pub use crate::sema::arguments::{ArgumentExpansionError, ArgumentValueSource, ExpandedArgument, StaticArgumentBinding, expand_named_arguments, bind_static_arguments};
     pub use crate::sema::check::{
         AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, Checker, RequirementTarget, EffectDeclarationId, FunctionEffectFact, CheckedProjection, ProjectionOperation,
-        CompactBodyProbeOutput, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo, StatementPosition,
+        CompactBodyProbeOutput, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo, CheckedStreamStage, StatementPosition,
         ErrorFamilyInfo, ErrorVariantInfo, TagVariantInfo, StaticCallableAlias,
     };
     pub use crate::sema::constants::{LiteralConstant, PreparedConstants, RecordConstructors, SchemaTypeError, SchemaInstance, SchemaExpectation, SchemaComponent, CheckedRecordConstructor};

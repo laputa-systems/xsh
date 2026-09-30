@@ -816,6 +816,14 @@ lexical scope, cleanup, invalid headers, and rejected legacy syntax. Its
 isolated tooling fixtures verify comment preservation, source rechecking,
 and migration convergence. `tests/xsh/basic.xsh` retains guard loop transfers.
 
+Structured pipeline fact parity is covered by
+`tests/sema.rs::compact_stream_stage_result_matrix_matches_canonical_checked_facts`
+and `canonical_stream_stage_facts_distinguish_equal_spans_in_modules`.
+`tests/xsh/stdlib/streams.xsh` retains keyed-count downstream methods and
+procedure-local terminal/callback contracts; `tests/xsh/stdlib/json.xsh`
+retains JSON adapter lists consumed through validated record fields.
+Run the checker integration suite and both native modules for these boundaries.
+
 Explicit value pipeline holes are covered by `tests/xsh/value-pipeline-holes.xsh`
 for positional/named placement, input and argument order, optional laziness,
 Result boundaries, and rejected contexts. `tests/sema.rs::value_pipeline_holes_*`

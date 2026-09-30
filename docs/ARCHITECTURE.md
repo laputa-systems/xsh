@@ -544,6 +544,13 @@ Focused semantic rules live beside it:
   analysis. Constructor lowering emits existing record and schema-check rows,
   preserving supplied field order and independent aggregate values.
 - `src/sema/check/stream.rs` checks structured stream pipelines.
+  `CheckedStreamStage` retains canonical input and output types per stage;
+  namespace and source spans distinguish equal offsets in separate modules.
+  The ordinary inference solver resolves these facts before
+  `CompactDeclOutput.stream_stage_types` publishes them. Compact traversal and
+  lowering consume the same input context and output contract, including
+  terminal accumulators and adapter item types, without reconstructing stage
+  results independently. JSON adapter items remain unchecked `Any` values.
   Stage configuration lives in ordinary `ArenaCallArg` lists and uses
   `sema::arguments::expand_named_arguments` and `bind_static_arguments`, with
   fixed parameter contracts in `xsh_registry::stream_parameters`. Lowering
