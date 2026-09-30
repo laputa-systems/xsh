@@ -1,5 +1,15 @@
 # Architecture
 
+Checked callable aliases are binding metadata, independent of erased
+`Type::Pure`/`Type::Proc` values. `Checker::resolve_callable_alias_target`
+resolves lexical and module signatures once; `StaticCallableAlias` facts
+retain the original definition span and complete `CallableType`.
+`CompactDeclOutput::static_callable_aliases` supplies the existing argument
+binder with those facts. Indexed calls execute the retained callable handle,
+using existing prepared default slots and capture hydration. Dynamic module
+exports register an alias handle against the original indexed definition;
+they do not create a forwarding body.
+
 XSH is implemented as a small compiler-style pipeline around a verified
 indexed runtime:
 

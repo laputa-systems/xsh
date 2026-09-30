@@ -61,8 +61,9 @@ impl Checker {
             self.error(span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole");
             return Type::Invalid;
         }
-        if let Some(binding) = self.lookup(name) {
-            return binding.ty.clone();
+        if let Some(binding) = self.lookup(name).cloned() {
+            if let Some(alias) = binding.callable_alias { self.record_callable_alias(span, &alias); }
+            return binding.ty;
         }
         if let Some(info) = self.tag_variants.get(&name).cloned()
             && info.field_count == 0

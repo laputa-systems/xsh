@@ -9488,6 +9488,15 @@ impl CompactLowerConstructProbe<'_, '_> {
             && args_vec.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. } | ArenaCallArgKind::Named { .. })) {
             return self.lower_named_spread_call(id, callee, args, slots, current_function, item_slot);
         }
+        if let Some(alias) = self.declarations.static_callable_aliases.get(&self.program.arena.expr(callee).span).cloned() {
+            let args = self.lower_function_call_args(&args_vec, Some(&alias.signature.params), None, slots, current_function, item_slot)?;
+            let callee = match self.program.arena.expr(callee).kind {
+                ArenaExprKind::Field { base, .. } if alias.method_call => base,
+                _ => callee,
+            };
+            let callee = self.lower_expr(callee, slots, current_function, item_slot)?;
+            return Some(push_build_row!(self, expr, BuildExprRow::DynamicCall { callee, args, span }));
+        }
         if let Some(definition) = self.declarations.record_constructors.resolve_call(
             &self.program.arena, callee, self.current_namespace,
         ) {

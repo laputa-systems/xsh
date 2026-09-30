@@ -1405,6 +1405,27 @@ failure, or delay exhaustion. Continuing failures have no stop reason.
 
 ## 7. Pure Functions And Procs
 
+An unannotated immutable `let` directly naming a checked user pure/proc or a
+qualified user module export retains that callable's parameter labels,
+defaults, return type, callable kind, and effect contract. Another such alias
+retains the same signature. Calls use ordinary syntax, including named and
+spread arguments; alias creation executes no body or default expression.
+The alias retains the original callable handle and capture lifetime.
+
+`var`, conditional/computed callable selection, and explicitly erased
+`Pure`/`Proc` annotations retain the existing dynamic callable boundary.
+An exported alias exposes only its public binding name and must retain an
+explicit return/effect contract; a private inferred signature alone cannot
+establish that public promise. Module contracts recognize callable aliases
+as pure/proc exports. Cyclic or unavailable initializer names remain ordinary
+lexical errors.
+
+`lint.prefer-callable-alias` replaces exact transparent forwarders only when
+parameter order, types, prepared defaults, return annotations, and effect
+contracts agree. Wrapping, propagation, conversions, cleanup, and comments
+prevent automatic replacement. Removing a forwarding function intentionally
+removes its redundant traceback frame; the original callable frame remains.
+
 Definitions:
 
 ```ebnf

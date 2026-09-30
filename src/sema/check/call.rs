@@ -192,6 +192,21 @@ impl Checker {
         if args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })) {
             return self.check_spread_call_arena(arena, source, callee, args_range, span, expected_context);
         }
+        if let Some(alias) = self.resolve_callable_alias_call(arena, callee) {
+            self.record_callable_alias(arena.arena.expr(callee).span, &alias);
+            if let ArenaExprKind::Field { base, name } = callee_kind
+                && name == "call" && self.resolve_callable_alias_call(arena, base).is_some() {
+                self.static_callable_aliases.get_mut(&arena.arena.expr(callee).span).unwrap().method_call = true;
+            }
+            if !alias.pure {
+                if self.in_pure { self.error(span, "effectful proc is not allowed in pure functions", "check.pure-effect"); }
+                else { self.check_resolved_callable_effects(&alias.signature, &alias.name.to_string(), span); }
+            }
+            self.check_function_arg_list_arena(arena, source, args, &alias.signature.params, span);
+            if !alias.pure { self.invalidate_mutable_narrowings(); }
+            self.record_callee_propagation(&alias.signature.effects, &alias.signature.return_ty, span);
+            return alias.signature.return_ty;
+        }
 
         if let Some(definition) = self.record_constructors.resolve_call(
             &arena.arena, callee, self.current_namespace,
@@ -534,7 +549,7 @@ impl Checker {
             Ok(expanded) => expanded,
             Err(error) => { self.error(error.span, &error.message, "check.named-spread"); return Type::Invalid; }
         };
-        let statically_named = match arena.arena.expr(callee).kind {
+        let statically_named = self.resolve_callable_alias_call(arena, callee).is_some() || match arena.arena.expr(callee).kind {
             ArenaExprKind::Ident(name) => self.procs.contains_key(&name) || self.pures.contains_key(&name)
                 || self.streams.contains_key(&name)
                 || self.record_constructors.resolve_call(&arena.arena, callee, self.current_namespace).is_some(),

@@ -10510,7 +10510,26 @@ impl Evaluator {
         );
         for name in exported_let_names {
             if let Some(value) = child_exports.get_name(name) {
-                record_fields.push((name, value.clone()));
+                let alias = parsed.arena.statement_ids().find_map(|statement| {
+                    let crate::syntax::arena::ArenaStmtKind::Export(inner) = parsed.arena.arena.stmt(statement).kind else { return None; };
+                    let crate::syntax::arena::ArenaStmtKind::Let { target, ty: None, initializer: crate::syntax::arena::ArenaExprOrRun::Expr(expression) } = parsed.arena.arena.stmt(inner).kind else { return None; };
+                    if !matches!(parsed.arena.arena.binding_target(target).kind, crate::syntax::arena::ArenaBindingTargetKind::Name(binding) if binding == name) { return None; }
+                    declarations.static_callable_aliases.get(&parsed.arena.arena.expr(expression).span)
+                });
+                let value = if let Some(alias) = alias {
+                    let original = match value { Value::Pure(function) | Value::Proc(function) => *function, _ => return Err(RuntimeError::new("module-load", "checked callable alias did not produce a callable").with_span(span)) };
+                    let target = original.as_name().map(LoweredFunctionKey::Name)
+                        .or_else(|| original.as_qualified().map(LoweredFunctionKey::Qualified)).expect("callable identity is interned");
+                    let qualified = QualifiedName::new(dynamic_namespace, name);
+                    Arc::make_mut(&mut self.indexed_dynamic_functions).insert(qualified, DynamicFunction {
+                        program: Arc::clone(&module_program), function: target,
+                        kind: if alias.pure { LoweredFunctionKind::Pure } else { LoweredFunctionKind::Proc },
+                    });
+                    let function = crate::runtime::value::FunctionName::qualified(qualified);
+                    Arc::make_mut(&mut self.module_export_signatures).insert(function, super::ModuleExportSignature { pure: alias.pure, sig: alias.signature.clone() });
+                    if alias.pure { Value::Pure(function) } else { Value::Proc(function) }
+                } else { value.clone() };
+                record_fields.push((name, value));
             }
         }
         for (name, pure) in exported_functions {

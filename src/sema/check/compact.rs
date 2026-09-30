@@ -19,6 +19,7 @@ use crate::syntax::node::{Effect, EnvGetKind};
 
 #[derive(Clone, Debug, Default)]
 pub struct CompactDeclOutput {
+    pub static_callable_aliases: BTreeMap<crate::source::Span, super::StaticCallableAlias>,
     pub record_constructors: super::RecordConstructors,
     pub record_constructor_types: FxHashMap<ExprId, Type>,
     pub prepared_constants: crate::sema::constants::PreparedConstants,
@@ -107,7 +108,7 @@ impl Checker {
             let has_generic_schemas = program.arena.type_defs.iter().any(|definition| !definition.type_parameters.is_empty());
             let needs_checked_facts = has_generic_schemas || program.arena.function_defs.iter().any(|def| def.return_ty_defaulted
                 && program.arena.type_expr_tags[def.return_ty.index()] == ArenaTypeExprTag::Named)
-                || program.arena.stmt_tags.iter().any(|tag| *tag == crate::syntax::arena::ArenaStmtTag::ProcDef);
+                || program.arena.stmt_tags.iter().any(|tag| matches!(tag, crate::syntax::arena::ArenaStmtTag::ProcDef | crate::syntax::arena::ArenaStmtTag::Let | crate::syntax::arena::ArenaStmtTag::LetExprNoTy));
             let inferred = needs_checked_facts.then(|| Checker::check_arena(program, ""));
             let mut collector = CompactDeclCollector {
                 diagnostics: Vec::new(),
@@ -119,6 +120,7 @@ impl Checker {
                         let ArenaExprKind::Call { callee, .. } = expression.kind else { return None; };
                         inferred.as_ref()?.record_constructor_instances.get(&expression.span).map(|fact| (callee, fact.ty.clone()))
                     }).collect(),
+                    static_callable_aliases: inferred.as_ref().map(|checked| checked.static_callable_aliases.clone()).unwrap_or_default(),
                     function_return_types: inferred.as_ref().map(|checked| checked.function_return_types.clone()).unwrap_or_default(),
                     ..CompactDeclOutput::default()
                 },
@@ -1331,6 +1333,9 @@ impl CompactBodyProbe<'_> {
             }
             ArenaExprKind::Item => self.stream_items.last().cloned().unwrap_or(Type::Any),
         };
+        let ty = if let Some(alias) = self.declarations.static_callable_aliases.get(&self.program.arena.expr(id).span) {
+            if alias.pure { Type::Pure } else { Type::Proc }
+        } else { ty };
         self.output.typed_expressions += 1;
         self.output.expr_types.insert(id, ty.clone());
         if let Some(expected) = expected { self.apply_compact_capture_expected(id, expected); }
@@ -1554,6 +1559,10 @@ impl CompactBodyProbe<'_> {
                     self.check_compact_expr(*value);
                 }
             }
+        }
+        if let Some(alias) = self.declarations.static_callable_aliases.get(&callee_expr.span).cloned() {
+            self.apply_compact_call_expected(args, &alias.signature.params);
+            return *alias.signature.return_ty;
         }
         let params = match callee_expr.kind {
             ArenaExprKind::Ident(name) => self.declarations.pures.get(&name).or_else(|| self.declarations.procs.get(&name)).map(|sig| sig.params.clone()),

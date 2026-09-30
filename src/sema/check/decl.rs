@@ -409,7 +409,10 @@ impl Checker {
                             if let Some(name) = binding_target_simple_name_arena(program, target)
                                 && let Some(binding) = self.lookup(name)
                             {
-                                exports.values.insert(name, binding.ty.clone());
+                                if let Some(alias) = &binding.callable_alias {
+                                    if alias.pure { exports.pures.insert(name, alias.signature.clone()); }
+                                    else { exports.procs.insert(name, alias.signature.clone()); }
+                                } else { exports.values.insert(name, binding.ty.clone()); }
                             }
                         }
                         ArenaStmtKind::ProcDef(def_id) => {
@@ -546,6 +549,9 @@ impl Checker {
         FunctionSig {
             effect_declaration,
             inferred_effects: self.effect_graph.is_inferred(effect_declaration),
+            explicit_return: !def.return_ty_defaulted,
+            is_alias: false,
+            definition: Some(program.arena.span(program.arena.block(def.body).span)),
             params: program
                 .arena
                 .params(def.params)
@@ -564,7 +570,7 @@ impl Checker {
     }
 }
 
-fn callable_type_from_function_signature(sig: &FunctionSig) -> super::CallableType {
+pub(super) fn callable_type_from_function_signature(sig: &FunctionSig) -> super::CallableType {
     super::CallableType {
         params: sig
             .params
@@ -631,11 +637,9 @@ impl Checker {
             return;
         };
         self.import_user_module_types(key, Some(namespace), span, false);
-        self.define(
-            namespace,
-            Binding::new(module_type_from_user_signature(&module), false),
-            span,
-        );
+        let mut binding = Binding::new(module_type_from_user_signature(&module), false);
+        binding.static_namespace = true;
+        self.define(namespace, binding, span);
         for (name, sig) in &module.procs {
             self.qualified_procs
                 .insert(QualifiedName::new(namespace, *name), sig.clone());

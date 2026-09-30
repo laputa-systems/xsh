@@ -5,6 +5,26 @@ use xsh::frontend::source::SourceId;
 use xsh::frontend::syntax::parser::Parser;
 
 #[test]
+fn callable_alias_signatures_agree_in_full_and_compact_facts() {
+    let source = "pure render(value: Str, prefix: Str = \"label:\") -> Str { prefix + value }\nlet format = render\nlet again = format\nlet result = again(prefix: \"item:\", value: \"one\")\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert_eq!(checked.static_callable_aliases, declarations.static_callable_aliases);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    for (expression, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(expression).span;
+        if source[span.range()].starts_with("again(") {
+            assert_eq!(ty, xsh::frontend::check::Type::Str);
+            assert_eq!(checked.expr_types.get(&span), Some(&ty));
+        }
+    }
+    assert!(!checked.annotation_facts.iter().any(|fact| matches!(fact.kind, AnnotationFactKind::Binding { initializer, .. } if source[initializer.range()] == *"render" || source[initializer.range()] == *"format")));
+}
+
+#[test]
 fn boolean_guard_checked_facts_preserve_refinement_and_statement_position() {
     let source = "pure choose(name: Str?) -> Str {\n  guard name != null else { return \"missing\" }\n  name.trim()\n}\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);

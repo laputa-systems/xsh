@@ -14,9 +14,13 @@ pub(crate) use crate::syntax::node::{BinaryOp, CoreCommand, Effect, RunKind, Una
 pub(crate) use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+pub use callable_alias::StaticCallableAlias;
+use callable_alias::CallableAlias;
 
 #[path = "check/args.rs"]
 mod args;
+#[path = "check/callable_alias.rs"]
+mod callable_alias;
 #[path = "check/builder.rs"]
 mod builder;
 #[path = "check/call.rs"]
@@ -77,6 +81,7 @@ pub enum StatementPosition {
 
 #[derive(Clone, Debug, Default)]
 pub struct CheckOutput {
+    pub static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     pub prepared_constants: super::constants::PreparedConstants,
     pub diagnostics: Vec<Diagnostic>,
     pub annotation_facts: Vec<AnnotationFact>,
@@ -127,6 +132,8 @@ pub enum AnnotationFactKind {
 
 #[derive(Clone, Debug)]
 pub(super) struct Binding {
+    static_namespace: bool,
+    callable_alias: Option<CallableAlias>,
     ty: Type,
     mutable: bool,
     pure_local_mutation: bool,
@@ -136,6 +143,8 @@ pub(super) struct Binding {
 impl Binding {
     fn new(ty: Type, mutable: bool) -> Self {
         Self {
+            callable_alias: None,
+            static_namespace: false,
             ty,
             mutable,
             pure_local_mutation: false,
@@ -145,6 +154,8 @@ impl Binding {
 
     fn pure_local_var(ty: Type) -> Self {
         Self {
+            callable_alias: None,
+            static_namespace: false,
             ty,
             mutable: true,
             pure_local_mutation: true,
@@ -157,6 +168,9 @@ impl Binding {
 pub(super) struct FunctionSig {
     effect_declaration: EffectDeclarationId,
     inferred_effects: bool,
+    explicit_return: bool,
+    is_alias: bool,
+    definition: Option<Span>,
     params: Vec<FunctionParamSig>,
     return_ty: Type,
     effects: Option<Vec<Effect>>,
@@ -274,6 +288,7 @@ pub(super) struct UserModuleSig {
 #[derive(Clone)]
 pub struct Checker {
     pub(super) type_constraints: super::constraints::TypeConstraints,
+    static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
     argument_projection_sources: FxHashMap<crate::syntax::arena::ExprId, crate::syntax::arena::ExprId>,
     record_constructors: RecordConstructors,
@@ -385,6 +400,7 @@ impl Checker {
             checker.check_program_arena_with_type_program(program, source, type_program);
             let callable_effects = checker.callable_effects();
             CheckOutput {
+                static_callable_aliases: checker.static_callable_aliases,
                 prepared_constants: checker.prepared_constants,
                 diagnostics: checker.diagnostics,
                 annotation_facts: checker.annotation_facts,
@@ -472,6 +488,7 @@ impl Checker {
             checker.check_program_arena(&main_program, main.1);
             let callable_effects = checker.callable_effects();
             CheckOutput {
+                static_callable_aliases: checker.static_callable_aliases,
                 prepared_constants: checker.prepared_constants,
                 diagnostics: checker.diagnostics,
                 annotation_facts: checker.annotation_facts,
@@ -490,6 +507,7 @@ impl Checker {
 
     pub(crate) fn new(options: CheckOptions) -> Self {
         let mut checker = Self {
+            static_callable_aliases: BTreeMap::new(),
             scopes: vec![FxHashMap::default()],
             procs: FxHashMap::default(),
             pures: FxHashMap::default(),

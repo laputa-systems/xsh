@@ -1,4 +1,6 @@
 #![allow(clippy::single_call_fn)]
+#[path = "lint_callable_alias.rs"]
+mod lint_callable_alias;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::{BTreeMap, BTreeSet};
@@ -269,6 +271,7 @@ impl<'a> Linter<'a> {
         linter.lint_defer_block_helpers(&statements);
         if include_reachability {
             linter.lint_declaration_reachability(program);
+            linter.diagnostics.extend(lint_callable_alias::lint_callable_aliases(program, source));
         }
         LintOutput {
             diagnostics: linter.diagnostics,

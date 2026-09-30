@@ -1470,6 +1470,12 @@ impl Checker {
         let expected = ty.map(|ty_id| self.type_from_arena(arena, ty_id));
         let schema = ty.and_then(|ty| self.record_constructors.annotation_expectation(&arena.arena, ty, self.current_namespace).ok());
         let actual = self.check_expr_with_schema_arena(arena, source, initializer, expected.as_ref(), schema);
+        let callable_alias = if !mutable && ty.is_none() {
+            match initializer {
+                ArenaExprOrRun::Expr(expression) => self.resolve_callable_alias_target(arena, expression),
+                _ => None,
+            }
+        } else { None };
         if let Some(expected) = &expected
             && !contextual_empty_map_initializer_arena(arena, initializer, expected, &actual)
         {
@@ -1481,6 +1487,7 @@ impl Checker {
         }
         let final_ty = expected.unwrap_or(actual);
         if ty.is_none()
+            && callable_alias.is_none()
             && should_record_binding_annotation_arena(
                 arena,
                 target,
@@ -1499,6 +1506,13 @@ impl Checker {
             });
         }
         self.define_binding_target_arena(arena, target, &final_ty, mutable, span);
+        if let Some(alias) = callable_alias
+            && let ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind {
+            if self.current_exported && (!alias.signature.explicit_return || (!alias.pure && (alias.signature.inferred_effects || alias.signature.effects.is_none()))) {
+                self.error(span, "an exported callable alias requires an explicit return and effect contract on its target", "check.callable-alias-export");
+            }
+            self.attach_callable_alias(name, alias, expr_or_run_span_arena(arena, initializer));
+        }
     }
 
     fn check_assignment_arena(

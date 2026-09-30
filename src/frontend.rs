@@ -10,7 +10,7 @@ pub mod check {
     pub use crate::sema::check::{
         AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, Checker, EffectDeclarationId, FunctionEffectFact,
         CompactBodyProbeOutput, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo, StatementPosition,
-        ErrorFamilyInfo, ErrorVariantInfo, TagVariantInfo,
+        ErrorFamilyInfo, ErrorVariantInfo, TagVariantInfo, StaticCallableAlias,
     };
     pub use crate::sema::constants::{LiteralConstant, PreparedConstants, RecordConstructors, SchemaTypeError, SchemaInstance, SchemaExpectation, SchemaComponent, CheckedRecordConstructor};
     pub use crate::sema::records::record_schemas;

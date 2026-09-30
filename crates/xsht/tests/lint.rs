@@ -15,6 +15,35 @@ use xsht::format::Formatter;
 use xsht::lint::{LintOptions, Linter};
 
 #[test]
+fn callable_alias_forwarder_fix_preserves_signature_and_converges() {
+    let source = "pure render(value: Str, prefix: Str = \"label:\") -> Str { prefix + value }\nexport pure format(value: Str, prefix: Str = \"label:\") -> Str { render(value, prefix) }\nprint format(value: \"one\")\n";
+    let parsed = parse_lint_source(source);
+    let output = Linter::lint(&parsed.arena, source, LintOptions::default());
+    let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-callable-alias")).expect("exact forwarder");
+    let fix = &diagnostic.fix_hints[0];
+    let mut fixed = source.to_owned();
+    fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+    assert!(fixed.contains("export let format = render"));
+    assert_parse_check_standalone("callable alias", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-callable-alias")));
+}
+
+#[test]
+fn callable_alias_forwarder_fix_retains_policy_comments_and_argument_order() {
+    for source in [
+        "pure render(value: Str) -> Str { value }; pure format(value: Str) -> Str { # preserve context\n render(value) }\n",
+        "pure render(left: Str, right: Str) -> Str { left + right }; pure format(left: Str, right: Str) -> Str { render(right, left) }\n",
+        "pure render(value: Str) -> Str { value }; pure format(value: Str) -> Str { render(value.trim()) }\n",
+        "proc render(value: Str) [error] -> Result[Str] { Ok(value) }; proc format(value: Str) [error] -> Result[Str] { render(value)? }\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let output = Linter::lint(&parsed.arena, source, LintOptions::default());
+        assert!(output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-callable-alias")).all(|diagnostic| diagnostic.fix_hints.is_empty()), "{source}");
+    }
+}
+
+#[test]
 fn boolean_guard_fix_keeps_failure_body_comments_and_converges() {
     let source = "proc validate(jobs: Int) [error] {\n  if jobs <= 0 {\n    # Preserve domain error identity.\n    return error.fail(\"jobs must be positive\")\n  }\n\n  let _ = jobs\n}\n";
     let parsed = parse_lint_source(source);

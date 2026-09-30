@@ -1,5 +1,14 @@
 # Test Map
 
+Callable aliases: `tests/xsh/callable-aliases.xsh` covers defaults, named and
+spread arguments, alias chains, captured values, qualified exports, dynamic
+module contracts, and erased/effect rejection boundaries.
+`callable_alias_signatures_agree_in_full_and_compact_facts` pins authoritative
+signature facts and annotation preservation. The xsht `callable_alias`
+integration filter covers exact forwarder fixes, refusal, and convergence.
+Run the native module, the focused checker/tooling filters, then ordinary
+semantic and tooling integration suites.
+
 Choose the narrowest useful command first, then run the broader gate for the
 area touched. Agents do not run formatters or linters; leave gates that invoke
 them to the owner and report that limit. Unfiltered `cargo test` includes
