@@ -1,12 +1,13 @@
 error ChildError = Owned(child: ProcessHandle)
 error WrapperError = Failed(message: Str)
+type CauseChildBundle = {attached: Result[Unit, WrapperError], pid: Int}
 
 proc return_error_child() [process, error] -> Result[Unit] {
   let child = spawn run sh -c "sleep 10" ?
   Err(ChildError.Owned(child: child))
 }
 
-proc return_cause_child() [process, error] -> Result[Record] {
+proc return_cause_child() [process, error] -> Result[CauseChildBundle] {
   let child = spawn run sh -c "sleep 10" ?
   let attached: Result[Unit, WrapperError] = Err(WrapperError.Failed(message: "outer"), cause: ChildError.Owned(child: child))
   {attached, pid: child.pid}
