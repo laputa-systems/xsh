@@ -1,7 +1,7 @@
 test test_defer_blocks_register_lexically_and_read_values_at_cleanup [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc log(message: Str) [] { print $message }
-proc exercise() [] {
+proc exercise() [error] {
   var value = "registered"
   let snapshot = value
   defer log("first")

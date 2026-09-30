@@ -38,7 +38,7 @@ test test_boolean_guard_failure_refinement_and_status [process, error] {
 
 test test_boolean_guard_cleanup_precedes_lexical_return [error] { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
-proc choose() [] -> Int {
+proc choose() [error] -> Int {
   defer mark("function cleanup")
   guard false else {
     defer mark("failure cleanup")

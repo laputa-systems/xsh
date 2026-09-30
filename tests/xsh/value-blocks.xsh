@@ -167,7 +167,7 @@ test test_value_branch_rejections_have_cli_witnesses [error] { |ctx|
 
 test test_value_blocks_evaluate_before_scope_cleanup [error] { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
-proc choose() [] -> Int {
+proc choose() [error] -> Int {
   let value = if true {
     defer mark("cleanup")
     mark("value")
@@ -178,7 +178,7 @@ proc choose() [] -> Int {
 }
 print \${choose()}
 """)?
-  test.eq(output.success, true)?
+  test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "value\ncleanup\nafter\n7\n")?
 }
 
@@ -205,12 +205,12 @@ print \${choose()} \${attempted()}
 
 test test_value_callback_return_survives_retry_and_stream_cleanup [error] { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
-stream rows() [] -> Stream[Int] {
+stream rows() [error] -> Stream[Int] {
   defer mark("source cleanup")
   yield 1
   yield 2
 }
-proc choose() [] -> Int {
+proc choose() [error] -> Int {
   retry [] {
     rows() |> each { |number|
       let selected = if true {
@@ -224,7 +224,7 @@ proc choose() [] -> Int {
 }
 print \${choose()}
 """)?
-  test.eq(output.success, true)?
+  test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "branch cleanup\nsource cleanup\n7\n")?
 }
 

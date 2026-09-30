@@ -60,8 +60,8 @@ test test_error_fallback_literal_error_and_right_associativity [error] {
 test test_error_fallback_cleanup_and_lexical_return [error] { |ctx|
   let output = test.run_script(ctx, r"""error FallbackError = invalid(message: Str)
 proc mark(message: Str) [] { print $message }
-proc value() [] -> Int { mark("value"); 7 }
-proc recover() [] -> Int {
+proc value() [error] -> Int { mark("value"); 7 }
+proc recover() [error] -> Int {
   let failed: Result[Int] = Err(FallbackError.invalid(message: "failed"))
   let selected = failed ?? { |failure|
     defer mark("cleanup")
@@ -71,7 +71,7 @@ proc recover() [] -> Int {
   mark("after")
   selected
 }
-proc escape() [] -> Int {
+proc escape() [error] -> Int {
   let failed: Result[Int] = Err(FallbackError.invalid(message: "failed"))
   let selected = failed ?? { |_|
     defer mark("return cleanup")
