@@ -204,3 +204,29 @@ print ${nothing.value == null}
   test.ok(!rejected.success, rejected.stderr)?
   test.contains(rejected.stderr, "check.constructor-inference")?
 }
+
+test test_generic_constructor_receiver_slots_retain_declared_application_context [error] { |ctx|
+  let executed = test.run_script(ctx, r"""type Marker[T] = {name: Str}
+type Holder[T] = {items: List[Marker[T]]}
+pure initial() -> List[Marker[Int]] { [] }
+let declared: List[Marker[Int]] = []
+let first = declared.push(Marker(name: "binding"))
+let holder: Holder[Str] = Holder(items: [])
+let {items: retained} = holder
+let second = retained.push(Marker(name: "destructured"))
+let third = initial().push(Marker(name: "return"))
+let keyed: Map[Int, Marker[Int]] = {}
+let fourth = keyed.set(3, Marker(name: "map"))
+let fifth = declared.extend([Marker(name: "nested")])
+print ${first[0].name}
+print ${second[0].name}
+print ${third[0].name}
+print ${fourth[3].name}
+print ${fifth[0].name}
+""")?
+  test.ok(executed.success, executed.stderr)?
+  test.eq(executed.stdout, "binding\ndestructured\nreturn\nmap\nnested\n")?
+  let rejected = test.run_script(ctx, "type Marker[T] = {name: Str}\nlet values = [{name: \"plain\"}]\nlet guessed = values.push(Marker(name: \"unobservable\"))\n")?
+  test.ok(!rejected.success, rejected.stderr)?
+  test.contains(rejected.stderr, "check.constructor-inference")?
+}

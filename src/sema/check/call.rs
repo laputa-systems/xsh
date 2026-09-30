@@ -268,6 +268,7 @@ impl Checker {
                         &Type::Path,
                         "check.unknown-module-api",
                         expected_context,
+                        None,
                     );
                 }
                 // A local binding takes precedence over a standard module name.

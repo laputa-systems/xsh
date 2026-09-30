@@ -315,6 +315,14 @@ impl Checker {
         sig: &ModuleFnSig,
         span: Span,
     ) {
+        self.check_module_sig_args_with_schema_arena(arena, source, args, sig, span, &[]);
+    }
+
+    pub(super) fn check_module_sig_args_with_schema_arena(
+        &mut self, arena: &ArenaProgram, source: &str, args: &[ArenaCallArg],
+        sig: &ModuleFnSig, span: Span,
+        schemas: &[Option<crate::sema::constants::SchemaExpectation>],
+    ) {
         let params = crate::sema::builtin_templates::callable_parameters(sig);
         let expanded = match crate::sema::arguments::expand_named_arguments(arena, args, |_| None) {
             Ok(expanded) => expanded,
@@ -335,7 +343,10 @@ impl Checker {
         };
         for (arg, slot) in args.iter().zip(binding.argument_slots) {
             let expected = self.type_constraints.resolve(&params[slot].ty).unwrap_or_else(|_| params[slot].ty.clone());
+            let previous_schema = self.expected_schema.clone();
+            self.expected_schema = schemas.get(slot).cloned().flatten();
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
+            self.expected_schema = previous_schema;
             let kind = arena.arena.expr(call_arg_expr_id_arena(&arg.kind)).kind;
             if expected == Type::Path && is_path_like_arena_expr(&kind, &actual) { continue; }
             self.expect_type(&expected, &actual, call_arg_span_arena(arena, &arg.kind));

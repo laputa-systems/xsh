@@ -44,6 +44,7 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if base_ty == Type::EnvPathList {
@@ -57,6 +58,7 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if base_ty == Type::Path {
@@ -70,6 +72,7 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if matches!(base_ty, Type::Int | Type::UInt) {
@@ -83,6 +86,7 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if base_ty == Type::Float {
@@ -96,6 +100,7 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if matches!(base_ty, Type::List(_)) {
@@ -109,6 +114,7 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if matches!(base_ty, Type::Map(_, _)) {
@@ -122,12 +128,13 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if matches!(base_ty, Type::Record(_) | Type::Module(_)) {
             let result = self.check_registered_method_arena(
                 arena, source, MethodReceiver::Record, name, args, span,
-                &if matches!(base_ty, Type::Module(_)) { Type::Record(Default::default()) } else { base_ty.clone() }, "check.unknown-method", expected,
+                &if matches!(base_ty, Type::Module(_)) { Type::Record(Default::default()) } else { base_ty.clone() }, "check.unknown-method", expected, self.schema_expectation_for_expr(arena, base),
             );
             if name == "get" && let Type::Result(_, error) = &result
                 && let Some(projection) = crate::sema::projection::resolve_get_projection(
@@ -151,6 +158,7 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if base_ty == Type::Bytes {
@@ -164,6 +172,7 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if base_ty == Type::Status {
@@ -177,6 +186,7 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if base_ty == Type::ProcessHandle {
@@ -190,6 +200,7 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if base_ty == Type::NetJob {
@@ -203,6 +214,7 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if base_ty == Type::FsRoot {
@@ -216,6 +228,7 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if base_ty == Type::Digest {
@@ -229,6 +242,7 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if base_ty == Type::Regex {
@@ -242,6 +256,7 @@ impl Checker {
                 &base_ty,
                 "check.unknown-method",
                 expected,
+                self.schema_expectation_for_expr(arena, base),
             );
         }
         if base_ty == Type::Proc {
@@ -309,6 +324,7 @@ impl Checker {
         receiver_ty: &Type,
         unknown_code: &str,
         expected: Option<&Type>,
+        receiver_schema: Option<crate::sema::constants::SchemaExpectation>,
     ) -> Type {
         let Some(overloads) = api_spec().method_overloads(receiver, name) else {
             self.report_unknown_method(receiver, receiver_ty, name, span, unknown_code);
@@ -338,9 +354,10 @@ impl Checker {
         if let Some(required) = method.sig.effect.clone() {
             self.require_effect(required, span, &format!("method `{name}`"));
         }
+        let schemas = crate::sema::builtin_templates::parameter_schema_contexts(&method.sig, method.receiver_ty.as_ref(), receiver_schema.as_ref());
         let mut concrete = method.clone();
         concrete.sig = instance.signature.clone();
-        self.check_method_args_arena(arena, source, args, &concrete, false, span);
+        self.check_method_args_arena(arena, source, args, &concrete, false, span, &schemas);
         instance.resolve(&self.type_constraints);
         if let Some(key) = instance.invalid_map_key() {
             self.error(span, &format!("unsupported Map key type {key}"), "check.map-key");
@@ -469,11 +486,12 @@ impl Checker {
         method: &MethodSig,
         args_checked: bool,
         span: Span,
+        schemas: &[Option<crate::sema::constants::SchemaExpectation>],
     ) {
         match method.sig.arg_check {
             ApiArgCheck::Standard | ApiArgCheck::JsonCompatible => {
                 if !args_checked {
-                    self.check_module_sig_args_arena(arena, source, args, &method.sig, span);
+                    self.check_module_sig_args_with_schema_arena(arena, source, args, &method.sig, span, schemas);
                 }
             }
             ApiArgCheck::PathLikeSingle => {
@@ -489,7 +507,7 @@ impl Checker {
             }
             ApiArgCheck::HashVerifyFile => {
                 if !args_checked {
-                    self.check_module_sig_args_arena(arena, source, args, &method.sig, span);
+                    self.check_module_sig_args_with_schema_arena(arena, source, args, &method.sig, span, schemas);
                 }
             }
         }

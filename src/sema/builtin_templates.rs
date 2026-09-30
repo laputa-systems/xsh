@@ -150,3 +150,46 @@ pub(crate) fn callable_parameters(signature: &ModuleFnSig) -> Vec<super::types::
         defaulted: parameter.defaulted, rest: false,
     }).collect()
 }
+
+/// Projects declared receiver applications through the selected signature's
+/// parameter relationships. Concrete record shapes never supply application identity.
+pub(crate) fn parameter_schema_contexts(
+    signature: &ModuleFnSig, receiver_template: Option<&Type>,
+    receiver_context: Option<&super::constants::SchemaExpectation>,
+) -> Vec<Option<super::constants::SchemaExpectation>> {
+    use super::constants::{SchemaComponent, SchemaExpectation};
+    fn children(ty: &Type) -> Vec<(SchemaComponent, &Type)> {
+        match ty {
+            Type::List(inner) | Type::Stream(inner) => vec![(SchemaComponent::Item, inner)],
+            Type::Optional(inner) => vec![(SchemaComponent::Optional, inner)],
+            Type::Map(key, value) => vec![(SchemaComponent::Key, key), (SchemaComponent::Value, value)],
+            Type::Result(ok, error) => vec![(SchemaComponent::Success, ok), (SchemaComponent::Error, error)],
+            Type::Record(fields) => fields.iter().map(|(name, ty)| (SchemaComponent::Field(*name), ty)).collect(),
+            _ => Vec::new(),
+        }
+    }
+    fn collect(ty: &Type, context: &SchemaExpectation, parameters: &mut BTreeMap<BuiltinTypeParameter, SchemaExpectation>) {
+        if let Type::BuiltinParameter(parameter) = ty {
+            parameters.insert(*parameter, context.clone());
+        } else {
+            for (component, child) in children(ty) {
+                if let Some(context) = context.children.get(&component) { collect(child, context, parameters); }
+            }
+        }
+    }
+    fn project(ty: &Type, parameters: &BTreeMap<BuiltinTypeParameter, SchemaExpectation>) -> Option<SchemaExpectation> {
+        if let Type::BuiltinParameter(parameter) = ty { return parameters.get(parameter).cloned(); }
+        if matches!(ty, Type::Any | Type::Unknown | Type::Invalid | Type::Inference(_)) { return None; }
+        let mut result = SchemaExpectation::default();
+        for (component, child) in children(ty) {
+            if let Some(context) = project(child, parameters) { result.children.insert(component, context); }
+        }
+        Some(result)
+    }
+    let mut parameters = BTreeMap::new();
+    if let Some(context) = receiver_context {
+        parameters.insert(BuiltinTypeParameter::Receiver, context.clone());
+        if let Some(template) = receiver_template { collect(template, context, &mut parameters); }
+    }
+    signature.params.iter().map(|parameter| project(&parameter.ty, &parameters)).collect()
+}
