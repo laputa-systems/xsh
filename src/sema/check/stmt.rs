@@ -2187,7 +2187,13 @@ impl Checker {
         if expected.is_some_and(|ty| ty == &Type::Unit || ty.is_result_unit()) {
             if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
                 let previous_tail = std::mem::replace(&mut self.context_scope_tail_value, false);
-                let actual = self.check_expr_arena(arena, source, expr_id, expected);
+                let context = tail_expr_context_arena(arena, expr_id, expected);
+                let schema = self.expected_schema.as_ref().map(|schema| {
+                    if expected.is_some_and(Type::is_result) && !context.as_ref().is_some_and(Type::is_result) {
+                        schema.children.get(&crate::sema::constants::SchemaComponent::Success).cloned().unwrap_or_default()
+                    } else { schema.clone() }
+                });
+                let actual = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), context.as_ref(), schema);
                 self.context_scope_tail_value = previous_tail;
                 self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
                 if actual.is_result() {

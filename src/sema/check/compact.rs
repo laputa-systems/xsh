@@ -1319,6 +1319,9 @@ impl CompactBodyProbe<'_> {
                 self.output.statements += 1;
                 self.output.supported_statements += 1;
                 self.check_compact_expr_expected(expr, Some(context));
+                if expected == &Type::Unit || expected.is_result_unit() {
+                    self.record_inert_discard(ArenaExprOrRun::Expr(expr));
+                }
                 self.expected_schema = previous;
             } else { self.check_compact_stmt_expected(stmt, (index + 1 == ids.len()).then_some(expected).flatten()); }
         }

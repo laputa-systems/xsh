@@ -1,6 +1,10 @@
 type RequirementManifest = {name: Str, jobs: UInt}
 type RequirementEnvelope = {manifest: RequirementManifest}
 
+test test_require_tail_propagation_consumes_success_unit [error] {
+  test.eq(1, 1)?
+}
+
 test test_require_infers_target_from_annotated_binding [error] {
   let raw: Any = {name: "ready", jobs: 4}
   let manifest: RequirementManifest = raw.require()?
