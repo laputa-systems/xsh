@@ -473,6 +473,14 @@ pub(super) struct ProcessProducer {
 }
 
 impl ProcessProducer {
+    // Output and completion failures belong to the cursor's checked ProcessError
+    // boundary. Retain the original typed value for capture and cause metadata.
+    fn checked_process_error(error: super::RunError, span: Span) -> RuntimeError {
+        let mut transport = super::runtime_error_from_value(super::Value::RunError(Box::new(error)), span);
+        transport.propagated = true;
+        transport
+    }
+
     fn decoded_line(&mut self, bytes: Vec<u8>, evaluator: &mut Evaluator, span: Span) -> Result<ScriptStreamStep, RuntimeError> {
         match String::from_utf8(bytes) {
             Ok(line) => Ok(ScriptStreamStep::Yielded(super::Value::Str(line.into()))),
@@ -480,7 +488,7 @@ impl ProcessProducer {
                 let error = super::RunError::new("invalid-utf8", "streamed stdout was not valid UTF-8").with_span(self.span);
                 self.process.cancel();
                 self.finish(evaluator, Some(error.clone()));
-                Err(super::runtime_error_from_value(super::Value::RunError(Box::new(error)), span))
+                Err(Self::checked_process_error(error, span))
             }
         }
     }
@@ -513,7 +521,7 @@ impl crate::runtime::value::ScriptStream for ProcessProducer {
         if self.finished { return Ok(ScriptStreamStep::Finished); }
         if let Some(error) = self.completion_error.take() {
             self.process.cancel(); self.finish(evaluator, Some(error.clone()));
-            return Err(super::runtime_error_from_value(super::Value::RunError(Box::new(error)), span));
+            return Err(Self::checked_process_error(error, span));
         }
         loop {
             if self.text && let Some(index) = self.pending.iter().position(|byte| *byte == b'\n') {
@@ -543,7 +551,7 @@ impl crate::runtime::value::ScriptStream for ProcessProducer {
                         return Ok(row);
                     }
                     self.process.cancel(); self.finish(evaluator, Some(error.clone()));
-                    return Err(super::runtime_error_from_value(super::Value::RunError(Box::new(error)), span));
+                    return Err(Self::checked_process_error(error, span));
                 }
             }
         }

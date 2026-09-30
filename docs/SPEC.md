@@ -2395,8 +2395,10 @@ the pipeline's actual status and source metadata. With no option, the mode-speci
 contracts above remain unchanged.
 
 Policy-bearing process streams yield stdout incrementally; their completion check
-can fail after rows have been consumed. Consumers that stop early cancel and reap
-the owned child. Text decoding and the existing output limit remain enforced.
+can fail after rows have been consumed. Cursor completion and decoding failures
+are checked `ProcessError` values that a `try` around consumption can capture.
+Consumers that stop early cancel and reap the owned child. Text decoding and the
+existing output limit remain enforced.
 `Command` stores the same policy through the `accept` builder field, a run entry's
 `--accept` option, or the optional `accept` argument to `process.command_argv`.
 Ordinary owned waits apply it; list waits still drain every requested handle after
