@@ -2180,6 +2180,7 @@ impl CompactBodyProbe<'_> {
                 let mut temporary = self.program.clone();
                 let (_, item_expr, call, _) = temporary.arena.append_stage_callable_block(callee, self.program.arena.expr(callee).span);
                 let mut child = CompactBodyProbe {
+                    condition_proofs: self.condition_proofs.clone(),
                     type_constraints: super::super::constraints::TypeConstraints::default(),
                     program: &temporary, declarations: self.declarations, output: std::mem::take(&mut self.output),
                     scopes: self.scopes.clone(), stream_items: vec![item.clone()], return_types: self.return_types.clone(),

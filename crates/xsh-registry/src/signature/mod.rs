@@ -227,7 +227,6 @@ impl SemanticRule {
     fn for_operation(op: RuntimeOp) -> Self {
         match op {
             RuntimeOp::RecordGet => Self::ConstantKeyProjection,
-            RuntimeOp::RecordRequire => Self::SchemaValidation,
             RuntimeOp::CliParse | RuntimeOp::CliApplet | RuntimeOp::CliParseFull => Self::CliDescriptor,
             _ => Self::Standard,
         }

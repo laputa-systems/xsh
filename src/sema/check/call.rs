@@ -7,11 +7,10 @@ use super::{
     call_arg_expr_id_arena, call_arg_span_arena,
 };
 use crate::syntax::arena::{
-    ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ArenaRecordFieldKind,
+    ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange,
     ExprId,
 };
 use crate::syntax::node::Effect;
-use xsh_registry::types::BuiltinTypeName;
 
 
 fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
