@@ -1440,7 +1440,10 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
   let pending: List[Package] = [{name: \"demo\"}]
   let built_batches = pending |> par-map(jobs: 1) { |pkg| build_world_package(pkg) }
   for built in built_batches {
-    print ${built.len()}
+    let outcome: Result[List[BuiltPackage]] = built
+    let packages = outcome?
+    print ${packages.len()}
+    print ${packages[0].metadata_sha256}
   }
   return Ok()
 }
