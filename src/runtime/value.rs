@@ -1864,7 +1864,10 @@ mod tests {
 
     #[test]
     fn value_layout_stays_within_the_compact_runtime_budget() {
-        assert_eq!(size_of::<Value>(), 48);
+        // Tag values retain one shared wire-mapping pointer alongside their
+        // nominal name and fields; the compact enum budget includes that word.
+        assert_eq!(size_of::<Value>(), 56);
+        assert_eq!(size_of::<Option<Arc<crate::sema::wire_enums::WireEnumMapping>>>(), 8);
     }
 
     #[test]

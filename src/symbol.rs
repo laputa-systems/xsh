@@ -299,7 +299,8 @@ impl Name {
     pub const COMMAND: Self = Self(Symbol::from_raw(23));
     pub const PROCESS_HANDLE: Self = Self(Symbol::from_raw(24));
     pub const NET_JOB: Self = Self(Symbol::from_raw(25));
-    pub const RESULT: Self = Self(Symbol::from_raw(26));
+    pub const FS_ROOT: Self = Self(Symbol::from_raw(26));
+    pub const RESULT: Self = Self(Symbol::from_raw(27));
 
     pub fn intern(text: impl AsRef<str>) -> Self {
         let text = text.as_ref();
@@ -702,6 +703,11 @@ mod tests {
 
     #[test]
     fn builtin_symbols_are_stable() {
+        assert_eq!(Name::RESULT, Name::intern("Result"));
+        assert_eq!(Name::RESULT.as_str(), "Result");
+        assert_eq!(Name::FS_ROOT, Name::intern("FsRoot"));
+        assert_eq!(Name::FS_ROOT.as_str(), "FsRoot");
+        assert!(Name::FS_ROOT.is_builtin());
         assert_eq!(Name::INT, Name::intern("Int"));
         assert_eq!(Name::INT.as_str(), "Int");
         assert!(Name::INT.is_builtin());

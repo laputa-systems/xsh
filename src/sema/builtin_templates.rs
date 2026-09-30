@@ -246,7 +246,11 @@ mod tests {
         let mut constraints = TypeConstraints::default();
         let mut instance = BuiltinInstantiation::new(&method.sig, method.receiver_ty.as_ref(), Some(&receiver), &mut constraints, span()).unwrap();
         let expected = Type::Result(Box::new(Type::Int), Box::new(Type::Error));
-        instance.constrain_result(&expected, &mut constraints, span()).unwrap();
+        let conflict = instance.constrain_result(&expected, &mut constraints, span())
+            .expect_err("an erased item cannot establish a concrete result domain");
+        assert_eq!(conflict.expected, Type::Int);
+        assert_eq!(conflict.actual, Type::Any);
+        instance.resolve(&constraints);
         assert_eq!(instance.signature.return_ty, Type::Result(Box::new(Type::Any), Box::new(Type::Error)));
     }
 
