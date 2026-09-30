@@ -44,14 +44,14 @@ test test_bare_value_tail_preserves_false [error] {
 
 test test_bare_blocks_preserve_lexical_transfers [error] { |ctx|
   let output = test.run_script(ctx, """proc mark(message: Str) [] { print $message }
-proc answer() [] -> Int {
+proc answer() [error] -> Int {
   {
     defer mark("return cleanup")
     return 7
   }
   0
 }
-proc visit() [] {
+proc visit() [error] {
   for value in [1, 2, 3] {
     {
       defer mark("loop cleanup")
@@ -64,7 +64,7 @@ proc visit() [] {
 print \${answer()}
 visit()
 """)?
-  test.eq(output.success, true)?
+  test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "return cleanup\n7\n1\nloop cleanup\nloop cleanup\nloop cleanup\n")?
 }
 

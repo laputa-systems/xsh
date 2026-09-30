@@ -28,7 +28,7 @@ proc payload() [] -> Int {
 proc cleanup() [] {
   print "cleanup"
 }
-proc pick(selected: Bool) [] -> Int {
+proc pick(selected: Bool) [error] -> Int {
   defer cleanup()
   return payload() when condition(selected)
   print "fallback"
@@ -111,7 +111,7 @@ test test_guarded_yield_keeps_cleanup_on_early_consumer_exit [error] { |ctx|
 proc cleanup() [] {
   print "cleanup"
 }
-stream values() [] -> Stream[Int] {
+stream values() [error] -> Stream[Int] {
   defer cleanup()
   yield 0 when false
   yield 1 when true
