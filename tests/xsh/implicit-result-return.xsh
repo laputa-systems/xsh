@@ -92,7 +92,8 @@ test test_implicit_result_return_in_par_map [error] {
       build()
     }
 
-  test.eq(values, [["ok"], ["ok"]])?
+  test.eq(values, [Ok(["ok"]), Ok(["ok"])])?
+  test.eq(values[0]?, ["ok"])?
 
   let block_values = [1, 2]
     |> par-map(jobs: 2) { |_|
@@ -124,7 +125,8 @@ test test_nested_result_calls_in_par_map [error] {
       middle(value)
     }
 
-  test.eq(values, [1, 2])?
+  test.eq(values, [Ok(1), Ok(2)])?
+  test.eq(values[1]?, 2)?
 }
 
 test test_result_alias_return_shape [error] {
@@ -188,7 +190,7 @@ use helper
 let values = [1, 2] |> par-map(jobs: 2) { |_|
   helper.build()
 }
-print values[0][0] values[1][0]
+print values[0]?[0] values[1]?[0]
 """,
     [],
     {XSH_MODULE_PATH: module_dir.display()},
