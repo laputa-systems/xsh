@@ -112,12 +112,13 @@ fn instantiate_type(
     }
 }
 
-/// Dynamic and recovery receiver domains are fixed leaves. Treating them as
-/// fresh holes would let a concrete operand falsely certify older elements.
+/// Checked receiver domains are authoritative even when they are empty records
+/// or Null. Reuse local inference identities; allocate no new receiver holes.
 fn seed_receiver_domains(
     template: &Type, actual: &Type, parameters: &mut BTreeMap<BuiltinTypeParameter, Type>,
 ) {
     match (template, actual) {
+        (Type::BuiltinParameter(parameter), actual) => { parameters.insert(*parameter, actual.clone()); }
         (template, actual @ (Type::Any | Type::Unknown | Type::Invalid)) => seed_fixed_parameters(template, actual, parameters),
         (Type::List(left), Type::List(right))
         | (Type::Stream(left), Type::Stream(right))
@@ -283,6 +284,17 @@ mod tests {
             let mut instance = BuiltinInstantiation::new(&method.sig, method.receiver_ty.as_ref(), Some(&Type::Str), &mut constraints, span()).unwrap();
             instance.constrain_result(&expected, &mut constraints, span()).unwrap();
             assert_eq!(instance.signature.return_ty, result);
+        }
+    }
+
+    #[test]
+    fn concrete_inert_receiver_domains_do_not_become_fresh_holes() {
+        let method = &api_spec().method_overloads(MethodReceiver::List, "get").unwrap()[0];
+        for item in [Type::Null, Type::Record(BTreeMap::new())] {
+            let receiver = Type::List(Box::new(item.clone()));
+            let signature = concrete_method_signature(method, &receiver).unwrap();
+            assert_eq!(signature.return_ty.result_ok(), Some(&item));
+            assert!(!signature.return_ty.contains_inference());
         }
     }
 
