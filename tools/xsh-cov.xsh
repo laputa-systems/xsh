@@ -8,7 +8,7 @@ type CoverageHits = {tests: Int, examples: Int}
 
 type CoverageTotal = {covered: Int, total: Int}
 
-// API identifiers are JSON object keys; their counter records are checked individually.
+# API identifiers are JSON object keys; their counter records are checked individually.
 type SuiteCoverageReport = {standard_apis: List[Str], api_hits: Record}
 
 type CoverageTotalRow = {group: Str, covered: Int, total: Int}
@@ -155,7 +155,7 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[C
 
     for api_id in raw_hits.keys() {
       let raw = raw_hits.get(api_id)?.require(Record)?
-      // Missing counters retain zero before their values are checked together.
+      # Missing counters retain zero before their values are checked together.
       let hits = {
         tests: raw.get("tests") ?? 0,
         examples: raw.get("examples") ?? 0,
