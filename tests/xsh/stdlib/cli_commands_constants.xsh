@@ -96,3 +96,25 @@ print ${values.count} $source warnings.len()
   test.ok(output.success, output.stderr)?
   test.eq(output.stdout, "4 argv 1\n")?
 }
+
+test cli_prepared_descriptors_check_annotated_result_after_refinement [fs, error] { |ctx|
+  let output = test.run_script(ctx, r"""
+type ParsedValues = {count: Int}
+type CommandValues = {command: Str, action: Str, root: Path, raw: List[Str]}
+const schema = {count: {kind: "Int", default: 2}}
+const commands = {build: {positionals: ["root"], types: {root: "Path"}, rest: "raw"}}
+let parsed: ParsedValues = cli.parse([], schema)?
+let applet_values: ParsedValues = cli.applet([], schema)?
+let command: CommandValues = cli.commands(["build", "workspace"], commands)?
+print ${parsed.count} ${applet_values.count} command.root.display()
+""")?
+  test.ok(output.success, output.stderr)?
+  test.eq(output.stdout, "2 2 workspace\n")?
+  let mismatch = test.run_script(ctx, r"""
+type IncorrectValues = {count: Str}
+const schema = {count: {kind: "Int", default: 2}}
+let parsed: IncorrectValues = cli.parse([], schema)?
+""")?
+  test.ok(!mismatch.success)?
+  test.contains(mismatch.stderr, "check.type-mismatch")?
+}

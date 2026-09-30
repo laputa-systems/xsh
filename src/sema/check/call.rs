@@ -967,8 +967,12 @@ impl Checker {
         };
         let mut instance = crate::sema::builtin_templates::BuiltinInstantiation::new(sig, None, None, &mut self.type_constraints, span)
             .expect("a module signature has no receiver constraint");
-        if let Some(expected) = expected_context && let Err(conflict) = instance.constrain_result(expected, &mut self.type_constraints, span) {
-            self.error(span, &format!("expected {}; found {}", conflict.expected, conflict.actual), "check.type-mismatch");
+        let descriptor_result = matches!(sig.semantic_rule, crate::modules::signature::SemanticRule::CliDescriptor | crate::modules::signature::SemanticRule::CliCommands);
+        // Descriptor field facts determine the result contract before a typed
+        // destination can constrain it. Other builtins still ground templates
+        // from their expected result before checking arguments.
+        if !descriptor_result && let Some(expected) = expected_context && let Err(conflict) = instance.constrain_result(expected, &mut self.type_constraints, span) {
+            self.expect_type(&conflict.expected, &conflict.actual, span);
         }
         let sig = &instance.signature;
         if self.in_pure && !sig.pure {
@@ -1012,6 +1016,12 @@ impl Checker {
         } else if sig.semantic_rule == crate::modules::signature::SemanticRule::CliDescriptor {
             self.infer_cli_descriptor_return_arena(arena, args, sig.op).unwrap_or_else(|| sig.return_ty.clone())
         } else { sig.return_ty.clone() };
+        if descriptor_result && let Some(expected) = expected_context {
+            instance.signature.return_ty = return_ty.clone();
+            if let Err(conflict) = instance.constrain_result(expected, &mut self.type_constraints, span) {
+                self.expect_type(&conflict.expected, &conflict.actual, span);
+            }
+        }
         return_ty
     }
 

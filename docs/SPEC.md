@@ -2882,6 +2882,8 @@ descriptors before execution; dynamically computed descriptors retain runtime
 validation and dynamic result types. A string field type without a constant
 value does not establish a descriptor. Preparation never calls user functions
 or reads runtime bindings or host state to infer its contents.
+Explicit result annotations are checked against the prepared fields. An
+annotation neither changes those fields nor proves a dynamic descriptor's shape.
 
 `cli.parse_full` returns `{values: Record, sources: Record, warnings:
 List[Str]}`. For a known descriptor, `values` retains the same concrete record

@@ -2203,7 +2203,8 @@ impl CompactBodyProbe<'_> {
         let span = self.program.arena.expr(callee).span;
         let mut instance = BuiltinInstantiation::new(&signature, template.as_ref(), receiver.as_ref(), &mut self.type_constraints, span).ok()?;
         let expected = if lifted { expected.and_then(|ty| if let Type::Optional(inner) = ty { Some(inner.as_ref()) } else { None }) } else { expected };
-        if let Some(expected) = expected { instance.constrain_result(expected, &mut self.type_constraints, span).ok()?; }
+        let descriptor_result = matches!(signature.semantic_rule, crate::modules::signature::SemanticRule::CliDescriptor | crate::modules::signature::SemanticRule::CliCommands);
+        if !descriptor_result && let Some(expected) = expected { instance.constrain_result(expected, &mut self.type_constraints, span).ok()?; }
         let command_sources = crate::modules::cli::command_descriptor_sources(&expanded, &binding.argument_slots, &signature.params.iter().map(|parameter| crate::symbol::Name::intern(parameter.name)).collect::<Vec<_>>());
         for (entry, slot) in expanded.iter().zip(binding.argument_slots) {
             let parameter = self.type_constraints.resolve(&instance.signature.params[slot].ty).ok()?;
@@ -2219,7 +2220,7 @@ impl CompactBodyProbe<'_> {
             && let Some((commands, fallback)) = command_sources
             && let Some(plan) = self.declarations.prepared_constants.cli_commands_plan(&self.program.arena, commands, fallback) {
             match plan {
-                Ok(plan) => return Some(compact_postfix_result(plan.return_type(false), lifted)),
+                Ok(plan) => instance.signature.return_ty = plan.return_type(false),
                 Err(error) => self.error(error.span.unwrap_or(self.program.arena.expr(callee).span), &error.message, "check.cli-descriptor"),
             }
         }
@@ -2230,10 +2231,11 @@ impl CompactBodyProbe<'_> {
             )
         {
             match plan {
-                Ok(plan) => return Some(plan.return_type(signature.op == xsh_registry::RuntimeOp::CliParseFull)),
+                Ok(plan) => instance.signature.return_ty = plan.return_type(signature.op == xsh_registry::RuntimeOp::CliParseFull),
                 Err(error) => self.error(error.span.unwrap_or(self.program.arena.expr(schema).span), &error.message, "check.cli-descriptor"),
             }
         }
+        if descriptor_result && let Some(expected) = expected { instance.constrain_result(expected, &mut self.type_constraints, span).ok()?; }
         Some(compact_postfix_result(instance.signature.return_ty, lifted))
     }
 

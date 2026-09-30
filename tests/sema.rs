@@ -4235,3 +4235,35 @@ fn builtin_template_checked_facts_agree_on_full_and_compact_routes() {
     }
     assert_eq!(calls, 5);
 }
+
+#[test]
+fn checker_cli_prepared_descriptor_context_uses_the_refined_result() {
+    let source = r#"
+type ParsedValues = {count: Int}
+type CommandValues = {command: Str, action: Str, root: Path, raw: List[Str]}
+const schema = {count: {kind: "Int", default: 2}}
+const commands = {build: {positionals: ["root"], types: {root: "Path"}, rest: "raw"}}
+let parsed: ParsedValues = cli.parse([], schema)?
+let applet_values: ParsedValues = cli.applet([], schema)?
+let command: CommandValues = cli.commands(["build", "workspace"], commands)?
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut calls = 0;
+    for (id, ty) in &compact.expr_types {
+        let span = parsed.arena.arena.expr(*id).span;
+        if source[span.range()].starts_with("cli.") && source[span.range()].contains('(') && !source[span.range()].ends_with('?') {
+            assert_eq!(checked.expr_types.get(&span), Some(ty));
+            calls += 1;
+        }
+    }
+    assert_eq!(calls, 3);
+    let incorrect = source.replace("{count: Int}", "{count: Str}");
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), &incorrect);
+    let checked = Checker::check_arena(&parsed.arena, &incorrect);
+    assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")));
+}
