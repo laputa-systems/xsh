@@ -144,16 +144,18 @@ let original: Result[Unit, ProcessError] = try {
 }
 print "captured"
 let translated: Result[Unit, OuterError] = match original {
-  Err(ProcessError.UnexpectedExit {status: child_status}) => {
-    guard child_status != null else { abort(99) }
-    test.ok(child_status.ok)?
-    test.eq(child_status.exit_code()?, 0)?
-    match original {
-      Err(failure) => Err(OuterError.Failed(message: "translated"), cause: failure)
+  Err(failure) => {
+    match failure {
+      ProcessError.UnexpectedExit {status: child_status} => {
+        guard child_status != null else { abort(99) }
+        test.ok(child_status.ok)?
+        test.eq(child_status.exit_code()?, 0)?
+      }
       _ => abort(98)
     }
+    Err(OuterError.Failed(message: "translated"), cause: failure)
   }
-  _ => abort(97)
+  _ => Err(OuterError.Failed(message: "completion unexpectedly accepted"))
 }
 let transported: Result[Unit, OuterError] = try { ctx "transport" { translated? } }
 match transported {
@@ -161,7 +163,7 @@ match transported {
   _ => abort(96)
 }
 """, ["--raw", "--trace-format", "jsonl"])?
-    test.eq(output.status, 3)?
+    test.ok(output.status == 3, output.stderr)?
     let expected = if body.contains("run.stream") { "row\ncaptured\n" } else { "captured\n" }
     test.eq(output.stdout, expected)?
     test.contains(output.stderr, "\"family\":\"OuterError\"")?

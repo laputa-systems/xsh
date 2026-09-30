@@ -71,7 +71,7 @@ proc main() [io, fs, env, error] {
   # A worker stage over a producer: the mapped values are the producer's rows,
   # every row was produced exactly once, and the defer ran once.
   let mapped = open_counted(root, "map")? |> par-map(jobs: 2) { |value| value * 2 } |> collect()
-  print f"mapped=${mapped.len()} first=${mapped.get(0, -1)} rows=${count_present(root, "row-map-")} closed=${exists(fp"${root}/closed-map")}"
+  print f"mapped=${mapped.len()} first=${mapped.get(0) ?? -1} rows=${count_present(root, "row-map-")} closed=${exists(fp"${root}/closed-map")}"
 
   # A bounded terminal after the stage: the stage's own result is a `List`, so
   # the producer is consumed there, and it is still stopped exactly once.
@@ -83,7 +83,7 @@ proc main() [io, fs, env, error] {
     |> par-map(jobs: 2) { |value| [{bucket: "all", count: 1, total: value}] }
     |> flat-map { |rows| rows }
     |> reduce-by(sum: true) { |row| {key: row.bucket, value: {count: row.count, total: row.total}} }
-  print f"fused=${fused.get("all", {count: 0, total: 0}).total} rows=${count_present(root, "row-fuse-")} closed=${exists(fp"${root}/closed-fuse")}"
+  print f"fused=${(fused.get("all") ?? {count: 0, total: 0}).total} rows=${count_present(root, "row-fuse-")} closed=${exists(fp"${root}/closed-fuse")}"
 
   # A producer that fails mid-stream fails the stage, and its defer still runs
   # exactly once; the run's exit status and the closed marker are what the Rust
