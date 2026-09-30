@@ -37,7 +37,7 @@ test test_keyword_field_labels_preserve_known_types_and_wire_bytes [error] {
 }
 
 test test_keyword_field_labels_across_keyword_spellings [error] { |ctx|
-  for label in ["and", "break", "continue", "defer", "else", "export", "false", "for", "guard", "if", "in", "let", "loop", "match", "not", "null", "or", "proc", "pure", "retry", "return", "run", "spawn", "stream", "true", "type", "unless", "use", "var", "wait", "when", "with", "yield"] {
+  for label in ["and", "assert", "break", "const", "continue", "defer", "else", "enum", "export", "false", "for", "guard", "if", "in", "let", "loop", "match", "not", "null", "or", "proc", "pure", "retry", "return", "run", "spawn", "stream", "test", "true", "try", "type", "unless", "use", "var", "wait", "when", "with", "yield"] {
     let source = "type Wire = {" + label + ": Int}\nlet row = Wire(" + label + ": 1)\nlet {" + label + ": selected, ..} = row\nprint $selected\nprint $row." + label + "\n"
     let executed = test.run_script(ctx, source)?
     test.ok(executed.success, executed.stderr)?
@@ -60,6 +60,24 @@ test test_keyword_field_labels_reject_keyword_bindings_puns_and_module_shadowing
   ] {
     let rejected = test.run_script(ctx, source)?
     test.ok(! rejected.success, source + rejected.stderr)?
+  }
+}
+
+test test_keyword_field_labels_reject_introducer_bindings_and_puns [error] { |ctx|
+  for label in ["assert", "const", "enum", "test", "try"] {
+    for source in [
+      "let " + label + " = 1\n",
+      "let row = {" + label + "}\n",
+      "let row = {" + label + ": 1}\nlet {" + label + "} = row\n",
+      "type Entry = {" + label + ": Int}\nlet row = Entry(" + label + ":)\n",
+      "let row = {" + label + ": 1}\nmatch row { {" + label + "} => {}, _ => {} }\n",
+    ] {
+      let rejected = test.run_script(ctx, source)?
+      test.ok(! rejected.success, source + rejected.stderr)?
+    }
+    let argv = test.run_script(ctx, "run printf \"%s\\n\" " + label + "\n")?
+    test.ok(argv.success, argv.stderr)?
+    test.eq(argv.stdout, label + "\n")?
   }
 }
 
