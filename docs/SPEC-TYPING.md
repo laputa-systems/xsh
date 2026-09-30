@@ -173,7 +173,9 @@ original `@expression` span (`check.list-splice-type`).
 Half-open slices preserve their checked receiver type: `List[T]` becomes
 `List[T]`, `Str` becomes `Str`, and `Bytes` becomes `Bytes`. Each supplied bound
 must be `Int`; omitted bounds introduce no new expression or dynamic conversion.
-The checker retains ordinary gradual `Any` behavior, with runtime domain checks.
+Unchecked `Any` bounds require explicit `.require(Int)` validation before they
+can establish an integer bound. An `Any` receiver remains dynamic and retains
+runtime domain checks.
 
 ## Bindings And Annotations
 

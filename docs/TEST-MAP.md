@@ -15,6 +15,14 @@ them to the owner and report that limit. Unfiltered `cargo test` includes
 `runtime::coverage` cases and two `runtime::examples` cases that launch
 `xsht fmt` or `xsht lint`, so agents use the filtered runtime gate below.
 
+## IR coverage report tool
+
+`target/debug/xsht check tools/xsh-ir-coverage.xsh` checks the maintained scanner.
+`target/debug/xsht test --jobs 1 tests/xsh/ir-coverage-tool.xsh` checks its CLI,
+concrete JSON report, source counts, fallback groups, and invalid-root errors.
+The exact Rust test `runtime::coverage::ir_coverage_scans_multiline_top_level_regions_once`
+retains multiline region coverage without invoking formatters or linters.
+
 ## Nullable lookup APIs
 
 `target/debug/xsht test --jobs 1 tests/xsh/absence-lookups.xsh` covers byte
