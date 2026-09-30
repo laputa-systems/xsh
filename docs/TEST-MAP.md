@@ -927,6 +927,10 @@ The migrated syntax and checker fixtures remain under `tests/syntax.rs` and
 nested Results, entry failure, source order, lexical transfers, transparent
 propagation, nested restoration, defer timing, and producer escape rejection.
 It also checks suspended and delegated producer isolation and cancellation cleanup.
+Error payloads and shared nominal or process error causes are covered by
+`test_scope_rejects_producers_hidden_in_error_causes`,
+`test_scope_rejects_producers_hidden_in_process_error_causes`, and
+`test_scope_preserves_scalar_error_causes_as_data`.
 Run `tests/xsh/stdlib/env.xsh`, the syntax and sema integration targets, indexed
 verifier unit tests, and xsht scope tooling acceptance tests for the full gate.
 `cargo test -p xsh --lib context_scope_` checks native environment bytes,

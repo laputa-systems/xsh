@@ -9863,6 +9863,28 @@ proc checked() [process, error] {
     }
 
     #[test]
+    fn context_scope_escape_walks_long_shared_error_causes_without_a_depth_limit() {
+        use crate::runtime::value::RuntimeError;
+
+        let symbols = crate::symbol::SymbolOwner::default();
+        let _symbols = symbols.enter();
+        let mut leaf = RuntimeError::new("inner", "resource payload");
+        leaf.payload = crate::runtime::value::RecordMap::from([("job".into(),
+            Value::NetJob(Box::new(crate::runtime::value::NetJobValue { id: 7 })))]);
+        let mut chain = Value::Error(Box::new(leaf));
+        for _ in 0..100_000 {
+            chain = Value::Error(Box::new(RuntimeError::new("outer", "translation")))
+                .with_error_cause(chain).unwrap();
+        }
+        let process = Value::RunError(Box::new(crate::runtime::value::RunError::from_status(
+            crate::runtime::process::ProcessStatus::exited(7))))
+            .with_error_cause(chain).unwrap();
+        let shared = Value::List(vec![process.clone(), process]);
+        assert!(Evaluator::context_scope_runtime_value_escapes(&shared));
+        assert!(Evaluator::context_scope_value_escapes(&LoweredValue::ResultErr(Box::new(shared))));
+    }
+
+    #[test]
     fn context_scope_dynamic_outer_assignment_is_rejected_on_both_routes() {
         run_with_large_stack(|| {
             let source = r#"stream rows() [] -> Stream[Int] { yield 1 }

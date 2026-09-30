@@ -367,16 +367,8 @@ impl Evaluator {
     }
 
     pub(in crate::runtime::eval) fn context_scope_runtime_value_escapes(value: &Value) -> bool {
-        match value {
-            Value::Stream(_) | Value::ProcessHandle(_) | Value::NetJob(_) => true,
-            Value::List(items) => items.iter().any(Self::context_scope_runtime_value_escapes),
-            Value::Map(fields) => fields.values().any(Self::context_scope_runtime_value_escapes),
-            Value::Record(fields) | Value::Module(fields) => fields.iter().any(|(_, value)| Self::context_scope_runtime_value_escapes(value)),
-            Value::Result(crate::runtime::value::ResultValue::Ok(value) | crate::runtime::value::ResultValue::Err(value)) => Self::context_scope_runtime_value_escapes(value),
-            Value::Tag { fields, .. } => fields.iter().any(Self::context_scope_runtime_value_escapes),
-            Value::Error(error) => error.payload.iter().any(|(_, value)| Self::context_scope_runtime_value_escapes(value)),
-            _ => false,
-        }
+        value.resource_reachable_values().any(|value|
+            matches!(value, Value::Stream(_) | Value::ProcessHandle(_) | Value::NetJob(_)))
     }
 
     pub(in crate::runtime::eval) fn context_scope_value_escapes(value: &LoweredValue) -> bool {

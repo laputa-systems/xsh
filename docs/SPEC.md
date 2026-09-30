@@ -2280,7 +2280,8 @@ follows its Result contract, while body `?` retains its enclosing function,
 retry, or explicit `try` destination. A scope does not capture body failures
 locally. Use `try` when local capture of the whole operation is intended.
 Neither scope mutates the embedding host process's global context. Live
-producers or handles cannot escape a scope as its value, through an outer
+producers or handles, including those retained in error payloads and causal
+chains, cannot escape a scope as its value, through an outer
 assignment, a lexical return, or a yielded item. Consume them inside the body.
 A producer containing a scope may yield ordinary data: its selected cwd/env is
 private while suspended and is reattached for pulls, delegated children, and

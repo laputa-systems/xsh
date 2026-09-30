@@ -247,3 +247,86 @@ test test_scope_cleanup_failure_preserves_primary_error_and_restores [env, error
   test.eq(output.stdout, "primary body\ninner outer\n")?
   test.contains(output.stderr, "secondary cleanup")?
 }
+
+test test_scope_rejects_producers_hidden_in_error_causes [error] { |ctx|
+  let declarations = r"""error Inner = Failed(resource: Stream[Int])
+error Outer = Failed(message: Str)
+stream rows() [] -> Stream[Int] { yield 1 }
+"""
+  for body in [
+    r"""let escaped = env ({X: "inner"}) {
+  let value: Result[Unit, Outer] = Err(Outer.Failed(message: "outer"), cause: Inner.Failed(resource: rows()))
+  value
+}
+print "escaped"
+""",
+    r"""let escaped = env ({X: "inner"}) {
+  let inner: Result[Unit, Outer] = Err(Outer.Failed(message: "middle"), cause: Inner.Failed(resource: rows()))
+  let attached = match inner { Err(failure) => failure; _ => Outer.Failed(message: "unreachable") }
+  let alias = attached
+  let value: Result[Unit, Outer] = Err(Outer.Failed(message: "outer"), cause: alias)
+  value
+}
+print "escaped"
+""",
+    r"""var escaped: Any = null
+let ignored = env ({X: "inner"}) {
+  let value: Result[Unit, Outer] = Err(Outer.Failed(message: "outer"), cause: Inner.Failed(resource: rows()))
+  let attached = match value { Err(failure) => failure; _ => Outer.Failed(message: "unreachable") }
+  escaped = attached
+  7
+}
+print "escaped"
+""",
+    r"""stream translated() [env, error] -> Stream[Outer] {
+  let ignored = env ({X: "inner"}) {
+    let value: Result[Unit, Outer] = Err(Outer.Failed(message: "outer"), cause: Inner.Failed(resource: rows()))
+    let attached = match value { Err(failure) => failure; _ => Outer.Failed(message: "unreachable") }
+    yield attached
+    7
+  }
+}
+for item in translated() { print "escaped" }
+""",
+  ] {
+    let output = test.run_script(ctx, declarations + body)?
+    test.eq(output.status, 3)?
+    test.contains(output.stderr, "context-scope-escape")?
+    test.eq(output.stdout, "")?
+  }
+}
+
+test test_scope_rejects_producers_hidden_in_process_error_causes [error] { |ctx|
+  let output = test.run_script(ctx, r"""error Inner = Failed(resource: Stream[Int])
+stream rows() [] -> Stream[Int] { yield 1 }
+let original: Result[Unit, ProcessError] = try { run sh -c "exit 7" }
+match original {
+  Err(failure) => {
+    let escaped = env ({X: "inner"}) {
+      let value: Result[Unit, ProcessError] = Err(failure, cause: Inner.Failed(resource: rows()))
+      value
+    }
+    print "escaped"
+  }
+  _ => print "unexpected success"
+}
+""")?
+  test.eq(output.status, 3)?
+  test.contains(output.stderr, "context-scope-escape")?
+  test.eq(output.stdout, "")?
+}
+
+test test_scope_preserves_scalar_error_causes_as_data [error] { |ctx|
+  let output = test.run_script(ctx, r"""error Outer = Failed(message: Str)
+error Inner = Failed(message: Str)
+let escaped = env ({X: "inner"}) {
+  let value: Result[Unit, Outer] = Err(Outer.Failed(message: "outer"), cause: Inner.Failed(message: "inner"))
+  value
+}?
+escaped?
+""")?
+  test.eq(output.status, 3)?
+  test.contains(output.stderr, "Outer.Failed")?
+  test.contains(output.stderr, "Inner.Failed")?
+  test.ok(!output.stderr.contains("context-scope-escape"), output.stderr)?
+}
