@@ -6570,7 +6570,7 @@ fn standard_module_command_name(name: &str) -> Option<(&str, &str)> {
 
 pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
     match ty {
-        Type::ReceiverMapKey | Type::ReceiverMapValue | Type::ReceiverMapListItem => false,
+        Type::BuiltinParameter(_) => false,
         Type::Inference(_) => false,
         Type::Any | Type::Unknown | Type::Invalid => true,
         Type::Null => matches!(value, Value::Null),
@@ -6653,7 +6653,7 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
 
 fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
     match ty {
-        Type::ReceiverMapKey | Type::ReceiverMapValue | Type::ReceiverMapListItem => false,
+        Type::BuiltinParameter(_) => false,
         Type::Inference(_) => false,
         Type::Any | Type::Unknown | Type::Invalid => true,
         Type::Null => matches!(value, LoweredValue::Null),

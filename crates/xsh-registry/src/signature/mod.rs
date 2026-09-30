@@ -198,6 +198,7 @@ impl ModuleFnSig {
 pub struct MethodSig {
     pub sig: ModuleFnSig,
     pub return_ty: MethodReturn,
+    pub receiver_ty: Option<Type>,
 }
 
 #[derive(Clone, Debug)]

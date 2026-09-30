@@ -437,28 +437,3 @@ pub(super) fn collection_item_ty(ty: &Type) -> Type {
         _ => Type::Unknown,
     }
 }
-
-pub(super) fn map_item_ty(ty: &Type) -> Type {
-    match ty {
-        Type::Map(_, item) => item.as_ref().clone(),
-        Type::Unknown => Type::Unknown,
-        Type::Any => Type::Any,
-        _ => Type::Unknown,
-    }
-}
-
-pub(super) fn merge_collection_item_ty(primary: Type, fallback: Type) -> Type {
-    if primary == Type::Unknown {
-        fallback
-    } else if primary == Type::Any
-        || fallback == Type::Any
-        || matches!(
-            (&primary, &fallback),
-            (Type::Str, Type::Path) | (Type::Path, Type::Str)
-        )
-    {
-        Type::Any
-    } else {
-        primary
-    }
-}

@@ -2,8 +2,7 @@
 
 use super::{
     Checker, Diagnostic, Label, MethodReceiver, Span, Type, api_spec, call_arg_span_arena,
-    collection_item_ty, common_module_overload_expected_arena, map_item_ty,
-    merge_collection_item_ty, module_overload_matches_arena, module_sig_accepts_arg_name_at_arena,
+    common_module_overload_expected_arena, module_overload_matches_arena, module_sig_accepts_arg_name_at_arena,
     module_sig_accepts_arity, module_sig_accepts_names_arena,
 };
 use crate::sema::check::{ApiArgCheck, MethodSig};
@@ -25,6 +24,7 @@ impl Checker {
         name: &str,
         args: &[ArenaCallArg],
         span: Span,
+        expected: Option<&Type>,
     ) -> Type {
         if base_ty == Type::Any {
             self.check_opaque_callable_effects(&format!("Any.{name}"), span);
@@ -43,6 +43,7 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if base_ty == Type::EnvPathList {
@@ -55,6 +56,7 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if base_ty == Type::Path {
@@ -67,6 +69,7 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if matches!(base_ty, Type::Int | Type::UInt) {
@@ -79,6 +82,7 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if base_ty == Type::Float {
@@ -91,6 +95,7 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if matches!(base_ty, Type::List(_)) {
@@ -103,6 +108,7 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if matches!(base_ty, Type::Map(_, _)) {
@@ -115,12 +121,13 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if matches!(base_ty, Type::Record(_) | Type::Module(_)) {
             let result = self.check_registered_method_arena(
                 arena, source, MethodReceiver::Record, name, args, span,
-                &base_ty, "check.unknown-method",
+                &if matches!(base_ty, Type::Module(_)) { Type::Record(Default::default()) } else { base_ty.clone() }, "check.unknown-method", expected,
             );
             if name == "get" && let Type::Result(_, error) = &result
                 && let Some(projection) = crate::sema::projection::resolve_get_projection(
@@ -143,6 +150,7 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if base_ty == Type::Bytes {
@@ -155,6 +163,7 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if base_ty == Type::Status {
@@ -167,6 +176,7 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if base_ty == Type::ProcessHandle {
@@ -179,6 +189,7 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if base_ty == Type::NetJob {
@@ -191,6 +202,7 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if base_ty == Type::FsRoot {
@@ -203,6 +215,7 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if base_ty == Type::Digest {
@@ -215,6 +228,7 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if base_ty == Type::Regex {
@@ -227,6 +241,7 @@ impl Checker {
                 span,
                 &base_ty,
                 "check.unknown-method",
+                expected,
             );
         }
         if base_ty == Type::Proc {
@@ -293,21 +308,26 @@ impl Checker {
         span: Span,
         receiver_ty: &Type,
         unknown_code: &str,
+        expected: Option<&Type>,
     ) -> Type {
         let Some(overloads) = api_spec().method_overloads(receiver, name) else {
             self.report_unknown_method(receiver, receiver_ty, name, span, unknown_code);
             return Type::Unknown;
         };
-        let instantiated;
-        let overloads = if receiver == MethodReceiver::Map {
-            instantiated = overloads.iter().cloned().map(|mut method| {
-                for param in &mut method.sig.params { param.ty = param.ty.for_map_receiver(receiver_ty); }
-                method
-            }).collect::<Vec<_>>();
-            &instantiated
-        } else { overloads };
-        let (method, args_checked) =
-            self.choose_method_sig_arena(arena, source, name, args, overloads, span);
+        let (method, _) = self.choose_method_sig_arena(arena, source, name, args, overloads, span);
+        let mut instance = match crate::sema::builtin_templates::BuiltinInstantiation::new(
+            &method.sig, method.receiver_ty.as_ref(), Some(receiver_ty), &mut self.type_constraints, span,
+        ) {
+            Ok(instance) => instance,
+            Err(conflict) => {
+                self.error(span, &format!("method `{name}` requires {}; found {}", conflict.expected, conflict.actual), "check.type-mismatch");
+                for arg in args { self.check_call_arg_arena(arena, source, &arg.kind, None); }
+                return Type::Invalid;
+            }
+        };
+        if let Some(expected) = expected && let Err(conflict) = instance.constrain_result(expected, &mut self.type_constraints, span) {
+            self.error(span, &format!("expected {}; found {}", conflict.expected, conflict.actual), "check.type-mismatch");
+        }
         if self.in_pure && !method.sig.pure {
             self.error(
                 span,
@@ -318,30 +338,15 @@ impl Checker {
         if let Some(required) = method.sig.effect.clone() {
             self.require_effect(required, span, &format!("method `{name}`"));
         }
-        if receiver == MethodReceiver::List {
-            return self.check_list_method_call_arena(
-                arena,
-                source,
-                receiver_ty,
-                name,
-                args,
-                method,
-                span,
-            );
+        let mut concrete = method.clone();
+        concrete.sig = instance.signature.clone();
+        self.check_method_args_arena(arena, source, args, &concrete, false, span);
+        instance.resolve(&self.type_constraints);
+        if let Some(key) = instance.invalid_map_key() {
+            self.error(span, &format!("unsupported Map key type {key}"), "check.map-key");
+            return Type::Invalid;
         }
-        if receiver == MethodReceiver::Map {
-            return self.check_map_method_call_arena(
-                arena,
-                source,
-                receiver_ty,
-                name,
-                args,
-                method,
-                span,
-            );
-        }
-        self.check_method_args_arena(arena, source, args, method, args_checked, span);
-        method.concrete_return_ty(receiver_ty)
+        instance.signature.return_ty
     }
 
     fn report_unknown_method(
@@ -378,133 +383,6 @@ impl Checker {
         self.diagnostics.push(diagnostic);
     }
 
-    fn check_list_method_call_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        receiver_ty: &Type,
-        name: &str,
-        args: &[ArenaCallArg],
-        method: &MethodSig,
-        span: Span,
-    ) -> Type {
-        let item_ty = collection_item_ty(receiver_ty);
-        match name {
-            "push" => {
-                self.check_standard_arg_shape_arena(arena, args, &["item"], span);
-                let value_ty = self.check_api_arg_arena(arena, source, args, 0, None);
-                let merged = merge_collection_item_ty(item_ty.clone(), value_ty.clone());
-                if merged == item_ty && !value_ty.matches_expected(&item_ty) {
-                    self.expect_type(
-                        &item_ty,
-                        &value_ty,
-                        call_arg_span_arena(arena, &args[0].kind),
-                    );
-                }
-                Type::List(Box::new(merged))
-            }
-            "extend" => {
-                self.check_standard_arg_shape_arena(arena, args, &["other"], span);
-                let actual = self.check_api_arg_arena(arena, source, args, 0, None);
-                let actual_item_ty = collection_item_ty(&actual);
-                let merged = merge_collection_item_ty(item_ty.clone(), actual_item_ty.clone());
-                if merged == item_ty && !actual_item_ty.matches_expected(&item_ty) {
-                    let expected = Type::List(Box::new(item_ty));
-                    self.expect_type(
-                        &expected,
-                        &actual,
-                        call_arg_span_arena(arena, &args[0].kind),
-                    );
-                }
-                Type::List(Box::new(merged))
-            }
-            "contains" => {
-                self.check_standard_arg_shape_arena(arena, args, &["item"], span);
-                self.check_api_arg_arena(arena, source, args, 0, Some(&item_ty));
-                Type::Bool
-            }
-            "get" => {
-                self.check_standard_arg_shape_arena(arena, args, &["index"], span);
-                self.check_api_arg_arena(arena, source, args, 0, Some(&Type::Int));
-                Type::Result(Box::new(item_ty), Box::new(Type::Error))
-            }
-            _ => {
-                self.check_method_args_arena(arena, source, args, method, false, span);
-                method.concrete_return_ty(receiver_ty)
-            }
-        }
-    }
-
-    fn check_map_method_call_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        source: &str,
-        receiver_ty: &Type,
-        name: &str,
-        args: &[ArenaCallArg],
-        method: &MethodSig,
-        span: Span,
-    ) -> Type {
-        let item_ty = map_item_ty(receiver_ty);
-        let key_ty = match receiver_ty { Type::Map(key, _) => key.as_ref().clone(), _ => Type::Str };
-        match name {
-            "set" => {
-                self.check_standard_arg_shape_arena(arena, args, &["key", "value"], span);
-                let actual_key = self.check_api_arg_arena(arena, source, args, 0, Some(&key_ty));
-                let key_ty = if key_ty.is_recovery() { actual_key } else { key_ty };
-                let value_ty = self.check_api_arg_arena(arena, source, args, 1, Some(&item_ty));
-                Type::Map(Box::new(key_ty), Box::new(merge_collection_item_ty(item_ty, value_ty)))
-            }
-            "push" => {
-                self.check_standard_arg_shape_arena(arena, args, &["key", "value"], span);
-                self.check_api_arg_arena(arena, source, args, 0, Some(&key_ty));
-                let list_item_ty = match &item_ty {
-                    Type::List(inner) => inner.as_ref().clone(),
-                    Type::Any | Type::Unknown => Type::Any,
-                    _ => {
-                        self.error(
-                            span,
-                            "map push requires map values to be lists",
-                            "check.type-mismatch",
-                        );
-                        Type::Unknown
-                    }
-                };
-                let value_ty =
-                    self.check_api_arg_arena(arena, source, args, 1, Some(&list_item_ty));
-                let merged = merge_collection_item_ty(list_item_ty, value_ty);
-                Type::Map(Box::new(key_ty), Box::new(Type::List(Box::new(merged))))
-            }
-            "get" => {
-                self.check_standard_arg_shape_arena(arena, args, &["key"], span);
-                self.check_api_arg_arena(arena, source, args, 0, Some(&key_ty));
-                Type::Result(Box::new(item_ty), Box::new(Type::Error))
-            }
-            "has" => {
-                self.check_standard_arg_shape_arena(arena, args, &["key"], span);
-                self.check_api_arg_arena(arena, source, args, 0, Some(&key_ty));
-                Type::Bool
-            }
-            "keys" => {
-                self.check_standard_arg_shape_arena(arena, args, &[], span);
-                Type::List(Box::new(key_ty))
-            }
-            "remove" => {
-                self.check_standard_arg_shape_arena(arena, args, &["key"], span);
-                self.check_api_arg_arena(arena, source, args, 0, Some(&key_ty));
-                receiver_ty.clone()
-            }
-            "values" => {
-                self.check_standard_arg_shape_arena(arena, args, &[], span);
-                Type::List(Box::new(item_ty))
-            }
-            _ => {
-                self.check_method_args_arena(arena, source, args, method, false, span);
-                method.concrete_return_ty(receiver_ty)
-            }
-        }
-    }
-
     fn choose_method_sig_arena<'a>(
         &mut self,
         arena: &ArenaProgram,
@@ -517,6 +395,12 @@ impl Checker {
         if overloads.len() == 1 {
             return (&overloads[0], false);
         }
+        let eligible = overloads.iter().filter(|method| {
+            let params = crate::sema::builtin_templates::callable_parameters(&method.sig);
+            let Ok(expanded) = crate::sema::arguments::expand_named_arguments(arena, args, |_| None) else { return false; };
+            crate::sema::arguments::bind_static_arguments(&params, &expanded).is_ok()
+        }).collect::<Vec<_>>();
+        if let [method] = eligible.as_slice() { return (method, false); }
 
         let actuals = args
             .iter()

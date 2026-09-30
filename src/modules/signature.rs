@@ -271,14 +271,13 @@ impl ModuleFnSig {
 pub struct MethodSig {
     pub sig: ModuleFnSig,
     pub return_ty: MethodReturn,
+    pub receiver_ty: Option<Type>,
 }
 
 impl MethodSig {
     pub fn concrete_return_ty(&self, receiver_ty: &Type) -> Type {
-        match &self.return_ty {
-            MethodReturn::Type(ty) => ty.for_map_receiver(receiver_ty),
-            MethodReturn::Receiver => receiver_ty.clone(),
-        }
+        crate::sema::builtin_templates::concrete_method_signature(self, receiver_ty)
+            .map(|signature| signature.return_ty).unwrap_or(Type::Unknown)
     }
 }
 
@@ -400,6 +399,7 @@ fn convert_method_sig(receiver: MethodReceiver, sig: &registry::MethodSig) -> Me
             binding: sig.sig.binding,
             effect: method_required_effect(receiver, sig.sig.op),
         },
+        receiver_ty: sig.receiver_ty.as_ref().map(convert_type),
         return_ty: match &sig.return_ty {
             registry::MethodReturn::Type(ty) => MethodReturn::Type(convert_type(ty)),
             registry::MethodReturn::Receiver => MethodReturn::Receiver,
@@ -409,9 +409,7 @@ fn convert_method_sig(receiver: MethodReceiver, sig: &registry::MethodSig) -> Me
 
 pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
     match ty {
-        xsh_registry::types::Type::ReceiverMapKey => Type::ReceiverMapKey,
-        xsh_registry::types::Type::ReceiverMapValue => Type::ReceiverMapValue,
-        xsh_registry::types::Type::ReceiverMapListItem => Type::ReceiverMapListItem,
+        xsh_registry::types::Type::BuiltinParameter(parameter) => Type::BuiltinParameter(*parameter),
         xsh_registry::types::Type::Any => Type::Any,
         xsh_registry::types::Type::Unknown => Type::Unknown,
         xsh_registry::types::Type::Invalid => Type::Invalid,

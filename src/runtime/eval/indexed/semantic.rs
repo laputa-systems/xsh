@@ -754,7 +754,7 @@ impl SemanticPoolBuilder {
             Type::Inference(_) => {
                 return Err(IrBuildError::format("unresolved_type", None, 0, 0));
             }
-            Type::ReceiverMapKey | Type::ReceiverMapValue | Type::ReceiverMapListItem | Type::Unknown | Type::Invalid => {
+            Type::BuiltinParameter(_) | Type::Unknown | Type::Invalid => {
                 return Err(IrBuildError::format("recovery_type", None, 0, 0));
             }
             Type::Any => scalar(TypeTag::Any),

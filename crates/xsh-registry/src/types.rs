@@ -59,11 +59,19 @@ builtin_type_names!(
     (Result, "Result"),
 );
 
+/// Fixed relationships used only by builtin signature templates.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum BuiltinTypeParameter { Receiver, Element, Key, Value, Error }
+
+impl BuiltinTypeParameter {
+    pub const fn label(self) -> &'static str {
+        match self { Self::Receiver => "Self", Self::Element => "T", Self::Key => "K", Self::Value => "V", Self::Error => "E" }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Type {
-    ReceiverMapKey,
-    ReceiverMapValue,
-    ReceiverMapListItem,
+    BuiltinParameter(BuiltinTypeParameter),
     Any,
     Unknown,
     Invalid,

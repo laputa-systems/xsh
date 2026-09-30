@@ -99,9 +99,7 @@ fn collect_type_symbols(ty: &Type, output: &mut BTreeSet<String>) {
             collect_type_symbols(ok, output);
             collect_type_symbols(err, output);
         }
-        Type::ReceiverMapKey
-        | Type::ReceiverMapValue
-        | Type::ReceiverMapListItem
+        Type::BuiltinParameter(_)
         | Type::Any
         | Type::Unknown
         | Type::Invalid
@@ -264,9 +262,7 @@ mod tests {
                 assert_type_symbols_are_present(symbols, ok);
                 assert_type_symbols_are_present(symbols, err);
             }
-            Type::ReceiverMapKey
-        | Type::ReceiverMapValue
-        | Type::ReceiverMapListItem
+            Type::BuiltinParameter(_)
         | Type::Any
             | Type::Unknown
             | Type::Invalid

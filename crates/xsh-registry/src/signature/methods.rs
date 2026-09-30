@@ -6,8 +6,10 @@ use super::{
     regex_match_type, result, sig_with_arg_check, fs_root_type, fs_root_read_result_type,
     fs_root_filesystem_stats_type, fs_root_children_result_type, fs_root_readlink_result_type,
 };
+use crate::types::BuiltinTypeParameter;
+
 pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
-    vec![
+    let mut receivers = vec![
         MethodReceiverSig {
             receiver: MethodReceiver::PathConstructor,
             methods: method_map(vec![method(
@@ -491,50 +493,50 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
                 method(
                     "has",
-                    vec![param("key", Type::ReceiverMapKey)],
+                    vec![param("key", Type::BuiltinParameter(BuiltinTypeParameter::Key))],
                     MethodReturn::Type(Type::Bool),
                     true,
                     RuntimeOp::MapHas,
                 ),
                 method(
                     "get",
-                    vec![param("key", Type::ReceiverMapKey)],
-                    MethodReturn::Type(result(Type::ReceiverMapValue)),
+                    vec![param("key", Type::BuiltinParameter(BuiltinTypeParameter::Key))],
+                    MethodReturn::Type(result(Type::BuiltinParameter(BuiltinTypeParameter::Value))),
                     true,
                     RuntimeOp::MapGet,
                 ),
                 method(
                     "set",
-                    vec![param("key", Type::ReceiverMapKey), param("value", Type::ReceiverMapValue)],
-                    MethodReturn::Type(Type::Map(Box::new(Type::ReceiverMapKey), Box::new(Type::ReceiverMapValue))),
+                    vec![param("key", Type::BuiltinParameter(BuiltinTypeParameter::Key)), param("value", Type::BuiltinParameter(BuiltinTypeParameter::Value))],
+                    MethodReturn::Type(Type::Map(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Key)), Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Value)))),
                     true,
                     RuntimeOp::MapSet,
                 ),
                 method(
                     "push",
-                    vec![param("key", Type::ReceiverMapKey), param("value", Type::ReceiverMapListItem)],
-                    MethodReturn::Type(Type::Map(Box::new(Type::ReceiverMapKey), Box::new(Type::List(Box::new(Type::ReceiverMapListItem))))),
+                    vec![param("key", Type::BuiltinParameter(BuiltinTypeParameter::Key)), param("value", Type::BuiltinParameter(BuiltinTypeParameter::Element))],
+                    MethodReturn::Receiver,
                     true,
                     RuntimeOp::MapPush,
                 ),
                 method(
                     "remove",
-                    vec![param("key", Type::ReceiverMapKey)],
-                    MethodReturn::Type(Type::Map(Box::new(Type::ReceiverMapKey), Box::new(Type::ReceiverMapValue))),
+                    vec![param("key", Type::BuiltinParameter(BuiltinTypeParameter::Key))],
+                    MethodReturn::Type(Type::Map(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Key)), Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Value)))),
                     true,
                     RuntimeOp::MapRemove,
                 ),
                 method(
                     "keys",
                     Vec::new(),
-                    MethodReturn::Type(Type::List(Box::new(Type::ReceiverMapKey))),
+                    MethodReturn::Type(Type::List(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Key)))),
                     true,
                     RuntimeOp::MapKeys,
                 ),
                 method(
                     "values",
                     Vec::new(),
-                    MethodReturn::Type(Type::List(Box::new(Type::ReceiverMapValue))),
+                    MethodReturn::Type(Type::List(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Value)))),
                     true,
                     RuntimeOp::MapValues,
                 ),
@@ -552,7 +554,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
                 method(
                     "contains",
-                    vec![param("item", Type::Any)],
+                    vec![param("item", Type::BuiltinParameter(BuiltinTypeParameter::Element))],
                     MethodReturn::Type(Type::Bool),
                     true,
                     RuntimeOp::ListContains,
@@ -560,21 +562,21 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 method(
                     "get",
                     vec![param("index", Type::Int)],
-                    MethodReturn::Type(result(Type::Any)),
+                    MethodReturn::Type(result(Type::BuiltinParameter(BuiltinTypeParameter::Element))),
                     true,
                     RuntimeOp::ListGet,
                 ),
                 method(
                     "push",
-                    vec![param("item", Type::Any)],
-                    MethodReturn::Type(Type::List(Box::new(Type::Any))),
+                    vec![param("item", Type::BuiltinParameter(BuiltinTypeParameter::Element))],
+                    MethodReturn::Type(Type::List(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Element)))),
                     true,
                     RuntimeOp::ListPush,
                 ),
                 method(
                     "extend",
-                    vec![param("other", Type::List(Box::new(Type::Any)))],
-                    MethodReturn::Type(Type::List(Box::new(Type::Any))),
+                    vec![param("other", Type::List(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Element))))],
+                    MethodReturn::Type(Type::List(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Element)))),
                     true,
                     RuntimeOp::ListExtend,
                 ),
@@ -592,7 +594,7 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
             methods: method_map(vec![method(
                 "collect",
                 Vec::new(),
-                MethodReturn::Type(Type::List(Box::new(Type::Any))),
+                MethodReturn::Type(Type::List(Box::new(Type::BuiltinParameter(BuiltinTypeParameter::Element)))),
                 true,
                 RuntimeOp::StreamCollect,
             )]),
@@ -1285,7 +1287,22 @@ pub(in crate::signature) fn value_methods() -> Vec<MethodReceiverSig> {
                 ),
             ]),
         },
-    ]
+    ];
+    for receiver in &mut receivers {
+        for method in &mut receiver.methods {
+            for overload in &mut method.overloads {
+                let variable = Type::BuiltinParameter;
+                overload.receiver_ty = match receiver.receiver {
+                    MethodReceiver::List => Some(Type::List(Box::new(if overload.sig.op == RuntimeOp::TextJoin { Type::Str } else { variable(BuiltinTypeParameter::Element) }))),
+                    MethodReceiver::Map => Some(Type::Map(Box::new(variable(BuiltinTypeParameter::Key)), Box::new(if overload.sig.op == RuntimeOp::MapPush { Type::List(Box::new(variable(BuiltinTypeParameter::Element))) } else { variable(BuiltinTypeParameter::Value) }))),
+                    MethodReceiver::Stream => Some(Type::Stream(Box::new(variable(BuiltinTypeParameter::Element)))),
+                    MethodReceiver::Result => Some(Type::Result(Box::new(variable(BuiltinTypeParameter::Element)), Box::new(variable(BuiltinTypeParameter::Error)))),
+                    _ => None,
+                };
+            }
+        }
+    }
+    receivers
 }
 
 fn method(
@@ -1315,6 +1332,7 @@ fn method_with_arg_check(
         MethodSig {
             sig: sig_with_arg_check(params, concrete_return, pure, op, arg_check),
             return_ty,
+            receiver_ty: None,
         },
     )
 }

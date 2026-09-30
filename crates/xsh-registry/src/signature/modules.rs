@@ -886,7 +886,7 @@ fn patch_module() -> ModuleSig {
 }
 
 fn map_module() -> ModuleSig {
-    let map_unknown = || Type::Map(Box::new(Type::Unknown), Box::new(Type::Any));
+    let map_unknown = || Type::Map(Box::new(Type::BuiltinParameter(crate::types::BuiltinTypeParameter::Key)), Box::new(Type::BuiltinParameter(crate::types::BuiltinTypeParameter::Value)));
     module_sig(vec![(
         "empty",
         sig(Vec::new(), map_unknown(), true, RuntimeOp::MapEmpty),

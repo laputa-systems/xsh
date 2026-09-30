@@ -2921,7 +2921,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Tag(_) => LoweredType::Tag,
         Type::Result(_, _) => LoweredType::Result,
         Type::Null | Type::Optional(_) => LoweredType::Any,
-        Type::ReceiverMapKey | Type::ReceiverMapValue | Type::ReceiverMapListItem | Type::Inference(_) | Type::Invalid | Type::EnvPathList | Type::ProcessError => {
+        Type::BuiltinParameter(_) | Type::Inference(_) | Type::Invalid | Type::EnvPathList | Type::ProcessError => {
             return Err(IrVerifyError::new(
                 "semantic type has no lowered runtime equivalent",
             ));

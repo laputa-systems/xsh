@@ -72,7 +72,7 @@ pub use self::compact::{
 use self::expr::expr_ty_auto_propagates;
 use self::stmt::block_has_exit_point_arena;
 use self::types::{
-    collection_item_ty, map_item_ty, merge_collection_item_ty, result_types,
+    collection_item_ty, result_types,
     tail_type_matches_expected,
 };
 

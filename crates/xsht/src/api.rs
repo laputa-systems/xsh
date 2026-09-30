@@ -776,7 +776,7 @@ fn method_signature(
     };
     format!(
         "{}.{method}({}) -> {return_type}",
-        receiver_name(receiver),
+        signature.receiver_ty.as_ref().map(render_type).unwrap_or_else(|| receiver_name(receiver).to_string()),
         render_params(&signature.sig.params)
     )
 }
@@ -794,9 +794,7 @@ fn render_params(params: &[xsh::api::ParamSig]) -> String {
 
 fn render_type(ty: &Type) -> String {
     match ty {
-        Type::ReceiverMapKey => "K".to_string(),
-        Type::ReceiverMapValue => "V".to_string(),
-        Type::ReceiverMapListItem => "T".to_string(),
+        Type::BuiltinParameter(parameter) => parameter.label().to_string(),
         Type::Inference(_) => "<type needs an annotation>".to_string(),
         Type::Any => "Any".to_string(),
         Type::Unknown => "Unknown".to_string(),

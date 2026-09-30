@@ -315,40 +315,30 @@ impl Checker {
         sig: &ModuleFnSig,
         span: Span,
     ) {
-        let Some(bindings) = bind_module_args_arena(args, sig) else {
-            self.error(span, "incorrect standard API arity", "check.arity");
-            for arg in args {
-                self.check_call_arg_arena(arena, source, &arg.kind, None);
+        let params = crate::sema::builtin_templates::callable_parameters(sig);
+        let expanded = match crate::sema::arguments::expand_named_arguments(arena, args, |_| None) {
+            Ok(expanded) => expanded,
+            Err(error) => {
+                self.error(error.span, &error.message, "check.named-spread");
+                return;
             }
-            return;
         };
-        for (index, param) in sig.params.iter().enumerate() {
-            let Some(arg_index) = bindings[index] else {
-                if !param.defaulted {
-                    self.error(span, "incorrect standard API arity", "check.arity");
-                }
-                continue;
-            };
-            let arg = &args[arg_index];
-            let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&param.ty));
-            let expr_id = call_arg_expr_id_arena(&arg.kind);
-            let kind = arena.arena.expr(expr_id).kind;
-            if param.ty == Type::Path && is_path_like_arena_expr(&kind, &actual) {
-                continue;
+        let binding = match crate::sema::arguments::bind_static_arguments(&params, &expanded) {
+            Ok(binding) => binding,
+            Err(error) => {
+                let required = params.iter().filter(|parameter| !parameter.defaulted).count();
+                let code = if args.len() < required || args.len() > params.len() { "check.arity" } else { "check.named-arg" };
+                self.error(if args.is_empty() { span } else { error.span }, &error.message, code);
+                for arg in args { self.check_call_arg_arena(arena, source, &arg.kind, None); }
+                return;
             }
-            self.expect_type(&param.ty, &actual, call_arg_span_arena(arena, &arg.kind));
-        }
-        for (arg_index, arg) in args.iter().enumerate() {
-            if !bindings.iter().flatten().any(|bound| *bound == arg_index) {
-                if matches!(arg.kind, ArenaCallArgKind::Named { .. }) {
-                    self.error(
-                        call_arg_span_arena(arena, &arg.kind),
-                        "unexpected named parameter",
-                        "check.named-arg",
-                    );
-                }
-                self.check_call_arg_arena(arena, source, &arg.kind, None);
-            }
+        };
+        for (arg, slot) in args.iter().zip(binding.argument_slots) {
+            let expected = self.type_constraints.resolve(&params[slot].ty).unwrap_or_else(|_| params[slot].ty.clone());
+            let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
+            let kind = arena.arena.expr(call_arg_expr_id_arena(&arg.kind)).kind;
+            if expected == Type::Path && is_path_like_arena_expr(&kind, &actual) { continue; }
+            self.expect_type(&expected, &actual, call_arg_span_arena(arena, &arg.kind));
         }
     }
 

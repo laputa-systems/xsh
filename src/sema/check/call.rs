@@ -267,6 +267,7 @@ impl Checker {
                         span,
                         &Type::Path,
                         "check.unknown-module-api",
+                        expected_context,
                     );
                 }
                 // A local binding takes precedence over a standard module name.
@@ -293,6 +294,7 @@ impl Checker {
                         &canonical_name.as_str(),
                         args,
                         span,
+                        expected_context,
                     );
                 }
             }
@@ -369,6 +371,7 @@ impl Checker {
                 &canonical_name.as_str(),
                 args,
                 span,
+                expected_context,
             );
         }
 
@@ -398,6 +401,9 @@ impl Checker {
                 );
                 Name::intern("byte_len")
             } else { name };
+            let method_expected = if wrap_optional {
+                expected_context.and_then(|ty| if let Type::Optional(inner) = ty { Some(inner.as_ref()) } else { None })
+            } else { expected_context };
             let return_ty = self.check_method_dispatch_arena(
                 arena,
                 source,
@@ -406,6 +412,7 @@ impl Checker {
                 &canonical_name.as_str(),
                 args,
                 span,
+                method_expected,
             );
             return if wrap_optional && !matches!(return_ty, Type::Optional(_)) {
                 Type::Optional(Box::new(return_ty))
@@ -877,6 +884,7 @@ impl Checker {
         name: &str,
         args: &[ArenaCallArg],
         span: Span,
+        expected_context: Option<&Type>,
     ) -> Type {
         let Some(module_sig) = api_spec().module(module) else {
             self.error(span, "unknown module", "check.unknown-module");
@@ -926,6 +934,12 @@ impl Checker {
                 true,
             )
         };
+        let mut instance = crate::sema::builtin_templates::BuiltinInstantiation::new(sig, None, None, &mut self.type_constraints, span)
+            .expect("a module signature has no receiver constraint");
+        if let Some(expected) = expected_context && let Err(conflict) = instance.constrain_result(expected, &mut self.type_constraints, span) {
+            self.error(span, &format!("expected {}; found {}", conflict.expected, conflict.actual), "check.type-mismatch");
+        }
+        let sig = &instance.signature;
         if self.in_pure && !sig.pure {
             self.error(
                 span,
@@ -951,6 +965,8 @@ impl Checker {
                 }
             }
         }
+        instance.resolve(&self.type_constraints);
+        let sig = &instance.signature;
         let return_ty = if sig.semantic_rule == crate::modules::signature::SemanticRule::CliDescriptor {
             self.infer_cli_descriptor_return_arena(arena, args, sig.op).unwrap_or_else(|| sig.return_ty.clone())
         } else { sig.return_ty.clone() };

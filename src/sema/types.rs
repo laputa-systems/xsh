@@ -4,6 +4,7 @@ use crate::syntax::node::Effect;
 use std::collections::BTreeMap;
 use std::fmt;
 use xsh_registry::types::BuiltinTypeName;
+pub use xsh_registry::types::BuiltinTypeParameter;
 
 fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
     let mut map = BTreeMap::new();
@@ -13,9 +14,7 @@ fn btree_map<K: Ord, V>(entries: Vec<(K, V)>) -> BTreeMap<K, V> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Type {
-    ReceiverMapKey,
-    ReceiverMapValue,
-    ReceiverMapListItem,
+    BuiltinParameter(BuiltinTypeParameter),
     Inference(super::constraints::TypeVariableId),
     Any,
     Unknown,
@@ -125,18 +124,6 @@ impl CallableType {
 }
 
 impl Type {
-    pub fn for_map_receiver(&self, receiver: &Type) -> Type {
-        let Type::Map(key, value) = receiver else { return self.clone(); };
-        match self {
-            Self::ReceiverMapKey => key.as_ref().clone(),
-            Self::ReceiverMapValue => value.as_ref().clone(),
-            Self::ReceiverMapListItem => match value.as_ref() { Self::List(item) => item.as_ref().clone(), _ => Self::Any },
-            Self::List(item) => Self::List(Box::new(item.for_map_receiver(receiver))),
-            Self::Map(k, v) => Self::Map(Box::new(k.for_map_receiver(receiver)), Box::new(v.for_map_receiver(receiver))),
-            Self::Result(ok, error) => Self::Result(Box::new(ok.for_map_receiver(receiver)), Box::new(error.for_map_receiver(receiver))),
-            _ => self.clone(),
-        }
-    }
     pub fn is_map_key(&self) -> bool {
         matches!(self, Self::Str | Self::Int | Self::UInt | Self::Bool | Self::Bytes | Self::Path | Self::Duration)
     }
@@ -320,7 +307,7 @@ impl Type {
             Self::FsRoot => Some(BuiltinTypeName::FsRoot),
             Self::Result(_, _) => Some(BuiltinTypeName::Result),
             Self::Unit => Some(BuiltinTypeName::Unit),
-            Self::ReceiverMapKey | Self::ReceiverMapValue | Self::ReceiverMapListItem
+            Self::BuiltinParameter(_)
             | Self::Inference(_)
             | Self::Invalid
             | Self::List(_)
@@ -564,9 +551,7 @@ impl Type {
 
     pub fn annotation_source(&self) -> Option<String> {
         match self {
-            Self::ReceiverMapKey => Some("K".to_string()),
-            Self::ReceiverMapValue => Some("V".to_string()),
-            Self::ReceiverMapListItem => Some("T".to_string()),
+            Self::BuiltinParameter(parameter) => Some(parameter.label().to_string()),
             Self::Inference(_)
             | Self::Any
             | Self::Unknown
@@ -619,9 +604,7 @@ impl Type {
 impl fmt::Display for Type {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ReceiverMapKey => write!(f, "K"),
-            Self::ReceiverMapValue => write!(f, "V"),
-            Self::ReceiverMapListItem => write!(f, "T"),
+            Self::BuiltinParameter(parameter) => write!(f, "{}", parameter.label()),
             Self::Inference(_) => write!(f, "<type needs an annotation>"),
             Self::Any => write!(f, "Any"),
             Self::Unknown => write!(f, "<unknown>"),

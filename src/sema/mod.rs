@@ -1,3 +1,4 @@
+pub(crate) mod builtin_templates;
 pub mod arguments;
 pub mod check;
 pub(crate) mod cli_entry;
