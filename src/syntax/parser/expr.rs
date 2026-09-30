@@ -510,11 +510,13 @@ impl<'a> Parser<'a> {
             } else if self.at(TokenKindMatch::Dot) && self.peek_tag(1) != Some(TokenTag::Dot) {
                 self.bump();
                 let name = self.expect_member_name("expected field name after `.`")?;
-                let is_compat_module_call = left
+                // These receivers also name user callable fields and removed
+                // contract calls; ordinary arguments reach semantic resolution.
+                let is_contract_call = left
                     .bare_ident
                     .is_some_and(|module| matches!(module.as_str().as_str(), "record" | "module"));
                 if name == "require"
-                    && !is_compat_module_call
+                    && !is_contract_call
                     && self.consume(TokenKindMatch::LParen).is_some()
                 {
                     let schema = self.parse_type_expr(arena)?;

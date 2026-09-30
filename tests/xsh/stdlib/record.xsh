@@ -1,9 +1,12 @@
 type JsonPackage = {name: Str, version: Str}
+type PackageName = {name: Str}
 
-test test_record_require_and_any_require [error] {
-  let required = record.require({name: "pkg", version: "1", extra: 1}, {name: "Str"}, optional: {version: "Str"})?
+test test_record_schema_validation_and_any_require [error] {
+  let required = ({name: "pkg", version: "1", extra: 1}).require(PackageName)?
   test.eq(required.name, "pkg")?
-  test.error_kind(record.require({name: 1}, {name: "Str"}), "record-contract")?
+  test.ok(required.has("extra"))?
+  if required.has("version") { let _ = required.get("version")?.require(Str)? }
+  test.error_kind(({name: 1}).require(PackageName), "schema")?
   let typed: JsonPackage = json.decode("{\"name\":\"pkg\",\"version\":\"1\"}")?.require(JsonPackage)?
   test.eq(typed.version, "1")?
   let row = {name: "pkg", version: "1"}

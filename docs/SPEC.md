@@ -3124,21 +3124,21 @@ and string indexing. Use `.get()` or `.has()` before accessing optional exports
 when absence is expected. Exported types are checker-visible through static
 imports, but they are not runtime module fields.
 
-`record`:
+The legacy `record.require` module API and its runtime type-string grammar
+are removed. Declare a named schema and validate with `value.require(Schema)`.
+This keeps extra fields and checks nested schema fields. An absent optional key
+needs explicit `.has()`/`.get()` validation; a `T?` schema field is still required
+and admits a present null. Callable contracts use the existing typed module
+contracts or explicit application validation. Runtime-selected policy remains
+application-owned dynamic validation. Retained CLI descriptor strings are a
+separate configuration format.
 
-- `record.require(record: Record, required: Record, optional: Record = {},
-  source: Path = p"") -> Result[Record]`.
-
-`record.require` validates dynamic records, especially values returned by JSON
-decoding or schema-erased plumbing. It uses the same contract string format
-described below; failures return structured record contract errors. Contract
-records map field names to type
-strings such as `"Str"`, `"Bool"`, `"Path"`, `"Proc"`, `"List[Str]"`,
-`"List[Path]"`, or proc signatures such as `"Proc(Path) -> Result[Unit]"`.
-`"Any"` is the dynamic contract type. Missing required fields and present
-fields with wrong dynamic types return messages that include the field name,
-expected type, actual dynamic type when a value is present, and the optional
-source path.
+Removed calls report `check.removed-record-require`. A migration fix is offered
+only for required-only constant contracts with an existing exact named schema,
+plain records already proving every required field, and identity scalar checks.
+Opaque records, optional fields, callable strings, dynamic values, source paths,
+conversions, and comments require manual review. Preserve distinct error kinds
+or source context with explicit error translation or context at that boundary.
 
 Record values also expose `.has(field: Str)`, `.get(field: Str) ->
 Result[Any]`, and `.keys()`. A literal or prepared constant Str key selecting a

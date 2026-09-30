@@ -25,6 +25,7 @@ mod callable_alias;
 mod builder;
 #[path = "check/call.rs"]
 mod call;
+mod record_require;
 #[path = "check/command.rs"]
 mod command;
 #[path = "check/compact.rs"]

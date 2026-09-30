@@ -9,6 +9,47 @@ use tempfile::TempDir;
 static SIGNAL_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
+fn removed_record_require_cli_fix_rechecks_and_converges() {
+    let root = TempDir::new().expect("record migration fixture");
+    let entry = root.path().join("entry.xsh");
+    fs::write(&entry, "export type Name = {name: Str}\nconst required = {name: \"Str\"}\nlet value = record.require({name: \"café\", extra: 7}, required)?\nprint $value.name\n").unwrap();
+    let run = |arguments: &[&str]| Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(arguments).current_dir(root.path()).output().unwrap();
+    let before = run(&["check", "entry.xsh"]);
+    assert_eq!(before.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&before.stderr).contains("check.removed-record-require"));
+    let first = run(&["lint", "--fix", "entry.xsh"]);
+    assert!(first.status.success(), "{}", String::from_utf8_lossy(&first.stderr));
+    let fixed = fs::read_to_string(&entry).unwrap();
+    assert!(!fixed.contains("record.require"), "{fixed}");
+    assert!(fixed.contains("café") || fixed.contains("caf\\u{e9}"));
+    let after = run(&["check", "entry.xsh"]);
+    assert!(after.status.success(), "{}", String::from_utf8_lossy(&after.stderr));
+    let second = run(&["lint", "--fix", "entry.xsh"]);
+    assert!(second.status.success(), "{}", String::from_utf8_lossy(&second.stderr));
+    assert_eq!(fixed, fs::read_to_string(&entry).unwrap());
+    let executed = run(&["trace", "entry.xsh"]);
+    assert!(executed.status.success(), "{}", String::from_utf8_lossy(&executed.stderr));
+    assert!(String::from_utf8_lossy(&executed.stdout).contains("café"));
+}
+
+#[test]
+fn removed_record_require_cli_fix_preserves_unrelated_errors_and_comments() {
+    for source in [
+        "type Name = {name: Str}\nlet value = record.require({name: \"demo\"}, {name: \"Str\"})?\nlet broken: Int = \"wrong\"\n",
+        "type Name = {name: Str}\nlet value = record.require({name: \"demo\"}, # retained café\n {name: \"Str\"})?\n",
+    ] {
+        let root = TempDir::new().unwrap();
+        let entry = root.path().join("entry.xsh");
+        fs::write(&entry, source).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+            .args(["lint", "--fix", "entry.xsh"]).current_dir(root.path()).output().unwrap();
+        assert!(!output.status.success());
+        assert_eq!(source, fs::read_to_string(&entry).unwrap());
+    }
+}
+
+#[test]
 fn lint_fix_converges_when_tail_edits_contain_named_argument_edits() {
     let root = TempDir::new().expect("temporary lint fixture");
     let fixture = root.path().join("fixture.xsh");

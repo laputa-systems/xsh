@@ -567,6 +567,17 @@ unless the owner explicitly chooses to publish it.
 
 ## Native XSH Test Rule
 
+Retired record string contracts: `tests/xsh/record-contract-removal.xsh` covers
+the removed diagnostic, nested schema validation, extra fields, aliases,
+optional absence versus present null, and retained CLI descriptor strings.
+Run `target/debug/xsht test --jobs 1 tests/xsh/record-contract-removal.xsh`,
+the existing `tests/xsh/stdlib/record.xsh` module, and focused
+`cargo test -p xsh --test integration removed_record_require` and
+`cargo test -p xsht --test integration removed_record_require` gates.
+The tooling witnesses use isolated fixture files for CST edits, Unicode,
+comments, ordinary rechecking, refusal, and convergence. API inventory removal
+is covered by the registry and aggregate API gates.
+
 Language behavior **must** be specified in the native XSH corpus, normally in
 `tests/xsh/stdlib/` or the nearest `tests/xsh/*.xsh` module. Do not embed new
 XSH source strings in Rust tests merely to exercise language behavior.

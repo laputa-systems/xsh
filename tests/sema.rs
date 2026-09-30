@@ -25,6 +25,47 @@ fn callable_alias_signatures_agree_in_full_and_compact_facts() {
 }
 
 #[test]
+fn removed_record_require_identity_fix_uses_plain_values_and_exact_named_schema() {
+    for source in [
+        "type Name = {name: Str}\nlet value = record.require({name: \"café\", extra: 7}, {name: \"Str\"})?\n",
+        "type Name = {name: Str}\nconst required = {name: \"Str\"}\nconst raw = {name: \"demo\"}\nlet value = record.require(raw, required)?\n",
+        "type Name = {name: Str}\nlet value = record.require(Name(name: \"demo\"), {name: \"Str\"})?\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let diagnostics = Checker::check_arena(&parsed.arena, source).diagnostics;
+        let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.removed-record-require")).unwrap();
+        let [hint] = diagnostic.fix_hints.as_slice() else { panic!("expected identity migration: {diagnostics:?}"); };
+        let mut fixed = source.to_string();
+        fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
+        assert!(fixed.contains(".require(Name)"), "{fixed}");
+        assert!(check(&fixed).is_empty(), "{fixed}: {:?}", check(&fixed));
+    }
+}
+
+#[test]
+fn removed_record_require_refuses_unproved_or_different_contracts() {
+    for source in [
+        "type Name = {name: Str}\nlet value = record.require(json.decode(\"{}\")?, {name: \"Str\"})?\n",
+        "type Name = {name: Str}\nlet value = record.require({name: \"demo\"}, {name: \"Str\"}, optional: {version: \"Str\"})?\n",
+        "type Name = {name: Str}\nlet value = record.require({name: \"demo\"}, {name: \"Str\"}, source: p\"manifest\")?\n",
+        "type Name = {name: Str}\nlet value = record.require({name: 1}, {name: \"Str\"})?\n",
+        "type Root = {root: Path}\nlet value = record.require({root: p\".\"}, {root: \"Path\"})?\n",
+        "type Name = {name: UInt}\nlet value = record.require({name: 1}, {name: \"Int\"})?\n",
+        "type Count = Int\ntype Name = {name: Count}\nlet value = record.require({name: 1}, {name: \"Int\"})?\n",
+        "type Name = {name: Str}\nlet value = record.require({name: \"demo\"}, # retained comment\n {name: \"Str\"})?\n",
+        "let value = record.require({}, {action: \"Proc(Path) -> Result[Unit]\"})?\n",
+        "proc validate(raw: FsEntry) -> Result[Record] { record.require(raw, {name: \"Str\"}) }\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let diagnostics = Checker::check_arena(&parsed.arena, source).diagnostics;
+        let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.removed-record-require")).unwrap();
+        assert!(diagnostic.fix_hints.is_empty(), "{source}: {diagnostic:?}");
+    }
+}
+
+#[test]
 fn boolean_guard_checked_facts_preserve_refinement_and_statement_position() {
     let source = "pure choose(name: Str?) -> Str {\n  guard name != null else { return \"missing\" }\n  name.trim()\n}\n";
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -332,7 +373,6 @@ fn checker_rejects_standard_module_shadowing() {
         "let linux = 1\n",
         "let map = 1\n",
         "let module = 1\n",
-        "let record = 1\n",
         "type fs = Str\n",
         "proc bytes() -> Result[Unit] { return Ok() }\n",
         "pure hash() -> Int { return 1 }\n",
@@ -499,7 +539,9 @@ let row = {name: "pkg", version: "1"}
 let has_name = row.has("name")
 let field: Str = row.get("name")?
 let fields = row.keys()
-let checked = record.require(row, {name: "Str"}, optional: {version: "Str"})?
+type RecordName = {name: Str}
+let checked = row.require(RecordName)?
+if checked.has("version") { let _ = checked.get("version")?.require(Str)? }
 "#,
     );
     assert_no_codes(&ok, &["check.type-mismatch", "check.unknown-module-api"]);
@@ -510,7 +552,7 @@ let checked = record.require(row, {name: "Str"}, optional: {version: "Str"})?
         "let row = {name: \"pkg\"}\nlet _ = record.keys(row)\n",
     ] {
         let output = check(source);
-        assert!(has_code(&output, "check.unknown-module-api"));
+        assert!(has_code(&output, "check.unresolved-name"));
     }
 
     let bad_list = check("let xs = [1].push(\"two\")\n");
@@ -2487,7 +2529,7 @@ let raw: Any = json.decode("{\"name\":\"demo\"}")?
 let row = raw.require(Row)?
 let name: Str = row.name
 let still_dynamic: Any = json.read(Path("row.json"))?
-let checked = record.require({name: "demo"}, {name: "Str"}, optional: {version: "Any"})?
+let checked = ({name: "demo"}).require(Row)?
 var seen: Map[Bool] = map.empty()
 "#,
     );
@@ -2616,7 +2658,7 @@ fn checker_treats_old_schema_helper_name_as_unresolved_call() {
 }
 
 #[test]
-fn strict_checker_reports_missing_known_record_fields_and_bad_contracts() {
+fn strict_checker_reports_missing_known_record_fields_and_removed_record_contracts() {
     let output = check_strict(
         r#"
 type Row = {name: Str}
@@ -2627,7 +2669,7 @@ let loaded = record.require({}, {build: "Proc(Path -> Result[Unit]"})
 "#,
     );
     assert!(has_code(&output, "check.unknown-field"));
-    assert!(has_code(&output, "check.contract-type"));
+    assert!(has_code(&output, "check.removed-record-require"));
 }
 
 #[test]

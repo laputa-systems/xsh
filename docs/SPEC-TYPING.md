@@ -205,14 +205,13 @@ established that the field exists.
 dynamic. Use `value.require(Schema)?` to convert dynamic data into a typed
 schema.
 
-`record.require` checks runtime contract records and returns `Record`; it
-does not infer concrete XSH schemas. `"Any"` is the dynamic contract string.
-
-In strict mode, literal contract records passed to `record.require` are checked
-before runtime. Required and optional contract
-fields must use literal type strings. Malformed type names, malformed
-parameterized types, malformed `Result[...]`, and malformed `Proc(...) -> ...`
-signatures produce `check.contract-type` warnings.
+`record.require` and its parallel string-contract grammar are removed.
+Use a named schema at `.require(Schema)`. Optional key presence, nullable field
+values, callable signatures, and dynamic validation policies remain distinct
+contracts; migration must not invent nulls, defaults, or callable promises.
+`check.removed-record-require` offers an identity migration only when a plain
+record and an existing named schema already prove the required scalar fields.
+The ordinary checker rechecks the complete edited source.
 
 ## Results
 

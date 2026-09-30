@@ -4,7 +4,7 @@ use super::expr::is_path_like_arena_expr;
 use super::{
     ApiArgCheck, BTreeMap, CallableParamType, Checker, Diagnostic, FxHashSet, Label,
     MethodReceiver, ModuleExportType, Name, QualifiedName, Span, Type, UnaryOp, api_spec,
-    call_arg_expr_id_arena, call_arg_span_arena, standard_record_type,
+    call_arg_expr_id_arena, call_arg_span_arena,
 };
 use crate::syntax::arena::{
     ArenaCallArg, ArenaCallArgKind, ArenaExprKind, ArenaProgram, ArenaRange, ArenaRecordFieldKind,
@@ -13,90 +13,11 @@ use crate::syntax::arena::{
 use crate::syntax::node::Effect;
 use xsh_registry::types::BuiltinTypeName;
 
-fn contract_type_is_valid(text: &str) -> bool {
-    let text = text.trim();
-    if text.is_empty() {
-        return false;
-    }
-    if BuiltinTypeName::parse(text) == Some(BuiltinTypeName::Unknown) {
-        return false;
-    }
-    if BuiltinTypeName::parse(text) == Some(BuiltinTypeName::Any) {
-        return true;
-    }
-    if let Some((params, return_ty)) = contract_proc_signature(text) {
-        return params.iter().all(|param| contract_type_is_valid(param))
-            && contract_type_is_valid(return_ty);
-    }
-    for name in ["List", "Map", "Stream"] {
-        if let Some(inner) = contract_generic_body(text, name) {
-            return !inner.is_empty()
-                && contract_split_types(inner).len() == 1
-                && contract_type_is_valid(inner);
-        }
-    }
-    if let Some(inner) = contract_generic_body(text, "Result") {
-        let parts = contract_split_types(inner);
-        return matches!(parts.len(), 1 | 2)
-            && parts.iter().all(|part| contract_type_is_valid(part));
-    }
-    Type::builtin_from_name(text).is_some_and(|ty| !matches!(ty, Type::Unknown))
-        || standard_record_type(text).is_some()
-}
 
 fn process_command_argv_item_type_is_valid(ty: &Type) -> bool {
     matches!(ty, Type::Str | Type::Path | Type::Any | Type::Unknown)
 }
 
-fn contract_proc_signature(text: &str) -> Option<(Vec<&str>, &str)> {
-    let rest = text.strip_prefix("Proc(")?;
-    let close = rest.find(") -> ")?;
-    if rest[close + 5..].contains(") -> ") {
-        return None;
-    }
-    let params = &rest[..close];
-    let return_ty = &rest[close + 5..];
-    let parsed_params = if params.trim().is_empty() {
-        Vec::new()
-    } else {
-        contract_split_types(params)
-    };
-    Some((parsed_params, return_ty.trim()))
-}
-
-fn contract_generic_body<'a>(text: &'a str, name: &str) -> Option<&'a str> {
-    text.strip_prefix(name)?
-        .strip_prefix('[')?
-        .strip_suffix(']')
-        .map(str::trim)
-}
-
-fn contract_split_types(text: &str) -> Vec<&str> {
-    let mut items = Vec::new();
-    let mut depth = 0i32;
-    let mut start = 0usize;
-    for (index, ch) in text.char_indices() {
-        match ch {
-            '[' => depth += 1,
-            ']' => {
-                depth -= 1;
-                if depth < 0 {
-                    return Vec::new();
-                }
-            }
-            ',' if depth == 0 => {
-                items.push(text[start..index].trim());
-                start = index + 1;
-            }
-            _ => {}
-        }
-    }
-    if depth != 0 {
-        return Vec::new();
-    }
-    items.push(text[start..].trim());
-    items
-}
 
 #[allow(dead_code)]
 impl Checker {
@@ -193,6 +114,7 @@ impl Checker {
     ) -> Type {
         let callee_kind = arena.arena.expr(callee).kind;
         let args = arena.arena.call_args(args_range);
+        if self.check_removed_record_require_arena(arena, source, callee, args, span) { return Type::Invalid; }
         if args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })) {
             return self.check_spread_call_arena(arena, source, callee, args_range, span, expected_context);
         }
@@ -1009,9 +931,6 @@ impl Checker {
         let return_ty = if sig.semantic_rule == crate::modules::signature::SemanticRule::CliDescriptor {
             self.infer_cli_descriptor_return_arena(arena, args, sig.op).unwrap_or_else(|| sig.return_ty.clone())
         } else { sig.return_ty.clone() };
-        if self.options.strict_dynamic && module == "record" && name == "require" {
-            self.check_contract_literal_args_arena(arena, args);
-        }
         return_ty
     }
 
@@ -1029,64 +948,6 @@ impl Checker {
                 let span = error.span.unwrap_or(arena.arena.expr(schema).span);
                 self.error(span, &error.message, "check.cli-descriptor");
                 None
-            }
-        }
-    }
-
-    pub(super) fn check_contract_literal_args_arena(
-        &mut self,
-        arena: &ArenaProgram,
-        args: &[ArenaCallArg],
-    ) {
-        for (index, arg) in args.iter().enumerate() {
-            let is_contract_position = match &arg.kind {
-                ArenaCallArgKind::Named { name, .. } => {
-                    matches!(name.as_str().as_str(), "required" | "optional")
-                }
-                ArenaCallArgKind::Positional(_) => index == 1 || index == 2,
-                ArenaCallArgKind::Splice { .. } | ArenaCallArgKind::NamedSpread { .. } => false,
-            };
-            if !is_contract_position {
-                continue;
-            }
-            let expr_id = call_arg_expr_id_arena(&arg.kind);
-            let ArenaExprKind::Record(fields_range) = arena.arena.expr(expr_id).kind else {
-                continue;
-            };
-            for field in arena.arena.record_fields(fields_range) {
-                match &field.kind {
-                    ArenaRecordFieldKind::Named { value, span, .. } => {
-                        let field_span = arena.arena.span(*span);
-                        let value_expr = arena.arena.expr(*value);
-                        let ArenaExprKind::Str(text_id) = value_expr.kind else {
-                            self.warning(
-                                field_span,
-                                "contract field type must be a string literal",
-                                "check.contract-type",
-                            );
-                            continue;
-                        };
-                        let text = arena.arena.string_literal(text_id).clone();
-                        if !contract_type_is_valid(&text) {
-                            self.warning(
-                                value_expr.span,
-                                "malformed contract type string",
-                                "check.contract-type",
-                            );
-                        }
-                    }
-                    ArenaRecordFieldKind::Shorthand { span, .. }
-                    | ArenaRecordFieldKind::Computed { span, .. }
-                    | ArenaRecordFieldKind::Path { span, .. }
-                    | ArenaRecordFieldKind::Spread { span, .. } => {
-                        let field_span = arena.arena.span(*span);
-                        self.warning(
-                            field_span,
-                            "contract records must use literal field type strings",
-                            "check.contract-type",
-                        );
-                    }
-                }
             }
         }
     }

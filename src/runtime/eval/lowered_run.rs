@@ -75,7 +75,7 @@ use super::lowered_ops::{
 };
 use super::modules::{
     auth as auth_module, display_spawn_argv, intercept_test_host_call, record_int_field,
-    record_path, record_str, run_error_to_runtime, utils_cache_key, validate_module_contract,
+    record_path, record_str, run_error_to_runtime, utils_cache_key,
 };
 #[cfg(feature = "native-tests")]
 use super::modules::{
@@ -6740,36 +6740,6 @@ impl Evaluator {
                 ) {
                     Ok(value) => lowered_runtime_value(value, span)?,
                     Err(error) => lowered_result_err_value(error),
-                }
-            }
-            RuntimeOp::RecordRequire if (2..=4).contains(&values.len()) => {
-                let record = lowered_record_arg(values.first().cloned(), "record.require", span)?;
-                let required = lowered_record_arg(values.get(1).cloned(), "record.require", span)?;
-                let mut optional = RecordMap::new();
-                let mut source = None;
-                if let Some(value) = values.get(2).cloned() {
-                    match value {
-                        LoweredValue::Path(path) => source = Some(path.display()),
-                        other => {
-                            optional = lowered_record_arg(Some(other), "record.require", span)?
-                        }
-                    }
-                }
-                if let Some(value) = values.get(3).cloned() {
-                    let path = lowered_path_arg(value, "record.require", span)?;
-                    source = Some(path.display());
-                }
-                match validate_module_contract(
-                    &self.module_export_signatures,
-                    &record,
-                    &required,
-                    &optional,
-                    source.as_deref(),
-                ) {
-                    Ok(()) => lowered_runtime_value(Value::ok(Value::Record(record)), span)?,
-                    Err(message) => lowered_result_err_value(
-                        RuntimeError::new("record-contract", message).with_span(span),
-                    ),
                 }
             }
             RuntimeOp::ProcessList if values.is_empty() => {

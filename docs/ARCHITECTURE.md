@@ -469,6 +469,14 @@ and checks the rewritten source normally before writing it.
 
 ## Semantics
 
+`src/sema/check/record_require.rs` owns the removed `record.require` diagnostic
+and identity migration metadata. Its finite scalar migration table never enters
+runtime dispatch. The record module and its private string-contract parser are
+absent; `.require(Type)` uses the ordinary schema checker and indexed schema
+validation. Record receiver methods and typed module contracts retain their
+existing owners. Prepared constants provide contract values; a known plain
+receiver and exact existing schema are required before offering an edit.
+
 `Checker` in `src/sema/check.rs` owns the main checker state: lexical scopes, function
 signatures, imported modules, current return type, purity context, `$?`
 availability, and stream item context.

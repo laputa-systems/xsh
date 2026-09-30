@@ -698,7 +698,6 @@ fn lowered_module_op_supported(op: RuntimeOp) -> bool {
             | RuntimeOp::ProcessSpawn
             | RuntimeOp::ProcessWaitAny
             | RuntimeOp::ProcessWaitReady
-            | RuntimeOp::RecordRequire
             | RuntimeOp::RegexCompile
             | RuntimeOp::SetEmpty
             | RuntimeOp::SetFrom

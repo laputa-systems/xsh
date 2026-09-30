@@ -104,10 +104,6 @@ pub(in crate::signature) fn build_api_spec() -> ApiSpec {
                 sig: mime_module(),
             },
             ModuleEntry {
-                name: "record",
-                sig: record_module(),
-            },
-            ModuleEntry {
                 name: "module",
                 sig: module_module(),
             },
@@ -973,24 +969,6 @@ fn mime_module() -> ModuleSig {
             ),
         ),
     ])
-}
-
-fn record_module() -> ModuleSig {
-    let record_unknown = || Type::Record(BTreeMap::new());
-    module_sig(vec![(
-        "require",
-        sig(
-            vec![
-                param("record", record_unknown()),
-                param("required", record_unknown()),
-                default_param("optional", record_unknown()),
-                default_param("source", Type::Path),
-            ],
-            result(record_unknown()),
-            false,
-            RuntimeOp::RecordRequire,
-        ),
-    )])
 }
 
 fn regex_module() -> ModuleSig {

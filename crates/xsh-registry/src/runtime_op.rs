@@ -100,7 +100,6 @@ pub enum RuntimeOp {
     RecordHas,
     RecordGet,
     RecordKeys,
-    RecordRequire,
     /// Private diagnostic bridge: the baseline's type name for a runtime value.
     ///
     /// A ported policy reproduces the baseline's error messages, which name the

@@ -229,10 +229,7 @@ mod tests {
         assert!(modules["env"].function_overloads("get_path").is_none());
         assert!(modules["json"].function_overloads("lines").is_none());
         assert!(modules["json"].function_overloads("stream").is_none());
-        assert!(modules["record"].function_overloads("get").is_none());
-        assert!(modules["record"].function_overloads("has").is_none());
-        assert!(modules["record"].function_overloads("keys").is_none());
-        assert!(modules["record"].function_overloads("require").is_some());
+        assert!(!modules.contains_key("record"));
         assert!(
             only_overload(modules["fs"].function_overloads("mkdir").unwrap())
                 .params
