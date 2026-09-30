@@ -505,6 +505,12 @@ Focused semantic rules live beside it:
   and aliases in lexical module namespaces. Its checked application resolver
   caches instances by defining schema and resolved arguments, substitutes
   declaration-owned fields, and rejects recursive applications before caching.
+  `begin_constructor_inference` and `finish_constructor_inference` share the
+  constraint solver between ordinary checking and bounded constants.
+  `SchemaExpectation` retains independently declared application arguments
+  through expected fields and container slots without making records nominal.
+  Concrete `record_constructor_instances` facts feed compact checking and
+  lowering after inference completes. Defaults supply no inference evidence.
   Fully substituted instances reuse `Type::Record`; no runtime generic dispatch
   is introduced. `LiteralConstant` admits bounded
   literal trees and earlier immutable literal bindings; checker, parameter-default

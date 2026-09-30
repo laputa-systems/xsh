@@ -9758,6 +9758,30 @@ print ${checked.value + checked.items[0]}
     }
 
     #[test]
+    fn inferred_record_constructors_keep_concrete_facts_after_frontend_drop() {
+        crate::runtime::eval::run_eval(|| {
+            let source = r#"type Inner[T] = {value: T?}
+type Outer[T] = {inner: Inner[T], anchor: T, items: List[T] = []}
+type Marker[T] = {name: Str}
+const prepared = Outer(inner: Inner(value: null), anchor: 7)
+var value = Outer(inner: Inner(value: null), anchor: 9)
+let retained = value
+value.anchor = 12
+let marker: Marker[Int] = Marker(name: "context")
+print ${prepared.anchor + prepared.items.len()}
+print ${retained.anchor + value.anchor}
+print $marker.name
+"#;
+            let frames = run_program_through_route(source, false);
+            let recursive = run_program_through_route(source, true);
+            assert_eq!(frames, recursive);
+            assert_eq!(frames.0, 0);
+            assert_eq!(frames.1, b"7\n21\ncontext\n");
+            assert!(frames.2.is_empty());
+        });
+    }
+
+    #[test]
     fn assignment_path_copies_only_shared_ancestors() {
         let span = Span::new(crate::source::SourceId::new(0), 0, 0);
         let list = || LoweredValue::SharedList(Arc::new(vec![LoweredValue::Int(1), LoweredValue::Int(2)]));

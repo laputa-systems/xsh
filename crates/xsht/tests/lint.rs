@@ -4125,7 +4125,12 @@ fn parametric_record_constructor_fix_keeps_concrete_alias_and_converges() {
     let parsed = parse_lint_source(direct);
     let checked = Checker::check_arena(&parsed.arena, direct);
     let output = Linter::lint(&parsed.arena, direct, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
-    assert!(!output.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-record-constructor")));
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-record-constructor")).unwrap();
+    let hint = &diagnostic.fix_hints[0];
+    let mut fixed = direct.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+    assert!(fixed.contains("let count: Box[Int] = Box(value: 7)"));
+    assert_parse_check_standalone("inferred constructor with retained annotation", &fixed);
 }
 
 #[test]
@@ -4493,4 +4498,43 @@ fn context_scope_environment_migration_preserves_comments_and_rechecks() {
     assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
     let again = Formatter::new().format_source(SourceId::new(0), &formatted.formatted);
     assert_eq!(again.formatted, formatted.formatted);
+}
+
+#[test]
+fn generic_record_constructor_alias_fix_rechecks_and_converges() {
+    let source = "type Box[T] = {value: T}\ntype Count = Box[Int]\nlet count = Count(value: 7)\nprint ${count.value + 1}\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-generic-record-constructor")).unwrap();
+    assert_eq!(diagnostic.fix_hints.len(), 1);
+    let hint = &diagnostic.fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+    assert!(fixed.contains("type Count = Box[Int]"));
+    assert!(fixed.contains("let count = Box(value: 7)"));
+    assert_parse_check_standalone("inferred alias constructor", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let repeated = Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!repeated.diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-generic-record-constructor")));
+}
+
+#[test]
+fn generic_record_constructor_alias_fix_preserves_conversion_and_ambiguous_evidence() {
+    for source in [
+        "type Box[T] = {value: T?}\ntype Count = Box[Int]\nlet count = Count(value: null)\n",
+        "type Box[T] = {value: List[T]}\ntype Count = Box[Int]\nlet count = Count(value: [])\n",
+        "type Box[T] = {value: T}\ntype Count = Box[UInt]\nlet count = Count(value: 7)\n",
+        "type Box[T] = {value: T}\ntype Count = Box[Int]\nlet count = Count(...{value: 7})\n",
+        "type Box[T] = {value: T}\ntype Count = Box[Int]\nlet count = Count(\n# preserve this argument comment\nvalue: 7)\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+        let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+        let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-generic-record-constructor")).unwrap();
+        assert!(diagnostic.fix_hints.is_empty(), "{source}");
+    }
 }

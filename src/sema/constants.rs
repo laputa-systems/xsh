@@ -745,6 +745,30 @@ mod instance_tests {
     use crate::syntax::parser::Parser;
 
     #[test]
+    fn record_constructor_prototypes_do_not_enter_the_concrete_instance_cache() {
+        let source = "type Box[T] = {value: T}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty());
+        parsed.arena.symbol_owner().with_current(|| {
+            let index = RecordConstructors::collect(&parsed.arena);
+            let definition = index.definition(None, Name::intern("Box")).unwrap();
+            let mut constraints = super::super::constraints::TypeConstraints::default();
+            let span = crate::source::Span::new(SourceId::new(0), 0, source.len());
+            let first = constraints.fresh(span);
+            let second = constraints.fresh(span);
+            assert_ne!(first, second);
+            assert!(index.instantiate_checked(&parsed.arena.arena, definition, &[first.clone()]).unwrap().contains_inference());
+            assert!(index.instances.lock().unwrap().is_empty());
+            constraints.constrain(&first, &Type::Int, span).unwrap();
+            constraints.constrain(&second, &Type::Int, span).unwrap();
+            let left = index.finish_constructor_inference(&parsed.arena.arena, &SchemaInstance { definition, arguments: vec![first] }, &constraints).unwrap();
+            let right = index.finish_constructor_inference(&parsed.arena.arena, &SchemaInstance { definition, arguments: vec![second] }, &constraints).unwrap();
+            assert_eq!(left, right);
+            assert_eq!(index.instances.lock().unwrap().len(), 1);
+        });
+    }
+
+    #[test]
     fn record_schema_instances_share_canonical_resolved_arguments() {
         let source = "type Box[T] = {value: T}\ntype Count = Box[Int]\ntype Same = Box[Int]\ntype Nested = Box[Box[Int]]\n";
         let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -1220,7 +1244,10 @@ impl ConstantPreparation<'_> {
                     if item.splice_span.is_some() {
                         let LiteralConstant::List(items) = self.expression(item.value, scope, expected, depth + 1)? else { return Err(failure()); };
                         values.extend(items.iter().cloned());
-                    } else { values.push(self.expression(item.value, scope, item_ty, depth + 1)?); }
+                    } else {
+                        let schema = self.expected_schema.as_ref().and_then(|schema| schema.value_context().children.get(&SchemaComponent::Item)).cloned();
+                        values.push(self.expression_with_schema(item.value, scope, item_ty, schema, depth + 1)?);
+                    }
                 }
                 LiteralConstant::List(Arc::new(values))
             }
@@ -1253,7 +1280,9 @@ impl ConstantPreparation<'_> {
                         }
                     };
                     let child_ty = if map { value_context } else { match (expected, name) { (Some(Type::Record(fields)), Some(name)) => fields.get(&name), _ => None } };
-                    let value = self.expression(value, scope, child_ty, depth + 1)?;
+                    let component = if map { Some(SchemaComponent::Value) } else { name.map(SchemaComponent::Field) };
+                    let schema = component.and_then(|component| self.expected_schema.as_ref().and_then(|schema| schema.value_context().children.get(&component))).cloned();
+                    let value = self.expression_with_schema(value, scope, child_ty, schema, depth + 1)?;
                     if map { map_values.insert(key, value); }
                     else if values.insert(name.ok_or_else(failure)?, value).is_some() { return Err(failure()); }
                 }

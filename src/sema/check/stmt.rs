@@ -1258,10 +1258,13 @@ impl Checker {
                     });
                 }
             }
-            param_types.push((param.name, param_span, param_ty));
+            let schema = (!param.ty_defaulted).then(|| self.record_constructors.annotation_expectation(&arena.arena, param.ty, self.current_namespace).ok()).flatten();
+            param_types.push((param.name, param_span, param_ty, schema));
         }
-        for (name, span, ty) in param_types {
-            self.define(name, Binding::new(ty, false), span);
+        for (name, span, ty, schema) in param_types {
+            let mut binding = Binding::new(ty, false);
+            binding.schema_expectation = schema;
+            self.define(name, binding, span);
         }
         if inferring {
             let tail = self.check_tail_block_arena(arena, source, def.body, None);
@@ -1384,10 +1387,13 @@ impl Checker {
                 let default_span = arena.arena.expr(default).span;
                 self.expect_type(&param_ty, &actual, default_span);
             }
-            param_types.push((param.name, param_span, param_ty));
+            let schema = (!param.ty_defaulted).then(|| self.record_constructors.annotation_expectation(&arena.arena, param.ty, self.current_namespace).ok()).flatten();
+            param_types.push((param.name, param_span, param_ty, schema));
         }
-        for (name, span, ty) in param_types {
-            self.define(name, Binding::new(ty, false), span);
+        for (name, span, ty, schema) in param_types {
+            let mut binding = Binding::new(ty, false);
+            binding.schema_expectation = schema;
+            self.define(name, binding, span);
         }
         self.check_value_block_arena(arena, source, def.body, &Type::Unit);
         self.pop_scope();
@@ -1528,7 +1534,7 @@ impl Checker {
     ) {
         let expected = ty.map(|ty_id| self.type_from_arena(arena, ty_id));
         let schema = ty.and_then(|ty| self.record_constructors.annotation_expectation(&arena.arena, ty, self.current_namespace).ok());
-        let actual = self.check_expr_with_schema_arena(arena, source, initializer, expected.as_ref(), schema);
+        let actual = self.check_expr_with_schema_arena(arena, source, initializer, expected.as_ref(), schema.clone());
         let callable_alias = if !mutable && ty.is_none() {
             match initializer {
                 ArenaExprOrRun::Expr(expression) => self.resolve_callable_alias_target(arena, expression),
@@ -1571,6 +1577,10 @@ impl Checker {
                 } else { Some(std::sync::Arc::new(self.infer_condition_narrowings_arena(arena, expr))) }
             } else { None }
         } else { None };
+        let schema = schema.or_else(|| match initializer {
+            ArenaExprOrRun::Expr(expression) => self.schema_expectation_for_expr(arena, expression),
+            ArenaExprOrRun::Run(_) => None,
+        });
         self.define_binding_target_arena(arena, target, &final_ty, mutable, span);
         if let Some(alias) = callable_alias
             && let ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind {
@@ -1581,6 +1591,21 @@ impl Checker {
         }
         if let crate::syntax::arena::ArenaBindingTargetKind::Name(name) = arena.arena.binding_target(target).kind {
             if let Some(binding) = self.current_scope_mut().get_mut(&name) { binding.boolean_proof = boolean_proof; }
+        }
+        self.set_binding_schema_arena(arena, target, schema);
+    }
+
+    fn set_binding_schema_arena(&mut self, arena: &ArenaProgram, target: BindingTargetId, schema: Option<super::super::constants::SchemaExpectation>) {
+        match &arena.arena.binding_target(target).kind {
+            ArenaBindingTargetKind::Name(name) => {
+                if let Some(binding) = self.current_scope_mut().get_mut(name) { binding.schema_expectation = schema; }
+            }
+            ArenaBindingTargetKind::Record { fields, .. } => {
+                for field in arena.arena.destructure_fields(*fields) {
+                    let child = schema.as_ref().and_then(|context| context.value_context().children.get(&super::super::constants::SchemaComponent::Field(field.name))).cloned();
+                    self.set_binding_schema_arena(arena, field.target, child);
+                }
+            }
         }
     }
 

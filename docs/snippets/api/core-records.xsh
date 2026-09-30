@@ -11,6 +11,8 @@ print $updated.build.jobs
 type Observation[T] = {value: T? = null, samples: List[T] = []}
 type CountObservation = Observation[Int]
 let count = CountObservation(value: 7)
-let direct: Observation[Str] = {value: "demo", samples: ["demo"]}
+let direct = Observation(value: "demo", samples: ["demo"])
+let absent: Observation[Int] = Observation(value: null)
 print ${count.value ?? 0}
 print ${direct.samples[0]}
+print ${absent.samples.len()}

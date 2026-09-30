@@ -571,6 +571,7 @@ impl Checker {
                 })
                 .collect(),
             return_ty: self.type_from_arena(program, def.return_ty),
+            return_schema: (!def.return_ty_defaulted).then(|| self.record_constructors.annotation_expectation(&program.arena, def.return_ty, self.current_namespace).ok()).flatten(),
             effects: self.effective_function_effects(program, def),
         }
     }

@@ -140,3 +140,67 @@ print ${prepared.entries[3]}
   test.ok(executed.success, executed.stderr)?
   test.eq(executed.stdout, "ONE\n3\n0\nthree\n")?
 }
+
+test test_generic_constructor_context_reaches_nested_container_instances [error] { |ctx|
+  let executed = test.run_script(ctx, r"""type Marker[T] = {name: Str}
+type Batch[T] = {markers: List[Marker[T]], keyed: Map[Marker[T]], anchor: T}
+let value = Batch(markers: [Marker(name: "list")], keyed: {first: Marker(name: "map")}, anchor: 7)
+let selected: List[Marker[Int]] = [Marker(name: "expected")]
+const made = Batch(markers: [Marker(name: "constant")], keyed: {first: Marker(name: "prepared")}, anchor: "anchor")
+print ${value.markers[0].name}
+print ${value.keyed["first"].name}
+print ${selected[0].name}
+print ${made.markers[0].name}
+print ${made.keyed["first"].name}
+""")?
+  test.ok(executed.success, executed.stderr)?
+  test.eq(executed.stdout, "list\nmap\nexpected\nconstant\nprepared\n")?
+}
+
+test test_generic_constructor_phantom_arguments_preserve_structural_assignability [error] { |ctx|
+  let executed = test.run_script(ctx, r"""type Marker[T] = {name: Str}
+type Wrap[T] = {marker: Marker[T]}
+let marker: Marker[Str] = Marker(name: "structural")
+let wrapped: Wrap[Int] = Wrap(marker: marker)
+print $wrapped.marker.name
+""")?
+  test.ok(executed.success, executed.stderr)?
+  test.eq(executed.stdout, "structural\n")?
+  let unresolved = test.run_script(ctx, "type Marker[T] = {name: Str}\ntype Wrap[T] = {marker: Marker[T]}\nlet marker: Marker[Str] = Marker(name: \"value\")\nlet wrapped = Wrap(marker: marker)\n")?
+  test.ok(!unresolved.success, unresolved.stderr)?
+  test.contains(unresolved.stderr, "check.constructor-inference")?
+}
+
+test test_generic_constructor_qualified_aliases_keep_private_schema_owners [fs, error] { |ctx|
+  let root = test.temp_dir(ctx, name: "generic-constructor-module")?
+  fp"${root}/model.xsh".write_atomic("""##! Schemas retain private field ownership.
+type Local = {name: Str}
+## A generic record with a private dependency.
+export type Box[T] = {value: T, owner: Local}
+## A generic alias with a nested argument.
+export type Alias[T] = Box[List[T]]
+""")?
+  let executed = test.run_script(ctx, r"""use model as m
+type Local = {name: Int}
+let count = m.Box(value: 7, owner: {name: "private"})
+let values = m.Alias(value: [3, 4], owner: {name: "alias"})
+print ${count.value + values.value[0]}
+print ${count.owner.name.upper()}
+""", [], {XSH_MODULE_PATH: root.display()})?
+  test.ok(executed.success, executed.stderr)?
+  test.eq(executed.stdout, "10\nPRIVATE\n")?
+}
+
+test test_generic_constructor_explicit_any_and_null_are_authoritative [error] { |ctx|
+  let executed = test.run_script(ctx, r"""type Box[T] = {value: T}
+let dynamic: Box[Any] = Box(value: 7)
+let nothing: Box[Null] = Box(value: null)
+print $dynamic.value
+print ${nothing.value == null}
+""")?
+  test.ok(executed.success, executed.stderr)?
+  test.eq(executed.stdout, "7\ntrue\n")?
+  let rejected = test.run_script(ctx, "type Box[T] = {value: T}\nlet raw: Any = 7\nlet unknown = Box(value: raw)\n")?
+  test.ok(!rejected.success, rejected.stderr)?
+  test.contains(rejected.stderr, "check.constructor-inference")?
+}

@@ -100,6 +100,24 @@ An unsupplied parameter never becomes `Any`. Defaults are checked against rigid
 parameter identities so they must be valid for every argument type. Imported
 applications retain the declaring module's private dependencies.
 
+
+A schema constructor without written arguments creates fresh type variables for
+that occurrence. Supplied fields and an independently annotated expected
+application constrain them to exactly agreeing concrete types; defaults do not
+select arguments. Non-null optional values provide evidence, while null and
+empty containers alone do not. An explicit annotation can select `Any` or
+`Null`; unconstrained evidence never guesses them. Nested constructors share
+constraints until their enclosing constructor completes, then all instances
+must be concrete before checked facts are published.
+
+Unused parameters remain unresolved without an expected application. For
+`Marker[T] = {name: Str}`, a value annotated `Marker[Str]` supplies only its
+structural fields to `Wrap(marker: value)`; it does not identify an unobservable
+argument in `Wrap[T] = {marker: Marker[T]}`. An independently expected
+`Wrap[Int]` supplies that argument and still accepts the width-compatible
+marker. This retains structural record assignability. Unresolved constructors
+report `check.constructor-inference` and request an annotation or field evidence.
+
 ## Assignability
 
 The checker uses structural assignability for built-in container and record

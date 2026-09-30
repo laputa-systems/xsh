@@ -148,6 +148,7 @@ pub(super) struct Binding {
     unrefined_ty: Option<Type>,
     proof: proof::BindingProof,
     boolean_proof: Option<Arc<proof::ConditionNarrowings>>,
+    schema_expectation: Option<super::constants::SchemaExpectation>,
 }
 
 impl Binding {
@@ -161,6 +162,7 @@ impl Binding {
             unrefined_ty: None,
             proof: proof::BindingProof::default(),
             boolean_proof: None,
+            schema_expectation: None,
         }
     }
 
@@ -174,6 +176,7 @@ impl Binding {
             unrefined_ty: None,
             proof: proof::BindingProof::default(),
             boolean_proof: None,
+            schema_expectation: None,
         }
     }
 }
@@ -187,6 +190,7 @@ pub(super) struct FunctionSig {
     definition: Option<Span>,
     params: Vec<FunctionParamSig>,
     return_ty: Type,
+    return_schema: Option<super::constants::SchemaExpectation>,
     effects: Option<Vec<Effect>>,
 }
 

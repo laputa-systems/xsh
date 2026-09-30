@@ -4284,9 +4284,65 @@ impl<'a> Linter<'a> {
         .visit_call_arg(arg);
     }
 
+    fn lint_generic_alias_constructor(&mut self, expression: ExprId, callee: ExprId, args: ArenaRange) {
+        let Some(alias) = self.record_constructors.constructor_definition(self.arena, callee, None) else { return; };
+        let Some(definition) = self.record_constructors.resolve_call(self.arena, callee, None) else { return; };
+        if alias == definition || !self.arena.type_def(alias).type_parameters.is_empty()
+            || self.arena.type_def(definition).type_parameters.is_empty()
+            || self.record_constructors.namespace(definition).is_some()
+        { return; }
+        let name = self.arena.type_def(definition).name;
+        if self.record_constructors.definition(None, name) != Some(definition) { return; }
+        let call = self.arena.expr(expression);
+        let Some(original_type) = self.expr_types.get(&call.span) else { return; };
+        if original_type.contains_any() || original_type.contains_inference() || original_type.is_recovery() { return; }
+        let Type::Record(fields) = original_type else { return; };
+        let mut safe = !self.source[call.span.range()].contains('#');
+        for argument in self.arena.call_args(args) {
+            let ArenaCallArgKind::Named { name, value, .. } = argument.kind else { safe = false; break; };
+            let Some(expected) = fields.get(&name) else { safe = false; break; };
+            let actual = xsh::frontend::check::LiteralConstant::analyze(self.arena, value, &FxHashMap::default())
+                .map(|value| value.value_type()).or_else(|| self.expr_types.get(&self.arena.expr(value).span).cloned());
+            safe &= actual.as_ref().is_some_and(|actual| !matches!(actual, Type::Null)
+                && (actual == expected || matches!(expected, Type::Optional(inner) if actual == inner.as_ref())));
+        }
+        let mut diagnostic = Diagnostic::new(Severity::Warning, "constructor fields can infer the same concrete schema")
+            .with_code("lint.prefer-generic-record-constructor")
+            .with_label(Label::secondary(call.span, "use the parameterized schema constructor"));
+        if safe {
+            let callee_span = self.arena.expr(callee).span;
+            let replacement = name.to_string();
+            let mut candidate = self.source.to_string();
+            candidate.replace_range(callee_span.range(), &replacement);
+            let call_span = Span::new(call.span.source_id, call.span.start(), call.span.end() - callee_span.range().len() + replacement.len());
+            let shape = checked_return_type_shape(original_type);
+            let selected = self.record_constructors.instance_expectation(self.arena, alias, &[]).ok()
+                .and_then(|context| context.instances.into_iter().find(|instance| instance.definition == definition))
+                .map(|instance| instance.arguments.iter().map(checked_return_type_shape).collect::<Vec<_>>());
+            let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(call.span.source_id, &candidate);
+            if parsed.diagnostics.is_empty() {
+                let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, &candidate);
+                let equivalent = checked.diagnostics.is_empty() && parsed.arena.symbol_owner().with_current(|| {
+                    checked.record_constructor_instances.get(&call_span).is_some_and(|fact|
+                        checked_return_type_shape(&fact.ty) == shape
+                        && Some(fact.instance.arguments.iter().map(checked_return_type_shape).collect::<Vec<_>>()) == selected)
+                });
+                if equivalent {
+                    diagnostic = diagnostic.with_fix_hint(FixHint::replacement(callee_span,
+                        "infer the same concrete constructor instance", replacement));
+                }
+            }
+        }
+        self.diagnostics.push(diagnostic);
+    }
+
     fn lint_record_constructor(&mut self, ty: Option<TypeExprId>, initializer: &ArenaExprOrRun) {
-        let (Some(ty), ArenaExprOrRun::Expr(expr)) = (ty, initializer) else { return; };
-        if self.arena.type_expr_tags[ty.index()] == ArenaTypeExprTag::Applied { return; }
+        let ArenaExprOrRun::Expr(expr) = initializer else { return; };
+        if ty.is_none() {
+            if let ArenaExprKind::Call { callee, args } = self.arena.expr(*expr).kind { self.lint_generic_alias_constructor(*expr, callee, args); }
+            return;
+        }
+        let Some(ty) = ty else { return; };
         let Some(definition) = self.record_constructors.resolve_annotation(self.arena, ty, None) else { return; };
         let value = self.arena.expr(*expr);
         let ArenaExprKind::Record(fields) = value.kind else { return; };
@@ -4332,7 +4388,10 @@ impl<'a> Linter<'a> {
             }
         }
         if safe {
-            let name = &self.source[self.arena.type_expr_span(ty).range()];
+            let constructor = if self.arena.type_expr_tags[ty.index()] == ArenaTypeExprTag::Applied {
+                TypeExprId::from_index(self.arena.type_expr_data[ty.index()].lhs as usize)
+            } else { ty };
+            let name = &self.source[self.arena.type_expr_span(constructor).range()];
             diagnostic = diagnostic.with_fix_hint(FixHint::replacement(value.span, "use the schema constructor", format!("{name}({})", arguments.join(", "))));
         }
         self.diagnostics.push(diagnostic);

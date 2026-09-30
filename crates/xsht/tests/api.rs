@@ -815,6 +815,8 @@ fn api_core_records_demonstrates_schema_owned_defaults_and_constructor_puns() {
     assert!(stdout.contains("Config(name:)"), "{stdout}");
     assert!(stdout.contains("Observation[T]"), "{stdout}");
     assert!(stdout.contains("CountObservation(value: 7)"), "{stdout}");
+    assert!(stdout.contains("Observation(value: \"demo\", samples: [\"demo\"])"), "{stdout}");
+    assert!(stdout.contains("let absent: Observation[Int] = Observation(value: null)"), "{stdout}");
     assert!(stdout.contains("disjoint existing field paths"), "{stdout}");
     assert!(stdout.contains("{...settings, build.jobs: 4}"), "{stdout}");
 }

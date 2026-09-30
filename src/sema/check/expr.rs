@@ -56,6 +56,41 @@ fn capture_success_underconstrained(ty: &Type) -> bool {
 }
 
 impl Checker {
+    /// Retains independently declared schema context for expected slots. Structural
+    /// record values alone never identify a schema application or its unused arguments.
+    pub(super) fn schema_expectation_for_expr(&self, arena: &ArenaProgram, expression: ExprId) -> Option<super::super::constants::SchemaExpectation> {
+        use super::super::constants::{SchemaComponent, SchemaExpectation};
+        match arena.arena.expr(expression).kind {
+            ArenaExprKind::Ident(name) => self.lookup(name)?.schema_expectation.clone(),
+            ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } => {
+                self.schema_expectation_for_expr(arena, base)?.value_context().children.get(&SchemaComponent::Field(name)).cloned()
+            }
+            ArenaExprKind::Index { base, .. } => {
+                let context = self.schema_expectation_for_expr(arena, base)?;
+                let ty = self.expr_types.get(&arena.arena.expr(base).span)?;
+                let component = match ty { Type::List(_) => SchemaComponent::Item, Type::Map(_, _) => SchemaComponent::Value, _ => return None };
+                context.value_context().children.get(&component).cloned()
+            }
+            ArenaExprKind::Try(inner) => self.schema_expectation_for_expr(arena, inner)?.children.get(&SchemaComponent::Success).cloned(),
+            ArenaExprKind::Require { schema, .. } => {
+                let context = self.record_constructors.annotation_expectation(&arena.arena, schema, self.current_namespace).ok()?;
+                let mut result = SchemaExpectation::default();
+                result.children.insert(SchemaComponent::Success, context);
+                Some(result)
+            }
+            ArenaExprKind::Call { callee, .. } => match arena.arena.expr(callee).kind {
+                ArenaExprKind::Ident(name) => self.procs.get(&name).or_else(|| self.pures.get(&name)).or_else(|| self.streams.get(&name))?.return_schema.clone(),
+                ArenaExprKind::Field { base, name } => {
+                    let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind else { return None; };
+                    let qualified = crate::symbol::QualifiedName::new(namespace, name);
+                    self.qualified_procs.get(&qualified).or_else(|| self.qualified_pures.get(&qualified)).or_else(|| self.qualified_streams.get(&qualified))?.return_schema.clone()
+                }
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
     pub(super) fn lookup_expr_ident(&mut self, name: Name, span: Span) -> Type {
         if name == "_" {
             self.error(span, "`_` is only a whole argument placeholder in an immediate value pipeline call", "check.pipeline-hole");
@@ -499,6 +534,14 @@ impl Checker {
         Type::List(Box::new(inferred))
     }
 
+    fn check_schema_child_expr_arena(
+        &mut self, arena: &ArenaProgram, source: &str, expression: ExprId,
+        expected: Option<&Type>, component: crate::sema::constants::SchemaComponent,
+    ) -> Type {
+        let schema = self.expected_schema.as_ref().and_then(|schema| schema.value_context().children.get(&component)).cloned();
+        self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expression), expected, schema)
+    }
+
     fn check_map_literal_arena(&mut self, arena: &ArenaProgram, source: &str, range: ArenaRange, expected: Option<&Type>) -> Type {
         let (expected_key, expected_item) = match expected { Some(Type::Map(key, item)) => (Some(key.as_ref()), Some(item.as_ref())), _ => (None, None) };
         let mut inferred_key = expected_key.cloned().unwrap_or(Type::Unknown);
@@ -506,18 +549,18 @@ impl Checker {
         for field in arena.arena.record_fields(range) {
             let (key_ty, actual, span) = match field.kind {
                 ArenaRecordFieldKind::Computed { key, value, span } => {
-                    let key_ty = self.check_expr_arena(arena, source, key, expected_key);
+                    let key_ty = self.check_schema_child_expr_arena(arena, source, key, expected_key, crate::sema::constants::SchemaComponent::Key);
                     if !key_ty.is_map_key() && !key_ty.is_recovery() {
                         self.error(arena.arena.expr(key).span, "Map keys require Str, Int, UInt, Bool, Bytes, Path, or Duration", "check.map-key-type");
                     }
-                    (key_ty, self.check_expr_arena(arena, source, value, expected_item), arena.arena.span(span))
+                    (key_ty, self.check_schema_child_expr_arena(arena, source, value, expected_item, crate::sema::constants::SchemaComponent::Value), arena.arena.span(span))
                 }
                 ArenaRecordFieldKind::Path { value, span, .. } => {
-                    self.check_expr_arena(arena, source, value, expected_item);
+                    self.check_schema_child_expr_arena(arena, source, value, expected_item, crate::sema::constants::SchemaComponent::Value);
                     self.error(arena.arena.span(span), "map literals do not permit static record update paths", "check.map-update-path");
                     continue;
                 }
-                ArenaRecordFieldKind::Named { value, span, .. } => (Type::Str, self.check_expr_arena(arena, source, value, expected_item), arena.arena.span(span)),
+                ArenaRecordFieldKind::Named { value, span, .. } => (Type::Str, self.check_schema_child_expr_arena(arena, source, value, expected_item, crate::sema::constants::SchemaComponent::Value), arena.arena.span(span)),
                 ArenaRecordFieldKind::Shorthand { name, span } => (Type::Str, self.lookup_record_shorthand(name, arena.arena.span(span)), arena.arena.span(span)),
                 ArenaRecordFieldKind::Spread { expr, span } => {
                     let ty = self.check_expr_arena(arena, source, expr, expected);
