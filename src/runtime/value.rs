@@ -2,6 +2,7 @@
 
 pub use crate::map_key::{MapKey, MapKeyRef};
 mod error_cause;
+mod resource_values;
 pub use error_cause::ErrorCause;
 
 use crate::runtime::process::{AcceptedExitCodes, ProcessStatus};
