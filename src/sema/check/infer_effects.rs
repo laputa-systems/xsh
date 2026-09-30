@@ -148,19 +148,6 @@ use super::{Checker, FunctionSig};
 use crate::syntax::arena::{ArenaFunctionDef, ArenaProgram, ArenaStmtKind, BlockId, StmtId};
 
 impl Checker {
-    pub(super) fn check_separate_modules(&mut self, modules: &[(&str, &str, &ArenaProgram, &str)]) {
-        for (key, name, arena, source) in modules {
-            self.prepare_effect_declarations(arena, Some(Name::intern(name)));
-            self.diagnostics.extend(Self::prepare_regex_literals(arena));
-            let module_program = std::sync::Arc::new((*arena).clone());
-            let module = crate::syntax::arena::ArenaUserModule {
-                key: (*key).to_string(), name: Name::intern(name), statements: arena.statements, internal: false,
-            };
-            let sig = self.check_user_module_arena(arena, module_program, source, &module);
-            self.user_modules.insert((*key).to_string(), sig);
-        }
-    }
-
     pub(super) fn effect_declaration_id(&self, program: &ArenaProgram, body: BlockId) -> EffectDeclarationId {
         EffectDeclarationId { namespace: self.current_namespace, body: program.arena.span(program.arena.block(body).span) }
     }
