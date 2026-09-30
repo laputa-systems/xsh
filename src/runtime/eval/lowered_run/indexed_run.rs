@@ -2637,7 +2637,7 @@ impl Evaluator {
                 let field = self
                     .indexed_borrowed_field_value(item, field, span)?
                     .ok_or_else(|| RuntimeError::new("missing-field", *field).with_span(span))?;
-                let equal = matches!(field, LoweredValue::Str(text) if text == *value);
+                let equal = lowered_str_value(&field).is_some_and(|text| text == value.as_ref());
                 Ok(if *op == BinaryOp::Eq { equal } else { !equal })
             }
             IndexedItemPredicate::And(left, right) => Ok(self
