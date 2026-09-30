@@ -172,7 +172,7 @@ print ${choose()?.display() ?? ""}
 }
 
 test discarded_empty_map_needs_no_artificial_key_or_value_contract [error] { |ctx|
-    let output = test.run_script(ctx, r"""proc discard() -> Unit {
+    let output = test.run_script(ctx, r"""pure discard() -> Unit {
   let _ = map.empty()
   map.empty()
 }
@@ -231,4 +231,16 @@ print ${counts.get("one") ?? 0}
 """)?
     test.ok(output.success, output.stderr)?
     test.eq(output.stdout, "2\n")?
+}
+
+test independently_declared_dynamic_map_domain_solves_nested_local_holes [error] { |ctx|
+    let output = test.run_script(ctx, r"""type Stats = {blobs: Map[Any]}
+pure empty_stats() -> Stats {
+  let stats = {blobs: map.empty()}
+  return stats
+}
+print ${empty_stats().blobs.len()}
+""")?
+    test.ok(output.success, output.stderr)?
+    test.eq(output.stdout, "0\n")?
 }

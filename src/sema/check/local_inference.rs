@@ -36,6 +36,9 @@ impl Checker {
             };
             finalize_type(constraints, &mut fact.ty, span, &mut reported, diagnostics);
         }
+        for (span, ty) in &mut self.local_inference.checked_bindings {
+            finalize_type(constraints, ty, *span, &mut reported, diagnostics);
+        }
         for (span, ty) in &mut self.parameter_types {
             finalize_type(constraints, ty, *span, &mut reported, diagnostics);
         }
@@ -140,13 +143,13 @@ impl Checker {
         self.local_inference.bindings.get(&span).and_then(|ty| self.type_constraints.resolve(ty).ok())
     }
 
+    // Later parameter and return destinations can solve holes nested in a
+    // binding. Preserve their identities until every source constraint is checked.
     pub(super) fn record_checked_local_binding(&mut self, program: &ArenaProgram, target: BindingTargetId, span: Span, ty: &Type) {
         if self.current_return.is_some() && !self.local_inference.collecting
             && matches!(program.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(name) if name != "_")
         {
-            let mut ty = self.type_constraints.resolve(ty).unwrap_or(Type::Invalid);
-            if ty.contains_inference() { ty = Type::Invalid; }
-            self.local_inference.checked_bindings.insert(span, ty);
+            self.local_inference.checked_bindings.insert(span, ty.clone());
         }
     }
 

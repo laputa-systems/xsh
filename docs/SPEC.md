@@ -603,7 +603,10 @@ optional type once non-null contributions determine its inner type. Immutable
 
 Local aliases share the same unresolved type; each use cannot choose a new
 instantiation. Incompatible concrete contributions are errors and never widen
-to Any or a union. Material unresolved types require an annotation before a
+to Any or a union. An independently declared concrete destination can choose
+an explicit dynamic domain such as `Map[Any]`; that choice is preserved through
+nested fields and local aliases rather than guessed from runtime evidence.
+Material unresolved types require an annotation before a
 concrete operation, checked signature, or indexed execution contract is
 published. A wholly discarded inert literal needs no artificial annotation.
 Checking uses source constraints without evaluating code or inspecting runtime

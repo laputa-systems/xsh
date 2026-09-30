@@ -1765,6 +1765,17 @@ impl CompactBodyProbe<'_> {
             return;
         }
         let expected = expected.result_ok().unwrap_or(expected);
+        if !matches!(expected, Type::Unit | Type::Unknown | Type::Invalid)
+            && let Some(actual) = self.output.expr_types.get(&expr).cloned()
+            && actual.contains_inference() {
+            let actual = actual.result_ok().unwrap_or(&actual);
+            let constrained = if expected.contains_inference() {
+                self.type_constraints.constrain(expected, actual, self.program.arena.expr(expr).span)
+            } else {
+                self.type_constraints.constrain_context(expected, actual, self.program.arena.expr(expr).span)
+            };
+            if constrained.is_err() { self.output.expr_types.insert(expr, Type::Invalid); }
+        }
         match self.program.arena.expr(expr).kind {
             ArenaExprKind::MapComp { key, value, .. } => if let Type::Map(expected_key, item) = expected {
                 self.output.expr_types.insert(expr, expected.clone());

@@ -150,7 +150,12 @@ impl Checker {
 
     pub(super) fn expect_type(&mut self, expected: &Type, actual: &Type, span: Span) {
         if expected.contains_inference() || actual.contains_inference() {
-            if let Err(conflict) = self.type_constraints.constrain(expected, actual, span) {
+            let constrained = if expected.contains_inference() {
+                self.type_constraints.constrain(expected, actual, span)
+            } else {
+                self.type_constraints.constrain_context(expected, actual, span)
+            };
+            if let Err(conflict) = constrained {
                 let mut diagnostic = Diagnostic::error("inferred types disagree")
                     .with_code("check.type-mismatch")
                     .with_label(Label::primary(conflict.contribution,
