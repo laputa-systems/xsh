@@ -170,6 +170,6 @@ test test_record_projection_type_and_presence_aliases [error] {
   guard present else { return error.fail("missing field") }
   let text_field = shape.payload is Str
   guard text_field else { return error.fail("not text") }
-  let value: Str = shape.payload
+  let value = shape.payload.require(Str)?
   test.eq(value, "present")?
 }

@@ -61,7 +61,8 @@ print $result
 """,
   )?
   test.ok(! duplicate.success, duplicate.stderr)?
-  test.contains(duplicate.stderr, "check.arity")?
+  test.contains(duplicate.stderr, "check.named-arg")?
+  test.contains(duplicate.stderr, "parameter `value` supplied more than once")?
 
   let wrong_type = test.run_script(
     ctx,
