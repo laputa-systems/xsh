@@ -1,3 +1,5 @@
+# An explicit erased descriptor keeps runtime validation observable rather than
+# admitting its fields as preparation facts.
 pure dynamic_cli_schema(schema: Record) -> Record { schema }
 
 # Coverage for the `cli` argument policy.
@@ -282,8 +284,8 @@ test test_cli_commands_dispatch_names_aliases_and_forms [fs, error] {
   # that declared the schema and the spelling the argument list used. The
   # fields come back in sorted name order.
   let named = cli.commands(["build", "target/demo", "extra"], schema)?
-  test.eq(named.get("command") ?? null, "build")?
-  test.eq(named.get("action") ?? null, "build")?
+  test.eq(named.get("command")?, "build")?
+  test.eq(named.get("action")?, "build")?
   test.eq(f"${named.get("root") ?? null}", "target/demo")?
   test.eq(rest_field(cli.commands(["build", "target/demo", "extra"], schema), "raw"), "extra")?
   test.eq(named.keys().join(","), "action,command,raw,root")?
@@ -291,8 +293,8 @@ test test_cli_commands_dispatch_names_aliases_and_forms [fs, error] {
   # An alias dispatches to the same command, and `action` reports the spelling
   # the list used while `command` reports the declared name.
   let aliased = cli.commands(["b", "target/demo"], schema)?
-  test.eq(aliased.get("command") ?? null, "build")?
-  test.eq(aliased.get("action") ?? null, "b")?
+  test.eq(aliased.get("command")?, "build")?
+  test.eq(aliased.get("action")?, "b")?
 
   # A lookup key is the command spelling with dashes turned into underscores,
   # while a command is stored under its name exactly as written. A dashed
@@ -307,19 +309,19 @@ test test_cli_commands_dispatch_names_aliases_and_forms [fs, error] {
     "unknown command `my_command`",
   )?
   test.eq(
-    cli.commands(["my_command", "one"], {my_command: {rest: "raw"}})?.get("command") ?? null,
+    cli.commands(["my_command", "one"], {my_command: {rest: "raw"}})?.get("command")?,
     "my_command",
   )?
   test.eq(
-    cli.commands(["my-command"], {my_command: {rest: "raw"}})?.get("command") ?? null,
+    cli.commands(["my-command"], {my_command: {rest: "raw"}})?.get("command")?,
     "my_command",
   )?
 
   # An alias is keyed by the same normalization, so a dashed alias spelling is
   # how a dashed canonical name is reached.
   let via_alias = cli.commands(["mc", "one"], {"my-command": {rest: "raw", aliases: ["mc"]}})?
-  test.eq(via_alias.get("command") ?? null, "my-command")?
-  test.eq(via_alias.get("action") ?? null, "mc")?
+  test.eq(via_alias.get("command")?, "my-command")?
+  test.eq(via_alias.get("action")?, "mc")?
 
   # A form descriptor spells the positionals and the rest compactly, lowercased,
   # and the rest name it declares wins over the descriptor's own `rest` field. A
@@ -348,7 +350,7 @@ test test_cli_commands_dispatch_names_aliases_and_forms [fs, error] {
     failure_message(
       cli.commands(
         ["b"],
-        {build: {rest: "raw", aliases: ["b"]}, bale: {rest: "raw", aliases: ["b"]}},
+        dynamic_cli_schema({build: {rest: "raw", aliases: ["b"]}, bale: {rest: "raw", aliases: ["b"]}}),
       ),
     ),
     "duplicate command alias `b`",
@@ -362,23 +364,23 @@ test test_cli_commands_rootless_and_fallback_routing [fs, error] {
   # argument list — the token that named nothing included — becomes its
   # arguments.
   let rootless = cli.commands(["target/demo", "extra"], "build", {build: {rest: "raw"}})?
-  test.eq(rootless.get("command") ?? null, "build")?
-  test.eq(rootless.get("action") ?? null, "build")?
+  test.eq(rootless.get("command")?, "build")?
+  test.eq(rootless.get("action")?, "build")?
   test.eq((rootless.get("raw") ?? []).join(","), "target/demo,extra")?
 
   # A fallback command is consulted before the rootless default, and it too
   # takes the whole argument list, with the token that named nothing as both its
   # own name and its first argument.
   let taken = cli.commands(["plain", "one"], "", schema, {rest: "raw"})?
-  test.eq(taken.get("action") ?? null, "plain")?
-  test.eq(taken.get("command") ?? null, "plain")?
-  test.eq((taken.get("raw") ?? []).join(","), "plain,one")?
+  test.eq(taken.get("action")?, "plain")?
+  test.eq(taken.get("command")?, "plain")?
+  test.eq((taken.get("raw")?.require(List[Str])?).join(","), "plain,one")?
 
   # A fallback takes a token that looks like a path only when it asks to be
   # `command_like`; a token that looks like a path is one that starts with `/`
   # or `.` or carries `/`.
   test.eq(
-    cli.commands(["plain", "one"], "", schema, {rest: "raw", command_like: true})?.get("action") ?? null,
+    cli.commands(["plain", "one"], "", schema, {rest: "raw", command_like: true})?.get("action")?,
     "plain",
   )?
   test.eq(
@@ -418,15 +420,15 @@ test test_cli_commands_convert_positionals_and_collect_the_rest [fs, error] {
   test.eq(parsed.get("n") ?? null, 12)?
   test.eq(f"${parsed.get("where") ?? null}", "src/main.xsh")?
   test.eq(
-    cli.commands(["t", "yes"], {t: {positionals: ["n"], types: {n: "Bool"}}})?.get("n") ?? null,
+    cli.commands(["t", "yes"], {t: {positionals: ["n"], types: {n: "Bool"}}})?.get("n")?,
     true,
   )?
   test.eq(
-    cli.commands(["t", "0"], {t: {positionals: ["n"], types: {n: "Bool"}}})?.get("n") ?? null,
+    cli.commands(["t", "0"], {t: {positionals: ["n"], types: {n: "Bool"}}})?.get("n")?,
     false,
   )?
   test.eq(
-    cli.commands(["t", "250ms"], {t: {positionals: ["n"], types: {n: "Duration"}}})?.get("n") ?? null,
+    cli.commands(["t", "250ms"], {t: {positionals: ["n"], types: {n: "Duration"}}})?.get("n")?,
     250ms,
   )?
 
@@ -452,15 +454,15 @@ test test_cli_commands_convert_positionals_and_collect_the_rest [fs, error] {
   # A type spelling the command reader cannot convert is a rejection of the
   # schema, reported once, before any argument is converted.
   test.eq(
-    failure_message(cli.commands(["t", "x"], {t: {positionals: ["n"], types: {n: "Weird"}}})),
+    failure_message(cli.commands(["t", "x"], dynamic_cli_schema({t: {positionals: ["n"], types: {n: "Weird"}}}))),
     "unsupported command positional type `Weird`",
   )?
   test.eq(
-    failure_message(cli.commands(["t", "x"], {t: {positionals: ["n"], types: {n: "List[Str]"}}})),
+    failure_message(cli.commands(["t", "x"], dynamic_cli_schema({t: {positionals: ["n"], types: {n: "List[Str]"}}}))),
     "command `t` type for `n` cannot be List",
   )?
   test.eq(
-    failure_message(cli.commands(["t", "x"], {t: {positionals: ["n"], types: {n: 7}}})),
+    failure_message(cli.commands(["t", "x"], dynamic_cli_schema({t: {positionals: ["n"], types: {n: 7}}}))),
     "command `t` type for `n` must be Str",
   )?
 
@@ -484,17 +486,17 @@ test test_cli_commands_convert_positionals_and_collect_the_rest [fs, error] {
   )?
 
   # A malformed descriptor is reported against the field that is malformed.
-  test.eq(failure_message(cli.commands(["t"], {t: "Str"})), "command `t` descriptor must be Record")?
+  test.eq(failure_message(cli.commands(["t"], dynamic_cli_schema({t: "Str"}))), "command `t` descriptor must be Record")?
   test.eq(
-    failure_message(cli.commands(["t"], {t: {positionals: "root"}})),
+    failure_message(cli.commands(["t"], dynamic_cli_schema({t: {positionals: "root"}}))),
     "command `t` descriptor field `positionals` must be List[Str]",
   )?
   test.eq(
-    failure_message(cli.commands(["t"], {t: {min_rest: -1}})),
+    failure_message(cli.commands(["t"], dynamic_cli_schema({t: {min_rest: -1}}))),
     "command `t` descriptor field `min_rest` cannot be negative",
   )?
   test.eq(
-    failure_message(cli.commands(["t"], {t: {command_like: "yes"}})),
+    failure_message(cli.commands(["t"], dynamic_cli_schema({t: {command_like: "yes"}}))),
     "command `t` descriptor field `command_like` must be Bool, found Str",
   )?
 
@@ -540,7 +542,7 @@ test test_cli_command_options_split_values_and_defaults [fs, error] {
   # carries one field per option name beside the command fields.
   let parsed = cli.commands(["go", "r", "-v", "--tag=a", "--tag", "b", "--mode", "fast"], schema)?
   test.eq(parsed.get("verbose") ?? null, true)?
-  test.eq((parsed.get("tag") ?? []).join(","), "a,b")?
+  test.eq((parsed.get("tag")?.require(List[Str])?).join(","), "a,b")?
   test.eq(parsed.get("mode") ?? null, "fast")?
   test.eq(parsed.get("level") ?? null, "info")?
   test.eq(parsed.keys().join(","), "action,command,level,mode,root,tag,verbose")?
@@ -548,7 +550,7 @@ test test_cli_command_options_split_values_and_defaults [fs, error] {
   # A value may be carried separately or inline, an option that may omit its
   # value falls back to its default when nothing supplies one, and an option
   # with a default starts there.
-  test.eq((cli.commands(["go", "r", "--tag", "b"], schema)?.get("tag") ?? []).join(","), "b")?
+  test.eq((cli.commands(["go", "r", "--tag", "b"], schema)?.get("tag")?.require(List[Str])?).join(","), "b")?
   test.eq(cli.commands(["go", "r", "--level"], schema)?.get("level") ?? null, "info")?
   test.eq(cli.commands(["go", "r", "--level=deep"], schema)?.get("level") ?? null, "deep")?
   let defaults = cli.commands(["go", "r"], schema)?
@@ -565,7 +567,7 @@ test test_cli_command_options_split_values_and_defaults [fs, error] {
   # A flag given a value inline records the value the value reader produces for
   # that text rather than the flag's own `true`.
   test.eq(
-    cli.commands(["go", "r", "--v=1"], {go: {positionals: ["root"], options: {v: {kind: "Bool"}}}})?.get("v") ?? null,
+    cli.commands(["go", "r", "--v=1"], {go: {positionals: ["root"], options: {v: {kind: "Bool"}}}})?.get("v")?,
     true,
   )?
 
@@ -763,14 +765,14 @@ test test_cli_command_options_validate_values_and_relationships [fs, error] {
     cli.commands(
       ["go", "r"],
       {go: {positionals: ["root"], options: {mode: {kind: "Str", env: "MODE", default: "slow"}}}},
-    )?.get("mode") ?? null,
+    )?.get("mode")?,
     "slow",
   )?
   test.eq(
     cli.commands(
       ["go", "r", "--old"],
       {go: {positionals: ["root"], options: {old: {kind: "Bool", deprecated: true}}}},
-    )?.get("old") ?? null,
+    )?.get("old")?,
     true,
   )?
 
@@ -778,15 +780,15 @@ test test_cli_command_options_validate_values_and_relationships [fs, error] {
   # spellings are reserved here as well — and a rejection of the *schema* is a
   # `cli-parse` error, not a `cli-commands` one.
   test.eq(
-    failure_message(cli.commands(["go", "r"], {go: {options: {helpful: {kind: "Bool", short: ["h"]}}}})),
+    failure_message(cli.commands(["go", "r"], dynamic_cli_schema({go: {options: {helpful: {kind: "Bool", short: ["h"]}}}}))),
     "`-h` is reserved by cli.parse",
   )?
   test.error_kind(
-    cli.commands(["go", "r"], {go: {options: {helpful: {kind: "Bool", short: ["h"]}}}}),
+    cli.commands(["go", "r"], dynamic_cli_schema({go: {options: {helpful: {kind: "Bool", short: ["h"]}}}})),
     "cli-parse",
   )?
   test.eq(
-    failure_message(cli.commands(["go", "r"], {go: {options: {helper: {kind: "Bool", long: ["help"]}}}})),
+    failure_message(cli.commands(["go", "r"], dynamic_cli_schema({go: {options: {helper: {kind: "Bool", long: ["help"]}}}}))),
     "`--help` is reserved by cli.parse",
   )?
 }
