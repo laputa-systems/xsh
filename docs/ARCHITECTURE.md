@@ -495,6 +495,15 @@ Focused semantic rules live beside it:
   substitution keeps unresolved identities until the owning checker requires
   a concrete contract. Indexed type pools reject unresolved identities, and
   runtime type tests cannot satisfy them.
+- `src/sema/check/local_inference.rs` gathers constraints for local empty
+  collections and mutable nullable accumulators before checking operations in
+  their enclosing callable. A cloned ordinary checker retains substitutions
+  and seed identities while discarding speculative diagnostics and facts.
+  Normal checking then uses the same monomorphic identities. Checked binding
+  types supply indexed slot metadata, so a null initializer cannot erase a
+  solved Optional contract. Full and compact publication canonicalize every
+  retained expression and callable fact through their owning constraint store;
+  unresolved material facts diagnose rather than become dynamic types.
 - `crates/xsh-registry/src/signature/` owns standard callable contracts and
   runtime operation identities; `src/modules/signature.rs` adapts them to
   semantic types and effects. `src/sema/builtin_templates.rs` instantiates

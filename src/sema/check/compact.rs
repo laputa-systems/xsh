@@ -672,6 +672,11 @@ impl CompactBodyProbe<'_> {
             super::local_inference::finalize_type(&self.type_constraints, ty, self.program.arena.expr(*expression).span, &mut reported, &mut self.output.diagnostics);
         }
         for (block, ty) in &mut self.output.block_types {
+            let tail = self.program.arena.stmt_ids(self.program.arena.block(*block).statements).last();
+            if tail.is_some_and(|tail| self.output.statement_positions.get(&tail) == Some(&super::StatementPosition::Statement)
+                && matches!(self.program.arena.stmt(tail).kind, ArenaStmtKind::Expr(expression) if self.nonmaterial_expressions.contains(&expression))) {
+                *ty = Type::Unit;
+            }
             super::local_inference::finalize_type(&self.type_constraints, ty, self.program.arena.span(self.program.arena.block(*block).span), &mut reported, &mut self.output.diagnostics);
         }
         for (expression, ty) in &mut self.output.value_block_types {
@@ -1700,8 +1705,7 @@ impl CompactBodyProbe<'_> {
             }
             ArenaExprKind::StructuredPipeline { input, stages } => {
                 let input = self.check_compact_expr(input);
-                self.check_compact_stream_stages(stages, input);
-                Type::Unknown
+                self.check_compact_stream_stages(stages, input)
             }
             ArenaExprKind::BuilderCall { call, block } => {
                 self.check_compact_expr(call);
@@ -1896,6 +1900,7 @@ impl CompactBodyProbe<'_> {
 
     fn check_compact_binary(&mut self, op: BinaryOp, left: ExprId, right: ExprId) -> Type {
         let left_id = left;
+        let right_id = right;
         let left = self.check_compact_expr(left);
         if op == BinaryOp::ResultFallback && !matches!(left, Type::Optional(_) | Type::Result(_, _))
             && self.compact_subject(left_id).is_some_and(|(name, path, _)| {
@@ -1944,7 +1949,14 @@ impl CompactBodyProbe<'_> {
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
                 numeric_result_type(left, right)
             }
-            BinaryOp::ResultFallback => match left { Type::Result(inner, _) if *inner == Type::Unknown => right, Type::Optional(inner) | Type::Result(inner, _) => *inner, other => other },
+            BinaryOp::ResultFallback => match left {
+                Type::Result(inner, _) if *inner == Type::Unknown => right,
+                Type::Optional(inner) | Type::Result(inner, _) => {
+                    if inner.contains_inference() && self.type_constraints.constrain(&inner, &right, self.program.arena.expr(right_id).span).is_err() { return Type::Invalid; }
+                    self.type_constraints.resolve(&inner).unwrap_or(Type::Invalid)
+                }
+                other => other,
+            },
         }
     }
 
@@ -2341,6 +2353,7 @@ impl CompactBodyProbe<'_> {
                 (StreamStageKind::FlatMap, Some(Type::List(item) | Type::Stream(item))) => Type::List(item),
                 (StreamStageKind::Any | StreamStageKind::All, _) => Type::Bool,
                 (StreamStageKind::Each, _) => Type::Unit,
+                (StreamStageKind::Fold | StreamStageKind::Reduce, Some(value)) => value,
                 _ => current,
             };
         }
@@ -2436,8 +2449,20 @@ impl CompactBodyProbe<'_> {
         }
         if let Some(block) = stream.block {
             self.push_compact_deferred_capture_scope();
+            if matches!(stream.kind, crate::syntax::node::StreamStageKind::Fold | crate::syntax::node::StreamStageKind::Reduce) {
+                use crate::sema::arguments::{expand_named_arguments, bind_static_arguments};
+                let parameters = crate::sema::stage_arguments::stage_argument_params(stream.kind.as_str());
+                let accumulator = expand_named_arguments(self.program, self.program.arena.call_args(stream.args), |expression| self.output.expr_types.get(&expression).cloned())
+                    .ok().and_then(|arguments| {
+                        let binding = bind_static_arguments(&parameters, &arguments).ok()?;
+                        arguments.into_iter().zip(binding.argument_slots).find_map(|(argument, slot)| (slot == 0).then_some(argument.ty))
+                    }).unwrap_or(Type::Unknown);
+                for (parameter, ty) in self.program.arena.block_params(self.program.arena.block(block).params).iter().zip([accumulator, item.clone()]) {
+                    self.current_scope_mut().insert(parameter.name, CompactBinding::new(ty, false));
+                }
+            }
             self.stream_items.push(item);
-            self.check_compact_block(block);
+            self.check_compact_block_in_current_scope(block);
             self.mark_tail_position(block, !matches!(stream.kind, crate::syntax::node::StreamStageKind::Each | crate::syntax::node::StreamStageKind::Tee));
             self.stream_items.pop();
             self.pop_scope();

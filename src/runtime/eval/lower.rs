@@ -6257,7 +6257,8 @@ impl CompactLowerConstructProbe<'_, '_> {
                         ));
                     }
                 }
-                let binding_ty = self.lower_binding_checked_type(ty, value, slots);
+                let binding_ty = self.declarations.local_binding_types.get(&self.program.arena.stmt(id).span).cloned()
+                    .or_else(|| self.lower_binding_checked_type(ty, value, slots));
                 if let Some(ty) = ty
                     && lowered_arena_type(&self.program.arena, ty, self.declarations).is_none()
                     && !matches!(binding_ty, Some(ref ty) if !matches!(ty, Type::Unknown | Type::Invalid))

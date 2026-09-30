@@ -4639,3 +4639,43 @@ fn inferred_require_formatting_round_trip_and_comments_preserve_the_operation() 
     assert_parse_check_standalone("formatted inferred require", &formatted.formatted);
     assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
 }
+
+#[test]
+fn local_inference_annotation_fix_preserves_all_checked_expression_types_and_converges() {
+    for source in [
+        "proc gather() -> List[Path] {\n  # preserve initializer evidence\n  var entries: List[Path] = []\n  for destination in [p\"one\"] {\n    entries += [destination]\n  }\n\n  entries\n}\n",
+        "proc choose() -> Path? {\n  var selected: Path? = null\n  for destination in [p\"one\"] {\n    selected = destination\n  }\n\n  selected\n}\n",
+        "pure size(items: List[Path]) -> Int { items.len() }\nproc count() -> Int { let entries: List[Path] = []; size(entries) }\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let output = Linter::lint(&parsed.arena, source, LintOptions::default());
+        let diagnostic = output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")).expect(source);
+        let hint = diagnostic.fix_hints.first().expect("proved local annotation deletion");
+        let mut fixed = source.to_owned();
+        fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap_or(""));
+        if source.contains("# preserve initializer evidence") { assert!(fixed.contains("# preserve initializer evidence")); }
+        assert_parse_check_standalone("local annotation inference", &fixed);
+        let parsed = parse_lint_source(&fixed);
+        assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{fixed}");
+        let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
+        assert_parse_check_standalone("formatted local inference", &formatted.formatted);
+        assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
+    }
+}
+
+#[test]
+fn local_inference_annotation_fix_requires_identical_material_contract_and_preserves_comments() {
+    for source in [
+        "proc inspect() -> Unit { let entries: List[Path] = []; print entries.len() }\n",
+        "proc choose() -> Unit { var selected: Path? = null; print selected }\n",
+        "proc choose() -> Any { var selected: Any = null; selected = 12; selected }\n",
+        "proc gather() -> List[UInt] { var entries: List[UInt] = []; entries += [12]; entries }\n",
+        "proc counts() -> Map[Int] { let entries: Map[Int] = map.empty(); entries }\n",
+        "let entries: List[Path] = []\nprint entries.len()\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+        let output = Linter::lint(&parsed.arena, source, LintOptions::default());
+        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation") && !diagnostic.fix_hints.is_empty()), "{source}: {:?}", output.diagnostics);
+    }
+}

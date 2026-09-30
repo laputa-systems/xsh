@@ -8239,6 +8239,21 @@ run true
     }
 
     #[test]
+    fn empty_map_fold_inference_publishes_concrete_accumulator_types() {
+        let source = "let counts = [\"one\", \"two\", \"one\"] |> fold(map.empty()) { |acc, item| acc.set(item, (acc.get(item) ?? 0) + 1) }\nprint ${counts.get(\"one\") ?? 0}\n";
+        let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "full: {:?}", checked.diagnostics);
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        assert!(declarations.diagnostics.is_empty(), "decl: {:?}", declarations.diagnostics);
+        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        assert!(bodies.diagnostics.is_empty(), "compact: {:?}", bodies.diagnostics);
+        assert!(bodies.expr_types.values().all(|ty| !ty.contains_inference()));
+        let _ = fixture("empty-map-fold.xsh", source);
+    }
+
+    #[test]
     fn local_collection_inference_publishes_concrete_indexed_call_and_slot_types() {
         let source = include_str!("../../../../tests/fixtures/frontend-indexed/local-inference.xsh");
         let parsed = crate::syntax::parser::Parser::parse_source_arena_only(crate::source::SourceId::new(0), source);

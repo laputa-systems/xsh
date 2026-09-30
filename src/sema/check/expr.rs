@@ -1325,7 +1325,7 @@ impl Checker {
                 let right_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(right), Some(&value_ty), None);
                 if let Some(scopes) = saved_scopes { self.scopes = scopes; }
                 self.expect_type(&value_ty, &right_ty, right_span);
-                value_ty
+                self.type_constraints.resolve(&value_ty).unwrap_or(Type::Invalid)
             }
             BinaryOp::Or => {
                 let left_ty = self.check_expr_arena(arena, source, left, None);

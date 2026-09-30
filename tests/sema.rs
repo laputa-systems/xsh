@@ -3603,11 +3603,12 @@ fn private_pure_inference_requires_annotations_for_recursive_and_contextual_retu
         "export pure value() { 1 }\n",
     ] { assert!(has_code(&check(source), "check.required-return"), "{source}"); }
     for source in [
-        "pure value() { [] }\n", "pure value() { map.empty() }\n",
+        "pure value() { [] }\n",
         "pure value(input: Any) { input }\n",
         "pure value(flag: Bool) { if flag { Ok(1) } else { 1 } }\n",
         "pure value(flag: Bool) { if flag { return 1 }; let unused = 2 }\n",
     ] { assert!(has_code(&check(source), "check.infer-return"), "{source}"); }
+    assert!(has_code(&check("pure value() { map.empty() }\n"), "check.local-inference"));
     assert!(has_code(&check("pure parsed(text: Str) { text.parse_int()? }\n"), "check.try-context"));
 }
 

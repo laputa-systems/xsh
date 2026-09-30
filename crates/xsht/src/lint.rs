@@ -813,7 +813,7 @@ impl<'a> Linter<'a> {
                 self.lint_empty_map_initializer(ty, &initializer);
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
-                    self.lint_needless_annotation(target, false, type_expr, &initializer, exported);
+                    self.lint_needless_annotation(target, false, type_expr, &initializer, exported, stmt.span);
                 }
                 self.lint_expr_or_run(&initializer);
                 let absence_lookup = match initializer { ArenaExprOrRun::Expr(value) => self.proven_absence_lookup(value), _ => false };
@@ -834,7 +834,7 @@ impl<'a> Linter<'a> {
                 self.lint_empty_map_initializer(ty, &initializer);
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
-                    self.lint_needless_annotation(target, true, type_expr, &initializer, exported);
+                    self.lint_needless_annotation(target, true, type_expr, &initializer, exported, stmt.span);
                 }
                 self.lint_expr_or_run(&initializer);
                 self.define_binding_target(target, stmt.span, true);
@@ -1697,7 +1697,9 @@ impl<'a> Linter<'a> {
         ty: TypeExprId,
         initializer: &ArenaExprOrRun,
         exported: bool,
+        binding_span: Span,
     ) {
+        if self.lint_solved_local_annotation(target, mutable, ty, initializer, exported, binding_span) { return; }
         if mutable
             && let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind
             && self.assigned_names.contains(&name)
@@ -1749,6 +1751,58 @@ impl<'a> Linter<'a> {
                     "remove needless annotation",
                 )),
         );
+    }
+
+    fn lint_solved_local_annotation(&mut self, target: BindingTargetId, mutable: bool, annotation: TypeExprId, initializer: &ArenaExprOrRun, exported: bool, binding_span: Span) -> bool {
+        if exported || self.function_return_types.is_empty() || self.annotation_refs_user_type(annotation)
+            || !matches!(self.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(name) if name != "_") { return false; }
+        let ArenaExprOrRun::Expr(initializer) = *initializer else { return false; };
+        let candidate = match self.arena.expr(initializer).kind {
+            ArenaExprKind::List(items) => items.is_empty(),
+            ArenaExprKind::Null => mutable,
+            _ => false,
+        };
+        if !candidate { return false; }
+        let annotation_span = self.arena.type_expr_span(annotation);
+        let deletion = Span::new(annotation_span.source_id,
+            scan_before_colon(self.source, annotation_span.start()), scan_after_type(self.source, annotation_span.end()));
+        if deletion.start() >= deletion.end() || self.source[deletion.range()].contains('#') { return true; }
+        if !self.local_annotation_removal_preserves_contract(deletion, binding_span) { return true; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "local type is determined by consistent checked constraints")
+            .with_code("lint.needless-annotation")
+            .with_label(Label::secondary(annotation_span, "the whole local binding retains this fixed type without the annotation"))
+            .with_fix_hint(FixHint::deletion(deletion, "remove the redundant local annotation")));
+        true
+    }
+
+    fn local_annotation_removal_preserves_contract(&self, deletion: Span, binding: Span) -> bool {
+        let old_parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(deletion.source_id, self.source);
+        if !old_parsed.diagnostics.is_empty() { return false; }
+        let old_checked = xsh::frontend::check::Checker::check_arena(&old_parsed.arena, self.source);
+        if old_checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error) { return false; }
+        let old = old_parsed.arena.symbol_owner().with_current(|| {
+            let shape = old_checked.local_binding_types.iter().find(|(span, _)| span.start() == binding.start())
+                .map(|(_, ty)| checked_return_type_shape(ty))?;
+            let facts = old_checked.expr_types.iter().filter(|(span, _)| span.source_id == deletion.source_id)
+                .map(|(span, ty)| ((shift_after_deletion(span.start(), deletion), shift_after_deletion(span.end(), deletion)), checked_return_type_shape(ty)))
+                .collect::<BTreeMap<_, _>>();
+            Some((shape, facts))
+        });
+        let Some((old_shape, old_facts)) = old else { return false; };
+        let mut rewritten = self.source.to_string();
+        rewritten.replace_range(deletion.range(), "");
+        let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(deletion.source_id, &rewritten);
+        if !parsed.diagnostics.is_empty() { return false; }
+        let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, &rewritten);
+        if checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error) { return false; }
+        parsed.arena.symbol_owner().with_current(|| {
+            let shape = checked.local_binding_types.iter().find(|(span, _)| span.start() == binding.start())
+                .map(|(_, ty)| checked_return_type_shape(ty));
+            let facts = checked.expr_types.iter().filter(|(span, _)| span.source_id == deletion.source_id)
+                .map(|(span, ty)| ((span.start(), span.end()), checked_return_type_shape(ty)))
+                .collect::<BTreeMap<_, _>>();
+            shape.as_ref() == Some(&old_shape) && facts == old_facts
+        })
     }
 
     fn annotation_is_needless(&self, annotation: &Type, init: &ArenaExpr, exported: bool) -> bool {
@@ -7775,6 +7829,10 @@ fn scan_before_arrow(source: &str, ty_start: usize) -> usize {
         }
     }
     i
+}
+
+fn shift_after_deletion(offset: usize, deletion: Span) -> usize {
+    if offset >= deletion.end() { offset - deletion.range().len() } else { offset }
 }
 
 fn scan_before_colon(source: &str, ty_start: usize) -> usize {
