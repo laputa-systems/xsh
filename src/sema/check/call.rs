@@ -185,27 +185,18 @@ impl Checker {
         callee: ExprId,
         args_range: ArenaRange,
         span: Span,
+        expected_context: Option<&Type>,
     ) -> Type {
         let callee_kind = arena.arena.expr(callee).kind;
         let args = arena.arena.call_args(args_range);
         if args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })) {
-            return self.check_spread_call_arena(arena, source, callee, args_range, span);
+            return self.check_spread_call_arena(arena, source, callee, args_range, span, expected_context);
         }
 
         if let Some(definition) = self.record_constructors.resolve_call(
             &arena.arena, callee, self.current_namespace,
         ) {
-            let expected = match callee_kind {
-                ArenaExprKind::Ident(name) => self.type_from_name(name, span),
-                ArenaExprKind::Field { base, name } => {
-                    let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind else {
-                        unreachable!("static constructor receiver is a namespace");
-                    };
-                    self.type_from_qualified_name(namespace, name, span)
-                }
-                _ => unreachable!("constructor resolution accepts static names"),
-            };
-            return self.check_record_constructor_arena(arena, source, definition, args, expected, span);
+            return self.check_inferred_record_constructor_arena(arena, source, callee, definition, args, expected_context, span);
         }
 
         if let ArenaExprKind::Ident(name) = callee_kind {
@@ -247,7 +238,7 @@ impl Checker {
                 self.record_callee_propagation(&sig.effects, &sig.return_ty, span);
                 return sig.return_ty;
             }
-            return self.check_constructor_call_arena(arena, source, &name.as_str(), args, span);
+            return self.check_constructor_call_arena(arena, source, &name.as_str(), args, span, expected_context);
         }
 
         if let ArenaExprKind::Field { base, name } = callee_kind {
@@ -272,7 +263,7 @@ impl Checker {
             }
             if let ArenaExprKind::Ident(module) = base_kind {
                 if module.as_str() == "error" && name.as_str() == "fail" {
-                    let params = [super::FunctionParamSig { name: Name::intern("message"), ty: Type::Str, defaulted: false, rest: false }];
+                    let params = [super::FunctionParamSig { name: Name::intern("message"), ty: Type::Str, schema_expectation: None, defaulted: false, rest: false }];
                     self.check_function_arg_list_arena(arena, source, args, &params, span);
                     return Type::Result(Box::new(Type::Unit), Box::new(Type::Error));
                 }
@@ -289,6 +280,7 @@ impl Checker {
                         &qualified_tag.as_str(),
                         args,
                         span,
+                        expected_context,
                     );
                 }
                 let qualified = QualifiedName::new(module, name);
@@ -513,14 +505,14 @@ impl Checker {
         span: Span,
     ) {
         let params = params.iter().map(|param| super::FunctionParamSig {
-            name: param.name, ty: param.ty.clone(), defaulted: param.defaulted, rest: param.rest,
+            name: param.name, ty: param.ty.clone(), schema_expectation: None, defaulted: param.defaulted, rest: param.rest,
         }).collect::<Vec<_>>();
         self.check_function_arg_list_arena(arena, source, args, &params, span);
     }
 
     fn check_spread_call_arena(
         &mut self, arena: &ArenaProgram, source: &str, callee: ExprId,
-        args_range: ArenaRange, span: Span,
+        args_range: ArenaRange, span: Span, expected_context: Option<&Type>,
     ) -> Type {
         use crate::sema::arguments::{ArgumentValueSource, expand_named_arguments};
         use crate::syntax::arena::ArenaCallArgInput;
@@ -589,9 +581,47 @@ impl Checker {
             } else { ArenaCallArgInput::Positional(value) });
         }
         let args = temporary.arena.append_call_arguments(&inputs);
-        let result = self.check_call_arena(&temporary, source, callee, args, span);
+        let result = self.check_call_arena(&temporary, source, callee, args, span, expected_context);
         for id in projections { self.argument_projection_types.remove(&id); self.argument_projection_sources.remove(&id); }
         result
+    }
+
+    fn check_inferred_record_constructor_arena(
+        &mut self, arena: &ArenaProgram, source: &str, callee: ExprId,
+        record_definition: crate::syntax::arena::TypeDefId, args: &[ArenaCallArg],
+        expected_context: Option<&Type>, span: Span,
+    ) -> Type {
+        let inference = match self.record_constructors.begin_constructor_inference(
+            &arena.arena, callee, self.current_namespace, span, expected_context,
+            self.expected_schema.as_ref(), &mut self.type_constraints,
+        ) {
+            Ok(inference) => inference,
+            Err(error) => { self.error(span, &error.message, error.code); return Type::Invalid; }
+        };
+        self.constructor_group_depth += 1;
+        let actual = self.check_record_constructor_arena(arena, source, record_definition, args, inference.ty, Some(&inference.expectation), span);
+        self.pending_record_constructors.push((span, inference.instance, actual.clone()));
+        self.constructor_group_depth -= 1;
+        if self.constructor_group_depth != 0 { return actual; }
+
+        // Nested occurrences can share variables with their surrounding field
+        // expectations. Publish only after every supplied field contributed.
+        let pending = std::mem::take(&mut self.pending_record_constructors);
+        for (call_span, instance, _) in pending {
+            match self.record_constructors.finish_constructor_inference(&arena.arena, &instance, &self.type_constraints) {
+                Ok(fact) => {
+                    self.expr_types.insert(call_span, fact.ty.clone());
+                    self.record_constructor_instances.insert(call_span, fact);
+                }
+                Err(error) => self.error(call_span, &error.message, error.code),
+            }
+        }
+        for ty in self.expr_types.values_mut() {
+            if ty.contains_inference() {
+                *ty = self.type_constraints.resolve(ty).ok().filter(|resolved| !resolved.contains_inference()).unwrap_or(Type::Invalid);
+            }
+        }
+        self.record_constructor_instances.get(&span).map_or(Type::Invalid, |fact| fact.ty.clone())
     }
 
     fn check_record_constructor_arena(
@@ -601,6 +631,7 @@ impl Checker {
         definition: crate::syntax::arena::TypeDefId,
         args: &[ArenaCallArg],
         expected: Type,
+        schema: Option<&crate::sema::constants::SchemaExpectation>,
         span: Span,
     ) -> Type {
         let Type::Record(fields) = &expected else { return Type::Invalid; };
@@ -622,7 +653,10 @@ impl Checker {
                 self.error(call_arg_span_arena(arena, &arg.kind),
                     "unknown constructor field", "check.record-constructor");
             }
+            let context = schema.and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Field(name))).cloned();
+            let previous = std::mem::replace(&mut self.expected_schema, context);
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, field_type);
+            self.expected_schema = previous;
             if let Some(field_type) = field_type {
                 self.expect_type(field_type, &actual, call_arg_span_arena(arena, &arg.kind));
             }
@@ -643,6 +677,7 @@ impl Checker {
         name: &str,
         args: &[ArenaCallArg],
         span: Span,
+        expected_context: Option<&Type>,
     ) -> Type {
         if let Some(info) = self.tag_variants.get(&Name::intern(name)).cloned() {
             if args.len() != info.field_count {
@@ -664,15 +699,18 @@ impl Checker {
         }
         match name {
             "Ok" => {
-                let ty = args.first().map_or(Type::Unit, |arg| {
-                    self.check_call_arg_arena(arena, source, &arg.kind, None)
-                });
+                let expected = expected_context.and_then(Type::result_ok);
+                let schema = self.expected_schema.as_ref().and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Success)).cloned();
+                let previous = std::mem::replace(&mut self.expected_schema, schema);
+                let ty = args.first().map_or(Type::Unit, |arg| self.check_call_arg_arena(arena, source, &arg.kind, expected));
+                self.expected_schema = previous;
                 Type::Result(Box::new(ty), Box::new(Type::Error))
             }
             "Err" => {
-                let err = args.first().map_or(Type::Error, |arg| {
-                    self.check_call_arg_arena(arena, source, &arg.kind, None)
-                });
+                let expected = match expected_context { Some(Type::Result(_, error)) => Some(error.as_ref()), _ => None };
+                let previous = std::mem::replace(&mut self.expected_schema, None);
+                let err = args.first().map_or(Type::Error, |arg| self.check_call_arg_arena(arena, source, &arg.kind, expected));
+                self.expected_schema = previous;
                 Type::Result(Box::new(Type::Unknown), Box::new(err))
             }
             "Error" => {

@@ -975,10 +975,22 @@ contracts are not supported.
 
 Use `let value: Observation[Int] = {...}` for a direct application or the
 existing `CountObservation(...)` constructor for a concrete named alias.
-Expression-level generic constructor calls are not supported. Defaults on a
-parameterized declaration must work for every substitution: `null` for `T?`
-and `[]` for `List[T]` are valid; `1` for `T` is not. Concrete aliases retain
-schema defaults and validation, including `.require(CountObservation)`.
+`Observation(value: 12, samples: [])` infers `Int` from supplied fields. Each
+constructor occurrence has fresh monomorphic parameters; repeated evidence
+must agree without numeric widening or a guessed `Any`. Non-null values for
+`T?` constrain `T`; null and empty containers do not select it. A concrete
+annotation, parameter slot, or return contract can supply the instance,
+including parameters absent from fields. Nested constructors share their
+surrounding field expectations until all fields have contributed. An unresolved
+parameter requires an annotation or concrete field evidence.
+
+Named spreads, puns, defaults, and field evaluation order retain ordinary
+constructor semantics. Inference does not validate untyped external data or
+fill missing fields during `.require`. Expression-level type argument syntax
+is not supported. Defaults on a parameterized declaration must work for every
+substitution: `null` for `T?` and `[]` for `List[T]` are valid; `1` for `T` is
+not. Concrete aliases retain schema defaults and validation, including
+`.require(CountObservation)`.
 
 Schema field defaults are bounded immutable constants: `null`, `Bool`, `Int`,
 `Float`, `Duration`, `Str`, `Bytes`, and `Path` literals, signed numeric literals,

@@ -12,7 +12,7 @@ pub mod check {
         CompactBodyProbeOutput, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo, StatementPosition,
         ErrorFamilyInfo, ErrorVariantInfo, TagVariantInfo,
     };
-    pub use crate::sema::constants::{LiteralConstant, PreparedConstants, RecordConstructors, SchemaTypeError};
+    pub use crate::sema::constants::{LiteralConstant, PreparedConstants, RecordConstructors, SchemaTypeError, SchemaInstance, SchemaExpectation, SchemaComponent, CheckedRecordConstructor};
     pub use crate::sema::records::record_schemas;
     pub use crate::sema::types::{CallableParamType, CallableType, ModuleExportType, Type};
 }

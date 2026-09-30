@@ -81,6 +81,7 @@ pub struct CheckOutput {
     pub diagnostics: Vec<Diagnostic>,
     pub annotation_facts: Vec<AnnotationFact>,
     pub function_return_types: BTreeMap<Span, Type>,
+    pub record_constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
     pub reveal_types: Vec<Diagnostic>,
     pub expr_types: BTreeMap<Span, Type>,
     pub statement_positions: BTreeMap<Span, StatementPosition>,
@@ -165,6 +166,7 @@ pub(super) struct FunctionSig {
 pub(super) struct FunctionParamSig {
     name: Name,
     ty: Type,
+    schema_expectation: Option<super::constants::SchemaExpectation>,
     defaulted: bool,
     rest: bool,
 }
@@ -275,6 +277,11 @@ pub struct Checker {
     argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
     argument_projection_sources: FxHashMap<crate::syntax::arena::ExprId, crate::syntax::arena::ExprId>,
     record_constructors: RecordConstructors,
+    expected_schema: Option<super::constants::SchemaExpectation>,
+    return_schema: Option<super::constants::SchemaExpectation>,
+    record_constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
+    constructor_group_depth: usize,
+    pending_record_constructors: Vec<(Span, super::constants::SchemaInstance, Type)>,
     prepared_constants: super::constants::PreparedConstants,
     wire_enums: crate::sema::wire_enums::PreparedWireEnums,
     current_namespace: Option<Name>,
@@ -382,6 +389,7 @@ impl Checker {
                 diagnostics: checker.diagnostics,
                 annotation_facts: checker.annotation_facts,
                 function_return_types: checker.function_return_types,
+                record_constructor_instances: checker.record_constructor_instances,
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
                 statement_positions: checker.statement_positions,
@@ -468,6 +476,7 @@ impl Checker {
                 diagnostics: checker.diagnostics,
                 annotation_facts: checker.annotation_facts,
                 function_return_types: checker.function_return_types,
+                record_constructor_instances: checker.record_constructor_instances,
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
                 statement_positions: checker.statement_positions,
@@ -493,6 +502,11 @@ impl Checker {
             argument_projection_types: FxHashMap::default(),
             argument_projection_sources: FxHashMap::default(),
             record_constructors: RecordConstructors::default(),
+            expected_schema: None,
+            return_schema: None,
+            record_constructor_instances: BTreeMap::new(),
+            constructor_group_depth: 0,
+            pending_record_constructors: Vec::new(),
             prepared_constants: super::constants::PreparedConstants::default(),
             wire_enums: crate::sema::wire_enums::PreparedWireEnums::default(),
             current_namespace: None,
@@ -602,6 +616,9 @@ impl Checker {
         self.prepared_constants = super::constants::PreparedConstants::collect(program, &self.record_constructors);
         self.diagnostics.extend(self.prepared_constants.diagnostics.clone());
         self.record_constructors.apply_prepared_defaults(program, &self.prepared_constants);
+        for (expression, fact) in &self.prepared_constants.record_constructor_instances {
+            self.record_constructor_instances.insert(program.arena.expr(*expression).span, fact.clone());
+        }
         let (wire_enums, wire_diagnostics) = crate::sema::wire_enums::PreparedWireEnums::prepare(program, |expr|
             self.prepared_constants.analyze_expression(&program.arena, expr));
         self.wire_enums = wire_enums;

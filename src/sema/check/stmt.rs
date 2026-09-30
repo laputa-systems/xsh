@@ -1139,6 +1139,8 @@ impl Checker {
         let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
         let previous_boundary_errors = std::mem::take(&mut self.error_boundary_errors);
         let previous_return = self.current_return.clone();
+        let previous_return_schema = self.return_schema.clone();
+        let previous_expected_schema = self.expected_schema.clone();
         let previous_pure = self.in_pure;
         let previous_effects = self.current_effects.clone();
         let previous_effect_owner = self.effect_owner;
@@ -1146,6 +1148,8 @@ impl Checker {
         let inferring = pure && def.return_ty_defaulted && self.inferred_returns.is_some();
         let return_ty = if inferring { Type::Unknown } else { self.type_from_arena(arena, def.return_ty) };
         if !inferring { self.function_return_types.insert(body_span, return_ty.clone()); }
+        self.return_schema = (!inferring).then(|| self.record_constructors.annotation_expectation(&arena.arena, def.return_ty, self.current_namespace).ok()).flatten();
+        self.expected_schema = self.return_schema.clone();
         self.current_return = Some(return_ty.clone());
         self.in_pure = pure;
         self.current_effects = if pure {
@@ -1238,6 +1242,8 @@ impl Checker {
         }
         self.pop_scope();
         self.current_return = previous_return;
+        self.return_schema = previous_return_schema;
+        self.expected_schema = previous_expected_schema;
         self.in_pure = previous_pure;
         self.current_effects = previous_effects;
         self.effect_owner = previous_effect_owner;
@@ -1462,7 +1468,8 @@ impl Checker {
         span: Span,
     ) {
         let expected = ty.map(|ty_id| self.type_from_arena(arena, ty_id));
-        let actual = self.check_expr_or_run_arena(arena, source, initializer, expected.as_ref());
+        let schema = ty.and_then(|ty| self.record_constructors.annotation_expectation(&arena.arena, ty, self.current_namespace).ok());
+        let actual = self.check_expr_with_schema_arena(arena, source, initializer, expected.as_ref(), schema);
         if let Some(expected) = &expected
             && !contextual_empty_map_initializer_arena(arena, initializer, expected, &actual)
         {
@@ -1663,7 +1670,14 @@ impl Checker {
             _ => None,
         };
         let actual = value
-            .map(|value| self.check_expr_or_run_arena(arena, source, value, context.as_ref()))
+            .map(|value| {
+                let schema = self.return_schema.as_ref().map(|schema| {
+                    if matches!(expected, Type::Result(_, _)) && !matches!(context, Some(Type::Result(_, _))) {
+                        schema.children.get(&crate::sema::constants::SchemaComponent::Success).cloned().unwrap_or_default()
+                    } else { schema.clone() }
+                });
+                self.check_expr_with_schema_arena(arena, source, value, context.as_ref(), schema)
+            })
             .unwrap_or(Type::Unit);
         if self.inference_reachable && let Some(returns) = &mut self.inferred_returns {
             returns.push((actual.clone(), span));
@@ -2052,7 +2066,12 @@ impl Checker {
             }
             ArenaStmtKind::Expr(expr_id) => {
                 let ctx = tail_expr_context_arena(arena, expr_id, expected);
-                self.check_expr_arena(arena, source, expr_id, ctx.as_ref())
+                let schema = self.expected_schema.as_ref().map(|schema| {
+                    if matches!(expected, Some(Type::Result(_, _))) && !matches!(ctx, Some(Type::Result(_, _))) {
+                        schema.children.get(&crate::sema::constants::SchemaComponent::Success).cloned().unwrap_or_default()
+                    } else { schema.clone() }
+                });
+                self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), ctx.as_ref(), schema)
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 self.check_tail_bare_ident_arena(arena, source, name, stmt.span)
@@ -2252,31 +2271,11 @@ fn tail_expr_context_arena(
     if matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::Capture(_)) {
         return expected.cloned();
     }
-    fn contains_map(ty: &Type) -> bool {
-        match ty {
-            Type::Map(_, _) => true,
-            Type::List(item) | Type::Optional(item) => contains_map(item),
-            Type::Record(fields) => fields.values().any(contains_map),
-            Type::Result(ok, _) => contains_map(ok),
-            _ => false,
-        }
-    }
-    if let Some(expected) = expected && contains_map(expected) {
-        let explicit_result = matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::Call { callee, .. } if matches!(arena.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Ok" || name == "Err"));
-        return Some(if explicit_result { expected.clone() } else { expected.result_ok().unwrap_or(expected).clone() });
-    }
-    let is_empty_list = matches!(
-        arena.arena.expr(expr_id).kind,
-        ArenaExprKind::List(range) if range.is_empty()
-    );
-    if !is_empty_list {
-        return None;
-    }
-    match expected {
-        Some(Type::List(_)) => expected.cloned(),
-        Some(Type::Result(ok, _)) if matches!(ok.as_ref(), Type::List(_)) => Some(*ok.clone()),
-        _ => None,
-    }
+    let expected = expected?;
+    let explicit_result = matches!(arena.arena.expr(expr_id).kind,
+        ArenaExprKind::Call { callee, .. } if matches!(arena.arena.expr(callee).kind,
+            ArenaExprKind::Ident(name) if name == "Ok" || name == "Err"));
+    Some(if explicit_result { expected.clone() } else { expected.result_ok().unwrap_or(expected).clone() })
 }
 
 fn record_target_requires_schema_check(arena: &ArenaProgram, target: BindingTargetId, ty: &Type) -> bool {

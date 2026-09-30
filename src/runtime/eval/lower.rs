@@ -4777,7 +4777,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             }
             ArenaExprKind::Call { callee, args } => {
                 if let Some(_definition) = self.declarations.record_constructors.resolve_call(&self.program.arena, callee, self.current_namespace) {
-                    return Some(self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace)?);
+                    return Some(self.declarations.record_constructor_types.get(&callee).cloned().or_else(|| self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace))?);
                 }
                 let args_vec = self.program.arena.call_args(args);
                 if let ArenaExprKind::Ident(name) = self.program.arena.expr(callee).kind {
@@ -5179,7 +5179,7 @@ impl CompactLowerConstructProbe<'_, '_> {
     ) -> Option<Type> {
         let args_vec = self.program.arena.call_args(args);
         if let Some(_definition) = self.declarations.record_constructors.resolve_call(&self.program.arena, callee, self.current_namespace) {
-            return Some(self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace)?);
+            return Some(self.declarations.record_constructor_types.get(&callee).cloned().or_else(|| self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace))?);
         }
         if let ArenaExprKind::Ident(name) = self.program.arena.expr(callee).kind
             && name == "Path"
@@ -9492,7 +9492,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             &self.program.arena, callee, self.current_namespace,
         ) {
             let defaults = self.declarations.record_constructors.defaults(definition).cloned().unwrap_or_default();
-            let schema = self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace)?;
+            let schema = self.declarations.record_constructor_types.get(&callee).cloned().or_else(|| self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace))?;
             let mut supplied = FxHashSet::default();
             let mut fields = Vec::new();
             for arg in &args_vec {

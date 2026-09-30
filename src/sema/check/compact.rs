@@ -20,6 +20,7 @@ use crate::syntax::node::{Effect, EnvGetKind};
 #[derive(Clone, Debug, Default)]
 pub struct CompactDeclOutput {
     pub record_constructors: super::RecordConstructors,
+    pub record_constructor_types: FxHashMap<ExprId, Type>,
     pub prepared_constants: crate::sema::constants::PreparedConstants,
     pub wire_enums: crate::sema::wire_enums::PreparedWireEnums,
     pub diagnostics: Vec<Diagnostic>,
@@ -103,7 +104,8 @@ pub struct CompactBodyProbeOutput {
 impl Checker {
     pub fn check_compact_declarations(program: &ArenaProgram) -> CompactDeclOutput {
         program.symbol_owner().with_current(|| {
-            let needs_checked_facts = program.arena.function_defs.iter().any(|def| def.return_ty_defaulted
+            let has_generic_schemas = program.arena.type_defs.iter().any(|definition| !definition.type_parameters.is_empty());
+            let needs_checked_facts = has_generic_schemas || program.arena.function_defs.iter().any(|def| def.return_ty_defaulted
                 && program.arena.type_expr_tags[def.return_ty.index()] == ArenaTypeExprTag::Named)
                 || program.arena.stmt_tags.iter().any(|tag| *tag == crate::syntax::arena::ArenaStmtTag::ProcDef);
             let inferred = needs_checked_facts.then(|| Checker::check_arena(program, ""));
@@ -112,6 +114,11 @@ impl Checker {
                 names: FxHashSet::default(),
                 output: CompactDeclOutput {
                     function_effect_facts: inferred.as_ref().map(|checked| checked.function_effect_facts.clone()).unwrap_or_default(),
+                    record_constructor_types: (0..program.arena.expr_tags.len()).filter_map(|index| {
+                        let expression = program.arena.expr(ExprId::from_index(index));
+                        let ArenaExprKind::Call { callee, .. } = expression.kind else { return None; };
+                        inferred.as_ref()?.record_constructor_instances.get(&expression.span).map(|fact| (callee, fact.ty.clone()))
+                    }).collect(),
                     function_return_types: inferred.as_ref().map(|checked| checked.function_return_types.clone()).unwrap_or_default(),
                     ..CompactDeclOutput::default()
                 },
@@ -130,7 +137,8 @@ impl Checker {
             output.diagnostics = collector.diagnostics;
             if let Some(checked) = inferred {
                 output.diagnostics.extend(checked.diagnostics.into_iter().filter(|diagnostic|
-                    matches!(diagnostic.code.as_deref(), Some("check.infer-return" | "check.required-return"))));
+                    has_generic_schemas && matches!(diagnostic.code.as_deref(), Some("check.constructor-inference" | "check.record-constructor" | "check.type-mismatch"))
+                        || matches!(diagnostic.code.as_deref(), Some("check.infer-return" | "check.required-return"))));
             }
             output
         })
@@ -1565,7 +1573,7 @@ impl CompactBodyProbe<'_> {
         if let Some(_definition) = self.declarations.record_constructors.resolve_call(
             &self.program.arena, callee, self.current_namespace,
         ) {
-            let schema = self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace).unwrap_or(Type::Invalid);
+            let schema = self.declarations.record_constructor_types.get(&callee).cloned().or_else(|| self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace)).unwrap_or(Type::Invalid);
             if let Type::Record(fields) = &schema {
                 for arg in self.program.arena.call_args(args).to_vec() {
                     if let crate::syntax::arena::ArenaCallArgKind::Named { name, value, .. } = arg.kind && let Some(expected) = fields.get(&name) { self.apply_compact_expected(value, expected); }

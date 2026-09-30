@@ -139,7 +139,28 @@ impl Checker {
         }
     }
 
+    pub(super) fn check_expr_with_schema_arena(
+        &mut self, arena: &ArenaProgram, source: &str, value: ArenaExprOrRun,
+        expected: Option<&Type>, schema: Option<crate::sema::constants::SchemaExpectation>,
+    ) -> Type {
+        let previous = std::mem::replace(&mut self.expected_schema, schema);
+        let actual = self.check_expr_or_run_arena(arena, source, value, expected);
+        self.expected_schema = previous;
+        actual
+    }
+
     pub(super) fn check_expr_arena(
+        &mut self, arena: &ArenaProgram, source: &str, id: ExprId, expected: Option<&Type>,
+    ) -> Type {
+        let previous = self.expected_schema.clone();
+        if expected.is_none() { self.expected_schema = None; }
+        let resolved = expected.and_then(|ty| self.type_constraints.resolve(ty).ok());
+        let actual = self.check_expr_arena_inner(arena, source, id, resolved.as_ref().or(expected));
+        self.expected_schema = previous;
+        actual
+    }
+
+    fn check_expr_arena_inner(
         &mut self,
         arena: &ArenaProgram,
         source: &str,
@@ -294,7 +315,7 @@ impl Checker {
             }
             ArenaExprKind::Call { callee, args } => {
                 let may_mutate = matches!(arena.arena.expr(*callee).kind, ArenaExprKind::Ident(name) if self.lookup(name).is_some_and(|binding| binding.ty == Type::Proc));
-                let result = self.check_call_arena(arena, source, *callee, *args, expr.span);
+                let result = self.check_call_arena(arena, source, *callee, *args, expr.span, expected);
                 if may_mutate { self.invalidate_mutable_narrowings(); }
                 result
             }
@@ -388,7 +409,8 @@ impl Checker {
                     }
                 }
             } else {
-                self.check_expr_arena(arena, source, item.value, item_expected)
+                let schema = self.expected_schema.as_ref().and_then(|schema| schema.value_context().children.get(&crate::sema::constants::SchemaComponent::Item)).cloned();
+                self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(item.value), item_expected, schema)
             };
             if inferred == Type::Unknown {
                 inferred = actual;
@@ -618,7 +640,8 @@ impl Checker {
                         self.error(field_span, "unknown schema field", "check.schema-field");
                     }
                     let field_expected = expected_fields.and_then(|fields| fields.get(name));
-                    let ty = self.check_expr_arena(arena, source, *value, field_expected);
+                    let schema = self.expected_schema.as_ref().and_then(|schema| schema.value_context().children.get(&crate::sema::constants::SchemaComponent::Field(*name))).cloned();
+                    let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(*value), field_expected, schema);
                     if let Some(field_expected) = field_expected {
                         let value_span = arena.arena.expr(*value).span;
                         self.expect_type(field_expected, &ty, value_span);

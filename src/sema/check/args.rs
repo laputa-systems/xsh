@@ -162,6 +162,19 @@ impl Checker {
         }
     }
 
+    fn check_parameter_arg_arena(
+        &mut self, arena: &ArenaProgram, source: &str, arg: &ArenaCallArgKind,
+        expected: &Type, parameter: &FunctionParamSig,
+    ) -> Type {
+        let schema = if parameter.rest {
+            parameter.schema_expectation.as_ref().and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Item)).cloned()
+        } else { parameter.schema_expectation.clone() };
+        let previous = std::mem::replace(&mut self.expected_schema, schema);
+        let actual = self.check_call_arg_arena(arena, source, arg, Some(expected));
+        self.expected_schema = previous;
+        actual
+    }
+
     pub(super) fn check_function_arg_list_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -188,7 +201,7 @@ impl Checker {
                         let actual = self.check_expr_arena(arena, source, value, None);
                         self.expect_type(&Type::List(Box::new(expected.clone())), &actual, call_arg_span_arena(arena, &arg.kind));
                     } else {
-                        let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(expected));
+                        let actual = self.check_parameter_arg_arena(arena, source, &arg.kind, expected, param);
                         self.expect_type(expected, &actual, call_arg_span_arena(arena, &arg.kind));
                     }
                 },
@@ -246,7 +259,7 @@ impl Checker {
                         }
                         _ => {
                             let actual =
-                                self.check_call_arg_arena(arena, source, &arg.kind, Some(&item_ty));
+                                self.check_parameter_arg_arena(arena, source, &arg.kind, &item_ty, param);
                             self.expect_type(
                                 &item_ty,
                                 &actual,
@@ -284,7 +297,9 @@ impl Checker {
                 );
             }
             let expected = can_check_following_positionals.then_some(&param.ty);
-            let actual = self.check_call_arg_arena(arena, source, &arg.kind, expected);
+            let actual = if let Some(expected) = expected {
+                self.check_parameter_arg_arena(arena, source, &arg.kind, expected, param)
+            } else { self.check_call_arg_arena(arena, source, &arg.kind, None) };
             if let Some(expected) = expected {
                 self.expect_type(expected, &actual, call_arg_span_arena(arena, &arg.kind));
             }

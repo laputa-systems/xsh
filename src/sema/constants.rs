@@ -161,6 +161,61 @@ impl SchemaTypeError {
     fn new(code: &'static str, message: impl Into<String>) -> Self { Self { code, message: message.into() } }
 }
 
+/// Checked application identity is retained separately from the structural
+/// record type. Parameters absent from fields still constrain construction.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SchemaInstance {
+    pub definition: TypeDefId,
+    pub arguments: Vec<Type>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum SchemaComponent {
+    Field(Name),
+    Item,
+    Value,
+    Key,
+    Optional,
+    Success,
+    Error,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CheckedRecordConstructor {
+    pub instance: SchemaInstance,
+    pub ty: Type,
+}
+
+#[derive(Clone, Debug)]
+pub struct RecordConstructorInference {
+    pub instance: SchemaInstance,
+    pub ty: Type,
+    pub expectation: SchemaExpectation,
+}
+
+/// Application provenance follows the same field and container boundaries as
+/// an independently checked annotation, including aliases and private owners.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SchemaExpectation {
+    pub instances: Vec<SchemaInstance>,
+    pub children: BTreeMap<SchemaComponent, SchemaExpectation>,
+}
+
+impl SchemaExpectation {
+    pub fn merge(&mut self, concrete: &Self) {
+        let mut instances = concrete.instances.clone();
+        instances.extend(self.instances.iter().filter(|instance| !concrete.instances.iter().any(|other| other.definition == instance.definition)).cloned());
+        self.instances = instances;
+        for (component, context) in &concrete.children {
+            self.children.entry(*component).or_default().merge(context);
+        }
+    }
+
+    pub fn value_context(&self) -> &Self {
+        self.children.get(&SchemaComponent::Optional).map_or(self, Self::value_context)
+    }
+}
+
 /// Schema symbols are resolved in their defining lexical module. Imported
 /// aliases select an exported symbol; they never inspect a runtime record.
 #[derive(Clone, Debug, Default)]
@@ -364,19 +419,158 @@ impl RecordConstructors {
         self.instantiate(arena, id, &[], &mut Vec::new()).unwrap_or(Type::Invalid)
     }
 
-    pub fn constructor_type(&self, arena: &AstArena, callee: ExprId, namespace: Option<Name>) -> Option<Type> {
-        let id = match arena.expr(callee).kind {
-            ArenaExprKind::Ident(name) => self.definition(namespace, name)?,
+    /// Constructor spelling selects its own alias parameters, while defaults
+    /// remain owned by the underlying record declaration.
+    pub fn constructor_definition(&self, arena: &AstArena, callee: ExprId, namespace: Option<Name>) -> Option<TypeDefId> {
+        match arena.expr(callee).kind {
+            ArenaExprKind::Ident(name) => self.definition(namespace, name),
             ArenaExprKind::Field { base, name } => {
                 let ArenaExprKind::Ident(alias) = arena.expr(base).kind else { return None; };
                 let owner = Some(*self.imports.get(&(namespace, alias))?);
                 if !self.exports.contains(&(owner, name)) { return None; }
-                self.definition(owner, name)?
+                self.definition(owner, name)
             }
-            _ => return None,
-        };
-        let ty = self.instantiate(arena, id, &[], &mut Vec::new()).ok()?;
+            _ => None,
+        }
+    }
+
+    pub fn instantiate_checked(&self, arena: &AstArena, definition: TypeDefId, arguments: &[Type]) -> Result<Type, SchemaTypeError> {
+        self.instantiate(arena, definition, arguments, &mut Vec::new())
+    }
+
+    pub fn constructor_type(&self, arena: &AstArena, callee: ExprId, namespace: Option<Name>) -> Option<Type> {
+        let id = self.constructor_definition(arena, callee, namespace)?;
+        let ty = self.instantiate_checked(arena, id, &[]).ok()?;
         matches!(ty, Type::Record(_)).then_some(ty)
+    }
+
+    pub fn begin_constructor_inference(
+        &self, arena: &AstArena, callee: ExprId, namespace: Option<Name>, span: crate::source::Span,
+        expected: Option<&Type>, context: Option<&SchemaExpectation>,
+        constraints: &mut crate::sema::constraints::TypeConstraints,
+    ) -> Result<RecordConstructorInference, SchemaTypeError> {
+        let definition = self.constructor_definition(arena, callee, namespace)
+            .ok_or_else(|| SchemaTypeError::new("check.record-constructor", "unknown record constructor"))?;
+        let arguments = arena.names(arena.type_def(definition).type_parameters).map(|_| constraints.fresh(span)).collect::<Vec<_>>();
+        let ty = self.instantiate_checked(arena, definition, &arguments)?;
+        if !matches!(ty, Type::Record(_)) { return Err(SchemaTypeError::new("check.record-constructor", "constructor requires a record schema")); }
+        if let Some(instance) = context.and_then(|context| context.value_context().instances.iter().find(|instance| instance.definition == definition)) {
+            for (variable, concrete) in arguments.iter().zip(&instance.arguments) {
+                let result = if concrete.contains_inference() { constraints.constrain(variable, concrete, span) }
+                    else { constraints.constrain_annotation(variable, concrete, span) };
+                result.map_err(|conflict| SchemaTypeError::new("check.type-mismatch", format!("expected {}, found {}", conflict.expected, conflict.actual)))?;
+            }
+        }
+        if let Some(expected) = expected {
+            let expected = match expected { Type::Optional(inner) => inner.as_ref(), other => other };
+            if matches!(expected, Type::Record(_) | Type::Inference(_)) {
+                constraints.constrain(&ty, expected, span).map_err(|conflict|
+                    SchemaTypeError::new("check.type-mismatch", format!("expected {}, found {}", conflict.expected, conflict.actual)))?;
+            }
+        }
+        let mut expectation = self.instance_expectation(arena, definition, &arguments)?;
+        if let Some(context) = context { expectation.merge(context.value_context()); }
+        Ok(RecordConstructorInference { instance: SchemaInstance { definition, arguments }, ty, expectation })
+    }
+
+    pub fn finish_constructor_inference(
+        &self, arena: &AstArena, instance: &SchemaInstance,
+        constraints: &crate::sema::constraints::TypeConstraints,
+    ) -> Result<CheckedRecordConstructor, SchemaTypeError> {
+        let definition = arena.type_def(instance.definition);
+        let mut arguments = Vec::new();
+        for (parameter, variable) in arena.names(definition.type_parameters).zip(&instance.arguments) {
+            let resolved = constraints.resolve(variable).ok().filter(|ty| !ty.contains_inference()).ok_or_else(||
+                SchemaTypeError::new("check.constructor-inference", format!("constructor `{}` cannot infer parameter `{parameter}`; supply a concrete schema annotation or a non-null, non-empty field value", definition.name)))?;
+            arguments.push(resolved);
+        }
+        let ty = self.instantiate_checked(arena, instance.definition, &arguments)?;
+        Ok(CheckedRecordConstructor { instance: SchemaInstance { definition: instance.definition, arguments }, ty })
+    }
+
+    pub fn annotation_expectation(&self, arena: &AstArena, ty: TypeExprId, namespace: Option<Name>) -> Result<SchemaExpectation, SchemaTypeError> {
+        self.expectation_annotation(arena, ty, namespace, &FxHashMap::default(), &FxHashMap::default(), &mut Vec::new())
+    }
+
+    pub fn instance_expectation(&self, arena: &AstArena, definition: TypeDefId, arguments: &[Type]) -> Result<SchemaExpectation, SchemaTypeError> {
+        self.expectation_definition(arena, definition, arguments, &[], &mut Vec::new())
+    }
+
+    fn expectation_definition(&self, arena: &AstArena, id: TypeDefId, arguments: &[Type], argument_contexts: &[SchemaExpectation], active: &mut Vec<TypeDefId>) -> Result<SchemaExpectation, SchemaTypeError> {
+        // Resolution owns validity and recursion bounds; provenance never
+        // manufactures an instance from a structurally equal record shape.
+        self.instantiate_checked(arena, id, arguments)?;
+        if active.contains(&id) { return Err(SchemaTypeError::new("check.recursive-type", "recursive schema expectation")); }
+        let definition = arena.type_def(id);
+        let bindings = arena.names(definition.type_parameters).zip(arguments.iter().cloned()).collect();
+        let contexts = arena.names(definition.type_parameters).zip(argument_contexts.iter().cloned()).collect();
+        let namespace = self.namespace(id);
+        active.push(id);
+        let mut result = match definition.body {
+            ArenaTypeDefBody::RecordSchema(fields) => {
+                let mut result = SchemaExpectation::default();
+                for field in arena.schema_fields(fields) {
+                    let context = self.expectation_annotation(arena, field.ty, namespace, &bindings, &contexts, active)?;
+                    result.children.insert(SchemaComponent::Field(field.name), context);
+                }
+                result
+            }
+            ArenaTypeDefBody::Alias(ty) => self.expectation_annotation(arena, ty, namespace, &bindings, &contexts, active)?,
+            _ => SchemaExpectation::default(),
+        };
+        active.pop();
+        if matches!(definition.body, ArenaTypeDefBody::RecordSchema(_) | ArenaTypeDefBody::Alias(_)) {
+            result.instances.insert(0, SchemaInstance { definition: id, arguments: arguments.to_vec() });
+        }
+        Ok(result)
+    }
+
+    fn expectation_annotation(&self, arena: &AstArena, ty: TypeExprId, namespace: Option<Name>, bindings: &FxHashMap<Name, Type>, contexts: &FxHashMap<Name, SchemaExpectation>, active: &mut Vec<TypeDefId>) -> Result<SchemaExpectation, SchemaTypeError> {
+        let data = arena.type_expr_data[ty.index()];
+        let inner = TypeExprId::from_index(data.lhs as usize);
+        let mut result = SchemaExpectation::default();
+        match arena.type_expr_tags[ty.index()] {
+            ArenaTypeExprTag::Named => {
+                let name = Name::from_symbol(Symbol::from_raw(data.lhs));
+                if bindings.contains_key(&name) { return Ok(contexts.get(&name).cloned().unwrap_or_default()); }
+                if let Some(id) = self.definition(namespace, name) {
+                    return self.expectation_definition(arena, id, &[], &[], active);
+                }
+            }
+            ArenaTypeExprTag::Qualified => {
+                if let Ok(id) = self.application_definition(arena, ty, namespace) {
+                    return self.expectation_definition(arena, id, &[], &[], active);
+                }
+            }
+            ArenaTypeExprTag::Applied => {
+                let id = self.application_definition(arena, inner, namespace)?;
+                let arguments = arena.applied_type_arguments(ty).map(|argument|
+                    self.resolve_instance_annotation(arena, argument, namespace, bindings, &mut Vec::new())).collect::<Result<Vec<_>, _>>()?;
+                let contexts = arena.applied_type_arguments(ty).map(|argument|
+                    self.expectation_annotation(arena, argument, namespace, bindings, contexts, active)).collect::<Result<Vec<_>, _>>()?;
+                return self.expectation_definition(arena, id, &arguments, &contexts, active);
+            }
+            ArenaTypeExprTag::List | ArenaTypeExprTag::Stream => {
+                result.children.insert(SchemaComponent::Item, self.expectation_annotation(arena, inner, namespace, bindings, contexts, active)?);
+            }
+            ArenaTypeExprTag::Map => {
+                if let Some(key) = TypeExprId::from_optional_raw(data.rhs) {
+                    result.children.insert(SchemaComponent::Key, self.expectation_annotation(arena, key, namespace, bindings, contexts, active)?);
+                }
+                result.children.insert(SchemaComponent::Value, self.expectation_annotation(arena, inner, namespace, bindings, contexts, active)?);
+            }
+            ArenaTypeExprTag::Optional => {
+                result.children.insert(SchemaComponent::Optional, self.expectation_annotation(arena, inner, namespace, bindings, contexts, active)?);
+            }
+            ArenaTypeExprTag::Result => {
+                result.children.insert(SchemaComponent::Success, self.expectation_annotation(arena, inner, namespace, bindings, contexts, active)?);
+                if let Some(error) = TypeExprId::from_optional_raw(data.rhs) {
+                    result.children.insert(SchemaComponent::Error, self.expectation_annotation(arena, error, namespace, bindings, contexts, active)?);
+                }
+            }
+            ArenaTypeExprTag::Module => {}
+        }
+        Ok(result)
     }
 
     fn contains_template_parameter(ty: &Type) -> bool {
@@ -473,7 +667,13 @@ impl RecordConstructors {
                 else { let id = self.application_definition(arena, ty, namespace)?; self.instantiate(arena, id, &[], active)? }
             }
             ArenaTypeExprTag::List => Type::List(Box::new(self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?)),
-            ArenaTypeExprTag::Map => Type::Map(Box::new(TypeExprId::from_optional_raw(data.rhs).map_or(Ok(Type::Str), |key| self.resolve_instance_annotation(arena, key, namespace, bindings, active))?), Box::new(self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?)),
+            ArenaTypeExprTag::Map => {
+                let key = TypeExprId::from_optional_raw(data.rhs).map_or(Ok(Type::Str), |key| self.resolve_instance_annotation(arena, key, namespace, bindings, active))?;
+                if !key.is_map_key() && !Self::contains_template_parameter(&key) {
+                    return Err(SchemaTypeError::new("check.map-key-type", "Map keys require a scalar type: Bool, Int, UInt, Str, Bytes, Path, or Duration"));
+                }
+                Type::Map(Box::new(key), Box::new(self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?))
+            },
             ArenaTypeExprTag::Stream => Type::Stream(Box::new(self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?)),
             ArenaTypeExprTag::Optional => Type::Optional(Box::new(self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?)),
             ArenaTypeExprTag::Result => Type::Result(Box::new(self.resolve_instance_annotation(arena, inner, namespace, bindings, active)?), Box::new(TypeExprId::from_optional_raw(data.rhs).map_or(Ok(Type::Error), |error| self.resolve_instance_annotation(arena, error, namespace, bindings, active))?)),
@@ -550,6 +750,7 @@ impl LiteralConstant {
 pub struct PreparedConstants {
     pub values: FxHashMap<ExprId, LiteralConstant>,
     pub types: FxHashMap<ExprId, Type>,
+    pub record_constructor_instances: FxHashMap<ExprId, CheckedRecordConstructor>,
     pub origins: FxHashMap<ExprId, ExprId>,
     pub tail_bindings: BTreeMap<crate::source::Span, ExprId>,
     pub global_bindings: FxHashMap<(Option<Name>, Name), ExprId>,
@@ -572,6 +773,10 @@ struct ConstantPreparation<'a> {
     active: FxHashSet<StmtId>,
     prepared: PreparedConstants,
     steps: usize,
+    type_constraints: crate::sema::constraints::TypeConstraints,
+    expected_schema: Option<SchemaExpectation>,
+    constructor_group_depth: usize,
+    pending_constructors: Vec<(ExprId, SchemaInstance, LiteralConstant)>,
 }
 
 impl PreparedConstants {
@@ -591,6 +796,8 @@ impl PreparedConstants {
             scopes: (0..block_count + 1).map(|_| ConstantScope::default()).collect(),
             statement_scopes: FxHashMap::default(), module_scopes: FxHashMap::default(),
             active: FxHashSet::default(), prepared: Self::default(), steps: 0,
+            type_constraints: crate::sema::constraints::TypeConstraints::default(),
+            expected_schema: None, constructor_group_depth: 0, pending_constructors: Vec::new(),
         };
         let mut sources = FxHashMap::default();
         for module in &program.modules {
@@ -708,6 +915,7 @@ impl PreparedConstants {
                 }
             }
         }
+        preparation.prepared.types.retain(|_, ty| !ty.contains_inference());
         preparation.prepared
     }
 }
@@ -748,7 +956,8 @@ impl ConstantPreparation<'_> {
         if !self.active.insert(id) { return Err((statement.span, "constant dependency cycle".into())); }
         let scope = self.statement_scopes[&id];
         let expected = ty.map(|ty| self.constructors.resolve_type(&self.program.arena, ty, self.scopes[scope].namespace));
-        let result = self.expression(expr, scope, expected.as_ref(), depth + 1);
+        let schema = ty.and_then(|ty| self.constructors.annotation_expectation(&self.program.arena, ty, self.scopes[scope].namespace).ok());
+        let result = self.expression_with_schema(expr, scope, expected.as_ref(), schema, depth + 1);
         self.active.remove(&id);
         let value = result?;
         if expected.as_ref().is_some_and(|ty| !constant_type_allowed(ty)) {
@@ -778,7 +987,29 @@ impl ConstantPreparation<'_> {
         Err((span, "const reference must resolve to a const declaration".into()))
     }
 
+    fn expression_with_schema(&mut self, id: ExprId, scope: usize, expected: Option<&Type>, schema: Option<SchemaExpectation>, depth: usize) -> Result<LiteralConstant, (crate::source::Span, String)> {
+        let previous = std::mem::replace(&mut self.expected_schema, schema);
+        let result = self.expression(id, scope, expected, depth);
+        self.expected_schema = previous;
+        result
+    }
+
     fn expression(&mut self, id: ExprId, scope: usize, expected: Option<&Type>, depth: usize) -> Result<LiteralConstant, (crate::source::Span, String)> {
+        let group_depth = self.constructor_group_depth;
+        let pending_length = self.pending_constructors.len();
+        let previous_schema = self.expected_schema.clone();
+        if expected.is_none() { self.expected_schema = None; }
+        let resolved = expected.and_then(|ty| self.type_constraints.resolve(ty).ok());
+        let result = self.expression_inner(id, scope, resolved.as_ref().or(expected), depth);
+        self.expected_schema = previous_schema;
+        if result.is_err() {
+            self.constructor_group_depth = group_depth;
+            self.pending_constructors.truncate(pending_length);
+        }
+        result
+    }
+
+    fn expression_inner(&mut self, id: ExprId, scope: usize, expected: Option<&Type>, depth: usize) -> Result<LiteralConstant, (crate::source::Span, String)> {
         use crate::syntax::arena::ArenaCallArgKind;
         let arena = &self.program.arena;
         let expr = arena.expr(id);
@@ -931,7 +1162,10 @@ impl ConstantPreparation<'_> {
                     return Ok(LiteralConstant::Tag { family, variant, fields: Arc::new(values) });
                 }
                 let definition = self.constructors.resolve_call(arena, callee, self.scopes[scope].namespace).ok_or_else(failure)?;
-                let Some(Type::Record(field_types)) = self.constructors.constructor_type(arena, callee, self.scopes[scope].namespace) else { return Err(failure()); };
+                let inference = self.constructors.begin_constructor_inference(arena, callee, self.scopes[scope].namespace, expr.span,
+                    expected, self.expected_schema.as_ref(), &mut self.type_constraints).map_err(|error| (expr.span, error.message))?;
+                let Type::Record(field_types) = inference.ty else { return Err(failure()); };
+                self.constructor_group_depth += 1;
                 let mut values = self.constructors.defaults(definition).cloned().unwrap_or_default();
                 let owner = self.constructors.namespace(definition);
                 let default_scope = owner.and_then(|owner| self.module_scopes.get(&owner).copied()).unwrap_or(self.program.arena.blocks.len());
@@ -950,7 +1184,8 @@ impl ConstantPreparation<'_> {
                         ArenaCallArgKind::Named { name, value, .. } => {
                             let ty = field_types.get(&name).ok_or_else(failure)?;
                             if !supplied.insert(name) { return Err(failure()); }
-                            values.insert(name, self.expression(value, scope, Some(ty), depth + 1)?);
+                            let schema = inference.expectation.children.get(&SchemaComponent::Field(name)).cloned();
+                            values.insert(name, self.expression_with_schema(value, scope, Some(ty), schema, depth + 1)?);
                         }
                         ArenaCallArgKind::NamedSpread { value, .. } => {
                             let prepared = self.expression(value, scope, None, depth + 1)?;
@@ -958,9 +1193,11 @@ impl ConstantPreparation<'_> {
                             let (Type::Record(visible), LiteralConstant::Record(record)) = (visible, prepared) else { return Err(failure()); };
                             for (name, actual) in visible {
                                 let ty = field_types.get(&name).ok_or_else(failure)?;
-                                if !actual.matches_expected(ty) || !supplied.insert(name) { return Err(failure()); }
+                                if !supplied.insert(name) { return Err(failure()); }
+                                self.type_constraints.constrain(ty, &actual, arena.expr(value).span).map_err(|conflict|
+                                    (arena.expr(value).span, format!("expected {}, found {}", conflict.expected, conflict.actual)))?;
                                 let value = record.get(&name).ok_or_else(failure)?.clone().in_type(ty);
-                                if !constant_matches_type(&value, ty) { return Err(failure()); }
+                                if !ty.contains_inference() && !constant_matches_type(&value, ty) { return Err(failure()); }
                                 values.insert(name, value);
                             }
                         }
@@ -971,10 +1208,27 @@ impl ConstantPreparation<'_> {
                 for (name, value) in &mut values {
                     let ty = field_types.get(name).ok_or_else(failure)?;
                     *value = value.clone().in_type(ty);
-                    if !constant_matches_type(value, ty) { return Err(failure()); }
+                    if !ty.contains_inference() && !constant_matches_type(value, ty) { return Err(failure()); }
                 }
+                let value = LiteralConstant::Record(Arc::new(values));
                 self.prepared.types.insert(id, Type::Record(field_types));
-                LiteralConstant::Record(Arc::new(values))
+                self.pending_constructors.push((id, inference.instance, value.clone()));
+                self.constructor_group_depth -= 1;
+                if self.constructor_group_depth == 0 {
+                    for (expression, instance, value) in std::mem::take(&mut self.pending_constructors) {
+                        let fact = self.constructors.finish_constructor_inference(arena, &instance, &self.type_constraints)
+                            .map_err(|error| (arena.expr(expression).span, error.message))?;
+                        let value = value.in_type(&fact.ty);
+                        if !constant_matches_type(&value, &fact.ty) { return Err((arena.expr(expression).span, "constant constructor fields do not match its inferred instance".into())); }
+                        self.prepared.types.insert(expression, fact.ty.clone());
+                        self.prepared.values.insert(expression, value);
+                        self.prepared.record_constructor_instances.insert(expression, fact);
+                    }
+                    for ty in self.prepared.types.values_mut() {
+                        if ty.contains_inference() { *ty = self.type_constraints.resolve(ty).map_err(|_| (expr.span, "constant constructor type cannot be resolved".into()))?; }
+                    }
+                    self.prepared.values.get(&id).cloned().unwrap_or(value)
+                } else { value }
             }
             _ => LiteralConstant::analyze(arena, id, &FxHashMap::default()).ok_or_else(failure)?,
         };
@@ -984,9 +1238,15 @@ impl ConstantPreparation<'_> {
             }
         }
         let value = expected.map_or_else(|| value.clone(), |ty| value.clone().in_type(ty));
-        if expected.is_some_and(|ty| !constant_matches_type(&value, ty)) { return Err((expr.span, "constant value does not match its expected type".into())); }
+        if let Some(expected) = expected {
+            if expected.contains_inference() {
+                let actual = self.prepared.types.get(&id).cloned().filter(|ty| !ty.contains_inference()).unwrap_or_else(|| value.value_type());
+                self.type_constraints.constrain(expected, &actual, expr.span).map_err(|conflict|
+                    (expr.span, format!("expected {}, found {}", conflict.expected, conflict.actual)))?;
+            } else if !constant_matches_type(&value, expected) { return Err((expr.span, "constant value does not match its expected type".into())); }
+        }
         if let Some(ty) = expected { self.prepared.types.insert(id, ty.clone()); }
-        if expected.is_none() && !constant_type_allowed(self.prepared.types.get(&id).unwrap_or(&value.value_type())) {
+        if self.constructor_group_depth == 0 && expected.is_none() && !constant_type_allowed(self.prepared.types.get(&id).unwrap_or(&value.value_type())) {
             return Err((expr.span, "constant containers require concrete type context".into()));
         }
         if !constant_size_within_limit(&value) { return Err((expr.span, "constant data exceeds the preparation limit".into())); }

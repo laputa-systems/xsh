@@ -553,6 +553,7 @@ impl Checker {
                 .map(|param| FunctionParamSig {
                     name: param.name,
                     ty: self.type_from_arena(program, param.ty),
+                    schema_expectation: self.record_constructors.annotation_expectation(&program.arena, param.ty, self.current_namespace).ok(),
                     defaulted: param.default.is_some(),
                     rest: param.rest,
                 })
