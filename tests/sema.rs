@@ -4274,3 +4274,27 @@ fn dynamic_boundary_record_facts_agree_across_checked_representations() {
     assert_eq!(found, 2);
 
 }
+
+#[test]
+fn yield_delegation_keeps_checked_stream_sources_in_full_and_compact_facts() {
+    let source = "stream lines(file: Path) [fs, error] -> Stream[Str] { yield @(file.lines()?); yield @[\"last\"] }\nstream batches() [] -> Stream[List[Int]] { yield @[[], [1]] }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    assert!(checked.expr_types.iter().any(|(span, ty)| &source[span.range()] == "[[], [1]]"
+        && *ty == xsh::frontend::check::Type::List(Box::new(xsh::frontend::check::Type::List(Box::new(xsh::frontend::check::Type::Int))))));
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    let mut found = 0;
+    for (expression, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(expression).span;
+        if matches!(&source[span.range()], "file.lines()" | "file.lines()?") {
+            assert_eq!(checked.expr_types.get(&span), Some(&ty));
+            found += 1;
+        }
+    }
+    assert_eq!(found, 2);
+}

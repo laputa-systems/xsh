@@ -26,21 +26,21 @@ proc main() [io, error] {
 test test_yield_delegation_pulls_lazily_and_closes_child_first [error] { |ctx|
   let output = test.run_script(ctx, r"""
 proc close(message: Str) [io] { print $message }
-stream child() [io] -> Stream[Int] {
+stream child() [io, error] -> Stream[Int] {
   defer close("child-close")
   for n in range(4) {
     print f"pull ${n}"
     yield n
   }
 }
-stream parent() [io] -> Stream[Int] {
+stream parent() [io, error] -> Stream[Int] {
   defer close("parent-close")
   print "parent-start"
   yield @child()
   print "parent-after"
   yield 99
 }
-proc main() [io] {
+proc main() [io, error] {
   let source = parent()
   print "created"
   for n in source {
@@ -61,18 +61,18 @@ proc source() [io] -> List[Int] {
   print "source"
   return [2, 3]
 }
-stream child() [io] -> Stream[Int] {
+stream child() [io, error] -> Stream[Int] {
   defer close("child-close")
   yield 1
 }
-stream parent() [io] -> Stream[Int] {
+stream parent() [io, error] -> Stream[Int] {
   defer close("parent-close")
   yield @child()
   print "between"
   yield @source()
   print "after"
 }
-proc main() [io] {
+proc main() [io, error] {
   for n in parent() { print f"row ${n}" }
 }
 """)?

@@ -116,7 +116,7 @@ print $label $row.in ${row["wire.type"]}
   test.ok(applied.status.exited_with(0), applied.stderr)?
   let fixed = candidate.read_text()?
   test.contains(fixed, "{type: \"file\", in: 2, \"wire.type\": 3}")?
-  test.contains(fixed, "label = row.type")?
+  test.contains(fixed, "label = row.get(\"type\")?")?
   test.contains(fixed, "# Keep the wire explanation.")?
   let after = test.run_script(ctx, fixed)?
   test.ok(after.success, after.stderr)?

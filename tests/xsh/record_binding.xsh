@@ -78,7 +78,7 @@ proc make_config() [io] -> Config {
 let {root, build: {jobs, target: target_name, ..}, ..} = make_config()
 print "\${root}:\${jobs}:\${target_name}"
 proc close() [io] { print "closed" }
-stream configs() [io] -> Stream[Config] {
+stream configs() [io, error] -> Stream[Config] {
   defer close()
   yield {root: "src", build: {jobs: 3, target: "native"}}
   print "unreached"
@@ -93,12 +93,12 @@ for {build: {target: target_name, ..}, ..} in configs() {
   test.eq(output.stdout, "source\nsrc:3:native\nnative\nclosed\n")?
 }
 
-test test_nested_record_dynamic_stream_selection_failure_runs_cleanup [error] { |ctx|
+test test_nested_record_dynamic_stream_target_requires_validation [error] { |ctx|
   let output = test.run_script(
     ctx,
     """
 proc close() [io] { print "closed" }
-stream records() [io] -> Stream[Record] {
+stream records() [io, error] -> Stream[Record] {
   defer close()
   yield {first: 1, nested: {present: 2}}
   print "unreached"
@@ -109,6 +109,30 @@ for {first, nested: {missing, ..}, ..} in records() {
 """,
   )?
   test.ok(! output.success, output.stderr)?
+  test.eq(output.stdout, "")?
+  test.contains(output.stderr, "check.destructure-type")?
+}
+
+
+test test_nested_record_dynamic_stream_validation_failure_runs_cleanup [error] { |ctx|
+  let output = test.run_script(
+    ctx,
+    """
+type Nested = {missing: Int}
+type Selected = {first: Int, nested: Nested}
+proc close() [io] { print "closed" }
+stream records() [io, error] -> Stream[Record] {
+  defer close()
+  yield {first: 1, nested: {present: 2}}
+  print "unreached"
+}
+for row in records() {
+  let {first, nested: {missing, ..}, ..} = row.require(Selected)?
+  print "body"
+}
+""",
+  )?
+  test.ok(! output.success, output.stderr)?
   test.eq(output.stdout, "closed\n")?
-  test.contains(output.stderr, "missing destructured field `missing`")?
+  test.contains(output.stderr, "schema check failed at nested: missing required field missing")?
 }

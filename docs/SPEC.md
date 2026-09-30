@@ -1642,8 +1642,11 @@ emits one list item; ordinary `yield stream` is rejected.
 current producer. Evaluate `source` exactly once when reached. Lists preserve
 order; delegated streams pull only on demand and resume the parent after
 exhaustion. Handle Results explicitly, as in `yield @(load_rows()?)`; Map, Str,
-and Bytes are not delegation sources. A guarded delegation evaluates its
-source only when its guard succeeds. Early termination closes the child before
+and Bytes are not delegation sources. The producer item type supplies context
+for fresh list syntax, including empty and nested lists. Other sources retain
+their declared List or Stream kind before their item type is checked.
+A guarded delegation evaluates its source only when its guard succeeds.
+Early termination closes the child before
 the parent's cleanup, once each; failures retain their original error identity
 and stop the parent. Delegation retains one-shot stream alias semantics and
 resource ownership. Chained delegation uses the existing frame engine through

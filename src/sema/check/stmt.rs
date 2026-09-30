@@ -1829,9 +1829,14 @@ impl Checker {
         if expected.is_none() {
             self.error(span, "`yield` is valid only in stream producers", "check.yield");
         }
-        // A list context gives empty and nested literals their item type;
-        // checked stream expressions retain their own stream type.
-        let collection = expected.as_ref().map(|ty| Type::List(Box::new(ty.clone())));
+        // Fresh list syntax receives an item context for empty and nested
+        // literals. Callable sources retain their declared List or Stream kind.
+        let collection = match arena.arena.expr(value).kind {
+            ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. } => {
+                expected.as_ref().map(|ty| Type::List(Box::new(ty.clone())))
+            }
+            _ => None,
+        };
         let actual = self.check_expr_arena(arena, source, value, collection.as_ref());
         let value_span = arena.arena.expr(value).span;
         match actual {
