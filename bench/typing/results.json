@@ -13,8 +13,8 @@
     "internal": 2386
   },
   "status": "incomplete",
-  "current_gate": "B",
-  "last_passed_gate": "A",
+  "current_gate": "C",
+  "last_passed_gate": "B",
   "baseline_revision": "d6f09bc54305515b4c34d3b872d7f9f13b874061",
   "cohort_original_revision": "877a114d6dc403db32c50f035b38aab7f193147a",
   "manifest_sha256": "b7fec300627901dc975643dcb33dd8005a85aec09406f36fcfffff04a2567b70",
@@ -25,12 +25,13 @@
       "reason": "Corrected immutable source/products, frozen cohort/denominators/operations, semantic/runtime observations, retained accounting and executable targets reconcile. Extensive quiet benchmarking removed by explicit user amendment."
     },
     "B": {
-      "status": "in-progress",
-      "reason": "Shared inference core and early normal indexed execution are next; no implementation acceptance claimed."
+      "status": "passed",
+      "reason": "Shared core/reference, solved facts, ordinary early generic slice, both indexed routes after frontend disposal, native observations, compatibility and malformed evidence/lifecycle checks pass. Temporary adapters are explicit.",
+      "artifact": "gate-b-verification.json"
     },
     "C": {
-      "status": "not-run",
-      "reason": "prerequisite gate has not passed"
+      "status": "in-progress",
+      "reason": "B passed; complete declaration/callable/operation integration is next. No C acceptance claimed."
     },
     "D": {
       "status": "not-run",
@@ -135,5 +136,5 @@
       "scope": "all five native target harness modules check; nested future-language programs remain pending"
     }
   ],
-  "inference_implementation_started": false
+  "inference_implementation_started": true
 }

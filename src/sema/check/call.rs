@@ -113,6 +113,7 @@ impl Checker {
     ) -> Type {
         let callee_kind = arena.arena.expr(callee).kind;
         let args = arena.arena.call_args(args_range);
+        if let Some(result) = self.graph_call(arena, source, callee, args, span) { return result; }
         if self.check_removed_record_require_arena(arena, source, callee, args, span) { return Type::Invalid; }
         if args.iter().any(|arg| matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })) {
             return self.check_spread_call_arena(arena, source, callee, args_range, span, expected_context);
@@ -300,6 +301,7 @@ impl Checker {
                 }
             }
             let base_ty = self.check_expr_arena(arena, source, base, None);
+            let base_ty = self.graph_method_receiver(base_ty, &name.as_str(), arena.arena.expr(base).span);
             let guarded_base = match arena.arena.expr(base).kind {
                 ArenaExprKind::NullSafeField { .. }
                 | ArenaExprKind::Index { guarded: true, .. }
@@ -740,7 +742,15 @@ impl Checker {
                     if slot == 0 { outer = arg.ty.clone(); }
                     if slot == 1 || has_cause { self.expect_type(&Type::Error, &arg.ty, arg.span); }
                 }
-                Type::Result(Box::new(Type::Unknown), Box::new(outer))
+                let success = if let Some(Type::Result(success, _)) = expected_context {
+                    success.as_ref().clone()
+                } else if self.current_generic.is_some() && self.graph_generation {
+                    match self.generic.borrow_mut().facts.graph.fresh(1, span) {
+                        Ok(success) => Type::Graph(success),
+                        Err(_) => Type::Invalid,
+                    }
+                } else { Type::Unknown };
+                Type::Result(Box::new(success), Box::new(outer))
             }
             "Error" => {
                 self.error(

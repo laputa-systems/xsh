@@ -57,6 +57,15 @@ mod stmt;
 mod stream;
 #[path = "check/types.rs"]
 mod types;
+#[path = "check/solved.rs"]
+mod solved;
+#[path = "check/generic.rs"]
+mod generic;
+pub use solved::{CallBinding, DeclarationIdentity, ExpressionIdentity, ReturnElaboration, SolvedCall, SolvedCallable, SolvedProjection, SolvedTypes, StatementIdentity};
+
+#[cfg(test)]
+#[path = "check/generic_tests.rs"]
+mod generic_tests;
 
 use self::args::{
     call_arg_expr_id_arena, call_arg_span_arena, common_module_overload_expected_arena,
@@ -100,6 +109,7 @@ pub struct CheckedStreamStage {
 
 #[derive(Clone, Debug, Default)]
 pub struct CheckOutput {
+    pub solved: Arc<SolvedTypes>,
     pub static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     pub local_binding_types: BTreeMap<Span, Type>,
     pub prepared_constants: super::constants::PreparedConstants,
@@ -331,6 +341,13 @@ pub(super) struct UserModuleSig {
 
 #[derive(Clone)]
 pub struct Checker {
+    generic: std::rc::Rc<std::cell::RefCell<generic::GenericState>>,
+    graph_generation: bool,
+    current_generic: Option<DeclarationIdentity>,
+    current_expression: Option<crate::syntax::arena::ExprId>,
+    graph_argument_depth: usize,
+    stage_ground_call_adapter: bool,
+    legacy_collection_body: bool,
     local_inference: local_inference::LocalInference,
     pub(super) type_constraints: super::constraints::TypeConstraints,
     static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
@@ -460,9 +477,37 @@ impl Checker {
             let mut checker = Self::new(options);
             checker.effect_summaries = probe.effect_graph.solve();
             checker.effect_graph = probe.effect_graph;
+            checker.generic = probe.generic;
+            checker.graph_generation = false;
+            checker.parameter_types = probe.parameter_types;
+            checker.function_return_types = probe.function_return_types;
+            checker.expr_types = probe.expr_types;
+            checker.projections = probe.projections;
+            checker.statement_positions = probe.statement_positions;
+            checker.static_callable_aliases = probe.static_callable_aliases;
+            checker.proven_nonnull_fallback_receivers = probe.proven_nonnull_fallback_receivers;
+            checker.annotation_facts = probe.annotation_facts;
+            checker.record_constructor_instances = probe.record_constructor_instances;
+            checker.requirement_targets = probe.requirement_targets;
+            checker.requirement_expected_targets = probe.requirement_expected_targets;
+            checker.reveal_types = probe.reveal_types;
+            checker.stream_stage_types = probe.stream_stage_types;
+            checker.terminating_call_spans = probe.terminating_call_spans;
+            checker.assertion_spans = probe.assertion_spans;
+            checker.assertion_effect_spans = probe.assertion_effect_spans;
+            checker.statement_expression_spans = probe.statement_expression_spans;
+            checker.membership_migration_spans = probe.membership_migration_spans;
+            checker.standard_call_spans = probe.standard_call_spans;
+            checker.statically_resolved_call_spans = probe.statically_resolved_call_spans;
+            checker.definitely_exiting_block_spans = probe.definitely_exiting_block_spans;
+            checker.local_inference.checked_bindings = probe.local_inference.checked_bindings;
+            checker.diagnostics.extend(checker.generic.borrow().diagnostics.clone());
             checker.check_program_arena_with_type_program(program, source, type_program);
             let callable_effects = checker.callable_effects();
+            checker.close_graph_effects(program);
+            let solved = checker.freeze_solved_types();
             CheckOutput {
+                solved,
                 static_callable_aliases: checker.static_callable_aliases,
                 local_binding_types: checker.local_inference.checked_bindings,
                 prepared_constants: checker.prepared_constants,
@@ -560,9 +605,37 @@ impl Checker {
             probe.check_program_arena(&main_program, main.1);
             checker.effect_summaries = probe.effect_graph.solve();
             checker.effect_graph = probe.effect_graph;
+            checker.generic = probe.generic;
+            checker.graph_generation = false;
+            checker.parameter_types = probe.parameter_types;
+            checker.function_return_types = probe.function_return_types;
+            checker.expr_types = probe.expr_types;
+            checker.projections = probe.projections;
+            checker.statement_positions = probe.statement_positions;
+            checker.static_callable_aliases = probe.static_callable_aliases;
+            checker.proven_nonnull_fallback_receivers = probe.proven_nonnull_fallback_receivers;
+            checker.annotation_facts = probe.annotation_facts;
+            checker.record_constructor_instances = probe.record_constructor_instances;
+            checker.requirement_targets = probe.requirement_targets;
+            checker.requirement_expected_targets = probe.requirement_expected_targets;
+            checker.reveal_types = probe.reveal_types;
+            checker.stream_stage_types = probe.stream_stage_types;
+            checker.terminating_call_spans = probe.terminating_call_spans;
+            checker.assertion_spans = probe.assertion_spans;
+            checker.assertion_effect_spans = probe.assertion_effect_spans;
+            checker.statement_expression_spans = probe.statement_expression_spans;
+            checker.membership_migration_spans = probe.membership_migration_spans;
+            checker.standard_call_spans = probe.standard_call_spans;
+            checker.statically_resolved_call_spans = probe.statically_resolved_call_spans;
+            checker.definitely_exiting_block_spans = probe.definitely_exiting_block_spans;
+            checker.local_inference.checked_bindings = probe.local_inference.checked_bindings;
+            checker.diagnostics.extend(checker.generic.borrow().diagnostics.clone());
             checker.check_program_arena(&main_program, main.1);
             let callable_effects = checker.callable_effects();
+            checker.close_graph_effects(&main_program);
+            let solved = checker.freeze_solved_types();
             CheckOutput {
+                solved,
                 static_callable_aliases: checker.static_callable_aliases,
                 local_binding_types: checker.local_inference.checked_bindings,
                 prepared_constants: checker.prepared_constants,
@@ -595,6 +668,13 @@ impl Checker {
 
     pub(crate) fn new(options: CheckOptions) -> Self {
         let mut checker = Self {
+            generic: std::rc::Rc::new(std::cell::RefCell::new(generic::GenericState::default())),
+            graph_generation: true,
+            current_generic: None,
+            current_expression: None,
+            graph_argument_depth: 0,
+            stage_ground_call_adapter: false,
+            legacy_collection_body: false,
             static_callable_aliases: BTreeMap::new(),
             scopes: vec![FxHashMap::default()],
             context_scope_depths: Vec::new(),

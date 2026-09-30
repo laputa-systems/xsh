@@ -161,12 +161,29 @@ test test_default_parameters_require_anchors_and_keep_parameter_scope [error] { 
     "pure choose(value = {}) -> Int { 1 }\n",
     "pure choose(value = map.empty()) -> Int { 1 }\n",
     "pure choose(left: Int = 1, right = left) -> Int { right }\n",
-    "pure choose(value) -> Int { 1 }\n",
     "pure choose(...values = [1]) -> Int { 1 }\n",
   ] {
     let output = test.run_script(ctx, source)?
     assert !output.success, output.stdout
   }
+}
+
+test test_required_parameter_inference_keeps_unused_argument_generic [error] { |ctx|
+  let output = test.run_script(ctx, r"""pure choose(value) -> Int { 1 }
+print ${choose(false)} ${choose("text")}
+""")?
+  assert output.success, output.stderr
+  output.stdout == "1 1\n"
+}
+
+test test_required_parameter_recursion_keeps_defined_return_signature [error] { |ctx|
+  let output = test.run_script(ctx, r"""pure first(value: Int) { if value == 0 { 7 } else { second(value - 1) } }
+pure second(value: Int) -> Int { first(value) }
+print ${first(3)} ${second(2)}
+""")?
+  assert output.success, output.stderr
+  output.status == 0
+  output.stdout == "7 7\n"
 }
 
 test test_default_parameters_use_outer_names_and_checked_dependency_signatures [error] { |ctx|

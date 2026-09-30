@@ -16,13 +16,18 @@ use crate::syntax::arena::{
     ExprId, FunctionDefId, PatternId, StmtId, TypeDefId, TypeExprId,
 };
 use crate::syntax::node::{Effect, EnvGetKind};
+use crate::sema::inference::TypeNode;
 
 #[derive(Clone, Debug, Default)]
 pub struct CompactDeclOutput {
+    pub solved: std::sync::Arc<super::SolvedTypes>,
+    pub assertion_spans: std::collections::BTreeSet<crate::source::Span>,
     // Namespace and source identity distinguish equal offsets in imported units.
     pub stream_stage_types: BTreeMap<(Option<Name>, crate::source::Span), super::CheckedStreamStage>,
     pub static_callable_aliases: BTreeMap<crate::source::Span, super::StaticCallableAlias>,
     pub local_binding_types: BTreeMap<crate::source::Span, Type>,
+    pub checked_projections: FxHashMap<ExprId, crate::sema::projection::CheckedProjection>,
+    pub checked_expr_types: FxHashMap<ExprId, Type>,
     pub record_constructors: super::RecordConstructors,
     pub record_constructor_types: FxHashMap<ExprId, Type>,
     pub requirement_targets: FxHashMap<ExprId, super::RequirementTarget>,
@@ -76,6 +81,7 @@ pub struct CompactFunctionSig {
 
 #[derive(Clone, Debug, Default)]
 pub struct CompactBodyProbeOutput {
+    pub solved: std::sync::Arc<super::SolvedTypes>,
     /// Return types of checked ordinary one-item calls, keyed by their source descriptor.
     pub stage_callable_types: FxHashMap<ExprId, Type>,
     pub diagnostics: Vec<Diagnostic>,
@@ -125,6 +131,8 @@ impl Checker {
                 diagnostics: Vec::new(),
                 names: FxHashSet::default(),
                 output: CompactDeclOutput {
+                    solved: checked.solved.clone(),
+                    assertion_spans: checked.assertion_spans.clone(),
                     record_constructors: super::RecordConstructors::collect(program),
                     requirement_targets: (0..program.arena.expr_tags.len()).filter_map(|index| {
                         let id = ExprId::from_index(index);
@@ -140,6 +148,14 @@ impl Checker {
                     static_callable_aliases: checked.static_callable_aliases.clone(),
                     parameter_types: checked.parameter_types.clone(),
                     local_binding_types: checked.local_binding_types.clone(),
+                    checked_projections: (0..program.arena.expr_tags.len()).filter_map(|index| {
+                        let id = ExprId::from_index(index);
+                        checked.projections.get(&program.arena.expr(id).span).map(|fact| (id, fact.clone()))
+                    }).collect(),
+                    checked_expr_types: (0..program.arena.expr_tags.len()).filter_map(|index| {
+                        let id = ExprId::from_index(index);
+                        checked.expr_types.get(&program.arena.expr(id).span).map(|ty| (id, ty.clone()))
+                    }).collect(),
                     function_return_types: checked.function_return_types.clone(),
                     ..CompactDeclOutput::default()
                 },
@@ -174,6 +190,25 @@ impl Checker {
     ) -> CompactBodyProbeOutput {
         program.symbol_owner().with_current(|| {
             let mut output = CompactBodyProbeOutput::default();
+            output.solved = declarations.solved.clone();
+            output.projections = declarations.checked_projections.clone();
+            output.requirement_targets = declarations.requirement_targets.clone();
+            output.expr_types = declarations.checked_expr_types.clone();
+            for (&id, ty) in &declarations.checked_expr_types {
+                match program.arena.expr(id).kind {
+                    ArenaExprKind::ContextScope { block, .. } => {
+                        if let Some(ok) = ty.result_ok() { output.block_types.insert(block, ok.clone()); }
+                    }
+                    ArenaExprKind::ValueBlock(block) => { output.block_types.insert(block, ty.clone()); }
+                    _ => {}
+                }
+            }
+            for (identity, &ty) in &declarations.solved.expressions {
+                output.expr_types.insert(identity.expression, declarations.solved.graph.export_type(ty).unwrap_or(Type::Graph(ty)));
+            }
+            for (identity, position) in &declarations.solved.statements {
+                output.statement_positions.insert(identity.statement, *position);
+            }
             // Almost every non-trivial script has typed expressions, and the arena
             // already knows the exact expression count, so this is a precise upper
             // bound (not every expression ends up typed) that avoids repeated growth
@@ -199,7 +234,7 @@ impl Checker {
             probe.check_compact_program();
             // The general checker owns statement-use classification, including
             // contextual tails and narrowing; the execution probe carries its facts.
-            probe.output.assertion_spans = Checker::check_arena(program, "").assertion_spans;
+            probe.output.assertion_spans = declarations.assertion_spans.clone();
             probe.resolve_checked_types();
             probe.output
         })
@@ -1231,6 +1266,17 @@ impl CompactBodyProbe<'_> {
     fn check_compact_function(&mut self, id: FunctionDefId) {
         self.output.functions += 1;
         let def = self.program.arena.function_def(id);
+        let identity = super::DeclarationIdentity {
+            source: self.program.arena.span(self.program.arena.block(def.body).span).source_id,
+            namespace: self.current_namespace, declaration: id,
+        };
+        if let Some(callable) = self.declarations.solved.declarations.get(&identity) {
+            if let Ok(TypeNode::Arrow(arrow)) = self.declarations.solved.graph.node(callable.signature) {
+                let result = self.declarations.solved.graph.export_type(arrow.result).unwrap_or(Type::Graph(arrow.result));
+                self.output.block_types.insert(def.body, result);
+            }
+            return;
+        }
         let saved_scopes = self.scopes.clone();
         self.push_compact_deferred_capture_scope();
         for param in self.program.arena.params(def.params) {
@@ -1438,6 +1484,12 @@ impl CompactBodyProbe<'_> {
     }
 
     fn check_compact_expr_expected(&mut self, id: ExprId, expected: Option<&Type>) -> Type {
+        let identity = super::ExpressionIdentity {
+            source: self.program.arena.expr(id).span.source_id, namespace: self.current_namespace, expression: id,
+        };
+        if let Some(&ty) = self.declarations.solved.expressions.get(&identity) {
+            return self.declarations.solved.graph.export_type(ty).unwrap_or(Type::Graph(ty));
+        }
         let previous = self.expected_schema.clone();
         if expected.is_none() { self.expected_schema = None; }
         let actual = self.check_compact_expr_inner(id, expected);

@@ -101,7 +101,8 @@ impl Checker {
         }
         if let Some(binding) = self.lookup(name).cloned() {
             if let Some(alias) = binding.callable_alias { self.record_callable_alias(span, &alias); }
-            return self.type_constraints.resolve(&binding.ty).unwrap_or(Type::Invalid);
+            let ty = self.type_constraints.resolve(&binding.ty).unwrap_or(Type::Invalid);
+            return if let Type::Graph(id) = ty { self.graph_view(id) } else { ty };
         }
         if let Some(info) = self.tag_variants.get(&name).cloned()
             && info.field_count == 0
@@ -214,7 +215,9 @@ impl Checker {
         let previous = self.expected_schema.clone();
         if expected.is_none() { self.expected_schema = None; }
         let resolved = expected.and_then(|ty| self.type_constraints.resolve(ty).ok());
+        let previous_expression = self.current_expression.replace(id);
         let actual = self.check_expr_arena_inner(arena, source, id, resolved.as_ref().or(expected));
+        self.current_expression = previous_expression;
         self.expected_schema = previous;
         actual
     }
@@ -240,8 +243,11 @@ impl Checker {
         if let Some(ty) = self.argument_projection_types.get(&id) { return ty.clone(); }
         self.condition_proofs.remove(&id);
         let expr = arena.arena.expr(id);
-        if let Some(ty) = self.prepared_constants.types.get(&id) {
+        if let Some(ty) = self.prepared_constants.types.get(&id)
+            && !((self.current_generic.is_some() || self.graph_argument_depth > 0)
+                && matches!(expr.kind, ArenaExprKind::Record(_) | ArenaExprKind::List(_))) {
             let ty = ty.clone();
+            self.record_graph_expression(arena, id, &ty);
             self.expr_types.insert(expr.span, ty.clone());
             return ty;
         }
@@ -389,10 +395,10 @@ impl Checker {
                 Type::Bool
             }
             ArenaExprKind::Binary { op, left, right } => {
-                self.check_binary_arena(arena, source, *op, *left, *right, expected)
+                self.check_binary_arena(arena, source, id, *op, *left, *right, expected)
             }
             ArenaExprKind::Field { base, name } => {
-                self.check_field_arena(arena, source, *base, *name, expr.span)
+                self.check_field_arena(arena, source, id, *base, *name, expr.span)
             }
             ArenaExprKind::NullSafeField { base, name } => {
                 self.check_null_safe_field_arena(arena, source, *base, *name, expr.span)
@@ -492,6 +498,7 @@ impl Checker {
                 self.check_builder_call_arena(arena, source, *call, *block, expr.span)
             }
         };
+        self.record_graph_expression(arena, id, &ty);
         self.expr_types.insert(expr.span, ty.clone());
         if ty == Type::Bool {
             let proof = self.infer_condition_proof_arena(arena, id);
@@ -1300,6 +1307,7 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        id: ExprId,
         op: BinaryOp,
         left: ExprId,
         right: ExprId,
@@ -1454,6 +1462,9 @@ impl Checker {
                 };
                 let right_ty = self.check_expr_arena(arena, source, right, right_expected);
                 if left_ty == Type::Any || right_ty == Type::Any { return Type::Any; }
+                if op == BinaryOp::Add && (self.current_generic.is_some() || matches!(left_ty, Type::Graph(_)) || matches!(right_ty, Type::Graph(_))) {
+                    return self.graph_add(arena, id, &left_ty, &right_ty);
+                }
                 if left_ty == Type::Duration || right_ty == Type::Duration {
                     return match (op, &left_ty, &right_ty) {
                         (BinaryOp::Add | BinaryOp::Sub, Type::Duration, Type::Duration)
@@ -1498,6 +1509,7 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        id: ExprId,
         base: ExprId,
         name: Name,
         span: Span,
@@ -1527,6 +1539,13 @@ impl Checker {
             }
         }
         let base_ty = self.check_expr_arena(arena, source, base, None);
+        if let Type::Graph(receiver) = base_ty { return self.graph_projection(arena, id, receiver, name); }
+        if self.current_generic.is_some() && matches!(base_ty, Type::Record(_)) {
+            return match self.graph_type(&base_ty, span) {
+                Ok(receiver) => self.graph_projection(arena, id, receiver, name),
+                Err(error) => { self.graph_error(span, error); Type::Invalid }
+            };
+        }
         match base_ty {
             Type::ErasedRecord | Type::DynamicModule => Type::Any,
             Type::Record(fields) => match fields.get(&name) {

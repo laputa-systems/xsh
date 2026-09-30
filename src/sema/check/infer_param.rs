@@ -18,6 +18,7 @@ impl Checker {
                 match kind {
                     ArenaStmtKind::ProcDef(id) | ArenaStmtKind::PureDef(id) | ArenaStmtKind::StreamDef(id) => {
                         let def = program.arena.function_def(id);
+                        if self.graph_declaration(def.body).is_some() { continue; }
                         probe.in_pure = matches!(kind, ArenaStmtKind::PureDef(_));
                         probe.current_return = Some(probe.type_from_arena(program, def.return_ty));
                         probe.current_effects = def.effects.map(|effects| program.arena.effects(effects).collect());

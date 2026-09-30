@@ -1,0 +1,20 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Finished `test` profile [unoptimized] target(s) in 0.56s
+     Running unittests src/lib.rs (target/debug/build/xsh/3b1ba41aea3ea9fa/out/xsh-3b1ba41aea3ea9fa)
+
+running 8 tests
+test runtime::eval::lower::solved_lowering_tests::solved_lowering_collection_retains_precise_fixed_producer_result ... ok
+test runtime::eval::lower::solved_lowering_tests::solved_lowering_identity_preserves_unit_optional_and_nested_result_payloads ... ok
+test runtime::eval::lower::solved_lowering_tests::solved_lowering_root_record_assignment_and_shadow_preserve_current_values ... ok
+test runtime::eval::lower::solved_lowering_tests::solved_lowering_root_record_bindings_keep_prepared_projection_layouts ... ok
+test runtime::eval::lower::solved_lowering_tests::solved_lowering_root_record_storage_survives_reentry_and_retires_dead_backing ... ok
+test runtime::eval::lower::solved_lowering_tests::solved_lowering_self_recursion_forwards_its_prepared_declaration_instance ... ok
+test runtime::eval::lower::solved_lowering_tests::solved_lowering_string_add_uses_direct_and_forwarded_prepared_evidence ... ok
+test runtime::eval::lower::solved_lowering_tests::solved_lowering_written_result_wraps_only_bare_completion_paths ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 380 filtered out; finished in 0.04s
+

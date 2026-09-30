@@ -759,7 +759,7 @@ impl SemanticPoolBuilder {
         ty: &Type,
     ) -> Result<TypeId, IrBuildError> {
         let (key, data, extra) = match ty {
-            Type::Inference(_) => {
+            Type::Inference(_) | Type::Graph(_) => {
                 return Err(IrBuildError::format("unresolved_type", None, 0, 0));
             }
             Type::BuiltinParameter(_) | Type::Unknown | Type::Invalid => {

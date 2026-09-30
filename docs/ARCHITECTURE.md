@@ -27,6 +27,78 @@ indexed runtime:
    plain script execution for `xsh`, and `crates/xsht/src/cli/mod.rs` wires the
    `xsht` tooling commands.
 
+Declaration inference uses `sema/inference.rs::InferenceContext` for scoped
+type and row identities, level-based generalization, operation requirements,
+and latent effect relationships. `check/generic.rs` generates constraints;
+`check/solved.rs::SolvedTypes` freezes the graph once and attaches declaration,
+expression, call-binding, projection, and return-elaboration facts to source
+arena identities. `Type::Graph` preserves unresolved generic relationships
+inside checking instead of replacing them with `Any`. Ground tree views remain
+bounded adapters for consumers that do not yet consume graph identities.
+
+`indexed/generic.rs::GenericEvidenceStore` owns declaration scopes, canonical
+type templates, concrete instantiations, physical record layouts, and sealed
+operation witnesses. `indexed/full/generic_prepare.rs` translates solved facts
+into these artifacts before verification. Forwarding relationships are derived
+from declaration-scoped substitutions, including for unused declarations;
+concrete edges are prepared once for reachable call instantiations. Execution
+selects an existing edge and uses numeric field slots and fixed operations.
+Both indexed evaluators carry the active instantiation through calls and
+suspended frames. Their return and cleanup behavior uses the declaration's
+fixed return plan, so a returned `Err` payload is distinguished from a declared
+Result failure channel.
+
+The graph path currently covers ordinary pure/proc definitions and direct
+declaration calls. Remaining adapters are explicit integration work:
+
+- `generic::register_graph_declaration` still excludes native test headers,
+  streams, and default-only omitted parameter headers with a written return.
+  `infer_param` retains default anchoring for those headers.
+- `local_inference` retains cloned constraint collection and probes outside
+  graph-owned bodies; `infer_return::infer_local_pure_returns` retains dependency
+  inference for declarations outside the graph path.
+  `generic::body_uses_legacy_collection_inference` selects definitions containing
+  legacy empty List or `map.empty()` inference before graph generation. Authored
+  and omitted signatures use the same eligibility rule; this adapter must be
+  replaced by shared collection variable ownership.
+  `Checker::legacy_collection_body` confines second-pass ground argument
+  anchoring to those definitions; it does not train generic declarations.
+- The two checker effect passes and `infer_effects::effective_function_effects`
+  still solve finite proc effects; `generic::close_graph_effects` imports those
+  summaries into graph arrows. Export/main/stream latent effects require the
+  shared effect solver to replace this adapter.
+- Compact declaration/body collectors retain tree facts for native, stream,
+  CLI, and registry paths. Aliases, computed callable flows, splices, and the
+  complete registry operation families still require shared solved plans.
+- `lower.rs::CompactLowerConstructProbe::solved_type` projects immutable graph
+  container shells into old storage views. Expression and call type helpers
+  retain tree/slot/shape reconstruction outside solved expression coverage;
+  statement/assertion consumers retain span facts outside exact solved identities.
+- `lower_function_call_args` and `lower_named_spread_call` retain the old
+  parameter binder and temporary projection expansion. Shared binding plans
+  must replace this path while preserving source order, declaration-scoped
+  defaults, rest packing, and lazy producer defaults.
+- `check_stream_stage_arena` keeps temporary stage-call AST nodes outside graph
+  publication and accepts only a resolved ground target signature through its
+  stage adapter. Generic stage calls require a plan tied to the original stage
+  descriptor; generated arena identities cannot establish evidence ownership.
+- `FullBuilder::predeclare` retains coarse storage-to-signature construction
+  for non-scoped headers. Exact ground, nested container, nominal, and producer
+  signatures must come from solved declarations before this adapter is removed.
+  Graph-backed ground declarations now supply exact checked types directly.
+  `FunctionBuild::legacy_checked_signature` transfers already checked ground
+  parameter/result trees for declarations outside graph ownership, preserving
+  precise container contracts across generic calls. It rejects unresolved
+  holes and disappears when those declarations use solved graph signatures.
+
+These adapters do not supply missing evidence for generic execution. Unsupported
+generic bindings, sources, or operation domains fail preparation.
+Effect quantifiers currently require prepared effect evidence that the indexed
+scope format does not yet carry. Extra row lacks constraints must be represented
+by the signature's checked record prefixes; unrepresented constraints fail
+preparation. Multiple solved row extensions are flattened before projection
+obligations are emitted.
+
 The primary retrieval path is symbol-first: search for the concrete type or
 method named in this document, then open its owner file and nearest test. For
 the complete frontend vocabulary, see `docs/FRONTEND.md`; use the routing

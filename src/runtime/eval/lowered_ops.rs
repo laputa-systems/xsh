@@ -795,6 +795,7 @@ pub(super) fn lowered_return_value(
     span: Span,
 ) -> Result<LoweredValue, RuntimeError> {
     match (kind, value) {
+        (LoweredReturnKind::Plain(LoweredType::Generic) | LoweredReturnKind::Result(LoweredType::Generic), value) => Ok(value),
         (LoweredReturnKind::Plain(_), LoweredValue::ResultErr(error)) => {
             let mut error = super::runtime_error_from_value(*error, span);
             error.propagated = true;
@@ -823,6 +824,7 @@ pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> 
     matches!(
         (kind, value),
         (LoweredType::Any, _)
+            | (LoweredType::Generic, _)
             | (LoweredType::Unit, LoweredValue::Unit)
             | (LoweredType::Int, LoweredValue::Int(_))
             | (LoweredType::Float, LoweredValue::Float(_))
@@ -862,6 +864,7 @@ pub(super) fn lowered_value_matches(kind: LoweredType, value: &LoweredValue) -> 
 pub(super) fn lowered_type_name(kind: LoweredType) -> &'static str {
     match kind {
         LoweredType::Any => "Any",
+        LoweredType::Generic => "generic value",
         LoweredType::Unit => "Unit",
         LoweredType::Int => "Int",
         LoweredType::Float => "Float",
@@ -892,6 +895,7 @@ pub(super) fn lowered_type_name(kind: LoweredType) -> &'static str {
 
 pub(super) fn lowered_value_from_runtime(value: &Value, kind: LoweredType) -> Option<LoweredValue> {
     match (kind, value) {
+        (LoweredType::Generic, _) => None,
         (LoweredType::Any, _) => lowered_value_from_runtime_any(value),
         (_, Value::Result(ResultValue::Ok(value))) if kind != LoweredType::Result => {
             lowered_value_from_runtime(value, kind)

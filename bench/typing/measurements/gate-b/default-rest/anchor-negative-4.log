@@ -1,0 +1,14 @@
+err[check.unresolved-name]: unresolved name
+  /tmp/xsh-gate-b-default-rest-compat/anchor-negative-4.xsh:1:36
+  pure choose(left: Int = 1, right = left) -> Int { right }
+                                     ^^^^ unresolved name
+
+err[check.infer-param]: default does not establish a concrete parameter type; declare an annotation (including in cyclic declaration dependencies)
+  /tmp/xsh-gate-b-default-rest-compat/anchor-negative-4.xsh:1:28
+  pure choose(left: Int = 1, right = left) -> Int { right }
+                             ^^^^^^^^^^^^ default does not establish a concrete parameter type; declare an annotation (including in cyclic declaration dependencies)
+
+err[check.unresolved-name]: unresolved name
+  /tmp/xsh-gate-b-default-rest-compat/anchor-negative-4.xsh:1:36
+  pure choose(left: Int = 1, right = left) -> Int { right }
+                                     ^^^^ unresolved name

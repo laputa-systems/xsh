@@ -176,7 +176,14 @@ impl Checker {
         let statically_resolved_call_spans = std::mem::take(&mut self.statically_resolved_call_spans);
         let definitely_exiting_block_spans = std::mem::take(&mut self.definitely_exiting_block_spans);
         let checked_bindings = std::mem::take(&mut self.local_inference.checked_bindings);
-        let probe = self.clone();
+        let mut probe = self.clone();
+        probe.graph_generation = false;
+        fn ground_signature(checker: &Checker, signature: &mut super::FunctionSig) {
+            signature.return_ty = checker.resolved_graph_view(signature.return_ty.clone());
+            for parameter in &mut signature.params { parameter.ty = checker.resolved_graph_view(parameter.ty.clone()); }
+        }
+        for signature in probe.pures.values_mut().chain(probe.procs.values_mut()) { ground_signature(self, signature); }
+        for signature in probe.qualified_pures.values_mut().chain(probe.qualified_procs.values_mut()) { ground_signature(self, signature); }
         self.block_exit_bindings = block_exit_bindings;
         self.expr_types = expr_types;
         self.projections = projections;

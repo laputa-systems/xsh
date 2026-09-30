@@ -395,7 +395,8 @@ impl Checker {
 
     pub(super) fn check_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
         let stmt = arena.arena.stmt(id);
-        self.statement_positions.entry(stmt.span).or_insert(super::StatementPosition::Statement);
+        let position = self.statement_positions.get(&stmt.span).copied().unwrap_or(super::StatementPosition::Statement);
+        self.record_statement_position(arena, id, position);
         match stmt.kind {
             ArenaStmtKind::BooleanGuard { condition, else_block } => {
                 let narrowings = self.check_condition_arena(arena, source, condition, "check.guard-condition");
@@ -1125,6 +1126,9 @@ impl Checker {
             }
             if tail_producing {
                 let actual = self.check_tail_stmt_arena(arena, source, tail, Some(expected));
+                if self.current_generic.is_some_and(|owner| arena.arena.function_def(owner.declaration).body == block_id) {
+                    self.record_graph_completion(&actual);
+                }
                 if !tail_type_matches_expected(expected, &actual) {
                     let tail_span = arena.arena.stmt(tail).span;
                     self.expect_type(expected, &actual, tail_span);
@@ -1173,6 +1177,13 @@ impl Checker {
         pure: bool,
     ) {
         let body_span = arena.arena.span(arena.arena.block(def.body).span);
+        let graph_declaration = self.graph_declaration(def.body);
+        let graph_diagnostics_start = self.diagnostics.len();
+        if let Some(identity) = graph_declaration {
+            if !self.graph_generation || self.generic.borrow().completed.contains(&identity)
+                || self.generic.borrow().rejected.contains(&identity) { return; }
+            self.generic.borrow_mut().checking.insert(identity);
+        }
         if def.test_declaration {
             if self.current_exported {
                 self.error(body_span, "test declarations cannot be exported", "check.test-export");
@@ -1186,7 +1197,16 @@ impl Checker {
             return;
         }
         let saved_capture_scopes = self.scopes.clone();
-        self.collect_function_local_constraints(arena, source, def, pure);
+        let previous_legacy_collection_body = std::mem::replace(&mut self.legacy_collection_body,
+            graph_declaration.is_none() && super::generic::body_uses_legacy_collection_inference(arena, def.body));
+        if graph_declaration.is_none() { self.collect_function_local_constraints(arena, source, def, pure); }
+        let previous_generic = self.current_generic;
+        self.current_generic = graph_declaration;
+        let previous_reachable = std::mem::replace(&mut self.inference_reachable, true);
+        let previous_inferred_returns = if graph_declaration.is_some() {
+            Some(std::mem::replace(&mut self.inferred_returns, def.return_ty_defaulted.then(Vec::new)))
+        } else { None };
+        let previous_propagations = if graph_declaration.is_some() { Some(std::mem::take(&mut self.inferred_propagations)) } else { None };
         let previous_errors = self.with_initializer_errors.take();
         let previous_defer = std::mem::replace(&mut self.in_defer_block, false);
         let previous_boundary_depth = std::mem::replace(&mut self.retry_attempt_depth, 0);
@@ -1199,14 +1219,18 @@ impl Checker {
         let previous_effects = self.current_effects.clone();
         let previous_effect_owner = self.effect_owner;
         self.effect_owner = (!pure).then(|| self.effect_declaration_id(arena, def.body));
-        let inferring = pure && def.return_ty_defaulted && self.inferred_returns.is_some();
-        let return_ty = if inferring { Type::Unknown } else { self.type_from_arena(arena, def.return_ty) };
+        let inferring = def.return_ty_defaulted && self.inferred_returns.is_some() && (pure || graph_declaration.is_some());
+        let return_ty = if let Some(identity) = graph_declaration {
+            self.graph_view(self.generic.borrow().pending[&identity].result)
+        } else if inferring { Type::Unknown } else { self.type_from_arena(arena, def.return_ty) };
         if !inferring { self.function_return_types.insert(body_span, return_ty.clone()); }
         self.return_schema = (!inferring).then(|| self.record_constructors.annotation_expectation(&arena.arena, def.return_ty, self.current_namespace).ok()).flatten();
         self.expected_schema = self.return_schema.clone();
         self.current_return = Some(return_ty.clone());
         self.in_pure = pure;
         self.current_effects = if pure {
+            None
+        } else if graph_declaration.is_some() && self.collecting_effects && def.effects.is_none() {
             None
         } else {
             self.effective_function_effects(arena, def)
@@ -1232,7 +1256,12 @@ impl Checker {
                     "check.rest-position",
                 );
             }
-            let param_ty = self.infer_checked_parameter(arena, source, param);
+            let param_ty = if let Some(identity) = graph_declaration {
+                let ty = self.generic.borrow().pending[&identity].params[index];
+                let ty = self.graph_view(ty);
+                self.parameter_types.insert(param_span, ty.clone());
+                ty
+            } else { self.infer_checked_parameter(arena, source, param) };
             if param.rest && !matches!(param_ty, Type::List(_)) {
                 self.error(
                     arena.arena.type_expr_span(param.ty),
@@ -1253,13 +1282,14 @@ impl Checker {
                 let actual = self.check_expr_arena(arena, source, default, Some(&param_ty));
                 let default_span = arena.arena.expr(default).span;
                 self.expect_type(&param_ty, &actual, default_span);
-                if param.ty_defaulted && param_ty.annotation_source().is_some() {
+                let checked_param = self.resolved_graph_view(param_ty.clone());
+                if param.ty_defaulted && checked_param.annotation_source().is_some() {
                     self.annotation_facts.push(AnnotationFact {
                         kind: AnnotationFactKind::DefaultedParam {
                             span: param_span,
                             default: default_span,
                         },
-                        ty: param_ty.clone(),
+                        ty: checked_param,
                     });
                 }
             }
@@ -1298,6 +1328,11 @@ impl Checker {
                 ty: return_ty.clone(),
             });
         }
+        if let Some(identity) = graph_declaration {
+            self.finish_graph_declaration(arena, def, identity);
+            self.generic.borrow_mut().diagnostics.extend(self.diagnostics[graph_diagnostics_start..].iter()
+                .filter(|diagnostic| !matches!(diagnostic.code.as_deref(), Some("check.type-relationship" | "check.type-mismatch"))).cloned());
+        }
         self.pop_scope();
         self.scopes = saved_capture_scopes;
         self.current_return = previous_return;
@@ -1311,6 +1346,11 @@ impl Checker {
         self.retry_attempt_depth = previous_boundary_depth;
         self.error_boundary_errors = previous_boundary_errors;
         self.context_scope_depths = previous_context_scopes;
+        self.current_generic = previous_generic;
+        self.legacy_collection_body = previous_legacy_collection_body;
+        self.inference_reachable = previous_reachable;
+        if let Some(returns) = previous_inferred_returns { self.inferred_returns = returns; }
+        if let Some(propagations) = previous_propagations { self.inferred_propagations = propagations; }
     }
 
     pub(super) fn check_stream_function_arena(
@@ -1804,13 +1844,18 @@ impl Checker {
             })
             .unwrap_or(Type::Unit);
         let actual = self.resolve_local_tail_type(actual, Some(&expected), span);
+        let expression = match value { Some(ArenaExprOrRun::Expr(expr)) => Some(expr), _ => None };
+        let actual = if expression.is_some() {
+            self.normalize_graph_result_completion(arena, expression, None, Some(&expected), actual, span)
+        } else { actual };
+        if self.inference_reachable { self.record_graph_completion(&actual); }
         if !self.context_scope_depths.is_empty() && !actual.can_escape_context_scope() {
             self.error(span, "a live producer or host handle cannot escape through a lexical return", "check.context-scope-escape");
         }
         if self.inference_reachable && let Some(returns) = &mut self.inferred_returns {
             returns.push((actual.clone(), span));
         }
-        if !tail_type_matches_expected(&expected, &actual) {
+        if !(self.current_generic.is_some() && self.inferred_returns.is_some()) && !tail_type_matches_expected(&expected, &actual) {
             let value_span = value.map_or(span, |v| expr_or_run_span_arena(arena, v));
             self.expect_type(&expected, &actual, value_span);
         }
@@ -2158,7 +2203,7 @@ impl Checker {
 
     fn check_non_tail_stmt_arena(&mut self, arena: &ArenaProgram, source: &str, id: StmtId) {
         let stmt = arena.arena.stmt(id);
-        self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
+        self.record_statement_position(arena, id, super::StatementPosition::Statement);
         if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
             self.statement_expression_spans.insert(arena.arena.expr(expr_id).span);
             let ty = if let ArenaExprKind::ValueBlock(block) = arena.arena.expr(expr_id).kind {
@@ -2196,7 +2241,13 @@ impl Checker {
         expected: Option<&Type>,
     ) -> Type {
         let stmt = arena.arena.stmt(id);
-        self.statement_positions.insert(stmt.span, super::StatementPosition::Value);
+        self.record_statement_position(arena, id, super::StatementPosition::Value);
+        if expected.is_none() && self.current_generic.is_some() && self.inferred_returns.is_some()
+            && matches!(stmt.kind, ArenaStmtKind::If { else_block: None, .. }) {
+            self.check_stmt_arena(arena, source, id);
+            self.record_statement_position(arena, id, super::StatementPosition::Statement);
+            return Type::Unit;
+        }
         if expected.is_some_and(|ty| ty == &Type::Unit || ty.is_result_unit())
             && !(expected.is_some_and(Type::is_result_unit) && tail_stmt_uses_result_context_arena(arena, id)) {
             if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
@@ -2232,16 +2283,16 @@ impl Checker {
                 {
                     self.expect_type(&Type::Unit, &actual, arena.arena.expr(expr_id).span);
                 }
-                self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
+                self.record_statement_position(arena, id, super::StatementPosition::Statement);
                 return Type::Unit;
             }
-            self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
+            self.record_statement_position(arena, id, super::StatementPosition::Statement);
             self.check_stmt_arena(arena, source, id);
             return Type::Unit;
         }
         match stmt.kind {
             ArenaStmtKind::Assert { .. } => {
-                self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
+                self.record_statement_position(arena, id, super::StatementPosition::Statement);
                 self.check_stmt_arena(arena, source, id);
                 Type::Unit
             }
@@ -2258,11 +2309,13 @@ impl Checker {
                 });
                 let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), ctx.as_ref(), schema);
                 self.context_scope_tail_value = previous;
-                self.resolve_local_tail_type(ty, expected, stmt.span)
+                let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
+                self.normalize_graph_result_completion(arena, Some(expr_id), None, expected, ty, stmt.span)
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let ty = self.check_tail_bare_ident_arena(arena, source, name, stmt.span);
                 let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
+                let ty = self.normalize_graph_result_completion(arena, None, Some(id), expected, ty, stmt.span);
                 if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit())
                     && self.check_assertion_statement(&ty, stmt.span)
                 { Type::Unit } else { ty }
@@ -2282,17 +2335,18 @@ impl Checker {
                 if let crate::syntax::arena::ArenaCommand::Run(run) = command_stmt.command
                     && super::command::run_capture_result_type_arena(arena, run).is_some()
                 {
-                    return ty;
+                    return self.normalize_graph_result_completion(arena, None, Some(id), expected, ty, stmt.span);
                 }
                 if command_stmt_asserts_success_arena(arena, &command_stmt.command) {
                     self.record_statement_error(&Type::Result(Box::new(Type::Unit), Box::new(Type::ProcessError)), stmt.span);
                     return Type::Unit;
                 }
-                if command_stmt.propagate || command_ty_auto_propagates(&ty) {
+                let ty = if command_stmt.propagate || command_ty_auto_propagates(&ty) {
                     self.check_propagation(&ty, stmt.span)
                 } else {
                     ty
-                }
+                };
+                self.normalize_graph_result_completion(arena, None, Some(id), expected, ty, stmt.span)
             }
             ArenaStmtKind::If { branches, else_block } => {
                 let infer_branches = self.inferred_returns.is_some() && expected.is_none();

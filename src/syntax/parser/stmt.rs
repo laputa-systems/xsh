@@ -817,11 +817,9 @@ impl<'a> Parser<'a> {
                     let ty_id = unknown_type_expr(arena, default_span);
                     (ty_id, true, Some(default_id), default_span.end())
                 } else {
-                    self.diagnostic_here(
-                        "expected `:` or default value after parameter name",
-                        "parse.expected-param-type",
-                    );
-                    break;
+                    let end = self.previous_end();
+                    let ty_id = unknown_type_expr(arena, self.span(start, end));
+                    (ty_id, true, None, end)
                 };
             params.push((
                 name,

@@ -3762,19 +3762,29 @@ fn private_pure_inference_publishes_exact_returns_and_annotations() {
 }
 
 #[test]
-fn private_pure_inference_requires_annotations_for_recursive_and_contextual_returns() {
-    for source in [
-        "pure first(value: Int) { second(value) }\npure second(value: Int) -> Int { first(value) }\n",
-        "export pure value() { 1 }\n",
-    ] { assert!(has_code(&check(source), "check.required-return"), "{source}"); }
+fn private_pure_inference_keeps_principal_returns_and_rejects_conflicting_paths() {
+    for (source, expected) in [
+        ("pure first(value: Int) { second(value) }\npure second(value: Int) -> Int { first(value) }\n", xsh::frontend::check::Type::Int),
+        ("export pure value() { 1 }\n", xsh::frontend::check::Type::Int),
+        ("pure value(input: Any) { input }\n", xsh::frontend::check::Type::Any),
+        ("pure parsed(text: Str) { text.parse_int()? }\n", xsh::frontend::check::Type::Result(Box::new(xsh::frontend::check::Type::Int), Box::new(xsh::frontend::check::Type::Error))),
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+        assert!(checked.function_return_types.values().all(|ty| ty == &expected), "{source}: {:?}", checked.function_return_types);
+        checked.solved.validate().unwrap();
+    }
     for source in [
         "pure value() { [] }\n",
-        "pure value(input: Any) { input }\n",
+        "pure value() { map.empty() }\n",
+    ] { assert!(!check(source).is_empty(), "unanchored legacy collection boundary: {source}"); }
+    for source in [
+        "pure first(value: Int) -> Int { second(value) }\npure second(value: Int) -> Str { first(value) }\n",
         "pure value(flag: Bool) { if flag { Ok(1) } else { 1 } }\n",
         "pure value(flag: Bool) { if flag { return 1 }; let unused = 2 }\n",
-    ] { assert!(has_code(&check(source), "check.infer-return"), "{source}"); }
-    assert!(has_code(&check("pure value() { map.empty() }\n"), "check.local-inference"));
-    assert!(has_code(&check("pure parsed(text: Str) { text.parse_int()? }\n"), "check.try-context"));
+    ] { assert!(has_code(&check(source), "check.type-mismatch"), "{source}: {:?}", check(source)); }
 }
 
 #[test]
@@ -3799,8 +3809,14 @@ fn private_pure_inference_pattern_captures_do_not_create_recursive_dependencies(
         let diagnostics = check(source);
         assert!(diagnostics.is_empty(), "{source}: {diagnostics:?}");
     }
-    assert!(has_code(&check("pure selected(outcome: Result[Int]) { if let Ok(selected) = selected(outcome) { selected } else { 0 } }\n"), "check.required-return"));
-    assert!(has_code(&check("pure selected(outcome: Result[Int]) { if let Ok(selected) = outcome { selected } else { selected(outcome) } }\n"), "check.required-return"));
+    let recursive = "pure selected(outcome: Result[Int]) { if let Ok(selected) = outcome { selected } else { selected(outcome) } }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), recursive);
+    let checked = Checker::check_arena(&parsed.arena, recursive);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    assert!(checked.function_return_types.values().all(|ty| ty == &xsh::frontend::check::Type::Int));
+    checked.solved.validate().unwrap();
+    let conflicting = "pure selected(outcome: Result[Int]) -> Str { if let Ok(selected) = outcome { selected } else { selected(outcome) } }\n";
+    assert!(has_code(&check(conflicting), "check.type-mismatch"));
 }
 
 #[test]

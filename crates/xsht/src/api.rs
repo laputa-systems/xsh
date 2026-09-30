@@ -793,6 +793,7 @@ fn render_type(ty: &Type) -> String {
     match ty {
         Type::BuiltinParameter(parameter) => parameter.label().to_string(),
         Type::Inference(_) => "<type needs an annotation>".to_string(),
+        Type::Graph(_) => "<generic type>".to_string(),
         Type::Any => "Any".to_string(),
         Type::Unknown => "Unknown".to_string(),
         Type::Invalid => "<invalid>".to_string(),

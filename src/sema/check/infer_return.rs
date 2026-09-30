@@ -26,6 +26,7 @@ impl Checker {
             match stmt.kind {
                 ArenaStmtKind::PureDef(function) => {
                     let def = program.arena.function_def(function);
+                    if self.graph_declaration(def.body).is_some() { continue; }
                     declarations.push(ReturnDeclaration {
                         name: def.name, names: vec![def.name], span: stmt.span, function: Some(function), statement, exported,
                         parameters: program.arena.params(def.params).iter().map(|param| param.name).collect(),
@@ -274,6 +275,20 @@ impl Checker {
     }
 
     pub(super) fn unify_inferred_returns(&mut self, left: Type, right: Type, span: Span) -> Type {
+        if self.current_generic.is_some() {
+            let outcome = (|| {
+                let left = self.graph_type(&left, span)?;
+                let right = self.graph_type(&right, span)?;
+                let mut state = self.generic.borrow_mut();
+                let reason = state.facts.graph.reason(span, None)?;
+                state.facts.graph.unify(left, right, reason)?;
+                Ok::<_, crate::sema::inference::InferenceError>(left)
+            })();
+            return match outcome {
+                Ok(ty) => self.graph_view(ty),
+                Err(error) => { self.graph_error(span, error); Type::Invalid }
+            };
+        }
         match unify_return_shapes(&left, &right) {
             Some(ty) => ty,
             None => {

@@ -460,7 +460,7 @@ pub(super) struct TestCall {
 
 macro_rules! build_id {
     ($name:ident) => {
-        #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+        #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
         #[repr(transparent)]
         struct $name(u32);
 
@@ -538,6 +538,13 @@ impl BuildScratch {
 
 #[derive(Clone, Debug)]
 struct FunctionBuild {
+    // The declaration selects a scheme in the program-owned solved graph.
+    solved_declaration: Option<crate::sema::check::DeclarationIdentity>,
+    // Legacy-checked declarations retain exact trees until they acquire a
+    // graph-owned signature; physical storage tags cannot reconstruct them.
+    legacy_checked_signature: Option<(Vec<Type>, Type)>,
+    // Scratch instructions keep arena identities until final instruction IDs exist.
+    expression_origins: FxHashMap<BuildExprId, crate::sema::check::ExpressionIdentity>,
     params: LoweredParamNames,
     param_kinds: LoweredParamKinds,
     param_checks: LoweredParamChecks,
@@ -567,6 +574,9 @@ struct FunctionHeader {
 
 #[derive(Clone, Debug, Default)]
 struct ProgramBuild {
+    // One retained owner covers declaration, expression, and call proof handles.
+    solved: Option<Arc<crate::sema::check::SolvedTypes>>,
+    expression_origins: FxHashMap<BuildExprId, crate::sema::check::ExpressionIdentity>,
     statements: Vec<Option<BuildTopStmtId>>,
     scratch: Rc<RefCell<BuildScratch>>,
 }
@@ -902,6 +912,14 @@ struct IndexedRootSlots {
     bindings: Vec<(LoweredTopLevelSlot, LoweredValue)>,
 }
 
+// Host record storage identifies the binding value without keeping it alive.
+// Its original lowered storage remains usable only while that backing is live.
+struct IndexedRootRecord {
+    shape: std::sync::Weak<crate::runtime::value::RecordShapeData>,
+    values: std::sync::Weak<[Value]>,
+    lowered: LoweredValue,
+}
+
 #[derive(Clone, Debug)]
 struct LoweredTopLevelBinding {
     kind: LoweredType,
@@ -927,6 +945,8 @@ enum LoweredReturnKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LoweredType {
     Any,
+    // Parameter and return storage is selected by prepared scheme evidence.
+    Generic,
     Unit,
     Int,
     Float,
@@ -2857,6 +2877,7 @@ pub struct Evaluator {
         Arc<FxHashMap<crate::runtime::value::FunctionName, ModuleExportSignature>>,
     indexed_program: Option<Arc<FullProgram>>,
     indexed_root_slots: Option<IndexedRootSlots>,
+    indexed_root_records: FxHashMap<(usize, usize), IndexedRootRecord>,
     scope_write_revision: u64,
     // Resolved indices are keyed with the program they were resolved in and
     // hold it alive, because one evaluator resolves the same qualified key
@@ -3105,6 +3126,7 @@ impl Evaluator {
             module_export_signatures: Arc::new(FxHashMap::default()),
             indexed_program: None,
             indexed_root_slots: None,
+            indexed_root_records: FxHashMap::default(),
             scope_write_revision: 0,
             indexed_function_cache: FxHashMap::default(),
             indexed_dynamic_functions: Arc::new(FxHashMap::default()),
@@ -3269,6 +3291,7 @@ impl Evaluator {
             module_export_signatures: shared.module_export_signatures.clone(),
             indexed_program: shared.indexed_program.clone(),
             indexed_root_slots: None,
+            indexed_root_records: FxHashMap::default(),
             scope_write_revision: 0,
             indexed_function_cache: FxHashMap::default(),
             indexed_dynamic_functions: shared.indexed_dynamic_functions.clone(),
@@ -6568,7 +6591,7 @@ fn standard_module_command_name(name: &str) -> Option<(&str, &str)> {
 pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
     match ty {
         Type::BuiltinParameter(_) => false,
-        Type::Inference(_) => false,
+        Type::Inference(_) | Type::Graph(_) => false,
         Type::Any | Type::Unknown | Type::Invalid => true,
         Type::Null => matches!(value, Value::Null),
         Type::Bool => matches!(value, Value::Bool(_)),
@@ -6652,7 +6675,7 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
 fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
     match ty {
         Type::BuiltinParameter(_) => false,
-        Type::Inference(_) => false,
+        Type::Inference(_) | Type::Graph(_) => false,
         Type::Any | Type::Unknown | Type::Invalid => true,
         Type::Null => matches!(value, LoweredValue::Null),
         Type::Bool => matches!(value, LoweredValue::Bool(_)),

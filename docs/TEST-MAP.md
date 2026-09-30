@@ -15,6 +15,36 @@ them to the owner and report that limit. Unfiltered `cargo test` includes
 `runtime::coverage` cases and two `runtime::examples` cases that launch
 `xsht fmt` or `xsht lint`, so agents use the filtered runtime gate below.
 
+## Declaration inference and prepared generic execution
+
+`cargo test -p xsh --lib sema::inference -- --test-threads=1` covers scoped
+identities, unification/rollback, rows/lacks, generalization, operation and
+effect requirements, bounded work, and the independent reference fragment.
+`cargo test -p xsh --lib sema::check::generic_tests` covers immutable solved
+facts, definition-owned signatures, annotated/omitted equivalence, recursive
+relationships, and exact source identities.
+
+`generic_identity_rows_and_add_use_shared_bodies_after_frontend_drop` exercises
+the ordinary checker, lowerer, mandatory verifier, and both indexed routes with
+one body per declaration. `unused_generic_forwarders_prepare_definition_owned_requirements`
+ensures forwarding metadata does not require observed concrete callers.
+The `prepared_generic_frame` filter owns call evidence across effectful
+arguments, reentry, argument failure, constructor storage, and cleanup; these
+Rust tests inspect host-owned IR and frontend disposal boundaries.
+
+Native source witnesses live in `tests/xsh/typing-inference-targets.xsh`,
+`typing-inference-rows.xsh`, `typing-inference-operations.xsh`, and
+`typing-inference-negative.xsh`. Their names distinguish simple identity,
+row projection, sealed Add, forwarding, and negative cases from the remaining
+callable-flow, nested-row, and producer integration cases. Run the relevant
+native names with the ordinary `xsht test` runner as their compiler paths are
+integrated. The whole module set is the final contract gate.
+
+Broaden verification to `cargo test -p xsh --test integration sema::` and
+`cargo test -p xsh --lib runtime::eval::indexed:: -- --test-threads=1` before
+accepting an inference checkpoint. These retain existing builtin, assertion,
+Result, local collection, loader, and indexed compatibility coverage.
+
 ## Read-only lint performance gate
 
 `make check` delegates to `cargo dev check lint`, which runs

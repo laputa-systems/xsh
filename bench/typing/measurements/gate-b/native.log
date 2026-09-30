@@ -1,0 +1,16 @@
+Frozen native cases: 10/10 passed. Nine initial passes plus the corrected single row-layout rerun.
+PASS generic_identity_payloads /tmp/xsh-gate-b-native-final/generic_identity_payloads.log
+PASS omitted_proc_bool_value /tmp/xsh-gate-b-native-final/omitted_proc_bool_value.log
+PASS generic_sealed_add_two_domains /tmp/xsh-gate-b-native-final/generic_sealed_add_two_domains.log
+PASS generic_sealed_add_forwarded_requirements /tmp/xsh-gate-b-native-final/generic_sealed_add_forwarded_requirements.log
+PASS generic_sealed_add_unsupported_domain_rejected /tmp/xsh-gate-b-native-final/generic_sealed_add_unsupported_domain_rejected.log
+PASS generic_sealed_add_mixed_domains_rejected /tmp/xsh-gate-b-native-final/generic_sealed_add_mixed_domains_rejected.log
+PASS generic_row_projection_shapes_and_field_types /tmp/xsh-gate-b-native-final/generic_row_projection_shapes_and_field_types-fixed.log
+PASS generic_row_projection_forwarded /tmp/xsh-gate-b-native-final/generic_row_projection_forwarded.log
+PASS generic_row_projection_missing_field_rejected /tmp/xsh-gate-b-native-final/generic_row_projection_missing_field_rejected.log
+PASS generic_row_projection_wrong_field_type_rejected /tmp/xsh-gate-b-native-final/generic_row_projection_wrong_field_type_rejected.log
+
+Exact final product build: /tmp/xsh-gate-b-products-row-final.log
+Checker facts17: /tmp/xsh-gate-b-facts-final17-complete2.log
+Semantic compatibility174: /tmp/xsh-gate-b-sema-final-scoped.log
+Checker production source unchanged since those passing runs; final snapshot: /tmp/xsh-gate-b-checker-source-final.sha256

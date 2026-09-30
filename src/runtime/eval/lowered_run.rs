@@ -56,6 +56,7 @@ use tempfile::TempDir;
 use xsh_root::Root;
 
 pub(in crate::runtime::eval) mod indexed_run;
+mod generic_run;
 
 #[cfg(feature = "native-tests")]
 use super::display_value;

@@ -1,4 +1,9 @@
+mod generic_prepare;
+#[cfg(test)]
+mod evidence_audit_tests;
+
 use super::semantic::{SemanticPoolBuilder, SemanticPools};
+use super::generic::{GenericReturnPlan, TypeRef, CallEvidence, GenericCheckpoint, GenericEvidenceBuilder, GenericEvidenceStore, InstantiationId, InstructionOwner, Requirement, RequirementWitness, SchemeScopeId};
 use super::{
     IR_NONE, IrBlockId, IrBuildError, IrData, IrFunctionId, IrLocation, IrLocationId, IrRange,
     IrStringId, IrVerifyError, SignatureId, TypeId,
@@ -412,7 +417,7 @@ struct FullDriverProgram {
 #[repr(C)]
 struct FullFunction {
     name: u32,
-    signature: SignatureId,
+    signature: u32,
     params: IrRange,
     captures: IrRange,
     body: u32,
@@ -435,7 +440,7 @@ struct FullBlock {
 #[repr(C)]
 struct FullParam {
     name: u32,
-    type_id: TypeId,
+    type_id: u32,
     flags: u8,
     reserved: [u8; 3],
 }
@@ -461,6 +466,19 @@ struct FullCapture {
 struct FullValidation {
     type_id: TypeId,
     name: u32,
+}
+
+// The declaration header independently preserves completion wrapping: two
+// policies can share a Result type while producing different carrier depths.
+const GENERIC_RETURN_PLAN_MASK: u8 = 0b11 << 3;
+
+const fn generic_return_plan_flags(plan: GenericReturnPlan) -> u8 {
+    match plan {
+        GenericReturnPlan::Value => 0,
+        GenericReturnPlan::Result => 1 << 3,
+        GenericReturnPlan::Unit => 2 << 3,
+        GenericReturnPlan::ResultUnit => 3 << 3,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -514,6 +532,7 @@ struct FullStore {
     run_kinds: Vec<RunKind>,
     redirection_kinds: Vec<RedirectionKind>,
     semantic: SemanticPools,
+    generic: Option<Box<GenericEvidenceStore>>,
 }
 
 impl Default for FullStore {
@@ -560,11 +579,28 @@ impl Default for FullStore {
             run_kinds: Vec::new(),
             redirection_kinds: Vec::new(),
             semantic: SemanticPools::default(),
+            generic: None,
         }
     }
 }
 
 impl FullStore {
+    fn generic_instruction_owners(&self) -> Result<Vec<Option<InstructionOwner>>, IrVerifyError> {
+        let mut owners = vec![None; self.tags.len()];
+        for index in 0..self.functions.len() {
+            let owner = InstructionOwner::Function(IrFunctionId::new(index).map_err(|_| IrVerifyError::new("generic function owner overflows"))?);
+            for instruction in self.function_instruction_range(index)? {
+                if owners[instruction].replace(owner).is_some() { return Err(IrVerifyError::new("generic function instruction ranges overlap")); }
+            }
+        }
+        for index in 0..self.driver_steps.len() {
+            let owner = InstructionOwner::Driver(u32::try_from(index).map_err(|_| IrVerifyError::new("generic driver owner overflows"))?);
+            for instruction in self.driver_instruction_range(index)? {
+                if owners[instruction].replace(owner).is_some() { return Err(IrVerifyError::new("generic driver instruction ranges overlap")); }
+            }
+        }
+        Ok(owners)
+    }
     #[inline(always)]
     fn payload(&self, range: IrRange) -> Result<&[u32], IrVerifyError> {
         let bounds = range
@@ -698,6 +734,7 @@ impl FullStore {
                 .semantic
                 .retained_bytes()
                 .saturating_sub(size_of::<SemanticPools>())
+            + self.generic.as_ref().map_or(0, |generic| generic.retained_bytes())
     }
 
     #[cfg(test)]
@@ -749,6 +786,7 @@ impl FullStore {
         self.run_kinds.shrink_to_fit();
         self.redirection_kinds.shrink_to_fit();
         self.semantic.shrink_to_fit();
+        if let Some(generic) = &mut self.generic { generic.shrink_to_fit(); }
     }
 }
 
@@ -781,6 +819,7 @@ pub(in crate::runtime::eval) struct FullProgram {
 pub(in crate::runtime::eval) struct FullFunctionView<'a> {
     program: &'a FullProgram,
     index: usize,
+    instantiation: Option<InstantiationId>,
 }
 
 #[derive(Clone, Copy)]
@@ -790,6 +829,7 @@ pub(in crate::runtime::eval) struct FullDriverStepView<'a> {
 }
 
 impl FullProgram {
+    pub(in crate::runtime::eval) fn generic_evidence(&self) -> Option<&GenericEvidenceStore> { self.store.generic.as_deref() }
     pub(in crate::runtime::eval) fn symbol_owner(&self) -> &crate::symbol::SymbolOwner {
         &self.symbols
     }
@@ -846,7 +886,7 @@ impl FullProgram {
             .ok_or_else(|| IrVerifyError::new("function parameter range is invalid"))?;
         self.store.params[params]
             .iter()
-            .map(|param| lowered_type_from_type(&self.store.semantic.to_type(param.type_id)?))
+            .map(|param| if param.type_id == IR_NONE { Ok(LoweredType::Generic) } else { lowered_type_from_type(&self.store.semantic.to_type(TypeId::from_raw(param.type_id).ok_or_else(|| IrVerifyError::new("parameter type id is invalid"))?)?) })
             .collect::<Result<Vec<_>, _>>()
             .map(Some)
     }
@@ -864,6 +904,7 @@ impl FullProgram {
             return Ok(identities.get(&(key, kind)).map(|index| FullFunctionView {
                 program: self,
                 index: *index,
+                instantiation: None,
             }));
         }
         for index in 0..self.store.functions.len() {
@@ -871,6 +912,7 @@ impl FullProgram {
                 return Ok(Some(FullFunctionView {
                     program: self,
                     index,
+                    instantiation: None,
                 }));
             }
         }
@@ -897,6 +939,7 @@ impl FullProgram {
         (index < self.store.functions.len()).then_some(FullFunctionView {
             program: self,
             index,
+            instantiation: None,
         })
     }
 
@@ -1231,6 +1274,15 @@ impl FullProgram {
 }
 
 impl<'a> FullFunctionView<'a> {
+    pub(in crate::runtime::eval) fn with_instantiation(self, id: InstantiationId) -> Result<Self, IrVerifyError> {
+        let store = self.generic_evidence().ok_or_else(|| IrVerifyError::new("generic function entry has no evidence store"))?;
+        if Some(store.instance(id)?.scope) != self.generic_scope() { return Err(IrVerifyError::new("generic function entry proof belongs to another scope")); }
+        Ok(Self { instantiation: Some(id), ..self })
+    }
+    pub(in crate::runtime::eval) fn generic_scope(&self) -> Option<SchemeScopeId> {
+        self.program.generic_evidence()?.scope_for_function(IrFunctionId::new(self.index).ok()?)
+    }
+    pub(in crate::runtime::eval) fn generic_evidence(&self) -> Option<&'a GenericEvidenceStore> { self.program.generic_evidence() }
     pub(in crate::runtime::eval) fn index(&self) -> usize {
         self.index
     }
@@ -1285,7 +1337,7 @@ impl<'a> FullFunctionView<'a> {
 
     fn decode_header(&self) -> Result<FunctionHeader, IrVerifyError> {
         let function = self.program.store.functions[self.index];
-        let decoder = self.execution()?.decoder;
+        let decoder = FullDecoder { store: &self.program.store, owner: IrFunctionId::new(self.index).map_err(|_| IrVerifyError::new("function id is invalid"))?.raw(), instruction_range: self.program.store.function_instruction_range(self.index)?, instruction_states: None, block_states: None, slot_count: function.slot_count, pattern_ceiling: Cell::new(usize::MAX), verified: true };
         let params = function
             .params
             .bounds(self.program.store.params.len())
@@ -1309,9 +1361,10 @@ impl<'a> FullFunctionView<'a> {
                 .ok()
                 .map(|index| self.program.store.param_cold[index]);
             param_names.push(Name::intern(self.program.store.string(param.name)?));
-            param_kinds.push(lowered_type_from_type(
-                &self.program.store.semantic.to_type(param.type_id)?,
-            )?);
+            param_kinds.push(if param.type_id == IR_NONE {
+                if self.generic_scope().is_none() { return Err(IrVerifyError::new("generic parameter lacks a scope")); }
+                LoweredType::Generic
+            } else { lowered_type_from_type(&self.program.store.semantic.to_type(TypeId::from_raw(param.type_id).ok_or_else(|| IrVerifyError::new("parameter type id is invalid"))?)?)? });
             param_checks.push(if cold.is_none_or(|cold| cold.validation == IR_NONE) {
                 None
             } else {
@@ -1350,18 +1403,16 @@ impl<'a> FullFunctionView<'a> {
                 mutable: capture.slot_and_flags & (1 << 31) != 0,
             });
         }
-        let return_type = self.program.store.semantic.to_type(
-            self.program
-                .store
-                .semantic
-                .signature_return_type(function.signature)?,
-        )?;
-        let return_check = return_type.has_unsigned_constraint().then(|| LoweredTypeCheck {
-            name: Arc::from(return_type.to_string()), ty: return_type.clone(), schema: None,
-        });
-        let return_kind = match return_type {
-            Type::Result(ok, _) => LoweredReturnKind::Result(lowered_type_from_type(&ok)?),
-            ty => LoweredReturnKind::Plain(lowered_type_from_type(&ty)?),
+        let (return_kind, return_check) = if function.signature == IR_NONE {
+            let scope = self.generic_scope().ok_or_else(|| IrVerifyError::new("generic signature lacks a scope"))?;
+            let plan = self.generic_evidence().ok_or_else(|| IrVerifyError::new("generic signature lacks evidence"))?.scope(scope)?.return_plan;
+            (match plan { GenericReturnPlan::Value => LoweredReturnKind::Plain(LoweredType::Generic), GenericReturnPlan::Result | GenericReturnPlan::ResultUnit => LoweredReturnKind::Result(LoweredType::Generic), GenericReturnPlan::Unit => LoweredReturnKind::Plain(LoweredType::Unit) }, None)
+        } else {
+            let signature = SignatureId::from_raw(function.signature).ok_or_else(|| IrVerifyError::new("function signature id is invalid"))?;
+            let return_type = self.program.store.semantic.to_type(self.program.store.semantic.signature_return_type(signature)?)?;
+            let return_check = return_type.has_unsigned_constraint().then(|| LoweredTypeCheck { name: Arc::from(return_type.to_string()), ty: return_type.clone(), schema: None });
+            let return_kind = match return_type { Type::Result(ok, _) => LoweredReturnKind::Result(lowered_type_from_type(&ok)?), ty => LoweredReturnKind::Plain(lowered_type_from_type(&ty)?) };
+            (return_kind, return_check)
         };
         Ok(FunctionHeader {
             params: param_names,
@@ -1377,8 +1428,10 @@ impl<'a> FullFunctionView<'a> {
     }
 
     pub(in crate::runtime::eval) fn execution(&self) -> Result<FullExecution<'a>, IrVerifyError> {
+        if self.generic_scope().is_some() && self.instantiation.is_none() { return Err(IrVerifyError::new("generic function entry lacks prepared evidence")); }
         let function = self.program.store.functions[self.index];
         Ok(FullExecution {
+            instantiation: self.instantiation,
             decoder: FullDecoder {
                 store: &self.program.store,
                 owner: IrFunctionId::new(self.index)
@@ -1435,6 +1488,7 @@ impl<'a> FullDriverStepView<'a> {
     pub(in crate::runtime::eval) fn execution(&self) -> Result<FullExecution<'a>, IrVerifyError> {
         let step = self.program.store.driver_steps[self.index];
         Ok(FullExecution {
+            instantiation: None,
             decoder: FullDecoder {
                 store: &self.program.store,
                 owner: driver_owner(self.index)
@@ -1526,12 +1580,21 @@ struct FullCheckpoint {
     run_kinds: usize,
     redirection_kinds: usize,
     semantic: super::semantic::SemanticCheckpoint,
+    generic: Option<GenericCheckpoint>,
+    generic_expression_rows: usize,
 }
 
 #[derive(Default)]
 pub(in crate::runtime::eval) struct FullBuilder {
     store: FullStore,
     semantic: SemanticPoolBuilder,
+    generic: Option<GenericEvidenceBuilder>,
+    solved: Option<Arc<crate::sema::check::SolvedTypes>>,
+    generic_declarations: BTreeMap<crate::sema::check::DeclarationIdentity, SchemeScopeId>,
+    generic_schemes: FxHashMap<SchemeScopeId, crate::sema::inference::SchemeId>,
+    generic_projection_uses: BTreeMap<crate::sema::check::ExpressionIdentity, (SchemeScopeId, u32)>,
+    active_expression_origins: FxHashMap<BuildExprId, crate::sema::check::ExpressionIdentity>,
+    generic_expression_rows: Vec<(u32, crate::sema::check::ExpressionIdentity, InstructionOwner)>,
     strings: BTreeMap<String, IrStringId>,
     bytes: BTreeMap<Vec<u8>, super::IrBytesId>,
     locations: BTreeMap<(SourceId, u32, u32), IrLocationId>,
@@ -1544,6 +1607,9 @@ pub(in crate::runtime::eval) struct FullBuilder {
 }
 
 impl FullBuilder {
+    pub(in crate::runtime::eval) fn generic_evidence_mut(&mut self) -> &mut GenericEvidenceBuilder { self.generic.get_or_insert_with(GenericEvidenceBuilder::default) }
+    pub(in crate::runtime::eval) fn generic_function_id(&self, function: LoweredFunctionKey) -> Option<IrFunctionId> { self.function_ids.get(&function).copied() }
+    pub(in crate::runtime::eval) fn intern_generic_ground_type(&mut self, ty: &Type) -> Result<TypeId, IrBuildError> { self.semantic.intern_type(&mut self.store.semantic, ty) }
     fn new(source_id: SourceId) -> Self {
         Self {
             store: FullStore {
@@ -1637,6 +1703,12 @@ impl FullBuilder {
         sources: Arc<SourceMap>,
         symbols: crate::symbol::SymbolOwner,
     ) -> Result<FullProgram, IrBuildError> {
+        self.prepare_generic_expressions()?;
+        if let Some(generic) = self.generic.take() {
+            let owners = self.store.generic_instruction_owners().map_err(|_| IrBuildError::format("generic_instruction_owners", None, 0, 0))?;
+            self.store.generic = Some(Box::new(generic.finish(&self.store.semantic, self.store.functions.len(), &owners)
+                .map_err(|_| IrBuildError::format("generic_evidence_verification", None, 0, 0))?));
+        }
         self.store.shrink_to_fit();
         let headers = (0..self.store.functions.len())
             .map(|_| std::sync::OnceLock::new())
@@ -1734,6 +1806,7 @@ impl FullBuilder {
         symbols: crate::symbol::SymbolOwner,
     ) -> Result<FullProgram, IrBuildError> {
         let mut builder = Self::new(source_id);
+        builder.solved = Some(Arc::clone(&bodies.solved));
         builder.reserve_function_keys(super::super::lower::compact_function_keys(program))?;
         let mut pures = rustc_hash::FxHashSet::default();
         let mut procs = rustc_hash::FxHashSet::default();
@@ -1856,11 +1929,36 @@ impl FullBuilder {
                 .map(|name| self.intern_string(&name.as_str()))
                 .transpose()?
                 .map_or(IR_NONE, IrStringId::raw);
+            let generic_scope = self.prepare_generic_scope(function_id, &body)?;
+            let generic_parameters = generic_scope.map(|scope| self.generic.as_ref().expect("scope has builder").scope(scope).expect("scope was prepared").parameters.clone());
+            let grounded_signature = if generic_scope.is_none() {
+                if let (Some(identity), Some(solved)) = (body.solved_declaration, self.solved.as_ref()) {
+                    let declaration = solved.declarations.get(&identity).ok_or_else(|| IrBuildError::format("missing_ground_declaration", None, 0, 0))?;
+                    let signature = solved.graph.resolved(declaration.signature).map_err(|_| IrBuildError::format("invalid_ground_signature", None, 0, 0))?;
+                    let crate::sema::inference::TypeNode::Arrow(arrow) = solved.graph.node(signature).map_err(|_| IrBuildError::format("invalid_ground_signature", None, 0, 0))? else { return Err(IrBuildError::format("invalid_ground_signature", None, 0, 0)); };
+                    let parameters = arrow.params.iter().map(|parameter| super::generic::graph_ground_type(&solved.graph, parameter.ty).map_err(|_| IrBuildError::format("unresolved_ground_parameter", None, 0, 0))).collect::<Result<Vec<_>, _>>()?;
+                    let result = super::generic::graph_ground_type(&solved.graph, arrow.result).map_err(|_| IrBuildError::format("unresolved_ground_result", None, 0, 0))?;
+                    Some((parameters, result))
+                } else if body.solved_declaration.is_none() {
+                    body.legacy_checked_signature.clone()
+                } else {
+                    return Err(IrBuildError::format("missing_ground_signature_owner", None, 0, 0));
+                }
+            } else { None };
+            if let Some((parameters, _)) = &grounded_signature {
+                if parameters.len() != body.params.len() || body.param_kinds.len() != body.params.len() || body.param_defaults.len() != body.params.len() || body.param_rest.len() != body.params.len() || body.param_checks.len() != body.params.len() {
+                    return Err(IrBuildError::format("ground_parameter_arity", None, 0, 0));
+                }
+                for (index, ty) in parameters.iter().enumerate() {
+                    let kind = lowered_type_from_type(&executable_type(ty)).map_err(|_| IrBuildError::format("ground_parameter_storage", None, 0, 0))?;
+                    if kind != body.param_kinds[index] { return Err(IrBuildError::format("ground_parameter_storage", None, 0, 0)); }
+                }
+            }
             let params_start = self.store.params.len();
             let captures_start = self.store.captures.len();
             let mut signature_params = Vec::with_capacity(body.params.len());
             for (index, name) in body.params.iter().copied().enumerate() {
-                let type_id = self.intern_lowered_type(body.param_kinds[index])?;
+                let type_id = if let Some(parameters) = &generic_parameters { match parameters.get(index).copied().ok_or_else(|| IrBuildError::format("generic_parameter_arity", None, 0, 0))? { TypeRef::Ground(ty) => ty.raw(), TypeRef::Rigid(_) | TypeRef::Template(_) => IR_NONE } } else if let Some((parameters, _)) = &grounded_signature { self.semantic.intern_type(&mut self.store.semantic, parameters.get(index).ok_or_else(|| IrBuildError::format("ground_parameter_arity", None, 0, 0))?)?.raw() } else { self.intern_lowered_type(body.param_kinds[index])?.raw() };
                 let default = body.param_defaults[index]
                     .as_ref()
                     .filter(|value| !matches!(value, LoweredValue::OmittedArgument))
@@ -1891,7 +1989,7 @@ impl FullBuilder {
                         validation,
                     });
                 }
-                signature_params.push((name, type_id, u32::from(flags & 0b11)));
+                if let Some(type_id) = TypeId::from_raw(type_id) { signature_params.push((name, type_id, u32::from(flags & 0b11))); }
             }
             for capture in &body.captures {
                 let slot = u32::try_from(capture.slot)
@@ -1904,15 +2002,10 @@ impl FullBuilder {
                     slot_and_flags: slot | u32::from(capture.mutable) << 31,
                 });
             }
-            let return_type = if let Some(check) = &body.return_check {
-                self.semantic.intern_type(&mut self.store.semantic, &executable_type(&check.ty))?
-            } else { self.intern_return_type(body.return_kind)? };
-            let signature = self.semantic.intern_signature_parts(
-                &mut self.store.semantic,
-                &signature_params,
-                return_type,
-                None,
-            )?;
+            let signature = if generic_scope.is_some() { IR_NONE } else {
+                let return_type = if let Some((_, result)) = &grounded_signature { self.semantic.intern_type(&mut self.store.semantic, result)? } else if let Some(check) = &body.return_check { self.semantic.intern_type(&mut self.store.semantic, &executable_type(&check.ty))? } else { self.intern_return_type(body.return_kind)? };
+                self.semantic.intern_signature_parts(&mut self.store.semantic, &signature_params, return_type, None)?.raw()
+            };
             let params = table_range(params_start, self.store.params.len())?;
             let captures = table_range(captures_start, self.store.captures.len())?;
             self.function_ids.insert(unit.key(), function_id);
@@ -1926,12 +2019,13 @@ impl FullBuilder {
                     .map_err(|_| IrBuildError::format("slot_overflow", None, 0, 0))?,
             });
             self.store.function_instruction_starts.push(IR_NONE);
+            let return_plan_flags = generic_scope.map(|scope| generic_return_plan_flags(self.generic.as_ref().expect("scope has builder").scope(scope).expect("scope was prepared").return_plan)).unwrap_or(0);
             self.store.function_metadata.push(FullFunctionMetadata {
                 owner,
                 flags: match unit.kind() {
                     LoweredFunctionKind::Pure => 0,
                     LoweredFunctionKind::Proc => 1,
-                } | u8::from(body.has_defers) << 1,
+                } | u8::from(body.has_defers) << 1 | u8::from(generic_scope.is_some()) << 2 | return_plan_flags,
                 reserved: [0; 3],
             });
             self.function_definition_spans.push(unit.definition_span());
@@ -1945,6 +2039,7 @@ impl FullBuilder {
         body: &FunctionBuild,
     ) -> Result<(), IrBuildError> {
         let instruction_start = self.store.tags.len();
+        self.active_expression_origins = body.expression_origins.clone();
         self.active_scratch = Some(body.scratch.clone());
         let mut words = self.take_payload();
         let encoded = body.body.encode(self, &mut words);
@@ -1981,6 +2076,8 @@ impl FullBuilder {
         arena: &ArenaProgram,
         allow_checker_only: bool,
     ) -> Result<(), IrBuildError> {
+        if self.solved.is_none() { self.solved = program.solved.clone(); }
+        self.active_expression_origins = program.expression_origins.clone();
         self.active_scratch = Some(program.scratch.clone());
         let result = self.encode_driver_root_with_scratch(
             program,
@@ -2653,10 +2750,22 @@ impl FullBuilder {
             run_kinds: self.store.run_kinds.len(),
             redirection_kinds: self.store.redirection_kinds.len(),
             semantic: self.semantic.checkpoint(&self.store.semantic),
+            generic: self.generic.as_ref().map(GenericEvidenceBuilder::checkpoint),
+            generic_expression_rows: self.generic_expression_rows.len(),
         }
     }
 
     fn rewind(&mut self, checkpoint: FullCheckpoint) {
+        self.generic_expression_rows.truncate(checkpoint.generic_expression_rows);
+        match checkpoint.generic {
+            Some(checkpoint) => self.generic.as_mut().expect("generic checkpoint retains its builder").rewind(checkpoint).expect("generic checkpoint belongs to this builder"),
+            None => self.generic = None,
+        }
+        if let Some(generic) = &self.generic {
+            self.generic_declarations.retain(|_, scope| generic.scope(*scope).is_ok());
+            self.generic_schemes.retain(|scope, _| generic.scope(*scope).is_ok());
+            self.generic_projection_uses.retain(|_, (scope, _)| generic.scope(*scope).is_ok());
+        } else { self.generic_declarations.clear(); self.generic_schemes.clear(); self.generic_projection_uses.clear(); }
         self.store.tags.truncate(checkpoint.tags);
         self.store.data.truncate(checkpoint.tags);
         self.store.extra.truncate(checkpoint.extra);
@@ -2809,6 +2918,7 @@ fn instruction_effects(tags: &[FullTag]) -> u32 {
 
 fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
     Ok(match ty {
+        LoweredType::Generic => return Err(IrBuildError::format("generic_type_requires_scoped_metadata", None, 0, 0)),
         LoweredType::Any => Type::Any,
         LoweredType::Unit => Type::Unit,
         LoweredType::Int => Type::Int,
@@ -2932,7 +3042,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Tag(_) => LoweredType::Tag,
         Type::Result(_, _) => LoweredType::Result,
         Type::Null | Type::Optional(_) => LoweredType::Any,
-        Type::BuiltinParameter(_) | Type::Inference(_) | Type::Invalid | Type::EnvPathList | Type::ProcessError => {
+        Type::BuiltinParameter(_) | Type::Inference(_) | Type::Graph(_) | Type::Invalid | Type::EnvPathList | Type::ProcessError => {
             return Err(IrVerifyError::new(
                 "semantic type has no lowered runtime equivalent",
             ));
@@ -2985,11 +3095,62 @@ impl<'a> FullPayload<'a> {
 
 pub(in crate::runtime::eval) struct FullExecution<'a> {
     decoder: FullDecoder<'a>,
+    instantiation: Option<InstantiationId>,
 }
 
 impl<'a> FullExecution<'a> {
+    pub(in crate::runtime::eval) fn active_instantiation(&self) -> Option<InstantiationId> { self.instantiation }
+    pub(in crate::runtime::eval) fn has_declared_result_channel(&self) -> Result<bool, IrVerifyError> {
+        let Some(owner) = IrFunctionId::from_raw(self.decoder.owner) else { return Ok(false); };
+        if let Some(scope) = self.generic_scope() {
+            let evidence = self.generic_evidence().ok_or_else(|| IrVerifyError::new("generic return channel lacks scoped evidence"))?;
+            let scope = evidence.scope(scope)?;
+            if matches!(scope.return_plan, GenericReturnPlan::Result | GenericReturnPlan::ResultUnit) { return Ok(true); }
+            return match scope.result {
+                TypeRef::Ground(ty) => Ok(self.decoder.store.semantic.type_tag(ty)? == super::semantic::TypeTag::Result),
+                TypeRef::Template(id) => Ok(matches!(evidence.template(id)?, super::generic::TypeTemplate::Result { .. })),
+                TypeRef::Rigid(_) => Ok(false),
+            };
+        }
+        let function = self.decoder.store.functions.get(owner.index()).ok_or_else(|| IrVerifyError::new("return channel function is out of bounds"))?;
+        let signature = SignatureId::from_raw(function.signature).ok_or_else(|| IrVerifyError::new("return channel lacks a fixed function signature"))?;
+        Ok(self.decoder.store.semantic.type_tag(self.decoder.store.semantic.signature_return_type(signature)?)? == super::semantic::TypeTag::Result)
+    }
+    pub(in crate::runtime::eval) fn constructor_layout(&self, instruction: u32) -> Result<Option<super::generic::PhysicalLayoutId>, IrVerifyError> {
+        if !self.decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("generic constructor belongs to another body")); }
+        let Some(store) = self.generic_evidence() else { return Ok(None); };
+        let Some(constructor) = store.constructor(instruction) else { return Ok(None); };
+        store.layout(constructor.layout)?;
+        Ok(Some(constructor.layout))
+    }
+    pub(in crate::runtime::eval) fn requirement_witness(&self, instruction: u32) -> Result<Option<RequirementWitness>, IrVerifyError> {
+        let Some(store) = self.generic_evidence() else { return Ok(None); };
+        let Some(use_) = store.requirement_use(instruction) else { return Ok(None); };
+        if Some(use_.scope) != self.generic_scope() { return Err(IrVerifyError::new("generic requirement use belongs to another function scope")); }
+        let instance = store.instance(self.instantiation.ok_or_else(|| IrVerifyError::new("generic requirement use lacks frame evidence"))?)?;
+        if instance.scope != use_.scope { return Err(IrVerifyError::new("generic requirement frame proof belongs to another scope")); }
+        instance.requirements.get(use_.requirement as usize).copied().map(Some).ok_or_else(|| IrVerifyError::new("generic requirement witness is missing"))
+    }
+    pub(in crate::runtime::eval) fn call_instantiation(&self, instruction: u32) -> Result<Option<InstantiationId>, IrVerifyError> {
+        let Some(store) = self.generic_evidence() else { return Ok(None); };
+        let Some(call) = store.call(instruction) else { return Ok(None); };
+        if !self.decoder.instruction_range.contains(&(instruction as usize)) { return Err(IrVerifyError::new("generic call proof lies outside its caller body")); }
+        let id = match call.evidence {
+            CallEvidence::Ground(instance) => instance,
+            CallEvidence::Forwarded(plan) => store.forwarded_instance(plan, self.instantiation.ok_or_else(|| IrVerifyError::new("generic forwarding call lacks frame evidence"))?)?,
+        };
+        if store.instance(id)?.scope != call.target { return Err(IrVerifyError::new("generic call proof targets another scope")); }
+        Ok(Some(id))
+    }
+    pub(in crate::runtime::eval) fn generic_evidence(&self) -> Option<&'a GenericEvidenceStore> { self.decoder.store.generic.as_deref() }
+    pub(in crate::runtime::eval) fn generic_scope(&self) -> Option<SchemeScopeId> {
+        let owner = IrFunctionId::from_raw(self.decoder.owner)?;
+        if owner.index() >= self.decoder.store.functions.len() { return None; }
+        self.generic_evidence()?.scope_for_function(owner)
+    }
     pub(in crate::runtime::eval) fn thread_local(&self) -> Self {
         Self {
+            instantiation: self.instantiation,
             decoder: FullDecoder {
                 store: self.decoder.store,
                 owner: self.decoder.owner,
@@ -3808,6 +3969,389 @@ fn indexed_stmt_can_return(store: &FullStore, instruction: usize) -> Result<bool
 }
 
 impl FullVerifier {
+    fn verify_generic_symbolic_source(store: &FullStore, generic: &GenericEvidenceStore, source: u32, scope_id: SchemeScopeId, expected: TypeRef, active: &mut Vec<u32>) -> Result<(), IrVerifyError> {
+        let scope = generic.scope(scope_id)?;
+        let range = store.function_instruction_range(scope.owner.index())?;
+        if !range.contains(&(source as usize)) || active.len() >= 256 || active.contains(&source) { return Err(IrVerifyError::new("symbolic operation source is foreign, cyclic, or too deep")); }
+        active.push(source);
+        let tag = store.tags[source as usize];
+        let words = store.payload(store.data[source as usize].range())?;
+        let valid = match tag {
+            FullTag::ExprParam => {
+                let slot = *words.first().ok_or_else(|| IrVerifyError::new("symbolic parameter source slot is missing"))? as usize;
+                if let Some(&ty) = scope.parameters.get(slot) { generic.references_equal(&store.semantic, scope_id, expected, ty)? }
+                else {
+                    for instruction in range.clone() { if matches!(store.tags[instruction], FullTag::StmtAssign | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt | FullTag::StmtAssignPath | FullTag::StmtAssignInt | FullTag::StmtAssignBool) && store.payload(store.data[instruction].range())?.first() == Some(&(slot as u32)) { return Err(IrVerifyError::new("symbolic local operand is mutable without assignment evidence")); } }
+                    let function = store.functions[scope.owner.index()];
+                    let block = IrBlockId::from_raw(function.body).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("symbolic operand body is invalid"))?;
+                    let mut initializer = None;
+                    for &instruction in store.payload(block.instructions)?.iter().skip(1) {
+                        if instruction >= source || store.tags[instruction as usize] != FullTag::StmtLet { continue; }
+                        let binding = store.payload(store.data[instruction as usize].range())?;
+                        if binding.first() == Some(&(slot as u32)) { if initializer.replace(binding[1]).is_some() { return Err(IrVerifyError::new("symbolic operand has ambiguous local bindings")); } }
+                    }
+                    Self::verify_generic_symbolic_source(store, generic, initializer.ok_or_else(|| IrVerifyError::new("symbolic local operand lacks a dominating binding"))?, scope_id, expected, active)?;
+                    true
+                }
+            }
+            FullTag::ExprCheckedValue => { Self::verify_generic_symbolic_source(store, generic, *words.first().ok_or_else(|| IrVerifyError::new("symbolic checked operand is missing"))?, scope_id, expected, active)?; true }
+            FullTag::ExprField | FullTag::ExprBinary => {
+                let use_ = generic.requirement_use(source).ok_or_else(|| IrVerifyError::new("symbolic computed operand lacks requirement evidence"))?;
+                if use_.scope != scope_id { return Err(IrVerifyError::new("symbolic operand requirement has another scope")); }
+                let result = match &scope.requirements[use_.requirement as usize] { Requirement::Add { result, .. } | Requirement::Projection { result, .. } => *result };
+                generic.references_equal(&store.semantic, scope_id, expected, result)?
+            }
+            FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall if generic.call(source).is_some() => generic.call_result_matches(&store.semantic, scope_id, source, expected)?,
+            _ => {
+                let scalar = match tag { FullTag::ExprNull => Some(Type::Null), FullTag::ExprUnit => Some(Type::Unit), FullTag::ExprInt => Some(Type::Int), FullTag::ExprFloat => Some(Type::Float), FullTag::ExprDuration => Some(Type::Duration), FullTag::ExprBool => Some(Type::Bool), FullTag::ExprStr => Some(Type::Str), _ => None };
+                if let Some(scalar) = scalar { generic.reference_equals_ground(&store.semantic, scope_id, expected, scalar)? } else { return Err(IrVerifyError::new(format!("symbolic operation source {source} ({tag:?}) lacks a prepared type proof"))); }
+            }
+        };
+        active.pop();
+        if valid { Ok(()) } else { Err(IrVerifyError::new("generic operation operand disagrees with its scoped requirement type")) }
+    }
+
+    fn verify_generic_default(store: &FullStore, generic: &GenericEvidenceStore, instance_id: InstantiationId, slot: usize) -> Result<(), IrVerifyError> {
+        let instance = generic.instance(instance_id)?;
+        let scope = generic.scope(instance.scope)?;
+        let function = store.functions[scope.owner.index()];
+        let params = function.params.bounds(store.params.len()).ok_or_else(|| IrVerifyError::new("generic default parameter range is invalid"))?;
+        let param = store.params[params.start + slot];
+        let expected = store.semantic.to_type(instance.parameter_types[slot])?;
+        if param.flags & 4 != 0 {
+            let body = IrBlockId::from_raw(function.body).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("generic default body is invalid"))?;
+            let mut source = None;
+            for &instruction in store.payload(body.instructions)?.iter().skip(1) {
+                if store.tags[instruction as usize] != FullTag::StmtDefaultParameter { break; }
+                let payload = store.payload(store.data[instruction as usize].range())?;
+                if payload.first() == Some(&(slot as u32)) { source = payload.get(1).copied(); }
+            }
+            Self::verify_generic_source(store, generic, source.ok_or_else(|| IrVerifyError::new("generic lexical default lacks its source instruction"))?, InstructionOwner::Function(scope.owner), &expected, Some(instance_id), &mut Vec::new())
+        } else {
+            let cold = store.param_cold.binary_search_by_key(&((params.start + slot) as u32), |cold| cold.param).ok().map(|index| store.param_cold[index]).ok_or_else(|| IrVerifyError::new("generic literal default is missing"))?;
+            Self::verify_generic_default_value(store, cold.default, &expected, &mut Vec::new())
+        }
+    }
+
+    fn verify_generic_default_value(store: &FullStore, value: u32, expected: &Type, active: &mut Vec<u32>) -> Result<(), IrVerifyError> {
+        let tag = *store.values.get(value as usize).ok_or_else(|| IrVerifyError::new("generic default value is out of bounds"))?;
+        if active.len() >= 256 || active.contains(&value) { return Err(IrVerifyError::new("generic default value is cyclic or too deep")); }
+        if *expected == Type::Any { return Ok(()); }
+        if let Type::Optional(inner) = expected { if tag == FullValueTag::Null { return Ok(()); } return Self::verify_generic_default_value(store, value, inner, active); }
+        active.push(value);
+        let words = store.payload(store.value_data[value as usize].range())?;
+        let scalar = match tag { FullValueTag::Null => Some(Type::Null), FullValueTag::Unit => Some(Type::Unit), FullValueTag::Int => Some(Type::Int), FullValueTag::Float => Some(Type::Float), FullValueTag::Duration => Some(Type::Duration), FullValueTag::Bool => Some(Type::Bool), FullValueTag::Str => Some(Type::Str), FullValueTag::Bytes => Some(Type::Bytes), FullValueTag::Regex => Some(Type::Regex), FullValueTag::Path => Some(Type::Path), _ => None };
+        if let Some(actual) = scalar {
+            let unsigned = actual == Type::Int && *expected == Type::UInt && words.len() == 2 && (((words[1] as u64) << 32 | words[0] as u64) as i64) >= 0;
+            if &actual != expected && !unsigned { return Err(IrVerifyError::new("generic literal default disagrees with its ground type")); }
+        } else { match (tag, expected) {
+            (FullValueTag::ResultOk, Type::Result(ok, _)) => Self::verify_generic_default_value(store, *words.first().ok_or_else(|| IrVerifyError::new("generic Result default value is missing"))?, ok, active)?,
+            (FullValueTag::List, Type::List(inner)) => {
+                let block = words.first().copied().and_then(IrBlockId::from_raw).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("generic list default block is invalid"))?;
+                for &value in store.payload(block.instructions)?.iter().skip(1) { Self::verify_generic_default_value(store, value, inner, active)?; }
+            }
+            (FullValueTag::RecordVec, Type::Record(fields)) => {
+                let block = words.first().copied().and_then(IrBlockId::from_raw).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("generic record default block is invalid"))?;
+                let values = store.payload(block.instructions)?;
+                if values.first().copied() != Some(fields.len() as u32) || values.len() != 1 + fields.len() * 2 { return Err(IrVerifyError::new("generic record default has the wrong width")); }
+                for (entry, (&name, ty)) in values[1..].chunks_exact(2).zip(fields) {
+                    if Name::from_symbol(Symbol::from_raw(entry[0])) != name { return Err(IrVerifyError::new("generic record default lacks canonical physical field order")); }
+                    Self::verify_generic_default_value(store, entry[1], ty, active)?;
+                }
+            }
+            (FullValueTag::Record | FullValueTag::RecordVec | FullValueTag::Stats | FullValueTag::StatsBlob, Type::ErasedRecord) | (FullValueTag::Module, Type::DynamicModule) => {},
+            _ => return Err(IrVerifyError::new("generic literal default lacks an independently prepared type proof")),
+        } }
+        active.pop();
+        Ok(())
+    }
+
+    fn verify_generic_source(store: &FullStore, generic: &GenericEvidenceStore, source: u32, owner: InstructionOwner, expected: &Type, instance: Option<InstantiationId>, active: &mut Vec<u32>) -> Result<(), IrVerifyError> {
+        let range = match owner { InstructionOwner::Function(function) => store.function_instruction_range(function.index())?, InstructionOwner::Driver(step) => store.driver_instruction_range(step as usize)? };
+        if !range.contains(&(source as usize)) || active.len() >= 256 || active.contains(&source) { return Err(IrVerifyError::new("generic argument source is foreign, cyclic, or too deep")); }
+        if *expected == Type::Any { return Ok(()); }
+        active.push(source);
+        let tag = store.tags[source as usize];
+        let words = store.payload(store.data[source as usize].range())?;
+        let child = |index: usize| words.get(index).copied().ok_or_else(|| IrVerifyError::new("generic source child is missing"));
+        let scalar = match tag {
+            FullTag::ExprNull => Some(Type::Null), FullTag::ExprUnit => Some(Type::Unit), FullTag::ExprInt => Some(Type::Int), FullTag::ExprFloat => Some(Type::Float), FullTag::ExprDuration => Some(Type::Duration), FullTag::ExprBool => Some(Type::Bool), FullTag::ExprStr => Some(Type::Str), FullTag::ExprBytes => Some(Type::Bytes), FullTag::ExprPreparedRegex => Some(Type::Regex), FullTag::ExprPath | FullTag::ExprPathFrom => Some(Type::Path), _ => None,
+        };
+        let expected = if let Type::Optional(inner) = expected && (scalar.is_some() || matches!(tag, FullTag::ExprRecord | FullTag::ExprList | FullTag::ExprOk | FullTag::ExprErr)) { if tag == FullTag::ExprNull { active.pop(); return Ok(()); } inner.as_ref() } else { expected };
+        if let Some(actual) = scalar {
+            let unsigned_literal = actual == Type::Int && *expected == Type::UInt && tag == FullTag::ExprInt && words.len() == 2 && (((words[1] as u64) << 32 | words[0] as u64) as i64) >= 0;
+            if &actual != expected && !unsigned_literal { return Err(IrVerifyError::new("generic argument type disagrees with literal source")); }
+        } else { match tag {
+            FullTag::ExprCheckedValue => Self::verify_generic_source(store, generic, child(0)?, owner, expected, instance, active)?,
+            FullTag::ExprRecord => {
+                let constructor = generic.constructor(source).ok_or_else(|| IrVerifyError::new("generic record argument lacks constructor layout evidence"))?;
+                let layout = generic.layout(constructor.layout)?;
+                if store.semantic.to_type(layout.record_type)? != *expected { return Err(IrVerifyError::new("generic record argument disagrees with its constructor type")); }
+                let block = IrBlockId::from_raw(child(0)?).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("generic record source block is invalid"))?;
+                let fields = store.payload(block.instructions)?;
+                let Type::Record(types) = expected else { return Err(IrVerifyError::new("generic record argument expected a non-record")); };
+                for field in fields.get(1..).ok_or_else(|| IrVerifyError::new("generic record fields are missing"))?.chunks_exact(3) {
+                    if field[0] != 0 { return Err(IrVerifyError::new("generic record argument has an unprepared spread")); }
+                    let name = Name::from_symbol(Symbol::from_raw(field[1]));
+                    let ty = types.get(&name).ok_or_else(|| IrVerifyError::new("generic record source has an unexpected field"))?;
+                    Self::verify_generic_source(store, generic, field[2], owner, ty, instance, active)?;
+                }
+            }
+            FullTag::ExprList => {
+                let Type::List(inner) = expected else { return Err(IrVerifyError::new("generic list argument expected a non-list")); };
+                let block = IrBlockId::from_raw(child(0)?).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("generic list source block is invalid"))?;
+                for &item in store.payload(block.instructions)?.get(1..).ok_or_else(|| IrVerifyError::new("generic list values are missing"))? { Self::verify_generic_source(store, generic, item, owner, inner, instance, active)?; }
+            }
+            FullTag::ExprOk => {
+                let Type::Result(ok, _) = expected else { return Err(IrVerifyError::new("generic Result argument expected a non-Result")); };
+                Self::verify_generic_source(store, generic, child(0)?, owner, ok, instance, active)?;
+            }
+            FullTag::ExprErr => {
+                let Type::Result(_, error) = expected else { return Err(IrVerifyError::new("generic error argument expected a non-Result")); };
+                Self::verify_generic_source(store, generic, child(0)?, owner, error, instance, active)?;
+            }
+            FullTag::ExprError => {
+                let family = if words.first() == Some(&1) { Some(Name::intern(store.string(child(1)?)?)) } else { None };
+                let variant = if family.is_some() { Some(Name::intern(store.string(child(2)?)?)) } else { None };
+                let valid = match expected {
+                    Type::Error => matches!(words.first(), Some(0 | 1)),
+                    Type::ErrorFamily(name) => family == Some(*name),
+                    Type::ErrorVariant { family: name, variant: tag } => family == Some(*name) && variant == Some(*tag),
+                    _ => false,
+                };
+                if !valid { return Err(IrVerifyError::new("generic error constructor disagrees with its nominal carrier")); }
+            }
+            FullTag::ExprRequire => {
+                let Type::Result(ok, error) = expected else { return Err(IrVerifyError::new("generic validation producer expected a non-Result carrier")); };
+                let ty = TypeId::from_raw(child(1)?).ok_or_else(|| IrVerifyError::new("generic validation producer type is invalid"))?;
+                if store.semantic.to_type(ty)? != **ok || **error != Type::Error { return Err(IrVerifyError::new("generic validation producer disagrees with its checked success type")); }
+            }
+            FullTag::ExprEmptyMap => {
+                if !matches!(expected, Type::Map(_, _)) { return Err(IrVerifyError::new("generic empty map source expected a non-map")); }
+            }
+            FullTag::ExprTry => {
+                let producer = child(0)?;
+                let producer_tag = *store.tags.get(producer as usize).ok_or_else(|| IrVerifyError::new("generic propagation producer is out of bounds"))?;
+                let carrier = if let Some(call) = generic.call(producer) {
+                    let id = match call.evidence { CallEvidence::Ground(id) => id, CallEvidence::Forwarded(plan) => generic.forwarded_instance(plan, instance.ok_or_else(|| IrVerifyError::new("generic propagated call lacks a frame proof"))?)? };
+                    store.semantic.to_type(generic.instance(id)?.result_type)?
+                } else if matches!(producer_tag, FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall) {
+                    let target = if producer_tag == FullTag::ExprSelfCall { match owner { InstructionOwner::Function(function) => function, _ => return Err(IrVerifyError::new("generic propagation self call has no owner")) } } else {
+                        let payload = store.payload(store.data[producer as usize].range())?;
+                        IrFunctionId::from_raw(*payload.first().ok_or_else(|| IrVerifyError::new("generic propagation call target is missing"))?).ok_or_else(|| IrVerifyError::new("generic propagation call target is invalid"))?
+                    };
+                    let callable = store.functions.get(target.index()).ok_or_else(|| IrVerifyError::new("generic propagation call target is out of bounds"))?;
+                    let signature = SignatureId::from_raw(callable.signature).ok_or_else(|| IrVerifyError::new("generic propagation producer lacks scoped evidence"))?;
+                    store.semantic.to_type(store.semantic.signature_return_type(signature)?)?
+                } else if producer_tag == FullTag::ExprRequire {
+                    let payload = store.payload(store.data[producer as usize].range())?;
+                    let ty = TypeId::from_raw(*payload.get(1).ok_or_else(|| IrVerifyError::new("generic validation producer lacks a checked type"))?).ok_or_else(|| IrVerifyError::new("generic validation producer type is invalid"))?;
+                    Type::Result(Box::new(store.semantic.to_type(ty)?), Box::new(Type::Error))
+                } else { return Err(IrVerifyError::new(format!("generic propagation producer {producer} ({producer_tag:?}) requires a prepared carrier type"))); };
+                let Type::Result(ok, _) = &carrier else { return Err(IrVerifyError::new("generic propagation producer lacks a Result carrier")); };
+                if ok.as_ref() != expected { return Err(IrVerifyError::new("generic propagated success type disagrees with argument type")); }
+                Self::verify_generic_source(store, generic, producer, owner, &carrier, instance, active)?;
+            }
+            FullTag::ExprParam => {
+                let slot = child(0)? as usize;
+                match owner {
+                    InstructionOwner::Function(function) => {
+                        let callable = &store.functions[function.index()];
+                        if slot < callable.params.len as usize {
+                            let actual = if let Some(scope) = generic.scope_for_function(function) {
+                                if let Some(instance) = instance { let instance = generic.instance(instance)?; if instance.scope != scope { return Err(IrVerifyError::new("generic source parameter instance is foreign")); } store.semantic.to_type(instance.parameter_types[slot])? }
+                                else { let TypeRef::Ground(ty) = generic.scope(scope)?.parameters[slot] else { return Err(IrVerifyError::new("generic source parameter lacks a concrete frame proof")); }; store.semantic.to_type(ty)? }
+                            } else { let params = callable.params.bounds(store.params.len()).ok_or_else(|| IrVerifyError::new("generic source parameter range is invalid"))?; let ty = TypeId::from_raw(store.params[params.start + slot].type_id).ok_or_else(|| IrVerifyError::new("generic source parameter has no ground type"))?; store.semantic.to_type(ty)? };
+                            if actual != *expected { return Err(IrVerifyError::new("generic argument disagrees with source parameter type")); }
+                        } else {
+                            for instruction in range.clone() { if matches!(store.tags[instruction], FullTag::StmtAssign | FullTag::StmtAssignField | FullTag::StmtAssignFieldInt | FullTag::StmtAssignPath | FullTag::StmtAssignInt | FullTag::StmtAssignBool) && store.payload(store.data[instruction].range())?.first() == Some(&(slot as u32)) { return Err(IrVerifyError::new("generic local source is mutable and lacks a prepared assignment proof")); } }
+                            let block = IrBlockId::from_raw(callable.body).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("generic local source body is invalid"))?;
+                            let mut initializer = None;
+                            for &instruction in store.payload(block.instructions)?.iter().skip(1) {
+                                if instruction >= source || store.tags[instruction as usize] != FullTag::StmtLet { continue; }
+                                let binding = store.payload(store.data[instruction as usize].range())?;
+                                if binding.first() == Some(&(slot as u32)) { if initializer.replace(binding[1]).is_some() { return Err(IrVerifyError::new("generic local source has ambiguous bindings")); } }
+                            }
+                            let initializer = initializer.ok_or_else(|| IrVerifyError::new("generic local source lacks a dominating prepared binding"))?;
+                            Self::verify_generic_source(store, generic, initializer, owner, expected, instance, active)?;
+                        }
+                    }
+                    InstructionOwner::Driver(step) => {
+                        let slots = store.driver_steps[step as usize].slots.bounds(store.driver_slots.len()).ok_or_else(|| IrVerifyError::new("generic driver source slots are invalid"))?;
+                        let binding = store.driver_slots[slots].iter().find(|binding| binding.slot as usize == slot).ok_or_else(|| IrVerifyError::new("generic driver source has no lexical binding"))?;
+                        if binding.flags & DRIVER_SLOT_MUTABLE != 0 { return Err(IrVerifyError::new("generic driver source is mutable and lacks assignment proof")); }
+                        let program = store.driver_programs.iter().find(|program| program.steps.bounds(store.driver_steps.len()).is_some_and(|steps| steps.contains(&(step as usize)))).ok_or_else(|| IrVerifyError::new("generic driver source has no program owner"))?;
+                        let mut initializer = None;
+                        for index in program.steps.start as usize..step as usize {
+                            let previous = store.driver_steps[index];
+                            if !matches!(previous.tag, FullDriverTag::Let | FullDriverTag::Assign) { continue; }
+                            let payload = store.payload(previous.data.range())?;
+                            if payload.first().copied().map(|raw| Name::from_symbol(Symbol::from_raw(raw))) != Some(Name::intern(store.string(binding.name)?)) { continue; }
+                            if previous.tag == FullDriverTag::Assign || initializer.is_some() { return Err(IrVerifyError::new("generic driver source has an assignment or ambiguous binding")); }
+                            let decoder = FullDecoder { store, owner: driver_owner(index).map_err(|_| IrVerifyError::new("generic driver source owner is invalid"))?, instruction_range: store.driver_instruction_range(index)?, instruction_states: None, block_states: None, slot_count: previous.slot_count, pattern_ceiling: Cell::new(usize::MAX), verified: true };
+                            let mut payload = FullCursor::new(payload);
+                            Name::decode(&decoder, &mut payload)?; Option::<LoweredType>::decode(&decoder, &mut payload)?; Option::<LoweredTypeCheck>::decode(&decoder, &mut payload)?;
+                            if bool::decode(&decoder, &mut payload)? { return Err(IrVerifyError::new("generic driver initializer is mutable")); }
+                            initializer = Some((index, payload.raw()?));
+                        }
+                        let (index, initializer) = initializer.ok_or_else(|| IrVerifyError::new("generic driver source lacks a prepared initializer"))?;
+                        Self::verify_generic_source(store, generic, initializer, InstructionOwner::Driver(index as u32), expected, None, active)?;
+                    }
+                }
+            }
+            FullTag::ExprCall | FullTag::ExprDirectPureCall | FullTag::ExprSelfCall => {
+                let Some(call) = generic.call(source) else {
+                    let target = if tag == FullTag::ExprSelfCall { match owner { InstructionOwner::Function(function) => function, InstructionOwner::Driver(_) => return Err(IrVerifyError::new("generic source self call has no function owner")) } } else { IrFunctionId::from_raw(child(0)?).ok_or_else(|| IrVerifyError::new("generic source call target is invalid"))? };
+                    let function = store.functions.get(target.index()).ok_or_else(|| IrVerifyError::new("generic source call target is out of bounds"))?;
+                    let signature = SignatureId::from_raw(function.signature).ok_or_else(|| IrVerifyError::new("generic source call lacks scoped evidence"))?;
+                    if store.semantic.to_type(store.semantic.signature_return_type(signature)?)? != *expected { return Err(IrVerifyError::new("generic argument disagrees with fixed producer result type")); }
+                    active.pop();
+                    return Ok(());
+                };
+
+                let instance = match call.evidence { CallEvidence::Ground(id) => id, CallEvidence::Forwarded(plan) => generic.forwarded_instance(plan, instance.ok_or_else(|| IrVerifyError::new("generic argument forwarding result lacks a frame proof"))?)? };
+                if store.semantic.to_type(generic.instance(instance)?.result_type)? != *expected { return Err(IrVerifyError::new("generic argument call result disagrees with prepared type")); }
+            }
+            FullTag::ExprField | FullTag::ExprBinary => {
+                if tag == FullTag::ExprBinary && generic.requirement_use(source).is_none() {
+                    let operation = words.first().and_then(|index| store.binary_ops.get(*index as usize)).ok_or_else(|| IrVerifyError::new("generic arithmetic source operator is invalid"))?;
+                    let supported = match expected { Type::Int => matches!(operation, BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem), Type::Float => matches!(operation, BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div), Type::Str | Type::List(_) => *operation == BinaryOp::Add, _ => false };
+                    if !supported { return Err(IrVerifyError::new("generic arithmetic source lacks a supported fixed contract")); }
+                    Self::verify_generic_source(store, generic, child(1)?, owner, expected, instance, active)?;
+                    Self::verify_generic_source(store, generic, child(2)?, owner, expected, instance, active)?;
+                    active.pop();
+                    return Ok(());
+                }
+                let use_ = generic.requirement_use(source).ok_or_else(|| IrVerifyError::new("generic computed argument lacks solved operation evidence"))?;
+                let instance = generic.instance(instance.ok_or_else(|| IrVerifyError::new("generic computed argument lacks a frame proof"))?)?;
+                if instance.scope != use_.scope { return Err(IrVerifyError::new("generic computed argument proof is foreign")); }
+                let result = match instance.requirements[use_.requirement as usize] { RequirementWitness::Projection { result, .. } | RequirementWitness::Add { result, .. } => result };
+                if store.semantic.to_type(result)? != *expected { return Err(IrVerifyError::new("generic computed argument disagrees with operation result type")); }
+            }
+            _ => return Err(IrVerifyError::new(format!("generic argument source {source} ({tag:?}) requires an independently prepared type proof"))),
+        } }
+        active.pop();
+        Ok(())
+    }
+
+    fn verify_generic_evidence(store: &FullStore) -> Result<(), IrVerifyError> {
+        let Some(generic) = store.generic.as_deref() else { return Ok(()); };
+        let owners = store.generic_instruction_owners()?;
+        generic.verify(&store.semantic, store.functions.len(), &owners)?;
+        for (_, scope) in generic.scopes() {
+            let function = &store.functions[scope.owner.index()];
+            if function.params.len as usize != scope.parameters.len() { return Err(IrVerifyError::new("generic scheme parameters disagree with function header")); }
+            let metadata = store.function_metadata[scope.owner.index()];
+            if function.signature != IR_NONE || metadata.flags & 4 == 0 || (metadata.flags & 1 != 0) != (scope.kind == super::generic::CallableKind::Proc) { return Err(IrVerifyError::new("generic scheme kind disagrees with function header")); }
+            if metadata.flags & GENERIC_RETURN_PLAN_MASK != generic_return_plan_flags(scope.return_plan) { return Err(IrVerifyError::new("generic return plan disagrees with declaration header")); }
+            let params = function.params.bounds(store.params.len()).ok_or_else(|| IrVerifyError::new("generic parameter range is invalid"))?;
+            for (index, param) in store.params[params].iter().enumerate() {
+                if Name::intern(store.string(param.name)?) != scope.parameter_names[index] || param.flags != scope.parameter_flags[index] { return Err(IrVerifyError::new("generic scheme labels or argument modes disagree with header")); }
+                let expected = match scope.parameters[index] { TypeRef::Ground(ty) => ty.raw(), TypeRef::Rigid(_) | TypeRef::Template(_) => IR_NONE };
+                if param.type_id != expected { return Err(IrVerifyError::new("generic parameter storage disagrees with scoped type")); }
+            }
+        }
+        for call in generic.calls() {
+            let instruction = call.instruction as usize;
+            let words = store.payload(store.data[instruction].range())?;
+            let target = match store.tags[instruction] {
+                FullTag::ExprCall | FullTag::ExprDirectPureCall => words.first().copied(),
+                FullTag::ExprSelfCall => match call.caller { InstructionOwner::Function(owner) => Some(owner.raw()), InstructionOwner::Driver(_) => None },
+                _ => return Err(IrVerifyError::new("generic call evidence is attached to a non-call instruction")),
+            };
+            if target != Some(generic.scope(call.target)?.owner.raw()) {
+                return Err(IrVerifyError::new("generic call evidence disagrees with encoded target"));
+            }
+        }
+        for call in generic.calls() {
+            let words = store.payload(store.data[call.instruction as usize].range())?;
+            let args_index = if store.tags[call.instruction as usize] == FullTag::ExprSelfCall { 0 } else { 1 };
+            let args_block = words.get(args_index).copied().and_then(IrBlockId::from_raw).and_then(|id| store.blocks.get(id.index())).ok_or_else(|| IrVerifyError::new("generic call arguments block is invalid"))?;
+            let args = store.payload(args_block.instructions)?;
+            let count = args.first().copied().ok_or_else(|| IrVerifyError::new("generic call argument count is missing"))? as usize;
+            if args.len() != 1 + count.checked_mul(2).ok_or_else(|| IrVerifyError::new("generic argument count overflow"))? || count > generic.call_arguments(call.instruction).len() { return Err(IrVerifyError::new("generic call argument evidence disagrees with encoded arity")); }
+            for (index, argument) in generic.call_arguments(call.instruction).iter().enumerate() {
+                let (tag, source) = if index < count { (args[1 + index * 2], args[2 + index * 2]) } else { (2, argument.parameter) };
+                match (tag, argument.source_instruction) {
+                    (0, Some(instruction)) if instruction == source => {},
+                    (2, None) if source == argument.parameter && generic.scope(call.target)?.parameter_flags[index] & 2 != 0 => {},
+                    _ => return Err(IrVerifyError::new("generic argument evidence disagrees with encoded source")),
+                }
+                let Some(source) = argument.source_instruction else {
+                    match call.evidence {
+                        CallEvidence::Ground(instance) => Self::verify_generic_default(store, generic, instance, argument.parameter as usize)?,
+                        CallEvidence::Forwarded(plan) => for &(_, instance) in &generic.forwarding(plan)?.instances { Self::verify_generic_default(store, generic, instance, argument.parameter as usize)?; },
+                    }
+                    continue;
+                };
+                match call.evidence {
+                    CallEvidence::Ground(_) => {
+                        let TypeRef::Ground(ty) = argument.ty else { return Err(IrVerifyError::new("ground generic argument is not grounded")); };
+                        let expected = store.semantic.to_type(ty)?;
+                        if let InstructionOwner::Function(owner) = call.caller && let Some(scope) = generic.scope_for_function(owner) {
+                            let instances = generic.instances().filter(|(_, instance)| instance.scope == scope).collect::<Vec<_>>();
+                            if instances.is_empty() { Self::verify_generic_source(store, generic, source, call.caller, &expected, None, &mut Vec::new())?; }
+                            for (instance, _) in instances { Self::verify_generic_source(store, generic, source, call.caller, &expected, Some(instance), &mut Vec::new())?; }
+                        } else { Self::verify_generic_source(store, generic, source, call.caller, &expected, None, &mut Vec::new())?; }
+                    }
+                    CallEvidence::Forwarded(plan) => for &(from, _) in &generic.forwarding(plan)?.instances {
+                        let expected = generic.expand(&store.semantic, argument.ty, &generic.instance(from)?.substitutions, &mut FxHashMap::default())?;
+                        Self::verify_generic_source(store, generic, source, call.caller, &expected, Some(from), &mut Vec::new())?;
+                    },
+                }
+            }
+        }
+        for use_ in generic.requirement_uses() {
+            let instruction = use_.instruction as usize;
+            let words = store.payload(store.data[instruction].range())?;
+            let requirement = &generic.scope(use_.scope)?.requirements[use_.requirement as usize];
+            match (store.tags[instruction], requirement) {
+                (FullTag::ExprField, Requirement::Projection { receiver_parameter, field, .. }) => {
+                    let name = words.get(1).copied().ok_or_else(|| IrVerifyError::new("generic projection field is missing"))?;
+                    if Name::intern(store.string(name)?) != *field { return Err(IrVerifyError::new("generic projection evidence disagrees with encoded field")); }
+                    let base = words.first().copied().ok_or_else(|| IrVerifyError::new("generic projection receiver is missing"))? as usize;
+                    if store.tags.get(base) != Some(&FullTag::ExprParam) { return Err(IrVerifyError::new("generic projection receiver is not its prepared parameter")); }
+                    let base_words = store.payload(store.data[base].range())?;
+                    if base_words.first() != Some(receiver_parameter) { return Err(IrVerifyError::new("generic projection receiver parameter disagrees with evidence")); }
+                }
+                (FullTag::ExprBinary, Requirement::Add { .. }) => {
+                    let op = words.first().and_then(|index| store.binary_ops.get(*index as usize));
+                    if op != Some(&BinaryOp::Add) { return Err(IrVerifyError::new("generic Add evidence is attached to another binary operator")); }
+                    let Requirement::Add { left, right, .. } = requirement else { unreachable!() };
+                    let left_source = *words.get(1).ok_or_else(|| IrVerifyError::new("generic Add left operand is missing"))?;
+                    let right_source = *words.get(2).ok_or_else(|| IrVerifyError::new("generic Add right operand is missing"))?;
+                    Self::verify_generic_symbolic_source(store, generic, left_source, use_.scope, *left, &mut Vec::new())?;
+                    Self::verify_generic_symbolic_source(store, generic, right_source, use_.scope, *right, &mut Vec::new())?;
+                    for (instance_id, instance) in generic.instances().filter(|(_, instance)| instance.scope == use_.scope) {
+                        let RequirementWitness::Add { left, right, .. } = instance.requirements[use_.requirement as usize] else { return Err(IrVerifyError::new("generic Add witness has another kind")); };
+                        Self::verify_generic_source(store, generic, left_source, InstructionOwner::Function(generic.scope(use_.scope)?.owner), &store.semantic.to_type(left)?, Some(instance_id), &mut Vec::new())?;
+                        Self::verify_generic_source(store, generic, right_source, InstructionOwner::Function(generic.scope(use_.scope)?.owner), &store.semantic.to_type(right)?, Some(instance_id), &mut Vec::new())?;
+                    }
+                }
+                _ => return Err(IrVerifyError::new("generic requirement evidence is attached to the wrong instruction kind")),
+            }
+        }
+        for record in generic.constructors() {
+            let instruction = record.instruction as usize;
+            if store.tags[instruction] != FullTag::ExprRecord { return Err(IrVerifyError::new("generic physical layout is attached to a non-record constructor")); }
+            let words = store.payload(store.data[instruction].range())?;
+            let block = words.first().and_then(|raw| IrBlockId::from_raw(*raw)).and_then(|id| store.blocks.get(id.index()))
+                .ok_or_else(|| IrVerifyError::new("generic record constructor entries are missing"))?;
+            let entries = store.payload(block.instructions)?;
+            let count = entries.first().copied().ok_or_else(|| IrVerifyError::new("generic record constructor count is missing"))? as usize;
+            let fields = entries.get(1..).ok_or_else(|| IrVerifyError::new("generic record constructor entries are missing"))?;
+            if fields.len() != count.checked_mul(3).ok_or_else(|| IrVerifyError::new("generic record constructor count overflows"))? { return Err(IrVerifyError::new("generic physical layout requires fixed literal record fields")); }
+            let mut names = Vec::with_capacity(count);
+            for entry in fields.chunks_exact(3) {
+                if entry[0] != 0 { return Err(IrVerifyError::new("generic physical layout requires fixed literal record fields")); }
+                names.push(Name::from_symbol(Symbol::from_raw(entry[1])));
+            }
+            names.sort_unstable();
+            let layout = generic.layout(record.layout)?;
+            if names.len() != layout.fields.len() || names.iter().copied().ne(layout.fields.iter().map(|field| field.0)) { return Err(IrVerifyError::new("generic physical layout disagrees with constructor field order")); }
+        }
+        Ok(())
+    }
     /// Private representation operations are reachable only from the embedded
     /// implementation module that declares them.
     ///
@@ -3973,7 +4517,7 @@ impl FullVerifier {
             if metadata.owner != IR_NONE {
                 store.string(metadata.owner)?;
             }
-            if metadata.flags & !0b11 != 0 {
+            if metadata.flags & !0b1_1111 != 0 {
                 return Err(IrVerifyError::new("function metadata flags are invalid"));
             }
             let instructions = store.function_instruction_range(index)?;
@@ -3991,14 +4535,17 @@ impl FullVerifier {
                 .captures
                 .bounds(store.captures.len())
                 .ok_or_else(|| IrVerifyError::new("function capture range is invalid"))?;
-            if store.semantic.signature_param_count(function.signature)? != params.len() {
+            let generic_scope = store.generic.as_deref().and_then(|evidence| evidence.scope_for_function(IrFunctionId::new(index).ok()?));
+            if (metadata.flags & 4 != 0) != generic_scope.is_some() || (function.signature == IR_NONE) != generic_scope.is_some() { return Err(IrVerifyError::new("generic function header and scoped metadata disagree")); }
+            if generic_scope.is_none() && metadata.flags & GENERIC_RETURN_PLAN_MASK != 0 { return Err(IrVerifyError::new("nongeneric function carries generic return-plan flags")); }
+            if function.signature != IR_NONE && store.semantic.signature_param_count(SignatureId::from_raw(function.signature).ok_or_else(|| IrVerifyError::new("function signature id is invalid"))?)? != params.len() {
                 return Err(IrVerifyError::new(
                     "function parameters do not match its signature",
                 ));
             }
             for param in &store.params[params.clone()] {
                 store.string(param.name)?;
-                store.semantic.type_tag(param.type_id)?;
+                if param.type_id == IR_NONE { if generic_scope.is_none() { return Err(IrVerifyError::new("generic parameter lacks scoped metadata")); } } else { store.semantic.type_tag(TypeId::from_raw(param.type_id).ok_or_else(|| IrVerifyError::new("parameter type id is invalid"))?)?; }
                 if param.flags & !0b111 != 0 {
                     return Err(IrVerifyError::new("parameter flags are invalid"));
                 }
@@ -4090,10 +4637,8 @@ impl FullVerifier {
                     "function {index} has an empty body"
                 )));
             }
-            let return_type = store
-                .semantic
-                .to_type(store.semantic.signature_return_type(function.signature)?)?;
-            if !matches!(return_type, Type::Stream(_)) && !indexed_block_can_return(store, body_id)?
+            let is_stream = if function.signature == IR_NONE { false } else { matches!(store.semantic.to_type(store.semantic.signature_return_type(SignatureId::from_raw(function.signature).ok_or_else(|| IrVerifyError::new("function signature id is invalid"))?)?)?, Type::Stream(_)) };
+            if !is_stream && !indexed_block_can_return(store, body_id)?
             {
                 return Err(IrVerifyError::new(format!(
                     "function {index} body does not terminate with a return"
@@ -4101,6 +4646,7 @@ impl FullVerifier {
             }
         }
         Self::verify_bridge_ownership(store)?;
+        Self::verify_generic_evidence(store)?;
         if store.driver_root == IR_NONE {
             if !store.driver_steps.is_empty()
                 || !store.driver_slots.is_empty()
@@ -5127,14 +5673,24 @@ impl FullCodec for Type {
 
 impl FullCodec for LoweredType {
     fn encode(&self, builder: &mut FullBuilder, output: &mut Vec<u32>) -> Result<(), IrBuildError> {
-        lowered_type_to_type(*self)?.encode(builder, output)
+        if *self == LoweredType::Generic {
+            let owner = builder.current_owner.and_then(IrFunctionId::from_raw).ok_or_else(|| IrBuildError::format("generic_storage_without_function", None, 0, 0))?;
+            if builder.store.function_metadata.get(owner.index()).is_none_or(|metadata| metadata.flags & 4 == 0) { return Err(IrBuildError::format("generic_storage_without_scope", None, 0, 0)); }
+            output.push(IR_NONE);
+            Ok(())
+        } else { lowered_type_to_type(*self)?.encode(builder, output) }
     }
 
     fn decode(
         decoder: &FullDecoder<'_>,
         input: &mut FullCursor<'_>,
     ) -> Result<Self, IrVerifyError> {
-        lowered_type_from_type(&Type::decode(decoder, input)?)
+        let raw = input.raw()?;
+        if raw == IR_NONE {
+            let owner = IrFunctionId::from_raw(decoder.owner).ok_or_else(|| IrVerifyError::new("generic storage belongs to a non-function owner"))?;
+            if decoder.store.function_metadata.get(owner.index()).is_none_or(|metadata| metadata.flags & 4 == 0) || decoder.store.generic.as_deref().and_then(|evidence| evidence.scope_for_function(owner)).is_none() { return Err(IrVerifyError::new("generic storage lacks scoped metadata")); }
+            Ok(LoweredType::Generic)
+        } else { lowered_type_from_type(&decoder.store.semantic.to_type(TypeId::from_raw(raw).ok_or_else(|| IrVerifyError::new("lowered type id is invalid"))?)?) }
     }
 }
 
@@ -5643,7 +6199,16 @@ macro_rules! impl_build_id_codec {
                     .$rows
                     .get(self.index())
                     .ok_or_else(|| IrBuildError::format("indexed_build_id", None, 0, 0))?;
-                row.encode(builder, output)
+                row.encode(builder, output)?;
+                if stringify!($rows) == "expressions" {
+                    let expr = BuildExprId::new(self.index());
+                    if let Some(origin) = builder.active_expression_origins.get(&expr).copied() {
+                        let raw_owner = builder.current_owner.ok_or_else(|| IrBuildError::format("solved_expression_without_owner", None, 0, 0))?;
+                        let owner = if let Some(index) = driver_owner_index(raw_owner) { InstructionOwner::Driver(index as u32) } else { InstructionOwner::Function(IrFunctionId::from_raw(raw_owner).ok_or_else(|| IrBuildError::format("solved_expression_owner", None, 0, 0))?) };
+                        builder.generic_expression_rows.push((*output.last().ok_or_else(|| IrBuildError::format("solved_expression_instruction", None, 0, 0))?, origin, owner));
+                    }
+                }
+                Ok(())
             }
 
             fn decode(
@@ -8733,6 +9298,109 @@ pure selected() -> Str {
     }
 
     #[test]
+    fn generic_metadata_is_owned_by_the_encoded_function_and_operation() {
+        use super::super::generic::{CallEvidence, ConcreteOperationId, GenericReturnPlan, Instantiation, QuantifierKind, RequirementWitness, SchemeScope, SolvedCall, SolvedRequirementUse, TypeRef};
+        let mut program = fixture("generic-metadata.xsh", "pure add(left: Str, right: Str = \"z\") -> Str { left + right }\npure caller() -> Str { add(\"a\") }\n");
+        assert!(program.generic_evidence().is_none());
+        let find = |name: &str| program.store.functions.iter().position(|function| program.store.string(function.name).unwrap() == name).unwrap();
+        let add = find("add"); let caller = find("caller");
+        let add_owner = IrFunctionId::new(add).unwrap(); let caller_owner = IrFunctionId::new(caller).unwrap();
+        let body_instruction = program.store.function_instruction_range(add).unwrap().find(|&instruction| program.store.tags[instruction] == FullTag::ExprBinary).unwrap();
+        let call_instruction = program.store.function_instruction_range(caller).unwrap().find(|&instruction| matches!(program.store.tags[instruction], FullTag::ExprCall | FullTag::ExprDirectPureCall)).unwrap();
+        let ty = program.store.semantic.signature_param(SignatureId::from_raw(program.store.functions[add].signature).unwrap(), 0).unwrap().1;
+        let mut evidence = GenericEvidenceBuilder::default();
+        let scope = evidence.add_scope(SchemeScope { owner: add_owner, quantifiers: Box::new([QuantifierKind::Type]), parameters: Box::new([TypeRef::Rigid(0), TypeRef::Rigid(0)]), parameter_names: Box::new([Name::intern("left"), Name::intern("right")]), parameter_flags: Box::new([0, 2]), kind: super::super::generic::CallableKind::Pure, result: TypeRef::Rigid(0), requirements: Box::new([Requirement::Add { left: TypeRef::Rigid(0), right: TypeRef::Rigid(0), result: TypeRef::Rigid(0) }]), return_plan: GenericReturnPlan::Value }).unwrap();
+        let instance = evidence.add_instance(Instantiation { scope, substitutions: Box::new([ty]), parameter_types: Box::new([ty, ty]), result_type: ty, requirements: Box::new([RequirementWitness::Add { operation: ConcreteOperationId::AddStr, left: ty, right: ty, result: ty }]) }).unwrap();
+        evidence.add_requirement_use(SolvedRequirementUse { instruction: body_instruction as u32, scope, requirement: 0 });
+        evidence.add_call(SolvedCall { instruction: call_instruction as u32, caller: InstructionOwner::Function(caller_owner), target: scope, evidence: CallEvidence::Ground(instance) });
+        let call_words = program.store.payload(program.store.data[call_instruction].range()).unwrap();
+        let args_block = program.store.blocks[IrBlockId::from_raw(call_words[1]).unwrap().index()];
+        let args = program.store.payload(args_block.instructions).unwrap();
+        let argument_source = args[2] as usize;
+        for parameter in 0..2 { evidence.add_argument(super::super::generic::SolvedArgument { call_instruction: call_instruction as u32, parameter, source_instruction: if args.get(1 + parameter as usize * 2) == Some(&0) { Some(args[2 + parameter as usize * 2]) } else { None }, ty: TypeRef::Ground(ty) }); }
+        let owners = program.store.generic_instruction_owners().unwrap();
+        program.store.generic = Some(Box::new(evidence.finish(&program.store.semantic, program.store.functions.len(), &owners).unwrap()));
+        program.store.function_metadata[add].flags |= 4;
+        program.store.functions[add].signature = IR_NONE;
+        let params = program.store.functions[add].params.bounds(program.store.params.len()).unwrap();
+        for param in &mut program.store.params[params] { param.type_id = IR_NONE; }
+        FullVerifier::verify(&program).unwrap();
+        let view = program.function_view_at(add).unwrap();
+        assert_eq!(view.generic_scope(), Some(scope));
+        assert!(view.execution().is_err());
+        assert_eq!(view.with_instantiation(instance).unwrap().execution().unwrap().generic_scope(), Some(scope));
+        assert_eq!(view.generic_evidence().unwrap().instance(instance).unwrap().scope, scope);
+        let mut wrong_header = program.clone(); wrong_header.store.function_metadata[add].flags &= !4;
+        assert!(FullVerifier::verify(&wrong_header).is_err());
+        let mut wrong_nongeneric_plan = program.clone();
+        wrong_nongeneric_plan.store.function_metadata[caller].flags |= generic_return_plan_flags(GenericReturnPlan::Result);
+        assert!(FullVerifier::verify(&wrong_nongeneric_plan).unwrap_err().message.contains("nongeneric function carries generic return-plan flags"));
+        let mut wrong_argument = program.clone();
+        wrong_argument.store.tags[argument_source] = FullTag::ExprInt;
+        assert!(FullVerifier::verify_generic_evidence(&wrong_argument.store).unwrap_err().message.contains("literal source"));
+        let mut wrong_default = program.clone();
+        let parameter = program.store.functions[add].params.start + 1;
+        let default = program.store.param_cold.iter().find(|cold| cold.param == parameter).unwrap().default as usize;
+        wrong_default.store.values[default] = FullValueTag::Int;
+        assert!(FullVerifier::verify_generic_evidence(&wrong_default.store).unwrap_err().message.contains("literal default"));
+        let mut wrong_operation = program.clone();
+        let start = wrong_operation.store.data[body_instruction].lhs as usize;
+        let op = wrong_operation.store.extra[start] as usize;
+        wrong_operation.store.binary_ops[op] = BinaryOp::Sub;
+        assert!(FullVerifier::verify_generic_evidence(&wrong_operation.store).unwrap_err().message.contains("another binary operator"));
+        let mut wrong_target = program.clone();
+        let start = wrong_target.store.data[call_instruction].lhs as usize;
+        wrong_target.store.extra[start] = caller_owner.raw();
+        assert!(FullVerifier::verify_generic_evidence(&wrong_target.store).unwrap_err().message.contains("encoded target"));
+        let mut wrong_tag = program.clone(); wrong_tag.store.tags[call_instruction] = FullTag::ExprNull;
+        assert!(FullVerifier::verify_generic_evidence(&wrong_tag.store).unwrap_err().message.contains("non-call"));
+        let mut foreign_owner = program.clone(); foreign_owner.store.function_instruction_starts[caller] = body_instruction as u32;
+        assert!(FullVerifier::verify_generic_evidence(&foreign_owner.store).is_err());
+    }
+
+    #[test]
+    fn generic_builder_checkpoint_discards_new_roots_and_retires_reused_slots() {
+        use super::super::generic::{GenericReturnPlan, QuantifierKind, SchemeScope, TypeRef};
+        let make_scope = || SchemeScope { owner: IrFunctionId::new(0).unwrap(), quantifiers: Box::new([QuantifierKind::Type]), parameters: Box::new([TypeRef::Rigid(0)]), parameter_names: Box::new([Name::intern("value")]), parameter_flags: Box::new([0]), kind: super::super::generic::CallableKind::Pure, result: TypeRef::Rigid(0), requirements: Box::new([]), return_plan: GenericReturnPlan::Value };
+        let source = "pure name(entry) { entry.name }";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let bodies = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        assert!(bodies.diagnostics.is_empty(), "{:?}", bodies.diagnostics);
+        let (declaration, callable) = bodies.solved.declarations.iter().next().unwrap();
+        let expression = *bodies.solved.projections.keys().next().unwrap();
+        let mut builder = FullBuilder::new(SourceId::new(0));
+        let empty = builder.checkpoint();
+        let retired = builder.generic_evidence_mut().add_scope(make_scope()).unwrap();
+        builder.generic_declarations.insert(*declaration, retired);
+        builder.generic_schemes.insert(retired, callable.scheme);
+        builder.generic_projection_uses.insert(expression, (retired, 0));
+        builder.generic_expression_rows.push((0, expression, InstructionOwner::Function(IrFunctionId::new(0).unwrap())));
+        builder.rewind(empty);
+        assert!(builder.generic.is_none());
+        assert!(builder.generic_declarations.is_empty());
+        assert!(builder.generic_schemes.is_empty());
+        assert!(builder.generic_projection_uses.is_empty());
+        assert!(builder.generic_expression_rows.is_empty());
+        let replacement = builder.generic_evidence_mut().add_scope(make_scope()).unwrap();
+        assert_ne!(retired, replacement);
+        let retained = builder.checkpoint();
+        let discarded = builder.generic_evidence_mut().add_scope(make_scope()).unwrap();
+        builder.generic_declarations.insert(*declaration, discarded);
+        builder.generic_schemes.insert(discarded, callable.scheme);
+        builder.generic_projection_uses.insert(expression, (discarded, 0));
+        builder.generic_expression_rows.push((0, expression, InstructionOwner::Function(IrFunctionId::new(0).unwrap())));
+        builder.rewind(retained);
+        let replaced = builder.generic_evidence_mut().add_scope(make_scope()).unwrap();
+        assert_ne!(discarded, replaced);
+        assert!(builder.generic_declarations.is_empty());
+        assert!(builder.generic_schemes.is_empty());
+        assert!(builder.generic_projection_uses.is_empty());
+        assert!(builder.generic_expression_rows.is_empty());
+        assert!(builder.generic.as_ref().unwrap().scope(discarded).is_err());
+    }
+
+    #[test]
     fn compact_driver_executes_effects_after_arena_drop() {
         run_with_large_stack(|| {
             let (program, plan, mut evaluator) = {
@@ -8887,6 +9555,7 @@ pure selected() -> Str {
         let lowered = ProgramBuild {
             statements: vec![None],
             scratch: Rc::new(RefCell::new(BuildScratch::default())),
+            ..ProgramBuild::default()
         };
         let error = FullBuilder::build_with_driver(
             &[],
@@ -8900,7 +9569,7 @@ pure selected() -> Str {
 
     #[test]
     fn verifier_checks_assertion_children_locations_and_propagation_effects() {
-        let program = fixture("assertion-ir.xsh", "pure value() -> Bool { false }\nproc check() { false }\nlet _ = value()\ntrue\n");
+        let program = fixture("assertion-ir.xsh", "pure value() -> Bool { false }\nproc check() [error] -> Unit { false }\nlet _ = value()\ntrue\n");
         let assertions: Vec<_> = program.store.tags.iter().enumerate().filter_map(|(index, tag)| (*tag == FullTag::ExprAssert).then_some(index)).collect();
         assert_eq!(assertions.len(), 2, "only statement consumers lower to assertions");
         assert!(program.store.driver_steps.iter().any(|step| step.effects & (EFFECT_PROPAGATE | EFFECT_TRACE) == (EFFECT_PROPAGATE | EFFECT_TRACE)));

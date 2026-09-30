@@ -108,7 +108,57 @@ impl Checker {
                 let mut normalized = stage.clone();
                 normalized.args = temporary.arena.append_call_arguments(&arguments);
                 normalized.block = Some(temporary.arena.append_stage_callable_block(callee, arena.arena.expr(callee).span).0);
-                return self.check_stream_stage_arena(&temporary, source, &normalized, Type::Stream(Box::new(item_ty)));
+                let mut probe = self.clone();
+                probe.graph_generation = false;
+                probe.current_generic = None;
+                probe.stage_ground_call_adapter = true;
+                let item_ty = self.resolved_graph_view(item_ty);
+                if item_ty.contains_graph() || item_ty.contains_inference() {
+                    self.error(arena.arena.expr(callee).span, "generic stage input requires a source-owned call plan", "check.stream-callable-signature");
+                    return Type::Invalid;
+                }
+                let target = match arena.arena.expr(callee).kind {
+                    ArenaExprKind::Ident(name) => self.pures.get(&name).or_else(|| self.procs.get(&name)).cloned().map(|signature| (None, name, signature)),
+                    ArenaExprKind::Field { base, name } => if let ArenaExprKind::Ident(namespace) = arena.arena.expr(base).kind {
+                        let key = crate::symbol::QualifiedName::new(namespace, name);
+                        self.qualified_pures.get(&key).or_else(|| self.qualified_procs.get(&key)).cloned().map(|signature| (Some(namespace), name, signature))
+                    } else { None },
+                    _ => None,
+                };
+                if let Some((namespace, name, mut signature)) = target {
+                    signature.return_ty = self.resolved_graph_view(signature.return_ty);
+                    for parameter in &mut signature.params { parameter.ty = self.resolved_graph_view(parameter.ty.clone()); }
+                    if signature.return_ty.contains_graph() || signature.params.iter().any(|parameter| parameter.ty.contains_graph()) {
+                        self.error(arena.arena.expr(callee).span, "generic stage callable requires a source-owned call plan", "check.stream-callable-signature");
+                        return Type::Invalid;
+                    }
+                    if let Some(namespace) = namespace {
+                        let key = crate::symbol::QualifiedName::new(namespace, name);
+                        if probe.qualified_pures.contains_key(&key) { probe.qualified_pures.insert(key, signature); }
+                        else { probe.qualified_procs.insert(key, signature); }
+                    } else if probe.pures.contains_key(&name) { probe.pures.insert(name, signature); }
+                    else { probe.procs.insert(name, signature); }
+                }
+                // Generated callback nodes belong to this temporary arena.
+                // Their ground checks and effects remain observable, but their
+                // reused numeric IDs never enter the retained callable graph.
+                let result = probe.check_stream_stage_arena(&temporary, source, &normalized, Type::Stream(Box::new(item_ty)));
+                self.diagnostics = probe.diagnostics;
+                self.effect_graph = probe.effect_graph;
+                self.type_constraints = probe.type_constraints;
+                self.expr_types = probe.expr_types;
+                self.projections = probe.projections;
+                self.requirement_targets = probe.requirement_targets;
+                self.requirement_expected_targets = probe.requirement_expected_targets;
+                self.statement_positions = probe.statement_positions;
+                self.assertion_spans = probe.assertion_spans;
+                self.assertion_effect_spans = probe.assertion_effect_spans;
+                self.statement_expression_spans = probe.statement_expression_spans;
+                self.standard_call_spans = probe.standard_call_spans;
+                self.statically_resolved_call_spans = probe.statically_resolved_call_spans;
+                self.static_callable_aliases = probe.static_callable_aliases;
+                self.scopes = probe.scopes;
+                return result;
             }
             Err((span, message)) => { self.error(span, &message, "check.stream-callable"); return Type::Unknown; }
             Ok(None) => {}

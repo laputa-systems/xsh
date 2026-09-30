@@ -1,0 +1,4 @@
+err[check.infer-param]: default does not establish a concrete parameter type; declare an annotation (including in cyclic declaration dependencies)
+  /tmp/xsh-gate-b-default-rest-compat/anchor-negative-0.xsh:1:13
+  pure choose(value = null) -> Int { 1 }
+              ^^^^^^^^^^^^ default does not establish a concrete parameter type; declare an annotation (including in cyclic declaration dependencies)

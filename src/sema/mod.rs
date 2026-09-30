@@ -4,6 +4,7 @@ pub mod check;
 pub(crate) mod cli_entry;
 pub mod constants;
 pub mod constraints;
+pub mod inference;
 pub mod records;
 pub mod projection;
 pub mod types;

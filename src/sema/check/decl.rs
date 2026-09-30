@@ -215,18 +215,18 @@ impl Checker {
             match kind {
                 ArenaStmtKind::ProcDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let sig = self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Proc);
                     if !def.test_declaration { self.procs.insert(def.name, sig); }
                 }
                 ArenaStmtKind::PureDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let mut sig = self.function_sig_arena(program, source, def_id);
-                    if def.return_ty_defaulted { sig.return_ty = Type::Unknown; }
+                    let mut sig = self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Pure);
+                    if def.return_ty_defaulted && self.graph_declaration(def.body).is_none() { sig.return_ty = Type::Unknown; }
                     self.pures.insert(def.name, sig);
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
                     let def = program.arena.function_def(def_id);
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let sig = self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Stream);
                     self.streams.insert(def.name, sig);
                 }
                 ArenaStmtKind::ErrorDef(_) => {}
@@ -326,7 +326,7 @@ impl Checker {
                     if !names.insert(def.name) {
                         self.error(span, "duplicate module name", "check.duplicate-name");
                     }
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let sig = self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Proc);
                     if !def.test_declaration { self.procs.insert(def.name, sig); }
                 }
                 ArenaStmtKind::PureDef(def_id) => {
@@ -335,8 +335,8 @@ impl Checker {
                     if !names.insert(def.name) {
                         self.error(span, "duplicate module name", "check.duplicate-name");
                     }
-                    let mut sig = self.function_sig_arena(program, source, def_id);
-                    if def.return_ty_defaulted { sig.return_ty = Type::Unknown; }
+                    let mut sig = self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Pure);
+                    if def.return_ty_defaulted && self.graph_declaration(def.body).is_none() { sig.return_ty = Type::Unknown; }
                     self.pures.insert(def.name, sig);
                 }
                 ArenaStmtKind::StreamDef(def_id) => {
@@ -345,7 +345,7 @@ impl Checker {
                     if !names.insert(def.name) {
                         self.error(span, "duplicate module name", "check.duplicate-name");
                     }
-                    let sig = self.function_sig_arena(program, source, def_id);
+                    let sig = self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Stream);
                     self.streams.insert(def.name, sig);
                 }
                 _ => {}
@@ -429,21 +429,21 @@ impl Checker {
                             self.check_function_arena(program, source, &def, false);
                             exports
                                 .procs
-                                .insert(def.name, self.function_sig_arena(program, source, def_id));
+                                .insert(def.name, self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Proc));
                         }
                         ArenaStmtKind::PureDef(def_id) => {
                             let def = program.arena.function_def(def_id).clone();
                             self.check_function_arena(program, source, &def, true);
                             exports
                                 .pures
-                                .insert(def.name, self.function_sig_arena(program, source, def_id));
+                                .insert(def.name, self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Pure));
                         }
                         ArenaStmtKind::StreamDef(def_id) => {
                             let def = program.arena.function_def(def_id).clone();
                             self.check_stream_function_arena(program, source, &def);
                             exports
                                 .streams
-                                .insert(def.name, self.function_sig_arena(program, source, def_id));
+                                .insert(def.name, self.function_sig_arena(program, source, def_id, crate::sema::inference::CallableKind::Stream));
                         }
                         ArenaStmtKind::TypeDef(def_id) => {
                             let def = program.arena.type_def(def_id);
@@ -552,9 +552,13 @@ impl Checker {
         program: &ArenaProgram,
         _source: &str,
         def_id: FunctionDefId,
+        kind: crate::sema::inference::CallableKind,
     ) -> FunctionSig {
         let def = program.arena.function_def(def_id);
         let effect_declaration = self.effect_declaration_id(program, def.body);
+        self.register_graph_declaration(program, def_id, kind);
+        let graph_parameters = self.graph_declaration(def.body).map(|id| self.generic.borrow().pending[&id].params.clone());
+        let graph_return = self.graph_declaration(def.body).map(|id| self.generic.borrow().pending[&id].result);
         FunctionSig {
             effect_declaration: Some(effect_declaration),
             inferred_effects: self.effect_graph.is_inferred(effect_declaration),
@@ -565,15 +569,15 @@ impl Checker {
                 .arena
                 .params(def.params)
                 .iter()
-                .map(|param| FunctionParamSig {
+                .enumerate().map(|(index, param)| FunctionParamSig {
                     name: param.name,
-                    ty: self.checked_parameter_type(program, param).unwrap_or_else(|| if param.ty_defaulted { Type::Unknown } else { self.type_from_arena(program, param.ty) }),
+                    ty: graph_parameters.as_ref().map(|params| self.graph_view(params[index])).or_else(|| self.checked_parameter_type(program, param)).unwrap_or_else(|| if param.ty_defaulted { Type::Unknown } else { self.type_from_arena(program, param.ty) }),
                     schema_expectation: self.record_constructors.annotation_expectation(&program.arena, param.ty, self.current_namespace).ok(),
                     defaulted: param.default.is_some(),
                     rest: param.rest,
                 })
                 .collect(),
-            return_ty: self.type_from_arena(program, def.return_ty),
+            return_ty: graph_return.map(|ty| self.graph_view(ty)).unwrap_or_else(|| self.type_from_arena(program, def.return_ty)),
             return_schema: (!def.return_ty_defaulted).then(|| self.record_constructors.annotation_expectation(&program.arena, def.return_ty, self.current_namespace).ok()).flatten(),
             effects: self.effective_function_effects(program, def),
         }

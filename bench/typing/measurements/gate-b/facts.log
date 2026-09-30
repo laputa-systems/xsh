@@ -1,0 +1,29 @@
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on build directory
+    Finished `test` profile [unoptimized] target(s) in 0.51s
+     Running unittests src/lib.rs (target/debug/build/xsh/3b1ba41aea3ea9fa/out/xsh-3b1ba41aea3ea9fa)
+
+running 17 tests
+test sema::check::generic_tests::annotated_equivalents_publish_the_same_graph_operations ... ok
+test sema::check::generic_tests::callers_cannot_train_missing_fields_or_add_domains ... ok
+test sema::check::generic_tests::forwarding_preserves_row_and_operation_requirements ... ok
+test sema::check::generic_tests::generic_non_tail_value_requires_explicit_discard ... ok
+test sema::check::generic_tests::ground_addition_settles_before_ordinary_method_consumption ... ok
+test sema::check::generic_tests::identity_definition_is_independent_of_callers ... ok
+test sema::check::generic_tests::legacy_empty_record_field_is_anchored_by_ground_callable_contract ... ok
+test sema::check::generic_tests::omitted_bool_and_quantified_tails_have_fixed_value_elaboration ... ok
+test sema::check::generic_tests::open_projection_retains_actual_record_layout_per_call ... ok
+test sema::check::generic_tests::record_arguments_keep_literal_constructor_facts_before_binding ... ok
+test sema::check::generic_tests::recursive_branch_tails_share_the_definition_relationship ... ok
+test sema::check::generic_tests::result_wrapper_is_chosen_before_payload_instantiation ... ok
+test sema::check::generic_tests::sealed_add_is_instantiated_without_rechecking_body ... ok
+test sema::check::generic_tests::self_recursion_forwards_its_declaration_binders ... ok
+test sema::check::generic_tests::unique_builtin_method_constrains_the_definition_receiver ... ok
+test sema::check::generic_tests::written_result_normalizes_each_completion_before_generalization ... ok
+test sema::check::generic_tests::written_result_payload_selects_wrapping_at_the_declaration ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 371 filtered out; finished in 0.02s
+

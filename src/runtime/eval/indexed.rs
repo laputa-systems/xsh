@@ -4,6 +4,7 @@ use crate::source::Span;
 use std::num::NonZeroU32;
 
 pub(super) mod full;
+pub(super) mod generic;
 mod semantic;
 
 const IR_NONE: u32 = u32::MAX;

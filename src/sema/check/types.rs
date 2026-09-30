@@ -52,7 +52,7 @@ impl Checker {
                 .as_ref()
                 .is_none_or(|return_ty| return_ty.is_result())
             || self.current_yield.is_some();
-        let inferring = self.inferred_returns.is_some() && self.current_return == Some(Type::Unknown);
+        let inferring = self.inferred_returns.is_some() && (self.current_return == Some(Type::Unknown) || self.current_generic.is_some());
         if inferring { self.inferred_propagations.push((err.clone(), span)); }
         if !allowed && !inferring {
             self.error(
@@ -149,6 +149,7 @@ impl Checker {
     }
 
     pub(super) fn expect_type(&mut self, expected: &Type, actual: &Type, span: Span) {
+        if self.graph_expect(expected, actual, span) { return; }
         if expected.contains_inference() || actual.contains_inference() {
             let constrained = if expected.contains_inference() {
                 self.type_constraints.constrain(expected, actual, span)
