@@ -85,9 +85,9 @@ test test_net_module_with_mocks [fs, net, error] { |ctx|
   net.close_all_pools()?
   test.eq(test.calls(ctx, "net.request")[0].args.method, "GET")?
   test.eq(test.calls(ctx, "net.request_many")[0].args.requests[0].method, "GET")?
-  test.eq(test.calls(ctx, "net.download")[0].args.dest.display(), "out")?
+  test.eq(test.calls(ctx, "net.download")[0].args.dest.require(Path)?.display(), "out")?
   test.eq(test.calls(ctx, "net.download_many")[0].args.downloads[0].url, "https://example.test/file")?
-  test.eq(test.calls(ctx, "net.upload")[0].args.source.display(), "in")?
+  test.eq(test.calls(ctx, "net.upload")[0].args.source.require(Path)?.display(), "in")?
 }
 
 proc net_start_scoped_helper() [net] -> Result[NetJob] {

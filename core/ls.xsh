@@ -5,6 +5,7 @@ type LsOptions = {
   show_all: Bool,
   list_directory_itself: Bool,
   long_format: Bool,
+  long_aliases: Bool,
   recursive: Bool,
   indicator: Bool,
   targets: List[Str],

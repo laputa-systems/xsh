@@ -216,16 +216,6 @@ pub(super) fn finalize_type(constraints: &crate::sema::constraints::TypeConstrai
     }
 }
 
-pub(super) fn program_has_local_inference(program: &ArenaProgram) -> bool {
-    (0..program.arena.stmt_tags.len()).any(|index| {
-        match program.arena.stmt(StmtId::from_index(index)).kind {
-            ArenaStmtKind::Let { target, ty: None, initializer } => local_seed_kind(program, target, initializer, false).is_some(),
-            ArenaStmtKind::Var { target, ty: None, initializer } => local_seed_kind(program, target, initializer, true).is_some(),
-            _ => false,
-        }
-    })
-}
-
 fn local_seed_kind(program: &ArenaProgram, target: BindingTargetId, initializer: ArenaExprOrRun, mutable: bool) -> Option<LocalSeed> {
     let ArenaBindingTargetKind::Name(name) = program.arena.binding_target(target).kind else { return None; };
     if name == "_" { return None; }

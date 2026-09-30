@@ -1802,7 +1802,6 @@ impl FullBuilder {
             source,
             &sources,
             &functions,
-            true,
         );
         let source_statements = program.statement_ids().collect::<Vec<_>>();
         drop(pures);
@@ -2834,8 +2833,8 @@ fn lowered_type_to_type(ty: LoweredType) -> Result<Type, IrBuildError> {
         LoweredType::Pure => Type::Pure,
         LoweredType::Proc => Type::Proc,
         LoweredType::Error => Type::Error,
-        LoweredType::Record => Type::Record(BTreeMap::new()),
-        LoweredType::Module => Type::Module(BTreeMap::new()),
+        LoweredType::Record => Type::ErasedRecord,
+        LoweredType::Module => Type::DynamicModule,
         LoweredType::List => Type::List(Box::new(Type::Any)),
         LoweredType::Map => Type::Map(Box::new(Type::Str), Box::new(Type::Any)),
         LoweredType::Result => Type::Result(Box::new(Type::Any), Box::new(Type::Error)),
@@ -2930,7 +2929,7 @@ fn lowered_type_from_type(ty: &Type) -> Result<LoweredType, IrVerifyError> {
         Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_) => {
             LoweredType::Error
         }
-        Type::Record(_) => LoweredType::Record,
+        Type::ErasedRecord | Type::Record(_) => LoweredType::Record,
         Type::Module(_) | Type::DynamicModule => LoweredType::Module,
         Type::List(_) => LoweredType::List,
         Type::Map(_, _) => LoweredType::Map,
@@ -8996,7 +8995,7 @@ proc main() [error] {
     #[test]
     fn native_path_interpolation_executes_both_indexed_routes() {
         run_with_large_stack(|| {
-            let source = "pure native_path(value: Path) -> Path { return fp\"prefix/${value}/../end\" }\nproc native_plan(value: Path) [process] -> Command { return process.command { stdin = fp\"before/${value}\"; stdout = fp\"${value}/after\"; run true \"--target=$value\" } }\n";
+            let source = "pure native_path(value: Path) -> Path { return fp\"prefix/${value}/../end\" }\nproc native_plan(value: Path) [process, error] -> Command { return process.command { stdin = fp\"before/${value}\"; stdout = fp\"${value}/after\"; run true \"--target=$value\" } }\n";
             let program = Arc::new(fixture("native-path-interpolation.xsh", source));
             for recursive in [false, true] {
                 let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
@@ -9358,7 +9357,7 @@ proc main() [error] {
     #[test]
     fn constant_key_projection_preserves_index_and_get_both_routes() {
         run_with_large_stack(|| {
-            let source = "type Config = {workers: Int}\nconst field = \"workers\"\npure counts() -> Int {\n  let config: Config = {workers: 4}\n  config.get(field)? + config[field]\n}\n";
+            let source = "type Config = {workers: Int}\nconst field = \"workers\"\npure counts() -> Int {\n  let config: Config = {workers: 4}\n  (config.get(field) ?? 0) + config[field]\n}\n";
             let program = Arc::new(fixture("constant-key-projection.xsh", source));
             assert!(program.store.tags.contains(&FullTag::ExprIndex));
             assert!(program.store.tags.contains(&FullTag::ExprMethod));
@@ -9407,7 +9406,7 @@ proc main() [error] {
     #[test]
     fn typed_map_keys_execute_both_indexed_routes() {
         run_with_large_stack(|| {
-            let source = "pure counts() -> Int {\n  var values: Map[Int, Int] = {[20]: 2, [3]: 1}\n  let older = values\n  values[3] = 9\n  let keys: List[Int] = values.keys()\n  return keys[0] + older[3] + values.get(3)?\n}\n";
+            let source = "pure counts() -> Int {\n  var values: Map[Int, Int] = {[20]: 2, [3]: 1}\n  let older = values\n  values[3] = 9\n  let keys: List[Int] = values.keys()\n  return keys[0] + older[3] + (values.get(3) ?? 0)\n}\n";
             let program = fixture("typed-map.xsh", source);
             let program = Arc::new(program);
             for recursive in [false, true] {
@@ -9548,7 +9547,7 @@ proc main() [error] {
     #[test]
     fn try_capture_verifies_body_ownership_and_preserves_result_data_on_both_routes() {
         run_with_large_stack(|| {
-            let program = fixture("try-capture.xsh", "proc capture() [] -> Result[Int] {\n  let nested = try { Ok(7) }?\n  nested\n}\n");
+            let program = fixture("try-capture.xsh", "proc capture() [error] -> Result[Int] {\n  let nested = try { Ok(7) }?\n  nested\n}\n");
             let instruction = program.store.tags.iter().position(|tag| *tag == FullTag::ExprCapture).expect("capture instruction");
             let payload = program.store.data[instruction].range().bounds(program.store.extra.len()).unwrap();
             let mut missing_body = program.clone();
@@ -9892,7 +9891,9 @@ proc configured() [] -> Int {
         fs::create_dir_all(&root).unwrap();
         fs::write(
             root.join("compact_import.xsh"),
-            "let suffix = \"!\"\n\
+            "##! Imported label provider.\n\
+             let suffix = \"!\"\n\
+             ## Build a label with the retained suffix.\n\
              export pure label(value: Str) -> Str {\n\
                return value + suffix\n\
              }\n",
@@ -10008,7 +10009,7 @@ proc checked() [process, error] {
   let child = spawn run --accept=[0,1] sh -c "exit 1" ?
   let command = process.command_argv("sh", ["sh", "-c", "exit 1"], accept: [0,1])
   print $text $child.pid
-  process.run(command)?
+  let status = process.run(command)?
 }
 "#);
             FullVerifier::verify(&program).unwrap();

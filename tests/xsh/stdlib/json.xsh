@@ -78,7 +78,7 @@ b""",
   test.eq(encoded, "{\"a\":2,\"nested\":{\"a\":2,\"b\":1},\"z\":1}")?
   test.error_kind(json.decode("not json"), "json")?
   let data = {path: p"src"}
-  let path_value = data["path"]
+  let path_value: Any = data["path"]
   test.error_kind(json.encode(path_value), "json-compatible")?
 }
 
@@ -106,7 +106,7 @@ test test_json_rejection_is_trace_visible [error] { |ctx|
     ctx,
     """
 let data = {path: Path("src")}
-let value = data["path"]
+let value: Any = data["path"]
 let _encoded = json.encode(value) ?
 """,
     ["--trace", "--raw"],
@@ -275,7 +275,7 @@ test test_json_set_updates_the_named_position [error] {
   let tree: Any = empty.set("inner", empty.set("leaf", 0)).set("other", 1)
   expect_map("set keeps a Map", json.set(tree, ["other"], 2)?)?
   expect_map("set adds to a Map", json.set(tree, ["fresh"], 3)?)?
-  expect_map("set keeps a nested Map", (json.set(tree, ["inner", "leaf"], 5)?.get("inner") ?? null))?
+  expect_map("set keeps a nested Map", (json.set(tree, ["inner", "leaf"], 5)?.require(Map[Any])?.get("inner") ?? null))?
   test.eq(json.get(json.set(tree, ["inner", "leaf"], 5)?, ["inner", "leaf"])?, 5)?
   test.eq(json.get(json.set(tree, ["inner", "leaf"], 5)?, ["other"])?, 1)?
 
@@ -322,9 +322,9 @@ test test_json_remove_drops_the_named_position [error] {
   let tree: Any = empty.set("inner", empty.set("leaf", 0)).set("other", 1)
   expect_map("remove keeps a Map", json.remove(tree, ["other"])?)?
 
-  # Bound as `Any`: the inferred type of a `json.remove` result cannot take a
-  # dynamic method call, so the binding names the type the walk already uses.
-  let pruned: Any = json.remove(tree, ["inner", "leaf"])?
+  # The path operation has a dynamic result. Validate its Map identity before
+  # calling Map methods; nested values remain dynamic until checked separately.
+  let pruned = json.remove(tree, ["inner", "leaf"])?.require(Map[Any])?
   expect_map("remove keeps a nested Map", (pruned.get("inner") ?? null))?
   test.eq((pruned.get("inner") ?? null).require(Map[Any])?.has("leaf"), false)?
   test.eq(json.get(pruned, ["inner", "leaf"], "gone"), "gone")?
@@ -403,9 +403,8 @@ b""",
 }
 
 test test_json_path_rejects_a_non_list_path [error] { |ctx|
-  # `path` is declared `List[Any]`, so a path of any other type fails the call
-  # itself and aborts before the path policy runs: `path expected List` is only
-  # reachable from inside this module, where the parameter is `Any`.
+  # The public path parameter requires a checked List shape. An unchecked
+  # dynamic path is rejected before process execution or runtime path traversal.
   let read = test.run_xsht_trace(
     ctx,
     """
@@ -415,12 +414,11 @@ let _read = json.get(value, where) ?
 """,
     ["--trace", "--raw"],
   )?
-  test.eq(read.status, 3)?
-  test.contains(read.stderr, "type-error")?
+  test.eq(read.status, 2)?
+  test.contains(read.stderr, "check.dynamic-boundary")?
   test.contains(read.stderr, "List[Any]")?
 
-  # The fallback overload converts a rejected path, not a failed call: a
-  # non-`json-path` failure is propagated instead of answering the fallback.
+  # A fallback value does not validate an unchecked path argument.
   let with_fallback = test.run_xsht_trace(
     ctx,
     """
@@ -430,8 +428,8 @@ let _read = json.get(value, where, "fallback") ?
 """,
     ["--trace", "--raw"],
   )?
-  test.eq(with_fallback.status, 3)?
-  test.contains(with_fallback.stderr, "type-error")?
+  test.eq(with_fallback.status, 2)?
+  test.contains(with_fallback.stderr, "check.dynamic-boundary")?
   test.contains(with_fallback.stderr, "List[Any]")?
 
   # An item that cannot be encoded fails the whole composition, and the failure
@@ -440,7 +438,7 @@ let _read = json.get(value, where, "fallback") ?
     ctx,
     """
 let bad: Any = Path("src")
-let items: Any = [1, bad]
+let items: List[Any] = [1, bad]
 let _lines = json.encode_lines(items) ?
 """,
     ["--trace", "--raw"],

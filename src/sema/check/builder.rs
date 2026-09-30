@@ -1,6 +1,6 @@
 #![allow(clippy::single_call_fn)]
 
-use super::{BTreeMap, BuilderKind, Checker, FxHashSet, Name, Span, Type};
+use super::{BuilderKind, Checker, FxHashSet, Name, Span, Type};
 use crate::syntax::arena::{
     ArenaBuilderBlock, ArenaBuilderEntryKind, ArenaCallArg, ArenaExprKind, ArenaProgram,
     BuilderBlockId, ExprId,
@@ -233,7 +233,7 @@ pub(super) fn builder_field_type(kind: BuilderKind, name: &str) -> Option<Type> 
         (BuilderKind::ProcessCommand, "timeout") => Some(Type::Duration),
         (BuilderKind::ProcessCommand, "cpu_max") => Some(Type::Int),
         (BuilderKind::ProcessCommand, "accept") => Some(Type::List(Box::new(Type::Int))),
-        (BuilderKind::ProcessCommand, "env") => Some(Type::Record(BTreeMap::new())),
+        (BuilderKind::ProcessCommand, "env") => Some(Type::ErasedRecord),
         (BuilderKind::ProcessCommand, "stdin") => Some(Type::Path),
         (BuilderKind::ProcessCommand, "stdout") => Some(Type::Path),
         (BuilderKind::ProcessCommand, "stderr") => Some(Type::Path),

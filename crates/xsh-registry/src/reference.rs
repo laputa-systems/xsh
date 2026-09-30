@@ -194,7 +194,7 @@ pub const CLI_FORMS: &[&str] = &[
     "xsh SCRIPT [ARGS...]",
     "xsh -- SCRIPT ARGS...",
     "xshi",
-    "xsht check [--strict] [--summary] [--annotate] [PATH...]",
+    "xsht check [--summary] [--annotate] [PATH...]",
     "xsht fmt [--check] [FILE...]",
     "xsht lint [--fix] [--runless] [FILE...]",
     "xsht ast SCRIPT",
@@ -749,9 +749,9 @@ fn cli_doc(form: &str) -> ReferenceDoc {
             "Starts the interactive XSH-compatible session frontend.",
             "Normal startup requires a terminal; session state such as cwd and aliases belongs to the interactive process.",
         ),
-        "xsht check [--strict] [--summary] [--annotate] [PATH...]" => (
+        "xsht check [--summary] [--annotate] [PATH...]" => (
             "Checks XSH sources and reports semantic diagnostics.",
-            "check uses the shared parser/checker pipeline; strictness, summaries, and source annotation are explicit command options.",
+            "check uses the shared parser/checker pipeline; dynamic boundaries use the execution checking contract; summaries and source annotation are explicit command options.",
         ),
         "xsht fmt [--check] [FILE...]" => (
             "Formats or checks XSH source files.",

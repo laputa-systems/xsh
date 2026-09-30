@@ -28,17 +28,12 @@ overlapping record paths; writes to proven disjoint siblings retain evidence.
 Unknown procedure calls invalidate mutable facts independently of declared effects.
 No Result error input or success payload is introduced by a Boolean guard.
 
-Default checking is compatibility-oriented. It reports definite syntax, name,
-effect, arity, and type errors, but permits public dynamic values at concrete
-boundaries where existing scripts may already rely on runtime check.
-
-Strict dynamic checking is selected only by `xsht check --strict`. It has the
-same grammar and runtime semantics as default checking, but adds migration
-warnings for unsafe `Any` flows. Strict warnings are rendered as warnings and
-make `xsht check --strict` exit with status `2`.
-
-`xsh` does not have a strict execution mode. Strictness is a tooling surface, not
-a script compatibility switch.
+Checking and execution preparation enforce one dynamic boundary contract.
+Concrete values can be erased into `Any`, while a dynamic value cannot establish
+a concrete type from an annotation, parameter, or return expectation alone.
+Use explicit `.require(Type)` validation, a checked type pattern, or an applicable
+module contract at the actual input boundary. `xsht check --strict` was removed;
+remove the option because this policy applies by default.
 
 `xsht check --annotate[=CLASS,...]` is a tooling mode over normal checking. It
 may write inferred annotations only after source loading, parsing, module
@@ -53,7 +48,7 @@ optional, `Command`, `Pure`, `Proc`, or tag union). `--annotate=locals` is
 shorthand for defaults plus `locals`; `--annotate=all` enables every class. It
 must not annotate
 destructuring bindings, dynamic `Any`, checker recovery types, internal-only
-types, anonymous record shapes, empty `Record`, discard `_`, local scalar
+types, anonymous record shapes, erased `Record`, discard `_`, local scalar
 bindings, local `Unit` bindings, or source files other than the requested
 scripts.
 
@@ -67,8 +62,9 @@ reports `check.reveal-type`; it is not part of the runtime API.
 
 `Any` is the public dynamic type. Values from untyped host data, JSON decoding,
 dynamic record helpers, and first-class dynamic callable dispatch may have this
-type. `Any` is assignable to and from every type in default mode, subject to
-runtime check where a host operation requires a concrete value.
+type. Concrete values can be erased into `Any`; values typed `Any` remain
+dynamic until an explicit validation or type-pattern boundary establishes a
+concrete type. Dynamic operations retain their runtime checks.
 
 `Unknown` and `Invalid` are checker-internal recovery types. `Unknown` means the
 checker could not determine a type after a prior error or unsupported dynamic
@@ -124,29 +120,38 @@ The checker uses structural assignability for built-in container and record
 types:
 
 - Identical concrete types match.
-- `Any`, `Unknown`, and `Invalid` match any expected type; strict mode may still
-  warn for `Any`.
+- Any concrete value matches expected `Any`. Actual `Any` cannot match a concrete
+  expectation without explicit validation.
+- `Unknown` and `Invalid` suppress cascades after an earlier error; they cannot
+  certify an executable program.
 - `List`, `Map`, `Stream`, `Result`, and `Optional` match when their contained
   types match recursively.
 - `Null` matches any `Optional[T]`.
 - A `T` value matches `Optional[T]`.
 - Record schemas are width-compatible: a record with at least the expected
   fields, and compatible types for those fields, matches the expected record.
-- An empty `Record` is explicitly dynamic and matches any record schema.
+- Builtin `Record` erases field knowledge. It accepts known record values but
+  cannot establish a known record schema. A literal `{}` has an exact empty shape
+  and cannot certify required fields.
 - Tag union values match only the same tag-union type.
 
-Container parameters are treated invariantly for concrete typechecking:
-`List[Str]` is not `List[Any]` because mutation and later reads would otherwise
-lose guarantees. `Any` remains gradual: `List[Any]` can flow where `List[Str]` is
-expected in default mode, and strict mode warns because the element values have
-not been validated.
+`List`, `Map`, and `Stream` parameters are invariant: an existing `List[Str]` is not
+`List[Any]`, and `List[Any]` is not `List[Str]`. The same concrete constraints
+apply through nested containers and numeric domains; a `Stream[Int]` cannot
+establish `Stream[UInt]` through an annotation. Annotations do not validate
+elements. `Result` error-family subtyping and nullable value compatibility
+retain their checked directional rules.
+Equality may compare a concrete value with its nullable domain in either operand
+order. Comparing values produces `Bool`; it does not validate a dynamic operand
+or make a nullable operand non-null.
+Contextual literals and constructors use independently supplied element types
+while checking each value. Empty local inference variables must be solved before
+crossing a boundary that requires a concrete type.
 
-Mixed inferred containers keep the most specific type that is justified by all
-items. A concrete element is not weakened merely because another expression is
-unknown after an error. Empty generic constructors such as `map.empty()` take
-their concrete element type from the expected context. If an element is truly
-dynamic, the inferred container becomes `List[Any]` or `Map[Any]`; strict mode
-warns when that dynamic container is used as a concrete container.
+Mixed inferred containers retain the most specific type justified by all items.
+Recovery after an earlier error does not weaken a concrete element. Genuinely
+dynamic contributions produce dynamic elements, which remain dynamic at later
+uses. Collection inference does not inspect runtime values.
 
 Computed brace keys require exactly `Str`; `Any`, Optional, Result, Path,
 Bytes, and numeric values do not supply an implicit key conversion. A computed
@@ -182,9 +187,9 @@ parameters cannot supply a constant. Context reaches empty containers and
 constructor fields. `Any`, recovery types, callable values, and handles are not
 constant data. Exported constants remain `ModuleExportType::Value` entries.
 
-Destructuring requires a record-like value. If the record schema is known and
-non-empty, destructuring an unknown field is a checker error. Empty `Record`,
-`Any`, and recovery types remain dynamic.
+Destructuring requires a record-like value. If the record schema is known,
+destructuring an unknown field is a checker error, including on an exact empty
+record. Erased `Record`, `Any`, and recovery types remain dynamic.
 
 Assignments to `var` are checked against the binding's declared or inferred
 type. Assignments to `let` are errors. Compound assignments require operands
@@ -214,8 +219,8 @@ field types, extra literal fields are rejected, and missing required fields are
 rejected unless a spread may provide them.
 
 Record field access on a known field returns that field type. Field access on an
-empty `Record` or `Any` is dynamic and returns `Any`. In strict mode, field
-access on a known non-empty record schema reports `check.unknown-field` when the
+erased `Record` or `Any` is dynamic and returns `Any`. Field access on a known
+record shape reports `check.unknown-field` when the
 field is not part of the schema unless a local flow-sensitive refinement has
 established that the field exists.
 
@@ -349,10 +354,10 @@ forced non-Bool flag retains a dynamic field type because the parser can return
 a Bool for an unvalued spelling and its declared scalar for attached values or
 defaults.
 
-Strict mode warns when `Any` flows into a concrete assignment, argument, return,
-index, field access, or container merge without such a schema check boundary.
-Keeping data as `Any`, empty `Record`, or another explicitly dynamic type does
-not warn.
+Unchecked dynamic flows into concrete assignments, arguments, returns, and
+nested container contracts are ordinary errors. Keeping intentionally dynamic
+data as `Any` or erased `Record` is permitted; dynamic operations retain their
+runtime checks.
 
 ## Flow-Sensitive Narrowing
 
@@ -414,7 +419,7 @@ Pattern checking is type-directed:
 - Binding patterns bind the matched value type, except zero-field tag variants
   are treated as constructor patterns when the name is known.
 - Type patterns have the form `name is Type` or `_ is Type`. They require a
-  dynamic matched value (`Any`, empty `Record`, or a recovery type), test the
+  dynamic matched value (`Any`, erased `Record`, or a recovery type), test the
   runtime value against the type expression, and narrow the arm binding to that
   type. They are for intentionally dynamic data, not for rechecking ordinary
   concrete values.
@@ -459,9 +464,9 @@ provenance are shared by compact signatures, tooling, and static alias checks.
 
 ## Diagnostics
 
-Definite type errors are reported as checker errors with source spans. Strict
-dynamic issues are warnings with code `check.strict-any` and fail only
-`xsht check --strict`.
+Type errors, including unchecked dynamic boundaries and unknown fields on known
+shapes, are checker errors with source spans. Checking and execution preparation
+reject the same invalid boundaries.
 
 Diagnostics should name expected and actual types when that helps explain the
 failure. Diagnostics must not expose recovery types as user-facing source types.

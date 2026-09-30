@@ -23,7 +23,7 @@ pure list_failure() -> Int {
 pure map_failure() -> Int {
   var value: Map[Str, UInt] = {a: 1}
   value["a"] = -1
-  return value.get("a")?
+  return value.get("a") ?? 0
 }
 pure append_failure() -> Int {
   var value: List[UInt] = [1]
@@ -52,22 +52,22 @@ pure list_default_failure() -> Int { return list_defaulted() }
 pure list_return(n: Int) -> List[UInt] { return [n] }
 pure list_return_failure(n: Int) -> Int { return list_return(n)[0] }
 pure map_return(n: Int) -> Map[Str, UInt] { return {a: n} }
-pure map_return_failure(n: Int) -> Int { return map_return(n).get("a")? }
+pure map_return_failure(n: Int) -> Int { return map_return(n).get("a") ?? 0 }
 pure record_return(n: Int) -> UnsignedRow { return {count: n} }
 pure record_return_failure(n: Int) -> Int { return record_return(n).count }
 
 pure accept_list(n: List[UInt]) -> Int { return n[0] }
 pure list_argument_failure(n: Int) -> Int { return accept_list([n]) }
-pure accept_map(n: Map[Str, UInt]) -> Int { return n.get("a")? }
+pure accept_map(n: Map[Str, UInt]) -> Int { return n.get("a") ?? 0 }
 pure map_argument_failure(n: Int) -> Int { return accept_map({a: n}) }
 pure accept_record(n: UnsignedRow) -> Int { return n.count }
 pure record_argument_failure(n: Int) -> Int { return accept_record({count: n}) }
-pure map_defaulted(n: Map[Str, UInt] = {a: -1}) -> Int { return n.get("a")? }
+pure map_defaulted(n: Map[Str, UInt] = {a: -1}) -> Int { return n.get("a") ?? 0 }
 pure map_default_failure() -> Int { return map_defaulted() }
 pure record_defaulted(n: UnsignedRow = {count: -1}) -> Int { return n.count }
 pure record_default_failure() -> Int { return record_defaulted() }
 pure result_return(n: Int) -> Result[UInt] { return Ok(n) }
-pure result_return_failure(n: Int) -> Int { return result_return(n)? }
+pure result_return_failure(n: Int) -> Int { return result_return(n) ?? 0 }
 stream raw_rows(n: Int) [] -> Stream[Int] { yield n }
 stream checked_rows(n: Int) [] -> Stream[UInt] { yield @raw_rows(n) }
 stream nested_rows(n: Int) [] -> Stream[List[UInt]] { yield @[[n]] }
@@ -98,7 +98,7 @@ pure method_list_failure(n: Int) -> Int {
 pure method_map_failure(n: Int) -> Int {
   let values: Map[Str, UInt] = {a: 1}
   let changed = values.set("b", n)
-  return changed.get("b")?
+  return changed.get("b") ?? 0
 }
 pure method_fallback_failure(n: Int) -> Int {
   let values: List[UInt] = [1]
@@ -108,7 +108,7 @@ pure method_fallback_failure(n: Int) -> Int {
 pure method_map_push_failure(n: Int) -> Int {
   let values: Map[Str, List[UInt]] = {a: [1]}
   let changed = values.push("a", n)
-  return changed.get("a")?[0]
+  return (changed.get("a") ?? [0])[0]
 }
 pure inferred_if_failure(n: Int) -> Int {
   let good: UInt = 1

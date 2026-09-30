@@ -262,6 +262,7 @@ pub(super) fn test_value_matches_type(value: &Value, ty: &Type) -> bool {
                 .all(|item| test_value_matches_type(&item.value, item_ty)),
             _ => false,
         },
+        Type::ErasedRecord => matches!(value, Value::Record(_)),
         Type::Record(fields) => match value {
             Value::Record(_) if fields.is_empty() => true,
             Value::Record(values) => fields.iter().all(|(field, field_ty)| {

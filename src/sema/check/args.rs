@@ -144,6 +144,19 @@ impl Checker {
             return arity_matches[0];
         }
 
+        let mut dynamic_boundary = false;
+        for (index, (arg, actual)) in args.iter().zip(&actuals).enumerate() {
+            if let Some(expected) = common_module_overload_expected_arena(args, overloads, index)
+                && actual.any_flows_to_concrete(&expected)
+            {
+                self.expect_type(&expected, actual, call_arg_span_arena(arena, &arg.kind));
+                dynamic_boundary = true;
+            }
+        }
+        if dynamic_boundary {
+            return arity_matches[0];
+        }
+
         self.error(
             span,
             "no standard API overload matches argument types",

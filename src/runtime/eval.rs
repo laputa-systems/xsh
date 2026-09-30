@@ -3683,6 +3683,7 @@ impl Evaluator {
                 {
                     Ok(plan) => plan,
                     Err(diagnostic) => {
+                        let status = if diagnostic.code.as_deref().is_some_and(|code| code.starts_with("check.")) { 2 } else { 1 };
                         return EvalOutput {
                             stdout: std::mem::take(&mut self.stdout),
                             stderr: std::mem::take(&mut self.stderr),
@@ -3690,7 +3691,7 @@ impl Evaluator {
                             diagnostics: vec![diagnostic],
                             traceback: None,
                             sources: Arc::clone(&self.sources),
-                            status: 1,
+                            status,
                             cwd: std::mem::take(&mut self.cwd),
                             env: self.env.clone().into_snapshot(),
                             last_status: self.last_status.take(),
@@ -6608,6 +6609,7 @@ pub(super) fn value_matches_static_type(value: &Value, ty: &Type) -> bool {
                 .all(|item| value_matches_static_type(&item.value, item_ty)),
             _ => false,
         },
+        Type::ErasedRecord => matches!(value, Value::Record(_) | Value::FsEntry(_)),
         Type::Record(fields) => match value {
             Value::Record(_) | Value::FsEntry(_) if fields.is_empty() => true,
             Value::Record(record) => fields.iter().all(|(field, field_ty)| {
@@ -6700,6 +6702,7 @@ fn lowered_value_matches_static_type(value: &LoweredValue, ty: &Type) -> bool {
             _ => false,
         },
         Type::Stream(_) => matches!(value, LoweredValue::Stream(_)),
+        Type::ErasedRecord => matches!(value, LoweredValue::Record(_) | LoweredValue::RecordVec(_) | LoweredValue::FsEntry(_)),
         Type::Record(fields) => match value {
             LoweredValue::Record(_) | LoweredValue::RecordVec(_) | LoweredValue::FsEntry(_)
                 if fields.is_empty() =>

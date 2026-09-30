@@ -7,7 +7,7 @@ language reference data. When those documents disagree,
 `docs/SPEC.md` is authoritative for core language behavior; update this file
 before changing language behavior.
 `docs/SPEC-TYPING.md` is the detailed contract for typechecking, including
-assignability, `Any`, strict dynamic checking, schema check boundaries, and
+assignability, `Any`, checked dynamic boundaries, schema validation, and
 flow-sensitive narrowing.
 `docs/SPEC-OS.md` is the detailed contract for OS-facing runtime behavior,
 including signal handlers, evaluator checkpoints, process-group cancellation,
@@ -2016,7 +2016,7 @@ match json.decode(input)? {
 ```
 
 The checker accepts type patterns only for dynamic matched values such as `Any`
-or empty `Record`. Use `.require(Type)?` when the program expects a known
+or erased `Record`. Use `.require(Type)?` when the program expects a known
 schema; use type patterns when the program intentionally handles unknown JSON or
 other dynamic shapes.
 
@@ -4397,15 +4397,19 @@ The checker may leave explicitly dynamic record field access and host-derived
 values to runtime, but every runtime type error must include the source span of
 the expression or command argument that caused it.
 
-`Any` is the public dynamic type. Default checking permits `Any` at concrete
-boundaries for compatibility. `xsht check --strict` adds migration diagnostics
-for assigning, passing, returning, indexing, field-accessing, or container
-merging `Any` into concrete types without an explicit `value.require(Schema)?`
-boundary. Strict diagnostics are rendered as warnings, but `xsht check --strict`
-exits with status `2` when any strict warning is present. Field access on a known
-non-empty record schema reports
-`check.unknown-field` for missing fields in strict mode; field access on `Any`
-or empty `Record` remains dynamic.
+`Any` is the public dynamic type. Concrete values can be erased into `Any`,
+but unchecked `Any`, erased `Record`, and nested dynamic elements cannot establish
+concrete types from an expected type alone. Use explicit `.require(Schema)`
+validation, checked type patterns, or applicable module contracts at the input
+boundary. Field access on a known record shape rejects missing fields with
+`check.unknown-field`; dynamic field access and `.get` retain honestly dynamic
+results. A literal `{}` is an exact empty record, distinct from builtin `Record`
+erasure. Known records retain width compatibility, containers retain their
+concrete element contracts, and nominal identities remain authoritative.
+
+Ordinary `xsht check` and execution preparation enforce the same rules.
+`xsht check --strict` was removed; remove the option because dynamic boundaries
+are checked by default. No permissive execution mode replaces it.
 The detailed assignability and narrowing rules are specified in
 `docs/SPEC-TYPING.md`.
 
@@ -4518,7 +4522,7 @@ CLI commands:
 - `xsht -h` or `xsht --help`.
 - `xsht help [COMMAND]`.
 - `xsht COMMAND --help`.
-- `xsht check [--strict] [--summary] [--annotate] [PATH...]`.
+- `xsht check [--summary] [--annotate] [PATH...]`.
 - `xsht fmt [--check] [FILE...]`.
 - `xsht lint [--fix] [--runless] [FILE...]`.
 - `xsht ast SCRIPT`.

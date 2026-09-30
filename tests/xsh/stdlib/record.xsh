@@ -41,8 +41,8 @@ print ${entry_name(raw)}
 """,
   )?
 
-  test.eq(output.status, 3)?
-  test.contains(output.stderr, "expected FsEntry, found Record")?
+  test.eq(output.status, 2)?
+  test.contains(output.stderr, "check.dynamic-boundary")?
 }
 
 test test_schema_runtime_checks_unknown_values [error] { |ctx|
@@ -51,11 +51,12 @@ test test_schema_runtime_checks_unknown_values [error] { |ctx|
     r"""
 type Package = { name: Str, root: Path }
 let rows = "{\"name\":\"demo\"}\n" |> json.lines()
-let pkg: Package = rows[0]
+let pkg = rows[0].require(Package)?
 print ${pkg.name}
 """,
   )?
 
   test.eq(output.status, 3)?
-  test.contains(output.stderr, "expected Package, found Record")?
+  test.contains(output.stderr, "schema")?
+  test.contains(output.stderr, "missing required field root")?
 }

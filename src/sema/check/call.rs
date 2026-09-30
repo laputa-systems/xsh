@@ -708,7 +708,11 @@ impl Checker {
                 let previous = std::mem::replace(&mut self.expected_schema, schema);
                 let ty = args.first().map_or(Type::Unit, |arg| self.check_call_arg_arena(arena, source, &arg.kind, expected));
                 self.expected_schema = previous;
-                Type::Result(Box::new(ty), Box::new(Type::Error))
+                let error = match expected_context {
+                    Some(Type::Result(_, error)) => error.as_ref().clone(),
+                    _ => Type::Error,
+                };
+                Type::Result(Box::new(ty), Box::new(error))
             }
             "Err" => {
                 use crate::sema::arguments::{expand_named_arguments, bind_err_arguments};
@@ -1138,7 +1142,7 @@ impl Checker {
         self.check_process_command_argv_argv_arena(arena, source, slots[1], span);
         let expected = [
             Type::Path,
-            Type::Record(BTreeMap::new()),
+            Type::ErasedRecord,
             Type::Path,
             Type::Path,
             Type::Path,

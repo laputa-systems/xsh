@@ -81,6 +81,7 @@ comment */
   test.eq(data["JSON"]["code"], 1)?
   test.eq(data["TOML"]["comments"], 1)?
   test.eq(data["JavaScript"]["comments"], 2)?
+  test.eq(data["HTML"]["children"]["JavaScript"].len(), 1)?
   test.eq(data["HTML"]["children"]["JavaScript"][0]["stats"]["code"], 1)?
   test.eq(data["Markdown"]["children"]["BASH"][0]["stats"]["comments"], 1)?
   test.eq(data["Markdown"]["children"]["Shell"][0]["stats"]["code"], 1)?

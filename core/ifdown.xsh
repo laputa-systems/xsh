@@ -15,6 +15,8 @@ type Interface = {
 
 type Config = {auto: List[Str], interfaces: List[Interface]}
 
+type InterfaceSelection = {physical: Str, logical: Str}
+
 pure empty_interface() -> Interface {
   let pre_down: List[Str] = []
   let down: List[Str] = []
@@ -423,7 +425,7 @@ proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logi
   state_remove_iface(state_path, physical)?
 }
 
-pure split_iface_arg(arg: Str) -> Record {
+pure split_iface_arg(arg: Str) -> InterfaceSelection {
   let parts = arg.split("=", maxsplit: 1)
 
   if parts.len() >= 2 {
@@ -435,7 +437,7 @@ pure split_iface_arg(arg: Str) -> Record {
 
 type IfdownOptions = {all: Bool, operands: List[Str]}
 
-stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[Record] {
+stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[InterfaceSelection] {
   if ! state_path.exists()? {
     return
   }

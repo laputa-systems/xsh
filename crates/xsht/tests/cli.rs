@@ -144,6 +144,46 @@ fn removed_record_require_cli_fix_preserves_unrelated_errors_and_comments() {
 }
 
 #[test]
+fn check_strict_option_reports_default_dynamic_policy_before_loading() {
+    let root = TempDir::new().expect("temporary option fixture");
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "--strict", "missing.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("run removed check option");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).expect("UTF-8 option diagnostic");
+    assert!(stderr.contains("`xsht check --strict` was removed"), "{stderr}");
+    assert!(stderr.contains("dynamic boundaries are checked by default"), "{stderr}");
+    assert!(!stderr.contains("failed to read"), "{stderr}");
+
+    let help = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "--help"])
+        .output()
+        .expect("run check help");
+    assert!(help.status.success());
+    assert!(!String::from_utf8_lossy(&help.stdout).contains("--strict"));
+}
+
+#[test]
+fn check_dynamic_boundary_rejects_disk_fixture_without_annotation_writes() {
+    let root = TempDir::new().expect("temporary dynamic boundary fixture");
+    let source = include_str!("../../../tests/fixtures/sema/invalid/unchecked-json-boundary.xsh");
+    let fixture = root.path().join("boundary.xsh");
+    fs::write(&fixture, source).expect("copy boundary fixture");
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "--annotate", "boundary.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("check dynamic boundary fixture");
+    assert_eq!(output.status.code(), Some(2));
+    assert!(output.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("err[check.dynamic-boundary]"));
+    assert_eq!(fs::read_to_string(fixture).expect("read rejected fixture"), source);
+}
+
+#[test]
 fn lint_fix_converges_when_tail_edits_contain_named_argument_edits() {
     let root = TempDir::new().expect("temporary lint fixture");
     let fixture = root.path().join("fixture.xsh");
@@ -777,7 +817,7 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
 }
 
 #[test]
-fn test_reports_compact_lowerability_without_panicking() {
+fn test_reports_lazy_default_runtime_failure_without_panicking() {
     let root = TempDir::new().expect("create temp root");
     let tests = root.path().join("tests");
     fs::create_dir(&tests).expect("create tests directory");
@@ -801,11 +841,8 @@ fn test_reports_compact_lowerability_without_panicking() {
             String::from_utf8_lossy(&output.stderr)
         );
         let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(stdout.contains("compact.indexed-build"), "stdout: {stdout}");
-        assert!(
-            stdout.contains("indexed IR could not encode `full_ir_function_blocker`"),
-            "stdout: {stdout}"
-        );
+        assert!(stdout.contains("division by zero"), "stdout: {stdout}");
+        assert!(!stdout.contains("compact.indexed-build"), "stdout: {stdout}");
     }
 }
 
@@ -840,7 +877,7 @@ fn check_attributes_imported_parse_error_to_its_source() {
 }
 
 #[test]
-fn check_attributes_lowering_blocker_to_imported_source_with_embedded_module_loaded() {
+fn check_accepts_imported_lazy_default_with_embedded_module_loaded() {
     let root = TempDir::new().expect("create temp root");
     fs::write(
         root.path().join("main.xsh"),
@@ -859,10 +896,9 @@ fn check_attributes_lowering_blocker_to_imported_source_with_embedded_module_loa
         .output()
         .expect("run xsht check");
 
-    assert_eq!(output.status.code(), Some(2));
+    assert_eq!(output.status.code(), Some(0));
     let stderr = String::from_utf8(output.stderr).expect("UTF-8 diagnostic");
-    assert!(stderr.contains("compact.indexed-build"), "{stderr}");
-    assert!(stderr.contains("helper.xsh:3:27"), "{stderr}");
+    assert!(stderr.is_empty(), "{stderr}");
     assert!(!stderr.contains("<xsh-stdlib:"), "{stderr}");
 }
 
@@ -880,7 +916,7 @@ fn check_reports_public_standard_call_name_at_user_source() {
     assert_eq!(output.status.code(), Some(2));
     let stderr = String::from_utf8(output.stderr).expect("UTF-8 diagnostic");
     assert!(stderr.contains("check.arity"), "{stderr}");
-    assert!(stderr.contains("main.xsh:1:7"), "{stderr}");
+    assert!(stderr.contains("main.xsh:1:15"), "{stderr}");
     assert!(stderr.contains("tui.red(1)"), "{stderr}");
     assert!(!stderr.contains("<xsh-stdlib:"), "{stderr}");
 }
@@ -1076,7 +1112,7 @@ use PKGBUILD-shared as PKGBUILD_shared
 }
 
 #[test]
-fn check_compact_lowerability_reports_dependency_blocker() {
+fn check_accepts_lazy_default_in_main_dependency() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");
     fs::write(
@@ -1101,20 +1137,16 @@ proc main(...argv: List[Str]) [error] -> Result[Unit] {
 
     assert_eq!(
         output.status.code(),
-        Some(2),
+        Some(0),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("compact.indexed-build"), "stderr: {stderr}");
-    assert!(
-        stderr.contains("indexed IR could not encode `full_ir_function_blocker`"),
-        "stderr: {stderr}"
-    );
+    assert!(stderr.is_empty(), "stderr: {stderr}");
 }
 
 #[test]
-fn check_top_level_lowerability_reports_first_nested_call_blocker() {
+fn check_accepts_lazy_default_in_nested_top_level_call() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");
     fs::write(
@@ -1136,16 +1168,12 @@ let report = {corpus: scan_corpus()}
 
     assert_eq!(
         output.status.code(),
-        Some(2),
+        Some(0),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("compact.indexed-build"), "stderr: {stderr}");
-    assert!(
-        stderr.contains("indexed IR could not encode `full_ir_function_blocker`"),
-        "stderr: {stderr}"
-    );
+    assert!(stderr.is_empty(), "stderr: {stderr}");
 }
 
 #[test]
@@ -1231,9 +1259,9 @@ fn check_local_method_chain_types_flow_through_if_binding() {
         "pure lookup(body: Str, name: Str) -> Str {
   for raw in body.lines() {
     let stripped = raw.trim()
-    let line = if stripped.starts_with(\"export \") { stripped.split(\"export \").get(1, \"\").trim() } else { stripped }
+    let line = if stripped.starts_with(\"export \") { (stripped.split(\"export \").get(1) ?? \"\").trim() } else { stripped }
     if line.starts_with(f\"${name}=\") {
-      return line.split(\"=\").get(1, \"\").trim().replace(\"\\\"\", \"\").replace(\"'\", \"\")
+      return (line.split(\"=\").get(1) ?? \"\").trim().replace(\"\\\"\", \"\").replace(\"'\", \"\")
     }
   }
   return \"\"
@@ -1330,14 +1358,14 @@ fn check_run_text_binding_type_allows_lowered_str_methods() {
 }
 
 #[test]
-fn check_explicit_list_annotation_survives_any_result_binding() {
+fn check_explicit_list_annotation_validates_any_result_binding() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");
     fs::write(
         &script,
         "proc main(...argv: List[Str]) [error] -> Result[Unit] {
   let stored: Record = {deps: []}
-  let deps: List[Str] = stored.get(\"deps\")?
+  let deps: List[Str] = stored.get(\"deps\")?.require(List[Str])?
   print \"deps\" deps.len() deps.join(\" \")
   return Ok()
 }
@@ -1552,15 +1580,16 @@ fn check_path_property_field_type_flows_to_method_call() {
 }
 
 #[test]
-fn check_any_record_get_can_be_narrowed_by_binding_annotation() {
+fn check_dynamic_record_get_requires_explicit_validation() {
     let root = TempDir::new().expect("create temp root");
     let script = root.path().join("main.xsh");
     fs::write(
         &script,
         "proc main(...argv: List[Str]) [error] -> Result[Unit] {
   let exports: Any = {sources: [\"a\", \"b\"]}
-  if exports.has(\"sources\") {
-    let sources: List[Str] = exports.get(\"sources\")?
+  let checked = exports.require(Record)?
+  if checked.has(\"sources\") {
+    let sources: List[Str] = checked.get(\"sources\")?.require(List[Str])?
     print ${sources.len()}
   }
   return Ok()
@@ -1629,8 +1658,8 @@ fn check_compact_lowerability_accepts_lowered_record_methods() {
         &script,
         "proc main(...argv: List[Str]) [error] -> Result[Unit] {
   let exports: Record = {sources: {name: \"demo\"}}
-  let sources = exports.get(\"sources\")?
-  if sources.len() != 0 {
+  let sources = exports.get(\"sources\")?.require(Record)?
+  if sources.keys().len() != 0 {
     return Ok()
   }
   return Ok()

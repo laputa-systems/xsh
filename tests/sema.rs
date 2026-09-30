@@ -2508,8 +2508,8 @@ match value {
 }
 
 #[test]
-fn strict_checker_reports_unvalidated_any_flows() {
-    let output = check_strict(
+fn checker_reports_unvalidated_dynamic_flows() {
+    let output = check(
         r#"
 type Row = {name: Str}
 
@@ -2532,14 +2532,14 @@ let mixed = [1, json.decode("1")?]
 
     let count = output
         .iter()
-        .filter(|code| code.as_deref() == Some("check.strict-any"))
+        .filter(|code| code.as_deref() == Some("check.dynamic-boundary"))
         .count();
-    assert!(count >= 2, "expected strict Any diagnostics: {output:?}");
+    assert!(count >= 2, "expected dynamic boundary diagnostics: {output:?}");
 }
 
 #[test]
-fn strict_checker_accepts_validated_dynamic_data_and_dynamic_storage() {
-    let output = check_strict(
+fn checker_accepts_validated_dynamic_data_and_dynamic_storage() {
+    let output = check(
         r#"
 type Row = {name: Str}
 
@@ -2554,7 +2554,7 @@ var seen: Map[Bool] = map.empty()
     assert_no_codes(
         &output,
         &[
-            "check.strict-any",
+            "check.dynamic-boundary",
             "check.unknown-field",
             "check.contract-type",
             "check.type-mismatch",
@@ -2564,7 +2564,7 @@ var seen: Map[Bool] = map.empty()
 
 #[test]
 fn checker_types_require_schema_checks() {
-    let output = check_strict(
+    let output = check(
         r#"
 type Config = {name: Str, ports: List[Int], note: Str?}
 
@@ -2578,7 +2578,7 @@ let note: Str? = cfg.note
     assert_no_codes(
         &output,
         &[
-            "check.strict-any",
+            "check.dynamic-boundary",
             "check.unknown-field",
             "check.type-mismatch",
         ],
@@ -2767,8 +2767,8 @@ fn checker_treats_old_schema_helper_name_as_unresolved_call() {
 }
 
 #[test]
-fn strict_checker_reports_missing_known_record_fields_and_removed_record_contracts() {
-    let output = check_strict(
+fn checker_reports_missing_known_record_fields_and_removed_record_contracts() {
+    let output = check(
         r#"
 type Row = {name: Str}
 let row: Row = {name: "demo"}
@@ -2783,7 +2783,7 @@ let loaded = record.require({}, {build: "Proc(Path -> Result[Unit]"})
 
 #[test]
 fn checker_narrows_optional_record_has_result_and_tag_flows() {
-    let output = check_strict(
+    let output = check(
         r#"
 type Row = {name: Str}
 enum State { Ready(Str), Stopped }
@@ -2825,7 +2825,7 @@ match state {
     assert_no_codes(
         &output,
         &[
-            "check.strict-any",
+            "check.dynamic-boundary",
             "check.type-mismatch",
             "check.unknown-field",
             "check.pattern-type",
@@ -2857,7 +2857,6 @@ reveal_type(names)
         source,
         CheckOptions {
             interactive_commands: None,
-            strict_dynamic: false,
             reveal_types: true,
             migration_diagnostics: false,
         },
@@ -2952,7 +2951,6 @@ fn check_with_migration(source: &str) -> Vec<Option<String>> {
         source,
         CheckOptions {
             interactive_commands: None,
-            strict_dynamic: false,
             reveal_types: false,
             migration_diagnostics: true,
         },
@@ -2971,7 +2969,6 @@ fn check_reveal(source: &str) -> RevealCheckOutput {
         source,
         CheckOptions {
             interactive_commands: None,
-            strict_dynamic: false,
             reveal_types: true,
             migration_diagnostics: false,
         },
@@ -2990,24 +2987,6 @@ fn check_reveal(source: &str) -> RevealCheckOutput {
     }
 }
 
-fn check_strict(source: &str) -> Vec<Option<String>> {
-    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
-    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
-    Checker::check_arena_with_options(
-        &parsed.arena,
-        source,
-        CheckOptions {
-            interactive_commands: None,
-            strict_dynamic: true,
-            reveal_types: false,
-            migration_diagnostics: false,
-        },
-    )
-    .diagnostics
-    .into_iter()
-    .map(|diagnostic| diagnostic.code)
-    .collect()
-}
 
 fn check_interactive(source: &str) -> Vec<Option<String>> {
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
@@ -3815,7 +3794,7 @@ fn value_pipeline_holes_publish_the_checked_input_and_ordinary_call_types() {
 
 #[test]
 fn value_pipeline_holes_preserve_record_presence_refinement() {
-    let output = check_strict("type Row = {name: Str}\npure version(row: Row) -> Any { if \"version\" |> row.has(_) { row.version } else { null } }\n");
+    let output = check("type Row = {name: Str}\npure version(row: Row) -> Any { if \"version\" |> row.has(_) { row.version } else { null } }\n");
     assert_no_codes(&output, &["check.record-field", "check.unknown-field", "check.type-mismatch"]);
     assert!(output.is_empty(), "{output:?}");
 }
@@ -4266,4 +4245,32 @@ let command: CommandValues = cli.commands(["build", "workspace"], commands)?
     let parsed = Parser::parse_source_arena_only(SourceId::new(0), &incorrect);
     let checked = Checker::check_arena(&parsed.arena, &incorrect);
     assert!(checked.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("check.type-mismatch")));
+}
+
+#[test]
+fn dynamic_boundary_record_facts_agree_across_checked_representations() {
+    let source = "let erased: Record = {name: \"demo\"}\nlet empty = {}\nlet erased_value = erased\nlet empty_value = empty\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    let mut found = 0;
+    for (expression, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(expression).span;
+        let expected = match &source[span.range()] {
+            "erased" => Some(xsh::frontend::check::Type::ErasedRecord),
+            "empty" => Some(xsh::frontend::check::Type::Record(Default::default())),
+            _ => None,
+        };
+        if let Some(expected) = expected {
+            assert_eq!(ty, expected);
+            assert_eq!(checked.expr_types.get(&span), Some(&expected));
+            found += 1;
+        }
+    }
+    assert_eq!(found, 2);
+
 }

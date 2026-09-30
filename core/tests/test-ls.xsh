@@ -11,6 +11,8 @@ test test_ls [fs, process, env, error] { |ctx|
   test.contains(output, "dir/")?
   let long = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- -l $root ?
   test.contains(long, "file")?
+  let long_alias = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- -g $root ?
+  test.contains(long_alias, "file")?
   let nested = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- fp"${root}/dir" ?
   test.ok(! (fp"${root}/dir".display() in nested))?
   let file_operand = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/ls.xsh" -- fp"${root}/a.txt" ?

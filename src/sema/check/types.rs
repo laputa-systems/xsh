@@ -170,12 +170,13 @@ impl Checker {
             }
             return;
         }
-        if self.options.strict_dynamic && actual.any_flows_to_concrete(expected) {
-            self.warning(
+        if actual.any_flows_to_concrete(expected) {
+            self.error(
                 span,
-                "strict mode requires schema check before using Any as a concrete type",
-                "check.strict-any",
+                &format!("unchecked {actual} cannot establish {expected}; validate with `.require(Type)` or use a checked type pattern"),
+                "check.dynamic-boundary",
             );
+            return;
         }
         if !actual.matches_expected(expected) {
             self.diagnostics.push(

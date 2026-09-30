@@ -7,6 +7,6 @@ proc root_methods() [fs, error] -> Result[Str] {
   defer erased.require(FsRoot)?.close()?
   child.write(p"data", "payload")?
   let observed = child.read_result(p"data", max_bytes: 1)?
-  if ! observed.truncated { return error.fail("bounded read must truncate") }
+  if ! observed.truncated { error.fail("bounded read must truncate")? }
   child.read_text(p"data")?
 }

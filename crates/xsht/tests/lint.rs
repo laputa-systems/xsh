@@ -3278,7 +3278,7 @@ fn yield_delegation_forwarding_fix_is_checked_and_idempotent() {
 #[test]
 fn yield_delegation_fix_preserves_nontransparent_forwarding_loops() {
     for body in ["yield item * 2", "if item > 0 { yield item }", "print $item\n    yield item", "defer close()\n    yield item", "yield item\n    break", "# current item\n    yield item"] {
-        let source = format!("proc close() [io] {{ print \"close\" }}\nstream rows(values: List[Int]) [io] -> Stream[Int] {{\n  for item in values {{\n    {body}\n  }}\n}}\n");
+        let source = format!("proc close() [io] {{ print \"close\" }}\nstream rows(values: List[Int]) [io, error] -> Stream[Int] {{\n  for item in values {{\n    {body}\n  }}\n}}\n");
         let parsed = parse_lint_source(&source);
         let checked = Checker::check_arena(&parsed.arena, &source);
         assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);

@@ -15,6 +15,8 @@ type Interface = {
 
 type Config = {auto: List[Str], interfaces: List[Interface]}
 
+type InterfaceSelection = {physical: Str, logical: Str}
+
 # Minimal IPv4 DHCP client (RFC 2131), modeled on busybox udhcpc but pared down
 # to the DISCOVER/OFFER/REQUEST/ACK handshake. The broadcast UDP socket is
 # provided by the linux.dhcp_* primitives; everything else is plain byte work.
@@ -376,7 +378,9 @@ pure parse_mac(mac: Str) -> List[Int] {
   [hex_nibble((part.byte_at(0) ?? -1)) * 16 + hex_nibble((part.byte_at(1) ?? -1)) for part in mac.split(":") if part != ""]
 }
 
-pure empty_lease() -> Record {
+type DhcpLease = {valid: Bool, message_type: Int, yiaddr: List[Int], netmask: Str, gateway: Str, dns: List[Str], server_id: List[Int]}
+
+pure empty_lease() -> DhcpLease {
   let yiaddr: List[Int] = []
   let dns_servers: List[Str] = []
   let server_id: List[Int] = []
@@ -444,7 +448,7 @@ proc dhcp_packet(
   return bytes.concat(chunks)
 }
 
-proc parse_dhcp_reply(packet: Bytes, xid: Int) [error] -> Result[Record] {
+proc parse_dhcp_reply(packet: Bytes, xid: Int) [error] -> Result[DhcpLease] {
   let total = packet.len()
 
   if total < DHCP_HEADER_LEN {
@@ -507,7 +511,7 @@ proc parse_dhcp_reply(packet: Bytes, xid: Int) [error] -> Result[Record] {
 }
 
 # Drive the handshake on `physical` and return the acknowledged lease.
-proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Record] {
+proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[DhcpLease] {
   var mac: List[Int] = []
 
   for iface in linux.interfaces()? {
@@ -654,7 +658,7 @@ proc configure_interface(config: Config, state_path: Path, physical: Str, logica
   mark_configured(state_path, physical, stanza.logical)?
 }
 
-pure split_iface_arg(arg: Str) -> Record {
+pure split_iface_arg(arg: Str) -> InterfaceSelection {
   let parts = arg.split("=", maxsplit: 1)
 
   if parts.len() >= 2 {

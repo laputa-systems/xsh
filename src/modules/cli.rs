@@ -241,7 +241,7 @@ impl CliDescriptorPlan {
         use crate::sema::types::Type;
         let values = self.values_type();
         let result = if full { Type::Record(BTreeMap::from(xsh_registry::types::cli_full_fields(
-            values, Type::Record(BTreeMap::new()), Type::List(Box::new(Type::Str)),
+            values, Type::ErasedRecord, Type::List(Box::new(Type::Str)),
         ).map(|(name, ty)| (crate::symbol::Name::intern(name), ty)))) } else { values };
         Type::Result(Box::new(result), Box::new(Type::Error))
     }

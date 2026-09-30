@@ -1770,7 +1770,7 @@ test test_system_report_block_bundle_keeps_absent_class_unscoreable [fs, time, e
 }
 
 test test_system_report_block_raw_reference_checks_each_layer_direction [error] {
-  let reference = {
+  let reference: report_checks.BlockRawReference = {
     devices: [
       {
         name: "sda",
@@ -3044,7 +3044,7 @@ test test_system_report_cpu_topology_capture_rejects_escaping_numa_link [fs, tim
 }
 
 test test_system_report_cpuidle_reference_scores_state_indices_and_bracketed_counters [error] {
-  let shallow = {
+  let shallow: report_checks.CpuIdleStateReference = {
     cpu_id: 0,
     state_index: 0,
     name: "C1",
@@ -3064,8 +3064,8 @@ test test_system_report_cpuidle_reference_scores_state_indices_and_bracketed_cou
     usage_count: 6,
     time_us: 40,
   }
-  let before = {driver: "intel_idle", governor: "menu", available_governors: ["menu", "teo"], states: [shallow, deep]}
-  let after = {...before, states: [{...shallow, usage_count: 5, time_us: 30}, {...deep, usage_count: 8, time_us: 60}]}
+  let before: report_checks.CpuIdleReference = {driver: "intel_idle", governor: "menu", available_governors: ["menu", "teo"], states: [shallow, deep]}
+  let after: report_checks.CpuIdleReference = {...before, states: [{...shallow, usage_count: 5, time_us: 30}, {...deep, usage_count: 8, time_us: 60}]}
   let candidate = """{"cpu":{"status":{"state":"complete","enumeration_succeeded":true},"global_idle_driver":"intel_idle","global_idle_governor":"menu","available_idle_governors":["menu","teo"],"idle_states":[{"cpu_id":0,"state_index":1,"name":"C1","description":"second","disable_setting":0,"latency_us":8,"residency_us":20,"usage_count":7,"time_us":50},{"cpu_id":0,"state_index":0,"name":"C1","description":"first","disable_setting":0,"latency_us":1,"residency_us":2,"usage_count":4,"time_us":20}]}}"""
   let exact = report_checks.compare_cpuidle(candidate, before, after)?
   test.ok(exact.eligible)?
@@ -3473,7 +3473,7 @@ test test_system_report_cache_rooted_reference_reads_shared_instance_sources [fs
 }
 
 test test_system_report_network_link_raw_reference_scores_flags_type_and_stable_counters [error] {
-  let reference = [
+  let reference: List[report_checks.NetworkLinkRawReference] = [
     {
       ifindex: 2,
       name: "eth0",
@@ -3730,7 +3730,7 @@ test test_system_report_ip_address_reference_preserves_ipv6_identity_and_link_me
 }
 
 test test_system_report_ip_address_lifetimes_score_bracketed_countdowns [error] {
-  let first = [
+  let first: List[report_checks.IpAddressReference] = [
     {
       ifindex: 2,
       family: "ipv6",
@@ -3742,7 +3742,7 @@ test test_system_report_ip_address_lifetimes_score_bracketed_countdowns [error] 
       preferred_lifetime_seconds: 120,
     },
   ]
-  let later = [{...first[0], valid_lifetime_seconds: 297, preferred_lifetime_seconds: 117}]
+  let later: List[report_checks.IpAddressReference] = [{...first[0], valid_lifetime_seconds: 297, preferred_lifetime_seconds: 117}]
   let candidate = """{"network":{"status":{"state":"complete","enumeration_succeeded":true},"links":[{"ifindex":2,"addresses":[{"family":"ipv6","address":{"state":"observed","value":"2001:db8::10"},"prefix_length":64,"valid_lifetime_seconds":299,"preferred_lifetime_seconds":119}]}]}}"""
   let exact = report_checks.compare_ip_address_lifetimes(candidate, first, later)?
   test.ok(exact.exact)?
@@ -5261,7 +5261,7 @@ test test_system_report_cgroup_v2_comparison_scores_stable_limits_and_bracketed_
       },
     ],
   }
-  let after = {
+  let after: report_checks.Cgroup2ResourceObservation = {
     ...before,
     resources: [
       {
@@ -5295,7 +5295,7 @@ test test_system_report_cgroup_v2_comparison_scores_stable_limits_and_bracketed_
     )?.exact_scored,
     false,
   )?
-  let changing = {...after, resources: [{...after.resources[0], current_value: 4500}, after.resources[1]]}
+  let changing: report_checks.Cgroup2ResourceObservation = {...after, resources: [{...after.resources[0], current_value: 4500}, after.resources[1]]}
   let partial = report_checks.compare_cgroup2_resources(candidate, before, changing)?
   test.eq(partial.exact_stable, true)?
   test.eq(partial.exact_scored, false)?
@@ -7715,7 +7715,7 @@ test test_system_report_pci_binding_rooted_reference_reads_links_and_unknown_num
 }
 
 test test_system_report_thermal_reference_preserves_sparse_trip_indexes_and_brackets_temperature [error] {
-  let zone = {
+  let zone: report_checks.ThermalZoneReference = {
     id: 3,
     kind: "cpu_thermal",
     temperature_millidegrees: 41000,
@@ -8572,7 +8572,7 @@ test test_system_report_kernel_parameter_reference_scores_values_and_absence [er
 }
 
 test test_system_report_kernel_parameter_reference_rejects_duplicate_or_unexpected_names [error] {
-  let reference = [
+  let reference: List[report_checks.KernelParameterReference] = [
     {
       name: "kernel.pid_max",
       source: "sysctl",
@@ -8585,7 +8585,7 @@ test test_system_report_kernel_parameter_reference_rejects_duplicate_or_unexpect
     report_checks.compare_kernel_parameters("{}", reference.extend(reference)),
     "SystemReportCheckError.Invalid",
   )?
-  let invalid = [{name: "kernel.pid_max", source: "sysctl", state: "absent", value: "4194304", raw_bytes_base64: null}]
+  let invalid: List[report_checks.KernelParameterReference] = [{name: "kernel.pid_max", source: "sysctl", state: "absent", value: "4194304", raw_bytes_base64: null}]
   test.error_kind(report_checks.compare_kernel_parameters("{}", invalid), "SystemReportCheckError.Invalid")?
   let repeated = json.encode({
     kernel: {

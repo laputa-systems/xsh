@@ -252,9 +252,10 @@ test test_ini_encode_rejects_non_string_values [fs, error] {
   test.error_kind(ini.encode({a: [1, 2]}), "ini-encode")?
 
   # A map is not a section record.
-  test.error_kind(ini.encode({s: map.empty()}), "ini-encode")?
+  let empty_map: Map[Str] = map.empty()
+  test.error_kind(ini.encode({s: empty_map}), "ini-encode")?
   test.eq(
-    encode_message(ini.encode({s: map.empty()})),
+    encode_message(ini.encode({s: empty_map})),
     "INI records may contain only global string keys or section records",
   )?
 

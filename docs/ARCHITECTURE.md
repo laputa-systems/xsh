@@ -556,6 +556,14 @@ The checker should report diagnostics and continue with an internal recovery
 type where possible. Public dynamic data is `Type::Any`; recovery types should
 not leak into generated docs or user-facing signatures.
 
+Dynamic boundaries use `Type::matches_expected` and
+`Checker::expect_type` for both source checking and execution preparation.
+`Type::ErasedRecord` carries builtin `Record` erasure without certifying fields;
+`Type::Record` retains known fields, including an exact empty literal shape.
+Explicit schema validation and type patterns establish concrete facts. Expected
+types alone do not validate dynamic data. The checker options retain tooling
+controls such as reveal output, without a separate dynamic compatibility policy.
+
 ## Runtime
 
 `Evaluator` in `src/runtime/eval.rs` owns the evaluator state: scopes, indexed program,

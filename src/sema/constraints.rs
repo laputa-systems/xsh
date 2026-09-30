@@ -16,6 +16,7 @@ struct Variable {
     origin: Span,
     binding: Option<Type>,
     contribution: Option<Span>,
+    annotation: bool,
 }
 
 /// One local or declaration inference problem. Cloned probes share existing
@@ -45,7 +46,7 @@ pub struct ConstraintConflict {
 impl TypeConstraints {
     pub fn fresh(&mut self, origin: Span) -> Type {
         let id = TypeVariableId(NEXT_VARIABLE.fetch_add(1, Ordering::Relaxed));
-        self.variables.insert(id, Variable { origin, binding: None, contribution: None });
+        self.variables.insert(id, Variable { origin, binding: None, contribution: None, annotation: false });
         Type::Inference(id)
     }
 
@@ -79,7 +80,21 @@ impl TypeConstraints {
     fn constrain_with_authority(&mut self, expected: &Type, actual: &Type, contribution: Span, annotation: bool) -> Result<(), ConstraintConflict> {
         let provenance = self.provenance(expected).or_else(|| self.provenance(actual));
         let mut changes = Vec::new();
-        let result = self.constrain_inner(expected, actual, contribution, annotation, &mut changes);
+        let result = self.constrain_inner(expected, actual, contribution, annotation, &mut changes)
+            .and_then(|()| {
+                let resolved_expected = self.resolve(expected).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
+                let resolved_actual = self.resolve(actual).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
+                let unresolved = self.variable_ids(&resolved_expected).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
+                let actual_unresolved = self.variable_ids(&resolved_actual).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
+                // Substitution must preserve the same concrete boundary relation,
+                // including invariant containers whose elements contain records.
+                if unresolved.is_empty() && actual_unresolved.is_empty()
+                    && !resolved_actual.matches_expected(&resolved_expected)
+                {
+                    return Err((resolved_expected, resolved_actual, None));
+                }
+                Ok(())
+            });
         if let Err((expected, actual, resolution_error)) = result {
             for (id, previous) in changes.into_iter().rev() { self.variables.insert(id, previous); }
             return Err(ConstraintConflict {
@@ -93,19 +108,34 @@ impl TypeConstraints {
     fn constrain_inner(&mut self, expected: &Type, actual: &Type, contribution: Span, annotation: bool, changes: &mut Vec<(TypeVariableId, Variable)>) -> Result<(), (Type, Type, Option<ConstraintResolutionError>)> {
         let mut pending = vec![(expected.clone(), actual.clone())];
         while let Some((expected, actual)) = pending.pop() {
-            let expected = self.resolve(&expected).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
-            let actual = self.resolve(&actual).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
+            let contribution_to_variable = matches!(expected, Type::Inference(_)) && !self.annotation_variable(&expected);
+            let expected = if matches!(expected, Type::Inference(_)) {
+                self.resolve(&expected).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?
+            } else { expected };
+            let actual = if matches!(actual, Type::Inference(_)) {
+                self.resolve(&actual).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?
+            } else { actual };
+            // A solved inference identity keeps one concrete shape. Contextual
+            // record width conversion cannot select a different inferred shape
+            // according to which contribution happened to arrive first.
+            if contribution_to_variable
+                && self.variable_ids(&expected).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?.is_empty()
+                && self.variable_ids(&actual).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?.is_empty()
+                && !actual.matches_invariant(&expected)
+            {
+                return Err((expected, actual, None));
+            }
             if expected == actual { continue; }
             match (&expected, &actual) {
                 (Type::Inference(left), Type::Inference(right)) => {
                     let (root, alias) = if left < right { (*left, *right) } else { (*right, *left) };
-                    self.bind(alias, Type::Inference(root), contribution, changes);
+                    self.bind(alias, Type::Inference(root), contribution, annotation, changes);
                 }
                 (Type::Inference(id), value) | (value, Type::Inference(id)) => {
                     if !has_anchor(value, annotation) { continue; }
                     let variables = self.variable_ids(value).map_err(|error| (expected.clone(), actual.clone(), Some(error)))?;
                     if variables.contains(id) { return Err((expected, actual, None)); }
-                    self.bind(*id, value.clone(), contribution, changes);
+                    self.bind(*id, value.clone(), contribution, annotation, changes);
                 }
                 (Type::Optional(_), Type::Null) => {}
                 (Type::Optional(left), Type::Optional(right))
@@ -127,7 +157,7 @@ impl TypeConstraints {
                     }
                 }
                 _ if matches!(expected, Type::Any | Type::Unknown | Type::Invalid)
-                    || matches!(actual, Type::Any | Type::Unknown | Type::Invalid) => {}
+                    || matches!(actual, Type::Unknown | Type::Invalid) => {}
                 _ if actual.matches_expected(&expected) => {}
                 _ => return Err((expected, actual, None)),
             }
@@ -135,10 +165,24 @@ impl TypeConstraints {
         Ok(())
     }
 
-    fn bind(&mut self, id: TypeVariableId, binding: Type, contribution: Span, changes: &mut Vec<(TypeVariableId, Variable)>) {
+    fn annotation_variable(&self, ty: &Type) -> bool {
+        let Type::Inference(mut id) = *ty else { return false; };
+        for _ in 0..=MAX_TYPE_DEPTH {
+            let Some(variable) = self.variables.get(&id) else { return false; };
+            if variable.annotation { return true; }
+            match variable.binding {
+                Some(Type::Inference(next)) => id = next,
+                _ => return false,
+            }
+        }
+        false
+    }
+
+    fn bind(&mut self, id: TypeVariableId, binding: Type, contribution: Span, annotation: bool, changes: &mut Vec<(TypeVariableId, Variable)>) {
         let variable = self.variables.get_mut(&id).expect("constraint variable belongs to this problem");
         changes.push((id, variable.clone()));
         variable.binding = Some(binding);
+        variable.annotation = annotation;
         variable.contribution.get_or_insert(contribution);
     }
 
@@ -266,7 +310,7 @@ fn has_anchor(ty: &Type, annotation: bool) -> bool {
         match ty {
             Type::Unknown | Type::Invalid => return false,
             Type::Inference(_) if annotation => return false,
-            Type::Any | Type::Null if !annotation => return false,
+            Type::Any | Type::ErasedRecord | Type::Null if !annotation => return false,
             Type::List(inner) | Type::Optional(inner) | Type::Stream(inner) => pending.push((inner, depth + 1)),
             Type::Map(key, value) => { pending.push((key, depth + 1)); pending.push((value, depth + 1)); }
             Type::Result(ok, error) => { pending.push((ok, depth + 1)); pending.push((error, depth + 1)); }
@@ -389,4 +433,61 @@ mod tests {
             assert_eq!(constraints.resolve(&seed).unwrap(), seed);
         }
     }
+
+    #[test]
+    fn dynamic_values_cannot_satisfy_resolved_concrete_constraints() {
+        let mut constraints = TypeConstraints::default();
+        for expected in [Type::Int, Type::Optional(Box::new(Type::Int)), Type::List(Box::new(Type::Int))] {
+            assert!(constraints.constrain(&expected, &Type::Any, span(1)).is_err());
+        }
+        let record = Type::Record(std::collections::BTreeMap::from([(crate::symbol::Name::intern("value"), Type::Int)]));
+        assert!(constraints.constrain(&record, &Type::ErasedRecord, span(2)).is_err());
+        assert!(constraints.constrain(&Type::Any, &record, span(3)).is_ok());
+        assert!(constraints.constrain(&Type::ErasedRecord, &record, span(4)).is_ok());
+    }
+
+    #[test]
+    fn container_record_width_cannot_bypass_invariance_during_substitution() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+        let mut constraints = TypeConstraints::default();
+        let item = constraints.fresh(span(1));
+        let name = crate::symbol::Name::intern("value");
+        let expected = Type::List(Box::new(Type::Record(std::collections::BTreeMap::from([(name, item.clone())]))));
+        let actual = Type::List(Box::new(Type::Record(std::collections::BTreeMap::from([
+            (name, Type::Int), (crate::symbol::Name::intern("extra"), Type::Bool),
+        ]))));
+        assert!(constraints.constrain(&expected, &actual, span(2)).is_err());
+        assert_eq!(constraints.resolve(&item).unwrap(), item);
+        });
+    }
+    #[test]
+    fn optional_record_contributions_keep_one_shape_in_either_order() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let name = crate::symbol::Name::intern("value");
+            let narrow = Type::Record(std::collections::BTreeMap::from([(name, Type::Int)]));
+            let wide = Type::Record(std::collections::BTreeMap::from([
+                (name, Type::Int), (crate::symbol::Name::intern("extra"), Type::Bool),
+            ]));
+            for (first, second) in [(&narrow, &wide), (&wide, &narrow)] {
+                let mut constraints = TypeConstraints::default();
+                let item = constraints.fresh(span(1));
+                let optional = Type::Optional(Box::new(item.clone()));
+                constraints.constrain(&optional, first, span(2)).unwrap();
+                assert!(constraints.constrain(&optional, second, span(3)).is_err());
+                assert_eq!(constraints.resolve(&item).unwrap(), *first);
+                // A separately grounded destination may deliberately hide fields.
+                assert!(constraints.constrain(&narrow, &wide, span(4)).is_ok());
+            }
+        });
+    }
+
+    #[test]
+    fn authoritative_dynamic_destination_accepts_concrete_contributions() {
+        let mut constraints = TypeConstraints::default();
+        let chosen = constraints.fresh(span(1));
+        constraints.constrain_annotation(&chosen, &Type::Any, span(2)).unwrap();
+        constraints.constrain(&chosen, &Type::Int, span(3)).unwrap();
+        assert_eq!(constraints.resolve(&chosen).unwrap(), Type::Any);
+    }
+
 }

@@ -134,20 +134,22 @@ impl Checker {
                 self.schema_expectation_for_expr(arena, base),
             );
         }
-        if matches!(base_ty, Type::Record(_) | Type::Module(_)) {
+        if matches!(base_ty, Type::ErasedRecord | Type::Record(_) | Type::Module(_)) {
+            let projection = api_spec().method_overloads(MethodReceiver::Record, name)
+                .filter(|methods| methods.iter().any(|method| method.sig.semantic_rule == crate::modules::signature::SemanticRule::ConstantKeyProjection))
+                .and_then(|_| crate::sema::projection::resolve_get_projection(
+                    &arena.arena, &self.prepared_constants, base, &base_ty, args,
+                ));
             let result = self.check_registered_method_arena(
                 arena, source, MethodReceiver::Record, name, args, span,
-                &if matches!(base_ty, Type::Module(_)) { Type::Record(Default::default()) } else { base_ty.clone() }, "check.unknown-method", expected, self.schema_expectation_for_expr(arena, base),
+                &if matches!(base_ty, Type::Module(_)) { Type::ErasedRecord } else { base_ty.clone() }, "check.unknown-method",
+                if projection.is_some() { None } else { expected }, self.schema_expectation_for_expr(arena, base),
             );
-            if api_spec().method_overloads(MethodReceiver::Record, name).is_some_and(|methods| methods.iter().any(|method| method.sig.semantic_rule == crate::modules::signature::SemanticRule::ConstantKeyProjection))
-                && let Type::Result(_, error) = &result
-                && let Some(projection) = crate::sema::projection::resolve_get_projection(
-                    &arena.arena, &self.prepared_constants, base, &base_ty, args,
-                )
-            {
-                let value_type = projection.value_type.clone();
+            if let Type::Result(_, error) = &result && let Some(projection) = projection {
+                let refined = Type::Result(Box::new(projection.value_type.clone()), error.clone());
                 self.projections.insert(span, projection);
-                return Type::Result(Box::new(value_type), error.clone());
+                if let Some(expected) = expected { self.expect_type(expected, &refined, span); }
+                return refined;
             }
             return result;
         }
@@ -346,7 +348,7 @@ impl Checker {
             }
         };
         if let Some(expected) = expected && let Err(conflict) = instance.constrain_result(expected, &mut self.type_constraints, span) {
-            self.error(span, &format!("expected {}; found {}", conflict.expected, conflict.actual), "check.type-mismatch");
+            self.expect_type(&conflict.expected, &conflict.actual, span);
         }
         if self.in_pure && !method.sig.pure {
             self.error(
@@ -471,6 +473,19 @@ impl Checker {
             } else {
                 self.error(span, "unexpected named parameter", "check.named-arg");
             }
+            return (arity_matches[0], true);
+        }
+
+        let mut dynamic_boundary = false;
+        for (index, (arg, actual)) in args.iter().zip(&actuals).enumerate() {
+            if let Some(expected) = common_method_overload_expected_arena(args, overloads, index)
+                && actual.any_flows_to_concrete(&expected)
+            {
+                self.expect_type(&expected, actual, call_arg_span_arena(arena, &arg.kind));
+                dynamic_boundary = true;
+            }
+        }
+        if dynamic_boundary {
             return (arity_matches[0], true);
         }
 

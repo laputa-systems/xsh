@@ -52,7 +52,7 @@ export pure helper_label(value: Str) -> Str {
 ##! Dynamic package module.
 use helper
 
-let prefix = helper_name
+let prefix = helper.helper_name
 
 pure label_private(value: Str) -> Str {
   return f"${prefix}-${value}"
@@ -637,18 +637,21 @@ test test_module_proc_call_preserves_runtime_cwd [fs, error] { |ctx|
   callee.write(r"""
 ##! CWD writer module.
 ## Writes the active runtime working directory.
-export proc write_cwd(out: Path) [fs, error] {
+export proc write_cwd(out: Path) [fs, error] -> Result[Unit] {
   fs.write(out, fs.cwd()?.display())?
 }
 """)?
   fp"${root}/caller.xsh".write(f"""
 ##! CWD caller module.
+type Writer = module {
+  export proc write_cwd(out: Path) [fs, error] -> Result[Unit]
+}
+
 ## Loads the writer and invokes it within the requested directory.
-export proc invoke(src: Path, out: Path) [fs, error] {
-  let module_exports = module.load(p"${callee.display()}")?
+export proc invoke(src: Path, out: Path) [env, fs, error] -> Result[Unit] {
+  let module_exports = module.load(p"${callee.display()}")?.require(Writer)?
   cd src {
-    let write_cwd: Proc = module_exports.get("write_cwd")?
-    write_cwd.call(out)?
+    module_exports.write_cwd(out)?
   } ?
 }
 """)?

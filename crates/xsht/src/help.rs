@@ -23,13 +23,9 @@ static COMMANDS: &[CommandHelp] = &[
         quick_label: "Validate source",
         quick_usage: "check [PATH...]",
         usage: &[
-            "xsht check [--strict] [--summary] [--annotate[=default|signatures|locals|all|CLASS,...]] [PATH...]",
+            "xsht check [--summary] [--annotate[=default|signatures|locals|all|CLASS,...]] [PATH...]",
         ],
         options: &[
-            HelpOption {
-                syntax: "--strict",
-                description: "Enable strict dynamic-data diagnostics",
-            },
             HelpOption {
                 syntax: "--summary",
                 description: "Append diagnostic counts by code",

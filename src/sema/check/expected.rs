@@ -24,7 +24,7 @@ pub(super) fn infer_requirement_target(
         Type::Result(ok, _) => (*ok, context.children.get(&SchemaComponent::Success).cloned().unwrap_or_default()),
         ty => (ty, context.clone()),
     };
-    if matches!(&ty, Type::Any | Type::DynamicModule | Type::Pure | Type::Proc) || matches!(&ty, Type::Record(fields) if fields.is_empty()) { return None; }
+    if matches!(&ty, Type::Any | Type::ErasedRecord | Type::DynamicModule | Type::Pure | Type::Proc) { return None; }
     if !concrete_validation_type(&ty, 0) { return None; }
     let context = resolve_context(context, constraints, 0)?;
     Some(requirement_target(arena, ty, context))

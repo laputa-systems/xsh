@@ -968,7 +968,7 @@ pure not_requested_processes(section: ProcessSection) -> ProcessSection {
 }
 
 pure clear_process_cgroup_resource_links(section: ProcessSection) -> ProcessSection {
-  var processes = [{...process_item, cgroup_resource_index: null} for process_item in section.processes]
+  var processes: List[ProcessRecord] = [{...process_item, cgroup_resource_index: null} for process_item in section.processes]
   return {...section, processes: processes}
 }
 
@@ -1019,7 +1019,7 @@ pure select_report_domain(report: SystemReport, selected: ReportSection) -> Syst
 
 ## Keeps identity and one named domain, marking every excluded domain.
 export pure select_report_section(report: Record, selected: Str) -> Result[Record] {
-  let typed = report
+  let typed = report.require(SystemReport)?
   return select_report_domain(typed, parse_report_section(selected)?)
 }
 
@@ -2307,7 +2307,7 @@ pure encode_typed_report_json(report: SystemReport, sensitive: Bool, pretty: Boo
 
 ## Validates a dynamic report at the JSON boundary and emits one document.
 export pure encode_report_json(report: Record, sensitive: Bool, pretty: Bool) -> Result[Str] {
-  return encode_typed_report_json(report, sensitive, pretty)
+  return encode_typed_report_json(report.require(SystemReport)?, sensitive, pretty)
 }
 
 ## Validates the JSON v1 wire schema and restores its typed tag unions.
@@ -3419,7 +3419,7 @@ pure render_typed_text(report: SystemReport, full: Bool, sensitive: Bool) -> Res
 
 ## Validates a dynamic report and renders terminal-safe text.
 export pure render_text(report: Record, full: Bool, sensitive: Bool) -> Result[Str] {
-  return render_typed_text(report, full, sensitive)
+  return render_typed_text(report.require(SystemReport)?, full, sensitive)
 }
 
 ## Removes the payload of a sensitive observation while retaining its shape.
@@ -3477,7 +3477,7 @@ pure redact_memory_section(section: MemorySection) -> MemorySection {
 }
 
 pure redact_pci_section(section: PciSection) -> PciSection {
-  var functions = [
+  var functions: List[PciFunction] = [
     {
       ...function,
       address: null,
@@ -3495,7 +3495,7 @@ pure redact_pci_section(section: PciSection) -> PciSection {
 pure redact_usb_section(section: UsbSection) -> UsbSection {
   var devices: List[UsbDevice] = []
   for device in section.devices {
-    var interfaces = [{...interface, name: null} for interface in device.interfaces]
+    var interfaces: List[UsbInterface] = [{...interface, name: null} for interface in device.interfaces]
     devices = devices.push({
       ...device,
       sysfs_name: null,
@@ -3645,7 +3645,7 @@ pure redact_mount_options(options: List[Str]) -> List[Str] {
 }
 
 pure redact_storage_section(section: StorageSection) -> StorageSection {
-  var devices = [
+  var devices: List[BlockDevice] = [
     {
       ...device,
       name: null,
@@ -3656,7 +3656,7 @@ pure redact_storage_section(section: StorageSection) -> StorageSection {
     }
     for device in section.devices
   ]
-  var mounts = [
+  var mounts: List[Mount] = [
     {
       ...mount,
       major: null,

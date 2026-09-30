@@ -111,7 +111,8 @@ fn render_type(ty: &crate::sema::types::Type) -> String {
         Type::Map(key, inner) if matches!(key.as_ref(), Type::Unknown) && matches!(inner.as_ref(), Type::Any) => "Map[K, V]".to_string(),
         Type::Map(key, inner) => if matches!(key.as_ref(), Type::Str) { format!("Map[{}]", render_type(inner)) } else { format!("Map[{}, {}]", render_type(key), render_type(inner)) },
         Type::Stream(inner) => format!("Stream[{}]", render_type(inner)),
-        Type::Record(fields) if fields.is_empty() => "Record".to_string(),
+        Type::ErasedRecord => "Record".to_string(),
+        Type::Record(fields) if fields.is_empty() => "{}".to_string(),
         Type::Record(fields) => {
             let fields = fields
                 .iter()

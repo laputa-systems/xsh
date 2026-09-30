@@ -408,12 +408,14 @@ pub(crate) fn convert_type(ty: &xsh_registry::types::Type) -> Type {
         xsh_registry::types::Type::List(inner) => Type::List(Box::new(convert_type(inner))),
         xsh_registry::types::Type::Map(key, inner) => Type::Map(Box::new(convert_type(key)), Box::new(convert_type(inner))),
         xsh_registry::types::Type::Stream(inner) => Type::Stream(Box::new(convert_type(inner))),
+        xsh_registry::types::Type::Record(fields) if fields.is_empty() => Type::ErasedRecord,
         xsh_registry::types::Type::Record(fields) => Type::Record(
             fields
                 .iter()
                 .map(|(name, ty)| (Name::intern(name), convert_type(ty)))
                 .collect(),
         ),
+        xsh_registry::types::Type::Module(exports) if exports.is_empty() => Type::DynamicModule,
         xsh_registry::types::Type::Module(exports) => Type::Module(
             exports
                 .iter()

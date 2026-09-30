@@ -112,18 +112,18 @@ test test_list_compound_assignment_retains_target_on_dynamic_rhs_failure [error]
     r"""pure wrong() -> Any {
   return 2
 }
-proc report(values: List[Int]) [io] {
+proc report(values: List[Int]) [io] -> Unit {
   print values.len()
 }
-proc main() [io] {
+proc main() [io, error] {
   var values = [1]
   defer report(values)
-  values += wrong()
+  values += wrong().require(List[Int])?
 }
 """,
   )?
   test.ok(! result.success, result.stderr)?
-  test.contains(result.stderr, "type-error")?
+  test.contains(result.stderr, "schema check failed at $: expected List, found Int")?
   test.eq(result.stdout, "1\n")?
 }
 

@@ -47,6 +47,8 @@ pub(super) enum TypeTag {
     Tag,
     Optional,
     UInt,
+    ErasedRecord,
+    DynamicModule,
 }
 
 impl TypeTag {
@@ -54,6 +56,8 @@ impl TypeTag {
         matches!(
             self,
             Self::Any
+                | Self::ErasedRecord
+                | Self::DynamicModule
                 | Self::Null
                 | Self::Bool
                 | Self::Int
@@ -217,6 +221,8 @@ impl SemanticPools {
         };
         Ok(match tag {
             TypeTag::Any => Type::Any,
+            TypeTag::ErasedRecord => Type::ErasedRecord,
+            TypeTag::DynamicModule => Type::DynamicModule,
             TypeTag::Null => Type::Null,
             TypeTag::Bool => Type::Bool,
             TypeTag::Int => Type::Int,
@@ -369,6 +375,8 @@ impl SemanticPools {
         let data = self.type_data[id.index()];
         let scalar = match tag {
             TypeTag::Any => Some("Any"),
+            TypeTag::ErasedRecord => Some("Record"),
+            TypeTag::DynamicModule => Some("Module"),
             TypeTag::Null => Some("Null"),
             TypeTag::Bool => Some("Bool"),
             TypeTag::Int => Some("Int"),
@@ -758,6 +766,7 @@ impl SemanticPoolBuilder {
                 return Err(IrBuildError::format("recovery_type", None, 0, 0));
             }
             Type::Any => scalar(TypeTag::Any),
+            Type::ErasedRecord => scalar(TypeTag::ErasedRecord),
             Type::Null => scalar(TypeTag::Null),
             Type::Bool => scalar(TypeTag::Bool),
             Type::Int => scalar(TypeTag::Int),
@@ -813,7 +822,7 @@ impl SemanticPoolBuilder {
                 let start = checked_u32(pools.type_extra.len(), "semantic_extra_overflow")?;
                 (key, IrData::new(shape.raw(), start), words)
             }
-            Type::DynamicModule => scalar(TypeTag::Module),
+            Type::DynamicModule => scalar(TypeTag::DynamicModule),
             Type::Result(ok, err) => {
                 let ok = self.intern_type(pools, ok)?;
                 let err = self.intern_type(pools, err)?;
@@ -1107,6 +1116,23 @@ mod tests {
         let module_shape = ShapeId::from_raw(pools.type_data[module_id.index()].lhs).unwrap();
         assert_eq!(record_shape, module_shape);
         assert_eq!(pools.shape_count(), 1);
+        pools.verify().unwrap();
+    }
+
+    #[test]
+    fn erased_record_and_module_facts_remain_distinct_from_empty_shapes() {
+        let mut pools = SemanticPools::default();
+        let mut builder = SemanticPoolBuilder::default();
+        let erased_record = builder.intern_type(&mut pools, &Type::ErasedRecord).unwrap();
+        let empty_record = builder.intern_type(&mut pools, &Type::Record(BTreeMap::new())).unwrap();
+        let dynamic_module = builder.intern_type(&mut pools, &Type::DynamicModule).unwrap();
+        let empty_module = builder.intern_type(&mut pools, &Type::Module(BTreeMap::new())).unwrap();
+        assert_ne!(erased_record, empty_record);
+        assert_ne!(dynamic_module, empty_module);
+        assert_eq!(pools.to_type(erased_record).unwrap(), Type::ErasedRecord);
+        assert_eq!(pools.to_type(empty_record).unwrap(), Type::Record(BTreeMap::new()));
+        assert_eq!(pools.to_type(dynamic_module).unwrap(), Type::DynamicModule);
+        assert_eq!(pools.to_type(empty_module).unwrap(), Type::Module(BTreeMap::new()));
         pools.verify().unwrap();
     }
 

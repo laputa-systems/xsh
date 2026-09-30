@@ -904,11 +904,11 @@ test test_cli_parse_returns_values_and_asks_for_help [fs, error] {
   )?
   test.eq(parsed.get("name") ?? "", "x")?
   test.eq(parsed.get("count") ?? 0, 2)?
-  test.eq(parsed.get("verbose") ?? "missing", true)?
+  test.eq(parsed.get("verbose")?, true)?
   test.eq(parsed.get("mode") ?? "sentinel", null)?
 
   let sparse = cli.parse([], {verbose: "Bool", name: {kind: "Str", default: "d"}}, "demo")?
-  test.eq(sparse.get("verbose") ?? "missing", false)?
+  test.eq(sparse.get("verbose")?, false)?
   test.eq(sparse.get("name") ?? "", "d")?
 
   # A positional consumes the operand in its place, a repeated positional
@@ -1078,14 +1078,14 @@ options:
   # claimed `h` is the option, alone or inside a cluster, while an unclaimed
   # `h` and `--help` are still help.
   let claimed = cli.applet(["-h"], {handle: {short: "h", kind: "Bool"}}, "demo")?
-  test.eq(claimed.get("handle") ?? "missing", true)?
+  test.eq(claimed.get("handle")?, true)?
   let clustered = cli.applet(
     ["-vh"],
     {v: {short: "v", kind: "Bool"}, handle: {short: "h", kind: "Bool"}},
     "demo",
   )?
-  test.eq(clustered.get("v") ?? "missing", true)?
-  test.eq(clustered.get("handle") ?? "missing", true)?
+  test.eq(clustered.get("v")?, true)?
+  test.eq(clustered.get("handle")?, true)?
   test.error_kind(cli.applet(["-h"], {}, "demo"), "cli-help")?
   test.error_kind(cli.applet(["--help"], {handle: {short: "h", kind: "Bool"}}, "demo"), "cli-help")?
 
@@ -1106,8 +1106,8 @@ options:
   -h, --help  show this help""",
   )?
   let reset_flag = cli.applet(["--bb", "--aa"], {aa: {kind: "Bool", conflicts: ["bb"]}, bb: "Bool"}, "demo")?
-  test.eq(reset_flag.get("aa") ?? "missing", true)?
-  test.eq(reset_flag.get("bb") ?? "missing", false)?
+  test.eq(reset_flag.get("aa")?, true)?
+  test.eq(reset_flag.get("bb")?, false)?
   let reset_default = cli.applet(
     ["--bb", "B", "--aa", "A"],
     {aa: {kind: "Str", conflicts: ["bb"], default: "ad"}, bb: {kind: "Str", default: "bd"}},

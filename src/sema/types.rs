@@ -35,6 +35,8 @@ pub enum Type {
     /// Ordered scalar key type followed by homogeneous value type.
     Map(Box<Type>, Box<Type>),
     Stream(Box<Type>),
+    /// A record value whose fields were deliberately erased.
+    ErasedRecord,
     Record(BTreeMap<Name, Type>),
     Module(BTreeMap<Name, ModuleExportType>),
     DynamicModule,
@@ -272,7 +274,7 @@ impl Type {
             BuiltinTypeName::Path => Self::Path,
             BuiltinTypeName::Map => Self::Map(Box::new(Self::Str), Box::new(Self::Unknown)),
             BuiltinTypeName::Module => Self::DynamicModule,
-            BuiltinTypeName::Record => Self::Record(BTreeMap::new()),
+            BuiltinTypeName::Record => Self::ErasedRecord,
             BuiltinTypeName::Status => Self::Status,
             BuiltinTypeName::EnvPathList => Self::EnvPathList,
             BuiltinTypeName::Error => Self::Error,
@@ -305,7 +307,7 @@ impl Type {
             Self::Path => Some(BuiltinTypeName::Path),
             Self::Map(_, _) => Some(BuiltinTypeName::Map),
             Self::Module(_) | Self::DynamicModule => Some(BuiltinTypeName::Module),
-            Self::Record(_) => Some(BuiltinTypeName::Record),
+            Self::ErasedRecord | Self::Record(_) => Some(BuiltinTypeName::Record),
             Self::Status => Some(BuiltinTypeName::Status),
             Self::EnvPathList => Some(BuiltinTypeName::EnvPathList),
             Self::Error => Some(BuiltinTypeName::Error),
@@ -391,6 +393,8 @@ impl Type {
         }
         match (self, expected) {
             (Self::Any, _) => true,
+            (Self::ErasedRecord, Self::Record(_)) => true,
+            (Self::DynamicModule, Self::Module(_)) => true,
             (Self::List(actual), Self::List(expected))
 
             | (Self::Stream(actual), Self::Stream(expected))
@@ -443,23 +447,19 @@ impl Type {
     pub fn matches_expected(&self, expected: &Type) -> bool {
         if self == expected
             || matches!((self, expected), (Self::Int, Self::UInt) | (Self::UInt, Self::Int))
-            || matches!(self, Self::Any | Self::Unknown | Self::Invalid)
+            || matches!(self, Self::Unknown | Self::Invalid)
             || matches!(expected, Self::Any | Self::Unknown | Self::Invalid)
         {
             return true;
         }
         match (self, expected) {
-            (Self::List(actual), Self::List(expected)) => actual.matches_expected(expected),
-            (Self::Map(ak, actual), Self::Map(ek, expected)) => {
-                let keys_match = if matches!(ek.as_ref(), Self::UInt) { matches!(ak.as_ref(), Self::UInt | Self::Unknown | Self::Invalid | Self::Any) } else { ak.matches_expected(ek) };
-                keys_match && actual.matches_expected(expected)
-            },
-            (Self::Stream(actual), Self::Stream(expected)) => actual.matches_expected(expected),
+            (Self::Any, _) => false,
+            (Self::List(actual), Self::List(expected)) | (Self::Stream(actual), Self::Stream(expected)) => actual.matches_invariant(expected),
+            (Self::Map(ak, actual), Self::Map(ek, expected)) => ak.matches_invariant(ek) && actual.matches_invariant(expected),
             (Self::Result(actual_ok, actual_err), Self::Result(expected_ok, expected_err)) => {
                 actual_ok.matches_expected(expected_ok) && actual_err.matches_expected(expected_err)
             }
-            (Self::Record(actual_fields), Self::Record(_)) if actual_fields.is_empty() => true,
-            (Self::Record(_), Self::Record(expected_fields)) if expected_fields.is_empty() => true,
+            (Self::Record(_), Self::ErasedRecord) => true,
             (Self::Record(actual_fields), Self::Record(expected_fields)) => {
                 expected_fields.iter().all(|(name, expected)| {
                     actual_fields
@@ -497,6 +497,22 @@ impl Type {
             // T matches Optional[T]
             (actual, Self::Optional(expected)) => actual.matches_expected(expected),
             _ => false,
+        }
+    }
+
+    // Scalar domain conversions require a checked value boundary. A container
+    // cannot apply those checks to its stored or lazily produced elements.
+    pub(super) fn matches_invariant(&self, expected: &Type) -> bool {
+        match (self, expected) {
+            (Self::Int, Self::UInt) | (Self::UInt, Self::Int) => false,
+            (Self::List(actual), Self::List(expected))
+            | (Self::Stream(actual), Self::Stream(expected))
+            | (Self::Optional(actual), Self::Optional(expected)) => actual.matches_invariant(expected),
+            (Self::Map(ak, av), Self::Map(ek, ev)) => ak.matches_invariant(ek) && av.matches_invariant(ev),
+            (Self::Result(ao, ae), Self::Result(eo, ee)) => ao.matches_invariant(eo) && ae.matches_invariant(ee),
+            (Self::Record(actual), Self::Record(expected)) => actual.len() == expected.len()
+                && expected.iter().all(|(name, ty)| actual.get(name).is_some_and(|actual| actual.matches_invariant(ty))),
+            _ => self.matches_expected(expected) && expected.matches_expected(self),
         }
     }
 
@@ -553,6 +569,7 @@ impl Type {
             Self::List(item) | Self::Stream(item) | Self::Optional(item) => {
                 item.is_json_compatible_with(wire_enum)
             }
+            Self::ErasedRecord => true,
             Self::Map(key, value) => matches!(key.as_ref(), Self::Str) && value.is_json_compatible_with(wire_enum),
             Self::Record(fields) => fields.values().all(|ty| ty.is_json_compatible_with(wire_enum)),
             Self::Tag(name) => wire_enum(*name),
@@ -569,6 +586,7 @@ impl Type {
             | Self::Invalid
             | Self::EnvPathList
             | Self::Record(_)
+            | Self::ErasedRecord
             | Self::Module(_)
             | Self::DynamicModule => None,
             Self::Unit => Some("Unit".to_string()),
@@ -634,7 +652,7 @@ impl fmt::Display for Type {
             Self::List(inner) => write!(f, "List[{inner}]"),
             Self::Map(key, inner) => if matches!(key.as_ref(), Self::Str) { write!(f, "Map[{inner}]") } else { write!(f, "Map[{key}, {inner}]") },
             Self::Stream(inner) => write!(f, "Stream[{inner}]"),
-            Self::Record(_) => write!(f, "Record"),
+            Self::ErasedRecord | Self::Record(_) => write!(f, "Record"),
             Self::Module(_) => write!(f, "Module"),
             Self::DynamicModule => write!(f, "Module"),
             Self::Result(ok, err) => write!(f, "Result[{ok}, {err}]"),

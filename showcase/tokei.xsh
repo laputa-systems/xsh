@@ -1229,7 +1229,7 @@ proc blob_stats(report: FileReport, language: Str) [error] -> Result[Stats] {
   return report.stats.blobs.get(language)?.require(Stats)?
 }
 
-proc children_from_reports(reports: List[FileReport]) [error] -> Result[Map[Any]] {
+proc children_from_reports(reports: List[FileReport]) [error] -> Result[Map[List[FileReport]]] {
   var children: Map[List[FileReport]] = {}
 
   for report in reports {

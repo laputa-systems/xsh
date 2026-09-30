@@ -113,14 +113,11 @@ pub struct CompactBodyProbeOutput {
 }
 
 impl Checker {
+    // Compact execution must pass the same checked boundaries as normal source
+    // checking before representation probes can prepare runtime frames.
     pub fn check_compact_declarations(program: &ArenaProgram) -> CompactDeclOutput {
         program.symbol_owner().with_current(|| {
-            let has_generic_schemas = program.arena.type_defs.iter().any(|definition| !definition.type_parameters.is_empty());
-            let needs_checked_facts = has_generic_schemas || program.arena.params.iter().any(|param| param.ty_defaulted) || program.arena.function_defs.iter().any(|def| !def.params.is_empty()) || program.arena.function_defs.iter().any(|def| def.return_ty_defaulted
-                && program.arena.type_expr_tags[def.return_ty.index()] == ArenaTypeExprTag::Named)
-                || program.arena.stmt_tags.iter().any(|tag| matches!(tag, crate::syntax::arena::ArenaStmtTag::ProcDef | crate::syntax::arena::ArenaStmtTag::Let | crate::syntax::arena::ArenaStmtTag::LetExprNoTy))
-                || super::local_inference::program_has_local_inference(program);
-            let inferred = needs_checked_facts.then(|| Checker::check_arena(program, ""));
+            let checked = Checker::check_arena(program, "");
             let mut collector = CompactDeclCollector {
                 diagnostics: Vec::new(),
                 names: FxHashSet::default(),
@@ -128,18 +125,18 @@ impl Checker {
                     record_constructors: super::RecordConstructors::collect(program),
                     requirement_targets: (0..program.arena.expr_tags.len()).filter_map(|index| {
                         let id = ExprId::from_index(index);
-                        inferred.as_ref()?.requirement_targets.get(&program.arena.expr(id).span).cloned().map(|target| (id, target))
+                        checked.requirement_targets.get(&program.arena.expr(id).span).cloned().map(|target| (id, target))
                     }).collect(),
-                    function_effect_facts: inferred.as_ref().map(|checked| checked.function_effect_facts.clone()).unwrap_or_default(),
+                    function_effect_facts: checked.function_effect_facts.clone(),
                     record_constructor_types: (0..program.arena.expr_tags.len()).filter_map(|index| {
                         let expression = program.arena.expr(ExprId::from_index(index));
                         let ArenaExprKind::Call { callee, .. } = expression.kind else { return None; };
-                        inferred.as_ref()?.record_constructor_instances.get(&expression.span).map(|fact| (callee, fact.ty.clone()))
+                        checked.record_constructor_instances.get(&expression.span).map(|fact| (callee, fact.ty.clone()))
                     }).collect(),
-                    static_callable_aliases: inferred.as_ref().map(|checked| checked.static_callable_aliases.clone()).unwrap_or_default(),
-                    parameter_types: inferred.as_ref().map(|checked| checked.parameter_types.clone()).unwrap_or_default(),
-                    local_binding_types: inferred.as_ref().map(|checked| checked.local_binding_types.clone()).unwrap_or_default(),
-                    function_return_types: inferred.as_ref().map(|checked| checked.function_return_types.clone()).unwrap_or_default(),
+                    static_callable_aliases: checked.static_callable_aliases.clone(),
+                    parameter_types: checked.parameter_types.clone(),
+                    local_binding_types: checked.local_binding_types.clone(),
+                    function_return_types: checked.function_return_types.clone(),
                     ..CompactDeclOutput::default()
                 },
             };
@@ -160,11 +157,8 @@ impl Checker {
             output.cli_entry = entry;
             collector.diagnostics.extend(diagnostics);
             output.diagnostics = collector.diagnostics;
-            if let Some(checked) = inferred {
-                output.diagnostics.extend(checked.diagnostics.into_iter().filter(|diagnostic|
-                    has_generic_schemas && matches!(diagnostic.code.as_deref(), Some("check.constructor-inference" | "check.record-constructor" | "check.type-mismatch"))
-                        || matches!(diagnostic.code.as_deref(), Some("check.infer-return" | "check.required-return" | "check.infer-param" | "check.local-inference"))));
-            }
+            output.diagnostics.extend(checked.diagnostics.into_iter().filter(|diagnostic|
+                diagnostic.severity == crate::diagnostic::Severity::Error));
             output
         })
     }
@@ -1906,6 +1900,7 @@ impl CompactBodyProbe<'_> {
         let ty = self.check_compact_expr(expr);
         match op {
             UnaryOp::Not => Type::Bool,
+            UnaryOp::Neg if matches!(ty, Type::Any) => Type::Any,
             UnaryOp::Neg if matches!(ty, Type::Float) => Type::Float,
             UnaryOp::Neg if matches!(ty, Type::Int | Type::Duration) => ty,
             UnaryOp::Neg => Type::Unknown,
@@ -1961,7 +1956,7 @@ impl CompactBodyProbe<'_> {
             BinaryOp::Add if matches!((&left, &right), (Type::Str, Type::Str)) => Type::Str,
             BinaryOp::Add if matches!((&left, &right), (Type::List(_), Type::List(_))) => left,
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
-                numeric_result_type(left, right)
+                if left == Type::Any || right == Type::Any { Type::Any } else { numeric_result_type(left, right) }
             }
             BinaryOp::ResultFallback => match left {
                 Type::Result(inner, _) if *inner == Type::Unknown => right,
@@ -2241,6 +2236,7 @@ impl CompactBodyProbe<'_> {
 
     fn check_compact_field(&mut self, base: ExprId, name: Name) -> Type {
         match self.check_compact_expr(base) {
+            Type::ErasedRecord | Type::DynamicModule => Type::Any,
             Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } if name == "message" => Type::Str,
             Type::ErrorVariant { family, variant } => self.declarations.error_families_by_name.get(&family)
                 .and_then(|info| info.variants.get(&variant)).and_then(|info| info.fields.get(&name)).cloned().unwrap_or(Type::Unknown),
@@ -2857,6 +2853,7 @@ fn collection_item_type(ty: &Type) -> Type {
         Type::List(item) | Type::Stream(item) | Type::Map(_, item) => item.as_ref().clone(),
         Type::Str => Type::Str,
         Type::Bytes => Type::Int,
+        Type::ErasedRecord | Type::Record(_) => Type::Any,
         Type::Unknown | Type::Invalid | Type::Any => ty.clone(),
         _ => Type::Unknown,
     }

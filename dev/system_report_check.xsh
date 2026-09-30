@@ -1597,7 +1597,8 @@ export type BlockQueueSourceComparison = {
   exact: Bool,
 }
 
-type BlockRawDevice = {
+## Retains raw block identities, nullable attributes, and directional dependency names.
+export type BlockRawDevice = {
   name: Str,
   major: Int,
   minor: Int,
@@ -1613,7 +1614,8 @@ type BlockRawDevice = {
   slaves: List[Str],
 }
 
-type BlockRawReference = {
+## Supplies the complete independently observed block comparison input.
+export type BlockRawReference = {
   devices: List[BlockRawDevice],
   edges: List[BlockReferenceEdge],
   queue: List[BlockQueueReference],
@@ -22073,7 +22075,7 @@ proc compare_live_namespaces(xsh_bin: Str, script: Str) [fs, process, time, erro
   let missing = json.encode(compared.missing_fields)?
   let mismatched = json.encode(compared.mismatched_fields)?
   let argv_display = json.encode(reference_argv)?
-  let agreement = if compared.exact { "exact" } else if compared.eligible { "mismatch" } else { "reference_incomplete" }
+  let agreement = if compared.exact { "exact" } else { "mismatch" }
   print f"identity.scope.namespaces: ${agreement}; reference=${compared.reference_count}, matched=${compared.matched_count}, candidate_missing=${missing}, mismatched=${mismatched}"
   print f"reference: ${version}; executable=/usr/bin/readlink; argv_each_bracket=${argv_display}; locale=C; euid=${applet.current_euid()}; source_mode=live_linux; host_claim=${host_claim_display}; before=${before_started}..${before_ended} ms; candidate=${candidate_started}..${candidate_ended} ms; after=${after_started}..${after_ended} ms"
   if ! compared.exact {

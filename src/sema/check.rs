@@ -119,7 +119,6 @@ pub struct CheckOutput {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CheckOptions {
     pub interactive_commands: Option<fn(&str) -> bool>,
-    pub strict_dynamic: bool,
     pub reveal_types: bool,
     pub migration_diagnostics: bool,
 }
@@ -484,7 +483,6 @@ impl Checker {
             source,
             CheckOptions {
                 interactive_commands: Some(interactive_commands),
-                strict_dynamic: false,
                 reveal_types: false,
                 migration_diagnostics: false,
             },

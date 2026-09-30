@@ -315,7 +315,7 @@ proc main() [fs, error] {
   test.eq(closed.read_text()?, "closed")?
 }
 
-test test_sum_type_error_stops_and_closes_live_source [error] { |ctx|
+test test_sum_rejects_unchecked_stream_before_pulling_source [error] { |ctx|
   let output = test.run_script(
     ctx,
     r"""
@@ -335,22 +335,16 @@ proc main() [io] {
 }
 """,
   )?
-  test.ok(! output.success, output.stdout)?
-  test.contains(output.stderr, "sum expected Int stream")?
-  test.eq(
-    output.stdout,
-    """pull 1
-pull bad
-closed
-""",
-  )?
+  test.eq(output.status, 2)?
+  test.contains(output.stderr, "check.dynamic-boundary")?
+  test.eq(output.stdout, "")?
 }
 
 test test_keyed_stages_errors_stop_live_source [error] { |ctx|
   for terminal in ["group-by", "count", "unique-by"] {
     let source = f"""\nproc close() [io] { print "closed" }
 
-stream numbers() [io] -> Stream[Int] {
+stream numbers() [io, error] -> Stream[Int] {
   defer close()
   for n in range(3) {
     print f"pull \${n}"
@@ -434,7 +428,7 @@ test test_zip_evaluates_right_before_pulling_and_stops_at_shorter_side [error] {
     r"""
 proc close() [io] { print "closed" }
 
-stream numbers() [io] -> Stream[Int] {
+stream numbers() [io, error] -> Stream[Int] {
   defer close()
   for n in range(4) {
     print f"pull ${n}"
@@ -558,7 +552,7 @@ test test_last_min_max_live_terminals_finish_and_close_producers [error] { |ctx|
     r"""
 proc close(name: Str) [io] { print f"closed ${name}" }
 
-stream numbers(name: Str) [io] -> Stream[Int] {
+stream numbers(name: Str) [io, error] -> Stream[Int] {
   defer close(name)
   for n in [3, 1, 2] {
     print f"${name} ${n}"
@@ -2302,7 +2296,7 @@ test test_batch_max_bytes_error_stops_and_closes_live_source [error] { |ctx|
     r"""
 proc close() [io] { print "closed" }
 
-stream paths() [io] -> Stream[Path] {
+stream paths() [io, error] -> Stream[Path] {
   defer close()
   for value in ["ok", "oversized", "after"] {
     print f"pull ${value}"

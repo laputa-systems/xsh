@@ -115,7 +115,7 @@ impl Checker {
             return Type::Pure;
         }
         if api_spec().module(&name.as_str()).is_some() {
-            return Type::Record(BTreeMap::new());
+            return Type::ErasedRecord;
         }
         if name == "ARGV" && !self.streams.contains_key(&name) {
             let shadowed_args = self.scopes.iter().skip(1).any(|scope| scope.contains_key(&Name::intern("args")));
@@ -476,8 +476,8 @@ impl Checker {
             ArenaExprKind::Match { value, arms } => {
                 self.check_match_expr_arena(arena, source, *value, *arms, expected, expr.span)
             }
-            ArenaExprKind::ListComp { expr: body, qualifiers } => self.check_list_comp_arena(arena, source, *body, *qualifiers, expr.span),
-            ArenaExprKind::MapComp { key, value, qualifiers } => self.check_map_comp_arena(arena, source, *key, *value, *qualifiers, expr.span),
+            ArenaExprKind::ListComp { expr: body, qualifiers } => self.check_list_comp_arena(arena, source, *body, *qualifiers, expected, expr.span),
+            ArenaExprKind::MapComp { key, value, qualifiers } => self.check_map_comp_arena(arena, source, *key, *value, *qualifiers, expected, expr.span),
             ArenaExprKind::Loop { block } => {
                 self.check_loop_arena(arena, source, *block, expr.span)
             }
@@ -914,22 +914,33 @@ impl Checker {
         scopes
     }
 
-    fn check_list_comp_arena(&mut self, arena: &ArenaProgram, source: &str, body: ExprId, qualifiers: ArenaRange, _span: Span) -> Type {
+    fn check_list_comp_arena(&mut self, arena: &ArenaProgram, source: &str, body: ExprId, qualifiers: ArenaRange, expected: Option<&Type>, _span: Span) -> Type {
         let scopes = self.check_comp_qualifiers_arena(arena, source, qualifiers, false);
-        let elem_ty = self.check_expr_arena(arena, source, body, None);
+        let expected_item = match expected { Some(Type::List(item)) => Some(item.as_ref()), _ => None };
+        let elem_ty = self.check_expr_arena(arena, source, body, expected_item);
+        if let Some(expected_item) = expected_item {
+            self.expect_type(expected_item, &elem_ty, arena.arena.expr(body).span);
+        }
         for _ in 0..scopes { self.pop_scope(); }
-        Type::List(Box::new(elem_ty))
+        Type::List(Box::new(expected_item.cloned().unwrap_or(elem_ty)))
     }
 
-    fn check_map_comp_arena(&mut self, arena: &ArenaProgram, source: &str, key: ExprId, value: ExprId, qualifiers: ArenaRange, _span: Span) -> Type {
+    fn check_map_comp_arena(&mut self, arena: &ArenaProgram, source: &str, key: ExprId, value: ExprId, qualifiers: ArenaRange, expected: Option<&Type>, _span: Span) -> Type {
         let scopes = self.check_comp_qualifiers_arena(arena, source, qualifiers, true);
-        let key_ty = self.check_expr_arena(arena, source, key, None);
+        let (expected_key, expected_value) = match expected { Some(Type::Map(key, value)) => (Some(key.as_ref()), Some(value.as_ref())), _ => (None, None) };
+        let key_ty = self.check_expr_arena(arena, source, key, expected_key);
         if !key_ty.is_map_key() && !key_ty.is_recovery() {
             self.error(arena.arena.expr(key).span, "Map comprehension keys require an ordered scalar key", "check.map-key-type");
         }
-        let value_ty = self.check_expr_arena(arena, source, value, None);
+        if let Some(expected_key) = expected_key {
+            self.expect_type(expected_key, &key_ty, arena.arena.expr(key).span);
+        }
+        let value_ty = self.check_expr_arena(arena, source, value, expected_value);
+        if let Some(expected_value) = expected_value {
+            self.expect_type(expected_value, &value_ty, arena.arena.expr(value).span);
+        }
         for _ in 0..scopes { self.pop_scope(); }
-        Type::Map(Box::new(key_ty), Box::new(value_ty))
+        Type::Map(Box::new(expected_key.cloned().unwrap_or(key_ty)), Box::new(expected_value.cloned().unwrap_or(value_ty)))
     }
 
     fn check_loop_arena(
@@ -1228,6 +1239,7 @@ impl Checker {
                 Type::Bool
             }
             UnaryOp::Neg => {
+                if ty == Type::Any { return Type::Any; }
                 if matches!(ty, Type::Float) {
                     Type::Float
                 } else {
@@ -1346,8 +1358,8 @@ impl Checker {
                     );
                     return Type::Bool;
                 }
-                self.expect_type(&Type::Bool, &left_ty, left_span);
-                self.expect_type(&Type::Bool, &right_ty, right_span);
+                if left_ty != Type::Any { self.expect_type(&Type::Bool, &left_ty, left_span); }
+                if right_ty != Type::Any { self.expect_type(&Type::Bool, &right_ty, right_span); }
                 Type::Bool
             }
             BinaryOp::And => {
@@ -1357,14 +1369,17 @@ impl Checker {
                 self.apply_narrowings(&facts.when_true);
                 let right_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(right), Some(&Type::Bool), None);
                 self.pop_scope();
-                self.expect_type(&Type::Bool, &left_ty, left_span);
-                self.expect_type(&Type::Bool, &right_ty, right_span);
+                if left_ty != Type::Any { self.expect_type(&Type::Bool, &left_ty, left_span); }
+                if right_ty != Type::Any { self.expect_type(&Type::Bool, &right_ty, right_span); }
                 Type::Bool
             }
             BinaryOp::Eq | BinaryOp::Ne => {
                 let left_ty = self.check_expr_arena(arena, source, left, None);
-                let right_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(right), Some(&left_ty), None);
-                self.expect_type(&left_ty, &right_ty, right_span);
+                let right_ty = self.check_expr_arena(arena, source, right, None);
+                if left_ty != Type::Any && right_ty != Type::Any
+                    && !left_ty.matches_expected(&right_ty) {
+                    self.expect_type(&left_ty, &right_ty, right_span);
+                }
                 Type::Bool
             }
             BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
@@ -1380,7 +1395,9 @@ impl Checker {
                         "check.operator-type",
                     );
                 }
-                self.expect_type(&left_ty, &right_ty, right_span);
+                if left_ty != Type::Any && right_ty != Type::Any {
+                    self.expect_type(&left_ty, &right_ty, right_span);
+                }
                 Type::Bool
             }
             BinaryOp::In | BinaryOp::NotIn => {
@@ -1389,13 +1406,13 @@ impl Checker {
                 match &right_ty {
                     Type::Map(key, _) => { self.expect_type(key, &left_ty, left_span); }
                     Type::List(item) => {
-                        self.expect_type(item, &left_ty, left_span);
+                        if left_ty != Type::Any { self.expect_type(item, &left_ty, left_span); }
                     }
                     Type::Str => {
-                        self.expect_type(&Type::Str, &left_ty, left_span);
+                        if left_ty != Type::Any { self.expect_type(&Type::Str, &left_ty, left_span); }
                     }
                     Type::Bytes => {
-                        self.expect_type(&Type::Bytes, &left_ty, left_span);
+                        if left_ty != Type::Any { self.expect_type(&Type::Bytes, &left_ty, left_span); }
                     }
                     Type::Path => {
                         if !matches!(left_ty, Type::Str | Type::Path | Type::Any | Type::Unknown) {
@@ -1433,6 +1450,7 @@ impl Checker {
                     Some(&left_ty)
                 };
                 let right_ty = self.check_expr_arena(arena, source, right, right_expected);
+                if left_ty == Type::Any || right_ty == Type::Any { return Type::Any; }
                 if left_ty == Type::Duration || right_ty == Type::Duration {
                     return match (op, &left_ty, &right_ty) {
                         (BinaryOp::Add | BinaryOp::Sub, Type::Duration, Type::Duration)
@@ -1507,38 +1525,33 @@ impl Checker {
         }
         let base_ty = self.check_expr_arena(arena, source, base, None);
         match base_ty {
+            Type::ErasedRecord | Type::DynamicModule => Type::Any,
             Type::Record(fields) => match fields.get(&name) {
                 Some(ty) => ty.clone(),
-                None if fields.is_empty() => Type::Any,
                 None => {
-                    if self.options.strict_dynamic {
-                        self.warning(
-                            span,
-                            "unknown field on known record type",
-                            "check.unknown-field",
-                        );
-                    }
-                    Type::Any
+                    self.error(
+                        span,
+                        "unknown field on known record type",
+                        "check.unknown-field",
+                    );
+                    Type::Unknown
                 }
             },
             Type::Module(exports) => match exports.get(&name) {
                 Some(export) => export.field_type(),
-                None if exports.is_empty() => Type::Any,
                 None => {
-                    if self.options.strict_dynamic {
-                        self.warning(
-                            span,
-                            "unknown export on known module contract",
-                            "check.unknown-field",
-                        );
-                    }
-                    Type::Any
+                    self.error(
+                        span,
+                        "unknown export on known module contract",
+                        "check.unknown-field",
+                    );
+                    Type::Unknown
                 }
             },
             Type::Status => match name.as_str().as_str() {
                 "ok" | "success" => Type::Bool,
                 "kind" => Type::Str,
-                "segments" => Type::List(Box::new(Type::Record(BTreeMap::new()))),
+                "segments" => Type::List(Box::new(Type::ErasedRecord)),
                 _ => Type::Unknown,
             },
             Type::ProcessHandle => match name.as_str().as_str() {
@@ -1618,18 +1631,16 @@ impl Checker {
             }
         };
         let field_ty = match &inner {
+            Type::ErasedRecord => Type::Any,
             Type::Record(fields) => match fields.get(&name) {
                 Some(ty) => ty.clone(),
-                None if fields.is_empty() => Type::Any,
                 None => {
-                    if self.options.strict_dynamic {
-                        self.warning(
-                            span,
-                            "unknown field on known record type",
-                            "check.unknown-field",
-                        );
-                    }
-                    Type::Any
+                    self.error(
+                        span,
+                        "unknown field on known record type",
+                        "check.unknown-field",
+                    );
+                    Type::Unknown
                 }
             },
             Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_) => {
@@ -1758,7 +1769,7 @@ impl Checker {
                 self.expect_type(&Type::Int, &index_ty, index_span);
                 *item
             }
-            receiver @ (Type::Record(_) | Type::Module(_)) => {
+            receiver @ (Type::ErasedRecord | Type::Record(_) | Type::Module(_)) => {
                 let index_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(index), Some(&Type::Str), None);
                 self.expect_type(&Type::Str, &index_ty, index_span);
                 if let Some(projection) = crate::sema::projection::resolve_constant_key_projection(

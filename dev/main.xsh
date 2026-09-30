@@ -310,7 +310,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
         },
       )?
 
-      let options: ReleaseOptions = {action: parsed.action, tag: parsed.tag}
+      let options: ReleaseOptions = parsed.require(ReleaseOptions)?
       match release_operation(options.action)? {
         Smoke => return releases.smoke(ctx)
         Package => return releases.package_binaries(ctx, options.tag)

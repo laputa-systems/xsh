@@ -4101,7 +4101,7 @@ proc read_firmware_identity(root: FsRoot) [fs, error] -> FirmwareIdentityRead {
     issues = append_text_issue(issues, "identity", f"firmware.${named_source.name}", named_source.source)
   }
 
-  var compatible = [
+  var compatible: List[report.TextObservation] = [
     {state: report.Observed, value: value, raw_bytes_base64: null}
     for value in dt_compatible_read.values
   ]
@@ -6262,7 +6262,7 @@ pure link_index_by_name(links: Map[Int], name: Str?) -> Int? {
 export pure assemble_network_dump(value: LinuxNetworkDump) -> NetworkCollection {
   var addresses_by_link: Map[List[report.NetworkAddress]] = {}
   for raw_address in value.addresses {
-    let address_value = if raw_address.local != null { raw_address.local } else { raw_address.address }
+    let address_value: Str? = if raw_address.local != null { raw_address.local } else { raw_address.address }
     let link_key = f"${raw_address.ifindex}"
     let address: report.NetworkAddress = {
       family: network_family(raw_address.family),
@@ -6316,7 +6316,7 @@ export pure assemble_network_dump(value: LinuxNetworkDump) -> NetworkCollection 
   for raw_route in value.routes {
     let family = network_family(raw_route.family)
     let default_destination: Str? = if family == "ipv6" { "::" } else if family == "ipv4" { "0.0.0.0" } else { null }
-    let destination = if raw_route.destination != null { raw_route.destination } else { default_destination }
+    let destination: Str? = if raw_route.destination != null { raw_route.destination } else { default_destination }
     var nexthops = [
       {
         ifindex: nexthop.ifindex,
@@ -6357,7 +6357,7 @@ export pure assemble_network_dump(value: LinuxNetworkDump) -> NetworkCollection 
     }
   }
 
-  var rules = [
+  var rules: List[report.NetworkRule] = [
     {
       family: network_family(raw_rule.family),
       destination_prefix_length: raw_rule.destination_prefix_length,

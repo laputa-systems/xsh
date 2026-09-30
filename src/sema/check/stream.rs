@@ -661,7 +661,7 @@ impl Checker {
             StreamStageKind::JsonLines | StreamStageKind::JsonStream => {
                 self.check_stage_no_args_arena(arena, stage);
                 self.expect_type(&Type::Str, &input_ty, stage_span);
-                Type::Stream(Box::new(Type::Unknown))
+                Type::Stream(Box::new(Type::Any))
             }
             _ => unreachable!("adapter stage"),
         }

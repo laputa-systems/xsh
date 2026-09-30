@@ -4,8 +4,7 @@ use crate::syntax::arena::{ArenaPatternKind, ArenaProgram, PatternId};
 
 fn type_pattern_input_is_dynamic(ty: &Type) -> bool {
     match ty {
-        Type::Any | Type::Unknown | Type::Invalid => true,
-        Type::Record(fields) => fields.is_empty(),
+        Type::Any | Type::ErasedRecord | Type::Unknown | Type::Invalid => true,
         _ => false,
     }
 }
@@ -236,7 +235,7 @@ impl Checker {
             }
             ArenaPatternKind::Record { fields, .. } => {
                 let record_fields = match value_ty {
-                    Type::Record(fields) if fields.is_empty() => None,
+                    Type::ErasedRecord => None,
                     Type::Record(fields) => Some(fields),
                     Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } => {
                         self.error(

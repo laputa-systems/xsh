@@ -9902,6 +9902,7 @@ fn checked_return_removal_facts(source: &str, source_id: xsh::frontend::source::
 // checked shapes with names rendered under each source's symbol owner.
 fn checked_return_type_shape(ty: &Type) -> String {
     match ty {
+        Type::ErasedRecord => "ErasedRecord".to_string(),
         Type::Record(fields) => format!("Record{:?}", fields.iter().map(|(name, ty)| (name.to_string(), checked_return_type_shape(ty))).collect::<BTreeMap<_, _>>()),
         Type::Module(exports) => format!("Module{:?}", exports.iter().map(|(name, export)| {
             use xsh::frontend::check::ModuleExportType;

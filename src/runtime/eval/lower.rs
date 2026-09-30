@@ -1616,7 +1616,6 @@ pub(super) fn probe_compact_lower_constructed_bodies(
             ..CompactLowerConstructProbeOutput::default()
         },
         last_blocker_detail: None,
-        strict_dynamic_methods: true,
         stdlib_linkage: StdlibLowerLinkage::Local,
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
@@ -1683,7 +1682,6 @@ pub(super) fn lower_compact_function_units_into(
         top_level_known: FxHashMap::default(),
         output: CompactLowerConstructProbeOutput::default(),
         last_blocker_detail: None,
-        strict_dynamic_methods: true,
         stdlib_linkage,
         function_defs: Rc::clone(&function_defs),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
@@ -1706,7 +1704,6 @@ pub(super) fn lower_compact_function_units_into(
             top_level_known,
             output: CompactLowerConstructProbeOutput::default(),
             last_blocker_detail: None,
-            strict_dynamic_methods: true,
             stdlib_linkage,
             function_defs: Rc::clone(&function_defs),
             scratch: Rc::new(RefCell::new(BuildScratch::default())),
@@ -1730,7 +1727,6 @@ pub(super) fn lower_compact_top_level_program_with_probe(
     source: &str,
     sources: &SourceMap,
     functions: &LowerableFunctions<'_>,
-    strict_dynamic_methods: bool,
 ) -> (ProgramBuild, CompactLowerConstructProbeOutput) {
     let mut probe = CompactLowerConstructProbe {
         program,
@@ -1751,7 +1747,6 @@ pub(super) fn lower_compact_top_level_program_with_probe(
         ),
         output: CompactLowerConstructProbeOutput::default(),
         last_blocker_detail: None,
-        strict_dynamic_methods,
         stdlib_linkage: StdlibLowerLinkage::Local,
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
@@ -1790,7 +1785,6 @@ fn compact_top_level_known(
         top_level_known: FxHashMap::default(),
         output: CompactLowerConstructProbeOutput::default(),
         last_blocker_detail: None,
-        strict_dynamic_methods: true,
         stdlib_linkage: StdlibLowerLinkage::Local,
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
@@ -1823,7 +1817,6 @@ fn compact_function_top_level_known(
         top_level_known: FxHashMap::default(),
         output: CompactLowerConstructProbeOutput::default(),
         last_blocker_detail: None,
-        strict_dynamic_methods: true,
         stdlib_linkage: StdlibLowerLinkage::Local,
         function_defs: Rc::new(RefCell::new(None)),
         scratch: Rc::new(RefCell::new(BuildScratch::default())),
@@ -2441,7 +2434,6 @@ struct CompactLowerConstructProbe<'a, 'defs> {
     top_level_known: FxHashMap<Name, LoweredTopLevelBinding>,
     output: CompactLowerConstructProbeOutput,
     last_blocker_detail: Option<(Span, String)>,
-    strict_dynamic_methods: bool,
     /// Where standard-library implementation calls in this program resolve.
     stdlib_linkage: StdlibLowerLinkage,
     /// The program's function definitions and key index, built once and shared
@@ -3939,7 +3931,6 @@ impl CompactLowerConstructProbe<'_, '_> {
                         ),
                         output: CompactLowerConstructProbeOutput::default(),
                         last_blocker_detail: None,
-                        strict_dynamic_methods: true,
                         stdlib_linkage: StdlibLowerLinkage::Local,
                         function_defs: Rc::new(RefCell::new(None)),
                         scratch: self.scratch.clone(),
@@ -4693,7 +4684,7 @@ impl CompactLowerConstructProbe<'_, '_> {
             Type::List(_) => MethodReceiver::List,
             Type::Stream(_) => MethodReceiver::Stream,
             Type::Map(_, _) => MethodReceiver::Map,
-            Type::Record(_) => MethodReceiver::Record,
+            Type::ErasedRecord | Type::Record(_) => MethodReceiver::Record,
             Type::Result(_, _) => MethodReceiver::Result,
             Type::Path => MethodReceiver::Path,
             Type::EnvPathList => MethodReceiver::EnvPathList,
@@ -4741,12 +4732,6 @@ impl CompactLowerConstructProbe<'_, '_> {
     }
 
     fn lowered_method_supported_for_type(&self, ty: &Type, name: Name, arg_count: usize) -> bool {
-        if !self.strict_dynamic_methods
-            && matches!(ty, Type::Any | Type::Unknown)
-            && lowered_method_name(&name.as_str())
-        {
-            return true;
-        }
         lowered_method_supported_for_type(ty, name, arg_count)
     }
 
@@ -9453,7 +9438,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 source: self.source, sources: self.sources, current_namespace: self.current_namespace,
                 functions: self.functions, top_level_known: self.top_level_known.clone(),
                 output: std::mem::take(&mut self.output), last_blocker_detail: self.last_blocker_detail.take(),
-                strict_dynamic_methods: self.strict_dynamic_methods, stdlib_linkage: self.stdlib_linkage,
+                stdlib_linkage: self.stdlib_linkage,
                 function_defs: Rc::clone(&self.function_defs), scratch: Rc::clone(&self.scratch),
             };
             let value = child.lower_call(id, callee, args, slots, current_function, item_slot);
@@ -11613,7 +11598,7 @@ impl CompactLowerConstructProbe<'_, '_> {
                 source: self.source, sources: self.sources, current_namespace: self.current_namespace,
                 functions: self.functions, top_level_known: self.top_level_known.clone(),
                 output: std::mem::take(&mut self.output), last_blocker_detail: self.last_blocker_detail.take(),
-                strict_dynamic_methods: self.strict_dynamic_methods, stdlib_linkage: self.stdlib_linkage,
+                stdlib_linkage: self.stdlib_linkage,
                 function_defs: Rc::clone(&self.function_defs), scratch: Rc::clone(&self.scratch),
             };
             let result = child.lower_pipeline_stage(&normalized, slots, current_function, item_ty);
@@ -13546,7 +13531,7 @@ fn compact_runtime_type_inner(
                 }
                 Some(CompactTypeDefInfo::Module(exports)) => Type::Module(exports.clone()),
                 Some(CompactTypeDefInfo::TagUnion) => Type::Tag(name),
-                None => Type::Record(Default::default()),
+                None => Type::ErasedRecord,
             }
         }
         ArenaTypeExprTag::Qualified => {
@@ -13560,7 +13545,7 @@ fn compact_runtime_type_inner(
                 }
                 Some(CompactTypeDefInfo::Module(exports)) => Type::Module(exports.clone()),
                 Some(CompactTypeDefInfo::TagUnion) => Type::Tag(name),
-                None => Type::Record(Default::default()),
+                None => Type::ErasedRecord,
             }
         }
         ArenaTypeExprTag::List => Type::List(Box::new(compact_runtime_type_inner(
@@ -13756,7 +13741,7 @@ fn lowered_checked_type(ty: &Type) -> Option<LoweredType> {
         Type::Pure => Some(LoweredType::Pure),
         Type::Proc => Some(LoweredType::Proc),
         Type::Error | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ProcessError => Some(LoweredType::Error),
-        Type::Record(_) => Some(LoweredType::Record),
+        Type::ErasedRecord | Type::Record(_) => Some(LoweredType::Record),
         Type::Module(_) | Type::DynamicModule => Some(LoweredType::Module),
         Type::List(_) => Some(LoweredType::List),
         Type::Stream(_) => Some(LoweredType::Stream),
@@ -13849,7 +13834,7 @@ fn lowered_method_supported_for_type(ty: &Type, name: Name, arg_count: usize) ->
             "touch" => arg_count <= 1,
             _ => false,
         },
-        Type::Record(_) | Type::Module(_) | Type::DynamicModule => {
+        Type::ErasedRecord | Type::Record(_) | Type::Module(_) | Type::DynamicModule => {
             matches!(name.as_str().as_str(), "has" | "get") && arg_count == 1
                 || matches!(name.as_str().as_str(), "keys" | "len") && arg_count == 0
         }
@@ -13886,7 +13871,7 @@ fn infer_checked_method_return_type(receiver: &Type, name: Name, arg_count: usiz
         Type::Str => MethodReceiver::Str, Type::Bytes => MethodReceiver::Bytes,
         Type::Path => MethodReceiver::Path, Type::FsRoot => MethodReceiver::FsRoot, Type::List(_) => MethodReceiver::List,
         Type::Map(_, _) => MethodReceiver::Map, Type::Stream(_) => MethodReceiver::Stream,
-        Type::Record(_) | Type::Module(_) | Type::DynamicModule => MethodReceiver::Record,
+        Type::ErasedRecord | Type::Record(_) | Type::Module(_) | Type::DynamicModule => MethodReceiver::Record,
         Type::Status => MethodReceiver::Status, Type::EnvPathList => MethodReceiver::EnvPathList,
         Type::ProcessHandle => MethodReceiver::ProcessHandle, Type::NetJob => MethodReceiver::NetJob,
         Type::Digest => MethodReceiver::Digest, Type::Regex => MethodReceiver::Regex, _ => return None,
@@ -14001,7 +13986,7 @@ fn type_for_lowered_type(kind: LoweredType) -> Option<Type> {
         LoweredType::Pure => Some(Type::Pure),
         LoweredType::Proc => Some(Type::Proc),
         LoweredType::Error => Some(Type::Error),
-        LoweredType::Record => Some(Type::Record(Default::default())),
+        LoweredType::Record => Some(Type::ErasedRecord),
         LoweredType::Module => Some(Type::DynamicModule),
         LoweredType::List => Some(Type::List(Box::new(Type::Any))),
         LoweredType::Stream => Some(Type::Stream(Box::new(Type::Any))),
