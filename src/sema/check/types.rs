@@ -204,6 +204,16 @@ impl Checker {
             ArenaTypeExprTag::Qualified => {
                 let namespace = Name::from_symbol(Symbol::from_raw(data.lhs));
                 let name = Name::from_symbol(Symbol::from_raw(data.rhs));
+                let qualified = Name::intern(format!("{namespace}.{name}"));
+                // Imported error identities use the checked namespace, just as
+                // constructors and error patterns do. Schema resolution must
+                // not replace them with a module-local spelling.
+                if self.error_families.contains_key(&qualified) {
+                    return Type::ErrorFamily(qualified);
+                }
+                if self.error_facets.contains(&qualified) {
+                    return Type::ErrorFacet(qualified);
+                }
                 match self.record_constructors.resolve_type_checked(&program.arena, type_id, self.current_namespace) {
                     Ok(ty) => ty,
                     Err(error) if matches!(error.code, "check.type-arity" | "check.recursive-type") => {

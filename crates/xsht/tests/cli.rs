@@ -1872,3 +1872,20 @@ fn signature_cli_safe_fix_preserves_process_results_and_is_idempotent() {
     assert_eq!(fixed, fs::read_to_string(&fixture).unwrap());
     assert_eq!(before, cases.iter().map(invoke).collect::<Vec<_>>());
 }
+
+#[test]
+fn check_imported_error_annotation_retains_constructor_identity() {
+    let root = TempDir::new().expect("create nominal import fixture");
+    fs::write(root.path().join("helper.xsh"),
+        "##! Error identity fixture.\n## An exported failure family.\nexport error HelperError = Failed(detail: Str) : Temporary\n")
+        .expect("write exported family");
+    fs::write(root.path().join("main.xsh"),
+        "use helper\nlet failure: helper.HelperError = helper.HelperError.Failed(detail: \"failed\")\n")
+        .expect("write qualified annotation");
+    let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+        .args(["check", "main.xsh"])
+        .current_dir(root.path())
+        .output()
+        .expect("check imported nominal identity");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+}
