@@ -97,6 +97,7 @@ fn fs_root_receiver_refuses_user_record_methods_and_forged_capabilities() {
         let checked = Checker::check_arena(&parsed.arena, source);
         let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
         assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.fs-root-receiver")));
+    }
 }
 }
 
@@ -4387,6 +4388,7 @@ fn record_proof_fallback_fix_requires_checked_presence_and_inert_data() {
         let linted = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types,
             proven_nonnull_fallback_receivers: checked.proven_nonnull_fallback_receivers, ..LintOptions::default() });
         assert!(!linted.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-optional-fallback")));
+    }
 }
 }
 
@@ -4573,4 +4575,67 @@ fn default_parameter_annotation_keeps_domains_context_and_ambiguous_defaults() {
         let parsed = parse_lint_source(source);
         assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.default-param-type")), "{source}");
     }
+}
+
+#[test]
+fn inferred_require_target_fix_preserves_validation_and_converges() {
+    let source = "type Manifest = {jobs: UInt}\nlet raw: Any = {jobs: 4}\nlet value: Manifest = raw.require(Manifest)?\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions {
+        requirement_targets: checked.requirement_targets,
+        requirement_expected_targets: checked.requirement_expected_targets,
+        ..LintOptions::default()
+    });
+    let hint = &output.diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.inferred-require-target")).expect("same anchored schema").fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_ref().unwrap());
+    assert!(fixed.contains("raw.require()?"));
+    assert_parse_check_standalone("inferred require", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    let second = Linter::lint(&parsed.arena, &fixed, LintOptions {
+        requirement_targets: checked.requirement_targets,
+        requirement_expected_targets: checked.requirement_expected_targets,
+        ..LintOptions::default()
+    });
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.inferred-require-target")));
+}
+
+#[test]
+fn inferred_require_target_fix_rejects_unanchored_and_different_instances() {
+    for source in [
+        "type Manifest = {jobs: UInt}\nlet raw: Any = {jobs: 4}\nlet value = raw.require(Manifest)?\n",
+        "type Marker[T] = {name: Str}\nlet raw: Any = {name: \"ready\"}\nlet value: Marker[Int] = raw.require(Marker[Str])?\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        let output = Linter::lint(&parsed.arena, source, LintOptions {
+            requirement_targets: checked.requirement_targets,
+            requirement_expected_targets: checked.requirement_expected_targets,
+            ..LintOptions::default()
+        });
+        assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.inferred-require-target")), "{source}");
+    }
+}
+
+#[test]
+fn inferred_require_formatting_round_trip_and_comments_preserve_the_operation() {
+    let source = "type Row = {name: Str}\nlet raw: Any = {name: \"ready\"}\nlet inferred: Row = raw.require()?\nlet explicit: Row = raw.require(\n  # Preserve the boundary explanation.\n  Row\n)?\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let output = Linter::lint(&parsed.arena, source, LintOptions {
+        requirement_targets: checked.requirement_targets,
+        requirement_expected_targets: checked.requirement_expected_targets,
+        ..LintOptions::default()
+    });
+    assert!(!output.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.inferred-require-target")));
+    let formatted = Formatter::new().format_source(SourceId::new(0), source);
+    assert!(formatted.diagnostics.is_empty(), "{:?}", formatted.diagnostics);
+    assert!(formatted.formatted.contains("raw.require()?"));
+    assert!(formatted.formatted.contains("# Preserve the boundary explanation."));
+    assert_parse_check_standalone("formatted inferred require", &formatted.formatted);
+    assert_eq!(Formatter::new().format_source(SourceId::new(0), &formatted.formatted).formatted, formatted.formatted);
 }

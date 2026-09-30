@@ -73,7 +73,10 @@ impl Checker {
             }
             ArenaExprKind::Try(inner) => self.schema_expectation_for_expr(arena, inner)?.children.get(&SchemaComponent::Success).cloned(),
             ArenaExprKind::Require { schema, .. } => {
-                let context = self.record_constructors.annotation_expectation(&arena.arena, schema, self.current_namespace).ok()?;
+                let context = match schema {
+                    Some(schema) => self.record_constructors.annotation_expectation(&arena.arena, schema, self.current_namespace).ok()?,
+                    None => self.requirement_targets.get(&arena.arena.expr(expression).span)?.context.clone(),
+                };
                 let mut result = SchemaExpectation::default();
                 result.children.insert(SchemaComponent::Success, context);
                 Some(result)
@@ -224,7 +227,15 @@ impl Checker {
         expected: Option<&Type>,
     ) -> Type {
         if let Some(record) = self.argument_projection_sources.remove(&id) {
-            self.check_expr_arena(arena, source, record, None);
+            let actual = if let Some((expected, schema)) = self.argument_projection_contexts.remove(&record) {
+                self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(record), Some(&expected), Some(schema))
+            } else { self.check_expr_arena(arena, source, record, None) };
+            if let Type::Record(fields) = actual {
+                for (projection, ty) in &mut self.argument_projection_types {
+                    if let ArenaExprKind::Field { base, name } = arena.arena.expr(*projection).kind
+                        && base == record && let Some(actual) = fields.get(&name) { *ty = actual.clone(); }
+                }
+            }
         }
         if let Some(ty) = self.argument_projection_types.get(&id) { return ty.clone(); }
         self.condition_proofs.remove(&id);
@@ -304,7 +315,7 @@ impl Checker {
                 self.check_record_arena(arena, source, *fields, expected, expr.span)
             }
             ArenaExprKind::ErrorContext { message, block } => {
-                let ty = self.check_expr_arena(arena, source, *message, Some(&Type::Str));
+                let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(*message), Some(&Type::Str), None);
                 self.expect_type(&Type::Str, &ty, arena.arena.expr(*message).span);
                 self.push_scope();
                 let ty = self.check_tail_block_arena(arena, source, *block, expected);
@@ -368,7 +379,7 @@ impl Checker {
                 for pair in arena.arena.expr_ids(*pairs) {
                     let ArenaExprKind::Binary { left, right, .. } = arena.arena.expr(pair).kind else { unreachable!() };
                     let left_ty = previous.take().unwrap_or_else(|| self.check_expr_arena(arena, source, left, None));
-                    let right_ty = self.check_expr_arena(arena, source, right, Some(&left_ty));
+                    let right_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(right), Some(&left_ty), None);
                     if !matches!(left_ty, Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str | Type::Any | Type::Unknown) {
                         self.error(arena.arena.expr(left).span, "comparison requires Int, Float, Str, or Duration", "check.operator-type");
                     }
@@ -406,13 +417,34 @@ impl Checker {
                 self.check_structured_pipeline_arena(arena, source, *input, *stages)
             }
             ArenaExprKind::Try(inner) => {
-                let ty = self.check_expr_arena(arena, source, *inner, None);
+                let inner_expected = expected.cloned().map(|ty| Type::Result(Box::new(ty), Box::new(Type::Error)));
+                let schema = self.expected_schema.clone().map(|schema| {
+                    let mut wrapped = crate::sema::constants::SchemaExpectation::default();
+                    wrapped.children.insert(crate::sema::constants::SchemaComponent::Success, schema);
+                    wrapped
+                });
+                let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(*inner), inner_expected.as_ref(), schema);
                 self.check_propagation(&ty, expr.span)
             }
             ArenaExprKind::Require { value, schema } => {
+                self.requirement_targets.remove(&expr.span);
+                self.requirement_expected_targets.remove(&expr.span);
+                let inferred = super::expected::infer_requirement_target(&arena.arena, expected, self.expected_schema.as_ref(), &self.type_constraints);
+                if let Some(inferred) = &inferred { self.requirement_expected_targets.insert(expr.span, inferred.clone()); }
                 self.check_expr_arena(arena, source, *value, None);
-                let schema_ty = self.type_from_arena(arena, *schema);
-                Type::Result(Box::new(schema_ty), Box::new(Type::Error))
+                let target = if let Some(schema) = schema {
+                    let ty = self.type_from_arena(arena, *schema);
+                    let context = self.record_constructors.annotation_expectation(&arena.arena, *schema, self.current_namespace).unwrap_or_default();
+                    Some(super::expected::requirement_target(&arena.arena, ty, context))
+                } else { inferred };
+                if let Some(target) = target {
+                    let ty = target.ty.clone();
+                    self.requirement_targets.insert(expr.span, target);
+                    Type::Result(Box::new(ty), Box::new(Type::Error))
+                } else {
+                    self.error(expr.span, "cannot infer require target; supply a schema or an independently typed boundary", "check.require-target");
+                    Type::Invalid
+                }
             }
             ArenaExprKind::Call { callee, args } => {
                 let may_mutate = matches!(arena.arena.expr(*callee).kind, ArenaExprKind::Ident(name) if self.lookup(name).is_some_and(|binding| binding.ty == Type::Proc));
@@ -951,7 +983,7 @@ impl Checker {
     ) -> Type {
         let delay_ids: Vec<ExprId> = arena.arena.expr_ids(delays).collect();
         for &delay in &delay_ids {
-            let ty = self.check_expr_arena(arena, source, delay, Some(&Type::Duration));
+            let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(delay), Some(&Type::Duration), None);
             let delay_span = arena.arena.expr(delay).span;
             self.expect_type(&Type::Duration, &ty, delay_span);
         }
@@ -1069,7 +1101,7 @@ impl Checker {
                 }
             }
             ArenaSpawnTarget::Command(expr_id) => {
-                let ty = self.check_expr_arena(arena, source, expr_id, Some(&Type::Command));
+                let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), Some(&Type::Command), None);
                 let expr_span = arena.arena.expr(expr_id).span;
                 self.expect_type(&Type::Command, &ty, expr_span);
             }
@@ -1144,7 +1176,7 @@ impl Checker {
             self.check_pattern_arena(arena, source, arm.pattern, &value_ty);
             self.warn_flattened_error_handler_arena(arena, arm.value, arm.pattern, &value_ty);
             if let Some(guard) = arm.guard {
-                let guard_ty = self.check_expr_arena(arena, source, guard, Some(&Type::Bool));
+                let guard_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(guard), Some(&Type::Bool), None);
                 let guard_span = arena.arena.expr(guard).span;
                 self.expect_type(&Type::Bool, &guard_ty, guard_span);
             }
@@ -1290,7 +1322,7 @@ impl Checker {
                 };
                 // The unreachable fallback is checked, but cannot mutate its success continuation.
                 let saved_scopes = self.proven_nonnull_fallback_receivers.contains(&left_span).then(|| self.scopes.clone());
-                let right_ty = self.check_expr_arena(arena, source, right, Some(&value_ty));
+                let right_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(right), Some(&value_ty), None);
                 if let Some(scopes) = saved_scopes { self.scopes = scopes; }
                 self.expect_type(&value_ty, &right_ty, right_span);
                 value_ty
@@ -1303,7 +1335,7 @@ impl Checker {
                 let right_ty = if left_ty.is_result() {
                     self.check_expr_arena(arena, source, right, None)
                 } else {
-                    self.check_expr_arena(arena, source, right, Some(&Type::Bool))
+                    self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(right), Some(&Type::Bool), None)
                 };
                 self.pop_scope();
                 if left_ty.is_result() || right_ty.is_result() {
@@ -1319,11 +1351,11 @@ impl Checker {
                 Type::Bool
             }
             BinaryOp::And => {
-                let left_ty = self.check_expr_arena(arena, source, left, Some(&Type::Bool));
+                let left_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(left), Some(&Type::Bool), None);
                 let facts = self.infer_condition_narrowings_arena(arena, left);
                 self.push_scope();
                 self.apply_narrowings(&facts.when_true);
-                let right_ty = self.check_expr_arena(arena, source, right, Some(&Type::Bool));
+                let right_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(right), Some(&Type::Bool), None);
                 self.pop_scope();
                 self.expect_type(&Type::Bool, &left_ty, left_span);
                 self.expect_type(&Type::Bool, &right_ty, right_span);
@@ -1331,13 +1363,13 @@ impl Checker {
             }
             BinaryOp::Eq | BinaryOp::Ne => {
                 let left_ty = self.check_expr_arena(arena, source, left, None);
-                let right_ty = self.check_expr_arena(arena, source, right, Some(&left_ty));
+                let right_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(right), Some(&left_ty), None);
                 self.expect_type(&left_ty, &right_ty, right_span);
                 Type::Bool
             }
             BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
                 let left_ty = self.check_expr_arena(arena, source, left, None);
-                let right_ty = self.check_expr_arena(arena, source, right, Some(&left_ty));
+                let right_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(right), Some(&left_ty), None);
                 if !matches!(
                     left_ty,
                     Type::Int | Type::UInt | Type::Float | Type::Duration | Type::Str | Type::Any | Type::Unknown
@@ -1717,17 +1749,17 @@ impl Checker {
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         let result = match base_ty {
             Type::Map(key, item) => {
-                let index_ty = self.check_expr_arena(arena, source, index, Some(&key));
+                let index_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(index), Some(&key), None);
                 self.expect_type(&key, &index_ty, index_span);
                 *item
             }
             Type::List(item) => {
-                let index_ty = self.check_expr_arena(arena, source, index, Some(&Type::Int));
+                let index_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(index), Some(&Type::Int), None);
                 self.expect_type(&Type::Int, &index_ty, index_span);
                 *item
             }
             receiver @ (Type::Record(_) | Type::Module(_)) => {
-                let index_ty = self.check_expr_arena(arena, source, index, Some(&Type::Str));
+                let index_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(index), Some(&Type::Str), None);
                 self.expect_type(&Type::Str, &index_ty, index_span);
                 if let Some(projection) = crate::sema::projection::resolve_constant_key_projection(
                     &arena.arena, &self.prepared_constants, base, &receiver, index,
@@ -1767,12 +1799,12 @@ impl Checker {
         let base_ty = self.check_expr_arena(arena, source, base, None);
         let (base_ty, lift) = self.checked_postfix_receiver(base_ty, guarded, span);
         if let Some(start) = start {
-            let ty = self.check_expr_arena(arena, source, start, Some(&Type::Int));
+            let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(start), Some(&Type::Int), None);
             let start_span = arena.arena.expr(start).span;
             self.expect_type(&Type::Int, &ty, start_span);
         }
         if let Some(end) = end {
-            let ty = self.check_expr_arena(arena, source, end, Some(&Type::Int));
+            let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(end), Some(&Type::Int), None);
             let end_span = arena.arena.expr(end).span;
             self.expect_type(&Type::Int, &ty, end_span);
         }

@@ -1294,6 +1294,17 @@ Operators:
   record fields are validated recursively inside lists, maps, and optional
   values; a nested missing or mistyped field rejects the entire value before
   typed field access.
+- `.require()` uses a concrete target independently supplied by an annotated
+  binding, an annotated return or value tail, or a uniquely selected checked
+  parameter contract. Expected types flow through value blocks, branches,
+  `Ok`, and exactly one propagation layer at each `?`. Validation still runs
+  and returns `Result[T, Error]`; annotations alone never validate input.
+  `Any`, erased `Record`, unresolved type arguments, other arguments checked
+  later, and fallback values cannot supply the target. Named generic schemas
+  retain their declaring identity and concrete arguments. The checker reports
+  `check.require-target` when the target is not independently known.
+  `lint.inferred-require-target` removes only an explicit schema argument when
+  that same concrete schema and conversion are supplied by the boundary.
 - `?.` guards Optional field access and method calls; `?[index]` and
   `?[start..end]` guard the ordinary indexing and half-open slicing domains.
   Evaluate the receiver once. A null receiver returns null without evaluating

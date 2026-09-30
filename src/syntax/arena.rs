@@ -3177,9 +3177,9 @@ impl<'a> ArenaProgramBuilder<'a> {
         self.lowerer.push_expr_kind(ArenaExprKind::Try(value), span)
     }
 
-    pub fn push_require_expr(&mut self, value: ExprId, schema: TypeExprId, span: Span) -> ExprId {
+    pub fn push_require_expr(&mut self, value: ExprId, schema: impl Into<Option<TypeExprId>>, span: Span) -> ExprId {
         self.lowerer
-            .push_expr_kind(ArenaExprKind::Require { value, schema }, span)
+            .push_expr_kind(ArenaExprKind::Require { value, schema: schema.into() }, span)
     }
 
     pub fn finish(mut self) -> ArenaProgram {
@@ -4130,7 +4130,7 @@ impl AstArena {
             ArenaExprTag::Try => ArenaExprKind::Try(ExprId::new(data.lhs as usize)),
             ArenaExprTag::Require => ArenaExprKind::Require {
                 value: ExprId::new(data.lhs as usize),
-                schema: TypeExprId::new(data.rhs as usize),
+                schema: optional_type_expr_id(data.rhs),
             },
             ArenaExprTag::Capture => ArenaExprKind::Capture(BlockId::new(data.lhs as usize)),
             ArenaExprTag::ValueBlock => ArenaExprKind::ValueBlock(BlockId::new(data.lhs as usize)),
@@ -5389,7 +5389,7 @@ pub enum ArenaExprKind {
     Capture(BlockId),
     Require {
         value: ExprId,
-        schema: TypeExprId,
+        schema: Option<TypeExprId>,
     },
     Loop {
         block: BlockId,
@@ -6538,7 +6538,7 @@ impl ArenaLowerer<'_> {
             ArenaExprKind::Try(id) => (ArenaExprTag::Try, ArenaExprData::new(raw_expr_id(id), 0)),
             ArenaExprKind::Require { value, schema } => (
                 ArenaExprTag::Require,
-                ArenaExprData::new(raw_expr_id(value), raw_type_expr_id(schema)),
+                ArenaExprData::new(raw_expr_id(value), optional_raw_type_expr_id(schema)),
             ),
             ArenaExprKind::Capture(block) => (ArenaExprTag::Capture, ArenaExprData::new(raw_block_id(block), 0)),
             ArenaExprKind::ValueBlock(block) => (ArenaExprTag::ValueBlock, ArenaExprData::new(raw_block_id(block), 0)),

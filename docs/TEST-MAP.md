@@ -953,3 +953,10 @@ Mixed enum and removed-record migrations across imports are covered by
 The isolated CLI fixtures pin normal graph rechecking, exact comment and Unicode
 retention, execution after repair, staged convergence, and refusal without partial writes
 for unrelated errors in the entry, an import, or a removed-result consumer.
+
+`target/debug/xsht test --jobs 1 tests/xsh/inferred-require.xsh` covers
+independently anchored validation targets, unchanged validation failures,
+and rejected unanchored contexts. `cargo test -p xsht --test integration
+inferred_require` covers argument-only source fixes and convergence;
+`cargo test -p xsh --lib inferred_require` covers prepared schemas after
+frontend disposal on both indexed execution routes.

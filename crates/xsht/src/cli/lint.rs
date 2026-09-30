@@ -681,6 +681,8 @@ fn lint_workspace_root(
         options.function_return_types = checked.function_return_types.clone();
         options.expr_types = checked.expr_types.clone();
         options.proven_nonnull_fallback_receivers = checked.proven_nonnull_fallback_receivers.clone();
+        options.requirement_targets = checked.requirement_targets.clone();
+        options.requirement_expected_targets = checked.requirement_expected_targets.clone();
         options.statement_positions = checked.statement_positions.clone();
         options.callable_effects = checked.callable_effects.clone();
         options.function_effect_facts = checked.function_effect_facts.clone();
@@ -1178,6 +1180,8 @@ fn lint_config_for_file(
         function_return_types: Default::default(),
         expr_types: Default::default(),
         proven_nonnull_fallback_receivers: Default::default(),
+        requirement_targets: Default::default(),
+        requirement_expected_targets: Default::default(),
         statement_positions: Default::default(),
         callable_effects: Default::default(),
         function_effect_facts: Default::default(),
@@ -1245,6 +1249,8 @@ fn lint_one_file_with_fixes(
     lint_options.function_return_types = checked.function_return_types.clone();
     lint_options.expr_types = checked.expr_types.clone();
     lint_options.proven_nonnull_fallback_receivers = checked.proven_nonnull_fallback_receivers.clone();
+    lint_options.requirement_targets = checked.requirement_targets.clone();
+    lint_options.requirement_expected_targets = checked.requirement_expected_targets.clone();
     lint_options.statement_positions = checked.statement_positions.clone();
     lint_options.callable_effects = checked.callable_effects.clone();
     lint_options.function_effect_facts = checked.function_effect_facts.clone();
@@ -1458,6 +1464,8 @@ fn apply_cst_fixes(
         options.function_return_types = checked.function_return_types.clone();
         options.expr_types = checked.expr_types.clone();
         options.proven_nonnull_fallback_receivers = checked.proven_nonnull_fallback_receivers.clone();
+        options.requirement_targets = checked.requirement_targets.clone();
+        options.requirement_expected_targets = checked.requirement_expected_targets.clone();
         options.statement_positions = checked.statement_positions.clone();
         options.callable_effects = checked.callable_effects.clone();
         options.function_effect_facts = checked.function_effect_facts.clone();

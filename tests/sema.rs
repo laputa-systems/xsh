@@ -62,6 +62,7 @@ fn removed_record_require_refuses_unproved_or_different_contracts() {
         let diagnostics = Checker::check_arena(&parsed.arena, source).diagnostics;
         let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.removed-record-require")).unwrap();
         assert!(diagnostic.fix_hints.is_empty(), "{source}: {diagnostic:?}");
+    }
 }
 }
 
@@ -3946,6 +3947,7 @@ fn checker_accept_policy_requires_bounded_int_codes_on_every_plan_route() {
     ] {
         let output = check(source);
         assert!(has_code(&output, "check.type-mismatch"), "{source}: {output:?}");
+    }
 }
 }
 
@@ -3964,6 +3966,7 @@ fn checker_record_proof_types_agree_on_full_and_compact_routes() {
             assert_eq!(ty, xsh::frontend::check::Type::Str);
             assert_eq!(full.expr_types.get(&span), Some(&ty));
         }
+    }
 }
 }
 
@@ -4099,4 +4102,22 @@ fn default_parameter_contract_headers_keep_checked_omitted_literal_types() {
     assert!(checked.parameter_types.values().any(|ty| *ty == xsh::frontend::check::Type::Int));
     let compact = Checker::check_compact_declarations(&parsed.arena);
     assert_eq!(compact.parameter_types, checked.parameter_types);
+}
+
+#[test]
+fn inferred_require_full_and_compact_targets_preserve_schema_identity() {
+    let source = "type Marker[T] = {name: Str}\npure validate(raw: Any) -> Result[Marker[Int]] { raw.require()? }\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    assert_eq!(checked.requirement_targets.len(), 1);
+    assert_eq!(compact.requirement_targets.len(), 1);
+    for (expr, target) in compact.requirement_targets {
+        assert_eq!(checked.requirement_targets.get(&parsed.arena.arena.expr(expr).span), Some(&target));
+        assert_eq!(target.context.instances[0].arguments, vec![xsh::frontend::check::Type::Int]);
+    }
 }

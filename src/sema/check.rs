@@ -34,6 +34,9 @@ mod compact;
 mod decl;
 #[path = "check/expr.rs"]
 mod expr;
+#[path = "check/expected.rs"]
+mod expected;
+pub use expected::RequirementTarget;
 #[path = "check/infer_effects.rs"]
 mod infer_effects;
 #[path = "check/infer_return.rs"]
@@ -99,6 +102,8 @@ pub struct CheckOutput {
     pub function_return_types: BTreeMap<Span, Type>,
     pub record_constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
     pub parameter_types: BTreeMap<Span, Type>,
+    pub requirement_targets: BTreeMap<Span, RequirementTarget>,
+    pub requirement_expected_targets: BTreeMap<Span, RequirementTarget>,
     pub reveal_types: Vec<Diagnostic>,
     pub expr_types: BTreeMap<Span, Type>,
     pub projections: BTreeMap<Span, CheckedProjection>,
@@ -317,10 +322,13 @@ pub struct Checker {
     static_callable_aliases: BTreeMap<Span, StaticCallableAlias>,
     argument_projection_types: FxHashMap<crate::syntax::arena::ExprId, Type>,
     argument_projection_sources: FxHashMap<crate::syntax::arena::ExprId, crate::syntax::arena::ExprId>,
+    argument_projection_contexts: FxHashMap<crate::syntax::arena::ExprId, (Type, crate::sema::constants::SchemaExpectation)>,
     record_constructors: RecordConstructors,
     expected_schema: Option<super::constants::SchemaExpectation>,
     return_schema: Option<super::constants::SchemaExpectation>,
     record_constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
+    requirement_targets: BTreeMap<Span, RequirementTarget>,
+    requirement_expected_targets: BTreeMap<Span, RequirementTarget>,
     constructor_group_depth: usize,
     pending_record_constructors: Vec<(Span, super::constants::SchemaInstance, Type)>,
     prepared_constants: super::constants::PreparedConstants,
@@ -444,6 +452,8 @@ impl Checker {
                 function_return_types: checker.function_return_types,
                 record_constructor_instances: checker.record_constructor_instances,
                 parameter_types: checker.parameter_types,
+                requirement_targets: checker.requirement_targets,
+                requirement_expected_targets: checker.requirement_expected_targets,
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
                 projections: checker.projections,
@@ -537,6 +547,8 @@ impl Checker {
                 function_return_types: checker.function_return_types,
                 record_constructor_instances: checker.record_constructor_instances,
                 parameter_types: checker.parameter_types,
+                requirement_targets: checker.requirement_targets,
+                requirement_expected_targets: checker.requirement_expected_targets,
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
                 projections: checker.projections,
@@ -567,10 +579,13 @@ impl Checker {
             type_constraints: super::constraints::TypeConstraints::default(),
             argument_projection_types: FxHashMap::default(),
             argument_projection_sources: FxHashMap::default(),
+            argument_projection_contexts: FxHashMap::default(),
             record_constructors: RecordConstructors::default(),
             expected_schema: None,
             return_schema: None,
             record_constructor_instances: BTreeMap::new(),
+            requirement_targets: BTreeMap::new(),
+            requirement_expected_targets: BTreeMap::new(),
             constructor_group_depth: 0,
             pending_record_constructors: Vec::new(),
             prepared_constants: super::constants::PreparedConstants::default(),

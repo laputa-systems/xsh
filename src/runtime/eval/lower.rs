@@ -4871,7 +4871,10 @@ impl CompactLowerConstructProbe<'_, '_> {
             ArenaExprKind::Require { schema, .. } => {
                 // Validation retains the full schema type. Runtime storage
                 // categories cannot represent Optional or nested Result layers.
-                let contract_ty = compact_runtime_type_in_namespace(&self.program.arena, schema, self.declarations, self.current_namespace);
+                let contract_ty = match schema {
+                    Some(schema) => compact_runtime_type_in_namespace(&self.program.arena, schema, self.declarations, self.current_namespace),
+                    None => self.bodies.requirement_targets.get(&value)?.ty.clone(),
+                };
                 Some(Type::Result(Box::new(contract_ty), Box::new(Type::Error)))
             }
             ArenaExprKind::List(items) => {
@@ -5782,7 +5785,10 @@ impl CompactLowerConstructProbe<'_, '_> {
                     self.infer_lowered_call_ok_type(callee, args, known)
                 }
                 ArenaExprKind::Require { schema, .. } => {
-                    lowered_arena_type(&self.program.arena, schema, self.declarations)
+                    match schema {
+                        Some(schema) => lowered_arena_type(&self.program.arena, schema, self.declarations),
+                        None => self.bodies.requirement_targets.get(&expr).and_then(|target| lowered_checked_type(&target.ty)),
+                    }
                 }
                 ArenaExprKind::Run(run) => lowered_arena_run_capture_type(&self.program.arena, run),
                 ArenaExprKind::Spawn(_) => Some(LoweredType::ProcessHandle),
@@ -8098,27 +8104,18 @@ impl CompactLowerConstructProbe<'_, '_> {
                 ))
             }
             ArenaExprKind::Require { value, schema } => {
-                lowered_arena_type(&self.program.arena, schema, self.declarations)?;
-                Some(push_build_row!(
-                    self,
-                    expr,
-                    BuildExprRow::Require {
-                        value: self.lower_expr(value, slots, current_function, item_slot)?,
-                        check: LoweredTypeCheck {
-                            schema: Some(self.prepared_schema(compact_runtime_type_in_namespace(
-                                &self.program.arena, schema, self.declarations, self.current_namespace,
-                            ))),
-                            ty: compact_runtime_type_in_namespace(
-                                &self.program.arena,
-                                schema,
-                                self.declarations,
-                                self.current_namespace,
-                            ),
-                            name: compact_type_expr_name(&self.program.arena, schema),
-                        },
-                        span,
-                    }
-                ))
+                let (ty, name) = if let Some(schema) = schema {
+                    lowered_arena_type(&self.program.arena, schema, self.declarations)?;
+                    (compact_runtime_type_in_namespace(&self.program.arena, schema, self.declarations, self.current_namespace), compact_type_expr_name(&self.program.arena, schema))
+                } else {
+                    let target = self.bodies.requirement_targets.get(&id)?;
+                    (target.ty.clone(), target.name.clone())
+                };
+                let prepared = self.prepared_schema(ty.clone());
+                Some(push_build_row!(self, expr, BuildExprRow::Require {
+                    value: self.lower_expr(value, slots, current_function, item_slot)?,
+                    check: LoweredTypeCheck { schema: Some(prepared), ty, name }, span,
+                }))
             }
             ArenaExprKind::Unary {
                 op: UnaryOp::Neg,

@@ -527,3 +527,15 @@ offset is a successful value. Checked null guards refine these results to
 optional: a present null is successful data, and `??` handles only an error.
 The removed fallback overloads are recognized by migration tooling without
 providing an executable compatibility signature.
+
+### Inferred validation targets
+
+`value.require()` consumes an independently checked expected schema; it does
+not assert that the receiver already has that type. Explicit annotations and
+selected parameter contracts supply the boundary. `RequirementTarget` retains
+the concrete `Type` and `SchemaExpectation` application identities so full and
+compact checking prepare the same validator. Each `?` adds one expected Result
+layer; validation removes one success layer to select its target. Recovery
+types and unresolved type arguments supply no target. Source fixes compare
+both the concrete type and schema application identities before removing only
+the explicit argument.

@@ -23,6 +23,7 @@ pub struct CompactDeclOutput {
     pub local_binding_types: BTreeMap<crate::source::Span, Type>,
     pub record_constructors: super::RecordConstructors,
     pub record_constructor_types: FxHashMap<ExprId, Type>,
+    pub requirement_targets: FxHashMap<ExprId, super::RequirementTarget>,
     pub prepared_constants: crate::sema::constants::PreparedConstants,
     pub wire_enums: crate::sema::wire_enums::PreparedWireEnums,
     pub(crate) cli_entry: Option<crate::sema::cli_entry::CliEntryPlan>,
@@ -64,6 +65,7 @@ pub enum CompactTypeDefInfo {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompactFunctionSig {
     pub params: Vec<CallableParamType>,
+    pub parameter_schemas: Vec<Option<crate::sema::constants::SchemaExpectation>>,
     pub return_ty: Type,
     pub return_type_expr: TypeExprId,
     pub inferred_effects: bool,
@@ -101,6 +103,7 @@ pub struct CompactBodyProbeOutput {
     pub expr_types: FxHashMap<ExprId, Type>,
     pub proven_nonnull_fallback_receivers: FxHashSet<ExprId>,
     pub projections: FxHashMap<ExprId, crate::sema::projection::CheckedProjection>,
+    pub requirement_targets: FxHashMap<ExprId, super::RequirementTarget>,
     pub statement_positions: FxHashMap<StmtId, super::StatementPosition>,
     pub block_types: FxHashMap<BlockId, Type>,
     // Keep inferred value tails separate from contextual Unit consumption.
@@ -122,6 +125,11 @@ impl Checker {
                 diagnostics: Vec::new(),
                 names: FxHashSet::default(),
                 output: CompactDeclOutput {
+                    record_constructors: super::RecordConstructors::collect(program),
+                    requirement_targets: (0..program.arena.expr_tags.len()).filter_map(|index| {
+                        let id = ExprId::from_index(index);
+                        inferred.as_ref()?.requirement_targets.get(&program.arena.expr(id).span).cloned().map(|target| (id, target))
+                    }).collect(),
                     function_effect_facts: inferred.as_ref().map(|checked| checked.function_effect_facts.clone()).unwrap_or_default(),
                     record_constructor_types: (0..program.arena.expr_tags.len()).filter_map(|index| {
                         let expression = program.arena.expr(ExprId::from_index(index));
@@ -138,7 +146,6 @@ impl Checker {
             collector.diagnostics.extend(Self::prepare_regex_literals(program));
             collector.collect_program(program);
             let mut output = collector.output;
-            output.record_constructors = super::RecordConstructors::collect(program);
             output.prepared_constants = crate::sema::constants::PreparedConstants::collect(program, &output.record_constructors);
             collector.diagnostics.extend(output.prepared_constants.diagnostics.clone());
             output.record_constructors.apply_prepared_defaults(program, &output.prepared_constants);
@@ -176,6 +183,7 @@ impl Checker {
             let mut probe = CompactBodyProbe {
                 type_constraints: super::super::constraints::TypeConstraints::default(),
                 nonmaterial_expressions: FxHashSet::default(),
+                expected_schema: None,
                 program,
                 declarations,
                 output,
@@ -183,6 +191,7 @@ impl Checker {
                 condition_proofs: FxHashMap::default(),
                 stream_items: Vec::new(),
                 return_types: Vec::new(),
+                return_schemas: Vec::new(),
                 pipeline_hole_types: FxHashMap::default(),
                 current_namespace: None,
                 with_initializer_errors: None,
@@ -511,7 +520,11 @@ impl CompactDeclCollector {
 
     fn function_sig(&mut self, program: &ArenaProgram, id: FunctionDefId, namespace: Option<Name>) -> CompactFunctionSig {
         let def = program.arena.function_def(id);
-        let params = self.param_sigs(program, def.params);
+        let mut params = self.param_sigs(program, def.params);
+        let parameter_schemas = program.arena.params(def.params).iter().zip(&mut params).map(|(syntax, param)| {
+            param.ty = self.output.record_constructors.resolve_type(&program.arena, syntax.ty, namespace);
+            self.output.record_constructors.annotation_expectation(&program.arena, syntax.ty, namespace).ok()
+        }).collect();
         let body_span = program.arena.span(program.arena.block(def.body).span);
         let return_ty = self.output.function_return_types.get(&body_span).cloned()
             .unwrap_or_else(|| Type::from_arena(&program.arena, def.return_ty));
@@ -520,6 +533,7 @@ impl CompactDeclCollector {
             .unwrap_or_else(|| def.effects.map(|effects| program.arena.effects(effects).collect::<Vec<_>>()));
         CompactFunctionSig {
             params,
+            parameter_schemas,
             return_ty,
             return_type_expr: def.return_ty,
             inferred_effects: self.output.function_effect_facts.get(&super::EffectDeclarationId { namespace, body: body_span }).is_some_and(|fact| fact.inferred),
@@ -603,6 +617,7 @@ enum CompactFunctionKind {
 /// Checks executable bodies directly from arena rows. The `check_compact_*`
 /// method family distinguishes this probe from the general `Checker` paths.
 struct CompactBodyProbe<'a> {
+    expected_schema: Option<crate::sema::constants::SchemaExpectation>,
     type_constraints: super::super::constraints::TypeConstraints,
     nonmaterial_expressions: FxHashSet<ExprId>,
     with_initializer_errors: Option<Vec<Type>>,
@@ -614,6 +629,7 @@ struct CompactBodyProbe<'a> {
     condition_proofs: FxHashMap<ExprId, std::sync::Arc<super::proof::ConditionNarrowings>>,
     stream_items: Vec<Type>,
     return_types: Vec<Type>,
+    return_schemas: Vec<Option<crate::sema::constants::SchemaExpectation>>,
     pipeline_hole_types: FxHashMap<ExprId, Type>,
 }
 
@@ -873,6 +889,10 @@ impl CompactBodyProbe<'_> {
     }
 
     fn check_compact_stmt(&mut self, id: StmtId) {
+        self.check_compact_stmt_expected(id, None);
+    }
+
+    fn check_compact_stmt_expected(&mut self, id: StmtId, expected: Option<&Type>) {
         self.output.statements += 1;
         let stmt = self.program.arena.stmt(id);
         self.output.statement_positions.insert(id, super::StatementPosition::Statement);
@@ -924,6 +944,8 @@ impl CompactBodyProbe<'_> {
                 self.output.supported_statements += 1;
                 self.output.bindings += 1;
                 let expected = ty.map(|ty| self.type_from_arena(ty)).or_else(|| self.declarations.local_binding_types.get(&stmt.span).cloned());
+                let previous_schema = self.expected_schema.take();
+                self.expected_schema = ty.and_then(|ty| self.declarations.record_constructors.annotation_expectation(&self.program.arena, ty, self.current_namespace).ok());
                 let actual = match initializer {
                     ArenaExprOrRun::Expr(expr) => self.check_compact_expr_expected(expr, expected.as_ref()),
                     ArenaExprOrRun::Run(run) => self.check_compact_expr_or_run(ArenaExprOrRun::Run(run)),
@@ -931,6 +953,7 @@ impl CompactBodyProbe<'_> {
                 if matches!(self.program.arena.binding_target(target).kind, ArenaBindingTargetKind::Name(name) if name == "_") {
                     self.record_inert_discard(initializer);
                 }
+                self.expected_schema = previous_schema;
                 let binding_ty = expected.unwrap_or(actual);
                 let mutable = matches!(self.program.arena.stmt(id).kind, ArenaStmtKind::Var { .. });
                 let boolean_proof = if !mutable && binding_ty == Type::Bool {
@@ -984,7 +1007,15 @@ impl CompactBodyProbe<'_> {
                 if let Some(value) = value {
                     let expected = self.return_types.last().cloned();
                     match value {
-                        ArenaExprOrRun::Expr(expr) => { self.check_compact_expr_expected(expr, expected.as_ref()); }
+                        ArenaExprOrRun::Expr(expr) => {
+                            let previous = self.expected_schema.clone();
+                            self.expected_schema = self.return_schemas.last().cloned().flatten();
+                            let explicit_result = matches!(self.program.arena.expr(expr).kind, ArenaExprKind::Call { callee, .. } if matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Ok" || name == "Err"));
+                            let context = expected.as_ref().map(|ty| if explicit_result { ty } else { ty.result_ok().unwrap_or(ty) });
+                            if !explicit_result && expected.as_ref().is_some_and(Type::is_result) { self.expected_schema = self.expected_schema.as_ref().and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Success)).cloned(); }
+                            self.check_compact_expr_expected(expr, context);
+                            self.expected_schema = previous;
+                        }
                         ArenaExprOrRun::Run(run) => { self.check_compact_expr_or_run(ArenaExprOrRun::Run(run)); }
                     }
                 }
@@ -1031,7 +1062,7 @@ impl CompactBodyProbe<'_> {
                     let failure_scopes = self.scopes.clone();
                     self.apply_compact_guard_narrowings(facts.when_true);
                     self.bind_compact_pattern_condition(branch.condition);
-                    self.check_compact_block_in_current_scope(branch.block);
+                    self.check_compact_block_expected_in_current_scope(branch.block, expected);
                     if !self.compact_block_definitely_exits(branch.block) {
                         reaching.push(self.scopes.iter().flat_map(|scope| scope.iter()).map(|(name, binding)| (*name, binding.clone())).collect::<FxHashMap<_, _>>());
                     }
@@ -1039,7 +1070,7 @@ impl CompactBodyProbe<'_> {
                 }
                 self.push_scope(); self.apply_compact_guard_narrowings(failure);
                 if let Some(block) = else_block {
-                    self.check_compact_block_in_current_scope(block);
+                    self.check_compact_block_expected_in_current_scope(block, expected);
                     if !self.compact_block_definitely_exits(block) {
                         reaching.push(self.scopes.iter().flat_map(|scope| scope.iter()).map(|(name, binding)| (*name, binding.clone())).collect());
                     }
@@ -1111,7 +1142,7 @@ impl CompactBodyProbe<'_> {
                     self.push_scope();
                     self.bind_compact_pattern(arm.pattern, &subject);
                     if let Some(guard) = arm.guard { self.check_compact_expr(guard); }
-                    self.check_compact_block_in_current_scope(arm.block);
+                    self.check_compact_block_expected_in_current_scope(arm.block, expected);
                     self.pop_scope();
                 }
             }
@@ -1201,9 +1232,14 @@ impl CompactBodyProbe<'_> {
         let body_span = self.program.arena.span(self.program.arena.block(def.body).span);
         let expected = self.declarations.function_return_types.get(&body_span).cloned()
             .unwrap_or_else(|| self.type_from_arena(def.return_ty));
+        let previous_schema = self.expected_schema.take();
+        self.expected_schema = (!def.return_ty_defaulted).then(|| self.declarations.record_constructors.annotation_expectation(&self.program.arena, def.return_ty, self.current_namespace).ok()).flatten();
         self.return_types.push(expected.clone());
-        self.check_compact_block_in_current_scope(def.body);
+        self.return_schemas.push(self.expected_schema.clone());
+        self.check_compact_block_expected_in_current_scope(def.body, Some(&expected));
         self.return_types.pop();
+        self.return_schemas.pop();
+        self.expected_schema = previous_schema;
         self.apply_compact_capture_block_expected(def.body, &expected);
         if !matches!(expected, Type::Stream(_)) { self.apply_compact_block_expected(def.body, &expected); }
         self.mark_tail_position(def.body, expected != Type::Unit && !expected.is_result_unit() && !matches!(expected, Type::Stream(_)));
@@ -1255,6 +1291,10 @@ impl CompactBodyProbe<'_> {
     }
 
     fn check_compact_block_in_current_scope(&mut self, id: BlockId) {
+        self.check_compact_block_expected_in_current_scope(id, None);
+    }
+
+    fn check_compact_block_expected_in_current_scope(&mut self, id: BlockId, expected: Option<&Type>) {
         self.output.blocks += 1;
         let ArenaBlock {
             params, statements, ..
@@ -1263,8 +1303,19 @@ impl CompactBodyProbe<'_> {
             self.current_scope_mut()
                 .entry(param.name).or_insert_with(|| CompactBinding::new(Type::Any, false));
         }
-        for stmt in self.program.arena.stmt_ids(*statements) {
-            self.check_compact_stmt(stmt);
+        let ids = self.program.arena.stmt_ids(*statements).collect::<Vec<_>>();
+        for (index, stmt) in ids.iter().copied().enumerate() {
+            if index + 1 == ids.len() && let Some(expected) = expected
+                && let ArenaStmtKind::Expr(expr) = self.program.arena.stmt(stmt).kind {
+                let explicit_result = matches!(self.program.arena.expr(expr).kind, ArenaExprKind::Call { callee, .. } if matches!(self.program.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Ok" || name == "Err"));
+                let previous = self.expected_schema.clone();
+                let context = if explicit_result { expected } else { expected.result_ok().unwrap_or(expected) };
+                if !explicit_result && expected.is_result() { self.expected_schema = previous.as_ref().and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Success)).cloned(); }
+                self.output.statements += 1;
+                self.output.supported_statements += 1;
+                self.check_compact_expr_expected(expr, Some(context));
+                self.expected_schema = previous;
+            } else { self.check_compact_stmt_expected(stmt, (index + 1 == ids.len()).then_some(expected).flatten()); }
         }
         let ty = self.compact_block_tail_type(id);
         self.output.block_types.insert(id, ty);
@@ -1366,9 +1417,20 @@ impl CompactBodyProbe<'_> {
     }
 
     fn check_compact_expr_expected(&mut self, id: ExprId, expected: Option<&Type>) -> Type {
+        let previous = self.expected_schema.clone();
+        if expected.is_none() { self.expected_schema = None; }
         let actual = self.check_compact_expr_inner(id, expected);
         if let Some(expected) = expected { self.apply_compact_expected(id, expected); }
+        self.expected_schema = previous;
         self.output.expr_types.get(&id).cloned().unwrap_or(actual)
+    }
+
+    fn check_compact_child_expected(&mut self, id: ExprId, expected: Option<&Type>, component: crate::sema::constants::SchemaComponent) -> Type {
+        let previous = self.expected_schema.clone();
+        self.expected_schema = previous.as_ref().and_then(|schema| schema.value_context().children.get(&component)).cloned();
+        let actual = self.check_compact_expr_expected(id, expected);
+        self.expected_schema = previous;
+        actual
     }
 
     fn check_compact_expr(&mut self, id: ExprId) -> Type {
@@ -1410,8 +1472,8 @@ impl CompactBodyProbe<'_> {
                 } else { self.lookup_name(name) }
             },
             ArenaExprKind::LastStatus => Type::Status,
-            ArenaExprKind::List(items) => self.check_compact_list(items),
-            ArenaExprKind::Record(fields) => self.check_compact_record(fields),
+            ArenaExprKind::List(items) => self.check_compact_list(items, expected),
+            ArenaExprKind::Record(fields) => self.check_compact_record(fields, expected),
             ArenaExprKind::Unary { op, expr } => self.check_compact_unary(op, expr),
             ArenaExprKind::ComparisonChain(pairs) => {
                 for pair in self.program.arena.comparison_chain_operands(pairs).collect::<Vec<_>>() {
@@ -1472,18 +1534,35 @@ impl CompactBodyProbe<'_> {
             }), Box::new(Type::Error)),
             ArenaExprKind::EnvPathList => Type::EnvPathList,
             ArenaExprKind::Try(expr) => {
-                let ty = self.check_compact_expr(expr);
+                let previous = self.expected_schema.clone();
+                let inner_expected = expected.map(|ty| Type::Result(Box::new(ty.clone()), Box::new(Type::Error)));
+                self.expected_schema = previous.clone().map(|schema| crate::sema::constants::SchemaExpectation {
+                    instances: Vec::new(), children: BTreeMap::from([(crate::sema::constants::SchemaComponent::Success, schema)]),
+                });
+                let ty = self.check_compact_expr_expected(expr, inner_expected.as_ref());
+                self.expected_schema = previous;
                 if let Some(errors) = &mut self.with_initializer_errors && let Type::Result(_, error) = &ty {
                     errors.push((**error).clone());
                 }
                 ty.result_ok().cloned().unwrap_or(Type::Unknown)
             }
             ArenaExprKind::Require { value, schema } => {
+                let target = if let Some(schema) = schema {
+                    let context = self.declarations.record_constructors.annotation_expectation(&self.program.arena, schema, self.current_namespace).unwrap_or_default();
+                    Some(super::expected::requirement_target(&self.program.arena, self.type_from_arena(schema), context))
+                } else {
+                    super::expected::infer_requirement_target(&self.program.arena, expected, self.expected_schema.as_ref(), &self.type_constraints)
+                        .or_else(|| self.declarations.requirement_targets.get(&id).cloned())
+                };
                 self.check_compact_expr(value);
-                Type::Result(
-                    Box::new(self.type_from_arena(schema)),
-                    Box::new(Type::Error),
-                )
+                if let Some(target) = target {
+                    let ty = Type::Result(Box::new(target.ty.clone()), Box::new(Type::Error));
+                    self.output.requirement_targets.insert(id, target);
+                    ty
+                } else {
+                    self.error(self.program.arena.expr(id).span, "`.require()` needs an independently known concrete target type", "check.require-target");
+                    Type::Invalid
+                }
             }
             ArenaExprKind::Run(run) => {
                 self.output.runs += 1;
@@ -1517,15 +1596,15 @@ impl CompactBodyProbe<'_> {
                     self.push_scope();
                     self.apply_compact_guard_narrowings(facts);
                     self.bind_compact_pattern_condition(branch.condition);
-                    ty = Some(merge_types(ty, self.check_compact_expr(branch.value)));
+                    ty = Some(merge_types(ty, self.check_compact_expr_expected(branch.value, expected)));
                     self.pop_scope();
                 }
-                merge_types(ty, self.check_compact_expr(else_value))
+                merge_types(ty, self.check_compact_expr_expected(else_value, expected))
             }
             ArenaExprKind::ErrorContext { message, block } => {
                 self.check_compact_expr(message);
                 self.push_scope();
-                self.check_compact_block_in_current_scope(block);
+                self.check_compact_block_expected_in_current_scope(block, expected);
                 self.mark_tail_position(block, true);
                 self.output.block_types.remove(&block);
                 let ty = self.compact_block_tail_type(block);
@@ -1548,7 +1627,7 @@ impl CompactBodyProbe<'_> {
             }
             ArenaExprKind::ValueBlock(block) => {
                 self.push_scope();
-                self.check_compact_block_in_current_scope(block);
+                self.check_compact_block_expected_in_current_scope(block, expected);
                 self.mark_tail_position(block, true);
                 self.output.block_types.remove(&block);
                 let ty = self.compact_block_tail_type(block);
@@ -1640,10 +1719,12 @@ impl CompactBodyProbe<'_> {
         self.output.expr_types.get(&id).cloned().unwrap_or(ty)
     }
 
-    fn check_compact_list(&mut self, range: crate::syntax::arena::ArenaListElementRange) -> Type {
+    fn check_compact_list(&mut self, range: crate::syntax::arena::ArenaListElementRange, expected: Option<&Type>) -> Type {
         let mut item_ty = None;
         for item in self.program.arena.list_elements(range) {
-            let ty = self.check_compact_expr(item.value);
+            let context = match expected { Some(Type::List(item)) => Some(item.as_ref()), _ => None };
+            let ty = if item.splice_span.is_some() { self.check_compact_expr_expected(item.value, expected) }
+                else { self.check_compact_child_expected(item.value, context, crate::sema::constants::SchemaComponent::Item) };
             let ty = if item.splice_span.is_some() {
                 match ty { Type::List(inner) => *inner, _ => Type::Unknown }
             } else { ty };
@@ -1751,17 +1832,18 @@ impl CompactBodyProbe<'_> {
         }
     }
 
-    fn check_compact_record(&mut self, range: crate::syntax::arena::ArenaRange) -> Type {
+    fn check_compact_record(&mut self, range: crate::syntax::arena::ArenaRange, expected: Option<&Type>) -> Type {
         let updating = self.program.arena.record_fields(range).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Path { .. }));
-        if !updating && self.program.arena.record_fields(range).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. })) {
+        let (expected_key, expected_item) = match expected { Some(Type::Map(key, value)) => (Some(key.as_ref()), Some(value.as_ref())), _ => (None, None) };
+        if !updating && (matches!(expected, Some(Type::Map(_, _))) || self.program.arena.record_fields(range).iter().any(|field| matches!(field.kind, ArenaRecordFieldKind::Computed { .. }))) {
             let mut item = None;
             let mut key_ty = None;
             for field in self.program.arena.record_fields(range).to_vec() {
                 let (key, ty) = match field.kind {
-                    ArenaRecordFieldKind::Computed { key, value, .. } => (self.check_compact_expr(key), self.check_compact_expr(value)),
-                    ArenaRecordFieldKind::Path { value, .. } | ArenaRecordFieldKind::Named { value, .. } => (Type::Str, self.check_compact_expr(value)),
+                    ArenaRecordFieldKind::Computed { key, value, .. } => (self.check_compact_child_expected(key, expected_key, crate::sema::constants::SchemaComponent::Key), self.check_compact_child_expected(value, expected_item, crate::sema::constants::SchemaComponent::Value)),
+                    ArenaRecordFieldKind::Path { value, .. } | ArenaRecordFieldKind::Named { value, .. } => (Type::Str, self.check_compact_child_expected(value, expected_item, crate::sema::constants::SchemaComponent::Value)),
                     ArenaRecordFieldKind::Shorthand { name, .. } => (Type::Str, self.lookup_name(name)),
-                    ArenaRecordFieldKind::Spread { expr, .. } => match self.check_compact_expr(expr) { Type::Map(key, item) => (*key, *item), _ => (Type::Unknown, Type::Unknown) },
+                    ArenaRecordFieldKind::Spread { expr, .. } => match self.check_compact_expr_expected(expr, expected) { Type::Map(key, item) => (*key, *item), _ => (Type::Unknown, Type::Unknown) },
                 };
                 key_ty = Some(merge_types(key_ty, key));
                 item = Some(merge_types(item, ty));
@@ -1775,7 +1857,8 @@ impl CompactBodyProbe<'_> {
                 ArenaRecordFieldKind::Computed { key, value, .. } => { self.check_compact_expr(*key); self.check_compact_expr(*value); }
                 ArenaRecordFieldKind::Path { value, .. } => { self.check_compact_expr(*value); }
                 ArenaRecordFieldKind::Named { name, value, .. } => {
-                    let value_ty = self.check_compact_expr(*value);
+                    let field_expected = match expected { Some(Type::Record(fields)) => fields.get(name), _ => None };
+                    let value_ty = self.check_compact_child_expected(*value, field_expected, crate::sema::constants::SchemaComponent::Field(*name));
                     if !updating { fields.insert(*name, value_ty); }
                 }
                 ArenaRecordFieldKind::Shorthand { name, span } => {
@@ -1874,15 +1957,68 @@ impl CompactBodyProbe<'_> {
     ) -> Type {
         let callee_expr = self.program.arena.expr(callee);
         let callee_ty = self.check_compact_expr(callee);
-        for arg in self.program.arena.call_args(args) {
-            match &arg.kind {
-                crate::syntax::arena::ArenaCallArgKind::Positional(value)
-                | crate::syntax::arena::ArenaCallArgKind::Splice { value, .. } | crate::syntax::arena::ArenaCallArgKind::NamedSpread { value, .. }
-                | crate::syntax::arena::ArenaCallArgKind::Named { value, .. } => {
-                    self.check_compact_expr(*value);
+        let signature = match callee_expr.kind {
+            ArenaExprKind::Ident(name) => self.declarations.pures.get(&name).or_else(|| self.declarations.procs.get(&name)).cloned(),
+            ArenaExprKind::Field { base, name } => if let ArenaExprKind::Ident(module) = self.program.arena.expr(base).kind {
+                let qualified = QualifiedName::new(module, name);
+                self.declarations.qualified_pures.get(&qualified).or_else(|| self.declarations.qualified_procs.get(&qualified)).cloned()
+            } else { None },
+            _ => None,
+        };
+        let constructor_profile = self.declarations.record_constructors.constructor_definition(&self.program.arena, callee, self.current_namespace).and_then(|definition| {
+            let Type::Record(fields) = self.declarations.record_constructors.constructor_type(&self.program.arena, callee, self.current_namespace)? else { return None; };
+            let schema = self.declarations.record_constructors.instance_expectation(&self.program.arena, definition, &[]).ok()?;
+            Some((fields, schema))
+        });
+        let mut positional = 0;
+        let mut occupied = signature.as_ref().map(|sig| vec![false; sig.params.len()]).unwrap_or_default();
+        for arg in self.program.arena.call_args(args).to_vec() {
+            let (value, index) = match arg.kind {
+                crate::syntax::arena::ArenaCallArgKind::Positional(value) => {
+                    while occupied.get(positional) == Some(&true) { positional += 1; }
+                    let index = positional; positional += 1; (value, Some(index))
                 }
+                crate::syntax::arena::ArenaCallArgKind::Named { name, value, .. } => (value, signature.as_ref().and_then(|sig| sig.params.iter().position(|param| param.name == name))),
+                crate::syntax::arena::ArenaCallArgKind::Splice { value, .. } | crate::syntax::arena::ArenaCallArgKind::NamedSpread { value, .. } => (value, None),
+            };
+            let previous = self.expected_schema.clone();
+            let context = signature.as_ref().and_then(|sig| index.and_then(|index| sig.params.get(index)));
+            self.expected_schema = signature.as_ref().and_then(|sig| index.and_then(|index| sig.parameter_schemas.get(index)).cloned().flatten());
+            let ok = matches!(callee_expr.kind, ArenaExprKind::Ident(name) if name == "Ok");
+            let err = matches!(callee_expr.kind, ArenaExprKind::Ident(name) if name == "Err");
+            let constructor_field = match arg.kind { crate::syntax::arena::ArenaCallArgKind::Named { name, .. } => Some(name), _ => None };
+            if let (Some(name), Some((_, schema))) = (constructor_field, &constructor_profile) {
+                self.expected_schema = schema.children.get(&crate::sema::constants::SchemaComponent::Field(name)).cloned();
             }
+            let expected_arg = context.map(|param| &param.ty).or_else(|| constructor_field.and_then(|name| constructor_profile.as_ref().and_then(|(fields, _)| fields.get(&name)))).or_else(|| if ok { expected.and_then(Type::result_ok) } else if err { expected.and_then(|ty| match ty { Type::Result(_, error) => Some(error.as_ref()), _ => None }) } else { None });
+            if ok { self.expected_schema = previous.as_ref().and_then(|schema| schema.children.get(&crate::sema::constants::SchemaComponent::Success)).cloned(); }
+            if let Some(index) = index && let Some(entry) = occupied.get_mut(index) { *entry = true; }
+            if matches!(arg.kind, crate::syntax::arena::ArenaCallArgKind::NamedSpread { .. })
+                && let Some(signature) = &signature && let ArenaExprKind::Record(fields) = self.program.arena.expr(value).kind {
+                let mut record = BTreeMap::new();
+                let mut schema = crate::sema::constants::SchemaExpectation::default();
+                for field in self.program.arena.record_fields(fields) {
+                    let name = match field.kind { ArenaRecordFieldKind::Named { name, .. } | ArenaRecordFieldKind::Shorthand { name, .. } => name, _ => continue };
+                    if let Some(index) = signature.params.iter().position(|param| param.name == name && !param.rest) {
+                        record.insert(name, signature.params[index].ty.clone());
+                        if let Some(context) = &signature.parameter_schemas[index] { schema.children.insert(crate::sema::constants::SchemaComponent::Field(name), context.clone()); }
+                    }
+                }
+                self.expected_schema = Some(schema);
+                self.check_compact_expr_expected(value, Some(&Type::Record(record)));
+            } else if matches!(arg.kind, crate::syntax::arena::ArenaCallArgKind::NamedSpread { .. })
+                && let Some((fields, schema)) = &constructor_profile && let ArenaExprKind::Record(source_fields) = self.program.arena.expr(value).kind {
+                let supplied = self.program.arena.record_fields(source_fields).iter().filter_map(|field| match field.kind {
+                    ArenaRecordFieldKind::Named { name, .. } | ArenaRecordFieldKind::Shorthand { name, .. } => fields.get(&name).map(|ty| (name, ty.clone())), _ => None,
+                }).collect();
+                self.expected_schema = Some(schema.clone());
+                self.check_compact_expr_expected(value, Some(&Type::Record(supplied)));
+            } else { self.check_compact_expr_expected(value, expected_arg); }
+            self.expected_schema = previous;
         }
+        let erased_proc_call = matches!(callee_expr.kind, ArenaExprKind::Field { base, name } if name == "call"
+            && self.output.expr_types.get(&base) == Some(&Type::Proc));
+        if callee_ty == Type::Proc || erased_proc_call { self.invalidate_compact_mutable_proofs(); }
         if let Some(alias) = self.declarations.static_callable_aliases.get(&callee_expr.span).cloned() {
             self.apply_compact_call_expected(args, &alias.signature.params);
             return *alias.signature.return_ty;
@@ -2254,8 +2390,9 @@ impl CompactBodyProbe<'_> {
                     condition_proofs: self.condition_proofs.clone(),
                     type_constraints: self.type_constraints.clone(),
                     nonmaterial_expressions: self.nonmaterial_expressions.clone(),
+                    expected_schema: self.expected_schema.clone(),
                     program: &temporary, declarations: self.declarations, output: std::mem::take(&mut self.output),
-                    scopes: self.scopes.clone(), stream_items: vec![item.clone()], return_types: self.return_types.clone(),
+                    scopes: self.scopes.clone(), stream_items: vec![item.clone()], return_types: self.return_types.clone(), return_schemas: self.return_schemas.clone(),
                     pipeline_hole_types: self.pipeline_hole_types.clone(), current_namespace: self.current_namespace,
                     with_initializer_errors: self.with_initializer_errors.clone(),
                 };

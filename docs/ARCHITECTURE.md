@@ -913,3 +913,10 @@ normal completion. `ExpressionBoundaryPolicy::Scope` unwinds transparently for
 lexical transfers and propagation. Suspended producers retain
 `ScopedProducerContext` while their frame owns a scope boundary; pulls and
 cancellation swap it with the consumer context, including delegated children.
+
+Inferred `.require()` targets are checked schema facts.
+`sema/check/expected.rs::RequirementTarget` preserves the concrete validation
+type and named application identities; compact body facts carry that target
+into `runtime/eval/lower.rs`. Both explicit and inferred forms intern the same
+`PreparedSchema` and emit the existing validation row. Indexed execution needs
+neither annotations nor frontend arenas to validate the receiver.

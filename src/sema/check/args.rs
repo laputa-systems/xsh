@@ -52,7 +52,10 @@ impl Checker {
         let Some(arg) = args.get(index) else {
             return Type::Unknown;
         };
+        let previous = self.expected_schema.take();
+        self.expected_schema = expected.map(|_| crate::sema::constants::SchemaExpectation::default());
         let actual = self.check_call_arg_arena(arena, source, &arg.kind, expected);
+        self.expected_schema = previous;
         if let Some(expected) = expected {
             self.expect_type(expected, &actual, call_arg_span_arena(arena, &arg.kind));
         }
@@ -91,7 +94,11 @@ impl Checker {
             .enumerate()
             .map(|(index, arg)| {
                 let expected = common_module_overload_expected_arena(args, overloads, index);
-                self.check_call_arg_arena(arena, source, &arg.kind, expected.as_ref())
+                let previous = self.expected_schema.take();
+                if overloads.len() == 1 && expected.is_some() { self.expected_schema = Some(crate::sema::constants::SchemaExpectation::default()); }
+                let actual = self.check_call_arg_arena(arena, source, &arg.kind, expected.as_ref());
+                self.expected_schema = previous;
+                actual
             })
             .collect::<Vec<_>>();
         let matches = overloads
@@ -344,7 +351,7 @@ impl Checker {
         for (arg, slot) in args.iter().zip(binding.argument_slots) {
             let expected = self.type_constraints.resolve(&params[slot].ty).unwrap_or_else(|_| params[slot].ty.clone());
             let previous_schema = self.expected_schema.clone();
-            self.expected_schema = schemas.get(slot).cloned().flatten();
+            self.expected_schema = schemas.get(slot).cloned().flatten().or_else(|| Some(crate::sema::constants::SchemaExpectation::default()));
             let actual = self.check_call_arg_arena(arena, source, &arg.kind, Some(&expected));
             self.expected_schema = previous_schema;
             let kind = arena.arena.expr(call_arg_expr_id_arena(&arg.kind)).kind;

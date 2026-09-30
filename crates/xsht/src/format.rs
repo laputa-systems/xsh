@@ -1850,7 +1850,7 @@ impl<'a> Writer<'a> {
             ArenaExprKind::Require { value, schema } => {
                 self.write_expr(*value, precedence, output);
                 output.push_str(".require(");
-                self.write_type(*schema, output);
+                if let Some(schema) = schema { self.write_type(*schema, output); }
                 output.push(')');
             }
             ArenaExprKind::ContextScope { kind, input, block, .. } => {

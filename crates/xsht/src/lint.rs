@@ -78,6 +78,8 @@ pub struct LintOptions {
     pub function_return_types: BTreeMap<Span, Type>,
     pub expr_types: BTreeMap<Span, Type>,
     pub proven_nonnull_fallback_receivers: BTreeSet<Span>,
+    pub requirement_targets: BTreeMap<Span, xsh::frontend::check::RequirementTarget>,
+    pub requirement_expected_targets: BTreeMap<Span, xsh::frontend::check::RequirementTarget>,
     pub statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
     pub function_effect_facts: BTreeMap<xsh::frontend::check::EffectDeclarationId, xsh::frontend::check::FunctionEffectFact>,
@@ -99,6 +101,8 @@ impl Default for LintOptions {
             function_return_types: BTreeMap::default(),
             expr_types: BTreeMap::default(),
             proven_nonnull_fallback_receivers: BTreeSet::default(),
+            requirement_targets: BTreeMap::default(),
+            requirement_expected_targets: BTreeMap::default(),
             statement_positions: BTreeMap::default(),
             callable_effects: FxHashMap::default(),
             function_effect_facts: BTreeMap::default(),
@@ -136,6 +140,8 @@ pub struct Linter<'a> {
     checked_function_returns: BTreeMap<Span, Type>,
     expr_types: BTreeMap<Span, Type>,
     proven_nonnull_fallback_receivers: BTreeSet<Span>,
+    requirement_targets: BTreeMap<Span, xsh::frontend::check::RequirementTarget>,
+    requirement_expected_targets: BTreeMap<Span, xsh::frontend::check::RequirementTarget>,
     statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
     result_unit_functions: Vec<bool>,
     result_path_functions: Vec<bool>,
@@ -249,6 +255,8 @@ impl<'a> Linter<'a> {
             checked_function_returns: options.function_return_types,
             expr_types: options.expr_types,
             proven_nonnull_fallback_receivers: options.proven_nonnull_fallback_receivers,
+            requirement_targets: options.requirement_targets,
+            requirement_expected_targets: options.requirement_expected_targets,
             statement_positions: options.statement_positions,
             result_unit_functions: Vec::new(),
             result_path_functions: Vec::new(),
@@ -1379,6 +1387,22 @@ impl<'a> Linter<'a> {
             return;
         };
         self.push_path_roundtrip_diagnostic(expr_span, label_span, replacement);
+    }
+
+    fn lint_inferred_require_target(&mut self, expr: ExprId) {
+        let expression = self.arena.expr(expr);
+        let ArenaExprKind::Require { schema: Some(schema), .. } = expression.kind else { return; };
+        let Some(actual) = self.requirement_targets.get(&expression.span) else { return; };
+        let Some(expected) = self.requirement_expected_targets.get(&expression.span) else { return; };
+        if actual.ty != expected.ty || actual.context != expected.context { return; }
+        let span = self.arena.type_expr_span(schema);
+        // Only the schema token range is removed. Comments inside that range
+        // carry author intent and must survive a source rewrite.
+        if self.source.get(expression.span.range()).is_none_or(|text| text.contains('#')) { return; }
+        self.diagnostics.push(Diagnostic::new(Severity::Warning, "schema target is supplied by the checked boundary")
+            .with_code("lint.inferred-require-target")
+            .with_label(Label::secondary(span, "the same concrete schema is independently known here"))
+            .with_fix_hint(FixHint::replacement(span, "infer the validation target", String::new())));
     }
 
     fn lint_redundant_require(&mut self, expr: ExprId) {
@@ -7144,6 +7168,7 @@ impl LintExprVisitor<'_, '_> {
             self.linter.lint_error_fallback_block(expr);
             self.linter.lint_path_roundtrip(expr);
             self.linter.lint_redundant_require(expr);
+            self.linter.lint_inferred_require_target(expr);
             self.linter.lint_redundant_single_interpolation(expr);
             self.linter.lint_scalar_display_parse_roundtrip(expr);
             self.linter.lint_json_encode_decode_roundtrip(expr);
@@ -7285,7 +7310,7 @@ impl LintExprVisitor<'_, '_> {
             }
             ArenaExprKind::Require { value, schema } => {
                 self.visit_expr(value);
-                self.linter.collect_type_expr_refs(schema);
+                if let Some(schema) = schema { self.linter.collect_type_expr_refs(schema); }
             }
             ArenaExprKind::ErrorContext { message, block } | ArenaExprKind::ContextScope { input: message, block, .. } => {
                 self.visit_expr(message);

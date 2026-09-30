@@ -452,7 +452,9 @@ impl<'a> Parser<'a> {
                 self.bump();
                 let name = self.expect_member_name("expected field name after `?.`")?;
                 if name == "require" && self.consume(TokenKindMatch::LParen).is_some() {
-                    let schema = self.parse_type_expr(arena)?;
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                    let schema = if self.at(TokenKindMatch::RParen) { None } else { Some(self.parse_type_expr(arena)?) };
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
                     self.expect(TokenKindMatch::RParen, "expected `)` after require schema");
                     let try_span = self.span(left.span.start(), try_end);
                     let try_id = arena.push_try_expr(left.id, try_span);
@@ -519,7 +521,9 @@ impl<'a> Parser<'a> {
                     && !is_contract_call
                     && self.consume(TokenKindMatch::LParen).is_some()
                 {
-                    let schema = self.parse_type_expr(arena)?;
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
+                    let schema = if self.at(TokenKindMatch::RParen) { None } else { Some(self.parse_type_expr(arena)?) };
+                    while matches!(self.current_tag(), TokenTag::Newline | TokenTag::Comment) { self.bump(); }
                     self.expect(TokenKindMatch::RParen, "expected `)` after require schema");
                     let span = self.span(left.span.start(), self.previous_end());
                     let id = arena.push_require_expr(left.id, schema, span);

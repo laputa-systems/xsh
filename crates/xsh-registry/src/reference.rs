@@ -217,6 +217,7 @@ pub const CORE_LANGUAGE_ITEMS: &[&str] = &[
     "error-context",
     "bindings",
     "constants",
+    "schema-validation",
     "procs",
     "context-scopes",
     "pure-functions",
@@ -828,6 +829,10 @@ fn core_doc(item: &str) -> ReferenceDoc {
         "bindings" => (
             "Defines typed bindings and assignment scope.",
             "Bindings are immutable with `let`; declare a reassignable binding with `var` (`var x = 0; x = x + 1`). Record targets support shorthand, renaming, nesting, and `_` discards: `let {root, build: {jobs, target: target_name, ..}, ..} = config`. All required fields are selected before names become visible. Selected types are retained; Any requires an explicit schema check. `let mut` is not valid syntax. Reassignment cannot create an invalid inferred state.",
+        ),
+        "schema-validation" => (
+            "Validates untrusted input against a concrete checked schema.",
+            "value.require(Type) returns Result[Type, Error] after the existing recursive validation or schema-directed conversion. value.require() retains that operation when an explicit annotation or uniquely selected checked parameter or return contract independently supplies the concrete target. Expected types flow through value blocks, branches, Ok, and individual question propagation layers. Any, erased Record or callable contracts, unresolved type arguments, future field uses, fallback values, and ambiguous overloads cannot supply a target. An annotation alone never validates input. Safe argument omission compares concrete generic instances and conversion identities, preserving validation and Result handling.",
         ),
         "constants" => (
             "Defines prepared immutable data with a bounded lexical dependency graph.",

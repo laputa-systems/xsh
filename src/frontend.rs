@@ -8,7 +8,7 @@
 pub mod check {
     pub use crate::sema::arguments::{ArgumentExpansionError, ArgumentValueSource, ExpandedArgument, StaticArgumentBinding, expand_named_arguments, bind_static_arguments};
     pub use crate::sema::check::{
-        AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, Checker, EffectDeclarationId, FunctionEffectFact, CheckedProjection, ProjectionOperation,
+        AnnotationFact, AnnotationFactKind, CheckOptions, CheckOutput, Checker, RequirementTarget, EffectDeclarationId, FunctionEffectFact, CheckedProjection, ProjectionOperation,
         CompactBodyProbeOutput, CompactDeclOutput, CompactFunctionSig, CompactTypeDefInfo, StatementPosition,
         ErrorFamilyInfo, ErrorVariantInfo, TagVariantInfo, StaticCallableAlias,
     };

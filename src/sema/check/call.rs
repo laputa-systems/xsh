@@ -479,7 +479,9 @@ impl Checker {
         span: Span,
     ) {
         let params = params.iter().map(|param| super::FunctionParamSig {
-            name: param.name, ty: param.ty.clone(), schema_expectation: None, defaulted: param.defaulted, rest: param.rest,
+            name: param.name, ty: param.ty.clone(), schema_expectation: Some(if param.rest {
+                crate::sema::constants::SchemaExpectation { instances: Vec::new(), children: BTreeMap::from([(crate::sema::constants::SchemaComponent::Item, crate::sema::constants::SchemaExpectation::default())]) }
+            } else { crate::sema::constants::SchemaExpectation::default() }), defaulted: param.defaulted, rest: param.rest,
         }).collect::<Vec<_>>();
         self.check_function_arg_list_arena(arena, source, args, &params, span);
     }
@@ -498,10 +500,37 @@ impl Checker {
             ArenaExprKind::Field { base, .. } => Some(probe.check_expr_arena(arena, source, base, None)),
             _ => None,
         };
+        let signature = self.resolve_callable_alias_call(arena, callee).map(|alias| alias.signature).or_else(|| match arena.arena.expr(callee).kind {
+            ArenaExprKind::Ident(name) => self.pures.get(&name).or_else(|| self.procs.get(&name)).or_else(|| self.streams.get(&name)).cloned(),
+            ArenaExprKind::Field { base, name } => if let ArenaExprKind::Ident(module) = arena.arena.expr(base).kind {
+                let qualified = QualifiedName::new(module, name);
+                self.qualified_pures.get(&qualified).or_else(|| self.qualified_procs.get(&qualified)).or_else(|| self.qualified_streams.get(&qualified)).cloned()
+            } else { None },
+            _ => None,
+        });
+        let parameters = signature.map(|signature| signature.params).or_else(|| {
+            let definition = self.record_constructors.constructor_definition(&arena.arena, callee, self.current_namespace)?;
+            let Type::Record(fields) = self.record_constructors.constructor_type(&arena.arena, callee, self.current_namespace)? else { return None; };
+            let schema = self.record_constructors.instance_expectation(&arena.arena, definition, &[]).ok()?;
+            Some(fields.into_iter().map(|(name, ty)| super::FunctionParamSig {
+                name, ty, schema_expectation: schema.children.get(&crate::sema::constants::SchemaComponent::Field(name)).cloned(), defaulted: false, rest: false,
+            }).collect())
+        });
         let mut checked = super::FxHashMap::default();
         for arg in args {
             let value = call_arg_expr_id_arena(&arg.kind);
             let ty = probe.check_expr_arena(arena, source, value, None);
+            if matches!(arg.kind, ArenaCallArgKind::NamedSpread { .. })
+                && let (Some(parameters), Type::Record(fields)) = (&parameters, &ty) {
+                let mut context = crate::sema::constants::SchemaExpectation::default();
+                let expected = fields.iter().map(|(name, actual)| {
+                    if let Some(parameter) = parameters.iter().find(|parameter| parameter.name == *name && !parameter.rest) {
+                        if let Some(schema) = &parameter.schema_expectation { context.children.insert(crate::sema::constants::SchemaComponent::Field(*name), schema.clone()); }
+                        (*name, parameter.ty.clone())
+                    } else { (*name, actual.clone()) }
+                }).collect();
+                self.argument_projection_contexts.insert(value, (Type::Record(expected), context));
+            }
             checked.insert(value, ty);
         }
         let expanded = match expand_named_arguments(arena, args, |id| checked.get(&id).cloned()) {
@@ -557,6 +586,7 @@ impl Checker {
         let args = temporary.arena.append_call_arguments(&inputs);
         let result = self.check_call_arena(&temporary, source, callee, args, span, expected_context);
         for id in projections { self.argument_projection_types.remove(&id); self.argument_projection_sources.remove(&id); }
+        for arg in arena.arena.call_args(args_range) { self.argument_projection_contexts.remove(&call_arg_expr_id_arena(&arg.kind)); }
         result
     }
 

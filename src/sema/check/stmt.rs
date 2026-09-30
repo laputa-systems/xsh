@@ -502,11 +502,11 @@ impl Checker {
             }
             ArenaStmtKind::Assert { condition, message } => {
                 self.record_statement_error(&Type::Bool, stmt.span);
-                let condition_ty = self.check_expr_arena(arena, source, condition, Some(&Type::Bool));
+                let condition_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(condition), Some(&Type::Bool), None);
                 if condition_ty != Type::Bool && !matches!(condition_ty, Type::Unknown | Type::Invalid) {
                     self.error(arena.arena.expr(condition).span, "assert condition requires Bool", "check.assert-condition");
                 }
-                let message_ty = self.check_expr_arena(arena, source, message, Some(&Type::Str));
+                let message_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(message), Some(&Type::Str), None);
                 if message_ty != Type::Str && !matches!(message_ty, Type::Unknown | Type::Invalid) {
                     self.error(arena.arena.expr(message).span, "assert message requires Str", "check.assert-message");
                 }
@@ -515,14 +515,14 @@ impl Checker {
             }
             ArenaStmtKind::Expr(expr_id) if matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ErrorContext { .. }) => {
                 let ArenaExprKind::ErrorContext { message, block } = arena.arena.expr(expr_id).kind else { unreachable!() };
-                let ty = self.check_expr_arena(arena, source, message, Some(&Type::Str));
+                let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(message), Some(&Type::Str), None);
                 self.expect_type(&Type::Str, &ty, arena.arena.expr(message).span);
                 self.check_block_arena(arena, source, block);
                 self.expr_types.insert(arena.arena.expr(expr_id).span, Type::Unit);
             }
             ArenaStmtKind::Expr(expr_id) => {
                 let expected = matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ValueBlock(_)).then_some(Type::Unit);
-                let ty = self.check_expr_arena(arena, source, expr_id, expected.as_ref());
+                let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), expected.as_ref(), None);
                 self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
                 self.record_statement_error(&ty, stmt.span);
                 if ty == Type::Bool { let facts = self.infer_condition_narrowings_arena(arena, expr_id); self.apply_narrowings(&facts.when_true); }
@@ -635,7 +635,7 @@ impl Checker {
         condition: ExprId,
         code: &'static str,
     ) -> ConditionNarrowings {
-        let condition_ty = self.check_expr_arena(arena, source, condition, Some(&Type::Bool));
+        let condition_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(condition), Some(&Type::Bool), None);
         if matches!(
             condition_ty,
             Type::Bool | Type::Status | Type::Any | Type::Unknown
@@ -963,7 +963,7 @@ impl Checker {
                 self.warn_flattened_error_handler_arena(arena, value, arm.pattern, &value_ty);
             }
             if let Some(guard) = arm.guard {
-                let guard_ty = self.check_expr_arena(arena, source, guard, Some(&Type::Bool));
+                let guard_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(guard), Some(&Type::Bool), None);
                 let guard_span = arena.arena.expr(guard).span;
                 self.expect_type(&Type::Bool, &guard_ty, guard_span);
             }
@@ -1032,7 +1032,10 @@ impl Checker {
         else_block: BlockId,
         span: Span,
     ) {
-        let init_ty = self.check_expr_or_run_arena(arena, source, initializer, None);
+        let expected = ty.map(|id| Type::Result(Box::new(self.type_from_arena(arena, id)), Box::new(Type::Error)));
+        let schema = ty.and_then(|id| self.record_constructors.annotation_expectation(&arena.arena, id, self.current_namespace).ok()).map(|schema|
+            crate::sema::constants::SchemaExpectation { instances: Vec::new(), children: std::collections::BTreeMap::from([(crate::sema::constants::SchemaComponent::Success, schema)]) });
+        let init_ty = self.check_expr_with_schema_arena(arena, source, initializer, expected.as_ref(), schema);
         let (ok_ty, error_ty) = match init_ty {
             Type::Result(ok, error) => (*ok, *error),
             Type::Unknown => (Type::Unknown, Type::Unknown),
@@ -2152,7 +2155,7 @@ impl Checker {
         self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
         if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
             let expected = matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ValueBlock(_)).then_some(Type::Unit);
-            let ty = self.check_expr_arena(arena, source, expr_id, expected.as_ref());
+            let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), expected.as_ref(), None);
             self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
             self.record_statement_error(&ty, stmt.span);
             if ty == Type::Bool { let facts = self.infer_condition_narrowings_arena(arena, expr_id); self.apply_narrowings(&facts.when_true); }
@@ -2317,7 +2320,7 @@ impl Checker {
                 self.warn_flattened_error_handler_arena(arena, value, arm.pattern, &value_ty);
             }
             if let Some(guard) = arm.guard {
-                let guard_ty = self.check_expr_arena(arena, source, guard, Some(&Type::Bool));
+                let guard_ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(guard), Some(&Type::Bool), None);
                 let guard_span = arena.arena.expr(guard).span;
                 self.expect_type(&Type::Bool, &guard_ty, guard_span);
             }

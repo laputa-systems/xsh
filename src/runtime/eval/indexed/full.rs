@@ -9731,6 +9731,28 @@ proc configured() [] -> Int {
     }
 
     #[test]
+    fn inferred_require_targets_survive_frontend_drop_on_both_routes() {
+        run_with_large_stack(|| {
+            let source = include_str!("../../../../tests/fixtures/frontend-indexed/inferred-require.xsh");
+            let program = Arc::new(fixture("inferred-require.xsh", source));
+            FullVerifier::verify(&program).unwrap();
+            assert_eq!(program.store.prepared_schemas.iter().filter(|schema| matches!(schema.as_ref(), super::super::super::require::PreparedSchema::Record(_))).count(), 1, "both validation sites share the same checked record schema: {:?}", program.store.prepared_schemas);
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let raw = program.symbols.with_current(|| Value::Record(BTreeMap::from([(Arc::from("jobs"), Value::Int(4))]).into()));
+                let arguments = vec![raw];
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "inferred_requirement_via_parameter")), LoweredFunctionKind::Pure,
+                    &arguments, Span::new(program.store.source_id, 0, 0),
+                ).expect("prepared function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::ok(Value::Int(4)));
+            }
+        });
+    }
+
+    #[test]
     fn locations_preserve_imported_source_identity() {
         let mut sources = SourceMap::new();
         let root_id = sources.add_file("root.xsh", "use module\n");
