@@ -52,7 +52,7 @@ impl BuiltinInstantiation {
         if expected.contains_inference() {
             constraints.constrain(expected, result, span)?;
         } else {
-            constraints.constrain_annotation(result, expected, span)?;
+            constraints.constrain_context(expected, result, span)?;
         }
         self.resolve(constraints);
         Ok(())
@@ -269,6 +269,21 @@ mod tests {
         let mut instance = BuiltinInstantiation::new(&method.sig, method.receiver_ty.as_ref(), Some(&Type::Str), &mut constraints, span()).unwrap();
         instance.constrain_result(&Type::Int, &mut constraints, span()).unwrap();
         assert_eq!(instance.signature.return_ty, Type::Result(Box::new(Type::Int), Box::new(Type::Error)));
+    }
+
+    #[test]
+    fn wider_destinations_preserve_concrete_builtin_result_domains() {
+        for (name, expected, result) in [
+            ("trim", Type::Optional(Box::new(Type::Str)), Type::Str),
+            ("trim", Type::Any, Type::Str),
+            ("parse_int", Type::Result(Box::new(Type::Any), Box::new(Type::Error)), Type::Result(Box::new(Type::Int), Box::new(Type::Error))),
+        ] {
+            let method = &api_spec().method_overloads(MethodReceiver::Str, name).unwrap()[0];
+            let mut constraints = TypeConstraints::default();
+            let mut instance = BuiltinInstantiation::new(&method.sig, method.receiver_ty.as_ref(), Some(&Type::Str), &mut constraints, span()).unwrap();
+            instance.constrain_result(&expected, &mut constraints, span()).unwrap();
+            assert_eq!(instance.signature.return_ty, result);
+        }
     }
 
 }

@@ -70,6 +70,12 @@ impl TypeConstraints {
         self.constrain_with_authority(expected, annotation, contribution, true)
     }
 
+    /// A grounded expected context can anchor holes, including an explicitly
+    /// dynamic domain, while preserving directional value assignability.
+    pub fn constrain_context(&mut self, expected: &Type, actual: &Type, contribution: Span) -> Result<(), ConstraintConflict> {
+        self.constrain_with_authority(expected, actual, contribution, true)
+    }
+
     fn constrain_with_authority(&mut self, expected: &Type, actual: &Type, contribution: Span, annotation: bool) -> Result<(), ConstraintConflict> {
         let provenance = self.provenance(expected).or_else(|| self.provenance(actual));
         let mut changes = Vec::new();
