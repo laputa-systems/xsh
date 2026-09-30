@@ -3155,8 +3155,10 @@ plugin.build(root)?
 ```
 
 Module values are immutable export records. They support `.has(field: Str)`,
-`.get(field: Str) -> Result[Any]`, `.keys()`, field access for known exports,
-and string indexing. Use `.get()` or `.has()` before accessing optional exports
+`.get(field: Str)`, `.keys()`, field access for known exports, and string
+indexing. A proven visible export selected by a literal or prepared constant
+Str key retains its checked success type in `.get`; dynamic or unknown keys
+retain `Result[Any]`. Use `.get()` or `.has()` before accessing optional exports
 when absence is expected. Exported types are checker-visible through static
 imports, but they are not runtime module fields.
 

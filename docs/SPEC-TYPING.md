@@ -219,9 +219,12 @@ access on a known non-empty record schema reports `check.unknown-field` when the
 field is not part of the schema unless a local flow-sensitive refinement has
 established that the field exists.
 
-`record_value.get(field)` returns `Result[Any]` because a string field name is
-dynamic. Use `value.require(Schema)?` to convert dynamic data into a typed
-schema.
+`record_value.get(field)` retains `Result[FieldType]` when a literal or
+prepared constant Str key selects a field visible in the checked record or
+module contract. Dynamic keys and fields with no proven visible type retain
+`Result[Any]`. Lookup remains fallible, and a present nullable value remains
+`Ok(null)`. Use `value.require(Schema)?` to validate or convert genuinely
+dynamic data at a typed boundary.
 
 `record.require` and its parallel string-contract grammar are removed.
 Use a named schema at `.require(Schema)`. Optional key presence, nullable field
