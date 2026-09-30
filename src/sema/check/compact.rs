@@ -98,6 +98,7 @@ pub struct CompactBodyProbeOutput {
     pub unsupported_builder_call_exprs: usize,
     pub expr_types: FxHashMap<ExprId, Type>,
     pub proven_nonnull_fallback_receivers: FxHashSet<ExprId>,
+    pub projections: FxHashMap<ExprId, crate::sema::projection::CheckedProjection>,
     pub statement_positions: FxHashMap<StmtId, super::StatementPosition>,
     pub block_types: FxHashMap<BlockId, Type>,
     // Keep inferred value tails separate from contextual Unit consumption.
@@ -1353,7 +1354,7 @@ impl CompactBodyProbe<'_> {
                 match previous { Some(previous) => { self.pipeline_hole_types.insert(hole, previous); }, None => { self.pipeline_hole_types.remove(&hole); } }
                 ty
             }
-            ArenaExprKind::Call { callee, args } => self.check_compact_call(callee, args),
+            ArenaExprKind::Call { callee, args } => self.check_compact_call(id, callee, args),
             ArenaExprKind::Field { base, name } => self.check_compact_field(base, name),
             ArenaExprKind::NullSafeField { base, name } => {
                 let receiver = self.check_compact_expr(base);
@@ -1362,10 +1363,19 @@ impl CompactBodyProbe<'_> {
                 compact_postfix_result(field, lift)
             }
             ArenaExprKind::Index { base, index, guarded } => {
+                let base_expr = base;
                 let base = self.check_compact_expr(base);
                 let (base, lift) = compact_postfix_receiver(base, guarded);
                 self.check_compact_expr(index);
-                compact_postfix_result(index_type(&base), lift)
+                let ty = if let Some(projection) = crate::sema::projection::resolve_constant_key_projection(
+                    &self.program.arena, &self.declarations.prepared_constants, base_expr, &base, index,
+                    crate::sema::projection::ProjectionOperation::Index,
+                ) {
+                    let ty = projection.value_type.clone();
+                    self.output.projections.insert(id, projection);
+                    ty
+                } else { index_type(&base) };
+                compact_postfix_result(ty, lift)
             }
             ArenaExprKind::Slice { base, start, end, guarded } => {
                 let ty = self.check_compact_expr(base);
@@ -1759,6 +1769,7 @@ impl CompactBodyProbe<'_> {
 
     fn check_compact_call(
         &mut self,
+        id: ExprId,
         callee: ExprId,
         args: crate::syntax::arena::ArenaRange,
     ) -> Type {
@@ -1839,6 +1850,36 @@ impl CompactBodyProbe<'_> {
             }
             if let Some(variant) = self.declarations.tag_variants_by_name.get(&name) {
                 return Type::Tag(variant.type_name);
+            }
+        }
+        if let ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } = callee_expr.kind
+            && let Some(receiver) = self.output.expr_types.get(&base).cloned()
+        {
+            let guarded = matches!(callee_expr.kind, ArenaExprKind::NullSafeField { .. });
+            let (receiver, lift) = compact_postfix_receiver(receiver, guarded);
+            if let Type::Module(exports) = receiver
+                && let Some(ModuleExportType::Pure { sig, .. } | ModuleExportType::Proc { sig, .. }) = exports.get(&name)
+            {
+                self.apply_compact_call_expected(args, &sig.params);
+                return compact_postfix_result(sig.return_ty.as_ref().clone(), lift);
+            }
+        }
+        if let ArenaExprKind::Field { base, name } | ArenaExprKind::NullSafeField { base, name } = callee_expr.kind
+            && name == "get"
+            && let Some(receiver) = self.output.expr_types.get(&base).cloned()
+        {
+            let guarded = matches!(callee_expr.kind, ArenaExprKind::NullSafeField { .. });
+            let (receiver, lift) = compact_postfix_receiver(receiver, guarded);
+            if let Some(projection) = crate::sema::projection::resolve_get_projection(
+                &self.program.arena, &self.declarations.prepared_constants, base, &receiver,
+                self.program.arena.call_args(args),
+            ) {
+                let ty = Type::Result(Box::new(projection.value_type.clone()), Box::new(Type::Error));
+                self.output.projections.insert(id, projection);
+                return compact_postfix_result(ty, lift);
+            }
+            if matches!(receiver, Type::Record(_) | Type::Module(_)) {
+                return compact_postfix_result(Type::Result(Box::new(Type::Any), Box::new(Type::Error)), lift);
             }
         }
         if let Some(return_ty) = self.compact_module_call_type(callee_expr.kind.clone(), args) {

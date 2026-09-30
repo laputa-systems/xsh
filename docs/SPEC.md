@@ -3141,8 +3141,18 @@ expected type, actual dynamic type when a value is present, and the optional
 source path.
 
 Record values also expose `.has(field: Str)`, `.get(field: Str) ->
-Result[Any]`, and `.keys()`. `.get()` returns a structured missing-field error
-when the field is absent.
+Result[Any]`, and `.keys()`. A literal or prepared constant Str key selecting a
+visible checked field preserves that field's type: `.get(key)` returns
+`Result[FieldType]`, while indexing has the ordinary field type and retains its
+existing access errors. A present nullable field returns `Ok(null)` from get.
+Unknown keys and fields hidden by a narrower record contract remain dynamic;
+a checked width-compatible record does not reveal hidden runtime field types.
+
+The same rule applies to module exports visible in a checked module contract.
+Optional exports still return the existing missing-field Result when absent;
+known callable exports retain their checked signature and effect contract.
+Receiver and key expressions retain their evaluation order and execute once.
+A key proof does not remove access errors or perform schema validation.
 
 `net`:
 

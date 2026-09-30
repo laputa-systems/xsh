@@ -4734,6 +4734,9 @@ impl CompactLowerConstructProbe<'_, '_> {
     }
 
     fn infer_checked_expr_type_with_slots_inner(&self, value: ExprId, slots: &SlotScope) -> Option<Type> {
+        if self.bodies.projections.contains_key(&value) {
+            return self.bodies.expr_types.get(&value).cloned();
+        }
         if let ArenaExprKind::ValuePipelineCall { call, .. } = self.program.arena.expr(value).kind {
             return self.bodies.expr_types.get(&value).cloned().or_else(|| self.infer_checked_expr_type_with_slots(call, slots));
         }

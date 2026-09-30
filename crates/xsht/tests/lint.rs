@@ -3456,12 +3456,12 @@ fn field_label_fixes_preserve_key_bytes_conversions_comments_and_converge() {
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
     let mut edits = output.diagnostics.iter().filter(|d| matches!(d.code.as_deref(), Some("lint.prefer-bare-field-label" | "lint.prefer-known-field-access")))
         .flat_map(|d| &d.fix_hints).map(|h| (h.span.unwrap(), h.replacement.as_ref().unwrap())).collect::<Vec<_>>();
-    assert_eq!(edits.len(), 4, "{:?}", output.diagnostics);
+    assert_eq!(edits.len(), 3, "{:?}", output.diagnostics);
     edits.sort_by_key(|(span, _)| span.start());
     let mut fixed = source.to_string();
     for (span, replacement) in edits.into_iter().rev() { fixed.replace_range(span.range(), replacement); }
     assert!(fixed.contains("{type: \"file\", in: 2, \"a.b\": 3, \"x-y\": 4, size: 5} # retained"), "{fixed}");
-    assert!(fixed.contains("let label: Str = row.type"), "{fixed}");
+    assert!(fixed.contains("let label: Str = row.get(\"type\")?"), "{fixed}");
     assert_parse_check_standalone("field label fixes", &fixed);
     let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
     assert!(formatted.diagnostics.is_empty());
@@ -3480,8 +3480,7 @@ fn field_label_access_fixes_retain_dynamic_results_context_recovery_and_consumer
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
     let fields = diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.prefer-known-field-access")).collect::<Vec<_>>();
-    assert_eq!(fields.len(), 2);
-    assert!(fields.iter().all(|d| d.fix_hints.is_empty() && !d.notes.is_empty()));
+    assert!(fields.is_empty());
     assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-known-field-access")));
 }
 
@@ -4382,5 +4381,38 @@ fn record_proof_fallback_fix_requires_checked_presence_and_inert_data() {
         let linted = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types,
             proven_nonnull_fallback_receivers: checked.proven_nonnull_fallback_receivers, ..LintOptions::default() });
         assert!(!linted.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-optional-fallback")));
+}
+
+#[test]
+fn constant_key_projection_identity_require_fix_preserves_boundaries() {
+    let source = "type Config = {workers: Int}\n# Preserve worker contract α.\nproc read(config: Config) [error] -> Int { config.get(\n# Preserve the selected field.\n\"workers\")?.require(Int)? }\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-require")).expect("identity validation fix");
+    let fix = &diagnostic.fix_hints[0];
+    let mut fixed = source.to_string();
+    fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+    assert!(fixed.contains("# Preserve worker contract α."));
+    assert!(fixed.contains("# Preserve the selected field."));
+    assert!(!fixed.contains("require(Int)"));
+    assert_parse_check_standalone("typed field require", &fixed);
+    let reparsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&reparsed.arena, &fixed);
+    let second = Linter::lint(&reparsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    assert!(!second.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-require")));
+    for source in [
+        "proc read(config: Record, key: Str) [error] -> Int { config.get(key)?.require(Int)? }\n",
+        "type Config = {path: Str}\nproc read(config: Config) [error] -> Path { config.get(\"path\")?.require(Path)? }\n",
+        "type Config = {count: UInt}\nproc read(config: Config) [error] -> UInt { config.get(\"count\")?.require(UInt)? }\n",
+        "type Wide = {name: Str, extra: Int}\ntype Narrow = {name: Str}\ntype Config = {entry: Wide}\nproc read(config: Config) [error] -> Narrow { config.get(\"entry\")?.require(Narrow)? }\n",
+    ] {
+        let parsed = parse_lint_source(source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-require")), "{source}");
     }
 }

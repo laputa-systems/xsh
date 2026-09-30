@@ -9139,6 +9139,26 @@ proc main() [error] {
     }
 
     #[test]
+    fn constant_key_projection_preserves_index_and_get_both_routes() {
+        run_with_large_stack(|| {
+            let source = "type Config = {workers: Int}\nconst field = \"workers\"\npure counts() -> Int {\n  let config: Config = {workers: 4}\n  config.get(field)? + config[field]\n}\n";
+            let program = Arc::new(fixture("constant-key-projection.xsh", source));
+            assert!(program.store.tags.contains(&FullTag::ExprIndex));
+            assert!(program.store.tags.contains(&FullTag::ExprMethod));
+            for recursive in [false, true] {
+                let mut evaluator = Evaluator::new_with_sources(Vec::new(), (*program.sources).clone());
+                evaluator.indexed_program = Some(Arc::clone(&program));
+                let mut call = || evaluator.call_indexed_direct(
+                    LoweredFunctionKey::Name(program_name(&program, "counts")), LoweredFunctionKind::Pure, &[],
+                    Span::new(program.store.source_id, 0, 0),
+                ).expect("known field function exists");
+                let result = if recursive { crate::runtime::eval::lowered_run::with_forced_recursive_fast_path(call) } else { call() };
+                assert_eq!(result.unwrap(), Value::Int(8));
+            }
+        });
+    }
+
+    #[test]
     fn typed_map_keys_execute_both_indexed_routes() {
         run_with_large_stack(|| {
             let source = "pure counts() -> Int {\n  var values: Map[Int, Int] = {[20]: 2, [3]: 1}\n  let older = values\n  values[3] = 9\n  let keys: List[Int] = values.keys()\n  return keys[0] + older[3] + values.get(3)?\n}\n";

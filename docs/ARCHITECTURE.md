@@ -53,6 +53,16 @@ mapping after frontend drop. Explicit require lowers a cached `PreparedSchema`
 walk; both execution routes validate and convert a private value before returning
 it. The verifier checks mapping, schema, and constructor metadata before execution.
 
+## Checked key projections
+
+`sema/projection.rs::CheckedProjection` retains a visible checked field selected
+by a prepared Str key. Full checking stores it by source span and compact
+checking by expression ID. Module export facts retain callable signatures;
+unknown keys and hidden fields do not gain checked types. Lowering consumes the
+selected expression type while retaining the original receiver, key, and
+fallible get/index operation. `xsht` removes a selected-value schema require
+only when the guaranteed value already has the exact validated shape.
+
 ## Producer suspension and delegation
 
 `indexed_run/explicit_run.rs::ProducerStep` returns either an item, a delegated

@@ -2474,7 +2474,7 @@ let mixed = [1, json.decode("1")?]
         .iter()
         .filter(|code| code.as_deref() == Some("check.strict-any"))
         .count();
-    assert!(count >= 3, "expected strict Any diagnostics: {output:?}");
+    assert!(count >= 2, "expected strict Any diagnostics: {output:?}");
 }
 
 #[test]
@@ -3880,5 +3880,95 @@ fn checker_record_proof_types_agree_on_full_and_compact_routes() {
             assert_eq!(ty, xsh::frontend::check::Type::Str);
             assert_eq!(full.expr_types.get(&span), Some(&ty));
         }
+}
+
+#[test]
+fn constant_key_projection_full_and_compact_facts_preserve_field_types() {
+    let source = r#"
+type Config = {workers: Int, value: Str?, if: Bool}
+const field = "workers"
+proc read(config: Config) [error] {
+  let workers = config.get(field)?
+  let value = config.get("value")?
+  let enabled = config["if"]
+  let unknown = config.get("hidden")?
+  let spread = config.get(...{field: "workers"})?
+}
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert_eq!(checked.projections.len(), 4);
+    assert_eq!(compact.projections.len(), 4);
+    for (id, ty) in &compact.expr_types {
+        let span = parsed.arena.arena.expr(*id).span;
+        if &source[span.range()] == "config.get(\"hidden\")" {
+            assert_eq!(Some(ty), checked.expr_types.get(&span));
+        }
+    }
+    for (id, projection) in compact.projections {
+        let span = parsed.arena.arena.expr(id).span;
+        let full = checked.projections.get(&span).unwrap();
+        assert_eq!(full.field, projection.field);
+        assert_eq!(full.receiver, projection.receiver);
+        assert_eq!(full.value_type, projection.value_type);
+        assert_eq!(full.operation, projection.operation);
+        assert_eq!(full.callable, projection.callable);
+        assert_eq!(checked.expr_types.get(&span), compact.expr_types.get(&id));
+    }
+    let hidden = source.find("config.get(\"hidden\")").unwrap();
+    let (_, ty) = checked.expr_types.iter().find(|(span, _)| span.start() == hidden && &source[span.range()] == "config.get(\"hidden\")").unwrap();
+    assert_eq!(ty, &xsh::frontend::check::Type::Result(Box::new(xsh::frontend::check::Type::Any), Box::new(xsh::frontend::check::Type::Error)));
+}
+
+#[test]
+fn constant_key_projection_keeps_module_get_exports_and_callable_metadata() {
+    let source = r#"
+type Plugin = module { export pure get(value: Str) -> Str }
+proc read(plugin: Plugin) {
+  let ordinary = plugin.get("get")
+  let selected = plugin["get"]
+}
+"#;
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert_eq!(checked.projections.len(), 1);
+    assert_eq!(compact.projections.len(), 1);
+    for (id, projection) in compact.projections {
+        let span = parsed.arena.arena.expr(id).span;
+        assert_eq!(checked.projections.get(&span), Some(&projection));
+        assert!(matches!(projection.callable, Some(xsh::frontend::check::ModuleExportType::Pure { .. })));
+    }
+    for (id, ty) in compact.expr_types {
+        let span = parsed.arena.arena.expr(id).span;
+        if &source[span.range()] == "plugin.get(\"get\")" {
+            assert_eq!(ty, xsh::frontend::check::Type::Str);
+            assert_eq!(checked.expr_types.get(&span), Some(&ty));
+        }
+    }
+}
+
+#[test]
+fn constant_key_projection_guarded_access_keeps_optional_result_layers() {
+    let source = "type Config = {workers: Int}\nproc read(config: Config?) [error] {\n  let getter = config?.get(\"workers\")\n  let index = config?[\"workers\"]\n}\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let declarations = Checker::check_compact_declarations(&parsed.arena);
+    let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+    assert_eq!(checked.projections.len(), 2);
+    assert_eq!(compact.projections.len(), 2);
+    for (id, projection) in compact.projections {
+        let span = parsed.arena.arena.expr(id).span;
+        assert_eq!(checked.projections.get(&span), Some(&projection));
+        assert_eq!(checked.expr_types.get(&span), compact.expr_types.get(&id));
     }
 }

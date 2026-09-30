@@ -23,6 +23,12 @@ entries, removed overloads, eager snapshots, lazy fallback, and integer fast
 paths. Run the native Str/Bytes/List/Map modules, checker integration tests,
 indexed verifier tests, and `cargo test -p xsht --test integration absence_lookup`
 for migration proof, refusal, rechecking, and convergence.
+`target/debug/xsht test --jobs 1 tests/xsh/constant-key-projections.xsh`
+covers visible record/module key selection, nullable values, keyword labels,
+optional exports, and receiver evaluation. `cargo test -p xsh --test integration
+sema::constant_key_projection` checks full/compact fact parity; `cargo test
+-p xsht --test integration constant_key_projection` covers identity-only schema
+require fixes and conversion/dynamic/no-fix boundaries.
 
 ## Boolean guards
 
@@ -767,9 +773,9 @@ constructors/error payload patterns, access and mutation, renamed destructuring,
 serialization parity, all keyword spellings, validation, duplicates, and illegal
 bindings/puns. Syntax coverage pins brace disambiguation, lossless key spelling,
 formatter round trips, and quoted dotted keys. Focused tooling acceptance uses
-`cargo test -p xsht --test integration field_label`; safe label/access rewrites
-recheck and converge, while unknown receivers, handled Results, comments,
-consumer conversions, and error contexts stay unchanged.
+`cargo test -p xsht --test integration field_label`; bare label rewrites
+recheck and converge. Known get calls retain their Result behavior, including
+comments, consumer conversions, and error contexts.
 List element and nested assignment behavior lives in `tests/xsh/list-assignment.xsh`.
 It pins existing record/Map evaluation policy, same-root selector/RHS mutation,
 strict bounds, contextual schemas, alias independence, and cleanup after failure.

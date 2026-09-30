@@ -805,10 +805,6 @@ impl<'a> Linter<'a> {
             } => {
                 self.lint_record_constructor(ty, &initializer);
                 self.lint_empty_map_initializer(ty, &initializer);
-                if let ArenaExprOrRun::Expr(expr) = initializer {
-                    let expected = ty.map(|ty| Type::from_arena(self.arena, ty));
-                    self.lint_known_record_get(expr, expected.as_ref());
-                }
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
                     self.lint_needless_annotation(target, false, type_expr, &initializer, exported);
@@ -830,10 +826,6 @@ impl<'a> Linter<'a> {
             } => {
                 self.lint_record_constructor(ty, &initializer);
                 self.lint_empty_map_initializer(ty, &initializer);
-                if let ArenaExprOrRun::Expr(expr) = initializer {
-                    let expected = ty.map(|ty| Type::from_arena(self.arena, ty));
-                    self.lint_known_record_get(expr, expected.as_ref());
-                }
                 if let Some(type_expr) = ty {
                     self.collect_type_expr_refs(type_expr);
                     self.lint_needless_annotation(target, true, type_expr, &initializer, exported);
@@ -2123,6 +2115,14 @@ impl<'a> Linter<'a> {
         if !value_ty.matches_expected(ok) {
             return None;
         }
+        let selected = match self.arena.expr(value).kind { ArenaExprKind::Try(inner) => inner, _ => value };
+        let keyed = matches!(self.arena.expr(selected).kind, ArenaExprKind::Index { .. })
+            || matches!(self.arena.expr(selected).kind, ArenaExprKind::Call { callee, .. }
+                if matches!(self.arena.expr(callee).kind, ArenaExprKind::Field { name, .. } if name == "get"));
+        // A selected field keeps its exact shape; validation must not change its
+        // checked width or apply a schema conversion while removing this call.
+        if keyed && (value_ty != ok.as_ref() || type_has_unsigned_constraint(value_ty)) { return None; }
+        if self.source.get(value_span.end()..expr_span.end())?.contains('#') { return None; }
         let replacement = self.source.get(value_span.range())?.to_string();
         Some((value_span, replacement))
     }
@@ -4450,44 +4450,6 @@ impl<'a> Linter<'a> {
         }
     }
 
-    // Removing Result[Any] propagation must preserve the binding conversion.
-    // Checked field presence alone cannot prove equivalence for inferred consumers.
-    fn lint_known_record_get(&mut self, expr: ExprId, expected: Option<&Type>) {
-        let outer = self.arena.expr(expr);
-        let ArenaExprKind::Try(call) = outer.kind else { return; };
-        let ArenaExprKind::Call { callee, args } = self.arena.expr(call).kind else { return; };
-        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
-        if name != "get" || args.len() != 1
-            || self.expr_types.get(&self.arena.expr(call).span)
-                != Some(&Type::Result(Box::new(Type::Any), Box::new(Type::Error)))
-        { return; }
-        let Some(Type::Record(fields)) = self.expr_types.get(&self.arena.expr(base).span) else { return; };
-        let argument = match self.arena.call_args(args)[0].kind {
-            ArenaCallArgKind::Positional(value) => value,
-            ArenaCallArgKind::Named { name, value, .. } if name == "field" => value,
-            _ => return,
-        };
-        let ArenaExprKind::Str(text) = self.arena.expr(argument).kind else { return; };
-        let key = self.arena.string_literal(text);
-        if !self.bare_field_label(key) { return; }
-        let Some((_, field_type)) = fields.iter().find(|(name, _)| name.as_str().as_str() == key.as_ref()) else { return; };
-        let equivalent_type = expected == Some(field_type)
-            || self.expr_types.get(&outer.span) == Some(field_type);
-        let receiver = self.arena.expr(base);
-        let postfix = matches!(receiver.kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }
-            | ArenaExprKind::Index { .. } | ArenaExprKind::Call { .. });
-        let comments = self.source[outer.span.range()].contains('#');
-        let diagnostic = Diagnostic::new(Severity::Warning, "known record fields can use direct access")
-            .with_code("lint.prefer-known-field-access")
-            .with_label(Label::secondary(outer.span, "the checked record guarantees this field"));
-        self.diagnostics.push(if equivalent_type && postfix && !comments && !self.regex_recovery_context {
-            let replacement = format!("{}.{}", &self.source[receiver.span.range()], key);
-            diagnostic.with_fix_hint(FixHint::replacement(outer.span, "retain the checked field type", replacement))
-        } else {
-            diagnostic.with_note("no automatic fix: consumer conversions, grouping, comments, or error recovery are not proven equivalent")
-        });
-    }
-
     fn lint_prepared_regex(&mut self, expr: ExprId) {
         if self.regex_recovery_context { return; }
         let outer = self.arena.expr(expr);
@@ -6101,6 +6063,18 @@ fn direct_call_name(arena: &AstArena, expr: ExprId) -> Option<xsh::frontend::sym
         return None;
     };
     Some(name)
+}
+
+// Unsigned schema checks retain the nonnegative constraint even when the
+// selected storage has only an Int runtime tag.
+fn type_has_unsigned_constraint(ty: &Type) -> bool {
+    match ty {
+        Type::UInt => true,
+        Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => type_has_unsigned_constraint(inner),
+        Type::Map(key, value) | Type::Result(key, value) => type_has_unsigned_constraint(key) || type_has_unsigned_constraint(value),
+        Type::Record(fields) => fields.values().any(type_has_unsigned_constraint),
+        _ => false,
+    }
 }
 
 fn expr_is_dynamic_require_boundary(arena: &AstArena, expr: ExprId) -> bool {

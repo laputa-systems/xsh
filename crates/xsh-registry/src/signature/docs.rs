@@ -1503,8 +1503,8 @@ fn method_doc(receiver: &str, method: &str) -> Option<DocRow> {
             &["record", "lookup"],
         )),
         ("Record", "get") => Some((
-            "Reads a dynamic record field.",
-            "Missing fields return an error result so callers cannot confuse absence with a null-like value.",
+            "Reads a record field, retaining its checked type for a known constant key.",
+            "Missing fields return an error result distinct from Ok(null). Dynamic keys and fields outside the checked receiver contract keep a dynamic success type.",
             &["record", "lookup", "dynamic"],
         )),
         ("Record", "keys") => Some((

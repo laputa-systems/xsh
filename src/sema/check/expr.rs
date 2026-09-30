@@ -1612,10 +1612,17 @@ impl Checker {
                 self.expect_type(&Type::Int, &index_ty, index_span);
                 *item
             }
-            Type::Record(_) => {
+            receiver @ (Type::Record(_) | Type::Module(_)) => {
                 let index_ty = self.check_expr_arena(arena, source, index, Some(&Type::Str));
                 self.expect_type(&Type::Str, &index_ty, index_span);
-                Type::Any
+                if let Some(projection) = crate::sema::projection::resolve_constant_key_projection(
+                    &arena.arena, &self.prepared_constants, base, &receiver, index,
+                    crate::sema::projection::ProjectionOperation::Index,
+                ) {
+                    let ty = projection.value_type.clone();
+                    self.projections.insert(span, projection);
+                    ty
+                } else { Type::Any }
             }
             Type::Any => {
                 self.check_expr_arena(arena, source, index, None);

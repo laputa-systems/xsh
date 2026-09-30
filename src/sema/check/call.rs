@@ -427,6 +427,7 @@ impl Checker {
             return self.check_method_dispatch_arena(
                 arena,
                 source,
+                base,
                 base_ty,
                 &name.as_str(),
                 args,
@@ -455,6 +456,7 @@ impl Checker {
             let return_ty = self.check_method_dispatch_arena(
                 arena,
                 source,
+                base,
                 inner_ty,
                 &name.as_str(),
                 args,

@@ -60,6 +60,7 @@ use self::command::{
     command_stmt_asserts_success_arena, command_ty_auto_propagates,
 };
 pub use super::constants::RecordConstructors;
+pub use super::projection::{CheckedProjection, ProjectionOperation};
 
 pub use self::infer_effects::{EffectDeclarationId, FunctionEffectFact};
 use self::infer_effects::{EffectGraph, EffectSummary};
@@ -93,6 +94,7 @@ pub struct CheckOutput {
     pub record_constructor_instances: BTreeMap<Span, super::constants::CheckedRecordConstructor>,
     pub reveal_types: Vec<Diagnostic>,
     pub expr_types: BTreeMap<Span, Type>,
+    pub projections: BTreeMap<Span, CheckedProjection>,
     pub statement_positions: BTreeMap<Span, StatementPosition>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
     pub function_effect_facts: BTreeMap<EffectDeclarationId, FunctionEffectFact>,
@@ -332,6 +334,7 @@ pub struct Checker {
     annotation_facts: Vec<AnnotationFact>,
     reveal_types: Vec<Diagnostic>,
     expr_types: BTreeMap<Span, Type>,
+    projections: BTreeMap<Span, CheckedProjection>,
     statement_positions: BTreeMap<Span, StatementPosition>,
     pattern_test_types: FxHashMap<crate::syntax::arena::PatternId, Type>,
     terminating_call_spans: BTreeSet<Span>,
@@ -424,6 +427,7 @@ impl Checker {
                 record_constructor_instances: checker.record_constructor_instances,
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
+                projections: checker.projections,
                 statement_positions: checker.statement_positions,
                 function_effect_facts: checker.effect_graph.facts(&checker.effect_summaries),
                 callable_effects,
@@ -514,6 +518,7 @@ impl Checker {
                 record_constructor_instances: checker.record_constructor_instances,
                 reveal_types: checker.reveal_types,
                 expr_types: checker.expr_types,
+                projections: checker.projections,
                 statement_positions: checker.statement_positions,
                 function_effect_facts: checker.effect_graph.facts(&checker.effect_summaries),
                 callable_effects,
@@ -560,6 +565,7 @@ impl Checker {
             annotation_facts: Vec::new(),
             reveal_types: Vec::new(),
             expr_types: BTreeMap::new(),
+            projections: BTreeMap::new(),
             statement_positions: BTreeMap::new(),
             pattern_test_types: FxHashMap::default(),
             terminating_call_spans: BTreeSet::new(),

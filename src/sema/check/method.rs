@@ -20,6 +20,7 @@ impl Checker {
         &mut self,
         arena: &ArenaProgram,
         source: &str,
+        base: crate::syntax::arena::ExprId,
         base_ty: Type,
         name: &str,
         args: &[ArenaCallArg],
@@ -116,29 +117,21 @@ impl Checker {
                 "check.unknown-method",
             );
         }
-        if matches!(base_ty, Type::Record(_)) {
-            return self.check_registered_method_arena(
-                arena,
-                source,
-                MethodReceiver::Record,
-                name,
-                args,
-                span,
-                &base_ty,
-                "check.unknown-method",
+        if matches!(base_ty, Type::Record(_) | Type::Module(_)) {
+            let result = self.check_registered_method_arena(
+                arena, source, MethodReceiver::Record, name, args, span,
+                &base_ty, "check.unknown-method",
             );
-        }
-        if matches!(base_ty, Type::Module(_)) {
-            return self.check_registered_method_arena(
-                arena,
-                source,
-                MethodReceiver::Record,
-                name,
-                args,
-                span,
-                &Type::Record(Default::default()),
-                "check.unknown-method",
-            );
+            if name == "get" && let Type::Result(_, error) = &result
+                && let Some(projection) = crate::sema::projection::resolve_get_projection(
+                    &arena.arena, &self.prepared_constants, base, &base_ty, args,
+                )
+            {
+                let value_type = projection.value_type.clone();
+                self.projections.insert(span, projection);
+                return Type::Result(Box::new(value_type), error.clone());
+            }
+            return result;
         }
         if base_ty == Type::Str {
             return self.check_registered_method_arena(
