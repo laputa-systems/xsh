@@ -14,21 +14,21 @@ type SortOptions = {
 }
 
 pure numeric_key(line: Str) -> Int {
-  return (line.trim().words().get(0) ?? "0").parse_int() ?? 0
+  (line.trim().words().get(0) ?? "0").parse_int() ?? 0
 }
 
 pure key_index(spec: Str) -> Int {
-  return (((spec.split(",").get(0) ?? "1").split(".").get(0) ?? "1").parse_int() ?? 1) - 1
+  (((spec.split(",").get(0) ?? "1").split(".").get(0) ?? "1").parse_int() ?? 1) - 1
 }
 
 pure field_key(line: Str, delimiter: Str, field: Int, fold_case: Bool) -> Str {
   let parts = if delimiter == "" { line.trim().words() } else { line.split(delimiter) }
   let key = (parts.get(field) ?? "")
-  return if fold_case { key.lower() } else { key }
+  if fold_case { key.lower() } else { key }
 }
 
 pure numeric_field_key(line: Str, delimiter: Str, field: Int) -> Int {
-  return field_key(line, delimiter, field, false).parse_int() ?? 0
+  field_key(line, delimiter, field, false).parse_int() ?? 0
 }
 
 proc main(...argv: List[Str]) [fs, error, io] {
@@ -76,8 +76,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   let key_field = if has_key { key_index(opts.key) } else { 0 }
   let has_output = opts.output != ""
   let output = if has_output { fp"${opts.output}" } else { p"" }
-  let delimiter = opts.delimiter
-  let paths = opts.paths
+  let {delimiter, paths, ..} = opts
 
   let input = text_input.read_text(paths)?
 

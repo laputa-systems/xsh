@@ -1,3 +1,3 @@
-let text = "  ready  "
+const text = "  ready  "
 let clean = text.trim()
 print $clean

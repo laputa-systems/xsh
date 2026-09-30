@@ -2,11 +2,11 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 pure file_type_name(kind: Str) -> Str {
@@ -19,7 +19,7 @@ pure file_type_name(kind: Str) -> Str {
 }
 
 pure has_bit(mode: Int, bit: Int) -> Bool {
-  return mode / bit % 2 == 1
+  mode / bit % 2 == 1
 }
 
 pure mode_octal(mode: Int) -> Str {
@@ -27,20 +27,20 @@ pure mode_octal(mode: Int) -> Str {
   let user_bits = bits / 64
   let group_bits = bits / 8 % 8
   let other_bits = bits % 8
-  return f"${user_bits}${group_bits}${other_bits}"
+  f"${user_bits}${group_bits}${other_bits}"
 }
 
 pure mode_triplet(mode: Int, read_bit: Int, write_bit: Int, exec_bit: Int) -> Str {
   let r = if has_bit(mode, read_bit) { "r" } else { "-" }
   let w = if has_bit(mode, write_bit) { "w" } else { "-" }
   let x = if has_bit(mode, exec_bit) { "x" } else { "-" }
-  return f"${r}${w}${x}"
+  f"${r}${w}${x}"
 }
 
 pure mode_string(kind: Str, mode: Int) -> Str {
   let file_type = if kind == "dir" { "d" } else if kind == "symlink" { "l" } else { "-" }
 
-  return f"${file_type}${mode_triplet(mode, 0o400, 0o200, 0o100)}${mode_triplet(mode, 0o40, 0o20, 0o10)}${mode_triplet(
+  f"${file_type}${mode_triplet(mode, 0o400, 0o200, 0o100)}${mode_triplet(mode, 0o40, 0o20, 0o10)}${mode_triplet(
     mode,
     0o4,
     0o2,
@@ -52,14 +52,12 @@ proc render_format(fmt: Str, target: Path, meta: FsEntry) [fs, error] -> Str {
   var owner = f"${meta.uid}"
   var owner_group = f"${meta.gid}"
 
-  match user.by_uid(meta.uid) {
-    Ok(found_user) => owner = found_user.name
-    Err(_) => {}
+  if let Ok(found_user) = user.by_uid(meta.uid) {
+    owner = found_user.name
   }
 
-  match group.by_gid(meta.gid) {
-    Ok(found_group) => owner_group = found_group.name
-    Err(_) => {}
+  if let Ok(found_group) = group.by_gid(meta.gid) {
+    owner_group = found_group.name
   }
 
   var out = fmt
@@ -77,7 +75,7 @@ proc render_format(fmt: Str, target: Path, meta: FsEntry) [fs, error] -> Str {
   out = out.replace("%F", file_type_name(meta.kind))
   out = out.replace("%n", target.display())
   out = out.replace("%N", f"'${target.display()}'")
-  return out
+  out
 }
 
 type StatOptions = {format: Str, paths: List[Str]}
@@ -95,12 +93,9 @@ proc main(...argv: List[Str]) [fs, error] {
       },
     },
   )?
-  let fmt = opts.format
-  let paths = opts.paths
+  let {format: fmt, paths, ..} = opts
 
-  if paths.len() == 0 {
-    return Err(usage_error("stat", "[-c FORMAT] PATH..."))
-  }
+  return Err(usage_error("stat", "[-c FORMAT] PATH...")) when paths.len() == 0
 
   for item in paths {
     let target = fp"${item}"

@@ -5,11 +5,9 @@ type OptionalPostfixConfig = {server: OptionalPostfixServer?}
 type OptionalPostfixObservation = {target: Path?, state: Str}
 
 proc optional_postfix_observation(present: Bool) [] -> OptionalPostfixObservation {
-  if present {
-    return {target: p"/dev/example", state: "observed"}
-  }
+  return {target: p"/dev/example", state: "observed"} when present
 
-  return {target: null, state: "observed"}
+  {target: null, state: "observed"}
 }
 
 test test_optional_record_return_field_alias_preserves_receiver_type [error] {
@@ -17,27 +15,27 @@ test test_optional_record_return_field_alias_preserves_receiver_type [error] {
     let source = optional_postfix_observation(present)
     let target = source.target
     let displayed = target?.display() ?? ""
-    test.eq(displayed, if present { "/dev/example" } else { "" })?
+    (displayed) == (if present { "/dev/example" } else { "" })
   }
 }
 
 test test_optional_method_skips_arguments_and_preserves_fallback [error] {
   let absent: Str? = null
-  test.eq(absent?.trim() ?? "default", "default")?
-  test.eq(absent?.replace("x", "y") ?? "default", "default")?
+  (absent?.trim() ?? "default") == ("default")
+  (absent?.replace("x", "y") ?? "default") == ("default")
   let present: Str? = "  label  "
-  test.eq(present?.trim() ?? "default", "label")?
+  (present?.trim() ?? "default") == ("label")
 }
 
 test test_optional_index_and_slice [error] {
   let absent: List[Int]? = null
-  test.eq(absent?[0] ?? -1, -1)?
-  test.eq(absent?[0..2] ?? [], [])?
+  (absent?[0] ?? -1) == (-1)
+  (absent?[0..2] ?? []) == ([])
   let present: List[Int]? = [1, 2, 3]
-  test.eq(present?[1] ?? -1, 2)?
-  test.eq(present?[1..] ?? [], [2, 3])?
+  (present?[1] ?? -1) == (2)
+  (present?[1..] ?? []) == ([2, 3])
   let text: Str? = "αβγ"
-  test.eq(text?[1..2] ?? "", "β")?
+  (text?[1..2] ?? "") == ("β")
 }
 
 test test_optional_postfix_evaluation_order [fs, error] { |ctx|
@@ -56,8 +54,11 @@ print $skipped
 let reached = (values()?[bound(1)..bound(3)] ?? []).len()
 print $reached
 """, [], {}, b"", "optional-order.xsh")?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, """receiver
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("""receiver
 absent
 present
 argument
@@ -69,33 +70,45 @@ list
 1
 3
 2
-""")?
+""")
 }
 
 test test_optional_result_layers_and_outer_propagation [error] {
   let present: Str? = "42"
   let absent: Str? = null
-  test.eq((present?.parse_int() ?? Ok(0))?, 42)?
-  test.eq((absent?.parse_int() ?? Ok(0))?, 0)?
+  ((present?.parse_int() ?? Ok(0))?) == (42)
+  ((absent?.parse_int() ?? Ok(0))?) == (0)
   let bad: Str? = "bad"
   test.error_kind(bad?.parse_int() ?? Ok(0), "parse-int")?
-  let wrapped: Result[List[Int]] = Ok([3, 4, 5])
-  test.eq(wrapped?[1], 4)?
-  test.eq(wrapped?[1..], [4, 5])?
+  let wrapped = Ok([3, 4, 5])
+  (wrapped?[1]) == (4)
+  (wrapped?[1..]) == ([4, 5])
   let nested: Result[Str?] = Ok(" label ")
-  test.eq(nested? ?.trim() ?? "default", "label")?
+  (nested? ?.trim() ?? "default") == ("label")
 }
 
 test test_optional_non_null_errors_and_explicit_hops [fs, error] { |ctx|
   let empty = test.run_script(ctx, "let values: List[Int]? = []\nlet item = values?[0] ?? 0\nprint $item\n", [], {}, b"", "optional-empty.xsh")?
-  test.ok(!empty.success)?
-  test.ok("index" in empty.stderr, empty.stderr)?
+  (!empty.success)
+  {
+    let assertion_condition = "index" in empty.stderr
+    let assertion_message = empty.stderr
+    assert assertion_condition, assertion_message
+  }
   let any = test.run_script(ctx, "let value: Any = null\nprint value?.trim()\n", [], {}, b"", "optional-any.xsh")?
-  test.ok(!any.success)?
-  test.ok("check.null-safe-field" in any.stderr, any.stderr)?
+  (!any.success)
+  {
+    let assertion_condition = "check.null-safe-field" in any.stderr
+    let assertion_message = any.stderr
+    assert assertion_condition, assertion_message
+  }
   let mixed = test.run_script(ctx, "let value: Str? = null\nlet wrapped = value?.parse_int()\nprint wrapped?\n", [], {}, b"", "optional-mixed.xsh")?
-  test.ok(!mixed.success)?
-  test.ok("check.try-result" in mixed.stderr, mixed.stderr)?
+  (!mixed.success)
+  {
+    let assertion_condition = "check.try-result" in mixed.stderr
+    let assertion_message = mixed.stderr
+    assert assertion_condition, assertion_message
+  }
 }
 
 test test_result_postfix_propagation_skips_index_on_failure [fs, error] { |ctx|
@@ -111,9 +124,12 @@ match read() {
   Err(_) => print "failed"
 }
 """, [], {}, b"", "result-index-failure.xsh")?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, """failed
-""")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("""failed
+""")
 }
 
 test test_optional_fields_guard_each_hop_and_flatten_null_layers [error] {
@@ -121,13 +137,13 @@ test test_optional_fields_guard_each_hop_and_flatten_null_layers [error] {
   let missing_server: OptionalPostfixConfig? = {server: null}
   let missing_host: OptionalPostfixConfig? = {server: {host: null}}
   let present: OptionalPostfixConfig? = {server: {host: " label "}}
-  test.eq(absent?.server?.host?.trim() ?? "default", "default")?
-  test.eq(missing_server?.server?.host?.trim() ?? "default", "default")?
-  test.eq(missing_host?.server?.host?.trim() ?? "default", "default")?
-  test.eq(present?.server?.host?.trim() ?? "default", "label")?
+  (absent?.server?.host?.trim() ?? "default") == ("default")
+  (missing_server?.server?.host?.trim() ?? "default") == ("default")
+  (missing_host?.server?.host?.trim() ?? "default") == ("default")
+  (present?.server?.host?.trim() ?? "default") == ("label")
   let name: Str? = null
   let selected: Bool? = name?.starts_with("x")
-  test.eq(selected ?? false, false)?
+  (selected ?? false) == (false)
 }
 
 test test_optional_postfix_null_branch_differential_witness [fs, error] { |ctx|
@@ -149,31 +165,37 @@ proc label(name: Str?) [io] -> Str {
 print label(null)
 print label("x")
 """, [], {}, b"", "optional-after.xsh")?
-  test.ok(before.success, before.stderr)?
-  test.ok(after.success, after.stderr)?
-  test.eq(after.stdout, before.stdout)?
-  test.eq(after.stdout, """fallback
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = before
+    assert assertion_condition, assertion_message
+  }
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = after
+    assert assertion_condition, assertion_message
+  }
+  (after.stdout) == (before.stdout)
+  (after.stdout) == ("""fallback
 default
 argument
 y
-""")?
+""")
 }
 
 test test_optional_runtime_record_fields_preserve_result_layers [error] {
   let failure: Error? = OptionalPostfixError.Failed("42")
-  test.eq((failure?.message?.parse_int() ?? Ok(0))?, 42)?
+  ((failure?.message?.parse_int() ?? Ok(0))?) == (42)
   let absent: Error? = null
-  test.eq((absent?.message?.parse_int() ?? Ok(0))?, 0)?
+  ((absent?.message?.parse_int() ?? Ok(0))?) == (0)
   let handle: ProcessHandle? = null
-  test.eq((handle?.command?.parse_int() ?? Ok(0))?, 0)?
+  ((handle?.command?.parse_int() ?? Ok(0))?) == (0)
 }
 
 test test_optional_method_retains_validated_local_receiver_type [error] {
   let rows = json.decode("""[{"sched":"  noop  "},{"sched":null}]""")?
-  var labels: List[Str] = []
+  var labels = []
   for row in rows.require(List[Record])? {
     let scheduler = json.get(row, ["sched"])?.require(Str?)?
     labels += [scheduler?.trim() ?? "absent"]
   }
-  test.eq(labels, ["noop", "absent"])?
+  (labels) == (["noop", "absent"])
 }

@@ -20,11 +20,26 @@ io.write_stdout_bytes(b"\\xff\\x00a")?
     {XSH_RUN_SCRIPT_TEST: "env-value"},
   )?
 
-  test.ok(ok.success, ok.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = ok
+    assert assertion_condition, assertion_message
+  }
   ok.status == 0
-  test.ok("argument" in ok.stdout, ok.stdout)?
-  test.ok("env-value" in ok.stdout, ok.stdout)?
-  test.ok(ok.stdout_bytes.ends_with(b"\xff\0a"), ok.stdout)?
+  {
+    let assertion_condition = "argument" in ok.stdout
+    let assertion_message = ok.stdout
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "env-value" in ok.stdout
+    let assertion_message = ok.stdout
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = ok.stdout_bytes.ends_with(b"\xff\0a")
+    let assertion_message = ok.stdout
+    assert assertion_condition, assertion_message
+  }
 
   let failed = test.run_script(
     ctx,
@@ -32,7 +47,11 @@ io.write_stdout_bytes(b"\\xff\\x00a")?
 """,
   )?
 
-  test.ok(! failed.success, failed.stdout)?
+  {
+    let assertion_condition = ! failed.success
+    let assertion_message = failed.stdout
+    assert assertion_condition, assertion_message
+  }
   failed.status == 7
 }
 
@@ -47,7 +66,10 @@ run true ?
     ["script-arg"],
   )?
 
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
 
   output.stdout == """script-arg
 """
@@ -63,12 +85,21 @@ test test_skip_function_is_covered {
 test test_native_script_arguments_preserve_a_leading_separator [error] { |ctx|
   let source = r"""print ${args.join(",")}"""
   let script = test.run_script(ctx, source, ["--", "one"])?
-  test.ok(script.success, script.stderr)?
-  test.eq(script.stdout, "--,one\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = script
+    assert assertion_condition, assertion_message
+  }
+  (script.stdout) == ("--,one\n")
   let explicit = test.run_xsh(ctx, source, ["--"], ["--", "one"])?
-  test.ok(explicit.success, explicit.stderr)?
-  test.eq(explicit.stdout, "--,one\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = explicit
+    assert assertion_condition, assertion_message
+  }
+  (explicit.stdout) == ("--,one\n")
   let traced = test.run_xsht_trace(ctx, source, [], ["--", "one"])?
-  test.ok(traced.success, traced.stderr)?
-  test.eq(traced.stdout, "--,one\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = traced
+    assert assertion_condition, assertion_message
+  }
+  (traced.stdout) == ("--,one\n")
 }

@@ -10,8 +10,8 @@ test test_time_module [process, time, error] {
   time.duration_compact(0) == "    0:00"
   time.duration_compact(2 * 3600 + 15 * 60) == "   2h15m"
   time.duration_compact(25 * 3600 + 4 * 60) == "  1d01h"
-  (time.millis(1000) == 1s)
-  (time.seconds(2) == 2000ms)
+  for amount in [1000] { time.millis(amount) == 1s }
+  for amount in [2] { time.seconds(amount) == 2000ms }
   (time.millis(-5) == 0ms)
   (time.seconds(-1) == 0ms)
 }

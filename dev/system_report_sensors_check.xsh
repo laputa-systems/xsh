@@ -4,7 +4,7 @@ use context
 error SensorsCheckError = Invalid(message: Str)
 
 pure sensors_check_failure(message: Str) -> SensorsCheckError {
-  return SensorsCheckError.Invalid(message:)
+  SensorsCheckError.Invalid(message:)
 }
 
 ## Keeps the bus-qualified chip key and raw subfeature name distinct from display labels.
@@ -31,9 +31,9 @@ export type SensorsJsonRun = {
 
 pure sensors_json_number(value: Any) -> Result[Float] {
   match value {
-    number is Float => return Ok(number)
-    number is Int => return Ok(number.float())
-    _ => return Err(sensors_check_failure("sensors JSON subfeature is not numeric"))
+    number is Float => Ok(number)
+    number is Int => Ok(number.float())
+    _ => Err(sensors_check_failure("sensors JSON subfeature is not numeric"))
   }
 }
 
@@ -47,9 +47,7 @@ export pure parse_sensors_json(output: Str) -> Result[List[SensorsJsonReading]] 
   var readings: List[SensorsJsonReading] = []
   for chip_key in document.keys() |> sort-by . {
     let chip = chip_key.split("-")[0]
-    if chip == "" {
-      return Err(sensors_check_failure("sensors JSON chip has no name"))
-    }
+    return Err(sensors_check_failure("sensors JSON chip has no name")) when chip == ""
 
     let features = json.get(document, [chip_key])?.require(Record)?
     for label in features.keys() |> sort-by . {
@@ -100,7 +98,7 @@ pure sensors_json_scale(channel: Str) -> Int? {
     let suffix = (channel.split("") |> drop(spec.prefix.count_chars())).join("")
     continue when suffix == ""
     var digits = true
-    for digit in suffix.split("") {
+    for digit in suffix {
       if digit not in [
         "0",
         "1",
@@ -117,12 +115,10 @@ pure sensors_json_scale(channel: Str) -> Int? {
       }
     }
 
-    if digits {
-      return spec.scale
-    }
+    return spec.scale when digits
   }
 
-  return null
+  null
 }
 
 ## Corroborates raw input values only when the utility and report identify one chip channel.
@@ -178,29 +174,29 @@ export pure compare_sensors_json(
     }
 
     if before_chip_matches != 1 or after_matches != 1 or following != reading.value or candidate_matches != 1 {
-      partial = partial.push(key)
+      partial += [key]
       continue
     }
 
     if raw == null {
-      mismatches = mismatches.push(key)
+      mismatches += [key]
       continue
     }
 
-    let value = raw ?? 0
+    let value = raw
     if value < -9007199254740991 or value > 9007199254740991 {
-      partial = partial.push(key)
+      partial += [key]
       continue
     }
 
-    if (reading.value - value.float() / (scale ?? 1).float()).abs() > 0.000001 {
-      partial = partial.push(key)
+    if (reading.value - value.float() / (scale).float()).abs() > 0.000001 {
+      partial += [key]
     } else {
       compared += 1
     }
   }
 
-  return Ok({
+  Ok({
     reference_count: reference_count,
     compared: compared,
     mismatches: mismatches |> sort-by .,
@@ -244,7 +240,7 @@ export proc compare_live_sensors_json(
     return Err(sensors_check_failure("sensors version probe output is incomplete"))
   }
 
-  let version = (version_source.data ?? b"").utf8()?.trim()
+  let version = (version_source.data).utf8()?.trim()
   if version == "" {
     return Err(sensors_check_failure("sensors version probe returned no version"))
   }
@@ -297,9 +293,9 @@ export proc compare_live_sensors_json(
     return Err(sensors_check_failure("sensor comparison output exceeds its bound"))
   }
 
-  let before_bytes = before_source.data ?? b""
-  let after_bytes = after_source.data ?? b""
-  let candidate_text = (candidate_source.data ?? b"").utf8()?
+  let before_bytes = before_source.data
+  let after_bytes = after_source.data
+  let candidate_text = (candidate_source.data).utf8()?
   let candidate_mode = json.get(json.decode(candidate_text)?, ["source_mode"])?.require(Str)?
   if candidate_mode != "live_linux" {
     return Err(sensors_check_failure("candidate is not a live Linux report"))
@@ -310,7 +306,7 @@ export proc compare_live_sensors_json(
     parse_sensors_json(before_bytes.utf8()?)?,
     parse_sensors_json(after_bytes.utf8()?)?,
   )?
-  return Ok({
+  Ok({
     comparison: comparison,
     version: version,
     executable: executable,

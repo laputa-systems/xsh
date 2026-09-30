@@ -28,7 +28,7 @@ proc staged_output(dest: Path) [fs, error] -> Result[StagedOutput] {
 
   let pending = fp"${parent}/.${dest.name()}.xsh-stage"
   pending.mkdir(parents: false)?
-  return {published, pending}
+  {published, pending}
 }
 
 proc main(...argv: List[Str]) [fs, error] {

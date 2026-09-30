@@ -20,9 +20,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
       },
     },
   )?
-  let show_counts = opts.show_counts
-  let only_duplicates = opts.only_duplicates
-  let paths = opts.paths
+  let {show_counts, only_duplicates, paths, ..} = opts
 
   var previous = ""
   var count = 0

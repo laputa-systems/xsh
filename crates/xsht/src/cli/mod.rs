@@ -107,6 +107,10 @@ mod refactor;
 mod syntax_tree;
 mod trace;
 
+// Recursive schema checking and lowering need more stack than the platform's
+// small default worker stack. Each frontend worker reserves a fixed bound.
+pub(crate) const FRONTEND_WORKER_STACK_BYTES: usize = 16 * 1024 * 1024;
+
 pub use api::api_command;
 pub use check::{
     AnnotationPolicy, AnnotationSelection, check_paths_with_options,

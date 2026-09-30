@@ -19,7 +19,7 @@ let by_package = {
 print sources.len()
 print by_package.len()
 
-let empty_counts: Map[Int] = {}
+const empty_counts: Map[Int] = {}
 let counts = empty_counts.set("beta", 2).set("alpha", 1)
 for {key, value: count} in counts {
   print f"${key}=${count}"

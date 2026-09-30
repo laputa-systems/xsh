@@ -44,7 +44,7 @@ proc main(...argv: List[Str]) [net, time, error] {
     break when remaining <= 0
 
     let request_timeout = if remaining < 2000 { time.millis(remaining) } else { 2s }
-    match net.request({
+    if let Ok(response) = net.request({
       method: "GET",
       url: opts.url,
       timeout: request_timeout,
@@ -52,22 +52,21 @@ proc main(...argv: List[Str]) [net, time, error] {
       fail_status: false,
       max_body_bytes: 256,
     }) {
-      Ok(response) => {
-        let ok = if opts.status > 0 {
-          response.status == opts.status
-        } else {
-          response.status >= 200 and response.status < 500
-        }
-
-        let elapsed = (time.now() - started) / 1000
-        if ok and time.now() <= deadline {
-          print f"ready  status=${response.status}  elapsed=${elapsed}s"
-          return
-        }
-
-        print f"  ${elapsed}s  status=${response.status}  retrying"
+      let ok = if opts.status > 0 {
+        response.status == opts.status
+      } else {
+        response.status >= 200 and response.status < 500
       }
-      Err(_) => print f"  ${(time.now() - started) / 1000}s  no response  retrying"
+
+      let elapsed = (time.now() - started) / 1000
+      if ok and time.now() <= deadline {
+        print f"ready  status=${response.status}  elapsed=${elapsed}s"
+        return
+      }
+
+      print f"  ${elapsed}s  status=${response.status}  retrying"
+    } else {
+      print f"  ${(time.now() - started) / 1000}s  no response  retrying"
     }
 
     let after_request = deadline - time.now()

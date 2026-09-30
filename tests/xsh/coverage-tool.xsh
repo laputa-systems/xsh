@@ -3,7 +3,7 @@ type CoverageReport = {standard_apis: List[Str], api_hits: Record}
 type CoverageHitCounts = {tests: Int, examples: Int}
 
 proc coverage_merge_script(source: Str, root: Path) [error] -> Result[Str] {
-  return source.replace("proc main(", "proc coverage_main(")
+  source.replace("proc main(", "proc coverage_main(")
     + "\nlet root = p" + json.encode(root.display())?
     + "\nlet report = merge_reports(root, [{name: \"sample\", path: \"input.json\"}])?\nprint json.encode(report)?\n"
 }
@@ -33,12 +33,13 @@ test test_combined_coverage_report_includes_standard_api_hits [fs, process, env,
 
   env XSHT=$xsht XSH_COV_DIR=$out_dir XSH_COV_JSON=$report_path XSH_COV_REPORT=$text_path {
     let status = process.run(command)?
-    test.ok(status.exited_with(0), stdout.read_text()? + stderr.read_text()?)?
+    let command_succeeded = status.exited_with(0)
+    let command_output = stdout.read_text()? + stderr.read_text()?
+    assert command_succeeded, command_output
   } ?
 
   let report = json.read(report_path)?.require(CoverageReport)?
-  let standard_apis = report.standard_apis
-  let api_hits = report.api_hits
+  let {standard_apis, api_hits} = report
   (standard_apis.len() > 0)
   (api_hits.keys().len() > 0)
   text_path.exists()?

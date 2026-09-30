@@ -58,7 +58,7 @@ test test_target_flags_native_selection_and_coverage_backend_policy [error] {
   "target-cpu=x86-64-v3" in x86_env.CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS.require(Str)?
   "-march=x86-64-v3" in x86_env.CFLAGS_x86_64_unknown_linux_musl.require(Str)?
   "target-feature=-sve,-sve2" in arm_env.CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS.require(Str)?
-  test.eq(darwin_env.MACOSX_DEPLOYMENT_TARGET, "27.0")?
+  darwin_env.MACOSX_DEPLOYMENT_TARGET == "27.0"
   "linker-flavor=ld64.lld" in darwin_env.CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS.require(Str)?
   target_policy.native_execution(x86_target, target_policy.Linux, target_policy.X86_64)
   ! target_policy.native_execution(x86_target, target_policy.Darwin, target_policy.X86_64)
@@ -130,8 +130,8 @@ test test_core_archive_stages_command_and_library_paths [fs, error] { |ctx|
   members.len() == 2
   ("core/bin/report.xsh-helper" in members)
   ("core/lib/report.xsh-helper.xsh" in members)
-  test.eq((entries |> where .path.display() == "core/bin/report.xsh-helper")[0].mode.bit_and(0o777), 0o755)?
-  test.eq((entries |> where .path.display() == "core/lib/report.xsh-helper.xsh")[0].mode.bit_and(0o777), 0o644)?
+  (entries |> where .path.display() == "core/bin/report.xsh-helper")[0].mode.bit_and(0o777) == 0o755
+  (entries |> where .path.display() == "core/lib/report.xsh-helper.xsh")[0].mode.bit_and(0o777) == 0o644
   let extracted = fp"${root}/extracted"
   archive.tar_extract(archive_path, extracted)?
   (fp"${extracted}/core/bin/report.xsh-helper".read_text()?) == """print "command"
@@ -166,13 +166,23 @@ test test_core_archive_contains_current_system_report [fs, error] { |ctx|
   let repository = ctx.core_dir.parent()
   let artifact_dir = test.temp_dir(ctx, name: "system-report-core-archive")?
   let base = fixtures.linux_context(repository, "dev")?
-  let release_ctx: lifecycle.Context = {...base, artifact_dir: artifact_dir}
+  let release_ctx = lifecycle.Context(
+    root: base.root,
+    target_dir: base.target_dir,
+    coverage_dir: base.coverage_dir,
+    artifact_dir:,
+    host_os: base.host_os,
+    host_arch: base.host_arch,
+    target: base.target,
+    profile: base.profile,
+    darwin_deployment_target: base.darwin_deployment_target,
+  )
   releases.package_core(release_ctx, "fixture")?
   let archive_path = fp"${artifact_dir}/core-fixture.tar.xz"
   let entries = archive.tar_list(archive_path)?.collect()
   let installed = entries |> where .path.display() == "core/system-report"
   installed.len() == 1
-  test.eq(installed[0].mode.bit_and(0o777), 0o755)?
+  installed[0].mode.bit_and(0o777) == 0o755
   let extracted = fp"${artifact_dir}/extracted"
   archive.tar_extract(archive_path, extracted)?
   (fp"${extracted}/core/system-report".read_bytes()?) == (fp"${repository}/core/system-report.xsh".read_bytes()?)
@@ -185,8 +195,8 @@ test test_release_checksum_sidecars_keep_a_relative_artifact_name [fs, error] { 
   artifact.parent().mkdir()?
   artifact.write("release artifact")?
   let checksum = releases.checksum_line(artifact, root)?
-  test.ok("""  dist/xsh-release-x86_64-linux-musl
-""" in checksum, checksum)?
+  assert """  dist/xsh-release-x86_64-linux-musl
+""" in checksum, checksum
 }
 
 test test_release_validation_requires_exactly_the_nine_expected_products [fs, error] { |ctx|
@@ -216,7 +226,7 @@ test test_release_validation_requires_exactly_the_nine_expected_products [fs, er
 
   match releases.validate_artifacts(release_ctx, tag) {
     Ok(_) => test.fail("unexpected artifact passed validation")?
-    Err(error) => test.ok("StageError.Failed" in error.message, error.message)?
+    Err(error) => { assert "StageError.Failed" in error.message, error.message }
   }
 }
 
@@ -271,12 +281,9 @@ cd p"/" {
     [],
     {XSH_MODULE_PATH: module_path},
   )?
-  test.ok(
-    wrong_directory.success,
-    f"""${wrong_directory.stdout}
-${wrong_directory.stderr}""",
-  )?
-  test.ok("ContextError.WrongDirectory" in wrong_directory.stdout, wrong_directory.stdout)?
+  assert wrong_directory.success, f"""${wrong_directory.stdout}
+${wrong_directory.stderr}"""
+  assert "ContextError.WrongDirectory" in wrong_directory.stdout, wrong_directory.stdout
 }
 
 test test_context_target_and_docker_platform_overrides [fs, env, error] { |ctx|
@@ -310,8 +317,8 @@ main()?
     [],
     {XSH_MODULE_PATH: module_path, TARGET: "aarch64-unknown-linux-musl"},
   )?
-  test.ok(context_default.success, context_default.stderr)?
-  test.ok(context_override.success, context_override.stderr)?
+  assert context_default.success, context_default.stderr
+  assert context_override.success, context_override.stderr
   let uname = system.uname()?
   let expected_default = target_policy.host_default_triple(
     target_policy.host_os_tag(uname.sysname)?,
@@ -347,7 +354,7 @@ main()?
     [],
     {XSH_MODULE_PATH: module_path, DOCKER_PLATFORM: "linux/override"},
   )?
-  test.ok(platform.success, platform.stderr)?
+  assert platform.success, platform.stderr
   platform.stdout.trim() == "linux/override"
 }
 
@@ -356,7 +363,9 @@ test test_dev_main_target_override_reaches_context [fs, process, error] { |ctx|
   let output = test.temp_path(ctx, name: "dev-target.stdout")
   let stderr = test.temp_path(ctx, name: "dev-target.stderr")
   let status = run.status ${ctx.xsh_bin} fp"${root}/dev/main.xsh" -- system-report-check --target x86_64-unknown-linux-musl > $output 2> $stderr
-  test.ok(status.exited_with(0), stderr.read_text()?)?
+  let exited_successfully = status.exited_with(0)
+  let diagnostic = stderr.read_text()?
+  assert exited_successfully, diagnostic
   "system-report coverage manifest" in (output.read_text()?)
 }
 
@@ -390,14 +399,7 @@ print \${(bench.command_prefix(ctx)?).join("|")}
       RUSTYBENCH: "cargo run --quiet --manifest-path /tmp/rustybench/Cargo.toml --",
     },
   )?
-  test.ok(
-    rustybench.success,
-    f"""${rustybench.stdout}
-${rustybench.stderr}""",
-  )?
-  test.eq(
-    rustybench.stdout.trim(),
-    "cargo|run|--quiet|--manifest-path|/tmp/rustybench/Cargo.toml|--",
-    rustybench.stdout,
-  )?
+  assert rustybench.success, f"""${rustybench.stdout}
+${rustybench.stderr}"""
+  assert rustybench.stdout.trim() == "cargo|run|--quiet|--manifest-path|/tmp/rustybench/Cargo.toml|--", rustybench.stdout
 }

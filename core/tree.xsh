@@ -2,15 +2,15 @@
 type Counts = {dirs: Int, files: Int}
 
 pure empty_counts() -> Counts {
-  return {dirs: 0, files: 0}
+  {dirs: 0, files: 0}
 }
 
 pure add_counts(left: Counts, right: Counts) -> Counts {
-  return {dirs: left.dirs + right.dirs, files: left.files + right.files}
+  {dirs: left.dirs + right.dirs, files: left.files + right.files}
 }
 
 pure plural(count: Int, singular: Str, multiple: Str) -> Str {
-  return if count == 1 { singular } else { multiple }
+  if count == 1 { singular } else { multiple }
 }
 
 proc print_entry(target: Path, name: Str, prefix: Str, is_last: Bool, kind: Str) [fs, error] {
@@ -32,9 +32,7 @@ proc print_children(
   max_depth: Int,
   depth: Int,
 ) [fs, error] -> Result[Counts] {
-  if max_depth > 0 and depth > max_depth {
-    return empty_counts()
-  }
+  return empty_counts() when max_depth > 0 and depth > max_depth
 
   let entries = fs.children(target)?
     |> where all or ! .name.starts_with(".")
@@ -58,7 +56,7 @@ proc print_children(
     }
   }
 
-  return totals
+  totals
 }
 
 proc print_target(raw: Str, all: Bool, dirs_only: Bool, max_depth: Int) [fs, error] -> Result[Counts] {
@@ -72,11 +70,9 @@ proc print_target(raw: Str, all: Bool, dirs_only: Bool, max_depth: Int) [fs, err
     print f" -> ${target.readlink()?.display()}"
   }
 
-  if meta.kind == "file" or meta.kind == "symlink" {
-    return {dirs: 0, files: 1}
-  }
+  return {dirs: 0, files: 1} when meta.kind == "file" or meta.kind == "symlink"
 
-  return empty_counts()
+  empty_counts()
 }
 
 proc main(...argv: List[Str]) [fs, error] {
@@ -113,7 +109,7 @@ proc main(...argv: List[Str]) [fs, error] {
   var paths = [target for target in options.paths]
 
   if paths.len() == 0 {
-    paths = paths.push(".")
+    paths += ["."]
   }
 
   var totals = empty_counts()

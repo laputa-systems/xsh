@@ -1414,7 +1414,7 @@ impl Checker {
                     Type::Bytes => {
                         if left_ty != Type::Any { self.expect_type(&Type::Bytes, &left_ty, left_span); }
                     }
-                    Type::ErasedRecord | Type::Record(_) | Type::Module(_) => {
+                    Type::ErasedRecord | Type::Record(_) => {
                         self.expect_type(&Type::Str, &left_ty, left_span);
                     }
                     Type::Path => {

@@ -26,22 +26,19 @@ proc main(...argv: List[Str]) [process, error] {
   )?
 
   # Matches the avg field from: min/avg/max/stddev = 0.5/1.2/2.0/0.1 ms
-  let ms_re = regex.compile("min/avg/max/[a-z]+ = [0-9.]+/([0-9.]+)/")?
+  let ms_re = rx"min/avg/max/[a-z]+ = [0-9.]+/([0-9.]+)/"
 
   let results: List[PingResult] = opts.hosts
     |> par-map { |host|
       let ping_out = run.text "ping" "-c" $opts.count "-q" $host
-      var result: PingResult = {host: host, avg: "--", ok: false}
+      var result: PingResult = PingResult(host:, avg: "--", ok: false)
 
-      match ping_out {
-        Ok(output) => {
-          let caps = ms_re.captures(output)
+      if let Ok(output) = ping_out {
+        let caps = ms_re.captures(output)
 
-          if caps.len() >= 2 {
-            result = {host: host, avg: f"${caps[1]}ms", ok: true}
-          }
+        if caps.len() >= 2 {
+          result = {host: host, avg: f"${caps[1]}ms", ok: true}
         }
-        Err(_) => {}
       }
 
       result

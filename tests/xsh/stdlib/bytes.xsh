@@ -54,14 +54,14 @@ WJj""".base64_decode()? == b"abc"
   base32.base32_decode()? == b"foobar"
   "mzxw6ytboi======".base32_decode()? == b"foobar"
   "mzxw6ytboi".base32_decode()? == b"foobar"
-  b"abcdef".slice(2, length: 3) == b"cde"
+  b"abcdef"[2..5] == b"cde"
   b"abc".len() == 3
   let report = b"  Header\r\nalpha\nTODO item\nomega  "
   report.trim() == b"Header\r\nalpha\nTODO item\nomega"
   (b"TODO" in report)
   report.trim().starts_with(b"Header")
   report.trim().ends_with(b"omega")
-  test.eq(report.lines().collect(), [b"  Header", b"alpha", b"TODO item", b"omega  "])?
+  (report.lines().collect()) == ([b"  Header", b"alpha", b"TODO item", b"omega  "])
   report.count_lines() == 4
   b"AbC\xff".lower() == b"abc\xff"
   (report.byte_at(2) ?? -1) == 72

@@ -15,8 +15,11 @@ proc main() [] {
   print ${([1, 2] |> all(positive))}
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "0\ncall\ncall\n11\n12\n1\n4\ntrue\ntrue\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("0\ncall\ncall\n11\n12\n1\n4\ntrue\ntrue\n")
 }
 
 test test_stage_functions_supply_independent_aggregate_defaults [error] { |ctx|
@@ -32,8 +35,11 @@ proc main() [] {
   print sizes[1]
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "1\n1\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("1\n1\n")
 }
 
 test test_stage_functions_cover_keys_sinks_named_configuration_and_results [error] { |ctx|
@@ -57,8 +63,11 @@ proc main() [] {
   print ${patterns[1] is Err(_)}
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "direction\n1\n3\n2\n2\nseen:1\nseen:2\ntrue\nseen:3\ntrue\ntrue\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("direction\n1\n3\n2\n2\nseen:1\nseen:2\ntrue\nseen:3\ntrue\ntrue\n")
 }
 
 test test_stage_functions_short_circuit_and_cancel_child_cleanup [error] { |ctx|
@@ -79,8 +88,11 @@ proc main() [error] {
   print ${numbers() |> all(predicate)}
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pull:1\ntest:1\npull:2\ntest:2\ncleanup\ntrue\npull:1\ntest:1\ncleanup\nfalse\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("pull:1\ntest:1\npull:2\ntest:2\ncleanup\ntrue\npull:1\ntest:1\ncleanup\nfalse\n")
 }
 
 test test_stage_functions_for_break_matches_explicit_wrapper_pull_order [error] { |ctx|
@@ -96,8 +108,11 @@ proc main() [error] {
   }
 }
 """)?
-    test.ok(output.success, output.stderr)?
-    test.eq(output.stdout, "pull:1\ncall\n11\ncleanup\n")?
+    {
+      let {success: assertion_condition, stderr: assertion_message, ..} = output
+      assert assertion_condition, assertion_message
+    }
+    (output.stdout) == ("pull:1\ncall\n11\ncleanup\n")
   }
 }
 
@@ -112,9 +127,17 @@ proc observe(item: Int) [] -> Result[Unit] {
   return Ok()
 }
 proc main() [error] { let _ = numbers() |> """ + stage + "(observe) }\n")?
-    test.ok(! output.success, output.stderr)?
-    test.eq(output.stdout, "seen:1\nseen:2\ncleanup\n")?
-    test.ok("sink failed" in output.stderr, output.stderr)?
+    {
+      let assertion_condition = ! output.success
+      let assertion_message = output.stderr
+      assert assertion_condition, assertion_message
+    }
+    (output.stdout) == ("seen:1\nseen:2\ncleanup\n")
+    {
+      let assertion_condition = "sink failed" in output.stderr
+      let assertion_message = output.stderr
+      assert assertion_condition, assertion_message
+    }
   }
   let late = test.run_script(ctx, r"""
 proc cleanup() [] { print "cleanup" }
@@ -122,8 +145,12 @@ stream numbers() [error] -> Stream[Int] { defer cleanup(); yield 1; let _ = "lat
 proc observe(item: Int) [] -> Int { print f"seen:${item}"; return item }
 proc main() [error] { let _ = numbers() |> map(observe) }
 """)?
-  test.ok(! late.success, late.stderr)?
-  test.eq(late.stdout, "seen:1\ncleanup\n")?
+  {
+    let assertion_condition = ! late.success
+    let assertion_message = late.stderr
+    assert assertion_condition, assertion_message
+  }
+  (late.stdout) == ("seen:1\ncleanup\n")
 }
 
 test test_stage_functions_reject_erasure_shadowing_partial_methods_and_bad_contracts [error] { |ctx|
@@ -143,8 +170,16 @@ test test_stage_functions_reject_erasure_shadowing_partial_methods_and_bad_contr
     "proc f(item: Int) [env] -> Int { let _ = env.get(\"HOME\"); return item }\nproc main() [] { let _ = [1] |> map(f) }",
   ] {
     let output = test.run_script(ctx, source + "\n")?
-    test.ok(! output.success, source)?
-    test.ok(output.stderr != "", source)?
+    {
+      let assertion_condition = ! output.success
+      let assertion_message = source
+      assert assertion_condition, assertion_message
+    }
+    {
+      let assertion_condition = output.stderr != ""
+      let assertion_message = source
+      assert assertion_condition, assertion_message
+    }
   }
 }
 
@@ -163,8 +198,11 @@ print values[0]
 print ${(["a"] |> map(helpers.surround))[0]}
 """)?
   let output = test.run_script(ctx, script.read_text()?, [], {XSH_MODULE_PATH: directory.display()})?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "5\n[a\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("5\n[a\n")
 }
 
 test test_stage_functions_select_standard_overloads_from_the_item_type [fs, error] { |ctx|
@@ -179,11 +217,22 @@ proc main(...argv: List[Str]) [fs, error] {
   print digest.hex()
 }
 """, [file.display()])?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "900150983cd24fb0d6963f7d28e17f72\n900150983cd24fb0d6963f7d28e17f72\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("900150983cd24fb0d6963f7d28e17f72\n900150983cd24fb0d6963f7d28e17f72\n")
   let ambiguous = test.run_script(ctx, "use hash\nproc apply(items: List[Any]) [fs] { let _ = items |> map(hash.md5) }\n")?
-  test.ok(! ambiguous.success, ambiguous.stderr)?
-  test.ok("check.stream-callable-signature" in ambiguous.stderr, ambiguous.stderr)?
+  {
+    let assertion_condition = ! ambiguous.success
+    let assertion_message = ambiguous.stderr
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "check.stream-callable-signature" in ambiguous.stderr
+    let assertion_message = ambiguous.stderr
+    assert assertion_condition, assertion_message
+  }
 }
 
 test test_stage_functions_tooling_fixes_only_transparent_wrappers [fs, process, error] { |ctx|
@@ -202,24 +251,67 @@ proc main() [error] {
 """
   let candidate = test.temp_file(ctx, name: "stage-function-fix.xsh", contents: bytes.from_text(source))?
   let diagnosed = run.capture --text "xsht" lint $candidate ?
-  test.ok("lint.stage-callable" in diagnosed.stderr, diagnosed.stderr)?
+  {
+    let assertion_condition = "lint.stage-callable" in diagnosed.stderr
+    let assertion_message = diagnosed.stderr
+    assert assertion_condition, assertion_message
+  }
   let applied = run.capture --text "xsht" lint --fix $candidate ?
-  test.ok(applied.status.exited_with(0), applied.stderr)?
+  {
+    let assertion_condition = applied.status.exited_with(0)
+    let assertion_message = applied.stderr
+    assert assertion_condition, assertion_message
+  }
   let fixed = candidate.read_text()?
-  test.ok("|> map(increment)" in fixed, fixed)?
-  test.ok("sort-by(desc: true, block: increment)" in fixed, fixed)?
-  test.ok("increment(item, 2)" in fixed, fixed)?
-  test.ok("result(item)?" in fixed, fixed)?
-  test.ok("# Keep the reason visible." in fixed, fixed)?
+  {
+    let assertion_condition = "|> map(increment)" in fixed
+    let assertion_message = fixed
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "sort-by(desc: true, block: increment)" in fixed
+    let assertion_message = fixed
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "increment(item, 2)" in fixed
+    let assertion_message = fixed
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "result(item)?" in fixed
+    let assertion_message = fixed
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "# Keep the reason visible." in fixed
+    let assertion_message = fixed
+    assert assertion_condition, assertion_message
+  }
   let output = test.run_script(ctx, fixed)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "2\n")?
-  let repeated = run.capture --text "xsht" lint --fix $candidate ?
-  test.eq(candidate.read_text()?, fixed)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("2\n")
+  let _ = run.capture --text "xsht" lint --fix $candidate ?
+  (candidate.read_text()?) == (fixed)
   let broken = source + "missing_name()\n"
   let invalid = test.temp_file(ctx, name: "stage-function-invalid.xsh", contents: bytes.from_text(broken))?
   let refused = run.capture --text "xsht" lint --fix $invalid ?
-  test.ok(! refused.status.exited_with(0), refused.stderr)?
-  test.ok("missing_name" in refused.stderr, refused.stderr)?
-  test.ok("|> map {" in invalid.read_text()?, refused.stderr)?
+  {
+    let assertion_condition = ! refused.status.exited_with(0)
+    let assertion_message = refused.stderr
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "missing_name" in refused.stderr
+    let assertion_message = refused.stderr
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "|> map {" in invalid.read_text()?
+    let assertion_message = refused.stderr
+    assert assertion_condition, assertion_message
+  }
 }

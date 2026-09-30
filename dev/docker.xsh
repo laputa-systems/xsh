@@ -5,13 +5,13 @@ use stage as stages
 ## Computes the Docker image name from the supported environment override.
 export proc image_name() [env, error] -> Result[Str] {
   let image = env.get_or("XSH_TEST_IMAGE", "xsh-test")?.trim()
-  return if image == "" { "xsh-test" } else { image }
+  if image == "" { "xsh-test" } else { image }
 }
 
 ## Computes the Docker platform while allowing the explicit environment override.
 export proc platform(ctx: context.Context) [env, error] -> Result[Str] {
   let override_value = env.get_or("DOCKER_PLATFORM", "")?.trim()
-  return if override_value == "" { ctx.target.docker_platform } else { override_value }
+  if override_value == "" { ctx.target.docker_platform } else { override_value }
 }
 
 ## Builds or verifies the configured test image according to `XSH_TEST_IMAGE_BUILD`.
@@ -54,7 +54,7 @@ export proc ensure_image(ctx: context.Context) [process, env, error, io] -> Resu
     )?
   }
 
-  return image
+  image
 }
 
 ## Constructs a direct `docker run` argv ending in a Cargo-to-XSH internal command.
@@ -75,7 +75,7 @@ export pure internal_argv(
   var argv = ["docker", "run", "--rm", "--init", "--platform", selected_platform]
 
   if privileged {
-    argv = argv.push("--privileged")
+    argv += ["--privileged"]
   }
 
   if stress_repeat.trim() != "" {
@@ -119,7 +119,7 @@ export pure internal_argv(
       operation,
     ],
   )
-  return argv.extend(extra)
+  argv.extend(extra)
 }
 
 ## Runs one container-internal lifecycle operation without a shell intermediary.

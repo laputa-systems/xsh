@@ -1,18 +1,18 @@
 pure guarded_cached(cached: Str?) -> Str {
   return cached when cached != null
-  return "missing"
+  "missing"
 }
 
 pure guarded_unless(cached: Str?) -> Str {
   return cached unless cached == null
-  return "missing"
+  "missing"
 }
 
 test test_guarded_return_narrows_selected_branch_and_falls_through [error] {
-  test.eq(guarded_cached("hit"), "hit")?
-  test.eq(guarded_cached(null), "missing")?
-  test.eq(guarded_unless("hit"), "hit")?
-  test.eq(guarded_unless(null), "missing")?
+  guarded_cached("hit") == "hit"
+  guarded_cached(null) == "missing"
+  guarded_unless("hit") == "hit"
+  guarded_unless(null) == "missing"
 }
 
 test test_guarded_control_checks_condition_before_lazy_payload [error] { |ctx|
@@ -42,8 +42,8 @@ let value = loop {
 }
 print $value
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "condition\nfallback\ncleanup\n9\ncondition\npayload\ncleanup\n7\ncondition\ncondition\npayload\n7\n")?
+  assert output.success, output.stderr
+  output.stdout == "condition\nfallback\ncleanup\n9\ncondition\npayload\ncleanup\n7\ncondition\ncondition\npayload\n7\n"
 }
 
 test test_guarded_yield_skips_unselected_items [error] { |ctx|
@@ -58,8 +58,8 @@ for item in guarded_items() {
   print $item
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "1\n2\n")?
+  assert output.success, output.stderr
+  output.stdout == "1\n2\n"
 }
 
 test test_guarded_run_payload_keeps_literal_argv_and_status_conditions [error] { |ctx|
@@ -81,8 +81,8 @@ print ${capture(true)}
 print ${literal_argv()}
 print ${status_condition()}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "fallback\nselected\nwhen\nunless\n\n1\n")?
+  assert output.success, output.stderr
+  output.stdout == "fallback\nselected\nwhen\nunless\n\n1\n"
 }
 
 test test_guarded_payload_propagation_and_result_wrapping [error] { |ctx|
@@ -102,8 +102,8 @@ proc pick(selected: Bool) [error] -> Result[Int] {
 print ${pick(false)?}
 let _ = pick(true)?
 """)?
-  test.ok(! output.success, output.stderr)?
-  test.eq(output.stdout, "cleanup\n9\npayload\ncleanup\n")?
+  assert ! output.success, output.stderr
+  output.stdout == "cleanup\n9\npayload\ncleanup\n"
 }
 
 test test_guarded_yield_keeps_cleanup_on_early_consumer_exit [error] { |ctx|
@@ -123,6 +123,6 @@ for value in values() {
 }
 print "done"
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "1\ncleanup\ndone\n")?
+  assert output.success, output.stderr
+  output.stdout == "1\ncleanup\ndone\n"
 }

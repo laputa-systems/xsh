@@ -31,8 +31,11 @@ proc main(...argv: List[Str]) [fs, env, process, time, error] {
   print ${fp"${root}/leaked".exists()?}
 }
 """, [root.display()], env: {XSH_ACCEPT_SCOPE: "consumer"})?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "inner\ncleanup:inner\nfalse\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("inner\ncleanup:inner\nfalse\n")
 }
 
 test test_accept_scoped_rejected_eof_runs_cleanup_once_before_restoration [fs, error] { |ctx|
@@ -75,8 +78,11 @@ proc main(...argv: List[Str]) [fs, env, process, error] {
   test.eq(env.get("XSH_ACCEPT_SCOPE")?, "consumer")?
 }
 """, [root.display()], env: {XSH_ACCEPT_SCOPE: "consumer"})?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "inner\ncleanup:inner\nrejected zero\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("inner\ncleanup:inner\nrejected zero\n")
 }
 
 test test_accept_named_stage_direct_rejection_stops_before_next_item [error] { |ctx|
@@ -97,8 +103,11 @@ match outcome {
   _ => abort(98)
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "seen:1\nrejected zero\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("seen:1\nrejected zero\n")
 }
 
 test test_accept_named_stage_result_data_and_sink_propagation_stay_distinct [error] { |ctx|
@@ -114,8 +123,11 @@ print ${values.len()}
 print ${values[0] is Err(ProcessError.UnexpectedExit)}
 print ${values[1] is Err(ProcessError.UnexpectedExit)}
 """)?
-  test.ok(mapped.success, mapped.stderr)?
-  test.eq(mapped.stdout, "seen:1\nseen:2\n2\ntrue\ntrue\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = mapped
+    assert assertion_condition, assertion_message
+  }
+  (mapped.stdout) == ("seen:1\nseen:2\n2\ntrue\ntrue\n")
   for stage in ["each", "tee"] {
     let output = test.run_script(ctx, callback + r"""
 stream items() [] -> Stream[Int] {
@@ -124,9 +136,13 @@ stream items() [] -> Stream[Int] {
   yield 2
 }
 let ignored = items() |> """ + stage + "(validate)\nprint unreachable\n")?
-    test.ok(!output.success, output.stderr)?
-    test.eq(output.stdout, "seen:1\ncleanup\n")?
-    test.ok("unexpected-exit" in output.stderr)?
+    {
+      let assertion_condition = !output.success
+      let assertion_message = output.stderr
+      assert assertion_condition, assertion_message
+    }
+    (output.stdout) == ("seen:1\ncleanup\n")
+    ("unexpected-exit" in output.stderr)
   }
 }
 
@@ -163,19 +179,23 @@ match transported {
   _ => abort(96)
 }
 """, ["--raw", "--trace-format", "jsonl"])?
-    test.ok(output.status == 3, output.stderr)?
+    {
+      let assertion_condition = output.status == 3
+      let assertion_message = output.stderr
+      assert assertion_condition, assertion_message
+    }
     let expected = if ("run.stream" in body) { "row\ncaptured\n" } else { "captured\n" }
-    test.eq(output.stdout, expected)?
-    test.ok("\"family\":\"OuterError\"" in output.stderr)?
-    test.ok("\"family\":\"ProcessError\"" in output.stderr)?
-    test.ok("\"variant\":\"UnexpectedExit\"" in output.stderr)?
-    test.ok("\"code\":0" in output.stderr)?
-    test.ok("\"success\":true" in output.stderr)?
-    test.ok("\"message\":\"rejected input\"" in output.stderr)?
-    test.ok("\"message\":\"transport\"" in output.stderr)?
-    test.ok("\"message\":\"publish\"" in output.stderr)?
-    test.ok("\"start_line\"" in output.stderr)?
-    test.ok("\"causes_truncated\":false" in output.stderr)?
+    (output.stdout) == (expected)
+    ("\"family\":\"OuterError\"" in output.stderr)
+    ("\"family\":\"ProcessError\"" in output.stderr)
+    ("\"variant\":\"UnexpectedExit\"" in output.stderr)
+    ("\"code\":0" in output.stderr)
+    ("\"success\":true" in output.stderr)
+    ("\"message\":\"rejected input\"" in output.stderr)
+    ("\"message\":\"transport\"" in output.stderr)
+    ("\"message\":\"publish\"" in output.stderr)
+    ("\"start_line\"" in output.stderr)
+    ("\"causes_truncated\":false" in output.stderr)
   }
 }
 
@@ -205,8 +225,11 @@ proc main(...argv: List[Str]) [fs, process, error] {
   print $third
 }
 """, [root.display()])?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "created\npolicy:3\nchild\npolicy:3\nchild\npolicy:3\nchild\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("created\npolicy:3\nchild\npolicy:3\nchild\npolicy:3\nchild\n")
 }
 
 test test_accept_callable_alias_retains_inferred_error_and_local_capture [error] { |ctx|
@@ -217,14 +240,22 @@ proc validate() {
 let selected = validate
 """
   let denied = test.run_script(ctx, declaration + "\nproc main() [process] { selected() }\n")?
-  test.ok(!denied.success)?
-  test.ok("check.effect-violation" in denied.stderr)?
+  (!denied.success)
+  ("check.effect-violation" in denied.stderr)
   let captured = test.run_script(ctx, declaration + "\n" + r"""
 proc main() [process] -> Result[Unit] {
   try { selected() }
 }
 """)?
-  test.ok(!captured.success, captured.stderr)?
-  test.ok("unexpected-exit" in captured.stderr)?
-  test.ok(("check.effect-violation" not in captured.stderr), captured.stderr)?
+  {
+    let assertion_condition = !captured.success
+    let assertion_message = captured.stderr
+    assert assertion_condition, assertion_message
+  }
+  ("unexpected-exit" in captured.stderr)
+  {
+    let assertion_condition = ("check.effect-violation" not in captured.stderr)
+    let assertion_message = captured.stderr
+    assert assertion_condition, assertion_message
+  }
 }

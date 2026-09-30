@@ -22,11 +22,11 @@ test test_extended_constructor_splices_patterns_and_inferred_values [error] {
   let original = ExtendedOptions(label:)
   var options = original
   options.arguments += ["build", "app", "fast"]
-  test.eq(original.arguments, [])?
-  test.eq(options.label, "ship")?
-  test.eq(extended_command([@options.arguments, "quiet"]), ["app", "fast", "quiet"])?
-  test.eq(extended_valid_name(options.label), true)?
-  test.eq(extended_valid_name("not-valid"), false)?
+  original.arguments.len() == 0
+  options.label == "ship"
+  extended_command([@options.arguments, "quiet"]) == ["app", "fast", "quiet"]
+  extended_valid_name(options.label)
+  !extended_valid_name("not-valid")
 }
 
 test test_extended_map_iteration_keeps_typed_list_values [error] {
@@ -39,7 +39,7 @@ test test_extended_map_iteration_keeps_typed_list_values [error] {
     if value is ["build", _, ..]
     for argument in extended_command(value)
   ]
-  test.eq(selected, ["first:app", "first:quiet"])?
+  selected == ["first:app", "first:quiet"]
 }
 
 test test_extended_error_fallback_binds_nominal_error [error] {
@@ -48,17 +48,17 @@ test test_extended_error_fallback_binds_nominal_error [error] {
     let is_missing = failure is NotFound
     if is_missing { failure.message } else { "other" }
   }
-  test.eq(label, "absent")?
+  label == "absent"
 }
 
 test test_extended_while_pattern_updates_spliced_list_values [error] {
   var commands = [["build", "app"], ["skip"], ["build", "tool", "fast"]]
-  var selected: List[Str] = []
+  var selected = []
   while let [command, ..remaining] = commands {
     commands = remaining
     selected += extended_command(command)
   }
-  test.eq(selected, ["app", "ignored", "tool", "fast"])?
+  selected == ["app", "ignored", "tool", "fast"]
 }
 
 test test_extended_delegated_yield_keeps_guarded_control_and_cleanup [error] { |ctx|
@@ -74,6 +74,6 @@ stream parent() [io] -> Stream[Int] {
 let first = parent() |> take(1) |> collect
 print ${first[0]}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "child-close\nparent-close\n1\n")?
+  assert output.success, output.stderr
+  output.stdout == "child-close\nparent-close\n1\n"
 }

@@ -1,5 +1,5 @@
-let name = "tasks"
-let seed: Map[Int] = {total: 3}
+const name = "tasks"
+const seed: Map[Int] = {total: 3}
 let counts = {...seed, [name]: 2, total: 4}
 print counts.keys().join(",")
 print (counts.get(name) ?? 0)

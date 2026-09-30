@@ -238,7 +238,10 @@ pub fn check_paths_with_summary_options(
         for _ in 0..worker_count {
             let job_rx = job_rx.clone();
             let result_tx = result_tx.clone();
-            scope.spawn(move || {
+            std::thread::Builder::new()
+                .name("xsht-check".to_string())
+                .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
+                .spawn_scoped(scope, move || {
                 while let Ok((
                     file_index,
                     program,
@@ -262,7 +265,7 @@ pub fn check_paths_with_summary_options(
                         break;
                     }
                 }
-            });
+            }).expect("spawn checker worker");
         }
         drop(result_tx);
         let mut submitted = 0;

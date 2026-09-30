@@ -9,12 +9,12 @@ export proc bin_dir() [fs, env, error] -> Result[Path] {
   let home = if configured_home == "" { user.current()?.home } else { fp"${configured_home}" }
   let destination = fp"${home}/usr/bin"
   stages.ensure_dir(destination)?
-  return destination
+  destination
 }
 
 ## Installs signed Darwin release products and tolerates only a missing quarantine attribute.
 export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
-  if ctx.target.triple != "aarch64-apple-darwin" {
+  guard ctx.target.triple == "aarch64-apple-darwin" else {
     return Err(
       stages.StageError.Failed(
         stage: "install-darwin",
@@ -50,26 +50,23 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
         "--release",
         "--target",
         ctx.target.triple,
-      ].extend(build_std)
-        .extend(
-          [
-            "-p",
-            "xsh",
-            "-p",
-            "xsht",
-            "-p",
-            "xshi",
-            "--bin",
-            "xsh",
-            "--bin",
-            "xsht",
-            "--bin",
-            "xshi",
-            "--no-default-features",
-            "--features",
-            targets.distribution_features,
-          ],
-        ),
+        @build_std,
+        "-p",
+        "xsh",
+        "-p",
+        "xsht",
+        "-p",
+        "xshi",
+        "--bin",
+        "xsh",
+        "--bin",
+        "xsht",
+        "--bin",
+        "xshi",
+        "--no-default-features",
+        "--features",
+        targets.distribution_features,
+      ],
       ctx.root,
       environment,
     ),
@@ -80,7 +77,7 @@ export proc darwin(ctx: context.Context) [fs, process, env, error, io] -> Result
   let entitlements = env.get_or("DARWIN_CODESIGN_ENTITLEMENTS", "")?.trim()
 
   if entitlements != "" {
-    signing_flags = signing_flags.extend(["--entitlements", entitlements])
+    signing_flags += ["--entitlements", entitlements]
   }
 
   for product in targets.products {
@@ -209,13 +206,9 @@ export proc linux_install(ctx: context.Context) [fs, process, env, error, io] ->
 
 ## Dispatches installation to the current supported host family.
 export proc install(ctx: context.Context) [fs, process, env, error, io] -> Result[Unit] {
-  if ctx.host_os == targets.Darwin {
-    return darwin(ctx)
-  }
+  return darwin(ctx) when ctx.host_os == targets.Darwin
 
-  if ctx.host_os == targets.Linux {
-    return linux_install(ctx)
-  }
+  return linux_install(ctx) when ctx.host_os == targets.Linux
 
   return Err(
     stages.StageError.Failed(

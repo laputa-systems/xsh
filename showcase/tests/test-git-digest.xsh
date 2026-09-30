@@ -21,14 +21,16 @@ test test_git_digest_counts_integer_statistics_and_binary_placeholders [fs, proc
   let error_file = fp"${repo}/digest.err"
   let command = process.command_argv("xsh", ["xsh", script, "--", "--base", "base"], cwd: repo, stdout: output_file, stderr: error_file)
   let status = process.run(command)?
-  test.ok(status.exited_with(0), error_file.read_text()?)?
+  let succeeded = status.exited_with(0)
+  let failure_message = error_file.read_text()?
+  assert succeeded, failure_message
   let output = output_file.read_text()?
-  test.ok("2 file(s) changed  +1 -0" in output)?
-  test.ok("binary.dat" in output)?
+  "2 file(s) changed  +1 -0" in output
+  "binary.dat" in output
 }
 
 test test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting [fs, process, env, error] { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("creating non-UTF-8 path components requires the pinned Linux filesystem")
     return
   }
@@ -61,7 +63,9 @@ test test_git_digest_quotes_non_utf8_paths_even_when_git_config_disables_quoting
     stderr: error_file,
   )
   let status = process.run(command)?
-  test.ok(status.exited_with(0), error_file.read_text()?)?
+  let succeeded = status.exited_with(0)
+  let failure_message = error_file.read_text()?
+  assert succeeded, failure_message
   let output = output_file.read_text()?
   "1 file(s) changed" in output
   "raw-\\377.txt" in output

@@ -193,7 +193,7 @@ test test_system_report_class_parent_retains_independent_fallback_and_link_failu
   root.symlink(../../devices/pci0000:00/0000:03:00.0/drm/card1, p"sys/class/drm/card1")?
   let fallback = collector.class_parent_target(root, p"sys/class/drm/card1")
   (fallback.state == report_model.Observed)
-  collector.usb_parent_address(fallback.target.require(Path)?) == "0000:03:00.0"
+  collector.usb_parent_address(fallback.target.require()?) == "0000:03:00.0"
 
   root.write(p"sys/class/drm/card0/device", "not a symlink")?
   let failed = collector.class_parent_target(root, p"sys/class/drm/card0")
@@ -322,10 +322,10 @@ test test_system_report_device_class_entry_identity_survives_duplicate_labels_an
   (sound |> any .entry_name.value == "card0")
   (sound |> any .entry_name.value == "card1")
   let sensitive = model.encode_report_json(value, true, false)?
-  test.eq(json.decode(sensitive)?.devices.devices[0].entry_name.value, sound[0].entry_name.value)?
-  test.eq(json.decode(sensitive)?.devices.devices[1].entry_name.value, sound[1].entry_name.value)?
+  json.decode(sensitive)?.devices.devices[0].entry_name.value == sound[0].entry_name.value
+  json.decode(sensitive)?.devices.devices[1].entry_name.value == sound[1].entry_name.value
   let redacted = model.encode_report_json(value, false, false)?
-  test.eq(json.decode(redacted)?.devices.devices[0].entry_name.state, "observed")?
+  json.decode(redacted)?.devices.devices[0].entry_name.state == "observed"
   let legacy = json.remove(json.decode(sensitive)?, ["devices", "devices", 0, "entry_name"])?
   let replay = model.decode_report_json(json.encode(legacy)?)?
   (replay.devices.devices[0].entry_name.state == report_model.Unsupported)
@@ -386,8 +386,8 @@ test test_system_report_driver_link_distinguishes_unbound_and_unreadable_devices
 
 test test_system_report_network_device_links_keep_absence_separate_from_failures [fs, error] {
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
-  let snapshot = model.decode_report_json(json.encode(json_report_fixture())?)?.require(report_model.SystemReport)?
-  let source: NetworkCollection = {
+  let snapshot = model.decode_report_json(json.encode(json_report_fixture())?)?
+  let source = NetworkCollection(
     status: {
       state: report_model.Complete,
       enumeration_succeeded: true,
@@ -401,7 +401,7 @@ test test_system_report_network_device_links_keep_absence_separate_from_failures
     routes: [],
     rules: [],
     issues: [],
-  }
+  )
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let root = fs.tempdir()?
   defer root.close()?
@@ -953,7 +953,7 @@ test test_system_report_identity_preserves_namespace_link_failures [fs, time, er
 }
 
 pure cpu_policy(name: Str, related_cpus: List[Int], affected_cpus: List[Int]) -> FixtureCpuFreqPolicy {
-  return {
+  {
     name: name,
     related_cpus: related_cpus,
     affected_cpus: affected_cpus,
@@ -984,7 +984,7 @@ pure cpu_policy(name: Str, related_cpus: List[Int], affected_cpus: List[Int]) ->
 }
 
 pure pci_function(address: Str, parent_function_index: Int?) -> FixturePciFunction {
-  return {
+  {
     address: address,
     domain: 0,
     bus: 0,
@@ -1008,15 +1008,15 @@ pure pci_function(address: Str, parent_function_index: Int?) -> FixturePciFuncti
 }
 
 pure json_observation(state: Str, value: Str?) -> Record {
-  return {state: state, value: value, raw_bytes_base64: null}
+  {state: state, value: value, raw_bytes_base64: null}
 }
 
 pure json_section(state: Str) -> Record {
-  return {state: state, enumeration_succeeded: true}
+  {state: state, enumeration_succeeded: true}
 }
 
 pure json_report_fixture() -> Record {
-  return {
+  {
     schema_version: 1,
     producer: {
       name: "system-report",
@@ -1637,7 +1637,7 @@ test test_system_report_cpu_collection_keeps_absent_cpufreq_unavailable [fs, tim
 
 test test_system_report_uptime_parser_requires_complete_two_column_decimal [fs, error] {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
-  let observed: SourceRead = {
+  let observed = SourceRead(
     observation: {
       state: report_model.Observed,
       value: "73.50 12.34",
@@ -1645,31 +1645,31 @@ test test_system_report_uptime_parser_requires_complete_two_column_decimal [fs, 
     },
     errno: null,
     error_kind: null,
-  }
+  )
   collectors.parse_uptime_seconds(observed).value == 73
   collectors.parse_uptime_seconds(
-      {...observed, observation: {...observed.observation, value: "9007199254740991.99 0.00"}},
+      {...observed, observation.value: "9007199254740991.99 0.00"},
     ).value == 9007199254740991
   let unsafe = collectors.parse_uptime_seconds(
-    {...observed, observation: {...observed.observation, value: "9007199254740992.00 0.00"}},
+    {...observed, observation.value: "9007199254740992.00 0.00"},
   )
   unsafe.value == null
   (unsafe.state == report_model.RangeFailure)
   for malformed in ["73", "73 0.00", "73.50", "-1.00 0.00", "73. 0.00", "73.50 0.x", "73.50 0.00 extra"] {
     let parsed = collectors.parse_uptime_seconds(
-      {...observed, observation: {...observed.observation, value: malformed}},
+      {...observed, observation.value: malformed},
     )
     parsed.value == null
     (parsed.state == report_model.Malformed)
   }
 
   let truncated = collectors.parse_uptime_seconds(
-    {...observed, observation: {...observed.observation, state: report_model.Truncated}},
+    {...observed, observation.state: report_model.Truncated},
   )
   truncated.value == null
   (truncated.state == report_model.Truncated)
   let absent = collectors.parse_uptime_seconds(
-    {...observed, observation: {...observed.observation, state: report_model.Absent, value: null}},
+    {...observed, observation.state: report_model.Absent, observation.value: null},
   )
   absent.value == null
   (absent.state == report_model.Absent)
@@ -1677,7 +1677,7 @@ test test_system_report_uptime_parser_requires_complete_two_column_decimal [fs, 
 
 test test_system_report_bounded_number_respects_source_state_and_json_range [fs, error] {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
-  let observed: SourceRead = {
+  let observed = SourceRead(
     observation: {
       state: report_model.Observed,
       value: "-5000",
@@ -1685,7 +1685,7 @@ test test_system_report_bounded_number_respects_source_state_and_json_range [fs,
     },
     errno: null,
     error_kind: null,
-  }
+  )
   let signed = collectors.bounded_number(observed, false)
   signed.value == -5000
   (signed.state == null)
@@ -1693,43 +1693,43 @@ test test_system_report_bounded_number_respects_source_state_and_json_range [fs,
   (unsigned.value == null)
   (unsigned.state == report_model.Malformed)
   unsigned.error_kind == "negative_integer"
-  (collectors.bounded_number({...observed, observation: {...observed.observation, value: "-0"}}, true).state == report_model.Malformed)
+  (collectors.bounded_number({...observed, observation.value: "-0"}, true).state == report_model.Malformed)
   let maximum = collectors.bounded_number(
-    {...observed, observation: {...observed.observation, value: "9007199254740991"}},
+    {...observed, observation.value: "9007199254740991"},
     true,
   )
   maximum.value == 9007199254740991
   let unsafe_json = collectors.bounded_number(
-    {...observed, observation: {...observed.observation, value: "9007199254740992"}},
+    {...observed, observation.value: "9007199254740992"},
     true,
   )
   (unsafe_json.value == null)
   (unsafe_json.state == report_model.RangeFailure)
   let overflow = collectors.bounded_number(
-    {...observed, observation: {...observed.observation, value: "999999999999999999999999"}},
+    {...observed, observation.value: "999999999999999999999999"},
     true,
   )
   (overflow.state == report_model.RangeFailure)
-  let invalid = collectors.bounded_number({...observed, observation: {...observed.observation, value: "42 C"}}, false)
+  let invalid = collectors.bounded_number({...observed, observation.value: "42 C"}, false)
   (invalid.state == report_model.Malformed)
   for text_value in ["0x2a", "1_000", "+42"] {
     let nondecimal = collectors.bounded_number(
-      {...observed, observation: {...observed.observation, value: text_value}},
+      {...observed, observation.value: text_value},
       false,
     )
     (nondecimal.value == null)
     (nondecimal.state == report_model.Malformed)
   }
 
-  collectors.bounded_number({...observed, observation: {...observed.observation, value: "007"}}, true).value == 7
+  collectors.bounded_number({...observed, observation.value: "007"}, true).value == 7
   let truncated = collectors.bounded_number(
-    {...observed, observation: {...observed.observation, state: report_model.Truncated, value: "68"}},
+    {...observed, observation.state: report_model.Truncated, observation.value: "68"},
     true,
   )
   (truncated.value == null)
   (truncated.state == report_model.Truncated)
   let absent = collectors.bounded_number(
-    {...observed, observation: {...observed.observation, state: report_model.Absent, value: null}},
+    {...observed, observation.state: report_model.Absent, observation.value: null},
     true,
   )
   (absent.value == null)
@@ -1737,11 +1737,8 @@ test test_system_report_bounded_number_respects_source_state_and_json_range [fs,
   let denied = collectors.bounded_number(
     {
       ...observed,
-      observation: {
-        ...observed.observation,
-        state: report_model.PermissionDenied,
-        value: null,
-      },
+      observation.state: report_model.PermissionDenied,
+      observation.value: null,
       errno: 13,
       error_kind: "permission_denied",
     },
@@ -1753,7 +1750,7 @@ test test_system_report_bounded_number_respects_source_state_and_json_range [fs,
 
 test test_system_report_bounded_size_bytes_checks_scaled_json_range [fs, error] {
   let collectors = module.load(p"core/lib/system_report_collect.xsh")?.require(SystemReportCollectors)?
-  let observed: SourceRead = {
+  let observed = SourceRead(
     observation: {
       state: report_model.Observed,
       value: "8796093022207K",
@@ -1761,24 +1758,24 @@ test test_system_report_bounded_size_bytes_checks_scaled_json_range [fs, error] 
     },
     errno: null,
     error_kind: null,
-  }
+  )
   collectors.bounded_size_bytes(observed).value == 9007199254739968
   let kilobyte_overflow = collectors.bounded_size_bytes(
-    {...observed, observation: {...observed.observation, value: "8796093022208K"}},
+    {...observed, observation.value: "8796093022208K"},
   )
   (kilobyte_overflow.value == null)
   (kilobyte_overflow.state == report_model.RangeFailure)
-  collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "8589934591M"}}).value == 9007199253692416
-  (collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "8589934592M"}}).state == report_model.RangeFailure)
-  collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "8388607G"}}).value == 9007198180999168
-  (collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "8388608G"}}).state == report_model.RangeFailure)
-  collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "9007199254740991"}}).value == 9007199254740991
-  (collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "9007199254740992"}}).state == report_model.RangeFailure)
-  (collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "1T"}}).state == report_model.Malformed)
-  (collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "0x10K"}}).state == report_model.Malformed)
-  (collectors.bounded_size_bytes({...observed, observation: {...observed.observation, value: "-1K"}}).state == report_model.Malformed)
+  collectors.bounded_size_bytes({...observed, observation.value: "8589934591M"}).value == 9007199253692416
+  (collectors.bounded_size_bytes({...observed, observation.value: "8589934592M"}).state == report_model.RangeFailure)
+  collectors.bounded_size_bytes({...observed, observation.value: "8388607G"}).value == 9007198180999168
+  (collectors.bounded_size_bytes({...observed, observation.value: "8388608G"}).state == report_model.RangeFailure)
+  collectors.bounded_size_bytes({...observed, observation.value: "9007199254740991"}).value == 9007199254740991
+  (collectors.bounded_size_bytes({...observed, observation.value: "9007199254740992"}).state == report_model.RangeFailure)
+  (collectors.bounded_size_bytes({...observed, observation.value: "1T"}).state == report_model.Malformed)
+  (collectors.bounded_size_bytes({...observed, observation.value: "0x10K"}).state == report_model.Malformed)
+  (collectors.bounded_size_bytes({...observed, observation.value: "-1K"}).state == report_model.Malformed)
   let truncated = collectors.bounded_size_bytes(
-    {...observed, observation: {...observed.observation, state: report_model.Truncated, value: "512K"}},
+    {...observed, observation.state: report_model.Truncated, observation.value: "512K"},
   )
   (truncated.value == null)
   (truncated.state == report_model.Truncated)
@@ -2077,7 +2074,7 @@ test test_system_report_usb_parent_join_handles_root_hubs_sorted_last [fs, error
   let model = module.load(p"core/lib/system_report.xsh")?.require(SystemReportModel)?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let decoded = model.decode_report_json(json.encode(json_report_fixture())?)?
-  let source = decoded.usb.devices[0].require(report_model.UsbDevice)?
+  let source = decoded.usb.devices[0]
   let child = {...source, sysfs_name: "4-2", bus_number: 4, parent_device_index: null, is_root_hub: false}
   let grandchild = {...source, sysfs_name: "4-2.3", bus_number: 4, parent_device_index: null, is_root_hub: false}
   let root_hub = {...source, sysfs_name: "usb4", bus_number: 4, parent_device_index: null, is_root_hub: true}
@@ -2594,41 +2591,41 @@ test test_system_report_section_selection_marks_excluded_domains [fs, error] {
   let cpu_only_wire = json.decode(model.encode_report_json(cpu_only, true, false)?)?.require(report_model.SystemReportJson)?
   let cpu_only_text = model.render_text(cpu_only, true, false)?
 
-  test.eq(cpu_only.identity.hostname.value, "workstation-name")?
-  test.eq(cpu_only_wire.cpu.status.state, "complete")?
-  test.eq(cpu_only_wire.memory.status.state, "not_requested")?
+  cpu_only.identity.hostname.value == "workstation-name"
+  cpu_only_wire.cpu.status.state == "complete"
+  cpu_only_wire.memory.status.state == "not_requested"
   ! cpu_only_wire.memory.status.enumeration_succeeded
-  test.eq(cpu_only_wire.memory.host.total_bytes, null)?
-  test.eq(cpu_only_wire.pci.status.state, "not_requested")?
-  test.eq(cpu_only_wire.pci.functions.len(), 0)?
-  test.eq(cpu_only_wire.network.status.state, "not_requested")?
-  test.eq(cpu_only.issues.len(), 1)?
+  cpu_only_wire.memory.host.total_bytes == null
+  cpu_only_wire.pci.status.state == "not_requested"
+  cpu_only_wire.pci.functions.len() == 0
+  cpu_only_wire.network.status.state == "not_requested"
+  cpu_only.issues.len() == 1
   "PCI: not requested" in cpu_only_text
   ("PCI functions:" not in cpu_only_text)
 
   let usb_only = model.select_report_section(report, "usb")?
-  test.eq(usb_only.pci.status.state, report_model.Complete)?
-  test.eq(usb_only.usb.status.state, report_model.Complete)?
-  test.eq(usb_only.storage.status.state, report_model.SectionNotRequested)?
-  test.eq(usb_only.network.status.state, report_model.SectionNotRequested)?
+  usb_only.pci.status.state == report_model.Complete
+  usb_only.usb.status.state == report_model.Complete
+  usb_only.storage.status.state == report_model.SectionNotRequested
+  usb_only.network.status.state == report_model.SectionNotRequested
 
   let network_only = model.select_report_section(report, "network")?
-  test.eq(network_only.pci.status.state, report_model.Complete)?
-  test.eq(network_only.usb.status.state, report_model.Complete)?
-  test.eq(network_only.network.status.state, report_model.Complete)?
-  test.eq(network_only.storage.status.state, report_model.SectionNotRequested)?
+  network_only.pci.status.state == report_model.Complete
+  network_only.usb.status.state == report_model.Complete
+  network_only.network.status.state == report_model.Complete
+  network_only.storage.status.state == report_model.SectionNotRequested
 
   let sensors_only = model.select_report_section(report, "sensors")?
-  test.eq(sensors_only.pci.status.state, report_model.Complete)?
-  test.eq(sensors_only.usb.status.state, report_model.Complete)?
-  test.eq(sensors_only.sensors.status.state, report_model.Complete)?
-  test.eq(sensors_only.devices.status.state, report_model.SectionNotRequested)?
+  sensors_only.pci.status.state == report_model.Complete
+  sensors_only.usb.status.state == report_model.Complete
+  sensors_only.sensors.status.state == report_model.Complete
+  sensors_only.devices.status.state == report_model.SectionNotRequested
 
   let processes_only = model.select_report_section(report, "processes")?
-  test.eq(processes_only.processes.status.state, report_model.Complete)?
-  test.eq(processes_only.processes.processes[0].cgroup.value, "/user.slice/private")?
-  test.eq(processes_only.processes.processes[0].cgroup_resource_index, null)?
-  test.eq(processes_only.memory.status.state, report_model.SectionNotRequested)?
+  processes_only.processes.status.state == report_model.Complete
+  processes_only.processes.processes[0].cgroup.value == "/user.slice/private"
+  processes_only.processes.processes[0].cgroup_resource_index == null
+  processes_only.memory.status.state == report_model.SectionNotRequested
 
   test.error_kind(model.select_report_section(report, "hardware"), "SystemReportError.InvalidSection")?
 }
@@ -2640,63 +2637,63 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
   let decoded = model.decode_report_json(encoded_source)?
   let decoded_wire = json.decode(model.encode_report_json(decoded, true, false)?)?.require(report_model.SystemReportJson)?
 
-  test.eq(decoded.schema_version, 1)?
-  test.eq(decoded_wire.source_mode, "synthetic_fixture")?
-  test.eq(decoded.identity.hostname.value, "workstation-name")?
-  test.eq(decoded_wire.identity.kernel_build, "Linux version 6.12-test (builder@private-build-host)")?
-  test.ok(decoded.pci.status.enumeration_succeeded)?
-  test.eq(decoded.pci.functions.len(), 2)?
+  decoded.schema_version == 1
+  decoded_wire.source_mode == "synthetic_fixture"
+  decoded.identity.hostname.value == "workstation-name"
+  decoded_wire.identity.kernel_build == "Linux version 6.12-test (builder@private-build-host)"
+  decoded.pci.status.enumeration_succeeded
+  decoded.pci.functions.len() == 2
 
   let safe_json = model.encode_report_json(decoded, false, false)?
   let safe = model.decode_report_json(safe_json)?
   let safe_wire = json.decode(safe_json)?.require(report_model.SystemReportJson)?
   let safe_text = model.render_text(decoded, true, false)?
-  test.ok(safe.redacted)?
-  test.eq(safe_wire.identity.status.state, "complete")?
-  test.eq(safe_wire.identity.hostname.state, "redacted")?
+  safe.redacted
+  safe_wire.identity.status.state == "complete"
+  safe_wire.identity.hostname.state == "redacted"
   (safe_wire.identity.kernel_build == null)
   ("private-build-host" not in safe_json)
   ("private-build-host" not in safe_text)
   (safe.issues |> any .section == "identity" and .field == "kernel_build" and .state == report_model.Redacted)
   (model.encode_report_json(safe, false, false)?) == safe_json
-  test.eq(safe.identity.hostname.value, null)?
-  test.eq(safe_wire.scope.network_namespace.state, "redacted")?
-  test.eq(safe_wire.scope.uts_namespace.state, "redacted")?
-  test.eq(safe_wire.scope.ipc_namespace.state, "redacted")?
-  test.eq(safe_wire.scope.user_namespace.state, "redacted")?
-  test.eq(safe_wire.scope.time_namespace.state, "redacted")?
-  test.eq(safe_wire.scope.source_roots, ["redacted", "redacted"])?
-  test.eq(safe.cpu.online, [0, 1, 2])?
-  test.eq(safe_wire.pci.functions[0].address, null)?
-  test.eq(safe_wire.pci.functions[0].domain, null)?
-  test.eq(safe_wire.pci.functions[0].vendor_id, 32902)?
-  test.eq(safe_wire.pci.functions[1].parent_function_index, 0)?
+  safe.identity.hostname.value == null
+  safe_wire.scope.network_namespace.state == "redacted"
+  safe_wire.scope.uts_namespace.state == "redacted"
+  safe_wire.scope.ipc_namespace.state == "redacted"
+  safe_wire.scope.user_namespace.state == "redacted"
+  safe_wire.scope.time_namespace.state == "redacted"
+  safe_wire.scope.source_roots == ["redacted", "redacted"]
+  safe.cpu.online == [0, 1, 2]
+  safe_wire.pci.functions[0].address == null
+  safe_wire.pci.functions[0].domain == null
+  safe_wire.pci.functions[0].vendor_id == 32902
+  safe_wire.pci.functions[1].parent_function_index == 0
   ("0000:00:1f.6" not in safe_json)
   ("0000:00:1f.6" not in safe_text)
-  test.eq(safe_wire.issues[1].field, "functions.redacted.vendor_id")?
+  safe_wire.issues[1].field == "functions.redacted.vendor_id"
   ("private PCI source path" not in safe_json)
   if let Ok(vulnerability) = safe.cpu.vulnerabilities.get(0) {
-    test.eq(vulnerability.description.value, "mitigation active")?
+    vulnerability.description.value == "mitigation active"
   } else {
     test.fail("CPU vulnerability fixture did not round-trip")?
   }
 
-  if let Ok(swap) = safe.memory.swaps.get(0) {
-    test.eq(safe_wire.memory.swaps[0].name.state, "redacted")?
+  if let Ok(_) = safe.memory.swaps.get(0) {
+    safe_wire.memory.swaps[0].name.state == "redacted"
   } else {
     test.fail("swap fixture did not round-trip")?
   }
 
-  if let Ok(usb_device) = safe.usb.devices.get(0) {
-    test.eq(safe_wire.usb.devices[0].sysfs_name, null)?
-    test.eq(safe_wire.usb.devices[0].port_path, null)?
-    test.eq(safe_wire.usb.devices[0].bus_number, null)?
-    test.eq(safe_wire.usb.devices[0].controller_pci_index, 1)?
-    test.eq(safe_wire.usb.devices[0].vendor_id, 4660)?
-    test.eq(safe_wire.usb.devices[0].interfaces[0].name, null)?
-    test.eq(safe_wire.usb.devices[0].interfaces[0].alternate_settings[0].configuration_value, 1)?
-    test.eq(safe_wire.usb.devices[0].interfaces[0].alternate_settings[1].configuration_value, 2)?
-    test.eq(safe_wire.usb.devices[0].serial.state, "redacted")?
+  if let Ok(_) = safe.usb.devices.get(0) {
+    safe_wire.usb.devices[0].sysfs_name == null
+    safe_wire.usb.devices[0].port_path == null
+    safe_wire.usb.devices[0].bus_number == null
+    safe_wire.usb.devices[0].controller_pci_index == 1
+    safe_wire.usb.devices[0].vendor_id == 4660
+    safe_wire.usb.devices[0].interfaces[0].name == null
+    safe_wire.usb.devices[0].interfaces[0].alternate_settings[0].configuration_value == 1
+    safe_wire.usb.devices[0].interfaces[0].alternate_settings[1].configuration_value == 2
+    safe_wire.usb.devices[0].serial.state == "redacted"
     ("1-2.3" not in safe_json)
     ("1-2.3" not in safe_text)
   } else {
@@ -2704,25 +2701,25 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
   }
 
   if let Ok(block_device) = safe.storage.devices.get(0) {
-    test.eq(safe_wire.storage.devices[0].name, null)?
-    test.eq(safe_wire.storage.devices[0].major, null)?
-    test.eq(block_device.parent_pci_function_index, 1)?
-    test.eq(safe_wire.storage.devices[0].parent_pci_function_index, 1)?
-    test.eq(safe_wire.storage.devices[0].model.state, "redacted")?
+    safe_wire.storage.devices[0].name == null
+    safe_wire.storage.devices[0].major == null
+    block_device.parent_pci_function_index == 1
+    safe_wire.storage.devices[0].parent_pci_function_index == 1
+    safe_wire.storage.devices[0].model.state == "redacted"
     ("nvme0n1" not in safe_json)
     ("nvme0n1" not in safe_text)
   } else {
     test.fail("block device fixture did not round-trip")?
   }
 
-  if let Ok(mount) = safe.storage.mounts.get(0) {
-    test.eq(safe_wire.storage.mounts[0].major, null)?
-    test.eq(safe_wire.storage.mounts[0].minor, null)?
-    test.eq(safe_wire.storage.mounts[0].block_device_index, 0)?
-    test.eq(safe_wire.storage.mounts[0].target.state, "redacted")?
-    test.eq(safe_wire.storage.mounts[0].mount_options, ["rw", "relatime", "redacted"])?
-    test.eq(safe_wire.storage.mounts[0].optional_fields, ["shared:42", "redacted"])?
-    test.eq(safe_wire.storage.mounts[0].super_options, ["rw", "redacted", "redacted", "redacted"])?
+  if let Ok(_) = safe.storage.mounts.get(0) {
+    safe_wire.storage.mounts[0].major == null
+    safe_wire.storage.mounts[0].minor == null
+    safe_wire.storage.mounts[0].block_device_index == 0
+    safe_wire.storage.mounts[0].target.state == "redacted"
+    safe_wire.storage.mounts[0].mount_options == ["rw", "relatime", "redacted"]
+    safe_wire.storage.mounts[0].optional_fields == ["shared:42", "redacted"]
+    safe_wire.storage.mounts[0].super_options == ["rw", "redacted", "redacted", "redacted"]
     ("private-mount-label" not in safe_json)
     ("private-mount-field" not in safe_json)
     ("/private/host/snapshot" not in safe_json)
@@ -2732,10 +2729,10 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
   }
 
   if let Ok(link) = safe.network.links.get(0) {
-    test.eq(safe_wire.network.links[0].mac.state, "redacted")?
-    test.eq(safe_wire.network.links[0].attributes[0].data.state, "redacted")?
-    if let Ok(address) = link.addresses.get(0) {
-      test.eq(safe_wire.network.links[0].addresses[0].address.state, "redacted")?
+    safe_wire.network.links[0].mac.state == "redacted"
+    safe_wire.network.links[0].attributes[0].data.state == "redacted"
+    if let Ok(_) = link.addresses.get(0) {
+      safe_wire.network.links[0].addresses[0].address.state == "redacted"
     } else {
       test.fail("network address fixture did not round-trip")?
     }
@@ -2744,20 +2741,20 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
   }
 
   if let Ok(safe_route) = safe.network.routes.get(0) {
-    test.eq(safe_route.output_ifindex, 2)?
-    test.eq(safe_route.nexthops[0].ifindex, 2)?
-    test.eq(safe_route.gateway.state, report_model.Redacted)?
-    test.eq(safe_route.nexthops[0].gateway.state, report_model.Redacted)?
-    test.eq(safe_wire.network.routes[0].attributes[0].data.state, "redacted")?
+    safe_route.output_ifindex == 2
+    safe_route.nexthops[0].ifindex == 2
+    safe_route.gateway.state == report_model.Redacted
+    safe_route.nexthops[0].gateway.state == report_model.Redacted
+    safe_wire.network.routes[0].attributes[0].data.state == "redacted"
   } else {
     test.fail("network route fixture did not round-trip")?
   }
 
-  test.eq(safe_wire.sensors.channels[0].label.state, "redacted")?
+  safe_wire.sensors.channels[0].label.state == "redacted"
   ("private-sensor-label" not in safe_json)
   if let Ok(firmware_record) = safe.firmware.records.get(0) {
-    if let Ok(firmware_string) = firmware_record.strings.get(0) {
-      test.eq(safe_wire.firmware.records[0].strings[0].state, "redacted")?
+    if let Ok(_) = firmware_record.strings.get(0) {
+      safe_wire.firmware.records[0].strings[0].state == "redacted"
     } else {
       test.fail("firmware string fixture did not round-trip")?
     }
@@ -2765,22 +2762,22 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
     test.fail("firmware record fixture did not round-trip")?
   }
 
-  if let Ok(kernel_parameter) = safe.kernel.parameters.get(0) {
-    test.eq(safe_wire.kernel.parameters[0].value.state, "redacted")?
+  if let Ok(_) = safe.kernel.parameters.get(0) {
+    safe_wire.kernel.parameters[0].value.state == "redacted"
   } else {
     test.fail("kernel parameter fixture did not round-trip")?
   }
 
   if let Ok(process_item) = safe.processes.processes.get(0) {
-    test.eq(process_item.command.value, "worker")?
-    test.eq(safe_wire.processes.processes[0].cgroup.state, "redacted")?
+    process_item.command.value == "worker"
+    safe_wire.processes.processes[0].cgroup.state == "redacted"
   } else {
     test.fail("process fixture did not round-trip")?
   }
 
   if let Ok(device) = safe.devices.devices.get(0) {
-    if let Ok(attribute) = device.attributes.get(0) {
-      test.eq(safe_wire.devices.devices[0].attributes[0].value.state, "redacted")?
+    if let Ok(_) = device.attributes.get(0) {
+      safe_wire.devices.devices[0].attributes[0].value.state == "redacted"
     } else {
       test.fail("device attribute fixture did not round-trip")?
     }
@@ -2788,8 +2785,8 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
     test.fail("device fixture did not round-trip")?
   }
 
-  if let Ok(issue) = safe.issues.get(0) {
-    test.eq(safe_wire.issues[0].detail.state, "redacted")?
+  if let Ok(_) = safe.issues.get(0) {
+    safe_wire.issues[0].detail.state == "redacted"
   } else {
     test.fail("issue fixture did not round-trip")?
   }
@@ -2798,18 +2795,18 @@ test test_system_report_json_round_trip_and_redaction [fs, error] {
   ("/private/host/snapshot" in sensitive_json)
   ("mount-secret" not in sensitive_json)
   ("private-mount-field" not in sensitive_json)
-  test.eq(json.decode(sensitive_json)?.storage.mounts[0].super_options[2], "redacted")?
-  test.eq(json.decode(sensitive_json)?.storage.mounts[0].super_options[3], "redacted")?
-  test.eq(json.decode(sensitive_json)?.storage.mounts[0].optional_fields, ["shared:42", "redacted"])?
+  json.decode(sensitive_json)?.storage.mounts[0].super_options[2] == "redacted"
+  json.decode(sensitive_json)?.storage.mounts[0].super_options[3] == "redacted"
+  json.decode(sensitive_json)?.storage.mounts[0].optional_fields == ["shared:42", "redacted"]
   ("private-sensor-label" in sensitive_json)
   let sensitive = model.decode_report_json(sensitive_json)?
   ! sensitive.redacted
-  test.eq(sensitive.identity.hostname.value, "workstation-name")?
-  test.eq(sensitive.pci.functions[0].address, "0000:00:1f.6")?
-  test.eq(sensitive.usb.devices[0].sysfs_name, "1-2.3")?
-  test.eq(sensitive.storage.devices[0].name, "nvme0n1")?
-  test.eq(sensitive.network.links[0].attributes[0].data.value, "eA==")?
-  test.eq(sensitive.network.routes[0].nexthops[0].gateway.value, "192.0.2.1")?
+  sensitive.identity.hostname.value == "workstation-name"
+  sensitive.pci.functions[0].address == "0000:00:1f.6"
+  sensitive.usb.devices[0].sysfs_name == "1-2.3"
+  sensitive.storage.devices[0].name == "nvme0n1"
+  sensitive.network.links[0].attributes[0].data.value == "eA=="
+  sensitive.network.routes[0].nexthops[0].gateway.value == "192.0.2.1"
 
   let route_text = model.render_text(sensitive, true, true)?
   "nexthop ifindex=2 flags=1 hops=0 gateway=\"192.0.2.1\"" in route_text
@@ -2852,7 +2849,9 @@ test test_system_report_thermal_trip_indexes_round_trip_and_legacy_unknown [fs, 
   }
   let indexed = json.set(source, ["sensors", "thermal_zones"], [zone])?
   let decoded = model.decode_report_json(json.encode(indexed)?)?
-  (decoded.sensors.thermal_zones[0].trips |> map .index) == [0, 2]
+  let trip_indexes = decoded.sensors.thermal_zones[0].trips |> map .index
+  let expected_trip_indexes: List[Int?] = [0, 2]
+  trip_indexes == expected_trip_indexes
   let encoded = model.encode_report_json(decoded, true, false)?
   (json.get(json.decode(encoded)?, ["sensors", "thermal_zones", 0, "trips", 1, "index"])?.require(Int)?) == 2
   "trip 2 \"passive\"" in (model.render_text(decoded, true, false)?)
@@ -2867,7 +2866,7 @@ test test_system_report_thermal_trip_indexes_round_trip_and_legacy_unknown [fs, 
     ],
   }
   let legacy = model.decode_report_json(json.encode(json.set(source, ["sensors", "thermal_zones"], [legacy_zone])?)?)?
-  test.eq(legacy.sensors.thermal_zones[0].trips[0].index, null)?
+  legacy.sensors.thermal_zones[0].trips[0].index == null
   let duplicate = {...zone, trips: [zone.trips[0], {...zone.trips[1], index: 0}]}
   test.error_kind(
     model.decode_report_json(json.encode(json.set(source, ["sensors", "thermal_zones"], [duplicate])?)?),
@@ -2884,21 +2883,21 @@ test test_system_report_cpufreq_scaling_current_replays_legacy_requested_name [f
   let encoded_fixture = json.encode(json_report_fixture())?
   let source = json.decode(encoded_fixture)?
   let decoded = model.decode_report_json(json.encode(source)?)?
-  test.eq(decoded.cpu.frequency_policies[0].scaling_current_khz, 1800000)?
+  decoded.cpu.frequency_policies[0].scaling_current_khz == 1800000
   let saved = json.decode(model.encode_report_json(decoded, true, false)?)?
   (json.get(saved, ["cpu", "frequency_policies", 0, "scaling_current_khz"])?.require(Int)?) == 1800000
   (json.get(saved, ["cpu", "frequency_policies", 0, "requested_current_khz"], null) == null)
   var legacy = json.remove(source, ["cpu", "frequency_policies", 0, "scaling_current_khz"])?
   legacy = json.set(legacy, ["cpu", "frequency_policies", 0, "requested_current_khz"], 1800000)?
-  test.eq(model.decode_report_json(json.encode(legacy)?)?.cpu.frequency_policies[0].scaling_current_khz, 1800000)?
+  model.decode_report_json(json.encode(legacy)?)?.cpu.frequency_policies[0].scaling_current_khz == 1800000
   let redundant = json.set(source, ["cpu", "frequency_policies", 0, "requested_current_khz"], 1800000)?
-  test.eq(model.decode_report_json(json.encode(redundant)?)?.cpu.frequency_policies[0].scaling_current_khz, 1800000)?
+  model.decode_report_json(json.encode(redundant)?)?.cpu.frequency_policies[0].scaling_current_khz == 1800000
   let legacy_absent = json.set(
     json.remove(source, ["cpu", "frequency_policies", 0, "scaling_current_khz"])?,
     ["cpu", "frequency_policies", 0, "requested_current_khz"],
     null,
   )?
-  test.eq(model.decode_report_json(json.encode(legacy_absent)?)?.cpu.frequency_policies[0].scaling_current_khz, null)?
+  model.decode_report_json(json.encode(legacy_absent)?)?.cpu.frequency_policies[0].scaling_current_khz == null
   let conflicting = json.set(source, ["cpu", "frequency_policies", 0, "requested_current_khz"], 1700000)?
   test.error_kind(model.decode_report_json(json.encode(conflicting)?), "SystemReportError.InvalidJson")?
 }
@@ -2908,9 +2907,9 @@ test test_system_report_usb_runtime_status_replays_legacy_absence [fs, error] {
   let encoded_fixture = json.encode(json_report_fixture())?
   let source = json.decode(encoded_fixture)?
   let decoded = model.decode_report_json(json.encode(source)?)?
-  test.eq(decoded.usb.devices[0].runtime_status, "active")?
+  decoded.usb.devices[0].runtime_status == "active"
   let old = json.remove(source, ["usb", "devices", 0, "runtime_status"])?
-  test.eq(model.decode_report_json(json.encode(old)?)?.usb.devices[0].runtime_status, null)?
+  model.decode_report_json(json.encode(old)?)?.usb.devices[0].runtime_status == null
   let malformed = json.set(source, ["usb", "devices", 0, "runtime_status"], 7)?
   test.error_kind(model.decode_report_json(json.encode(malformed)?), "SystemReportError.InvalidJson")?
 }
@@ -2924,10 +2923,10 @@ test test_system_report_v1_replay_marks_unrecorded_namespaces_unsupported [fs, e
   }
 
   let restored = model.decode_report_json(json.encode(old)?)?
-  test.eq(restored.scope.uts_namespace.state, report_model.Unsupported)?
-  test.eq(restored.scope.ipc_namespace.state, report_model.Unsupported)?
-  test.eq(restored.scope.user_namespace.state, report_model.Unsupported)?
-  test.eq(restored.scope.time_namespace.state, report_model.Unsupported)?
+  restored.scope.uts_namespace.state == report_model.Unsupported
+  restored.scope.ipc_namespace.state == report_model.Unsupported
+  restored.scope.user_namespace.state == report_model.Unsupported
+  restored.scope.time_namespace.state == report_model.Unsupported
 
   let malformed = json.set(old, ["scope", "uts_namespace"], null)?
   test.error_kind(model.decode_report_json(json.encode(malformed)?), "SystemReportError.InvalidJson")?
@@ -2948,10 +2947,10 @@ test test_system_report_v1_replay_keeps_unrecorded_idle_state_index_unknown [fs,
   let encoded_fixture = json.encode(json_report_fixture())?
   let old = json.set(json.decode(encoded_fixture)?, ["cpu", "idle_states"], [legacy_state])?
   let restored = model.decode_report_json(json.encode(old)?)?
-  test.eq(restored.cpu.idle_states.len(), 1)?
-  test.eq(restored.cpu.idle_states[0].state_index, null)?
+  restored.cpu.idle_states.len() == 1
+  restored.cpu.idle_states[0].state_index == null
   let current = json.decode(model.encode_report_json(restored, true, false)?)?
-  test.eq(json.get(current, ["cpu", "idle_states", 0, "state_index"])?, null)?
+  json.get(current, ["cpu", "idle_states", 0, "state_index"])?.require(Int?)? == null
   let invalid = json.set(old, ["cpu", "idle_states", 0, "state_index"], -1)?
   test.error_kind(model.decode_report_json(json.encode(invalid)?), "SystemReportError.InvalidJson")?
   let indexed_state = {...legacy_state, state_index: 0}
@@ -2973,13 +2972,13 @@ test test_system_report_v1_replay_restores_legacy_powercap_constraint [fs, error
   let encoded_fixture = json.encode(json_report_fixture())?
   let old = json.set(json.decode(encoded_fixture)?, ["power", "cap_zones"], [legacy_zone])?
   let restored = model.decode_report_json(json.encode(old)?)?
-  test.eq(restored.power.cap_zones.len(), 1)?
-  test.eq(restored.power.cap_zones[0].entry_name, "package-0")?
-  test.eq(restored.power.cap_zones[0].constraints.len(), 1)?
-  test.eq(restored.power.cap_zones[0].constraints[0].index, 0)?
-  test.eq(restored.power.cap_zones[0].constraints[0].power_limit_uw, 45000000)?
+  restored.power.cap_zones.len() == 1
+  restored.power.cap_zones[0].entry_name == "package-0"
+  restored.power.cap_zones[0].constraints.len() == 1
+  restored.power.cap_zones[0].constraints[0].index == 0
+  restored.power.cap_zones[0].constraints[0].power_limit_uw == 45000000
   let wire = json.decode(model.encode_report_json(restored, true, false)?)?
-  test.eq(json.get(wire, ["power", "cap_zones", 0, "constraints", 0, "power_limit_uw"])?, 45000000)?
+  json.get(wire, ["power", "cap_zones", 0, "constraints", 0, "power_limit_uw"])?.require(Int)? == 45000000
   test.error_kind(json.get(wire, ["power", "cap_zones", 0, "power_limit_uw"]), "json-path")?
 
   let invalid = json.set(old, ["power", "cap_zones", 0, "power_limit_uw"], "invalid")?
@@ -3012,14 +3011,14 @@ test test_system_report_powercap_constraints_round_trip_and_render [fs, error] {
   let encoded_fixture = json.encode(json_report_fixture())?
   let source = json.set(json.decode(encoded_fixture)?, ["power", "cap_zones"], [zone])?
   let decoded = model.decode_report_json(json.encode(source)?)?
-  test.eq(decoded.power.cap_zones[0].entry_name, "intel-rapl:0")?
-  test.eq(decoded.power.cap_zones[0].constraints.len(), 2)?
+  decoded.power.cap_zones[0].entry_name == "intel-rapl:0"
+  decoded.power.cap_zones[0].constraints.len() == 2
   let text = model.render_text(decoded, true, true)?
   "constraint 0 \"long_term\" limit=45000000 uW window=1000000 us" in text
   "constraint 1 \"short_term\" limit=65000000 uW window=250000 us" in text
   let encoded = model.encode_report_json(decoded, true, false)?
   let restored = model.decode_report_json(encoded)?
-  test.eq(restored.power.cap_zones[0].constraints, decoded.power.cap_zones[0].constraints)?
+  restored.power.cap_zones[0].constraints == decoded.power.cap_zones[0].constraints
   let duplicate = json.set(source, ["power", "cap_zones", 0, "constraints", 1, "index"], 0)?
   test.error_kind(model.decode_report_json(json.encode(duplicate)?), "SystemReportError.InvalidJson")?
 }
@@ -3032,10 +3031,10 @@ test test_system_report_replay_withholds_mount_credentials_in_sensitive_json [fs
     json_observation("observed", "smb://user:private-secret@host/share"),
   )?
   let decoded = model.decode_report_json(json.encode(raw)?)?
-  test.eq(decoded.storage.mounts[0].source.state, report_model.Redacted)?
+  decoded.storage.mounts[0].source.state == report_model.Redacted
   let sensitive_json = model.encode_report_json(decoded, true, false)?
   ("private-secret" not in sensitive_json)
-  test.eq(json.decode(sensitive_json)?.storage.mounts[0].source.state, "redacted")?
+  json.decode(sensitive_json)?.storage.mounts[0].source.state == "redacted"
 }
 
 test test_system_report_text_output_escapes_untrusted_controls [fs, error] {
@@ -3121,10 +3120,10 @@ test test_system_report_command_replays_saved_json_offline [fs, process, error] 
 
   let projected = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --section cpu --json ?
   let decoded = json.decode(projected)?
-  test.eq(decoded.schema_version, 1)?
-  test.eq(decoded.identity.hostname.state, "redacted")?
-  test.eq(decoded.cpu.status.state, "complete")?
-  test.eq(decoded.memory.status.state, "not_requested")?
+  decoded.schema_version == 1
+  decoded.identity.hostname.state == "redacted"
+  decoded.cpu.status.state == "complete"
+  decoded.memory.status.state == "not_requested"
   ("workstation-name" not in projected)
   let json_full = run.text ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --from $report_path --section cpu --json --full ?
   json_full == projected
@@ -3153,11 +3152,11 @@ test test_system_report_command_replays_saved_json_offline [fs, process, error] 
 
 test test_system_report_command_usage_retains_invalid_section_cause [process, error] { |ctx|
   let outcome = run.capture --text --accept=[3] ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/core/system-report.xsh" -- --section hardware ?
-  test.ok(outcome.status.exited_with(3))?
-  test.eq(outcome.stdout, "")?
+  outcome.status.exited_with(3)
+  outcome.stdout == ""
   "error: SystemReportCliError.Usage:" in outcome.stderr
   "caused by: SystemReportError.InvalidSection:" in outcome.stderr
-  test.eq(outcome.stderr.split("unknown report section 'hardware'").len(), 3)?
+  outcome.stderr.split("unknown report section 'hardware'").len() == 3
 }
 
 test test_system_report_command_rejects_malformed_replay [fs, process, error] { |ctx|
@@ -4510,9 +4509,10 @@ test test_system_report_cpu_cache_keeps_distinct_kernel_ids_with_same_sharing [f
 test test_system_report_live_collection_rejects_linux_dry_run [fs, process, env, time, error] {
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   env XSH_LINUX_DRY_RUN=1 {
-    match collector.collect_live() {
-      Err(error) => "dry-run mode" in error.message
-      Ok(_) => test.fail("live collection accepted dry-run mode")?
+    if let Err(error) = collector.collect_live() {
+      "dry-run mode" in error.message
+    } else {
+      test.fail("live collection accepted dry-run mode")?
     }
   }
 }
@@ -6303,7 +6303,7 @@ test test_system_report_hwmon_identity_separates_duplicate_chip_names [fs, time,
   let sensitive = model.encode_report_json(snapshot, true, false)?
   let legacy = json.remove(json.decode(sensitive)?, ["sensors", "channels", 0, "chip_entry_name"])?
   let replay = model.decode_report_json(json.encode(legacy)?)?
-  test.eq(replay.sensors.channels[0].chip_entry_name, null)?
+  replay.sensors.channels[0].chip_entry_name == null
   let invalid_parent = json.set(json.decode(sensitive)?, ["sensors", "channels", 0, "parent_pci_function_index"], 99)?
   test.error_kind(model.decode_report_json(json.encode(invalid_parent)?), "SystemReportError.InvalidJson")?
   root.write(
@@ -6514,7 +6514,9 @@ test test_system_report_sensor_and_power_sources_keep_raw_units_and_partial_attr
   thermal.sensors.status.state == report_model.Complete
   thermal.sensors.thermal_zones.len() == 1
   thermal.sensors.thermal_zones[0].id == 3
-  (thermal.sensors.thermal_zones[0].trips |> map .index) == [0, 2]
+  let thermal_trip_indexes = thermal.sensors.thermal_zones[0].trips |> map .index
+  let expected_trip_indexes: List[Int?] = [0, 2]
+  thermal_trip_indexes == expected_trip_indexes
   thermal.sensors.thermal_zones[0].temperature_millidegrees == 41000
   thermal.sensors.thermal_zones[0].trips[0].temperature_millidegrees == 95000
   thermal.sensors.thermal_zones[0].trips[0].hysteresis_millidegrees == 2000
@@ -6528,7 +6530,8 @@ test test_system_report_sensor_and_power_sources_keep_raw_units_and_partial_attr
 """,
   )?
   let malformed_trip = collector.collect_from_root(root, "fixture-arch", 4096, 100, "sensors", true)?
-  (malformed_trip.sensors.thermal_zones[0].trips |> map .index) == [0, 2]
+  let malformed_trip_indexes = malformed_trip.sensors.thermal_zones[0].trips |> map .index
+  malformed_trip_indexes == expected_trip_indexes
   (malformed_trip.issues
       |> any .field == "thermal_zones.thermal_zone3.trip_point_02_temp" and .state == report_model.Malformed)
 
@@ -7339,7 +7342,9 @@ test test_system_report_swap_devices_reject_duplicate_identity_and_impossible_us
   )?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?
   let value = collector.collect_from_root(root, "fixture-arch", 4096, 100, "memory", true)?
-  (value.memory.swaps |> map .name.value) == ["/dev/zram0", "/swap file"]
+  let swap_names = value.memory.swaps |> map .name.value
+  let expected_swap_names: List[Str?] = ["/dev/zram0", "/swap file"]
+  swap_names == expected_swap_names
   let duplicates = value.issues
     |> where .section == "memory" and .field == "swaps" and .error_kind == "duplicate_swap_name"
   let overused = value.issues
@@ -7493,7 +7498,7 @@ test test_system_report_kernel_command_line_preserves_source_whitespace [fs, tim
   let root = fs.tempdir()?
   defer root.close()?
   root.mkdir(p"proc", parents: true)?
-  let source = "  root=UUID=private  quiet  " + "\n"
+  let source = "  root=UUID=private  quiet  \n"
   root.write(p"proc/cmdline", source)?
   root.write(p"proc/modules", "")?
   let collector = module.load(p"core/lib/system_report_live.xsh")?.require(SystemReportLiveCollector)?

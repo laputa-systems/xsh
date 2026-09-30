@@ -2,11 +2,11 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 pure common_int(raw: Str, label: Str) -> Result[Int] {
@@ -18,7 +18,7 @@ pure common_int(raw: Str, label: Str) -> Result[Int] {
     return raw.replace("m", "").replace("M", "").parse_int().context("usage", f"unsupported ${label} '${raw}'")? * 1024 * 1024
   }
 
-  return raw.parse_int().context("usage", f"unsupported ${label} '${raw}'")?
+  raw.parse_int().context("usage", f"unsupported ${label} '${raw}'")?
 }
 
 pure suffix(index: Int) -> Str {
@@ -51,23 +51,19 @@ pure suffix(index: Int) -> Str {
     "z",
   ]
 
-  return f"${letters[index / 26 % 26]}${letters[index % 26]}"
+  f"${letters[index / 26 % 26]}${letters[index % 26]}"
 }
 
 proc read_text_input(source: Str) [fs, error, io] -> Result[Str] {
-  if source == "-" {
-    return io.stdin_text()?
-  }
+  return io.stdin_text()? when source == "-"
 
-  return fp"${source}".read_text()?
+  fp"${source}".read_text()?
 }
 
 proc read_bytes_input(source: Str) [fs, error, io] -> Result[Bytes] {
-  if source == "-" {
-    return io.stdin_bytes()?
-  }
+  return io.stdin_bytes()? when source == "-"
 
-  return fp"${source}".read_bytes()?
+  fp"${source}".read_bytes()?
 }
 
 type SplitOptions = {lines: Str, bytes: Str, suffix_length: Str, paths: List[Str]}
@@ -105,9 +101,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
     return Err(usage_error("split", "[-l N|-b N] [FILE [PREFIX]]"))
   }
 
-  if paths.len() > 2 {
-    return Err(usage_error("split", "[-l N|-b N] [FILE [PREFIX]]"))
-  }
+  return Err(usage_error("split", "[-l N|-b N] [FILE [PREFIX]]")) when paths.len() > 2
 
   let input_path = (paths.get(0) ?? "-")
   let prefix = (paths.get(1) ?? "x")
@@ -118,7 +112,9 @@ proc main(...argv: List[Str]) [fs, error, io] {
     var chunk = 0
 
     while offset < input.len() {
-      fp"${prefix}${suffix(chunk)}".write(input.slice(offset, bytes_per_file))?
+      let remaining = input.len() - offset
+      let chunk_end = if bytes_per_file < remaining {offset + bytes_per_file} else {input.len()}
+      fp"${prefix}${suffix(chunk)}".write(input[offset..chunk_end])?
       offset += bytes_per_file
       chunk += 1
     }
@@ -128,7 +124,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
 
   let input = read_text_input(input_path)?.lines().collect()
   var chunk = 0
-  var current: List[Str] = []
+  var current = []
 
   for item in input |> enumerate() {
     current = current.push(item.value)

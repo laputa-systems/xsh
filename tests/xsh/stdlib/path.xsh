@@ -97,12 +97,15 @@ run printf "%s" (raw_path) ?
 """,
   )?
 
-  test.ok(raw.success, raw.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = raw
+    assert assertion_condition, assertion_message
+  }
   raw.stdout_bytes == b"bad\xffname"
 }
 
 pure path_entry_name(entry: FsEntry) -> Str {
-  return entry.name
+  entry.name
 }
 
 test test_absolute_glob_traverses_symlinked_literal_components [fs, error] { |ctx|
@@ -121,7 +124,10 @@ print \${files[0]}
 """,
   )?
 
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
 
   output.stdout == """hit.txt
 """
@@ -129,17 +135,34 @@ print \${files[0]}
 
 test test_path_interpolation_retains_native_bytes_and_text_boundaries [error] { |ctx|
   let raw = Path.parse_bytes(b"raw\xff name")?
-  test.ok(fp"prefix/${raw}/../end" == Path.parse_bytes(b"prefix/raw\xff name/../end")?)?
-  test.ok(fp"${p"left"}/${"right"}/${7}/${false}" == p"left/right/7/false")?
-  test.ok(fp"${raw:>12}" == Path.parse_bytes(b"   raw\xff name")?)?
-  test.eq(f"${raw}", raw.display())?
-  test.ok(fp"${raw.display()}" != raw)?
+  fp"prefix/${raw}/../end" == Path.parse_bytes(b"prefix/raw\xff name/../end")?
+  fp"${p"left"}/${"right"}/${7}/${false}" == p"left/right/7/false"
+  fp"${raw:>12}" == Path.parse_bytes(b"   raw\xff name")?
+  f"${raw}" == raw.display()
+  fp"${raw.display()}" != raw
   let output = test.run_script(ctx, r"""
 let raw = Path.parse_bytes(b"raw\xff name/'\"")?
 run printf "%s" "--target=$raw" ?
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout_bytes, b"--target=raw\xff name/'\"")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  output.stdout_bytes == b"--target=raw\xff name/'\""
+}
+
+test test_path_text_conversions_remain_distinct_from_native_arguments [error] { |ctx|
+  let output = test.run_script(ctx, r"""
+let raw = Path.parse_bytes(b"raw\xff name")?
+run printf "%s\n" "--target=${raw.display()}" ?
+run printf "%s\n" f"${raw.display()}" ?
+run printf "%s\n" f"${raw}" ?
+run printf "%s\n" (Path(raw.display())) ?
+run printf "%s\n" (Path(f"${raw}/child")) ?
+run printf "%s\n" (raw) ?
+""")?
+  output.success
+  output.stdout_bytes == b"--target=raw\xef\xbf\xbd name\nraw\xef\xbf\xbd name\nraw\xef\xbf\xbd name\nraw\xef\xbf\xbd name\nraw\xef\xbf\xbd name/child\nraw\xff name\n"
 }
 
 test test_path_interpolation_rejects_nul_and_keeps_effect_order [error] { |ctx|
@@ -148,26 +171,29 @@ let text = "\0"
 let invalid = fp"prefix/${text}"
 print "unexpected"
 """)?
-  test.ok(!failed.success)?
-  test.ok("NUL" in failed.stderr)?
+  !failed.success
+  "NUL" in failed.stderr
   let argv_failed = test.run_script(ctx, r"""
 let text = "\0"
 run printf "%s" "value=$text" ?
 """)?
-  test.ok(!argv_failed.success)?
-  test.ok("NUL" in argv_failed.stderr)?
-  test.eq(argv_failed.stdout_bytes, b"")?
+  !argv_failed.success
+  "NUL" in argv_failed.stderr
+  argv_failed.stdout_bytes == b""
   let bytes_failed = test.run_script(ctx, r"""
 let invalid = fp"${b"raw"}"
 """)?
-  test.ok(!bytes_failed.success)?
-  test.ok("display" in bytes_failed.stderr)?
+  !bytes_failed.success
+  "display" in bytes_failed.stderr
   let ordered = test.run_script(ctx, r"""
 proc piece(label: Str) [io] -> Path { print --flush $label; return Path(label) }
 let result = fp"${piece("first")}/${piece("second")}/../last"
 print --flush $result
 run printf "%s\n" "${piece("third")}/${piece("fourth")}" ?
 """)?
-  test.ok(ordered.success, ordered.stderr)?
-  test.eq(ordered.stdout, "first\nsecond\nfirst/second/../last\nthird\nfourth\nthird/fourth\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = ordered
+    assert assertion_condition, assertion_message
+  }
+  ordered.stdout == "first\nsecond\nfirst/second/../last\nthird\nfourth\nthird/fourth\n"
 }

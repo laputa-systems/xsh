@@ -2,11 +2,11 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 pure digit_value(ch: Str) -> Result[Int] {
@@ -19,7 +19,7 @@ pure digit_value(ch: Str) -> Result[Int] {
     "5" => 5
     "6" => 6
     "7" => 7
-    _ => return Err(AppletError.Usage(f"invalid mode digit '${ch}'"))
+    _ => Err(AppletError.Usage(f"invalid mode digit '${ch}'"))
   }
 }
 
@@ -31,11 +31,11 @@ pure octal_mode(raw: Str) -> Result[Int] {
     mode = mode * 8 + digit
   }
 
-  return mode
+  mode
 }
 
 pure who_classes(who: Str) -> Str {
-  return if who == "" or "a" in who { "ugo" } else { who }
+  if who == "" or "a" in who { "ugo" } else { who }
 }
 
 pure class_mask(who: Str) -> Int {
@@ -54,7 +54,7 @@ pure class_mask(who: Str) -> Int {
     mask = mask + 0o1007
   }
 
-  return mask
+  mask
 }
 
 pure perm_mask(perms: Str, who: Str, current: Int, is_dir: Bool) -> Int {
@@ -109,15 +109,15 @@ pure perm_mask(perms: Str, who: Str, current: Int, is_dir: Bool) -> Int {
     }
   }
 
-  return mask
+  mask
 }
 
 pure add_mask(mode: Int, mask: Int) -> Int {
-  return mode.bit_or(mask)
+  mode.bit_or(mask)
 }
 
 pure remove_mask(mode: Int, mask: Int) -> Int {
-  return mode.clear_bits(mask)
+  mode.clear_bits(mask)
 }
 
 pure symbolic_mode(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
@@ -138,9 +138,7 @@ pure symbolic_mode(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
       }
     }
 
-    if op == "" {
-      return Err(AppletError.Usage(f"unsupported mode '${spec}'"))
-    }
+    return Err(AppletError.Usage(f"unsupported mode '${spec}'")) when op == ""
 
     let mask = perm_mask(perms, who, current, is_dir)
 
@@ -152,7 +150,7 @@ pure symbolic_mode(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
     }
   }
 
-  return mode
+  mode
 }
 
 pure mode_for(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
@@ -160,7 +158,7 @@ pure mode_for(spec: Str, current: Int, is_dir: Bool) -> Result[Int] {
     return symbolic_mode(spec, current, is_dir)
   }
 
-  return octal_mode(spec)
+  octal_mode(spec)
 }
 
 type ChmodOptions = {recursive: Bool, paths: List[Str]}
@@ -182,12 +180,9 @@ proc main(...argv: List[Str]) [fs, error] {
       },
     },
   )?
-  let recursive = opts.recursive
-  let paths = opts.paths
+  let {recursive, paths, ..} = opts
 
-  if paths.len() < 2 {
-    return Err(usage_error("chmod", "[-R] MODE PATH..."))
-  }
+  return Err(usage_error("chmod", "[-R] MODE PATH...")) when paths.len() < 2
 
   let mode_spec = paths[0]
 

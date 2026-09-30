@@ -1,3 +1,3 @@
-let name = "world"
+const name = "world"
 let line = f"hello ${name}"
 print $line

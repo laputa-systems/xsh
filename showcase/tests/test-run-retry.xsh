@@ -6,7 +6,7 @@ test test_run_retry [process, error] {
 test test_run_retry_exhaustion_exits_unsuccessfully [fs, process, error] { |ctx|
   let output = test.temp_path(ctx, name: "run-retry-output")
   let status = run.status "xsh" "showcase/run-retry.xsh" -- false > $output
-  test.ok(status.exited_with(1), "exhausted retries must fail the command")?
+  assert status.exited_with(1), "exhausted retries must fail the command"
   "failed after 3" in output.read_text()?
 }
 
@@ -35,10 +35,12 @@ test test_run_retry_cancellation_reaps_child_descendants [fs, process, time, err
     time.sleep(10ms)?
   }
 
-  test.ok(ready.exists()?, "child must start before cancellation")?
+  assert ready.exists()?, "child must start before cancellation"
   process.kill(wrapper.pid, signal: "TERM")?
   let status = wait wrapper?
-  test.ok(status.exited_with(3), f"canceled retry wrapper must exit with status 3, got ${status.exit_code() ?? -1}")?
+  let canceled = status.exited_with(3)
+  let cancellation_message = f"canceled retry wrapper must exit with status 3, got ${status.exit_code() ?? -1}"
+  assert canceled, cancellation_message
   time.sleep(1500ms)?
-  test.ok(! leaked.exists()?, "canceled child group must not leave a descendant running")?
+  assert ! leaked.exists()?, "canceled child group must not leave a descendant running"
 }

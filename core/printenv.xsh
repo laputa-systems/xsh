@@ -11,9 +11,10 @@ proc main(...names: List[Str]) [env, error] {
   var missing = false
 
   for name in names {
-    match env.get(name) {
-      Ok(value) => print $value
-      Err(_) => missing = true
+    if let Ok(value) = env.get(name) {
+      print $value
+    } else {
+      missing = true
     }
   }
 

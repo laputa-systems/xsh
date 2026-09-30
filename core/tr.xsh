@@ -4,15 +4,15 @@ use lib.text_input as text_input
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 pure ascii_chars() -> Str {
-  return """	
+  """\t
  !"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~
 """
 }
@@ -33,7 +33,7 @@ pure expand_classes(spec: Str) -> Str {
 
   out = out.replace("[:upper:]", "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
   out = out.replace("[:xdigit:]", "0123456789ABCDEFabcdef")
-  return out
+  out
 }
 
 pure expand_ranges(spec: Str) -> Str {
@@ -41,7 +41,7 @@ pure expand_ranges(spec: Str) -> Str {
   out = out.replace("a-z", "abcdefghijklmnopqrstuvwxyz")
   out = out.replace("A-Z", "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
   out = out.replace("0-9", "0123456789")
-  return out
+  out
 }
 
 pure complement(chars: Str) -> Str {
@@ -54,7 +54,7 @@ pure complement(chars: Str) -> Str {
     }
   }
 
-  return out
+  out
 }
 
 type TrOptions = {delete: Bool, squeeze: Bool, complement: Bool, values: List[Str]}
@@ -80,10 +80,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
       },
     },
   )?
-  let delete = opts.delete
-  let squeeze = opts.squeeze
-  let complement_set = opts.complement
-  let values = opts.values
+  let {delete, squeeze, complement: complement_set, values, ..} = opts
 
   if delete {
     if values.len() < 1 or values.len() > 2 {

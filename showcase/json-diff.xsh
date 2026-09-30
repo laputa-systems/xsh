@@ -14,7 +14,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let removed = keys_a |> where { |key| key not in json_b }
   let added = keys_b |> where { |key| key not in json_a }
   let common = keys_a |> where { |key| key in json_b }
-  var changed: List[Str] = []
+  var changed = []
   var same = 0
 
   for key in common {
@@ -22,7 +22,7 @@ proc main(...argv: List[Str]) [fs, error] {
     let vb = json.encode(json_b.get(key)?)?
 
     if va != vb {
-      changed = changed.push(key)
+      changed += [key]
     } else {
       same += 1
     }

@@ -1,10 +1,10 @@
 #!/usr/bin/env -S xsh --
 pure ratio_text(used: Int, total: Int) -> Str {
-  if total <= 0 {
+  guard total > 0 else {
     return "0%"
   }
 
-  return f"${used * 100 / total}%"
+  f"${used * 100 / total}%"
 }
 
 proc main(...argv: List[Str]) [fs, process, env, time, error] {
@@ -31,9 +31,8 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
   print f"CPU     ${cpu.count()}"
   print f"Memory  ${bytes.human(mem_used)} / ${bytes.human(memory.total)} (${ratio_text(mem_used, memory.total)})"
 
-  match env.get("SHELL") {
-    Ok(shell) => print f"Shell   ${shell}"
-    Err(_) => {}
+  if let Ok(shell) = env.get("SHELL") {
+    print f"Shell   ${shell}"
   }
 
   print f"Root    ${bytes.human(root.used_1k * 1024)} / ${bytes.human(root.blocks_1k * 1024)} (${root.capacity_percent}%)"

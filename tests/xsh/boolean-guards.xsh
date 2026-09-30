@@ -1,10 +1,10 @@
 test test_boolean_guard_evaluates_once_and_refines_success [error] {
   var calls = 0
   guard (if true { calls += 1; true } else { false }) else { return error.fail("unexpected failure") }
-  test.eq(calls, 1)?
+  calls == 1
   let name: Str? = "ready"
   guard name != null else { return error.fail("missing name") }
-  test.eq(name.trim(), "ready")?
+  name.trim() == "ready"
 }
 
 test test_boolean_guard_failure_keeps_lexical_loop_target [error] {
@@ -14,7 +14,7 @@ test test_boolean_guard_failure_keeps_lexical_loop_target [error] {
     guard number != 2 else { break }
     reached += number
   }
-  test.eq(reached, 1)?
+  reached == 1
 }
 
 pure boolean_guard_failure_refinement(name: Str?) -> Str {
@@ -28,10 +28,10 @@ pure boolean_guard_pattern_refinement(value: Any) -> Str {
 }
 
 test test_boolean_guard_failure_refinement_and_status [process, error] {
-  test.eq(boolean_guard_failure_refinement(" ready "), "ready")?
-  test.eq(boolean_guard_failure_refinement(null), "missing")?
-  test.eq(boolean_guard_pattern_refinement(" ready "), "ready")?
-  test.eq(boolean_guard_pattern_refinement(7), "unknown")?
+  boolean_guard_failure_refinement(" ready ") == "ready"
+  boolean_guard_failure_refinement(null) == "missing"
+  boolean_guard_pattern_refinement(" ready ") == "ready"
+  boolean_guard_pattern_refinement(7) == "unknown"
   let status = run true
   guard status else { return error.fail("true failed") }
 }
@@ -49,8 +49,8 @@ proc choose() [error] -> Int {
 
 print \${choose()}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "failure cleanup\nfunction cleanup\n7\n")?
+  assert output.success, output.stderr
+  output.stdout == "failure cleanup\nfunction cleanup\n7\n"
 }
 
 test test_boolean_guard_condition_error_keeps_identity_and_skips_failure [error] { |ctx|
@@ -59,16 +59,16 @@ pure rejected() -> Result[Bool] { Err(GuardError.condition(message: "condition f
 guard rejected()? else { abort(7) }
 print "unreachable"
 """)?
-  test.eq(output.status, 3)?
-  test.ok("GuardError.condition" in output.stderr)?
-  test.eq("AssertionError.Failed" in output.stderr, false)?
-  test.eq(output.stdout, "")?
+  output.status == 3
+  "GuardError.condition" in output.stderr
+  "AssertionError.Failed" not in output.stderr
+  output.stdout == ""
 }
 
 test test_boolean_guard_false_status_uses_author_failure [error] { |ctx|
   let output = test.run_script(ctx, "let status = run false\nguard status else { abort(7) }\nprint \"unreachable\"\n")?
-  test.eq(output.status, 7)?
-  test.eq(output.stdout, "")?
+  output.status == 7
+  output.stdout == ""
 }
 
 test test_boolean_guard_rejects_fallthrough_and_parameters [error] { |ctx|
@@ -84,7 +84,7 @@ test test_boolean_guard_rejects_fallthrough_and_parameters [error] { |ctx|
     {source: "var name: Str? = \"ready\"\nproc mutate() [] { name = null }\nproc validate() [] { guard name != null else { return }; mutate(); let value: Str = name }\n", code: "check.type-mismatch"},
   ] {
     let output = test.run_script(ctx, source)?
-    test.ok(! output.success, f"accepted invalid guard: ${source}")?
-    test.ok(code in output.stderr)?
+    assert ! output.success, f"accepted invalid guard: ${source}"
+    code in output.stderr
   }
 }

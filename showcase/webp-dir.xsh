@@ -6,7 +6,7 @@ type WebpOptions = {quality: Int, jobs: Int, apply: Bool, root: Path}
 type WebpResult = {converted: Bool}
 
 pure image_ext(ext: Str) -> Bool {
-  return ext == "jpg" or ext == "jpeg" or ext == "png"
+  ext == "jpg" or ext == "jpeg" or ext == "png"
 }
 
 proc main(...argv: List[Str]) [fs, process, error] {
@@ -33,7 +33,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
         default: p".",
       },
     },
-  )?.require(WebpOptions)?
+  )?.require()?
 
   let tmp = fs.tempdir()?
   defer tmp.close()?
@@ -47,7 +47,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
 
   let results = entries
     |> par-map(jobs: opts.jobs) { |entry|
-      var out: WebpResult = {converted: false}
+      var out: WebpResult = WebpResult(converted: false)
       let rel = entry.path.relative_to(opts.root)
       let safe = rel.display().replace("/", "_")
       let webp_name = safe.replace(f".${entry.ext}", ".webp")
@@ -66,17 +66,14 @@ proc main(...argv: List[Str]) [fs, process, error] {
             }
 
             if ok {
-              match tmp_out.metadata() {
-                Ok(meta) => {
-                  if meta.size == 0 {
-                    print f"cwebp: empty output for ${entry.path.display()}"
-                    ok = false
-                  }
-                }
-                Err(_) => {
-                  print f"cwebp: cannot stat output for ${entry.path.display()}"
+              if let Ok(meta) = tmp_out.metadata() {
+                if meta.size == 0 {
+                  print f"cwebp: empty output for ${entry.path.display()}"
                   ok = false
                 }
+              } else {
+                print f"cwebp: cannot stat output for ${entry.path.display()}"
+                ok = false
               }
             }
 

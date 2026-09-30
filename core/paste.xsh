@@ -6,15 +6,13 @@ pure delimiter(raw: Str) -> Str {
 
   return "\t" when raw == ""
 
-  return raw
+  raw
 }
 
 proc read_input(input_path: Str) [fs, error, io] -> Result[List[Str]] {
-  if input_path == "-" {
-    return io.stdin_text()?.lines().collect()
-  }
+  return io.stdin_text()?.lines().collect() when input_path == "-"
 
-  return fp"${input_path}".lines()?.collect()
+  fp"${input_path}".lines()?.collect()
 }
 
 proc paste_serial(paths: List[Str], delim: Str) [fs, error, io] {
@@ -24,7 +22,7 @@ proc paste_serial(paths: List[Str], delim: Str) [fs, error, io] {
 }
 
 proc paste_parallel(paths: List[Str], delim: Str) [fs, error, io] {
-  var columns: List[List[Str]] = []
+  var columns = []
   var count = 0
 
   for item in paths {

@@ -83,15 +83,15 @@ test test_net_module_with_mocks [fs, net, error] { |ctx|
   pool.max_idle_per_host == 1
   net.close_pool("stdlib-test")?
   net.close_all_pools()?
-  test.eq(test.calls(ctx, "net.request")[0].args.method, "GET")?
-  test.eq(test.calls(ctx, "net.request_many")[0].args.requests[0].method, "GET")?
-  test.eq(test.calls(ctx, "net.download")[0].args.dest.require(Path)?.display(), "out")?
-  test.eq(test.calls(ctx, "net.download_many")[0].args.downloads[0].url, "https://example.test/file")?
-  test.eq(test.calls(ctx, "net.upload")[0].args.source.require(Path)?.display(), "in")?
+  (test.calls(ctx, "net.request")[0].args.method) == ("GET")
+  (test.calls(ctx, "net.request_many")[0].args.requests[0].method) == ("GET")
+  (test.calls(ctx, "net.download")[0].args.dest.require(Path)?.display()) == ("out")
+  (test.calls(ctx, "net.download_many")[0].args.downloads[0].url) == ("https://example.test/file")
+  (test.calls(ctx, "net.upload")[0].args.source.require(Path)?.display()) == ("in")
 }
 
 proc net_start_scoped_helper() [net] -> Result[NetJob] {
-  return net.start({
+  net.start({
     method: "GET",
     url: "https://example.test/returned-job",
     max_body_bytes: 1,
@@ -169,7 +169,7 @@ test test_net_start_aliases_share_one_consumption [net, error] { |ctx|
   let alias = job
   alias.cancel()?
   test.error_kind(job.wait(), "net-job-not-live")?
-  test.eq(test.calls(ctx, "net.start")[0].args.method, "GET")?
+  (test.calls(ctx, "net.start")[0].args.method) == ("GET")
 }
 
 test test_net_start_enforces_live_job_capacity [net, error] { |ctx|
@@ -303,7 +303,10 @@ let response = job.wait()?
 print \${response.status}
 """
     let trace = test.run_xsht_trace(ctx, source, ["--trace", "--raw", "--trace-format", "jsonl"])?
-    test.ok(trace.success, trace.stderr)?
+    {
+      let {success: assertion_condition, stderr: assertion_message, ..} = trace
+      assert assertion_condition, assertion_message
+    }
     trace.stdout == """200
 """
     "\"kind\":\"net.job.accepted\"" in trace.stderr
@@ -316,7 +319,11 @@ print \${response.status}
     "\"job_id\":1" in trace.stderr
     "\"queue_duration_us\":" in trace.stderr
     "\"transport_duration_us\":" in trace.stderr
-    test.ok("trace-secret" not in trace.stderr, trace.stderr)?
+    {
+      let assertion_condition = "trace-secret" not in trace.stderr
+      let assertion_message = trace.stderr
+      assert assertion_condition, assertion_message
+    }
   }
 }
 

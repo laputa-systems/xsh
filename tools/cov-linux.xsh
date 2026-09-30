@@ -1,52 +1,43 @@
 error CoverageError = Failed(message: Str)
 
 pure join_path(entries: List[Path]) -> Str {
-  return [entry.display() for entry in entries].join(":")
+  [entry.display() for entry in entries].join(":")
 }
 
 pure repo_path(root: Path, value: Str) -> Path {
-  if value.starts_with("/") {
-    return fp"${value}"
-  }
+  return fp"${value}" when value.starts_with("/")
 
-  return fp"${root}/${value}"
+  fp"${root}/${value}"
 }
 
 proc env_path(root: Path, name: Str, default: Path) [env, error] -> Result[Path] {
   let value = env.get_or(name, "")?.trim()
 
-  if value == "" {
-    return default
-  }
+  return default when value == ""
 
-  return repo_path(root, value)
+  repo_path(root, value)
 }
 
 proc cargo_bin_dir(root: Path) [process, env, error] -> Result[Path] {
   let configured = env.get_or("XSH_COV_CARGO_BIN", "")?.trim()
 
-  if configured != "" {
-    return repo_path(root, configured)
+  return repo_path(root, configured) when configured != ""
+
+  if let Ok(cargo) = process.which("cargo") {
+    return cargo.parent()
   }
 
-  match process.which("cargo") {
-    Ok(cargo) => return cargo.parent()
-    Err(_) => {}
-  }
-
-  return /root/.cargo/bin
+  /root/.cargo/bin
 }
 
 proc rust_host() [process, error] -> Result[Str] {
   let version: Str = run.text rustc -vV ?
 
   for line in version.lines() {
-    if line.starts_with("host: ") {
-      return line.split(": ")[1]
-    }
+    return line.split(": ")[1] when line.starts_with("host: ")
   }
 
-  return Err(CoverageError.Failed("coverage: rustc -vV did not report a host triple"))
+  Err(CoverageError.Failed("coverage: rustc -vV did not report a host triple"))
 }
 
 proc find_llvm_tool(tool: Str) [fs, process, error] -> Result[Path] {
@@ -56,18 +47,14 @@ proc find_llvm_tool(tool: Str) [fs, process, error] -> Result[Path] {
   let candidates = [fp"${sysroot}/lib/rustlib/${host}/bin/${tool}", fp"${sysroot}/bin/${tool}"]
 
   for candidate in candidates {
-    if candidate.exists()? and fs.executable(candidate)? {
-      return candidate
-    }
+    return candidate when candidate.exists()? and fs.executable(candidate)?
   }
 
   for entry in fs.walk(sysroot)? {
-    if entry.kind == "file" and entry.name == tool and entry.executable {
-      return entry.path
-    }
+    return entry.path when entry.kind == "file" and entry.name == tool and entry.executable
   }
 
-  return Err(CoverageError.Failed(f"coverage: could not find ${tool}; install rustup component llvm-tools-preview"))
+  Err(CoverageError.Failed(f"coverage: could not find ${tool}; install rustup component llvm-tools-preview"))
 }
 
 proc remove_dir(target: Path) [fs, error] {
@@ -86,15 +73,13 @@ proc collect_profraw(raw_dir: Path) [fs, error] -> Result[List[Str]] {
     return Err(CoverageError.Failed(f"coverage: no .profraw files were produced in ${raw_dir.display()}"))
   }
 
-  return paths
+  paths
 }
 
 proc collect_objects(dir: Path) [fs, error] -> Result[List[Str]] {
-  var objects: List[Str] = []
+  var objects = []
 
-  if ! dir.exists()? {
-    return objects
-  }
+  return objects unless dir.exists()?
 
   for entry in fs.children(dir)?
     |> where .kind == "file" and .executable
@@ -102,7 +87,7 @@ proc collect_objects(dir: Path) [fs, error] -> Result[List[Str]] {
     objects = objects.push(entry.path.display())
   }
 
-  return objects
+  objects
 }
 
 pure cov_args(profdata: Path, objects: List[Str]) -> List[Str] {
@@ -114,11 +99,11 @@ pure cov_args(profdata: Path, objects: List[Str]) -> List[Str] {
   ]
 
   for object in objects {
-    llvm_args = llvm_args.push("--object")
-    llvm_args = llvm_args.push(object)
+    llvm_args += ["--object"]
+    llvm_args += [object]
   }
 
-  return llvm_args
+  llvm_args
 }
 
 proc main() [fs, process, env, error, io] {

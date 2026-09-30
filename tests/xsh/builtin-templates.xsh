@@ -19,8 +19,8 @@ proc main() [error] {
   print empty.len()
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "onetwo\none:two\n7\ntrue\ntrue\n0\n9\ntwo\none:two\n0\n")?
+  assert output.success, output.stderr
+  output.stdout == "onetwo\none:two\n7\ntrue\ntrue\n0\n9\ntwo\none:two\n0\n"
 }
 
 test test_builtin_templates_preserve_nested_values_across_call_spellings [error] { |ctx|
@@ -46,8 +46,8 @@ proc main() [error] {
   print updated.keys().join(separator: ",")
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "7\n7\n7\n3\n9\n2\none,two\n")?
+  assert output.success, output.stderr
+  output.stdout == "7\n7\n7\n3\n9\n2\none,two\n"
 }
 
 test test_builtin_templates_evaluate_named_arguments_in_source_order [error] { |ctx|
@@ -65,8 +65,8 @@ proc main() [] {
   print ${untouched == null}
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "receiver\nvalue\nkey\n2\nfalse\ntrue\n")?
+  assert output.success, output.stderr
+  output.stdout == "receiver\nvalue\nkey\n2\nfalse\ntrue\n"
 }
 
 test test_builtin_templates_reject_incompatible_concrete_operands [error] { |ctx|
@@ -82,8 +82,8 @@ test test_builtin_templates_reject_incompatible_concrete_operands [error] { |ctx
     r"""let values: Map[Int] = {one: 1}; let _ = values.push("one", 2)""",
   ] {
     let output = test.run_script(ctx, source)?
-    test.ok(!output.success, source)?
-    test.ok(("check.type-mismatch" in output.stderr), output.stderr)?
+    assert !output.success, source
+    assert "check.type-mismatch" in output.stderr, output.stderr
   }
 }
 
@@ -103,8 +103,8 @@ proc main() [error] {
   let _ = map.empty()
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "0\n7\ntwo\n0\n")?
+  assert output.success, output.stderr
+  output.stdout == "0\n7\ntwo\n0\n"
 }
 
 test test_builtin_templates_keep_result_return_contracts_under_success_contexts [error] { |ctx|
@@ -120,11 +120,11 @@ proc main() [error] {
   print encoded_return(10)?
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "7\n8\n9\n10\n")?
+  assert output.success, output.stderr
+  output.stdout == "7\n8\n9\n10\n"
   let invalid = test.run_script(ctx, r"""let text: Str = json.encode(1)""")?
-  test.ok(!invalid.success, invalid.stderr)?
-  test.ok("check.type-mismatch" in invalid.stderr, invalid.stderr)?
+  assert !invalid.success, invalid.stderr
+  assert "check.type-mismatch" in invalid.stderr, invalid.stderr
 }
 
 test test_builtin_templates_match_materialized_line_and_collection_values [error] { |ctx|
@@ -149,8 +149,8 @@ proc main() [] {
   print "one\n".lines().len()
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "2\n1\n3\n1\n")?
+  assert output.success, output.stderr
+  output.stdout == "2\n1\n3\n1\n"
 }
 
 test test_builtin_templates_do_not_certify_dynamic_receiver_domains [fs, process, error] { |ctx|
@@ -160,7 +160,7 @@ test test_builtin_templates_do_not_certify_dynamic_receiver_domains [fs, process
   ] {
     let candidate = test.temp_file(ctx, name: "dynamic-receiver.xsh", contents: bytes.from_text(source))?
     let output = run.capture --text "xsht" check $candidate ?
-    test.ok(!output.status.exited_with(0), source)?
-    test.ok("check.dynamic-boundary" in output.stderr, output.stderr)?
+    assert !output.status.exited_with(0), source
+    assert "check.dynamic-boundary" in output.stderr, output.stderr
   }
 }

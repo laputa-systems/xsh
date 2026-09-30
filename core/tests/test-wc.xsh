@@ -1,5 +1,5 @@
 proc normalized_counts(output: Str) [error] -> Str {
-  return output.words().join(" ")
+  output.words().join(" ")
 }
 
 test test_wc_counts [fs, process, env, error] { |ctx|

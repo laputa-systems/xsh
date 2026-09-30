@@ -4,7 +4,7 @@ use targets as target_policy
 
 ## Constructs the default Linux lifecycle context.
 export pure linux_context(root: Path, profile: Str = "dist") -> Result[context.Context] {
-  return Ok({
+  Ok({
     root: root,
     target_dir: fp"${root}/target",
     coverage_dir: fp"${root}/target/cov",
@@ -19,7 +19,7 @@ export pure linux_context(root: Path, profile: Str = "dist") -> Result[context.C
 
 ## Constructs the Darwin lifecycle context.
 export pure darwin_context(root: Path, profile: Str = "dist") -> Result[context.Context] {
-  return Ok({
+  Ok({
     root: root,
     target_dir: fp"${root}/target",
     coverage_dir: fp"${root}/target/cov",
@@ -34,7 +34,7 @@ export pure darwin_context(root: Path, profile: Str = "dist") -> Result[context.
 
 ## Constructs the Linux ARM lifecycle context used by Docker argv tests.
 export pure linux_aarch64_context(root: Path, profile: Str = "dist") -> Result[context.Context] {
-  return Ok({
+  Ok({
     root: root,
     target_dir: fp"${root}/target",
     coverage_dir: fp"${root}/target/cov",

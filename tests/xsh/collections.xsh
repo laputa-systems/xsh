@@ -27,7 +27,7 @@ test test_list_comprehension_with_record_destructuring [error] {
 error FsError = NotFound(file: Path) : NotFound | PermissionDenied(file: Path, op: Str) : PermissionDenied
 
 proc missing(file: Path) [error] -> Result[Str, FsError] {
-  return Err(FsError.NotFound(file:))
+  Err(FsError.NotFound(file:))
 }
 
 test test_nominal_error_payload_and_facet_patterns [error] {
@@ -54,7 +54,7 @@ pure count_lines(lines: List[Str]) -> Stats {
     }
   }
 
-  return stats
+  stats
 }
 
 test test_local_accumulator_field_mutation [error] {
@@ -87,7 +87,8 @@ print \${label} \${value} \${files |> count()}
 """,
   )?
 
-  test.ok(output.success, output.stderr)?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
 
   output.stdout == """three 3 1
 """
@@ -117,8 +118,8 @@ test test_ergonomic_sugar_pass_forms [fs, error] { |ctx|
   version == "1"
   jobs == "1"
   ok == "set"
-  test.eq(metadata.name, "demo")?
-  test.eq(metadata.jobs, "1")?
+  metadata.name == "demo"
+  metadata.jobs == "1"
 }
 
 test test_multi_clause_list_comprehension_encounter_order [error] {
@@ -130,14 +131,14 @@ test test_multi_clause_list_comprehension_encounter_order [error] {
     if inner != 1
     if outer + inner < 5
   ]
-  test.eq(pairs, [10, 30])?
+  pairs == [10, 30]
   let empty = [
     inner
     for outer in [1]
     if false
     for inner in [outer]
   ]
-  test.eq(empty, [])?
+  empty == []
 }
 
 test test_multi_clause_comprehension_bindings_are_lexical [error] { |ctx|
@@ -151,8 +152,9 @@ proc main() [io] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "2,3,10\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "2,3,10\n"
 }
 
 test test_multi_clause_map_comprehension_later_entries_win [error] {
@@ -163,8 +165,8 @@ test test_multi_clause_map_comprehension_later_entries_win [error] {
     for number in entry.values
     if number != 2
   }
-  test.eq((by_key.get("a") ?? 0), 4)?
-  test.eq((by_key.get("b") ?? 0), 3)?
+  (by_key.get("a") ?? 0) == 4
+  (by_key.get("b") ?? 0) == 3
 }
 
 test test_multi_clause_comprehension_evaluates_only_reached_clauses [error] { |ctx|
@@ -185,8 +187,9 @@ proc main() [io] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "iter 1\nvalue 1:1\niter 3\nvalue 3:1\n2\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "iter 1\nvalue 1:1\niter 3\nvalue 3:1\n2\n"
 }
 
 test test_multi_clause_comprehension_pulls_streams_lazily_and_closes [error] { |ctx|
@@ -211,8 +214,9 @@ proc main() [io] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pull outer:1\npull inner:1\nvalue 1:1\npull inner:2\nvalue 1:2\nclose inner\npull outer:2\nclose outer\n2\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "pull outer:1\npull inner:1\nvalue 1:1\npull inner:2\nvalue 1:2\nclose inner\npull outer:2\nclose outer\n2\n"
 }
 
 test test_multi_clause_comprehension_failure_closes_nested_streams [error] { |ctx|
@@ -237,19 +241,19 @@ proc main() [io, error] {
 }
 """,
   )?
-  test.eq(output.success, false)?
-  test.eq(output.stdout, "pull outer:1\npull inner:1\nclose inner\nclose outer\n")?
+  ! output.success
+  output.stdout == "pull outer:1\npull inner:1\nclose inner\nclose outer\n"
   "failure" in output.stderr
 }
 
 test test_multi_clause_comprehension_rejects_forward_bindings [error] { |ctx|
   let output = test.run_script(ctx, "let values = [inner for outer in [1] if inner == 1 for inner in [outer]]\n")?
-  test.eq(output.success, false)?
+  ! output.success
   "inner" in output.stderr
 }
 
 pure comprehension_values(number: Int) -> Result[List[Int]] {
-  return Ok([number, number + 1])
+  [number, number + 1]
 }
 
 test test_multi_clause_comprehension_accepts_fallible_iterables [error] {
@@ -259,7 +263,7 @@ test test_multi_clause_comprehension_accepts_fallible_iterables [error] {
     for inner in comprehension_values(outer)
     if inner != 2
   ]
-  test.eq(values, [1, 3])?
+  values == [1, 3]
 }
 
 test test_multi_clause_comprehension_propagation_retains_result_and_cleanup [error] { |ctx|
@@ -287,12 +291,13 @@ proc main() [io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "close inner\nclose outer\nfailure\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "close inner\nclose outer\nfailure\n"
 }
 
-pure list_splice_default(values: List[Int] = [1, @[2, 3]]) -> List[Int] {
-  return values
+pure list_splice_default(values = [1, @[2, 3]]) -> List[Int] {
+  values
 }
 
 test test_list_literal_splicing_preserves_types_nesting_and_aliases [error] {
@@ -302,28 +307,29 @@ test test_list_literal_splicing_preserves_types_nesting_and_aliases [error] {
   let combined_alias = combined
   middle += [9]
   combined += [7]
-  test.eq(source_alias, [2, 3])?
-  test.eq(middle, [2, 3, 9])?
-  test.eq(combined_alias, [1, 2, 3, 4, 5, 6])?
-  test.eq(combined, [1, 2, 3, 4, 5, 6, 7])?
+  source_alias == [2, 3]
+  middle == [2, 3, 9]
+  combined_alias == [1, 2, 3, 4, 5, 6]
+  combined == [1, 2, 3, 4, 5, 6, 7]
   let nested = [[1], @[[2], [3]], [4]]
-  test.eq(nested, [[1], [2], [3], [4]])?
-  let empty: List[Str] = [@[], @[]]
-  test.eq(empty, [])?
+  nested == [[1], [2], [3], [4]]
+  let empty = [@[], @[]]
+  empty == []
+  empty + ["ready"] == ["ready"]
   let inferred = [@[], 8, @[]]
-  test.eq(inferred, [8])?
-  let typed: List[Int] = [
+  inferred == [8]
+  let typed = [
     @(
-      [1] + [2]
+      [1, 2]
     ),
     3,
   ]
-  test.eq(typed, [1, 2, 3])?
+  typed == [1, 2, 3]
   let rows: List[Entry] = [{name: "first", score: 1}, @[{name: "second", score: 2}]]
-  test.eq(rows[1].name, "second")?
-  test.eq(list_splice_default(), [1, 2, 3])?
-  let declared: List[Path] = [p"first", @[p"second"]]
-  test.eq(declared, [p"first", p"second"])?
+  rows[1].name == "second"
+  list_splice_default() == [1, 2, 3]
+  let declared = [p"first", @[p"second"]]
+  declared == [p"first", p"second"]
 }
 
 test test_list_literal_splicing_evaluates_left_to_right_once [error] { |ctx|
@@ -341,8 +347,9 @@ let result = [item(1), @items(2), item(4), @items(5)]
 print result.len()
 """,
   )?
-  test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "item 1\nsplice 2\nitem 4\nsplice 5\n6\n")?
+  let {success: succeeded, stderr: failure_details, ..} = result
+  assert succeeded, failure_details
+  result.stdout == "item 1\nsplice 2\nitem 4\nsplice 5\n6\n"
 }
 
 test test_list_literal_splicing_propagates_before_later_elements [error] { |ctx|
@@ -361,9 +368,11 @@ let values = [item(1), @(flags()?), item(9)]
 print values.len()
 """,
   )?
-  test.ok(! result.success, result.stderr)?
+  let rejected = ! result.success
+  let rejection_details = result.stderr
+  assert rejected, rejection_details
   "stop building" in result.stderr
-  test.eq(result.stdout, "item 1\nflags\n")?
+  result.stdout == "item 1\nflags\n"
 }
 
 test test_list_literal_splicing_rejects_non_lists_and_incompatible_elements [error] { |ctx|
@@ -377,19 +386,23 @@ test test_list_literal_splicing_rejects_non_lists_and_incompatible_elements [err
     "let value = [1, @[\"wrong\"]]\n",
   ] {
     let result = test.run_script(ctx, source)?
-    test.ok(! result.success, result.stderr)?
+    let rejected = ! result.success
+    let rejection_details = result.stderr
+    assert rejected, rejection_details
     "check." in result.stderr
   }
   let ambiguous = test.run_script(ctx, "let value = [@[1] for x in [2]]\n")?
-  test.ok(! ambiguous.success, ambiguous.stderr)?
+  let rejected = ! ambiguous.success
+  let rejection_details = ambiguous.stderr
+  assert rejected, rejection_details
   "parse." in ambiguous.stderr
 }
 
 test test_list_literal_splicing_handles_results_explicitly_and_composes_with_argv [error] {
-  let loaded: Result[List[Str]] = Ok(["-O2", "-g"])
+  let loaded = Ok(["-O2", "-g"])
   let argv = ["cc", @(loaded?), "-o", "app"]
   let _ = process.command_argv("true", ["true", @argv])
-  test.eq(argv, ["cc", "-O2", "-g", "-o", "app"])?
+  argv == ["cc", "-O2", "-g", "-o", "app"]
 }
 
 test test_multi_clause_comprehension_cleanup_precedes_block_and_function_defers [error] { |ctx|
@@ -417,6 +430,7 @@ proc main() [io, error] {
   }
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "close inner\nclose outer\nblock\nfunction\nfailure\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "close inner\nclose outer\nblock\nfunction\nfailure\n"
 }

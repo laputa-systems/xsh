@@ -3,9 +3,7 @@
 export proc read_text(paths: List[Str]) [fs, error, io] -> Result[Str] {
   var out = ""
 
-  if paths.len() == 0 {
-    return io.stdin_text()?
-  }
+  return io.stdin_text()? when paths.len() == 0
 
   for item in paths {
     if item == "-" {
@@ -15,5 +13,5 @@ export proc read_text(paths: List[Str]) [fs, error, io] -> Result[Str] {
     }
   }
 
-  return out
+  out
 }

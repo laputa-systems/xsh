@@ -7,12 +7,13 @@ proc build() [error] -> Result[List[Str]] {
   built
 }
 
-proc fail_explicitly() [error] -> Result[List[Str]] {
-  return Err(ReturnError.Failure("explicit failure"))
+proc fail_explicitly(fail = true) [error] -> Result[List[Str]] {
+  return Err(ReturnError.Failure("explicit failure")) when fail
+  ["ok"]
 }
 
 proc fail_leaf() [error] -> Result[Int] {
-  return Err(ReturnError.Failure("propagated failure"))
+  Err(ReturnError.Failure("propagated failure"))
 }
 
 proc fail_through_question() [error] -> Result[Int] {
@@ -56,7 +57,8 @@ print parse_uint("42", 10)
     "parse-uint.xsh",
   )?
 
-  test.ok(output.success, output.stderr)?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
   output.stdout == """42
 """
 
@@ -79,7 +81,9 @@ print parse_uint("not-a-number", 10)
     "parse-uint-invalid.xsh",
   )?
 
-  test.ok(invalid.status != 0, invalid.stderr)?
+  let rejected = invalid.status != 0
+  let rejection_details = invalid.stderr
+  assert rejected, rejection_details
   "parse-int: invalid integer" in invalid.stderr
 }
 
@@ -105,14 +109,16 @@ test test_result_return_shapes_agree [error] {
   build()? == ["ok"]
   implicit_unit()?
 
-  match fail_explicitly() {
-    Err(error) => error.message == "explicit failure"
-    _ => false
+  if let Err(error) = fail_explicitly() {
+    error.message == "explicit failure"
+  } else {
+    false
   }
 
-  match fail_through_question() {
-    Err(error) => test.eq(error.message, "propagated failure")?
-    _ => false
+  if let Err(error) = fail_through_question() {
+    error.message == "propagated failure"
+  } else {
+    false
   }
 }
 
@@ -157,7 +163,8 @@ print direct[0] alias[0] middle(3)?
 """,
   )?
 
-  test.ok(output.success, output.stderr)?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
   output.stdout == """ok ok 3
 """
 }
@@ -190,7 +197,9 @@ print values[0]?[0] values[1]?[0]
     {XSH_MODULE_PATH: module_dir.display()},
   )?
 
-  test.ok(output.status == 0, output.stderr)?
+  let succeeded = output.status == 0
+  let failure_details = output.stderr
+  assert succeeded, failure_details
   output.stdout == """ok ok
 """
 }

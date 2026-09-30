@@ -4,5 +4,5 @@ const header = {version: format_version, delays: retry_delays}
 var configured = header
 configured.delays += [2s]
 print $format_version
-print ${header.delays.len()}
-print ${configured.delays.len()}
+print header.delays.len()
+print configured.delays.len()

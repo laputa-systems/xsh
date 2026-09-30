@@ -6,7 +6,7 @@ use verify
 
 ## Returns the exact SHA-256 sidecar content using the repository-relative artifact path.
 export proc checksum_line(artifact_path: Path, root: Path) [fs, error] -> Result[Str] {
-  return f"""${hash.sha256(artifact_path)?.hex()}  ${artifact_path.relative_to(root).display()}
+  f"""${hash.sha256(artifact_path)?.hex()}  ${artifact_path.relative_to(root).display()}
 """
 }
 
@@ -70,7 +70,7 @@ export pure core_install_path(relative_source: Path) -> Path {
   } else {
     relative
   }
-  return fp"core/${command}"
+  fp"core/${command}"
 }
 
 ## Collects core script sources deterministically while excluding the native test subtree.
@@ -83,12 +83,12 @@ export proc core_sources(ctx: context.Context) [fs, error] -> Result[List[Path]]
       let relative = entry.path.relative_to(core)
 
       if ! relative.display().starts_with("tests/") {
-        sources = sources.push(relative)
+        sources += [relative]
       }
     }
   }
 
-  return sources |> sort
+  sources |> sort
 }
 
 ## Stages, archives, and checksums the core scripts package with stable source ordering.
@@ -130,7 +130,7 @@ export proc package_core(ctx: context.Context, tag: Str) [fs, error] -> Result[U
       parents: true,
       overwrite: true,
     )?
-    archive_entries = archive_entries.push(installed)
+    archive_entries += [installed]
   }
 
   archive.tar_create(core_archive, stage, archive_entries, compression: "xz", overwrite: true)?

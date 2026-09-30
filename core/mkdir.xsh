@@ -2,11 +2,11 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 pure common_mode(raw: Str) -> Result[Int] {
@@ -23,7 +23,7 @@ pure common_mode(raw: Str) -> Result[Int] {
     "420" => 420
     "384" => 384
     "448" => 448
-    _ => return Err(AppletError.Usage(f"unsupported mode '${raw}'"))
+    _ => Err(AppletError.Usage(f"unsupported mode '${raw}'"))
   }
 }
 

@@ -2,8 +2,8 @@ test test_boolean_statement_failure_stops_script [error] { |ctx|
   let output = test.run_script(ctx, "1 == 2\nprint \"unreachable\"\n")?
   output.status == 3
   output.stdout == ""
-  test.ok("1 == 2" in output.stderr, output.stderr)?
-  test.ok("AssertionError" in output.stderr, output.stderr)?
+  assert "1 == 2" in output.stderr, output.stderr
+  assert "AssertionError" in output.stderr, output.stderr
 }
 
 test test_boolean_values_and_explicit_discards_remain_values [error] { |ctx|
@@ -17,7 +17,7 @@ let value = predicate()
 let retried = retry [] { false }?
 print f"\${value} \${dynamic()} \${wrapped()?} \${wrapped_any()?} \${retried}"
 """)?
-  test.ok(output.success, output.stderr)?
+  assert output.success, output.stderr
   output.stdout == "false false false false false\n"
 }
 
@@ -59,7 +59,7 @@ yes == true
 not_all == false
 print "done"
 """)?
-  test.ok(output.success, output.stderr)?
+  assert output.success, output.stderr
   output.stdout == "done\n"
 }
 
@@ -78,9 +78,9 @@ let _ = retry [0ms, 0ms] {
 }?
 attempts == 3
 """)?
-  test.ok(output.success, output.stderr)?
-  test.ok("false" in output.stdout, output.stdout)?
-  test.ok("unexpected" not in output.stdout, output.stdout)?
+  assert output.success, output.stderr
+  assert "false" in output.stdout, output.stdout
+  assert "unexpected" not in output.stdout, output.stdout
 }
 
 test test_assertion_defers_preserve_primary_failure [error] { |ctx|
@@ -98,8 +98,8 @@ print "unreachable"
 """)?
   output.status == 3
   output.stdout == "last\nfirst\n"
-  test.ok("AssertionError.Failed" in output.stderr, output.stderr)?
-  test.ok("8 < 3" in output.stderr, output.stderr)?
+  assert "AssertionError.Failed" in output.stderr, output.stderr
+  assert "8 < 3" in output.stderr, output.stderr
 }
 
 test test_assertion_contexts_require_result_effect_and_compatible_error [error] { |ctx|
@@ -111,7 +111,7 @@ test test_assertion_contexts_require_result_effect_and_compatible_error [error] 
     "p\"missing\".exists()\n",
   ] {
     let output = test.run_script(ctx, source)?
-    test.eq(output.status, 2, output.stderr)?
+    assert output.status == 2, output.stderr
   }
 }
 
@@ -133,7 +133,7 @@ p"foo" in p"foobar"
 "é" not in "cafe"
 print "done"
 """)?
-  test.ok(output.success, output.stderr)?
+  assert output.success, output.stderr
   output.stdout == "done\n"
 }
 
@@ -151,7 +151,7 @@ proc check() {
 check()?
 print "done"
 """)?
-  test.ok(passed.success, passed.stderr)?
+  assert passed.success, passed.stderr
   passed.stdout == "done\n"
   let failed = test.run_script(ctx, "let condition = false\ncondition\nprint \"unreachable\"\n")?
   failed.status == 3
@@ -177,7 +177,7 @@ let status = run.status false
 let _ = status
 print "done"
 """)?
-  test.ok(output.success, output.stderr)?
+  assert output.success, output.stderr
   output.stdout == "done\n"
   let integer = test.run_script(ctx, "7\n")?
   integer.status == 7
@@ -192,28 +192,28 @@ for failure in [test.ok(false, message: "custom"), test.eq(1, 2), test.ne(1, 1)]
   }
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.ok("custom" in output.stdout, output.stdout)?
-  test.ok("unexpected" not in output.stdout, output.stdout)?
+  assert output.success, output.stderr
+  assert "custom" in output.stdout, output.stdout
+  assert "unexpected" not in output.stdout, output.stdout
 }
 
 test test_assertion_diagnostics_include_values_and_only_evaluated_operands [error] { |ctx|
   let equality = test.run_script(ctx, "let actual = [1, 2]\nactual == [1, 3]\n")?
   equality.status == 3
-  test.ok("left: [1, 2]" in equality.stderr, equality.stderr)?
-  test.ok("right: [1, 3]" in equality.stderr, equality.stderr)?
+  assert "left: [1, 2]" in equality.stderr, equality.stderr
+  assert "right: [1, 3]" in equality.stderr, equality.stderr
   let membership = test.run_script(ctx, "\"missing\" in {present: null}\n")?
   membership.status == 3
-  test.ok("missing" in membership.stderr, membership.stderr)?
-  test.ok("present: null" in membership.stderr, membership.stderr)?
+  assert "missing" in membership.stderr, membership.stderr
+  assert "present: null" in membership.stderr, membership.stderr
   let compound = test.run_script(ctx, "proc skipped() -> Result[Bool] { print \"skipped\"; true }\nfalse and skipped()?\n")?
   compound.status == 3
   compound.stdout == ""
   let difference = test.run_script(ctx, "let actual = \"old\\nline\\n\"\nactual == \"new\\nline\\n\"\n")?
   difference.status == 3
-  test.ok("diff:" in difference.stderr, difference.stderr)?
-  test.ok("-old" in difference.stderr, difference.stderr)?
-  test.ok("+new" in difference.stderr, difference.stderr)?
+  assert "diff:" in difference.stderr, difference.stderr
+  assert "-old" in difference.stderr, difference.stderr
+  assert "+new" in difference.stderr, difference.stderr
 }
 
 test test_assertion_diagnostics_bound_record_field_names [error] { |ctx|
@@ -221,7 +221,7 @@ test test_assertion_diagnostics_bound_record_field_names [error] { |ctx|
   for _ in range(1000) { field = field + "abcdefghij" }
   let output = test.run_script(ctx, f"let actual = {${field}: null}\n\"missing\" in actual\n")?
   output.status == 3
-  test.ok("abcdefghij" in output.stderr, output.stderr)?
+  assert "abcdefghij" in output.stderr, output.stderr
   output.stderr.byte_len() < 4096
 }
 
@@ -237,9 +237,9 @@ proc local() [] {
 local()?
 p".".exists()?
 """)?
-  test.ok(output.success, output.stderr)?
-  test.ok("false" in output.stdout, output.stdout)?
-  test.ok("unexpected" not in output.stdout, output.stdout)?
+  assert output.success, output.stderr
+  assert "false" in output.stdout, output.stdout
+  assert "unexpected" not in output.stdout, output.stdout
 }
 
 test test_retained_assertion_named_arguments_keep_source_evaluation_order [error] { |ctx|
@@ -250,7 +250,7 @@ proc right() -> Result[Int] { order = order * 10 + 2; 1 }
 test.eq(right: right()?, left: left()?)?
 order == 21
 """)?
-  test.ok(output.success, output.stderr)?
+  assert output.success, output.stderr
 }
 
 test test_user_fields_and_functions_named_membership_aliases_remain_usable [fs, error] { |ctx|
@@ -272,6 +272,6 @@ custom.contains("present")
 custom.has("present")
 print "done"
 """)?
-  test.ok(output.success, output.stderr)?
+  assert output.success, output.stderr
   output.stdout == "done\n"
 }

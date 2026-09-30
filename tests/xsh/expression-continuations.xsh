@@ -18,13 +18,13 @@ print (captured is Err(_))
 test.eq(right: expected(), left: rows(false)?[position()].value)?
 """
   let plain = test.run_script(ctx, source)?
-  test.ok(plain.success, plain.stderr)?
-  test.eq(plain.stdout, "base\nbase cleanup\nindex\nexpected\nbase\nbase cleanup\nouter cleanup\ntrue\nexpected\nbase\nbase cleanup\nindex\n")?
+  assert plain.success, plain.stderr
+  plain.stdout == "base\nbase cleanup\nindex\nexpected\nbase\nbase cleanup\nouter cleanup\ntrue\nexpected\nbase\nbase cleanup\nindex\n"
   let traced = test.run_xsht_trace(ctx, source, ["--trace", "--raw"])?
-  test.ok(traced.success, traced.stderr)?
-  test.eq(traced.stdout, plain.stdout)?
+  assert traced.success, traced.stderr
+  traced.stdout == plain.stdout
   let calls = [line for line in traced.stderr.lines() if "kind=module.call" in line and "test.eq" in line]
   let results = [line for line in traced.stderr.lines() if "kind=module.result" in line and "test.eq" in line]
-  test.eq(calls.len(), 2, traced.stderr)?
-  test.eq(results.len(), 2, traced.stderr)?
+  assert calls.len() == 2, traced.stderr
+  assert results.len() == 2, traced.stderr
 }

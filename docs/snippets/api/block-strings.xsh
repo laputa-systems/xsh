@@ -1,7 +1,7 @@
-let name = "demo"
+const name = "demo"
 let unit = f"""
   [service]
   name=$name
   """
-let expected = "[service]\nname=demo"
+const expected = "[service]\nname=demo"
 print ${unit == expected}

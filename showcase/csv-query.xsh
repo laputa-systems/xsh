@@ -51,7 +51,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let header = lines[0].split(",") |> map .trim()
   let col_count = header.len()
   print f"columns (${col_count}): ${header.join(", ")}"
-  var rows: List[Map[Str]] = []
+  var rows = []
 
   for item in lines |> enumerate() {
     continue when item.index == 0

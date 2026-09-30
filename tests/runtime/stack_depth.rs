@@ -70,6 +70,30 @@ fn small_stack_mode_runs_simple_script() {
 }
 
 #[test]
+fn small_stack_global_record_constructor_named_arguments_do_not_abort() {
+    let field_count = 64;
+    let fields = (0..field_count)
+        .map(|index| format!("field_{index}: Int"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let arguments = (0..field_count)
+        .rev()
+        .map(|index| format!("field_{index}: {index}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut source = format!(
+        "type Profile = {{{fields}}}\nexport let profile: Profile = Profile({arguments})\n"
+    );
+    for index in 0..field_count {
+        source.push_str(&format!("profile.field_{index} == {index}\n"));
+    }
+    source.push_str("print complete\n");
+    let output = run_small_stack_stress("stack-depth-global-record-constructor", &source);
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), "complete\n");
+    assert_eq!(String::from_utf8(output.stderr).unwrap(), "");
+}
+
+#[test]
 fn small_stack_main_self_recursion_does_not_abort() {
     run_small_stack_stress(
         "stack-depth-main-self-recursion",

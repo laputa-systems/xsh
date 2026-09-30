@@ -5,78 +5,46 @@
 # Example: xsh showcase/music-convert.xsh -- --root Music --out Converted
 pure nearest_aac_kbps(kbps: Int) -> Int {
   # Map kbps to nearest aac_at tier using midpoint thresholds
-  if kbps <= 20 {
+  guard kbps > 20 else {
     return 16
   }
 
-  if kbps <= 28 {
-    return 24
-  }
+  return 24 when kbps <= 28
 
-  if kbps <= 36 {
-    return 32
-  }
+  return 32 when kbps <= 36
 
-  if kbps <= 44 {
-    return 40
-  }
+  return 40 when kbps <= 44
 
-  if kbps <= 52 {
-    return 48
-  }
+  return 48 when kbps <= 52
 
-  if kbps <= 60 {
-    return 56
-  }
+  return 56 when kbps <= 60
 
-  if kbps <= 72 {
-    return 64
-  }
+  return 64 when kbps <= 72
 
-  if kbps <= 88 {
-    return 80
-  }
+  return 80 when kbps <= 88
 
-  if kbps <= 104 {
-    return 96
-  }
+  return 96 when kbps <= 104
 
-  if kbps <= 120 {
-    return 112
-  }
+  return 112 when kbps <= 120
 
-  if kbps <= 144 {
-    return 128
-  }
+  return 128 when kbps <= 144
 
-  if kbps <= 176 {
-    return 160
-  }
+  return 160 when kbps <= 176
 
-  if kbps <= 208 {
-    return 192
-  }
+  return 192 when kbps <= 208
 
-  if kbps <= 240 {
-    return 224
-  }
+  return 224 when kbps <= 240
 
-  if kbps <= 288 {
-    return 256
-  }
+  return 256 when kbps <= 288
 
   320
 }
 
 pure ext_default_kbps(ext: Str) -> Int {
   match ext {
-    "flac" => 256
-    "wav" => 256
-    "aiff" => 256
-    "alac" => 256
+    "flac" | "wav" | "aiff" | "alac" => 256
     "ogg" => 192
     "opus" => 128
-    "wma" => 192
     _ => 192
   }
 }

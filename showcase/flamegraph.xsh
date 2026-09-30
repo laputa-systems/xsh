@@ -21,36 +21,32 @@ pure frame_color(name: Str) -> Str {
   let r = 205 + n * 37 % 50
   let g = n * 53 % 230
   let b = n * 71 % 55
-  return f"rgb(${r},${g},${b})"
+  f"rgb(${r},${g},${b})"
 }
 
 pure truncate_label(name: Str, max_chars: Int) -> Str {
-  if max_chars < 2 {
+  guard max_chars >= 2 else {
     return ""
   }
 
-  if name.count_chars() <= max_chars {
-    return name
-  }
+  return name when name.count_chars() <= max_chars
 
   let chars = name.split("")
   let truncated = chars |> take(max_chars - 1)
-  return f"${truncated.join("")}.."
+  f"${truncated.join("")}.."
 }
 
 pure parent_key(key: Str) -> Str {
   let parts = key.split(";")
   let depth = parts.len() - 1
 
-  if depth == 0 {
-    return ""
-  }
+  return "" when depth == 0
 
   let prefix = parts |> take(depth)
-  return prefix.join(";")
+  prefix.join(";")
 }
 
-proc main(input: Str = "") [fs, error] {
+proc main(input = "") [fs, error] {
   let sample = """script;proc:main;module.fs.walk 8500
 script;proc:main;module.fs.stat 2000
 script;proc:main;module.fs.stat 500
@@ -99,8 +95,8 @@ script;proc:format 1200
 
   for key in cum.keys() {
     let parts = key.split(";")
-    let frame: Frame = {key: key, name: parts[parts.len() - 1], depth: parts.len() - 1, count: (cum.get(key) ?? 0)}
-    all_frames = all_frames.push(frame)
+    let frame: Frame = Frame(key:, name: parts[parts.len() - 1], depth: parts.len() - 1, count: cum.get(key) ?? 0)
+    all_frames += [frame]
   }
 
   # Compute layout. Alphabetical key order is DFS preorder for semicolon-delimited

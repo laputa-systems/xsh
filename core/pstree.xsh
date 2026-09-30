@@ -2,11 +2,11 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 type Process = {
@@ -40,17 +40,13 @@ let processes_by_pid_order = process_records |> sort-by .pid
 pure display_args(row: Process) -> Str {
   let argv0 = if row.argv0 == "" { row.command } else { row.argv0 }
 
-  if row.argv == "" or row.argv == argv0 {
-    return ""
-  }
+  return "" when row.argv == "" or row.argv == argv0
 
   let prefix = f"${argv0} "
 
-  if row.argv.starts_with(prefix) {
-    return row.argv.replace(prefix, "")
-  }
+  return row.argv.replace(prefix, "") when row.argv.starts_with(prefix)
 
-  return row.argv
+  row.argv
 }
 
 pure process_label(row: Process, show_args: Bool, show_pids: Bool) -> Str {
@@ -59,12 +55,10 @@ pure process_label(row: Process, show_args: Bool, show_pids: Bool) -> Str {
   if show_args {
     let arg_text = display_args(row)
 
-    if arg_text != "" {
-      return f"${out} ${arg_text}"
-    }
+    return f"${out} ${arg_text}" when arg_text != ""
   }
 
-  return out
+  out
 }
 
 pure process_by_pid(pid: Int) -> List[Process] {
@@ -75,9 +69,7 @@ pure process_by_pid(pid: Int) -> List[Process] {
     let middle = (low + high) / 2
     let row = processes_by_pid_order[middle]
 
-    if row.pid == pid {
-      return [row]
-    }
+    return [row] when row.pid == pid
 
     if row.pid < pid {
       low = middle + 1
@@ -98,40 +90,32 @@ pure child_group_between(parent_pid: Int, low: Int, high: Int) -> List[Process] 
   let middle = (low + high) / 2
   let key = process_groups[middle].key
 
-  if key == parent_pid {
-    return process_groups[middle].items
-  }
+  return process_groups[middle].items when key == parent_pid
 
-  if key < parent_pid {
-    return child_group_between(parent_pid, middle + 1, high)
-  }
+  return child_group_between(parent_pid, middle + 1, high) when key < parent_pid
 
-  return child_group_between(parent_pid, low, middle)
+  child_group_between(parent_pid, low, middle)
 }
 
 pure child_group(parent_pid: Int) -> List[Process] {
-  return child_group_between(parent_pid, 0, process_group_count)
+  child_group_between(parent_pid, 0, process_group_count)
 }
 
 pure has_same_named_user_parent(row: Process, name: Str) -> Bool {
   let parents = process_by_pid(row.parent_pid)
-  if parents.len() == 0 {
-    return false
-  }
+  return false when parents.len() == 0
 
-  return parents[0].user == name
+  parents[0].user == name
 }
 
 pure connector(last: Bool, ascii: Bool) -> Str {
-  if ascii {
-    return if last { "`-" } else { "|-" }
-  }
+  return if last { "`-" } else { "|-" } when ascii
 
-  return if last { "\u{2514}\u{2500}" } else { "\u{251c}\u{2500}" }
+  if last { "\u{2514}\u{2500}" } else { "\u{251c}\u{2500}" }
 }
 
 pure vertical(ascii: Bool) -> Str {
-  return if ascii { "| " } else { "\u{2502} " }
+  if ascii { "| " } else { "\u{2502} " }
 }
 
 proc print_help() [error] {
@@ -157,9 +141,7 @@ pure render_children(
   ascii: Bool,
   visited: List[Int],
 ) -> Str {
-  if parent_pid in visited {
-    return ""
-  }
+  return "" when parent_pid in visited
 
   let next_visited = visited.push(parent_pid)
   let children = child_group(parent_pid)
@@ -175,21 +157,19 @@ pure render_children(
     output = f"${output}${render_children(child.pid, child_prefix, show_args, show_pids, ascii, next_visited)}"
   }
 
-  return output
+  output
 }
 
 pure render_process(row: Process, show_args: Bool, show_pids: Bool, ascii: Bool) -> Str {
-  let visited: List[Int] = []
-  return f"""${process_label(row, show_args, show_pids)}
+  let visited = []
+  f"""${process_label(row, show_args, show_pids)}
 ${render_children(row.pid, "  ", show_args, show_pids, ascii, visited)}"""
 }
 
 proc print_pid_root(pid: Int, show_args: Bool, show_pids: Bool, ascii: Bool) [error] {
   let roots = process_by_pid(pid)
 
-  if roots.len() == 0 {
-    return Err(AppletError.Usage(f"pstree: no such pid '${pid}'"))
-  }
+  return Err(AppletError.Usage(f"pstree: no such pid '${pid}'")) when roots.len() == 0
 
   print render_process(roots[0], show_args, show_pids, ascii)
 }
@@ -199,9 +179,7 @@ proc print_user_roots(name: Str, show_args: Bool, show_pids: Bool, ascii: Bool) 
     |> where .user == name and ! has_same_named_user_parent(., name)
     |> sort-by .pid
 
-  if roots.len() == 0 {
-    return Err(AppletError.Usage("pstree: no matching processes"))
-  }
+  return Err(AppletError.Usage("pstree: no matching processes")) when roots.len() == 0
 
   for item in roots |> enumerate() {
     if item.index > 0 {
@@ -232,15 +210,11 @@ proc print_parent_chain(
   ascii: Bool,
   visited: List[Int],
 ) [error] -> Result[Str] {
-  if pid in visited {
-    return ""
-  }
+  return "" when pid in visited
 
   let rows = process_by_pid(pid)
 
-  if rows.len() == 0 {
-    return Err(AppletError.Usage(f"pstree: no such pid '${pid}'"))
-  }
+  return Err(AppletError.Usage(f"pstree: no such pid '${pid}'")) when rows.len() == 0
 
   let row = rows[0]
   let next_visited = visited.push(pid)
@@ -253,7 +227,7 @@ proc print_parent_chain(
 
   let prefix = print_parent_chain(row.parent_pid, show_args, show_pids, ascii, next_visited)?
   print f"${prefix}${connector(true, ascii)}${process_label(row, show_args, show_pids)}"
-  return f"${prefix}  "
+  f"${prefix}  "
 }
 
 type PstreeOptions = {
@@ -320,9 +294,7 @@ proc main(...argv: List[Str]) [fs, process, error] {
     return
   }
 
-  if operands.len() > 1 {
-    return Err(usage_error("pstree", "[-aAcGhlpstT] [PID|USER]"))
-  }
+  return Err(usage_error("pstree", "[-aAcGhlpstT] [PID|USER]")) when operands.len() > 1
 
   if show_parents and operands.len() == 0 {
     return Err(AppletError.Usage("pstree: -s requires a PID selector"))
@@ -333,15 +305,14 @@ proc main(...argv: List[Str]) [fs, process, error] {
     return
   }
 
-  match operands[0].parse_int() {
-    Ok(pid) => {
-      if show_parents {
-        let visited: List[Int] = []
-        let _ = print_parent_chain(pid, show_args, show_pids, ascii, visited)?
-      } else {
-        print_pid_root(pid, show_args, show_pids, ascii)?
-      }
+  if let Ok(pid) = operands[0].parse_int() {
+    if show_parents {
+      let visited = []
+      let _ = print_parent_chain(pid, show_args, show_pids, ascii, visited)?
+    } else {
+      print_pid_root(pid, show_args, show_pids, ascii)?
     }
-    Err(_) => print_user_roots(operands[0], show_args, show_pids, ascii)?
+  } else {
+    print_user_roots(operands[0], show_args, show_pids, ascii)?
   }
 }

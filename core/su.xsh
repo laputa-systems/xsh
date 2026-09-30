@@ -40,7 +40,7 @@ pure parse_su_args(argv: List[Str]) -> Result[SuOptions] {
   let empty_rest: List[Str] = []
   let rest = if operands.len() <= 1 { empty_rest } else { operands |> drop(1) }
 
-  return {
+  {
     login: login,
     preserve_env: options.preserve_env,
     shell: options.shell,
@@ -65,7 +65,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] -> Result[Int] {
         }
       }
 
-      return applet.su_session(
+      applet.su_session(
         typed_entry,
         options.login,
         options.preserve_env,
@@ -74,7 +74,7 @@ proc main(...argv: List[Str]) [fs, process, env, error, io] -> Result[Int] {
         options.extra_args,
       )?
     }
-    Err(error) => return auth.fail("su", error.message)
+    Err(error) => auth.fail("su", error.message)
   }
 }
 

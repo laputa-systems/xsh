@@ -11,15 +11,15 @@ test test_map_module_and_methods [error] {
 }
 
 test test_map_updates_preserve_older_values_and_nested_lists [error] {
-  let base = map.empty().set("items", [1])
+  let base: Map[List[Int]] = {items: [1]}
   let alias = base
   let replaced = base.set("items", [9])
   let pushed = base.push("items", 2)
   let removed = pushed.remove("items")
 
-  test.eq(base.get("items")?, [1])?
-  test.eq(alias.get("items")?, [1])?
-  test.eq(replaced.get("items")?, [9])?
+  (base.get("items")?) == ([1])
+  (alias.get("items")?) == ([1])
+  (replaced.get("items")?) == ([9])
   pushed.get("items")? == [1, 2]
   ("items" not in removed)
   pushed.get("items")? == [1, 2]
@@ -48,19 +48,19 @@ test test_map_index_updates_group_push_and_comprehension [error] {
 
 test test_map_iteration_item_shape_order_and_snapshot [error] {
   var counts: Map[Int] = {beta: 2, alpha: 1}
-  var seen: List[Str] = []
+  var seen = []
   for entry in counts {
     seen += [f"${entry.key}=${entry.value}"]
     counts["alpha"] = 99
     counts = counts.remove("beta").set("gamma", 3)
   }
-  test.eq(seen, ["alpha=1", "beta=2"])?
-  test.eq(counts.get("alpha")?, 99)?
+  (seen) == (["alpha=1", "beta=2"])
+  (counts.get("alpha")?) == (99)
   "beta" not in counts
-  test.eq(counts.get("gamma")?, 3)?
+  (counts.get("gamma")?) == (3)
 
   let empty: Map[Int] = {}
-  test.eq([entry.key for entry in empty], [])?
+  ([entry.key for entry in empty]) == ([])
 }
 
 type MapIterationPayload = {label: Str, amount: Int}
@@ -70,74 +70,76 @@ test test_map_iteration_nested_targets_and_qualifiers [error] {
     second: {label: "two", amount: 2},
     first: {label: "one", amount: 1},
   }
-  var selected: List[Str] = []
+  var selected = []
   for {key, value: {label: name, amount, ..}, ..} in values {
     selected += [f"${key}:${name}:${amount}"]
   }
-  test.eq(selected, ["first:one:1", "second:two:2"])?
+  (selected) == (["first:one:1", "second:two:2"])
   let expanded = [f"${key}:${item}" for {key, value: payload, ..} in values if payload.amount > 1 for item in [payload.label, payload.label.upper()]]
-  test.eq(expanded, ["second:two", "second:TWO"])?
+  (expanded) == (["second:two", "second:TWO"])
   let labels = {key: value.label for {key, value} in values}
-  test.eq(labels.get("first")?, "one")?
+  (labels.get("first")?) == ("one")
 }
 
 error MapIterationError = Missing(code: Int)
 
 pure map_iteration_failed_source() -> Result[Map[Int], MapIterationError] {
-  return Err(MapIterationError.Missing(code: 7))
+  Err(MapIterationError.Missing(code: 7))
 }
 
 proc map_iteration_collect_failure() [error] -> Result[List[Str], MapIterationError] {
-  return [key for {key, value: _, ..} in map_iteration_failed_source()]
+  [key for {key, value: _, ..} in map_iteration_failed_source()]
 }
 
 proc map_iteration_loop_failure() [error] -> Result[Int, MapIterationError] {
   for entry in map_iteration_failed_source() {
     return entry.value
   }
-  return 0
+  0
 }
 
 pure map_iteration_success_value() -> Result[Int, MapIterationError] {
-  return 3
+  3
 }
 
 pure map_iteration_success_source() -> Result[Map[Int], MapIterationError] {
-  return {first: 4}
+  {first: 4}
 }
 
 test test_map_iteration_result_sources_preserve_nominal_errors [error] {
-  match map_iteration_collect_failure() {
-    Err(MapIterationError.Missing {code}) => test.eq(code, 7)?
-    _ => test.fail("comprehension lost the source error")?
+  if let Err(MapIterationError.Missing {code}) = map_iteration_collect_failure() {
+    code == 7
+  } else {
+    test.fail("comprehension lost the source error")?
   }
-  match map_iteration_loop_failure() {
-    Err(MapIterationError.Missing {code}) => test.eq(code, 7)?
-    _ => test.fail("loop lost the source error")?
+  if let Err(MapIterationError.Missing {code}) = map_iteration_loop_failure() {
+    code == 7
+  } else {
+    test.fail("loop lost the source error")?
   }
   let empty_values: Map[Result[Int, MapIterationError]] = {}
   let values = empty_values.set("alpha", map_iteration_success_value()).set("beta", Err(MapIterationError.Missing(code: 9)))
   for entry in values {
     match entry.value {
-      Ok(value) => test.eq(value, 3)?
-      Err(MapIterationError.Missing {code}) => test.eq(code, 9)?
+      Ok(value) => (value) == (3)
+      Err(MapIterationError.Missing {code}) => (code) == (9)
     }
   }
   let wrapped = map_iteration_success_source()
-  test.eq([entry.value for entry in wrapped], [4])?
+  ([entry.value for entry in wrapped]) == ([4])
 }
 
 test test_map_iteration_break_continue_restore_outer_bindings [error] {
   let values: Map[Int] = {alpha: 1, beta: 2, gamma: 3}
-  let key = "outer"
+  let outer_key = "outer"
   var sum = 0
   for {key, value} in values {
     continue when key == "alpha"
     sum += value
     break
   }
-  test.eq(sum, 2)?
-  test.eq(key, "outer")?
+  (sum) == (2)
+  (outer_key) == ("outer")
 }
 
 test test_map_iteration_evaluates_source_once_and_unwinds_failure [error] { |ctx|
@@ -164,36 +166,39 @@ match gather() {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "source\nalpha=1\nbeta=2\nclosed\ncaught=7\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("source\nalpha=1\nbeta=2\nclosed\ncaught=7\n")
 }
 
 test test_map_literals_computed_constant_keys_spreads_and_aliases [error] {
   let name = "beta"
   let inferred = {[name]: 2, alpha: 1, "literal.dot": 3}
-  test.eq(inferred.keys(), ["alpha", "beta", "literal.dot"])?
-  let constants: Map[Int] = {alpha: 1, "beta": 2}
+  (inferred.keys()) == (["alpha", "beta", "literal.dot"])
+  let constants: Map[Int] = {alpha: 1, beta: 2}
   var combined = {...constants, [name]: 4, alpha: 5, ["alpha"]: 6}
   let alias = combined
   combined["alpha"] = 99
-  test.eq(alias.get("alpha")?, 6)?
-  test.eq(constants.get("alpha")?, 1)?
-  test.eq(combined.get("beta")?, 4)?
+  (alias.get("alpha")?) == (6)
+  (constants.get("alpha")?) == (1)
+  (combined.get("beta")?) == (4)
   let spread_only: Map[Int] = {...constants}
-  test.eq(spread_only, constants)?
+  (spread_only) == (constants)
   let nested: Map[List[Str]] = {empty: [], [name]: ["value"]}
-  test.eq(nested.get("empty")?, [])?
+  (nested.get("empty")?) == ([])
   let source_row = {alpha: 1, beta: "two"}
-  test.eq(source_row.beta, "two")?
+  (source_row.beta) == ("two")
   let ordinary = {...source_row}
-  test.eq(ordinary.alpha, 1)?
+  (ordinary.alpha) == (1)
   var values = inferred
-  var seen: List[Str] = []
-  for {key, value} in values {
+  var seen = []
+  for {key, value: _} in values {
     seen += [key]
     values = values.set("later", 9)
   }
-  test.eq(seen, ["alpha", "beta", "literal.dot"])?
+  (seen) == (["alpha", "beta", "literal.dot"])
 }
 
 test test_map_literals_evaluate_keys_values_spreads_and_overwrites_once [error] { |ctx|
@@ -212,8 +217,11 @@ proc spread() [io] -> Map[Int] {
 let values = {[key("same")]: value(1), same: value(2), ...spread(), [key("last")]: value(4)}
 print (values.get("same") ?? 0) (values.get("last") ?? 0)
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "key same\nvalue 1\nvalue 2\nspread\nkey last\nvalue 4\n3 4\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("key same\nvalue 1\nvalue 2\nspread\nkey last\nvalue 4\n3 4\n")
 }
 
 test test_map_literals_failure_stops_before_value_and_later_entries [error] { |ctx|
@@ -226,9 +234,13 @@ proc value() [io] -> Int { print "value"; return 1 }
 let values = {["first"]: value(), [(key()?)]: value(), later: value()}
 print values.len()
 """)?
-  test.ok(! output.success, output.stderr)?
+  {
+    let assertion_condition = ! output.success
+    let assertion_message = output.stderr
+    assert assertion_condition, assertion_message
+  }
   "stop map" in output.stderr
-  test.eq(output.stdout, "value\nkey\n")?
+  (output.stdout) == ("value\nkey\n")
 }
 
 test test_map_literals_reject_wrong_key_context_bad_spreads_and_incompatible_values [error] { |ctx|
@@ -242,44 +254,49 @@ test test_map_literals_reject_wrong_key_context_bad_spreads_and_incompatible_val
     "let base = map.empty().set(\"one\", 1)\nlet value = {...base}\n",
   ] {
     let result = test.run_script(ctx, source)?
-    test.ok(! result.success, result.stderr)?
+    {
+      let assertion_condition = ! result.success
+      let assertion_message = result.stderr
+      assert assertion_condition, assertion_message
+    }
     "check." in result.stderr
   }
 }
 
-pure map_literal_return() -> Map[Int] { return {answer: 42} }
+pure map_literal_return() -> Map[Int] { {answer: 42} }
 pure map_literal_tail() -> Map[Int] { {answer: 43} }
-pure map_literal_parameter(input: Map[Int]) -> Int { return (input.get("answer") ?? 0) }
+pure map_literal_parameter(input: Map[Int]) -> Int { (input.get("answer") ?? 0) }
+pure map_literal_nested(input: List[Map[Int]]) -> List[Map[Int]] { input }
 type MapLiteralEnvelope = {values: Map[Int]}
 
 test test_map_literals_expected_context_reaches_returns_arguments_and_nested_values [error] {
-  test.eq(map_literal_return().get("answer")?, 42)?
-  test.eq(map_literal_tail().get("answer")?, 43)?
-  test.eq(map_literal_parameter({answer: 44}), 44)?
-  let nested: List[Map[Int]] = [{answer: 45}, {answer: 46}]
-  test.eq(nested[1].get("answer")?, 46)?
-  let envelope: MapLiteralEnvelope = {values: {answer: 47}}
-  test.eq(envelope.values.get("answer")?, 47)?
+  (map_literal_return().get("answer")?) == (42)
+  (map_literal_tail().get("answer")?) == (43)
+  (map_literal_parameter({answer: 44})) == (44)
+  let nested = map_literal_nested([{answer: 45}, {answer: 46}])
+  (nested[1].get("answer")?) == (46)
+  let envelope = MapLiteralEnvelope(values: {answer: 47})
+  (envelope.values.get("answer")?) == (47)
   let constructed = MapLiteralEnvelope(values: {answer: 50})
-  test.eq(constructed.values.get("answer")?, 50)?
+  (constructed.values.get("answer")?) == (50)
   let empty_nested: Map[Map[Int]] = {}
   let set_nested = empty_nested.set("nested", {answer: 51})
-  test.eq(set_nested.get("nested")?.get("answer")?, 51)?
+  (set_nested.get("nested")?.get("answer")?) == (51)
   var replaced: Map[Int] = {answer: 48}
   replaced = {answer: 49}
-  test.eq(replaced.get("answer")?, 49)?
+  (replaced.get("answer")?) == (49)
 }
 
-pure map_literal_default(input: Map[List[Int]] = {empty: [], ["numbers"]: [1, 2]}) -> Map[List[Int]] { return input }
-pure map_literal_spread_default(input: Map[Int] = {["first"]: 1, ...{second: 2}}) -> Map[Int] { return input }
+pure map_literal_default(input: Map[List[Int]] = {empty: [], ["numbers"]: [1, 2]}) -> Map[List[Int]] { input }
+pure map_literal_spread_default(input = {["first"]: 1, ...{second: 2}}) -> Map[Int] { input }
 
 test test_map_literal_defaults_keep_context_and_independent_values [error] {
   let first = map_literal_default()
   var second = map_literal_default()
   second["numbers"] = [9]
-  test.eq(first.get("numbers")?, [1, 2])?
-  test.eq(second.get("numbers")?, [9])?
-  test.eq(map_literal_spread_default().get("second")?, 2)?
+  (first.get("numbers")?) == ([1, 2])
+  (second.get("numbers")?) == ([9])
+  (map_literal_spread_default().get("second")?) == (2)
 }
 
 type MapLiteralDefaults = {counts: Map[Int] = {fixed: 1, ["other"]: 2}}
@@ -288,7 +305,7 @@ test test_map_literal_record_defaults_retain_map_identity_and_aliases [error] {
   let earlier = MapLiteralDefaults()
   var changed = MapLiteralDefaults()
   changed.counts = changed.counts.set("fixed", 9)
-  test.eq(earlier.counts.get("fixed")?, 1)?
-  test.eq(changed.counts.get("fixed")?, 9)?
-  test.eq(changed.counts.keys(), ["fixed", "other"])?
+  (earlier.counts.get("fixed")?) == (1)
+  (changed.counts.get("fixed")?) == (9)
+  (changed.counts.keys()) == (["fixed", "other"])
 }

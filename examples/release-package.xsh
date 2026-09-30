@@ -20,7 +20,7 @@ let entries = archive.tar_list(tarball)?.collect()
 let destination = fp"${root}/destination"
 archive.tar_extract(tarball, destination)
 
-let patch_text = """--- config
+const patch_text = """--- config
 +++ config
 @@ -1,2 +1,2 @@
  name=demo

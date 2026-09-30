@@ -30,14 +30,10 @@ proc main(...argv: List[Str]) [fs, error] {
       },
     },
   )?
-  let recursive = opts.recursive
-  let force = opts.force
-  let targets = opts.targets
+  let {recursive, force, targets, ..} = opts
 
   if targets.len() == 0 {
-    if force {
-      return
-    }
+    return when force
 
     return Err(AppletError.Usage("usage: xsh applets/rm.xsh -- [-f] [-r|-R] PATH..."))
   }
@@ -51,7 +47,7 @@ proc main(...argv: List[Str]) [fs, error] {
     }
 
     if target.metadata()?.kind == "dir" {
-      if ! recursive {
+      guard recursive else {
         return Err(AppletError.Usage(f"rm: '${target}' is a directory"))
       }
 

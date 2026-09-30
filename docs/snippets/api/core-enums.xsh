@@ -9,17 +9,19 @@ pure jobs(mode: SelectedMode) -> Int {
 }
 
 enum Token { Present(Str) }
-let token = Present("ready")
-match token {
-  Present(text) => print $text
+pure token_text(token: Token) -> Str {
+  match token {
+    Present(text) => text
+  }
 }
-print ${jobs(Custom(4))}
+print token_text(Present("ready"))
+print jobs(Custom(4))
 
 
 enum State: Str { Ready = "ready", Empty = "" }
 pure decode_state(text: Str) -> Result[State] {
-  return text.require(State)
+  text.require()
 }
 pure encode_state(state: State) -> Result[Str] {
-  return json.encode(state)
+  json.encode(state)
 }

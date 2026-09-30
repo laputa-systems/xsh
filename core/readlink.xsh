@@ -2,11 +2,11 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 type ReadlinkOptions = {canonicalize: Bool, paths: List[Str]}
@@ -24,12 +24,9 @@ proc main(...argv: List[Str]) [fs, error] {
       },
     },
   )?
-  let canonicalize = opts.canonicalize
-  let paths = opts.paths
+  let {canonicalize, paths, ..} = opts
 
-  if paths.len() == 0 {
-    return Err(usage_error("readlink", "[-f] PATH..."))
-  }
+  return Err(usage_error("readlink", "[-f] PATH...")) when paths.len() == 0
 
   for item in paths {
     let target = fp"${item}"

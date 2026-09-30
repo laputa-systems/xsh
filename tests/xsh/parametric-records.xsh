@@ -1,25 +1,32 @@
-type ParametricObservation[T] = {state: Str, value: T? = null, samples: List[T] = [], options: Map[T] = {}}
+
+test test_parametric_record_aliases_keep_selected_field_types [error] { |ctx|
+  let output = test.run_script(ctx, r"""type ParametricObservation[T] = {state: Str, value: T? = null, samples: List[T] = [], options: Map[T] = {}}
 type ParametricName = ParametricObservation[Str]
 type ParametricCount = ParametricObservation[Int]
-
-test test_parametric_record_aliases_keep_selected_field_types [error] {
+proc witness() [error] {
   let count = ParametricCount(state: "observed", value: 7, samples: [3, 7])
   let name = ParametricName(state: "observed", value: "demo", samples: ["demo"])
   let {value: count_value, samples: count_samples, ..} = count
   let {value: name_value, ..} = name
-  test.eq((count_value ?? 0) + count_samples[0], 10)?
-  test.eq(name_value ?? "missing", "demo")?
+  ((count_value ?? 0) + count_samples[0]) == (10)
+  (name_value ?? "missing") == ("demo")
   let missing = ParametricCount(state: "absent")
-  test.eq(missing.value, null)?
-  test.eq(missing.samples.len(), 0)?
-  test.eq(missing.options.len(), 0)?
+  (missing.value) == (null)
+  (missing.samples.len()) == (0)
+  (missing.options.len()) == (0)
   var changed = ParametricCount(state: "observed")
   let snapshot = changed
   changed.samples += [9]
-  test.eq(changed.samples[0], 9)?
-  test.eq(snapshot.samples.len(), 0)?
+  (changed.samples[0]) == (9)
+  (snapshot.samples.len()) == (0)
   let literal: ParametricObservation[Int] = {state: "observed", value: 4, samples: [4], options: {}}
-  test.eq(literal.samples[0], 4)?
+  (literal.samples[0]) == (4)
+}
+witness()
+""")?
+  let {success: assertion_condition, stderr: assertion_message, ..} = output
+  assert assertion_condition, assertion_message
+  output.stdout == ""
 }
 
 test test_parametric_records_reject_wrong_specializations_and_nonuniversal_defaults [error] { |ctx|
@@ -31,8 +38,12 @@ test test_parametric_records_reject_wrong_specializations_and_nonuniversal_defau
     "type Box[T] = {value: T}\nlet value: Box[Int] = {value: \"wrong\"}\n",
   ] {
     let rejected = test.run_script(ctx, source)?
-    test.ok(! rejected.success, rejected.stderr)?
-    test.ok("check.type-mismatch" in rejected.stderr)?
+    {
+      let assertion_condition = ! rejected.success
+      let assertion_message = rejected.stderr
+      assert assertion_condition, assertion_message
+    }
+    ("check.type-mismatch" in rejected.stderr)
   }
 }
 
@@ -48,12 +59,20 @@ test test_parametric_records_reject_invalid_parameters_and_expanding_types [erro
     "type Box[T] = {value: T}\ntype Bad[T] = Bad[List[T]]\n",
   ] {
     let rejected = test.run_script(ctx, source)?
-    test.ok(! rejected.success, rejected.stderr)?
-    test.ok("check." in rejected.stderr)?
+    {
+      let assertion_condition = ! rejected.success
+      let assertion_message = rejected.stderr
+      assert assertion_condition, assertion_message
+    }
+    ("check." in rejected.stderr)
   }
   let generic_enum = test.run_script(ctx, "enum Variant[T] { First, Second }\n")?
-  test.ok(! generic_enum.success, generic_enum.stderr)?
-  test.ok("parse." in generic_enum.stderr)?
+  {
+    let assertion_condition = ! generic_enum.success
+    let assertion_message = generic_enum.stderr
+    assert assertion_condition, assertion_message
+  }
+  ("parse." in generic_enum.stderr)
 
 }
 
@@ -70,8 +89,11 @@ match wrong.require(CountEnvelope) {
   Ok(_) => print "unexpected"
 }
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "12\nrejected\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = executed
+    assert assertion_condition, assertion_message
+  }
+  (executed.stdout) == ("12\nrejected\n")
 }
 
 test test_parametric_records_use_declaring_private_dependencies [fs, error] { |ctx|
@@ -92,8 +114,11 @@ let value = m.Counts(value: [3, 7], owner: {name: "owner"})
 print ${direct.value + value.value[1]}
 print ${value.owner.name.upper()}
 """, [], {XSH_MODULE_PATH: root.display()})?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "12\nOWNER\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = executed
+    assert assertion_condition, assertion_message
+  }
+  (executed.stdout) == ("12\nOWNER\n")
 }
 
 test test_parametric_records_prepare_concrete_alias_constructors_and_typed_literals [error] { |ctx|
@@ -106,8 +131,11 @@ print ${literal.value + literal.items[0]}
 print ${made.value + made.items.len()}
 print $spread.value
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "7\n7\n9\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = executed
+    assert assertion_condition, assertion_message
+  }
+  (executed.stdout) == ("7\n7\n9\n")
 }
 
 test test_parametric_records_keep_specialization_through_nested_updates [error] { |ctx|
@@ -119,8 +147,11 @@ let changed = {...base, item.value: 7}
 print ${changed.item.value + base.item.value}
 print $changed.label
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "10\nsame\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = executed
+    assert assertion_condition, assertion_message
+  }
+  (executed.stdout) == ("10\nsame\n")
 }
 
 test test_parametric_records_preserve_nominal_enum_arguments [error] { |ctx|
@@ -130,14 +161,21 @@ type StateBox = Box[State]
 let value = StateBox(value: Ready)
 print (value.value == Ready)
 """)?
-  test.ok(accepted.success, accepted.stderr)?
-  test.eq(accepted.stdout, "true\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = accepted
+    assert assertion_condition, assertion_message
+  }
+  (accepted.stdout) == ("true\n")
   let rejected = test.run_script(ctx, r"""enum One { First }
 enum Two { Second }
 type Box[T] = {value: T}
 type FirstBox = Box[One]
 let wrong = FirstBox(value: Second)
 """)?
-  test.ok(! rejected.success, rejected.stderr)?
-  test.ok("check.type-mismatch" in rejected.stderr)?
+  {
+    let assertion_condition = ! rejected.success
+    let assertion_message = rejected.stderr
+    assert assertion_condition, assertion_message
+  }
+  ("check.type-mismatch" in rejected.stderr)
 }

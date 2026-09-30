@@ -4,14 +4,14 @@ proc assert_fmt_fixture(ctx: TestContext, source_path: Path, expected_path: Path
   let candidate = test.temp_file(ctx, name:, contents: bytes.from_text(source))?
 
   let formatted = run.capture --text "xsht" fmt $candidate ?
-  test.ok(formatted.status.exited_with(0), formatted.stderr)?
+  assert formatted.status.exited_with(0), formatted.stderr
   candidate.read_text()? == expected
 
   let checked = run.capture --text "xsht" check $candidate ?
-  test.ok(checked.status.exited_with(0), checked.stderr)?
+  assert checked.status.exited_with(0), checked.stderr
 
   let stable = run.capture --text "xsht" fmt --check $candidate ?
-  test.ok(stable.status.exited_with(0), stable.stderr)?
+  assert stable.status.exited_with(0), stable.stderr
 }
 
 test test_fmt_fixture [fs, process, error] { |ctx|
@@ -26,13 +26,13 @@ test test_fmt_fixture [fs, process, error] { |ctx|
 test test_fmt_nested_multiline_string_preserves_value [fs, process, error] { |ctx|
   let source = p"tests/fixtures/fmt/nested-multiline-string.xsh".read_text()?
   let before = test.run_script(ctx, source)?
-  test.ok(before.success, before.stderr)?
+  assert before.success, before.stderr
   let candidate = test.temp_file(ctx, name: "nested-string.xsh", contents: bytes.from_text(source))?
   let formatted = run.capture --text "xsht" fmt $candidate ?
-  test.ok(formatted.status.exited_with(0), formatted.stderr)?
+  assert formatted.status.exited_with(0), formatted.stderr
   let after = test.run_script(ctx, candidate.read_text()?)?
-  test.ok(after.success, after.stderr)?
+  assert after.success, after.stderr
   after.stdout == before.stdout
   let stable = run.capture --text "xsht" fmt --check $candidate ?
-  test.ok(stable.status.exited_with(0), stable.stderr)?
+  assert stable.status.exited_with(0), stable.stderr
 }

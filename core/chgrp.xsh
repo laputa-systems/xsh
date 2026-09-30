@@ -2,11 +2,11 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 type ChgrpOptions = {recursive: Bool, no_dereference: Bool, dereference: Bool, operands: List[Str]}
@@ -42,11 +42,13 @@ proc main(...argv: List[Str]) [fs, error] {
   let follow_symlinks = ! opts.no_dereference
   let operands = opts.operands
 
-  if operands.len() < 2 {
-    return Err(usage_error("chgrp", "[-Rh] GROUP PATH..."))
-  }
+  return Err(usage_error("chgrp", "[-Rh] GROUP PATH...")) when operands.len() < 2
 
-  let group_rec = match operands[0].parse_int() { Ok(gid) => group.by_gid(gid)?, Err(_) => group.lookup(operands[0])? }
+  let group_rec = if let Ok(gid) = operands[0].parse_int() {
+    group.by_gid(gid)?
+  } else {
+    group.lookup(operands[0])?
+  }
 
   for item in operands |> drop(1) {
     let target = fp"${item}"

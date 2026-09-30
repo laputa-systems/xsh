@@ -540,8 +540,13 @@ impl Checker {
             }
             ArenaStmtKind::Expr(expr_id) => {
                 self.statement_expression_spans.insert(arena.arena.expr(expr_id).span);
-                let expected = matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ValueBlock(_)).then_some(Type::Unit);
-                let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), expected.as_ref(), None);
+                let ty = if let ArenaExprKind::ValueBlock(block) = arena.arena.expr(expr_id).kind {
+                    self.check_block_arena(arena, source, block);
+                    self.expr_types.insert(arena.arena.expr(expr_id).span, Type::Unit);
+                    Type::Unit
+                } else {
+                    self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), None, None)
+                };
                 self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
                 if !self.check_assertion_statement(&ty, arena.arena.expr(expr_id).span) {
                     self.record_statement_error(&ty, stmt.span);
@@ -614,6 +619,7 @@ impl Checker {
                     condition,
                     "check.guarded-stmt-condition",
                 );
+                let continuing_scopes = self.stmt_definitely_exits_arena(arena, inner).then(|| self.scopes.clone());
                 self.push_scope();
                 if negate {
                     self.apply_narrowings(&narrowings.when_false);
@@ -622,6 +628,13 @@ impl Checker {
                 }
                 self.check_stmt_arena(arena, source, inner);
                 self.pop_scope();
+                if let Some(scopes) = continuing_scopes {
+                    // An exiting payload cannot mutate bindings on the path
+                    // that skips it. That continuation retains the opposite
+                    // condition proof against the original lexical bindings.
+                    self.scopes = scopes;
+                    self.apply_narrowings(if negate { &narrowings.when_true } else { &narrowings.when_false });
+                }
             }
             ArenaStmtKind::Match { value, arms } => {
                 self.check_match_arena(arena, source, value, arms);
@@ -1790,6 +1803,7 @@ impl Checker {
                 self.check_expr_with_schema_arena(arena, source, value, context.as_ref(), schema)
             })
             .unwrap_or(Type::Unit);
+        let actual = self.resolve_local_tail_type(actual, Some(&expected), span);
         if !self.context_scope_depths.is_empty() && !actual.can_escape_context_scope() {
             self.error(span, "a live producer or host handle cannot escape through a lexical return", "check.context-scope-escape");
         }
@@ -2147,8 +2161,13 @@ impl Checker {
         self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
         if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
             self.statement_expression_spans.insert(arena.arena.expr(expr_id).span);
-            let expected = matches!(arena.arena.expr(expr_id).kind, ArenaExprKind::ValueBlock(_)).then_some(Type::Unit);
-            let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), expected.as_ref(), None);
+            let ty = if let ArenaExprKind::ValueBlock(block) = arena.arena.expr(expr_id).kind {
+                self.check_block_arena(arena, source, block);
+                self.expr_types.insert(arena.arena.expr(expr_id).span, Type::Unit);
+                Type::Unit
+            } else {
+                self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), None, None)
+            };
             self.record_inert_expression_discard(arena, ArenaExprOrRun::Expr(expr_id));
             let assertion = self.check_assertion_statement(&ty, arena.arena.expr(expr_id).span);
             if !assertion { self.record_statement_error(&ty, stmt.span); }
@@ -2182,7 +2201,12 @@ impl Checker {
             && !(expected.is_some_and(Type::is_result_unit) && tail_stmt_uses_result_context_arena(arena, id)) {
             if let ArenaStmtKind::Expr(expr_id) = stmt.kind {
                 let previous_tail = std::mem::replace(&mut self.context_scope_tail_value, false);
-                let context = tail_expr_context_arena(arena, expr_id, expected);
+                // A statement's Unit result is produced by consuming its value;
+                // it must not constrain a Bool-producing call before assertion
+                // classification. Blocks and inferred schemas still need their
+                // declared success context while checking their contents.
+                let context = statement_tail_needs_value_context_arena(arena, expr_id)
+                    .then(|| tail_expr_context_arena(arena, expr_id, expected)).flatten();
                 let schema = self.expected_schema.as_ref().map(|schema| {
                     if expected.is_some_and(Type::is_result) && !context.as_ref().is_some_and(Type::is_result) {
                         schema.children.get(&crate::sema::constants::SchemaComponent::Success).cloned().unwrap_or_default()
@@ -2203,6 +2227,10 @@ impl Checker {
                 if actual == Type::Bool {
                     let facts = self.infer_condition_narrowings_arena(arena, expr_id);
                     self.apply_narrowings(&facts.when_true);
+                } else if !actual.is_result()
+                    && !self.is_inert_expression_discard(arena.arena.expr(expr_id).span)
+                {
+                    self.expect_type(&Type::Unit, &actual, arena.arena.expr(expr_id).span);
                 }
                 self.statement_positions.insert(stmt.span, super::StatementPosition::Statement);
                 return Type::Unit;
@@ -2230,10 +2258,11 @@ impl Checker {
                 });
                 let ty = self.check_expr_with_schema_arena(arena, source, ArenaExprOrRun::Expr(expr_id), ctx.as_ref(), schema);
                 self.context_scope_tail_value = previous;
-                ty
+                self.resolve_local_tail_type(ty, expected, stmt.span)
             }
             ArenaStmtKind::TailBareIdent(name) => {
                 let ty = self.check_tail_bare_ident_arena(arena, source, name, stmt.span);
+                let ty = self.resolve_local_tail_type(ty, expected, stmt.span);
                 if expected.is_some_and(|ty| *ty == Type::Unit || ty.is_result_unit())
                     && self.check_assertion_statement(&ty, stmt.span)
                 { Type::Unit } else { ty }
@@ -2469,6 +2498,15 @@ fn tail_expr_context_arena(
     let expected = expected?;
     let explicit_result = tail_expr_uses_result_context_arena(arena, expr_id);
     Some(if explicit_result { expected.clone() } else { expected.result_ok().unwrap_or(expected).clone() })
+}
+
+fn statement_tail_needs_value_context_arena(arena: &ArenaProgram, expr: ExprId) -> bool {
+    match arena.arena.expr(expr).kind {
+        ArenaExprKind::ValueBlock(_) | ArenaExprKind::ErrorContext { .. }
+        | ArenaExprKind::Require { schema: None, .. } => true,
+        ArenaExprKind::Try(inner) => statement_tail_needs_value_context_arena(arena, inner),
+        _ => false,
+    }
 }
 
 fn record_target_requires_schema_check(arena: &ArenaProgram, target: BindingTargetId, ty: &Type) -> bool {

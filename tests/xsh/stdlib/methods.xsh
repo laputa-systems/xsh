@@ -13,38 +13,41 @@ test test_list_push_and_extend_preserve_older_values [error] {
 }
 
 test test_list_concatenation_and_compound_assignment_preserve_aliases [error] {
-  var items: List[Int] = []
+  var items = []
   items += []
   items += [1]
   let alias = items
   items += [2, 3]
-  test.eq(alias, [1])?
-  test.eq(items, [1, 2, 3])?
+  (alias) == ([1])
+  (items) == ([1, 2, 3])
   items += items
-  test.eq(items, [1, 2, 3, 1, 2, 3])?
-  test.eq(alias, [1])?
-  let joined = alias + [4, 5]
-  test.eq(joined, alias.extend([4, 5]))?
-  test.eq([] + [6], [6])?
-  test.eq([6] + [], [6])?
-  let empty: List[Str] = [] + []
-  test.eq(empty, [])?
+  (items) == ([1, 2, 3, 1, 2, 3])
+  (alias) == ([1])
+  let appended = [4, 5]
+  let joined = alias + appended
+  (joined) == (alias.extend([4, 5]))
+  ([] + [6]) == ([6])
+  let singleton = [6]
+  let empty_ints = []
+  (singleton + empty_ints) == (singleton)
+  let empty: List[Str] = []
+  (empty + empty) == ([])
   var container = {items: [1]}
   let record_alias = container
   container.items += [2]
-  test.eq(container.items, [1, 2])?
-  test.eq(record_alias.items, [1])?
+  (container.items) == ([1, 2])
+  (record_alias.items) == ([1])
   container.items += container.items
-  test.eq(container.items, [1, 2, 1, 2])?
-  test.eq(record_alias.items, [1])?
-  var table: Map[List[Int]] = map.empty().set("entry", [1])
+  (container.items) == ([1, 2, 1, 2])
+  (record_alias.items) == ([1])
+  var table: Map[List[Int]] = {entry: [1]}
   let table_alias = table
   table["entry"] += [2]
-  test.eq(table.get("entry")?, [1, 2])?
-  test.eq(table_alias.get("entry")?, [1])?
+  (table.get("entry")?) == ([1, 2])
+  (table_alias.get("entry")?) == ([1])
   table["entry"] += table.get("entry")?
-  test.eq(table.get("entry")?, [1, 2, 1, 2])?
-  test.eq(table_alias.get("entry")?, [1])?
+  (table.get("entry")?) == ([1, 2, 1, 2])
+  (table_alias.get("entry")?) == ([1])
 }
 
 test test_list_compound_assignment_checks_targets_and_elements [error] { |ctx|
@@ -56,7 +59,11 @@ test test_list_compound_assignment_checks_targets_and_elements [error] { |ctx|
     "let items = [1] + [\"wrong\"]\n",
   ] {
     let result = test.run_script(ctx, source)?
-    test.ok(! result.success, result.stderr)?
+    {
+      let assertion_condition = ! result.success
+      let assertion_message = result.stderr
+      assert assertion_condition, assertion_message
+    }
     "check." in result.stderr
   }
 }
@@ -83,8 +90,11 @@ let values = table.get("entry")?
 print ${values[0]} ${values[1]} ${values[2]}
 """,
   )?
-  test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "selector\nrhs\nselector\nitem\n1 2 3\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
+  (result.stdout) == ("selector\nrhs\nselector\nitem\n1 2 3\n")
 }
 
 test test_list_concatenation_evaluates_operands_once_in_source_order [error] { |ctx|
@@ -102,8 +112,11 @@ let values = left() + right()
 print values.len()
 """,
   )?
-  test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "left\nright\n2\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
+  (result.stdout) == ("left\nright\n2\n")
 }
 
 test test_list_compound_assignment_retains_target_on_dynamic_rhs_failure [error] { |ctx|
@@ -122,9 +135,13 @@ proc main() [io, error] {
 }
 """,
   )?
-  test.ok(! result.success, result.stderr)?
+  {
+    let assertion_condition = ! result.success
+    let assertion_message = result.stderr
+    assert assertion_condition, assertion_message
+  }
   "schema check failed at $: expected List, found Int" in result.stderr
-  test.eq(result.stdout, "1\n")?
+  (result.stdout) == ("1\n")
 }
 
 test test_collection_number_text_status_and_result_methods [process, error] {
@@ -159,7 +176,7 @@ beta"""
   text.trim().starts_with("alpha")
   text.trim().ends_with("beta")
   ("alpha" in text)
-  test.eq(text.trim().lines().collect().len(), 2)?
+  (text.trim().lines().collect().len()) == (2)
   text.words().len() == 3
   "a,b,c".split(",")[1] == "b"
   "a  b\tc".fields().join(",") == "a,b,c"
@@ -243,7 +260,11 @@ test test_int_bitset_methods [fs, error] { |ctx|
 value.bit_and(1)
 """,
   )?
-  test.ok(! negative_receiver.success, negative_receiver.stderr)?
+  {
+    let assertion_condition = ! negative_receiver.success
+    let assertion_message = negative_receiver.stderr
+    assert assertion_condition, assertion_message
+  }
   "integer-bitset" in negative_receiver.stderr
 
   let negative_mask = test.run_script(
@@ -252,6 +273,10 @@ value.bit_and(1)
 1.clear_bits(mask)
 """,
   )?
-  test.ok(! negative_mask.success, negative_mask.stderr)?
+  {
+    let assertion_condition = ! negative_mask.success
+    let assertion_message = negative_mask.stderr
+    assert assertion_condition, assertion_message
+  }
   "integer-bitset" in negative_mask.stderr
 }

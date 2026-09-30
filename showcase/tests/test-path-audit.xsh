@@ -42,7 +42,7 @@ test test_path_audit_findings [fs, process, env, error] { |ctx|
 }
 
 test test_path_audit_distinguishes_non_utf8_command_names [fs, process, env, error] { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("creating non-UTF-8 path components requires the pinned Linux filesystem")
     return
   }
@@ -64,6 +64,8 @@ test test_path_audit_distinguishes_non_utf8_command_names [fs, process, env, err
   let raw = f"${bin1.display()}:${bin2.display()}"
   env XSH_SHOWCASE_PATH=$raw {
     let output = run.text "xsh" "showcase/path-audit.xsh" -- --var XSH_SHOWCASE_PATH ?
-    test.ok("shadowed-command" not in output, output)?
+    let distinct_commands = "shadowed-command" not in output
+    let audit_message = output
+    assert distinct_commands, audit_message
   } ?
 }

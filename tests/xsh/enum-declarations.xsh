@@ -7,14 +7,14 @@ pure render(token: Alias) -> Str {
 print render(Present("ready"))
 print (Present("same") == Present("same"))
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "ready\ntrue\n")?
+  assert executed.success, executed.stderr
+  executed.stdout == "ready\ntrue\n"
 }
 
 test test_enum_legacy_declaration_is_migration_error [error] { |ctx|
   let rejected = test.run_script(ctx, "type Mode = Fast | Slow\nprint Fast\n")?
-  test.ok(! rejected.success, rejected.stderr)?
-  test.ok("parse.enum-migration" in rejected.stderr)?
+  assert ! rejected.success, rejected.stderr
+  "parse.enum-migration" in rejected.stderr
 }
 
 test test_enum_rejects_invalid_declarations [error] { |ctx|
@@ -29,7 +29,7 @@ test test_enum_rejects_invalid_declarations [error] { |ctx|
     "let enum = 1\n",
   ] {
     let rejected = test.run_script(ctx, source)?
-    test.ok(! rejected.success, rejected.stderr)?
+    assert ! rejected.success, rejected.stderr
   }
 }
 
@@ -52,8 +52,8 @@ print $label
 let word = (run.text printf "%s" enum)?
 print $word
 """, [], {XSH_MODULE_PATH: root.display()})?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "7\nlabel\nlabel\nenum\n")?
+  assert executed.success, executed.stderr
+  executed.stdout == "7\nlabel\nlabel\nenum\n"
   let invalid = test.run_script(ctx, "use choice as c\nlet value = c.Choice.Chosen(7)\n", [], {XSH_MODULE_PATH: root.display()})?
-  test.ok(! invalid.success, invalid.stderr)?
+  assert ! invalid.success, invalid.stderr
 }

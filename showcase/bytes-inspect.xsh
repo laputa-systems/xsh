@@ -46,12 +46,11 @@ proc main(...argv: List[Str]) [fs, error] {
     print f"hex:    ${preview.dump("hex-u8")}"
   }
 
-  match data.utf8() {
-    Ok(decoded) => print f"text:   ${decoded.count_lines()} lines"
-    Err(_) => {
-      let strings = data.strings(4)
-      print f"binary: ${strings.len()} printable strings"
-    }
+  if let Ok(decoded) = data.utf8() {
+    print f"text:   ${decoded.count_lines()} lines"
+  } else {
+    let strings = data.strings(4)
+    print f"binary: ${strings.len()} printable strings"
   }
 
   var chunk_count = 0

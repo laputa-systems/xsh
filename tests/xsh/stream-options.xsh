@@ -20,8 +20,11 @@ proc main() [] {
   print empty.len()
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "create\npull:1\nmap:1\npull:2\nmap:2\nclose\njobs\n2\njobs\n0\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("create\npull:1\nmap:1\npull:2\nmap:2\nclose\njobs\n2\njobs\n0\n")
 }
 
 test test_stream_options_preserve_positional_order_and_failure_before_pull [error] { |ctx|
@@ -39,8 +42,12 @@ proc main() [error] {
   let _ = numbers() |> sort-by(desc: descending()) { |item| item }
 }
 """)?
-  test.ok(! output.success, output.stderr)?
-  test.eq(output.stdout, "start\nend\n2\ndesc\n")?
+  {
+    let assertion_condition = ! output.success
+    let assertion_message = output.stderr
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("start\nend\n2\ndesc\n")
 }
 
 test test_stream_named_options_cover_defaults_modes_and_combined_limits [error] { |ctx|
@@ -69,8 +76,11 @@ proc main() [error] {
   print (dynamic.get("all") ?? 0)
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "2\n1\n3\n1\n2\n1\n2\n2\n1\n3\n1\n2\njobs\nmax\nsum\n3\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("2\n1\n3\n1\n2\n1\n2\n2\n1\n3\n1\n2\njobs\nmax\nsum\n3\n")
 }
 
 test test_stream_named_positionals_preserve_source_order_and_spread_once [error] { |ctx|
@@ -92,9 +102,12 @@ proc main() [error] {
   [{name: "row"}] |> table.print(columns: ["name"])
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.ok("end\nstart\n2\nbounds\n2\n1\n2\n4\n2\n3\n3\n3\n2\n" in output.stdout)?
-  test.ok("row" in output.stdout)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  ("end\nstart\n2\nbounds\n2\n1\n2\n4\n2\n3\n3\n3\n2\n" in output.stdout)
+  ("row" in output.stdout)
 }
 
 test test_stream_named_options_reject_duplicate_unknown_type_mode_and_spread [error] { |ctx|
@@ -114,9 +127,21 @@ test test_stream_named_options_reject_duplicate_unknown_type_mode_and_spread [er
     "proc main() [] { let _ = [1] |> zip(other: 1) }",
   ] {
     let output = test.run_script(ctx, script)?
-    test.ok(! output.success, script)?
-    test.ok("check." in output.stderr, output.stderr)?
-    test.ok(("unsupported-indexed" not in output.stderr), output.stderr)?
+    {
+      let assertion_condition = ! output.success
+      let assertion_message = script
+      assert assertion_condition, assertion_message
+    }
+    {
+      let assertion_condition = "check." in output.stderr
+      let assertion_message = output.stderr
+      assert assertion_condition, assertion_message
+    }
+    {
+      let assertion_condition = ("unsupported-indexed" not in output.stderr)
+      let assertion_message = output.stderr
+      assert assertion_condition, assertion_message
+    }
   }
 }
 
@@ -134,16 +159,22 @@ proc main() [] {
   [{name: "row"}] |> table.print
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.ok("desc\ncolumns\npull\nclose\n" in output.stdout)?
-  test.ok("row" in output.stdout)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  ("desc\ncolumns\npull\nclose\n" in output.stdout)
+  ("row" in output.stdout)
   let failure = test.run_script(ctx, r"""
 stream values() [] -> Stream[Int] { defer { print "close" }; print "pull"; yield 1; print "later"; yield 2 }
 proc direction() [] -> Bool { print "desc"; return true }
 proc main() [] { let _ = values() |> sort(desc: direction()) }
 """)?
-  test.ok(failure.success, failure.stderr)?
-  test.eq(failure.stdout, "pull\nlater\nclose\ndesc\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = failure
+    assert assertion_condition, assertion_message
+  }
+  (failure.stdout) == ("pull\nlater\nclose\ndesc\n")
 }
 
 test test_stream_named_spreads_bind_each_configuration_role [error] { |ctx|
@@ -172,9 +203,12 @@ proc main() [] {
   [{name: "row"}] |> table.print(...{columns: ["name"]})
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.ok("2\n3\n3\n" in output.stdout)?
-  test.ok("row" in output.stdout)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  ("2\n3\n3\n" in output.stdout)
+  ("row" in output.stdout)
 }
 
 test test_stream_dynamic_modes_and_combined_batch_failure_preserve_cleanup [error] { |ctx|
@@ -183,9 +217,13 @@ stream numbers() [] -> Stream[Int] { print "pull"; yield 1 }
 proc disabled() [] -> Bool { print "mode"; return false }
 proc main() [] { let _ = numbers() |> reduce-by(sum: disabled()) { |item| {key: "all", value: item} } }
 """)?
-  test.ok(! modes.success, modes.stderr)?
-  test.eq(modes.stdout, "mode\n")?
-  test.ok("stream-reduce-mode" in modes.stderr)?
+  {
+    let assertion_condition = ! modes.success
+    let assertion_message = modes.stderr
+    assert assertion_condition, assertion_message
+  }
+  (modes.stdout) == ("mode\n")
+  ("stream-reduce-mode" in modes.stderr)
   let batches = test.run_script(ctx, r"""
 stream words() [] -> Stream[Str] {
   defer { print "close" }
@@ -196,32 +234,54 @@ stream words() [] -> Stream[Str] {
 }
 proc main() [] { let _ = words() |> batch(count: 2, max_bytes: 2, max_argv: true) }
 """)?
-  test.ok(! batches.success, batches.stderr)?
-  test.eq(batches.stdout, "pull\nclose\n")?
-  test.ok("argv-limit" in batches.stderr)?
+  {
+    let assertion_condition = ! batches.success
+    let assertion_message = batches.stderr
+    assert assertion_condition, assertion_message
+  }
+  (batches.stdout) == ("pull\nclose\n")
+  ("argv-limit" in batches.stderr)
 }
 
 test test_stream_option_migration_is_fatal_and_tooling_fix_is_narrow [fs, process, error] { |ctx|
   let source = "# café\nlet values = [1, 2] |> par-map --jobs=2 { |item| item + 1 } # keep\nprint values.len()\n"
   let rejected = test.run_script(ctx, source)?
-  test.ok(! rejected.success, rejected.stderr)?
-  test.eq(rejected.stdout, "")?
-  test.ok("parse.stream-option-migration" in rejected.stderr)?
+  {
+    let assertion_condition = ! rejected.success
+    let assertion_message = rejected.stderr
+    assert assertion_condition, assertion_message
+  }
+  (rejected.stdout) == ("")
+  ("parse.stream-option-migration" in rejected.stderr)
   let candidate = test.temp_file(ctx, name: "stage-option-migration.xsh", contents: bytes.from_text(source))?
   let diagnosed = run.capture --text "xsht" lint $candidate ?
-  test.ok("lint.stream-options" in diagnosed.stderr, diagnosed.stderr)?
+  {
+    let assertion_condition = "lint.stream-options" in diagnosed.stderr
+    let assertion_message = diagnosed.stderr
+    assert assertion_condition, assertion_message
+  }
   let applied = run.capture --text "xsht" lint --fix $candidate ?
-  test.ok(applied.status.exited_with(0), applied.stderr)?
+  {
+    let assertion_condition = applied.status.exited_with(0)
+    let assertion_message = applied.stderr
+    assert assertion_condition, assertion_message
+  }
   let fixed = candidate.read_text()?
-  test.eq(fixed, source.replace("--jobs=2", "(jobs: 2)"))?
+  (fixed) == (source.replace("--jobs=2", "(jobs: 2)"))
   let output = test.run_script(ctx, fixed)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "2\n")?
-  let repeated = run.capture --text "xsht" lint --fix $candidate ?
-  test.eq(candidate.read_text()?, fixed)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("2\n")
+  let _ = run.capture --text "xsht" lint --fix $candidate ?
+  (candidate.read_text()?) == (fixed)
   let external = test.run_script(ctx, "proc main() [process, error] { run printf \"%s\\n\" --jobs --desc --max-bytes ? }")?
-  test.ok(external.success, external.stderr)?
-  test.eq(external.stdout, "--jobs\n--desc\n--max-bytes\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = external
+    assert assertion_condition, assertion_message
+  }
+  (external.stdout) == ("--jobs\n--desc\n--max-bytes\n")
 }
 
 test test_stream_option_migration_refuses_comments_and_unrelated_errors [fs, process, error] { |ctx|
@@ -233,8 +293,12 @@ test test_stream_option_migration_refuses_comments_and_unrelated_errors [fs, pro
   ] {
     let candidate = test.temp_file(ctx, name: "stage-option-no-fix.xsh", contents: bytes.from_text(source))?
     let refused = run.capture --text "xsht" lint --fix $candidate ?
-    test.ok(! refused.status.exited_with(0), refused.stderr)?
-    test.eq(candidate.read_text()?, source)?
-    test.ok(refused.stderr != "", "diagnostics must remain visible")?
+    {
+      let assertion_condition = ! refused.status.exited_with(0)
+      let assertion_message = refused.stderr
+      assert assertion_condition, assertion_message
+    }
+    (candidate.read_text()?) == (source)
+    assert refused.stderr != "", "diagnostics must remain visible"
   }
 }

@@ -10,7 +10,7 @@ test test_watch_run_once_reports_child_failure [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "watch-failure")?
   let output = test.temp_path(ctx, name: "watch-failure-output")
   let status = run.status "xsh" "showcase/watch-run.xsh" -- --root $root --once false > $output
-  test.ok(status.exited_with(1), "one-shot watch must report child failure")?
+  assert status.exited_with(1), "one-shot watch must report child failure"
   "exit 1" in output.read_text()?
 }
 
@@ -44,10 +44,12 @@ test test_watch_run_cancellation_reaps_child_descendants [fs, process, time, err
     time.sleep(10ms)?
   }
 
-  test.ok(ready.exists()?, "child must start before cancellation")?
+  assert ready.exists()?, "child must start before cancellation"
   process.kill(wrapper.pid, signal: "TERM")?
   let status = wait wrapper?
-  test.ok(status.exited_with(3), f"canceled watch wrapper must exit with status 3, got ${status.exit_code() ?? -1}")?
+  let canceled = status.exited_with(3)
+  let cancellation_message = f"canceled watch wrapper must exit with status 3, got ${status.exit_code() ?? -1}"
+  assert canceled, cancellation_message
   time.sleep(1500ms)?
-  test.ok(! leaked.exists()?, "canceled child group must not leave a descendant running")?
+  assert ! leaked.exists()?, "canceled child group must not leave a descendant running"
 }

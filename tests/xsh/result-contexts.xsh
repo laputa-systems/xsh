@@ -23,8 +23,11 @@ print ${conditional(true)?}
 print ${conditional(false) is Err(DecodeError.Invalid)}
 print ${block_result()?}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "true\ntrue\n7\n11\ntrue\n13\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("true\ntrue\n7\n11\ntrue\n13\n")
 }
 
 test test_result_unit_nested_match_tail_keeps_error_data [error] { |ctx|
@@ -42,6 +45,9 @@ let translated: Result[Unit, E] = match original {
 }
 print ${translated is Err(E.Failed)}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "true\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("true\n")
 }

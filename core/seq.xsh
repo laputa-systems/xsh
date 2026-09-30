@@ -2,11 +2,11 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 pure common_int(raw: Str, label: Str) -> Result[Int] {
@@ -25,35 +25,29 @@ proc repeat_char(ch: Str, count: Int) [error, io] -> Str {
     index += 1
   }
 
-  return out
+  out
 }
 
 pure unescape(raw: Str) -> Str {
-  return raw.replace("\\n", "\n").replace("\\t", "\t").replace("\\\\", "\\")
+  raw.replace("\\n", "\n").replace("\\t", "\t").replace("\\\\", "\\")
 }
 
 proc pad_equal_width(raw: Str, width: Int) [error, io] -> Str {
   let missing = width - raw.count_chars()
 
-  if missing <= 0 {
-    return raw
-  }
+  return raw when missing <= 0
 
   let padding = repeat_char("0", missing)
 
-  if raw.starts_with("-") {
-    return f"-${padding}${raw.replace("-", "")}"
-  }
+  return f"-${padding}${raw.replace("-", "")}" when raw.starts_with("-")
 
-  return f"${padding}${raw}"
+  f"${padding}${raw}"
 }
 
 pure should_emit(value: Int, step: Int, last: Int) -> Bool {
-  if step > 0 {
-    return value <= last
-  }
+  return value <= last when step > 0
 
-  return value >= last
+  value >= last
 }
 
 type SeqOptions = {equal_width: Bool, separator: Str, operands: List[Str]}
@@ -96,17 +90,15 @@ proc main(...argv: List[Str]) [error, io] {
     return Err(usage_error("seq", "[-w] [-s SEP] [FIRST [STEP]] LAST"))
   }
 
-  if step == 0 {
-    return Err(AppletError.Usage("seq: increment cannot be zero"))
-  }
+  return Err(AppletError.Usage("seq: increment cannot be zero")) when step == 0
 
   var value = first
-  var values: List[Str] = []
+  var values = []
   var max_width = 0
 
   while should_emit(value, step, last) {
     let rendered = f"${value}"
-    values = values.push(rendered)
+    values += [rendered]
 
     if rendered.count_chars() > max_width {
       max_width = rendered.count_chars()

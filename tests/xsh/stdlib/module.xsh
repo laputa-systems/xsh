@@ -94,7 +94,10 @@ checked.build("built")?
     [],
     module_env,
   )?
-  test.ok(success.success, success.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = success
+    assert assertion_condition, assertion_message
+  }
   success.stdout == """demo-demo
 demo-built
 """
@@ -126,7 +129,10 @@ match loaded.require(BadPackage) {
     [],
     module_env,
   )?
-  test.ok(mismatch.success, mismatch.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = mismatch
+    assert assertion_condition, assertion_message
+  }
 }
 
 test test_module_load_rejects_undocumented_export [fs, error] { |ctx|
@@ -242,7 +248,11 @@ let _ = module.load(p"${effect_path}")?.require(Runner)?
 """,
   ] {
     let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root.display()})?
-    test.ok(! result.success, source)?
+    {
+      let assertion_condition = ! result.success
+      let assertion_message = source
+      assert assertion_condition, assertion_message
+    }
   }
 }
 
@@ -275,7 +285,10 @@ main()?
     [],
     {XSH_MODULE_PATH: root.display()},
   )?
-  test.ok(result.success, result.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
   fp"${root}/out.txt".read_text()? == "static"
 }
 
@@ -321,7 +334,10 @@ print ${beta.count_words()}
     [],
     {XSH_MODULE_PATH: root.display()},
   )?
-  test.ok(result.success, result.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
   result.stdout == """5
 3
 """
@@ -347,7 +363,10 @@ print ${selector.select(["unknown"]).len()}
     [],
     {XSH_MODULE_PATH: root.display()},
   )?
-  test.ok(result.success, result.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
   result.stdout == """1
 """
 }
@@ -380,8 +399,11 @@ match dynamic {
   _ => print "wrong facet"
 }
 """, [], {XSH_MODULE_PATH: root.display()})?
-  test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "failed 7 12\ntemporary\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
+  (result.stdout) == ("failed 7 12\ntemporary\n")
   let aliased = test.run_script(ctx, r"""
 use helper as h
 let failure = h.HelperError.Failed(detail: "aliased", code: 8)
@@ -390,8 +412,11 @@ match failure {
   _ => print "wrong family"
 }
 """, [], {XSH_MODULE_PATH: root.display()})?
-  test.ok(aliased.success, aliased.stderr)?
-  test.eq(aliased.stdout, "aliased 8\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = aliased
+    assert assertion_condition, assertion_message
+  }
+  (aliased.stdout) == ("aliased 8\n")
   let loaded = test.run_script(ctx, f"""
 type FailureProvider = module {
   export pure failure() -> Result[Unit]
@@ -399,8 +424,11 @@ type FailureProvider = module {
 let provider = module.load(p"${root.display()}/helper.xsh")?.require(FailureProvider)?
 print \${provider.failure() is Err(_)}
 """, [], {XSH_MODULE_PATH: root.display()})?
-  test.ok(loaded.success, loaded.stderr)?
-  test.eq(loaded.stdout, "true\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = loaded
+    assert assertion_condition, assertion_message
+  }
+  (loaded.stdout) == ("true\n")
 }
 
 test test_static_module_exports_bind_one_namespace [fs, error] { |ctx|
@@ -459,7 +487,10 @@ main()?
     [],
     {XSH_MODULE_PATH: root.display()},
   )?
-  test.ok(positive.success, positive.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = positive
+    assert assertion_condition, assertion_message
+  }
 
   for source in [
     """use helper
@@ -482,7 +513,11 @@ match helper.HelperError.Failed(detail: "failed") {
 """,
   ] {
     let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root.display()})?
-    test.ok(! result.success, source)?
+    {
+      let assertion_condition = ! result.success
+      let assertion_message = source
+      assert assertion_condition, assertion_message
+    }
   }
 
   let aliased = test.run_script(
@@ -502,7 +537,10 @@ main()?
     [],
     {XSH_MODULE_PATH: root.display()},
   )?
-  test.ok(aliased.success, aliased.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = aliased
+    assert assertion_condition, assertion_message
+  }
 
   for source in [
     """use helper as h
@@ -522,7 +560,11 @@ HelperError.Failed(detail: "failed")
 """,
   ] {
     let result = test.run_script(ctx, source, [], {XSH_MODULE_PATH: root.display()})?
-    test.ok(! result.success, source)?
+    {
+      let assertion_condition = ! result.success
+      let assertion_message = source
+      assert assertion_condition, assertion_message
+    }
   }
 }
 
@@ -561,7 +603,10 @@ shower.call(pkg)?
     [],
     {XSH_MODULE_PATH: root.display()},
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pkg:demo
 pkg:demo
 """
@@ -608,7 +653,10 @@ l.normalize(context)?
     [],
     {XSH_MODULE_PATH: root.display()},
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """workspace x86_64-unknown-linux-musl crt-static
 """
 }
@@ -650,7 +698,10 @@ c.invoke(p"${src.display()}", p"${out.display()}")?
     [],
     {XSH_MODULE_PATH: root.display()},
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   out.read_text()? == src.display()
 }
 
@@ -676,7 +727,10 @@ print ${configure.label("pkgconf")}
     [],
     {XSH_MODULE_PATH: lib.display()},
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """configured pkgconf
 """
   output.stderr == ""
@@ -730,7 +784,10 @@ match p.get(\"Package\") {
 """
   let module_env = {XSH_MODULE_PATH: root.display()}
   let output = test.run_script(ctx, source, [], module_env)?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """hi world
 hi namespace
 hi demo
@@ -740,7 +797,10 @@ missing-field
   output.stderr == ""
 
   let traced = test.run_xsht_trace(ctx, source, ["--raw"], [], module_env)?
-  test.ok(traced.success, traced.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = traced
+    assert assertion_condition, assertion_message
+  }
   "kind=pure.enter" in traced.stderr
   "greet" in traced.stderr
 
@@ -797,7 +857,10 @@ pkg.build(p"${dynamic_out.display()}")?
     [],
     {XSH_MODULE_PATH: root.display()},
   )?
-  test.ok(dynamic.success, dynamic.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = dynamic
+    assert assertion_condition, assertion_message
+  }
   fp"${dynamic_out}/ok".read_text()? == f"""demo:${fs.cwd()?.name()}
 """
 
@@ -817,7 +880,10 @@ main(@args)?
     [static_src.display(), static_out.display()],
     {XSH_MODULE_PATH: root.display()},
   )?
-  test.ok(static_output.success, static_output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = static_output
+    assert assertion_condition, assertion_message
+  }
   fp"${static_out}/ok".read_text()? == """demo:static-src
 """
 }
@@ -843,7 +909,11 @@ let _: Runner = stream_only
     [],
     {XSH_MODULE_PATH: root.display()},
   )?
-  test.ok(! concrete_empty.success, concrete_empty.stderr)?
+  {
+    let assertion_condition = ! concrete_empty.success
+    let assertion_message = concrete_empty.stderr
+    assert assertion_condition, assertion_message
+  }
 
   let stream_contract = test.run_script(
     ctx,
@@ -855,5 +925,9 @@ type Invalid = module {
     [],
     {XSH_MODULE_PATH: root.display()},
   )?
-  test.ok(! stream_contract.success, stream_contract.stderr)?
+  {
+    let assertion_condition = ! stream_contract.success
+    let assertion_message = stream_contract.stderr
+    assert assertion_condition, assertion_message
+  }
 }

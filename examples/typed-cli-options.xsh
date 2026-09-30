@@ -23,13 +23,13 @@ let opts: BuildOptions = cli.parse(
       default: false,
     },
   },
-)?.require(BuildOptions)?
+)?.require()?
 
-let line = "WARN build.rs: unused value"
-let word_re = rx"unused|missing"
-let capture_re = rx"^(\w+) ([^:]+): (.*)$"
-let whitespace_re = rx"\s+"
-let warn_re = rx"WARN.*unused"
+const line = "WARN build.rs: unused value"
+const word_re = rx"unused|missing"
+const capture_re = rx"^(\w+) ([^:]+): (.*)$"
+const whitespace_re = rx"\s+"
+const warn_re = rx"WARN.*unused"
 let matches = word_re.find(line)
 let captures = capture_re.captures(line)
 let rewritten = whitespace_re.replace(line, "|")
@@ -60,7 +60,7 @@ let parsed_cli: Cli = cli.commands(
   rootless_default: "build",
   commands: command_specs,
   fallback_command: {positionals: ["action", "root"], types: {root: "Path"}, rest: "raw", command_like: true},
-)?.require(Cli)?
+)?
 
 print $opts.root.name $opts.jobs opts.define.len() $opts.verbose
 print warn_re.matches(line) captures[1] captures[2] matches[0].text $rewritten

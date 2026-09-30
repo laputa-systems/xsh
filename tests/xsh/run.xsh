@@ -1,34 +1,7 @@
 type RunRow = {name: Str}
 
-error TailError = tail_error(message: Str)
-
 pure show_run_row(row: RunRow, prefix: Str) -> Str {
-  return f"${prefix} ${row.name}"
-}
-
-pure run_object_path(src: Path) -> Path {
-  src.with_ext("o")
-}
-
-proc run_wrap_tail(value: Str) [error] -> Result[Str] {
-  Ok(f"${value}.ok")
-}
-
-proc run_command_tail(value: Str) [error] -> Result[Str] {
-  run_wrap_tail(value)
-}
-
-proc run_marker_tail() [error] -> Result[Str] {
-  "proc-tail"
-}
-
-proc run_choose_tail(label: Str) [error] -> Result[Str] {
-  let _ = label
-  run_marker_tail()?
-}
-
-pure run_result_unit_tail_error() -> Result[Unit] {
-  Err(TailError.tail_error(message: "bad"))
+  f"${prefix} ${row.name}"
 }
 
 test test_command_proc_args_resolve_bare_value_references [error] {
@@ -50,7 +23,10 @@ test test_mutable_string_accumulator_uses_string_addition_in_loop [error] { |ctx
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """abc
 """
   output.stderr == ""
@@ -104,14 +80,14 @@ test test_grouped_multiline_run_invocation_executes [process, error] {
 }
 
 test test_run_status_can_drive_conditions [process, error] {
-  var seen: List[Str] = []
+  var seen = []
 
   if ! run.status false {
-    seen = seen.push("missing")
+    seen += ["missing"]
   }
 
   if run.status true {
-    seen = seen.push("ok")
+    seen += ["ok"]
   }
 
   seen == ["missing", "ok"]
@@ -125,18 +101,18 @@ test test_path_absolute_uses_current_runtime_cwd_without_existing_path [fs, erro
 
 test test_boolean_operators_short_circuit [error] {
   let items = [1]
-  var seen: List[Str] = []
+  var seen = []
 
   if false and items[9] == 0 {
-    seen = seen.push("bad-and")
+    seen += ["bad-and"]
   }
 
   if true or items[9] == 0 {
-    seen = seen.push("ok-or")
+    seen += ["ok-or"]
   }
 
   if items.len() > 0 and items[0] == 1 {
-    seen = seen.push("ok-and")
+    seen += ["ok-and"]
   }
 
   seen == ["ok-or", "ok-and"]
@@ -209,7 +185,10 @@ export proc build() [process, error] {
 build_fn.call()?
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   for expected in [
     "-a json",
     "-ab json",
@@ -259,8 +238,11 @@ var order = 0
 pair(@{ order = order * 10 + 1; ["first"] }, @{ order = order * 10 + 2; ["second"] })?
 print $order
 """)?
-  test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "left right\nconstant backing\nleft right\nconstant backing\nfirst second\n12\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
+  (result.stdout) == ("left right\nconstant backing\nleft right\nconstant backing\nfirst second\n12\n")
 }
 
 test test_nul_run_targets_proc_splice_and_match_diagnostics [error] { |ctx|
@@ -309,7 +291,10 @@ pair(@parts)?
 """,
   )?
 
-  test.ok(spliced.success, spliced.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = spliced
+    assert assertion_condition, assertion_message
+  }
 
   spliced.stdout == """left right
 """
@@ -339,16 +324,32 @@ test test_legacy_test_and_getopt_spellings_are_not_command_aliases [error] { |ct
 """,
   ] {
     let output = test.run_script(ctx, source)?
-    test.ok(! output.success, source)?
+    {
+      let assertion_condition = ! output.success
+      let assertion_message = source
+      assert assertion_condition, assertion_message
+    }
 
-    test.ok(
-      "check.unresolved-proc-command" in output.stderr or "check.unresolved-name" in output.stderr or "parse" in output.stderr or "lex" in output.stderr,
-      output.stderr,
-    )?
+    {
+      let assertion_condition = "check.unresolved-proc-command" in output.stderr or "check.unresolved-name" in output.stderr or "parse" in output.stderr or "lex" in output.stderr
+      let assertion_message = output.stderr
+      assert assertion_condition, assertion_message
+    }
   }
 }
 
-test test_function_tail_values_return_declared_values [error] {
+test test_function_tail_values_return_declared_values [error] { |ctx|
+  let output = test.run_script(ctx, r"""pure run_object_path(src: Path) -> Path { src.with_ext("o") }
+proc run_wrap_tail(value: Str) [error] -> Result[Str] { Ok(f"${value}.ok") }
+proc run_command_tail(value: Str) [error] -> Result[Str] {
+  run_wrap_tail(value)
+}
+
+proc run_marker_tail() [error] -> Result[Str] { "proc-tail" }
+proc run_choose_tail(label: Str) [error] -> Result[Str] { let _ = label; run_marker_tail()? }
+error TailError = tail_error(message: Str)
+pure run_result_unit_tail_error() -> Result[Unit] { Err(TailError.tail_error(message: "bad")) }
+proc witness() [error] {
   let obj = run_object_path(p"main.c")
 
   let values = ["ok"]
@@ -361,6 +362,12 @@ test test_function_tail_values_return_declared_values [error] {
   obj.name() == "main.o"
   values[0] == "ok.ok"
   test.error_kind(run_result_unit_tail_error(), "TailError.tail_error")?
+}
+witness()
+""")?
+  let {success: assertion_condition, stderr: assertion_message, ..} = output
+  assert assertion_condition, assertion_message
+  output.stdout == ""
 }
 
 test test_byte_pipeline_executes_without_shell_and_redirects_stdout [fs, process, error] { |ctx|
@@ -419,8 +426,8 @@ name"""
 test test_pipeline_status_preserves_exec_failure_and_broken_pipe_segments [fs, process, env, error] { |ctx|
   env PATH="/bin:/usr/bin" {
     let status = run xsh-definitely-missing-command | run true
-    test.eq(status.segments[0].kind, "exec")?
-    test.eq(status.segments[0].error_kind, "not-found")?
+    (status.segments[0].kind) == ("exec")
+    (status.segments[0].error_kind) == ("not-found")
   }
 
   let sink = test.temp_path(ctx)
@@ -480,7 +487,12 @@ main()?
 """,
   )?
 
-  test.eq(abort_with_defers.status, 9, abort_with_defers.stderr)?
+  {
+    let assertion_actual = abort_with_defers.status
+    let assertion_expected = 9
+    let assertion_message = abort_with_defers.stderr
+    assert assertion_actual == assertion_expected, assertion_message
+  }
 
   abort_with_defers.stdout == """proc
 top
@@ -544,7 +556,10 @@ print \${opts.paths.len()}
     "cli-help.xsh",
   )?
 
-  test.ok(help.success, help.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = help
+    assert assertion_condition, assertion_message
+  }
   help.stderr == ""
   "usage: " in help.stdout
   "cli-help" in help.stdout
@@ -597,7 +612,10 @@ main()?
 """,
   )?
 
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """5
 """
   output.stderr == ""
@@ -696,7 +714,10 @@ print \${demo_path.display()}
     ["--trace", "--raw", "--trace-format", "jsonl"],
   )?
 
-  test.ok(method_trace.success, method_trace.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = method_trace
+    assert assertion_condition, assertion_message
+  }
   "\"kind\":\"method.call\"" in method_trace.stderr
   "\"kind\":\"method.result\"" in method_trace.stderr
   "\"api_id\":\"method.Path.display\"" in method_trace.stderr
@@ -709,7 +730,10 @@ print \${demo_path.display()}
     ["--raw"],
   )?
 
-  test.ok(env_trace.success, env_trace.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = env_trace
+    assert assertion_condition, assertion_message
+  }
   "env={b\"XSH_STAGE3_TRACE\":b\"value\"}" in env_trace.stderr
 
   let cd_error = test.run_xsht_trace(
@@ -759,7 +783,10 @@ main(args)?
     ["--trace", "--raw"],
   )?
 
-  test.ok(success.success, success.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = success
+    assert assertion_condition, assertion_message
+  }
 
   for kind in [
     "kind=script.enter",

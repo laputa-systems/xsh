@@ -8,32 +8,29 @@ const constant_options = {
 
 test cli_constants_retain_the_inline_descriptor_shape [fs, error] {
   let options = cli.parse(["workspace", "--jobs", "6", "--tag", "one"], constant_options)?
-  let jobs: Int = options.jobs
-  let root: Path = options.root
-  let verbose: Bool = options.verbose
-  let tags: List[Str] = options.tag
+  let {jobs, root, verbose, tag: tags, ..} = options
   let optional: Int? = options.zoptional
-  test.eq(jobs, 6)?
-  test.eq(root, p"workspace")?
-  test.eq(verbose, false)?
-  test.eq(tags, ["one"])?
-  test.eq(optional, null)?
+  (jobs) == (6)
+  (root) == (p"workspace")
+  (verbose) == (false)
+  (tags) == (["one"])
+  (optional) == (null)
   let full = cli.parse_full(["workspace"], constant_options)?
-  let default_jobs: Int = full.values.jobs
-  test.eq(default_jobs, 4)?
-  test.eq(full.sources.get("jobs")?, "default")?
-  test.eq(full.warnings, [])?
+  let default_jobs = full.values.jobs
+  (default_jobs) == (4)
+  (full.sources.get("jobs")?) == ("default")
+  (full.warnings) == ([])
   let parsed_applet = cli.applet(["workspace", "-j2", "-j3"], constant_options)?
-  let last_jobs: Int = parsed_applet.jobs
-  test.eq(last_jobs, 3)?
+  let last_jobs = parsed_applet.jobs
+  (last_jobs) == (3)
 }
 
 
 test cli_constants_reject_invalid_known_descriptors_during_checking [error] { |ctx|
   let rejected = test.run_script(ctx, "const schema = {count: {kind: \"Nope\"}}\nlet _ = cli.parse([], schema)\n")?
-  test.eq(rejected.success, false)?
-  test.ok("check.cli-descriptor" in rejected.stderr)?
-  test.ok("unsupported option type `Nope`" in rejected.stderr)?
+  (rejected.success) == (false)
+  ("check.cli-descriptor" in rejected.stderr)
+  ("unsupported option type `Nope`" in rejected.stderr)
 }
 
 
@@ -59,16 +56,19 @@ print $flag
 print ${tags.len()}
 print $default_jobs
 """, [], {XSH_MODULE_PATH: root.display()})?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "7\nworkspace\nfalse\n0\n4\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("7\nworkspace\nfalse\n0\n4\n")
 }
 
 pure dynamic_options(value: Record) -> Record { value }
 
 test cli_constants_dynamic_descriptors_keep_runtime_validation [fs, error] {
   let dynamic = cli.parse(["--jobs", "8"], dynamic_options({jobs: {kind: "Int"}}))?
-  let jobs: Int = dynamic.get("jobs")?.require(Int)?
-  test.eq(jobs, 8)?
+  let jobs = dynamic.get("jobs")?.require(Int)?
+  (jobs) == (8)
   test.error_kind(cli.parse([], dynamic_options({count: {kind: "Nope"}})), "cli-parse")?
 }
 
@@ -83,10 +83,10 @@ export const descriptors = {count: {kind: "Nope"}}
 const schema = {...c.descriptors, verbose: "Bool"}
 let _ = cli.parse([], schema)
 """, [], {XSH_MODULE_PATH: root.display()})?
-  test.eq(rejected.success, false)?
-  test.ok("check.cli-descriptor" in rejected.stderr)?
-  test.ok("invalid_config.xsh:3:" in rejected.stderr)?
-  test.ok("unsupported option type `Nope`" in rejected.stderr)?
+  (rejected.success) == (false)
+  ("check.cli-descriptor" in rejected.stderr)
+  ("invalid_config.xsh:3:" in rejected.stderr)
+  ("unsupported option type `Nope`" in rejected.stderr)
 }
 
 test cli_constants_named_arguments_evaluate_once_in_source_order [error] { |ctx|
@@ -99,17 +99,20 @@ print ${prepared.jobs}
 let dynamic = cli.parse(schema: descriptor(), argv: operands(), command: label())?
 print ${dynamic.get("jobs")?.require(Int)?}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "argv\ncommand\n4\nschema\nargv\ncommand\n4\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("argv\ncommand\n4\nschema\nargv\ncommand\n4\n")
 }
 
 
 test cli_constants_forced_non_bool_flags_keep_dynamic_values [fs, error] {
   const schema = {switch: {kind: "Int", flag: true}, many: {kind: "Str", flag: true, repeated: true}}
   let unvalued = cli.parse(["--switch", "--many"], schema)?
-  test.eq(unvalued.switch.require(Bool)?, true)?
-  test.eq(unvalued.many[0].require(Bool)?, true)?
+  (unvalued.switch.require(Bool)?) == (true)
+  (unvalued.many[0].require(Bool)?) == (true)
   let valued = cli.parse(["--switch=3", "--many=text"], schema)?
-  test.eq(valued.switch.require(Int)?, 3)?
-  test.eq(valued.many[0].require(Str)?, "text")?
+  (valued.switch.require(Int)?) == (3)
+  (valued.many[0].require(Str)?) == ("text")
 }

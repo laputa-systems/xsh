@@ -14,8 +14,11 @@ let label: Str? = parsed.label
 print root.display() ${raw[0]} $jobs $flag ${tags[0]}
 print (label == null)
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "workspace extra 6 false one\ntrue\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("workspace extra 6 false one\ntrue\n")
 }
 
 test cli_commands_constants_reject_unreachable_invalid_descriptor [error] { |ctx|
@@ -23,8 +26,12 @@ test cli_commands_constants_reject_unreachable_invalid_descriptor [error] { |ctx
 const commands = {build: {positionals: ["root"], types: {root: "NotAType"}}}
 if false { let _ = cli.commands(["build", "workspace"], commands) }
 """)?
-  test.ok(!output.success, output.stderr)?
-  test.ok("check.cli-descriptor" in output.stderr)?
+  {
+    let assertion_condition = !output.success
+    let assertion_message = output.stderr
+    assert assertion_condition, assertion_message
+  }
+  ("check.cli-descriptor" in output.stderr)
 }
 
 test cli_commands_constants_preserve_fallback_and_rootless_selection [fs, error] { |ctx|
@@ -43,8 +50,11 @@ let rootless = cli.commands(["target/demo"], "build", commands, fallback)?
 let root: Path = rootless.root
 print root.name()
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "deploy demo extra\nbuild\ndemo\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("deploy demo extra\nbuild\ndemo\n")
 }
 
 test cli_commands_constants_import_projection_and_named_spread [fs, error] { |ctx|
@@ -62,8 +72,11 @@ let root: Path = parsed.root
 let rest: List[Str] = parsed.raw
 print root.display() ${rest[0]}
 """, [], {XSH_MODULE_PATH: root.display()})?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "workspace extra\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("workspace extra\n")
 }
 
 test cli_commands_constants_keep_dynamic_validation_and_command_fields [fs, error] { |ctx|
@@ -79,8 +92,11 @@ proc fallback() [] -> Record { print "fallback once"; {positionals: ["action", "
 let dynamic_fallback = cli.commands(["deploy", "workspace"], "build", commands, fallback())?.require(ParsedCommand)?
 print dynamic_fallback.root.display()
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "workspace\n3\nfallback once\nworkspace\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("workspace\n3\nfallback once\nworkspace\n")
 }
 
 test cli_dynamic_full_descriptor_preserves_outcome_envelope [error] { |ctx|
@@ -93,8 +109,11 @@ let warnings: List[Str] = full.warnings
 let source = full.sources.get("count")?.require(Str)?
 print ${values.count} $source warnings.len()
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "4 argv 1\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("4 argv 1\n")
 }
 
 test cli_prepared_descriptors_check_annotated_result_after_refinement [fs, error] { |ctx|
@@ -108,13 +127,16 @@ let applet_values: ParsedValues = cli.applet([], schema)?
 let command: CommandValues = cli.commands(["build", "workspace"], commands)?
 print ${parsed.count} ${applet_values.count} command.root.display()
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "2 2 workspace\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("2 2 workspace\n")
   let mismatch = test.run_script(ctx, r"""
 type IncorrectValues = {count: Str}
 const schema = {count: {kind: "Int", default: 2}}
 let parsed: IncorrectValues = cli.parse([], schema)?
 """)?
-  test.ok(!mismatch.success)?
-  test.ok("check.type-mismatch" in mismatch.stderr)?
+  (!mismatch.success)
+  ("check.type-mismatch" in mismatch.stderr)
 }

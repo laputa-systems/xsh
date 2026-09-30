@@ -1206,13 +1206,24 @@ impl CompactBodyProbe<'_> {
                 self.apply_compact_guard_narrowings(facts);
             }
             ArenaStmtKind::GuardedStmt {
-                stmt, condition, ..
+                stmt, condition, negate,
             } => {
                 self.output.supported_statements += 1;
                 self.check_compact_expr(condition);
+                let facts = self.compact_condition_proof(condition);
+                // Source checking validates the control target before compact
+                // facts can publish a proof for the skipped branch.
+                let exits = self.declarations.diagnostics.is_empty() && matches!(self.program.arena.stmt(stmt).kind,
+                    ArenaStmtKind::Return(_) | ArenaStmtKind::Break { .. } | ArenaStmtKind::Continue);
+                let continuing_scopes = exits.then(|| self.scopes.clone());
                 self.push_scope();
+                self.apply_compact_guard_narrowings(if negate { facts.when_false.clone() } else { facts.when_true.clone() });
                 self.check_compact_stmt(stmt);
                 self.pop_scope();
+                if let Some(scopes) = continuing_scopes {
+                    self.scopes = scopes;
+                    self.apply_compact_guard_narrowings(if negate { facts.when_true } else { facts.when_false });
+                }
             }
         }
     }

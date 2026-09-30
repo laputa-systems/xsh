@@ -24,8 +24,8 @@ test test_archive_unpack_failure_leaves_existing_destination_untouched [fs, proc
   fp"${out}/b.txt".mkdir()?
   fp"${out}/b.txt/marker".write("untouched")?
   let status = run.status "xsh" "showcase/archive-unpack.xsh" -- $tarball --out $out --dry-run=false
-  test.ok(! status.exited_with(0), "conflicting extraction must fail")?
-  test.ok(! fp"${out}/a.txt".exists()?, "failed extraction must not leave earlier files")?
+  assert ! status.exited_with(0), "conflicting extraction must fail"
+  assert ! fp"${out}/a.txt".exists()?, "failed extraction must not leave earlier files"
   fp"${out}/b.txt/marker".read_text()? == "untouched"
 }
 
@@ -39,9 +39,9 @@ test test_archive_unpack_cleans_partial_staging_after_unsafe_member [fs, process
   let out = test.temp_path(ctx, name: "unsafe-out")
   let pending = fp"${out.parent}/.${out.name()}.xsh-stage"
   let status = run.status "xsh" "showcase/archive-unpack.xsh" -- $tarball --out $out --dry-run=false
-  test.ok(! status.exited_with(0), "unsafe member must fail extraction")?
-  test.ok(! out.exists()?, "failed extraction must not publish partial output")?
-  test.ok(! pending.exists()?, "failed extraction must clean its staging directory")?
+  assert ! status.exited_with(0), "unsafe member must fail extraction"
+  assert ! out.exists()?, "failed extraction must not publish partial output"
+  assert ! pending.exists()?, "failed extraction must clean its staging directory"
 }
 
 test test_archive_unpack_compress_and_decompress_publish_files [fs, process, error] { |ctx|
@@ -77,13 +77,15 @@ test test_archive_unpack_cancellation_during_compression_cleans_staging [fs, pro
     time.sleep(10ms)?
   }
 
-  test.ok(writer_ready.exists()?, "writer must hold the FIFO open after sending data")?
-  test.ok(pending.exists()?, "compression must be in its staging directory")?
+  assert writer_ready.exists()?, "writer must hold the FIFO open after sending data"
+  assert pending.exists()?, "compression must be in its staging directory"
   process.kill(archive_child.pid, signal: "TERM")?
   time.sleep(50ms)?
   writer.cancel(signal: "TERM", kill_after: 0ms)?
   let status = wait archive_child?
-  test.ok(status.exited_with(3), f"canceled archive must report runtime cancellation: ${status.exit_code() ?? -1}")?
-  test.ok(! dest.exists()?, "canceled compression must not publish output")?
-  test.ok(! pending.exists()?, "canceled compression must clean staged output")?
+  let canceled = status.exited_with(3)
+  let cancellation_message = f"canceled archive must report runtime cancellation: ${status.exit_code() ?? -1}"
+  assert canceled, cancellation_message
+  assert ! dest.exists()?, "canceled compression must not publish output"
+  assert ! pending.exists()?, "canceled compression must clean staged output"
 }

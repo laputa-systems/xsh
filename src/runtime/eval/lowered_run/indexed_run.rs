@@ -2865,6 +2865,54 @@ impl Evaluator {
         Ok(ControlFlow::Continue(()))
     }
 
+    // Named argument preparation binds each value with a nested match. Follow
+    // selected match arms iteratively so constructor width does not become
+    // native call depth, while subjects and guards still evaluate in order.
+    fn eval_indexed_match_expr(
+        &mut self,
+        execution: &FullExecution<'_>,
+        mut instruction: u32,
+        slots: &mut [LoweredValue],
+        call_span: Span,
+    ) -> Result<ControlFlow<LoweredValue, LoweredValue>, RuntimeError> {
+        loop {
+            let (tag, mut payload) = indexed_value(execution.instruction_id(instruction), call_span)?;
+            if tag != FullTag::ExprMatch {
+                return self.eval_indexed_expr(execution, instruction, slots, call_span);
+            }
+            self.sync_indexed_root_slots(slots, call_span)?;
+            let value = indexed_raw(&mut payload, call_span)?;
+            let (_, mut arms) = execution.block(&mut payload, BLOCK_LIST)
+                .map_err(|error| indexed_error(error, call_span))?;
+            let arm_count = indexed_raw(&mut arms, call_span)? as usize;
+            let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
+            indexed_finish(payload, call_span)?;
+            let mut decoded_arms = Vec::with_capacity(arm_count);
+            for _ in 0..arm_count {
+                decoded_arms.push((indexed_raw(&mut arms, span)?, indexed_optional_raw(&mut arms, span)?, indexed_raw(&mut arms, span)?));
+            }
+            indexed_finish(arms, span)?;
+            let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
+                ControlFlow::Continue(value) => value,
+                ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+            };
+            let mut selected = None;
+            for (pattern, guard, arm_value) in decoded_arms {
+                if !Self::indexed_pattern_matches(execution, pattern, &value, slots, span)? { continue; }
+                if let Some(guard) = guard {
+                    match self.eval_indexed_expr(execution, guard, slots, call_span)? {
+                        ControlFlow::Continue(LoweredValue::Bool(true)) => {}
+                        ControlFlow::Continue(_) => continue,
+                        ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
+                    }
+                }
+                selected = Some(arm_value);
+                break;
+            }
+            instruction = selected.ok_or_else(|| lowered_match_no_arm(span))?;
+        }
+    }
+
     pub(super) fn eval_indexed_expr(
         &mut self,
         execution: &FullExecution<'_>,
@@ -3178,41 +3226,7 @@ impl Evaluator {
                 return self.eval_indexed_expr(execution, else_value, slots, call_span);
             }
             FullTag::ExprMatch => {
-                let value = indexed_raw(&mut payload, call_span)?;
-                let (_, mut arms) = execution
-                    .block(&mut payload, BLOCK_LIST)
-                    .map_err(|error| indexed_error(error, call_span))?;
-                let arm_count = indexed_raw(&mut arms, call_span)? as usize;
-                let span = indexed_decode::<Span>(&mut payload, execution, call_span)?;
-                indexed_finish(payload, call_span)?;
-                let mut decoded_arms = Vec::with_capacity(arm_count);
-                for _ in 0..arm_count {
-                    decoded_arms.push((
-                        indexed_raw(&mut arms, span)?,
-                        indexed_optional_raw(&mut arms, span)?,
-                        indexed_raw(&mut arms, span)?,
-                    ));
-                }
-                indexed_finish(arms, span)?;
-                let value = match self.eval_indexed_expr(execution, value, slots, call_span)? {
-                    ControlFlow::Continue(value) => value,
-                    ControlFlow::Break(value) => return Ok(ControlFlow::Break(value)),
-                };
-                for (pattern, guard, arm_value) in decoded_arms {
-                    if Self::indexed_pattern_matches(execution, pattern, &value, slots, span)? {
-                        if let Some(guard) = guard {
-                            match self.eval_indexed_expr(execution, guard, slots, call_span)? {
-                                ControlFlow::Continue(LoweredValue::Bool(true)) => {}
-                                ControlFlow::Continue(_) => continue,
-                                ControlFlow::Break(value) => {
-                                    return Ok(ControlFlow::Break(value));
-                                }
-                            }
-                        }
-                        return self.eval_indexed_expr(execution, arm_value, slots, call_span);
-                    }
-                }
-                return Err(lowered_match_no_arm(span));
+                return self.eval_indexed_match_expr(execution, instruction, slots, call_span);
             }
             FullTag::ExprStrMatch | FullTag::ExprTagMatch => {
                 let value = indexed_raw(&mut payload, call_span)?;

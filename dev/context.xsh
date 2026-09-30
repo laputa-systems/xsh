@@ -19,11 +19,9 @@ export error ContextError = WrongDirectory(root: Path)
 
 ## Resolves a configuration path relative to the repository unless it is absolute.
 export pure repo_path(root: Path, value: Str) -> Path {
-  if value.starts_with("/") {
-    return fp"${value}"
-  }
+  return fp"${value}" when value.starts_with("/")
 
-  return fp"${root}/${value}"
+  fp"${root}/${value}"
 }
 
 ## Validates that the current directory is the XSH repository root.
@@ -32,12 +30,12 @@ export proc require_root() [fs, error] -> Result[Path] {
   let required = [fp"${root}/Cargo.toml", fp"${root}/rust-toolchain.toml", fp"${root}/xsht-config.ini"]
 
   for required_path in required {
-    if ! required_path.exists()? {
+    guard required_path.exists()? else {
       return Err(ContextError.WrongDirectory(root:))
     }
   }
 
-  return root
+  root
 }
 
 ## Reads host and environment policy into one lifecycle context.
@@ -57,7 +55,7 @@ export proc create() [fs, env, error] -> Result[Context] {
   let target_dir = if target_value == "" { fp"${root}/target" } else { repo_path(root, target_value) }
   let profile = env.get_or("DIST_PROFILE", "dist")?.trim()
 
-  return {
+  {
     root: root,
     target_dir: target_dir,
     coverage_dir: fp"${root}/target/cov",

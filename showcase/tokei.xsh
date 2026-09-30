@@ -99,19 +99,19 @@ type SummaryRow = {
 type Opts = {root: Path, json: Bool}
 
 pure zero_stats() -> Stats {
-  return {blanks: 0, code: 0, comments: 0, blobs: map.empty()}
+  {blanks: 0, code: 0, comments: 0, blobs: map.empty()}
 }
 
 pure has_stats(stats: Stats) -> Bool {
-  return stats.blanks > 0 or stats.code > 0 or stats.comments > 0 or stats.blobs.len() > 0
+  stats.blanks > 0 or stats.code > 0 or stats.comments > 0 or stats.blobs.len() > 0
 }
 
 pure add_stats(a: Stats, b: Stats) -> Stats {
-  return {blanks: a.blanks + b.blanks, code: a.code + b.code, comments: a.comments + b.comments, blobs: map.empty()}
+  {blanks: a.blanks + b.blanks, code: a.code + b.code, comments: a.comments + b.comments, blobs: map.empty()}
 }
 
 pure with_blobs(stats: Stats, blobs: Map[Any]) -> Stats {
-  return {blanks: stats.blanks, code: stats.code, comments: stats.comments, blobs}
+  {blanks: stats.blanks, code: stats.code, comments: stats.comments, blobs}
 }
 
 # Total stats of an embedded blob: its own counts plus, recursively, the counts of
@@ -130,11 +130,11 @@ pure blob_deep(stats: Stats) -> Stats {
     comments += deep.comments
   }
 
-  return {blanks, code, comments, blobs: map.empty()}
+  {blanks, code, comments, blobs: map.empty()}
 }
 
 pure source_exts() -> List[Str] {
-  return [
+  [
     "",
     "json",
     "py",
@@ -208,7 +208,7 @@ pure language_label(language: Language) -> Str {
 }
 
 pure languages() -> List[Language] {
-  return [
+  [
     LangBash,
     LangCss,
     LangDockerfile,
@@ -243,7 +243,7 @@ pure languages() -> List[Language] {
 # variant name (e.g. Plain Text sorts as `Text`, Shell as `Sh`), which differs
 # from the display-label order. Used so the default table matches tokei row-for-row.
 pure sorted_languages() -> List[Language] {
-  return [
+  [
     LangBash,
     LangCss,
     LangDockerfile,
@@ -284,7 +284,7 @@ pure rule(glyph: Str, n: Int) -> Str {
     i += 1
   }
 
-  return out
+  out
 }
 
 # One tokei table row: language name left-aligned from column 1, then the five
@@ -298,7 +298,7 @@ pure fmt_row(name: Str, files: Str, lines: Str, code: Str, comments: Str, blanks
   line = f"${line}${tui.left_pad(code, 54 - line.byte_len())}"
   line = f"${line}${tui.left_pad(comments, 67 - line.byte_len())}"
   line = f"${line}${tui.left_pad(blanks, 80 - line.byte_len())}"
-  return line
+  line
 }
 
 pure lang_for_name_ext(name_raw: Str, ext_raw: Str) -> Language {
@@ -335,7 +335,7 @@ pure lang_for_name_ext(name_raw: Str, ext_raw: Str) -> Language {
 
   let name = name_raw.lower()
 
-  return match name {
+  match name {
     "dockerfile" => LangDockerfile,
     "makefile" => LangMakefile,
     n if n == "post-checkout" or n == "post-merge" or n == "upload_snapshots" => LangBash,
@@ -355,116 +355,82 @@ pure lang_for_shebang(text: Bytes) -> Language {
       return LangUnknown
     }
 
-    if "python" in first {
-      return LangPython
-    }
+    return LangPython when "python" in first
 
-    if "node" in first {
-      return LangJavaScript
-    }
+    return LangJavaScript when "node" in first
 
-    if "bash" in first {
-      return LangBash
-    }
+    return LangBash when "bash" in first
 
-    if "/sh" in first or " sh" in first {
-      return LangShell
-    }
+    return LangShell when "/sh" in first or " sh" in first
 
     return LangUnknown
   }
 
-  return LangUnknown
+  LangUnknown
 }
 
 pure lang_for_fence(line: Str) -> Language {
   let lower = line.trim().lower()
 
-  if lower.starts_with("```bash") or lower.starts_with("````bash") {
-    return LangBash
-  }
+  return LangBash when lower.starts_with("```bash") or lower.starts_with("````bash")
 
-  if lower.starts_with("```shell") or lower.starts_with("````shell") {
-    return LangShell
-  }
+  return LangShell when lower.starts_with("```shell") or lower.starts_with("````shell")
 
-  if lower.starts_with("```json") or lower.starts_with("````json") {
-    return LangJson
-  }
+  return LangJson when lower.starts_with("```json") or lower.starts_with("````json")
 
-  if lower.starts_with("```toml") or lower.starts_with("````toml") {
-    return LangToml
-  }
+  return LangToml when lower.starts_with("```toml") or lower.starts_with("````toml")
 
-  if lower.starts_with("```html") or lower.starts_with("````html") {
-    return LangHtml
-  }
+  return LangHtml when lower.starts_with("```html") or lower.starts_with("````html")
 
   if lower.starts_with("```javascript") or lower.starts_with("````javascript") {
     return LangJavaScript
   }
 
-  if lower.starts_with("```js") or lower.starts_with("````js") {
-    return LangJavaScript
-  }
+  return LangJavaScript when lower.starts_with("```js") or lower.starts_with("````js")
 
-  if lower.starts_with("```python") or lower.starts_with("````python") {
-    return LangPython
-  }
+  return LangPython when lower.starts_with("```python") or lower.starts_with("````python")
 
-  if lower.starts_with("```py") or lower.starts_with("````py") {
-    return LangPython
-  }
+  return LangPython when lower.starts_with("```py") or lower.starts_with("````py")
 
-  if lower.starts_with("```tsx") or lower.starts_with("````tsx") {
-    return LangTsx
-  }
+  return LangTsx when lower.starts_with("```tsx") or lower.starts_with("````tsx")
 
   if lower.starts_with("```typescript") or lower.starts_with("````typescript") {
     return LangTypeScript
   }
 
-  if lower.starts_with("```ts") or lower.starts_with("````ts") {
-    return LangTypeScript
-  }
+  return LangTypeScript when lower.starts_with("```ts") or lower.starts_with("````ts")
 
   if lower.starts_with("```markdown") or lower.starts_with("````markdown") {
     return LangMarkdown
   }
 
-  if lower.starts_with("```md") or lower.starts_with("````md") {
-    return LangMarkdown
-  }
+  return LangMarkdown when lower.starts_with("```md") or lower.starts_with("````md")
 
-  if lower.starts_with("```rust") or lower.starts_with("````rust") {
-    return LangRust
-  }
+  return LangRust when lower.starts_with("```rust") or lower.starts_with("````rust")
 
-  return LangUnknown
+  LangUnknown
 }
 
 pure set_blob(blobs: Map[Any], language: Str, stats: Stats) -> Map[Any] {
-  if has_stats(stats) {
-    return blobs.set(language, stats)
-  }
+  return blobs.set(language, stats) when has_stats(stats)
 
-  return blobs
+  blobs
 }
 
 pure join_lines(lines: List[Bytes]) -> Bytes {
-  var parts: List[Bytes] = []
+  var parts = []
   var first = true
 
   for line in lines {
     if ! first {
-      parts = parts.push(b"\n")
+      parts += [b"\n"]
     }
 
-    parts = parts.push(line)
+    parts += [line]
     first = false
   }
 
-  return bytes.concat(parts)
+  bytes.concat(parts)
 }
 
 pure count_hash_unindented(text: Bytes) -> Scan {
@@ -481,7 +447,7 @@ pure count_hash_unindented(text: Bytes) -> Scan {
 
   let code = text.count_lines() - blanks - comments
   let stats = {blanks, code, comments, blobs: map.empty()}
-  return {stats, deep: stats}
+  {stats, deep: stats}
 }
 
 pure count_hash_language(text: Bytes) -> Scan {
@@ -506,7 +472,7 @@ pure count_hash_language(text: Bytes) -> Scan {
 
   let code = text.count_lines() - blanks - comments
   let stats = {blanks, code, comments, blobs: map.empty()}
-  return {stats, deep: stats}
+  {stats, deep: stats}
 }
 
 pure count_json(text: Bytes) -> Scan {
@@ -525,7 +491,7 @@ pure count_json(text: Bytes) -> Scan {
 
   let code = text.count_lines() - blanks
   let stats = {blanks, code, comments: 0, blobs: map.empty()}
-  return {stats, deep: stats}
+  {stats, deep: stats}
 }
 
 pure count_markdown_prose(text: Bytes) -> Stats {
@@ -538,12 +504,12 @@ pure count_markdown_prose(text: Bytes) -> Stats {
   }
 
   let comments = text.count_lines() - blanks
-  return {blanks, code: 0, comments, blobs: map.empty()}
+  {blanks, code: 0, comments, blobs: map.empty()}
 }
 
 pure count_plain_text(text: Bytes) -> Scan {
   let stats = count_markdown_prose(text)
-  return {stats, deep: stats}
+  {stats, deep: stats}
 }
 
 pure count_code_text(text: Bytes) -> Scan {
@@ -557,7 +523,7 @@ pure count_code_text(text: Bytes) -> Scan {
 
   let code = text.count_lines() - blanks
   let stats = {blanks, code, comments: 0, blobs: map.empty()}
-  return {stats, deep: stats}
+  {stats, deep: stats}
 }
 
 pure count_lua(text: Bytes) -> Scan {
@@ -591,29 +557,25 @@ pure count_lua(text: Bytes) -> Scan {
   }
 
   let stats = {blanks, code, comments, blobs: map.empty()}
-  return {stats, deep: stats}
+  {stats, deep: stats}
 }
 
 pure rust_fence_contains_doc_fence(text: Bytes) -> Bool {
   for line in text.lines() {
     let trimmed = line.trim()
 
-    if trimmed.starts_with(b"//! ```") or trimmed.starts_with(b"/// ```") {
-      return true
-    }
+    return true when trimmed.starts_with(b"//! ```") or trimmed.starts_with(b"/// ```")
   }
 
-  return false
+  false
 }
 
 pure count_slash_plain(text: Bytes) -> Scan {
-  if ! (b"/" in text) {
+  guard b"/" in text else {
     return count_code_text(text)
   }
 
-  if ! (b"//" in text) and ! (b"/*" in text) {
-    return count_code_text(text)
-  }
+  return count_code_text(text) when ! (b"//" in text) and ! (b"/*" in text)
 
   var blanks = 0
   var code = 0
@@ -715,22 +677,20 @@ pure count_slash_plain(text: Bytes) -> Scan {
   }
 
   let stats = {blanks, code, comments, blobs: map.empty()}
-  return {stats, deep: stats}
+  {stats, deep: stats}
 }
 
 pure count_slash_language(text: Bytes, nested: Bool, collect_doc_markdown: Bool) -> Scan {
-  if ! (b"/" in text) {
+  guard b"/" in text else {
     return count_code_text(text)
   }
 
-  if ! (b"//" in text) and ! (b"/*" in text) {
-    return count_code_text(text)
-  }
+  return count_code_text(text) when ! (b"//" in text) and ! (b"/*" in text)
 
   var blanks = 0
   var code = 0
   var comments = 0
-  var doc_lines: List[Bytes] = []
+  var doc_lines = []
   var block_depth = 0
 
   for line in text.lines() {
@@ -746,7 +706,7 @@ pure count_slash_language(text: Bytes, nested: Bool, collect_doc_markdown: Bool)
       let trimmed = line.trim()
 
       if collect_doc_markdown and block_depth == 0 and (trimmed.starts_with(b"///") or trimmed.starts_with(b"//!")) {
-        doc_lines = doc_lines.push(trimmed.slice(3))
+        doc_lines += [trimmed[3..]]
       } else if trimmed == b"" and block_depth == 0 {
         blanks += 1
       } else if block_depth == 0 and trimmed.starts_with(b"//") {
@@ -842,11 +802,11 @@ pure count_slash_language(text: Bytes, nested: Bool, collect_doc_markdown: Bool)
 
   var blobs: Map[Any] = {}
   blobs = set_blob(blobs, language_label(LangMarkdown), markdown)
-  return {stats: with_blobs(stats, blobs), deep}
+  {stats: with_blobs(stats, blobs), deep}
 }
 
 pure count_markdown(text: Bytes) -> Scan {
-  if ! (b"```" in text) {
+  guard b"```" in text else {
     let stats = count_markdown_prose(text)
     return {stats, deep: stats}
   }
@@ -857,7 +817,7 @@ pure count_markdown(text: Bytes) -> Scan {
   var in_fence = false
   var fence_marker = b""
   var fence_lang = LangUnknown
-  var fence_lines: List[Bytes] = []
+  var fence_lines = []
   var bash = zero_stats()
   var html = zero_stats()
   var json_stats = zero_stats()
@@ -948,7 +908,7 @@ pure count_markdown(text: Bytes) -> Scan {
         fence_lang = LangUnknown
         fence_lines = []
       } else {
-        fence_lines = fence_lines.push(line)
+        fence_lines += [line]
       }
     } else if trimmed.starts_with(b"```") {
       comments += 1
@@ -1054,7 +1014,7 @@ pure count_markdown(text: Bytes) -> Scan {
   total_deep.blanks += deep.blanks
   total_deep.code += deep.code
   total_deep.comments += deep.comments
-  return {stats: top, deep: total_deep}
+  {stats: top, deep: total_deep}
 }
 
 # `embed` controls whether `<script>`/`<style>` blocks are extracted as JavaScript/CSS
@@ -1076,8 +1036,8 @@ pure count_html(text: Bytes, embed: Bool) -> Scan {
   var in_comment = false
   var in_script = false
   var in_style = false
-  var script_lines: List[Bytes] = []
-  var style_lines: List[Bytes] = []
+  var script_lines = []
+  var style_lines = []
   var css = zero_stats()
   var javascript = zero_stats()
 
@@ -1095,7 +1055,7 @@ pure count_html(text: Bytes, embed: Bool) -> Scan {
         script_lines = []
         in_script = false
       } else {
-        script_lines = script_lines.push(line)
+        script_lines += [line]
       }
     } else if in_style {
       let lower = trimmed.lower()
@@ -1108,7 +1068,7 @@ pure count_html(text: Bytes, embed: Bool) -> Scan {
         style_lines = []
         in_style = false
       } else {
-        style_lines = style_lines.push(line)
+        style_lines += [line]
       }
     } else if in_comment {
       comments += 1
@@ -1159,11 +1119,11 @@ pure count_html(text: Bytes, embed: Bool) -> Scan {
   total_deep.blanks += deep.blanks
   total_deep.code += deep.code
   total_deep.comments += deep.comments
-  return {stats: top, deep: total_deep}
+  {stats: top, deep: total_deep}
 }
 
 pure count_language(language: Language, text: Bytes) -> Scan {
-  let empty: Scan = {stats: zero_stats(), deep: zero_stats()}
+  let empty: Scan = Scan(stats: zero_stats(), deep: zero_stats())
 
   match language {
     LangTsx => count_slash_plain(text)
@@ -1175,14 +1135,10 @@ pure count_language(language: Language, text: Bytes) -> Scan {
     LangSvg => count_html(text, false)
     LangMdx => count_plain_text(text)
     LangMarkdown => count_markdown(text)
-    LangLess => count_slash_plain(text)
-    LangJavaScript => count_slash_plain(text)
-    LangYaml => count_hash_language(text)
-    LangBash => count_hash_language(text)
+    LangLess | LangJavaScript => count_slash_plain(text)
+    LangYaml | LangBash => count_hash_language(text)
     LangCss => count_slash_plain(text)
-    LangDockerfile => count_hash_language(text)
-    LangForgeConfig => count_hash_language(text)
-    LangIni => count_hash_language(text)
+    LangDockerfile | LangForgeConfig | LangIni => count_hash_language(text)
     LangLua => count_lua(text)
     LangMakefile => count_hash_language(text)
     LangModelica => count_slash_language(text, true, false)
@@ -1198,7 +1154,7 @@ pure count_language(language: Language, text: Bytes) -> Scan {
 }
 
 pure hidden_relative(rel: Str) -> Bool {
-  return rel.starts_with(".") or "/." in rel
+  rel.starts_with(".") or "/." in rel
 }
 
 pure ignored_by_patterns(rel: Str, patterns: List[Str]) -> Bool {
@@ -1206,27 +1162,23 @@ pure ignored_by_patterns(rel: Str, patterns: List[Str]) -> Bool {
     let pattern = raw.trim()
 
     if pattern != "" and ! pattern.starts_with("#") {
-      if rel == pattern or rel.starts_with(f"${pattern}/") {
-        return true
-      }
+      return true when rel == pattern or rel.starts_with(f"${pattern}/")
     }
   }
 
-  return false
+  false
 }
 
 proc ignored_patterns(root: Path) [fs, error] -> Result[List[Str]] {
   let ignore_file = fp"${root}/.tokeignore"
 
-  if ignore_file.exists()? {
-    return ignore_file.lines()?.collect()
-  }
+  return ignore_file.lines()?.collect() when ignore_file.exists()?
 
   []
 }
 
 proc blob_stats(report: FileReport, language: Str) [error] -> Result[Stats] {
-  return report.stats.blobs.get(language)?.require(Stats)?
+  report.stats.blobs.get(language)?.require()?
 }
 
 proc children_from_reports(reports: List[FileReport]) [error] -> Result[Map[List[FileReport]]] {
@@ -1238,7 +1190,7 @@ proc children_from_reports(reports: List[FileReport]) [error] -> Result[Map[List
     }
   }
 
-  return children
+  children
 }
 
 proc json_main(root: Path, ignore_patterns: List[Str]) [fs, error] {
@@ -1266,14 +1218,10 @@ proc json_main(root: Path, ignore_patterns: List[Str]) [fs, error] {
         LangSvg => count_html(text, false),
         LangMdx => count_plain_text(text),
         LangMarkdown => count_markdown(text),
-        LangLess => count_slash_plain(text),
-        LangJavaScript => count_slash_plain(text),
-        LangYaml => count_hash_language(text),
-        LangBash => count_hash_language(text),
+        LangLess | LangJavaScript => count_slash_plain(text),
+        LangYaml | LangBash => count_hash_language(text),
         LangCss => count_slash_plain(text),
-        LangDockerfile => count_hash_language(text),
-        LangForgeConfig => count_hash_language(text),
-        LangIni => count_hash_language(text),
+        LangDockerfile | LangForgeConfig | LangIni => count_hash_language(text),
         LangLua => count_lua(text),
         LangMakefile => count_hash_language(text),
         LangModelica => count_slash_language(text, true, false),
@@ -1358,15 +1306,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let ignore_patterns = ignored_patterns(root)?
 
   if ! opts.json {
-    let zero_summary: SummaryTotals = {
-      files: 0,
-      blanks: 0,
-      code: 0,
-      comments: 0,
-      total_blanks: 0,
-      total_code: 0,
-      total_comments: 0,
-    }
+    let zero_summary = SummaryTotals(files: 0, blanks: 0, code: 0, comments: 0, total_blanks: 0, total_code: 0, total_comments: 0)
 
     let summary = fs.files(root, stat: false, exts: source_exts())?
       |> map { |entry|
@@ -1397,14 +1337,10 @@ proc main(...argv: List[Str]) [fs, error] {
           LangSvg => count_html(text, false),
           LangMdx => count_plain_text(text),
           LangMarkdown => count_markdown(text),
-          LangLess => count_slash_plain(text),
-          LangJavaScript => count_slash_plain(text),
-          LangYaml => count_hash_language(text),
-          LangBash => count_hash_language(text),
+          LangLess | LangJavaScript => count_slash_plain(text),
+          LangYaml | LangBash => count_hash_language(text),
           LangCss => count_slash_plain(text),
-          LangDockerfile => count_hash_language(text),
-          LangForgeConfig => count_hash_language(text),
-          LangIni => count_hash_language(text),
+          LangDockerfile | LangForgeConfig | LangIni => count_hash_language(text),
           LangLua => count_lua(text),
           LangMakefile => count_hash_language(text),
           LangModelica => count_slash_language(text, true, false),
@@ -1440,15 +1376,7 @@ proc main(...argv: List[Str]) [fs, error] {
             total_comments: scan.deep.comments,
           })
 
-          let has_child_blobs = match language {
-            LangHtml => true,
-            LangMarkdown => true,
-            LangMdx => true,
-            LangRust => true,
-            LangSvg => true,
-            LangXml => true,
-            _ => false,
-          }
+          let has_child_blobs = language is (LangHtml | LangMarkdown | LangMdx | LangRust | LangSvg | LangXml)
 
           if has_child_blobs {
             for child in scan.stats.blobs.keys() {
@@ -1489,8 +1417,8 @@ proc main(...argv: List[Str]) [fs, error] {
         }
       }
 
-    var no_child: List[Str] = []
-    var child_blocks: List[List[Str]] = []
+    var no_child = []
+    var child_blocks = []
     var total_files = 0
     var total_blanks = 0
     var total_code = 0
@@ -1504,7 +1432,7 @@ proc main(...argv: List[Str]) [fs, error] {
       total_blanks += totals.total_blanks
       total_code += totals.total_code
       total_comments += totals.total_comments
-      var child_rows: List[Str] = []
+      var child_rows = []
 
       for child in sorted_languages() {
         let clabel = language_label(child)
@@ -1536,7 +1464,7 @@ proc main(...argv: List[Str]) [fs, error] {
       )
 
       if child_rows.len() == 0 {
-        no_child = no_child.push(lang_row)
+        no_child += [lang_row]
       } else {
         let deep_lines = totals.total_blanks + totals.total_code + totals.total_comments
 
@@ -1550,9 +1478,9 @@ proc main(...argv: List[Str]) [fs, error] {
         )
 
         var block = [lang_row]
-        block = block.extend(child_rows)
-        block = block.push(subtotal)
-        child_blocks = child_blocks.push(block)
+        block += child_rows
+        block += [subtotal]
+        child_blocks += [block]
       }
     }
 

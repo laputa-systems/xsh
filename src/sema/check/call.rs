@@ -495,7 +495,7 @@ impl Checker {
         let args = arena.arena.call_args(args_range);
         // Discover finite field sets without applying argument flow changes
         // to the real checker. Actual checks run at each source entry below.
-        let mut probe = self.clone();
+        let mut probe = self.constraint_probe();
         let receiver_type = match arena.arena.expr(callee).kind {
             ArenaExprKind::Field { base, .. } => Some(probe.check_expr_arena(arena, source, base, None)),
             _ => None,

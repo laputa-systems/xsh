@@ -219,7 +219,7 @@ test test_dynamic_boundary_keeps_concrete_builtin_results_in_wider_destinations 
 
 test test_dynamic_boundary_keeps_concrete_result_in_dynamic_inspection [error] {
   let result: Result[Any] = "7".parse_int()
-  test.ok(result is Ok(_))?
+  result is Ok(_)
 }
 
 test test_dynamic_boundary_keeps_nullable_equality_in_both_operand_orders [error] { |ctx|

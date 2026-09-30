@@ -44,11 +44,9 @@ pure parse_passwd_args(argv: List[Str]) -> Result[PasswdOptions] {
   let action = if opts.delete { "delete" } else if opts.lock { "lock" } else if opts.unlock { "unlock" } else { "set" }
   let user_name = if opts.operands.len() == 0 { "" } else { opts.operands[0] }
 
-  if opts.operands.len() > 1 {
-    return Err(auth.AuthError.Failed("extra operand"))
-  }
+  return Err(auth.AuthError.Failed("extra operand")) when opts.operands.len() > 1
 
-  return {algorithm: opts.algorithm, action: action, user: user_name}
+  {algorithm: opts.algorithm, action: action, user: user_name}
 }
 
 proc read_new_password(user_name: Str, algorithm: Str) [process, error, io] -> Result[Str] {
@@ -61,19 +59,17 @@ proc read_new_password(user_name: Str, algorithm: Str) [process, error, io] -> R
     return Err(auth.AuthError.Failed(f"password for ${user_name} is unchanged"))
   }
 
-  return applet.hash_password(first, algorithm)?
+  applet.hash_password(first, algorithm)?
 }
 
 proc target_user(options: PasswdOptions, passwd: List[auth.PasswdEntry]) [fs, process, env, error] -> Result[Str] {
   let name = if options.user == "" { auth.current_user_name()? } else { options.user }
 
   for entry in passwd {
-    if entry.name == name {
-      return name
-    }
+    return name when entry.name == name
   }
 
-  return Err(auth.AuthError.Failed(f"unknown user ${name}"))
+  Err(auth.AuthError.Failed(f"unknown user ${name}"))
 }
 
 proc main(...argv: List[Str]) [fs, process, env, time, error, io] -> Result[Int] {
@@ -99,9 +95,9 @@ proc main(...argv: List[Str]) [fs, process, env, time, error, io] -> Result[Int]
       }
 
       auth.write_shadow_records(auth.upsert_shadow(records, name, password, auth.days_since_epoch()))?
-      return 0
+      0
     }
-    Err(error) => return auth.fail("passwd", error.message)
+    Err(error) => auth.fail("passwd", error.message)
   }
 }
 

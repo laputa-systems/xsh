@@ -3,27 +3,21 @@
 # Every lookup assertion goes through this so a miss reports the marker media
 # type instead of failing on a field access against an absent value.
 pure mime_entry(info: MimeInfo?) -> MimeInfo {
-  return info ?? missing_info()
+  info ?? missing_info()
 }
 
 pure missing_info() -> MimeInfo {
-  return {mime: "missing", exts: ["missing"]}
+  {mime: "missing", exts: ["missing"]}
 }
 
 # The `type` field of a successful parse, or `rejected` when it was refused.
 pure parsed_type(result: Result[MimeParse]) -> Str {
-  match result {
-    Ok(parsed) => return parsed.type
-    Err(_) => return "rejected"
-  }
+  if let Ok(parsed) = result { parsed.type } else { "rejected" }
 }
 
 # A parse's parameter map, empty when the parse was refused.
 pure parsed_params(result: Result[MimeParse]) -> Map[Str] {
-  match result {
-    Ok(parsed) => return parsed.params
-    Err(_) => return map.empty()
-  }
+  if let Ok(parsed) = result { parsed.params } else { {} }
 }
 
 test test_mime_lookup_and_parse [fs, error] {
@@ -31,12 +25,12 @@ test test_mime_lookup_and_parse [fs, error] {
   info.mime == "application/tar+gzip"
   info.exts[0] == "tar.gz"
 
-  test.eq(mime.lookup_path(p"archive.tar.gz")?.mime, "application/tar+gzip")?
-  test.eq(mime.lookup_ext("definitelymissingxsh"), null)?
-  test.eq(mime.lookup_path(p"no-extension"), null)?
+  (mime.lookup_path(p"archive.tar.gz")?.mime) == ("application/tar+gzip")
+  (mime.lookup_ext("definitelymissingxsh")) == (null)
+  (mime.lookup_path(p"no-extension")) == (null)
   let parsed = mime.parse("Text/Plain; Charset=UTF-8")?
-  test.eq(parsed.type, "text/plain")?
-  test.eq((parsed.params.get("charset") ?? ""), "UTF-8")?
+  (parsed.type) == ("text/plain")
+  ((parsed.params.get("charset") ?? "")) == ("UTF-8")
   test.error_kind(mime.parse("not a media type"), "mime-parse")?
 }
 
@@ -105,14 +99,14 @@ test test_mime_lookup_path_uses_only_the_final_component [fs, error] {
   (mime.lookup_path(p"dir.d/file.txt") ?? missing_info()).mime == "text/plain"
 
   # A path with no extension at all, and one whose extension no row carries.
-  test.eq(mime.lookup_path(p"noext"), null)?
-  test.eq(mime.lookup_path(p"a/b/README"), null)?
-  test.eq(mime.lookup_path(p"dir/"), null)?
+  (mime.lookup_path(p"noext")) == (null)
+  (mime.lookup_path(p"a/b/README")) == (null)
+  (mime.lookup_path(p"dir/")) == (null)
 
   # A dot that ends the name, and a leading dot, offer no usable suffix.
-  test.eq(mime.lookup_path(p"file."), null)?
-  test.eq(mime.lookup_path(p".hidden"), null)?
-  test.eq(mime.lookup_path(p".."), null)?
+  (mime.lookup_path(p"file.")) == (null)
+  (mime.lookup_path(p".hidden")) == (null)
+  (mime.lookup_path(p"..")) == (null)
 }
 
 test test_mime_parse_lowercases_the_type_and_parameter_names [error] {
@@ -122,9 +116,9 @@ test test_mime_parse_lowercases_the_type_and_parameter_names [error] {
 
   # Parameter names are ASCII-lowercased; parameter values keep their case.
   let parsed = parsed_params(mime.parse("text/plain; Charset=UTF-8; NAME=\"A B\""))
-  test.eq((parsed.get("charset") ?? "absent"), "UTF-8")?
-  test.eq((parsed.get("name") ?? "absent"), "A B")?
-  test.eq((parsed.get("NAME") ?? "absent"), "absent")?
+  ((parsed.get("charset") ?? "absent")) == ("UTF-8")
+  ((parsed.get("name") ?? "absent")) == ("A B")
+  ((parsed.get("NAME") ?? "absent")) == ("absent")
 }
 
 test test_mime_parse_splits_on_semicolons_before_interpreting_quotes [error] {
@@ -135,38 +129,38 @@ test test_mime_parse_splits_on_semicolons_before_interpreting_quotes [error] {
 
   # The other consequence of splitting first: a value is quoted only when its
   # own part starts with a quote.
-  test.eq((parsed_params(mime.parse("text/plain; a=1; b=2")).get("b") ?? "absent"), "2")?
-  test.eq((parsed_params(mime.parse("text/plain; a=\"q\"")).get("a") ?? "absent"), "q")?
+  ((parsed_params(mime.parse("text/plain; a=1; b=2")).get("b") ?? "absent")) == ("2")
+  ((parsed_params(mime.parse("text/plain; a=\"q\"")).get("a") ?? "absent")) == ("q")
 
   # Empty parts between semicolons are skipped, and semicolons alone are not
   # parameters.
-  test.eq(parsed_type(mime.parse("text/plain;")), "text/plain")?
-  test.eq(parsed_type(mime.parse("text/plain;;")), "text/plain")?
-  test.eq((parsed_params(mime.parse("text/plain;;")).get("a") ?? "absent"), "absent")?
+  (parsed_type(mime.parse("text/plain;"))) == ("text/plain")
+  (parsed_type(mime.parse("text/plain;;"))) == ("text/plain")
+  ((parsed_params(mime.parse("text/plain;;")).get("a") ?? "absent")) == ("absent")
 }
 
 test test_mime_parse_keeps_the_last_repeated_parameter [error] {
   # A repeated name replaces the earlier value, and the names collide only
   # after ASCII case folding.
-  test.eq((parsed_params(mime.parse("text/plain; a=1; a=2")).get("a") ?? "absent"), "2")?
-  test.eq((parsed_params(mime.parse("text/plain; a=1; A=2")).get("a") ?? "absent"), "2")?
-  test.eq((parsed_params(mime.parse("text/plain; a=1; b=2; a=3")).get("b") ?? "absent"), "2")?
+  ((parsed_params(mime.parse("text/plain; a=1; a=2")).get("a") ?? "absent")) == ("2")
+  ((parsed_params(mime.parse("text/plain; a=1; A=2")).get("a") ?? "absent")) == ("2")
+  ((parsed_params(mime.parse("text/plain; a=1; b=2; a=3")).get("b") ?? "absent")) == ("2")
 }
 
 test test_mime_parse_reads_quoted_parameter_values [error] {
   # The outer quotes are removed; a backslash keeps the next character
   # literally, so an escaped quote or backslash survives as data.
-  test.eq((parsed_params(mime.parse("text/plain; name=\"a b\"")).get("name") ?? "absent"), "a b")?
-  test.eq((parsed_params(mime.parse("text/plain; name=\"a\\\"b\"")).get("name") ?? "absent"), "a\"b")?
-  test.eq((parsed_params(mime.parse("text/plain; name=\"a\\\\b\"")).get("name") ?? "absent"), "a\\b")?
+  ((parsed_params(mime.parse("text/plain; name=\"a b\"")).get("name") ?? "absent")) == ("a b")
+  ((parsed_params(mime.parse("text/plain; name=\"a\\\"b\"")).get("name") ?? "absent")) == ("a\"b")
+  ((parsed_params(mime.parse("text/plain; name=\"a\\\\b\"")).get("name") ?? "absent")) == ("a\\b")
 
   # An empty quoted value is a value; the parameter is not dropped.
-  test.eq((parsed_params(mime.parse("text/plain; name=\"\"")).get("name") ?? "absent"), "")?
+  ((parsed_params(mime.parse("text/plain; name=\"\"")).get("name") ?? "absent")) == ("")
 
   # Whitespace around the name and the value is trimmed before either is
   # interpreted, so a quoted value need not start at the `=`.
-  test.eq((parsed_params(mime.parse("text/plain ;  charset = UTF-8 ")).get("charset") ?? "absent"), "UTF-8")?
-  test.eq((parsed_params(mime.parse("text/plain; name= \"a b\"")).get("name") ?? "absent"), "a b")?
+  ((parsed_params(mime.parse("text/plain ;  charset = UTF-8 ")).get("charset") ?? "absent")) == ("UTF-8")
+  ((parsed_params(mime.parse("text/plain; name= \"a b\"")).get("name") ?? "absent")) == ("a b")
 }
 
 test test_mime_parse_rejects_invalid_media_types [error] {

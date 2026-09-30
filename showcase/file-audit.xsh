@@ -4,19 +4,15 @@ type Opts = {root: Path, fail: Bool, show_ok: Bool}
 type Finding = {severity: Int, kind: Str, path: Str, detail: Str}
 
 pure severity_label(severity: Int) -> Str {
-  if severity == 1 {
-    return "error"
-  }
+  return "error" when severity == 1
 
-  if severity == 2 {
-    return "warn"
-  }
+  return "warn" when severity == 2
 
-  return "info"
+  "info"
 }
 
 pure add_finding(findings: List[Finding], severity: Int, kind: Str, item_path: Str, detail: Str) -> List[Finding] {
-  return findings.push({severity, kind, path: item_path, detail})
+  findings.push({severity, kind, path: item_path, detail})
 }
 
 proc main(...argv: List[Str]) [fs, error] {
@@ -53,14 +49,13 @@ proc main(...argv: List[Str]) [fs, error] {
         findings = add_finding(findings, 2, "absolute-symlink", shown, target.display())
       }
 
-      match entry.path.resolve() {
-        Ok(resolved) => {
-          match resolved.strip_prefix(root) {
-            Ok(_) => {}
-            Err(_) => findings = add_finding(findings, 1, "escaping-symlink", shown, resolved.display())
-          }
+      if let Ok(resolved) = entry.path.resolve() {
+        match resolved.strip_prefix(root) {
+          Ok(_) => {}
+          Err(_) => findings = add_finding(findings, 1, "escaping-symlink", shown, resolved.display())
         }
-        Err(_) => findings = add_finding(findings, 1, "broken-symlink", shown, target.display())
+      } else {
+        findings = add_finding(findings, 1, "broken-symlink", shown, target.display())
       }
     }
 

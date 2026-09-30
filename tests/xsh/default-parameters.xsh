@@ -5,8 +5,8 @@ pure timeout(value = defaults.timeout) -> Duration { value }
 pure default_path(value = Path("config")) -> Path { value }
 print ${jobs()} ${jobs(9)} ${timeout() == 30s} ${default_path().display()}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "5 9 true config\n")?
+  assert output.success, output.stderr
+  output.stdout == "5 9 true config\n"
 }
 
 test test_default_parameters_keep_already_checked_call_defaults [error] { |ctx|
@@ -15,8 +15,8 @@ pure explicit(jobs: Int = next()) -> Int { jobs }
 pure inferred(jobs = next()) -> Int { jobs }
 print ${explicit()} ${inferred()} ${inferred(9)}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "4 4 9\n")?
+  assert output.success, output.stderr
+  output.stdout == "4 4 9\n"
 }
 
 test test_default_parameters_cli_uses_checked_inferred_prepared_types [error] { |ctx|
@@ -30,15 +30,15 @@ cli main(jobs = defaults.jobs + 1, delay = defaults.delay, verbose = defaults.ve
 }
 """
   let omitted = test.run_script(ctx, source)?
-  test.ok(omitted.success, omitted.stderr)?
-  test.eq(omitted.stdout, "5 20ms false 1,2\n")?
+  assert omitted.success, omitted.stderr
+  omitted.stdout == "5 20ms false 1,2\n"
   let supplied = test.run_script(ctx, source, ["--jobs=9", "--delay=30ms", "--verbose", "--tags=3"])?
-  test.ok(supplied.success, supplied.stderr)?
-  test.eq(supplied.stdout, "9 30ms true 1,2,3\n")?
+  assert supplied.success, supplied.stderr
+  supplied.stdout == "9 30ms true 1,2,3\n"
   let help = test.run_script(ctx, source, ["--help"])?
-  test.ok(help.success, help.stderr)?
-  test.ok("Int, default: 5" in help.stdout, help.stdout)?
-  test.ok("Duration, default: 20ms" in help.stdout, help.stdout)?
+  assert help.success, help.stderr
+  assert "Int, default: 5" in help.stdout, help.stdout
+  assert "Duration, default: 20ms" in help.stdout, help.stdout
 }
 
 test test_default_parameters_cli_rejects_runtime_defaults_without_execution [error] { |ctx|
@@ -47,9 +47,9 @@ cli main(jobs = runtime_default()) [io] { print BODY_EXECUTED }
 """
   for arguments in [[], ["--help"], ["--jobs=9"]] {
     let rejected = test.run_script(ctx, source, arguments)?
-    test.ok(!rejected.success, rejected.stderr)?
-    test.eq(rejected.stdout, "")?
-    test.ok("check.infer-param" not in rejected.stderr, rejected.stderr)?
+    assert !rejected.success, rejected.stderr
+    rejected.stdout == ""
+    assert "check.infer-param" not in rejected.stderr, rejected.stderr
   }
 }
 
@@ -64,8 +64,8 @@ print ${named(right: default_value("supplied", 8))}
 print ${shared(left: 9, right: 10)}
 print ${named.call(left: 9)}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "left default\nright default\n3\nsupplied\nleft default\n9\n19\nright default\n11\n")?
+  assert output.success, output.stderr
+  output.stdout == "left default\nright default\n3\nsupplied\nleft default\n9\n19\nright default\n11\n"
 }
 
 test test_default_parameters_keep_generic_constructor_grounding_in_the_default [error] { |ctx|
@@ -75,13 +75,13 @@ pure explicit(box = IntEnvelope(value: 4)) -> Int { box.value }
 pure inferred(box = Envelope(value: 5)) -> Int { box.value }
 print ${explicit()} ${inferred()}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "4 5\n")?
+  assert output.success, output.stderr
+  output.stdout == "4 5\n"
   let rejected = test.run_script(ctx, r"""type Phantom[T] = {label: Str}
 pure unresolved(box = Phantom(label: "empty")) -> Str { box.label }
 print ${unresolved()}
 """)?
-  test.ok(!rejected.success, rejected.stdout)?
+  assert !rejected.success, rejected.stdout
 }
 
 test test_default_parameters_nested_local_alias_calls_keep_heap_frames [error] { |ctx|
@@ -93,8 +93,8 @@ test test_default_parameters_nested_local_alias_calls_keep_heap_frames [error] {
 }
 print ${depth()}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "1200\n")?
+  assert output.success, output.stderr
+  output.stdout == "1200\n"
 }
 
 test test_default_parameters_keep_stream_defaults_lazy_and_supplied_arguments_eager [error] { |ctx|
@@ -120,8 +120,8 @@ for item in first { print $item }
 for item in second { print $item }
 for item in supplied { print $item }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "supplied\nbefore\nexplicit default\nbody\n7\ninferred default\nbody\n7\nbody\n7\n")?
+  assert output.success, output.stderr
+  output.stdout == "supplied\nbefore\nexplicit default\nbody\n7\ninferred default\nbody\n7\nbody\n7\n"
 }
 
 test test_default_parameters_resolve_imported_constants [fs, error] { |ctx|
@@ -134,8 +134,8 @@ export const settings = {jobs: 6}
 pure choose(jobs = c.settings.jobs) -> Int { jobs }
 print ${choose()}
 """, [], {XSH_MODULE_PATH: root.display()})?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "6\n")?
+  assert output.success, output.stderr
+  output.stdout == "6\n"
 }
 
 test test_default_parameters_keep_omitted_order_lazy_effects_and_cleanup [error] { |ctx|
@@ -150,8 +150,8 @@ print ${choose()}
 print ${choose(right: value("supplied", 9))}
 print ${choose(8, 9)}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "left\ndefault cleanup\nright\ndefault cleanup\n3\nsupplied\ndefault cleanup\nleft\ndefault cleanup\n10\n17\n")?
+  assert output.success, output.stderr
+  output.stdout == "left\ndefault cleanup\nright\ndefault cleanup\n3\nsupplied\ndefault cleanup\nleft\ndefault cleanup\n10\n17\n"
 }
 
 test test_default_parameters_require_anchors_and_keep_parameter_scope [error] { |ctx|
@@ -165,7 +165,7 @@ test test_default_parameters_require_anchors_and_keep_parameter_scope [error] { 
     "pure choose(...values = [1]) -> Int { 1 }\n",
   ] {
     let output = test.run_script(ctx, source)?
-    test.ok(!output.success, output.stdout)?
+    assert !output.success, output.stdout
   }
 }
 
@@ -177,8 +177,8 @@ pure shadow(count = count) -> Int { count }
 pure anchored(value: Int = dependent()) -> Int { value }
 print ${dependent()} ${shadow()} ${shadow(9)} ${anchored()}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "7 5 9 7\n")?
+  assert output.success, output.stderr
+  output.stdout == "7 5 9 7\n"
 }
 
 test test_default_parameters_keep_error_propagation_and_skip_later_defaults [error] { |ctx|
@@ -194,8 +194,8 @@ let captured = try { choose()? }
 print ${match captured { Ok(_) => false, Err(_) => true }}
 print ${choose(8, 9)?}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "cleanup\ntrue\n17\n")?
+  assert output.success, output.stderr
+  output.stdout == "cleanup\ntrue\n17\n"
 }
 
 test test_default_parameters_keep_explicit_anchors_across_declaration_cycles [error] { |ctx|
@@ -203,12 +203,12 @@ test test_default_parameters_keep_explicit_anchors_across_declaration_cycles [er
 pure second(value: Int = first(4)) -> Int { value }
 print ${first()} ${second()}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "3 4\n")?
+  assert output.success, output.stderr
+  output.stdout == "3 4\n"
   let rejected = test.run_script(ctx, r"""pure first(value = second()) { value }
 pure second(value = first()) { value }
 """)?
-  test.ok(!rejected.success, rejected.stdout)?
+  assert !rejected.success, rejected.stdout
 }
 
 test test_default_parameters_use_the_callable_return_target [error] { |ctx|
@@ -216,19 +216,19 @@ test test_default_parameters_use_the_callable_return_target [error] { |ctx|
 pure inferred(value = if true { return 7 } else { 4 }) -> Int { value + 1 }
 print ${explicit()} ${inferred()} ${inferred(9)}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "7 7 10\n")?
+  assert output.success, output.stderr
+  output.stdout == "7 7 10\n"
 }
 
 test test_default_parameters_nested_calls_use_heap_frames [error] { |ctx|
-  var source: Str = "pure step_0() -> Int { 7 }\n"
+  var source = "pure step_0() -> Int { 7 }\n"
   for index in range(1, 1201) {
     source = source + f"pure step_${index}(value = step_${index - 1}()) -> Int { value }\n"
   }
   source = source + r"print ${step_1200()}" + "\n"
   let output = test.run_script(ctx, source)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "7\n")?
+  assert output.success, output.stderr
+  output.stdout == "7\n"
 }
 
 test test_default_parameters_keep_omitted_effects_in_callable_contracts [error] { |ctx|
@@ -237,19 +237,19 @@ proc choose(value = emit()) -> Int { value }
 print ${choose(9)}
 print ${choose()}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "9\ndefault\n4\n")?
+  assert output.success, output.stderr
+  output.stdout == "9\ndefault\n4\n"
   let rejected = test.run_script(ctx, r"""proc emit() [io] -> Int { print "default"; 4 }
 proc choose(value = emit()) -> Int { value }
 proc restricted() [] -> Int { choose(9) }
 print ${restricted()}
 """)?
-  test.ok(!rejected.success, rejected.stdout)?
+  assert !rejected.success, rejected.stdout
   let pure_rejected = test.run_script(ctx, r"""proc emit() [io] -> Int { print "default"; 4 }
 pure choose(value = emit()) -> Int { value }
 print ${choose(9)}
 """)?
-  test.ok(!pure_rejected.success, pure_rejected.stdout)?
+  assert !pure_rejected.success, pure_rejected.stdout
 }
 
 test test_default_parameters_preserve_nullable_result_and_record_payload_types [error] { |ctx|
@@ -261,8 +261,8 @@ pure outcome() -> Result[Int] { Ok(7) }
 pure result(value = outcome()) -> Result[Int] { value }
 print ${name() ?? "missing"} ${name(null) ?? "missing"} ${config()} ${result()?}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "label missing 4 7\n")?
+  assert output.success, output.stderr
+  output.stdout == "label missing 4 7\n"
 }
 
 test test_default_parameters_local_cleanup_precedes_body_and_lexical_return [error] { |ctx|
@@ -273,8 +273,8 @@ print ${choose()}
 print ${choose(9)}
 print ${leaves()}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "local\nbody\n4\nbody\n9\nreturn cleanup\n7\n")?
+  assert output.success, output.stderr
+  output.stdout == "local\nbody\n4\nbody\n9\nreturn cleanup\n7\n"
 }
 
 test test_default_parameters_preserve_callable_handle_domains [error] { |ctx|
@@ -283,6 +283,6 @@ pure choose(callback = identity) -> Pure { callback }
 let callback = choose()
 print ${callback.call(7).require(Int)?}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "7\n")?
+  assert output.success, output.stderr
+  output.stdout == "7\n"
 }

@@ -2,19 +2,17 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 pure dest_for(source: Path, target: Path, target_is_dir: Bool) -> Path {
-  if target_is_dir {
-    return fp"${target}/${source.name()}"
-  }
+  return fp"${target}/${source.name()}" when target_is_dir
 
-  return target
+  target
 }
 
 type LnOptions = {symbolic: Bool, force: Bool, no_target_directory: Bool, paths: List[Str]}
@@ -44,14 +42,9 @@ proc main(...argv: List[Str]) [fs, error] {
       },
     },
   )?
-  let symbolic = opts.symbolic
-  let force = opts.force
-  let no_target_directory = opts.no_target_directory
-  let paths = opts.paths
+  let {symbolic, force, no_target_directory, paths, ..} = opts
 
-  if paths.len() < 2 {
-    return Err(usage_error("ln", "[-sfnT] SOURCE... DEST"))
-  }
+  return Err(usage_error("ln", "[-sfnT] SOURCE... DEST")) when paths.len() < 2
 
   let dest = fp"${paths[paths.len() - 1]}"
   let sources = paths |> take(paths.len() - 1)

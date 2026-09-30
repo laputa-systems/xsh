@@ -3549,6 +3549,61 @@ fn checker_guarded_value_control_retains_lexical_targets_and_effects() {
 }
 
 #[test]
+fn checker_guarded_control_proofs_agree_on_full_and_compact_routes() {
+    use xsh::frontend::check::Type;
+    use xsh::frontend::syntax::arena::{ArenaExprKind, ExprId};
+    for source in [
+        "pure read(raw: Str?) -> Str { return \"missing\" when raw == null; raw.trim() }\n",
+        "type Item = {raw: Str?}\npure read(item: Item) -> Str { let available = item.raw != null; let retained = available; return \"missing\" unless retained; item.raw.trim() }\n",
+        "let values: List[Str?] = [null, \"ready\"]\nfor raw in values { continue when raw == null; print ${raw.trim()} }\n",
+        "let values: List[Str?] = [null, \"ready\"]\nfor raw in values { break unless raw != null; print ${raw.trim()} }\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let full = Checker::check_arena(&parsed.arena, source);
+        assert!(full.diagnostics.is_empty(), "{:?}", full.diagnostics);
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        assert!(declarations.diagnostics.is_empty(), "{:?}", declarations.diagnostics);
+        let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+        let mut receivers = 0;
+        for index in 0..parsed.arena.arena.expr_tags.len() {
+            let id = ExprId::from_index(index);
+            let expression = parsed.arena.arena.expr(id);
+            let ArenaExprKind::Field { base, name } = expression.kind else { continue; };
+            if name != "trim" { continue; }
+            assert_eq!(full.expr_types[&parsed.arena.arena.expr(base).span], Type::Str);
+            assert_eq!(compact.expr_types[&base], Type::Str, "{source}");
+            receivers += 1;
+        }
+        assert_eq!(receivers, 1);
+    }
+    for source in [
+        "stream values(raw: Str?) [] -> Stream[Str] { yield \"missing\" when raw == null; yield raw.trim() }\n",
+        "let raw: Str? = null\nreturn \"missing\" when raw == null\nprint ${raw.trim()}\n",
+        "let raw: Str? = null\nbreak when raw == null\nprint ${raw.trim()}\n",
+        "let raw: Str? = null\ncontinue when raw == null\nprint ${raw.trim()}\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let full = Checker::check_arena(&parsed.arena, source);
+        let declarations = Checker::check_compact_declarations(&parsed.arena);
+        let compact = Checker::probe_compact_bodies(&parsed.arena, &declarations);
+        let mut receivers = 0;
+        for index in 0..parsed.arena.arena.expr_tags.len() {
+            let id = ExprId::from_index(index);
+            let ArenaExprKind::Field { base, name } = parsed.arena.arena.expr(id).kind else { continue; };
+            if name != "trim" { continue; }
+            let optional = Type::Optional(Box::new(Type::Str));
+            assert_eq!(full.expr_types[&parsed.arena.arena.expr(base).span], optional);
+            assert_eq!(compact.expr_types[&base], optional, "{source}");
+            receivers += 1;
+        }
+        assert_eq!(receivers, 1);
+    }
+}
+
+#[test]
 fn checker_multi_clause_comprehensions_retain_nested_item_types() {
     let output = check("type Entry = {key: Str, values: List[Int]}\nlet entries: List[Entry] = []\nlet values: List[Int] = [number for entry in entries if entry.key != \"\" for number in entry.values if number > 0]\nlet by_key: Map[Int] = {entry.key: number for entry in entries for number in entry.values if number > 0}\n");
     assert!(output.is_empty(), "{output:?}");
@@ -4490,5 +4545,30 @@ fn stream_callback_result_contracts_publish_matching_full_and_compact_types() {
             }
             assert_eq!(pipelines, 1, "{stage}");
         });
+    }
+}
+
+#[test]
+fn retry_family_selectors_keep_builtin_and_user_error_identity() {
+    for source in [
+        "let result: Result[Unit, AssertionError] = retry [] on (AssertionError) { assert false, \"condition\" }\n",
+        "error LocalError = Failed(message: Str)\nlet result = retry [] on (LocalError) { Err(LocalError.Failed(message: \"local\"))? }\n",
+        "let result = retry [] on (Error) { assert false, \"condition\" }\n",
+        "let result = retry [] on (ProcessError) { Err(ProcessError.NotFound(message: \"missing\", status: null))? }\n",
+    ] {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let compact = Checker::check_compact_declarations(&parsed.arena);
+        assert!(compact.diagnostics.is_empty(), "{:?}", compact.diagnostics);
+    }
+    for source in [
+        "error OtherError = Failed(message: Str)\nlet result: Result[Unit, AssertionError] = retry [] on (OtherError) { assert false, \"condition\" }\n",
+        "error LocalError = Failed(message: Str)\nlet failed: Result[Unit, LocalError] = Err(LocalError.Failed(message: \"local\"))\nlet result = retry [] on (AssertionError) { failed? }\n",
+        "let value = 1\nlet tested = value is Str\n",
+    ] {
+        let output = check(source);
+        assert!(has_code(&output, "check.pattern-type"), "{output:?}");
     }
 }

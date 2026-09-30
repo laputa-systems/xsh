@@ -10,8 +10,11 @@ let outer = try { operation() }?
 let nested = outer?
 print f"\${value} \${nested} \${calls}"
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "7 7 2\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("7 7 2\n")
 }
 
 test test_try_captures_nearest_nominal_error_and_returns_lexically [error] { |ctx|
@@ -31,8 +34,11 @@ print (outer? is Err(LocalError.Failed))
 print (local() is Err(LocalError.Failed))
 print escape()?
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "true\ntrue\nouter\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("true\ntrue\nouter\n")
 }
 
 test test_try_bool_empty_cleanup_and_loop_targets [error] { |ctx|
@@ -55,8 +61,11 @@ while rounds < 3 {
 }
 print f"\${value} \${cleaned} \${rounds}"
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "cleanup\ncleanup\ncleanup\ncleanup\nfalse 4 3\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("cleanup\ncleanup\ncleanup\ncleanup\nfalse 4 3\n")
 }
 
 test test_try_assertions_capture_but_trace_has_no_retry_events [error] { |ctx|
@@ -67,9 +76,12 @@ let result = try {
 }
 print (result is Err(_))
 """, ["--raw", "--trace-format", "jsonl"])?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "true\n")?
-  test.ok("retry.attempt" not in output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("true\n")
+  ("retry.attempt" not in output.stderr)
 }
 
 test test_try_outer_propagation_still_requires_error_effect [error] { |ctx|
@@ -78,8 +90,8 @@ proc bad() [] -> Int {
   try { 7 }?
 }
 """)?
-  test.ok(!output.success)?
-  test.ok("check.effect-violation" in output.stderr)?
+  (!output.success)
+  ("check.effect-violation" in output.stderr)
 }
 
 test test_try_error_only_requires_success_annotation [error] { |ctx|
@@ -87,8 +99,8 @@ test test_try_error_only_requires_success_annotation [error] { |ctx|
 error LocalError = Failed(message: Str)
 let result = try { Err(LocalError.Failed(message: "unknown success"))? }
 """)?
-  test.ok(!output.success)?
-  test.ok("check.try-success-type" in output.stderr)?
+  (!output.success)
+  ("check.try-success-type" in output.stderr)
 }
 
 test test_try_unit_context_asserts_and_auto_propagates [error] { |ctx|
@@ -102,8 +114,11 @@ print (assertion is Err(_))
 print (failure is Err(LocalError.Failed))
 print (success is Ok(_))
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "true\ntrue\ntrue\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("true\ntrue\ntrue\n")
 }
 
 test test_try_cleanup_failure_is_captured_and_primary_error_wins [error] { |ctx|
@@ -127,8 +142,11 @@ match primary {
   Ok(_) => print "unexpected"
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "cleanup\nprimary\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("cleanup\nprimary\n")
 }
 
 test test_try_rejects_incompatible_nominal_error_annotation [error] { |ctx|
@@ -138,8 +156,8 @@ error SecondError = Failed(message: Str)
 proc fail() [] -> Result[Int, FirstError] { Err(FirstError.Failed(message: "first")) }
 let value: Result[Int, SecondError] = try { fail()? }
 """)?
-  test.ok(!output.success)?
-  test.ok("type mismatch" in output.stderr)?
+  (!output.success)
+  ("type mismatch" in output.stderr)
 }
 
 test test_try_global_assignments_reach_cleanup_and_survive_transfer [error] { |ctx|
@@ -163,8 +181,11 @@ while rounds < 2 {
 }
 print \$count
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "cleanup 1\n1 11\ncleanup 11\ncleanup 21\n31\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("cleanup 1\n1 11\ncleanup 11\ncleanup 21\n31\n")
 }
 
 test test_try_function_unit_tail_consumes_assertion [error] { |ctx|
@@ -172,8 +193,11 @@ test test_try_function_unit_tail_consumes_assertion [error] { |ctx|
 proc capture() [] -> Result[Unit] { try { false } }
 print (capture() is Err(_))
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "true\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("true\n")
 }
 
 test test_try_error_data_needs_its_nested_success_annotation [error] { |ctx|
@@ -181,15 +205,18 @@ test test_try_error_data_needs_its_nested_success_annotation [error] { |ctx|
 error LocalError = Failed(message: Str)
 let value = try { Err(LocalError.Failed(message: "nested")) }
 """)?
-  test.ok(!unknown.success)?
-  test.ok("check.try-success-type" in unknown.stderr)?
+  (!unknown.success)
+  ("check.try-success-type" in unknown.stderr)
   let known = test.run_script(ctx, """
 error LocalError = Failed(message: Str)
 let value: Result[Result[Int, LocalError]] = try { Err(LocalError.Failed(message: "nested")) }
 print (value? is Err(LocalError.Failed))
 """)?
-  test.ok(known.success, known.stderr)?
-  test.eq(known.stdout, "true\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = known
+    assert assertion_condition, assertion_message
+  }
+  (known.stdout) == ("true\n")
 }
 
 test test_try_captures_plain_return_error_effect_call [error] { |ctx|
@@ -198,8 +225,11 @@ proc fail() [error] -> Int { "invalid".parse_int()? }
 proc capture() [] -> Result[Int] { try { fail() } }
 print (capture() is Err(_))
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "true\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("true\n")
 }
 
 test test_try_plain_run_failure_captures_and_abort_escapes [error] { |ctx|
@@ -207,14 +237,17 @@ test test_try_plain_run_failure_captures_and_abort_escapes [error] { |ctx|
 let value: Result[Unit] = try { run false }
 print (value is Err(_))
 """)?
-  test.ok(failed.success, failed.stderr)?
-  test.eq(failed.stdout, "true\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = failed
+    assert assertion_condition, assertion_message
+  }
+  (failed.stdout) == ("true\n")
   let aborted = test.run_script(ctx, """
 let value: Result[Unit] = try { abort(9) }
 print "unexpected"
 """)?
-  test.eq(aborted.status, 9)?
-  test.eq(aborted.stdout, "")?
+  (aborted.status) == (9)
+  (aborted.stdout) == ("")
 }
 
 test test_try_producer_yields_suspend_inside_capture [error] { |ctx|
@@ -230,8 +263,11 @@ let values = rows() |> collect()
 values == [1, 2]
 print "yielded"
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "yielded\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("yielded\n")
 }
 
 test test_try_process_cleanup_preserves_process_error_data [error] { |ctx|
@@ -243,8 +279,11 @@ let value: Result[Int, ProcessError] = try {
 }
 print (value is Err(_))
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "true\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("true\n")
 }
 
 test test_try_producer_capture_and_cancellation_run_cleanup_once [error] { |ctx|
@@ -266,8 +305,11 @@ let first = rows() |> take(1) |> collect()
 first == [1]
 print "finished"
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "cleanup\ntrue\ncleanup\nfinished\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("cleanup\ntrue\ncleanup\nfinished\n")
 }
 
 test test_try_recursive_calls_use_frames_and_err_return_stays_lexical [error] { |ctx|
@@ -288,8 +330,11 @@ match escape() {
   Ok(_) => print "unexpected"
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "4096\nouter\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("4096\nouter\n")
 }
 
 test test_try_explicit_return_uses_result_annotation [error] { |ctx|
@@ -308,6 +353,9 @@ print (success() is Ok(_))
 print (predicate() is Ok(false))
 print (nested() is Ok(Ok(_)))
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "true\ntrue\ntrue\ntrue\ntrue\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("true\ntrue\ntrue\ntrue\ntrue\n")
 }

@@ -35,5 +35,5 @@ main()?
     [],
     {XSH_MODULE_PATH: f"${root}:dev"},
   )?
-  test.ok(result.success, result.stderr)?
+  assert result.success, result.stderr
 }

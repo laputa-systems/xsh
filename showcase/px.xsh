@@ -84,21 +84,19 @@ type Options = {full: Bool, show_threads: Bool, kill: Int?, port: Int, patterns:
 type Query = {text: Str, numeric: Int, is_numeric: Bool}
 
 pure is_decimal(text: Str) -> Bool {
-  if text == "" {
-    return false
-  }
+  return false when text == ""
 
-  for ch in text.split("") {
-    if ! (ch in "0123456789") {
+  for ch in text {
+    guard ch in "0123456789" else {
       return false
     }
   }
 
-  return true
+  true
 }
 
 pure empty_stats() -> ProcessStats {
-  return {cpu: "-", vsz_kb: -1, rss_kb: -1, cputime: "    0:00"}
+  {cpu: "-", vsz_kb: -1, rss_kb: -1, cputime: "    0:00"}
 }
 
 pure query(pattern: Str) -> Query {
@@ -106,7 +104,7 @@ pure query(pattern: Str) -> Query {
     return {text: pattern, numeric: pattern.parse_int() ?? -1, is_numeric: true}
   }
 
-  return {text: pattern, numeric: -1, is_numeric: false}
+  {text: pattern, numeric: -1, is_numeric: false}
 }
 
 pure queries(patterns: List[Str]) -> List[Query] {
@@ -114,15 +112,15 @@ pure queries(patterns: List[Str]) -> List[Query] {
 }
 
 pure unique_ints(items: List[Int]) -> List[Int] {
-  var unique: List[Int] = []
+  var unique = []
 
   for item in items {
     if ! (item in unique) {
-      unique = unique.push(item)
+      unique += [item]
     }
   }
 
-  return unique
+  unique
 }
 
 proc macos_stats() [process, error] -> Result[Map[ProcessStats]] {
@@ -143,7 +141,7 @@ proc macos_stats() [process, error] -> Result[Map[ProcessStats]] {
     }
   }
 
-  return stats
+  stats
 }
 
 proc native_stats_for(pid: Int) [process, error] -> Result[ProcessStats] {
@@ -153,15 +151,13 @@ proc native_stats_for(pid: Int) [process, error] -> Result[ProcessStats] {
     return {cpu: "-", vsz_kb: stats.vsz_kb, rss_kb: stats.rss_kb, cputime: "    0:00"}
   }
 
-  return empty_stats()
+  empty_stats()
 }
 
 proc stats_map_for(pids: List[Int], os_name: Str) [process, error] -> Result[Map[ProcessStats]] {
   var stats_by_pid: Map[ProcessStats] = {}
 
-  if pids.len() == 0 {
-    return stats_by_pid
-  }
+  return stats_by_pid when pids.len() == 0
 
   var rows: List[StatsRow] = []
 
@@ -195,11 +191,11 @@ proc stats_map_for(pids: List[Int], os_name: Str) [process, error] -> Result[Map
     }
   }
 
-  return stats_by_pid
+  stats_by_pid
 }
 
 pure process_row(row: Process) -> Row {
-  return {
+  {
     pid: row.pid,
     parent_pid: row.parent_pid,
     command: row.command,
@@ -218,7 +214,7 @@ pure process_row(row: Process) -> Row {
 }
 
 pure thread_row(row: Thread) -> Row {
-  return {
+  {
     pid: row.pid,
     parent_pid: row.parent_pid,
     command: row.command,
@@ -237,7 +233,7 @@ pure thread_row(row: Thread) -> Row {
 }
 
 pure owner_row(row: Row) -> Row {
-  return {
+  {
     pid: row.owner_pid,
     parent_pid: row.parent_pid,
     command: row.command,
@@ -256,11 +252,11 @@ pure owner_row(row: Row) -> Row {
 }
 
 pure command_text(row: Row) -> Str {
-  if row.argv != "" {
+  guard row.argv == "" else {
     return row.argv
   }
 
-  return row.command
+  row.command
 }
 
 pure display_command(row: Row) -> Str {
@@ -270,57 +266,45 @@ pure display_command(row: Row) -> Str {
     return f"${command} [${row.thread_name}]"
   }
 
-  return command
+  command
 }
 
 pure paint(text: Str, color: Str) -> Str {
-  return f"${color}${text}${tui.reset()}"
+  f"${color}${text}${tui.reset()}"
 }
 
 pure process_matches_pattern(row: Process, pattern: Query, full: Bool, own_pid: Int) -> Bool {
-  if pattern.is_numeric {
-    return row.pid == pattern.numeric
-  }
+  return row.pid == pattern.numeric when pattern.is_numeric
 
-  if own_pid > 0 and row.pid == own_pid {
-    return false
-  }
+  return false when own_pid > 0 and row.pid == own_pid
 
   let command = command_text(process_row(row))
 
-  if full {
-    return pattern.text in command
-  }
+  return pattern.text in command when full
 
-  return pattern.text in row.command or pattern.text in row.argv0
+  pattern.text in row.command or pattern.text in row.argv0
 }
 
 pure process_matches_any(row: Process, patterns: List[Query], full: Bool, own_pid: Int) -> Bool {
-  if patterns.len() == 0 {
-    return true
-  }
+  return true when patterns.len() == 0
 
   for pattern in patterns {
-    if process_matches_pattern(row, pattern, full, own_pid) {
-      return true
-    }
+    return true when process_matches_pattern(row, pattern, full, own_pid)
   }
 
-  return false
+  false
 }
 
 pure process_has_port(pid: Int, ports: List[PortProcess], port: Int) -> Bool {
-  if port <= 0 {
+  guard port > 0 else {
     return true
   }
 
   for row in ports {
-    if row.pid == pid and row.local_port == port {
-      return true
-    }
+    return true when row.pid == pid and row.local_port == port
   }
 
-  return false
+  false
 }
 
 pure thread_matches_pattern(row: Thread, pattern: Query, full: Bool, own_pid: Int) -> Bool {
@@ -328,49 +312,37 @@ pure thread_matches_pattern(row: Thread, pattern: Query, full: Bool, own_pid: In
     return row.pid == pattern.numeric or row.owner_pid == pattern.numeric or row.thread_id == pattern.numeric
   }
 
-  if own_pid > 0 and row.owner_pid == own_pid {
-    return false
-  }
+  return false when own_pid > 0 and row.owner_pid == own_pid
 
   let command = command_text(thread_row(row))
 
-  if full {
-    return pattern.text in command or pattern.text in row.thread_name
-  }
+  return pattern.text in command or pattern.text in row.thread_name when full
 
-  return pattern.text in row.command or pattern.text in row.argv0 or pattern.text in row.thread_name
+  pattern.text in row.command or pattern.text in row.argv0 or pattern.text in row.thread_name
 }
 
 pure thread_matches_any(row: Thread, patterns: List[Query], full: Bool, own_pid: Int) -> Bool {
-  if patterns.len() == 0 {
-    return true
-  }
+  return true when patterns.len() == 0
 
   for pattern in patterns {
-    if thread_matches_pattern(row, pattern, full, own_pid) {
-      return true
-    }
+    return true when thread_matches_pattern(row, pattern, full, own_pid)
   }
 
-  return false
+  false
 }
 
 pure label(name: Str) -> Str {
-  return paint(tui.right_pad(name, 6), tui.gray())
+  paint(tui.right_pad(name, 6), tui.gray())
 }
 
 pure port_label(row: PortProcess) -> Str {
-  if row.state == "LISTEN" {
-    return f"${row.protocol}:${row.local}"
-  }
+  return f"${row.protocol}:${row.local}" when row.state == "LISTEN"
 
-  return f"${row.protocol}:${row.local}"
+  f"${row.protocol}:${row.local}"
 }
 
 pure port_summary(ports: List[PortProcess]) -> Str {
-  if ports.len() == 0 {
-    return ""
-  }
+  return "" when ports.len() == 0
 
   let labels = ports
     |> group-by f"${.protocol}:${.local}"
@@ -379,7 +351,7 @@ pure port_summary(ports: List[PortProcess]) -> Str {
       port_label(bucket.items[0])
     }
 
-  return labels.join(", ")
+  labels.join(", ")
 }
 
 proc print_row(row: Row, stats: ProcessStats, ports: List[PortProcess]) [time, error] {
@@ -400,19 +372,17 @@ proc print_row(row: Row, stats: ProcessStats, ports: List[PortProcess]) [time, e
 pure thread_label(name: Str, count: Int) -> Str {
   let display = if name == "" { "(unnamed)" } else { name }
 
-  if count > 1 {
-    return f"${display} x${count}"
-  }
+  return f"${display} x${count}" when count > 1
 
-  return display
+  display
 }
 
 pure connector(last: Bool) -> Str {
-  return if last { "\u{2514} " } else { "\u{251c} " }
+  if last { "\u{2514} " } else { "\u{251c} " }
 }
 
 pure lineage_text(row: Row) -> Str {
-  return f"${display_command(row)} (${row.pid})"
+  f"${display_command(row)} (${row.pid})"
 }
 
 pure lineage_indent(depth: Int) -> Str {
@@ -424,15 +394,13 @@ pure lineage_indent(depth: Int) -> Str {
     index += 1
   }
 
-  return text
+  text
 }
 
 pure lineage_marker(depth: Int) -> Str {
-  if depth == 0 {
-    return ""
-  }
+  return "" when depth == 0
 
-  return f"${lineage_indent(depth - 1)}${connector(true)}"
+  f"${lineage_indent(depth - 1)}${connector(true)}"
 }
 
 pure parent_lineage(row: Row, rows_by_pid: Map[Row]) -> List[Row] {
@@ -441,18 +409,17 @@ pure parent_lineage(row: Row, rows_by_pid: Map[Row]) -> List[Row] {
   var depth = 0
 
   while parent_pid > 0 and depth < 128 {
-    match rows_by_pid.get(f"${parent_pid}") {
-      Ok(parent) => {
-        rows = rows.push(parent)
-        parent_pid = parent.parent_pid
-      }
-      Err(_) => return rows
+    if let Ok(parent) = rows_by_pid.get(f"${parent_pid}") {
+      rows += [parent]
+      parent_pid = parent.parent_pid
+    } else {
+      return rows
     }
 
     depth += 1
   }
 
-  return rows
+  rows
 }
 
 proc print_lineage(row: Row, rows_by_pid: Map[Row]) [error] {
@@ -502,7 +469,7 @@ proc signal_matched_pids(pids: List[Int], signal: Int, own_pid: Int) [process, e
     signaled += 1
   }
 
-  return signaled
+  signaled
 }
 
 proc ports_for_pids(pids: List[Int]) [process, error] -> Result[List[PortProcess]] {
@@ -510,11 +477,11 @@ proc ports_for_pids(pids: List[Int]) [process, error] -> Result[List[PortProcess
 
   for pid in unique_ints(pids) {
     for row in process.ports(pid)? {
-      ports = ports.push(row)
+      ports += [row]
     }
   }
 
-  return ports |> sort-by .pid * 1000 + .fd
+  ports |> sort-by .pid * 1000 + .fd
 }
 
 proc main(...argv: List[Str]) [fs, process, env, time, error] {
@@ -567,7 +534,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
   var rows_by_pid: Map[Row] = {}
   var matched_rows: List[Row] = []
   var matched_threads_by_pid: Map[List[Row]] = {}
-  var matched_owner_pids: List[Int] = []
+  var matched_owner_pids = []
 
   for proc_row in process.list()? {
     let row = process_row(proc_row)
@@ -575,7 +542,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
     continue when ! process_has_port(row.pid, matching_ports, opts.port)
 
     if ! opts.show_threads and process_matches_any(proc_row, query_items, opts.full, own_pid) {
-      matched_rows = matched_rows.push(row)
+      matched_rows += [row]
     } else if opts.show_threads and process_matches_any(proc_row, query_items, opts.full, own_pid) {
       matched_owner_pids = matched_owner_pids.push(row.pid)
     }
@@ -639,11 +606,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
     process.ports()? |> sort-by .pid * 1000 + .fd
   }
 
-  var ports_by_pid: Map[List[PortProcess]] = {}
-
-  for bucket in display_ports |> group-by .pid {
-    ports_by_pid[f"${bucket.key}"] = bucket.items
-  }
+  let ports_by_pid = {[f"${bucket.key}"]: bucket.items for bucket in display_ports |> group-by .pid}
 
   let stats_by_pid = stats_map_for(stats_pids, os.sysname)?
   var printed = 0

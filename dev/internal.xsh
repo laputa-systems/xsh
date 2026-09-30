@@ -10,9 +10,7 @@ export proc repair_target(ctx: context.Context) [process, env, error, io] -> Res
   let uid = env.get_or("HOST_UID", "")?.trim()
   let gid = env.get_or("HOST_GID", "")?.trim()
 
-  if uid == "" or gid == "" {
-    return
-  }
+  return when uid == "" or gid == ""
 
   stages.execute(
     stages.command(
@@ -182,9 +180,7 @@ export proc repair_coverage(ctx: context.Context) [process, env, error, io] -> R
   let uid = env.get_or("HOST_UID", "")?.trim()
   let gid = env.get_or("HOST_GID", "")?.trim()
 
-  if uid == "" or gid == "" {
-    return
-  }
+  return when uid == "" or gid == ""
 
   stages.execute(
     stages.command(

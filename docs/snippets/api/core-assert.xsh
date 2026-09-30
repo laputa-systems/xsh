@@ -1,4 +1,4 @@
-let name = "demo"
+const name = "demo"
 let actual = 2 + 2
-let expected = 4
+const expected = 4
 assert actual == expected, f"package $name"

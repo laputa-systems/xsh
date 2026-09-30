@@ -27,7 +27,7 @@ proc main(...argv: List[Str]) [fs, error] {
   )?
 
   let root = if opts.root.display() == "." {
-    match fs.gitroot() { Ok(r) => r, Err(_) => fs.cwd()? }
+    if let Ok(r) = fs.gitroot() { r } else { fs.cwd()? }
   } else {
     opts.root.resolve()?
   }
@@ -56,27 +56,27 @@ proc main(...argv: List[Str]) [fs, error] {
 
   let scan_ext_set = set.from(scan_exts)
 
-  # Compile patterns once before scanning.
+  # Static patterns are prepared before scanning.
   let patterns = [
     {
       kind: "aws-key",
-      re: regex.compile("AKIA[0-9A-Z]{16}")?,
+      re: rx"AKIA[0-9A-Z]{16}",
     },
     {
       kind: "private-key",
-      re: regex.compile("-----BEGIN .* PRIVATE KEY-----")?,
+      re: rx"-----BEGIN .* PRIVATE KEY-----",
     },
     {
       kind: "api-key",
-      re: regex.compile("(?i)(api[_-]?key|secret[_-]?key)\\s*[:=]\\s*['\"][A-Za-z0-9\\-_]{16,}['\"]")?,
+      re: rx"""(?i)(api[_-]?key|secret[_-]?key)\s*[:=]\s*['"][A-Za-z0-9\-_]{16,}['"]""",
     },
     {
       kind: "jwt",
-      re: regex.compile("eyJ[A-Za-z0-9_-]+\\.eyJ[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+")?,
+      re: rx"eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
     },
     {
       kind: "gh-token",
-      re: regex.compile("gh[pousr]_[A-Za-z0-9]{36}")?,
+      re: rx"gh[pousr]_[A-Za-z0-9]{36}",
     },
   ]
 
@@ -92,22 +92,19 @@ proc main(...argv: List[Str]) [fs, error] {
     |> par-map { |entry|
       var hits: List[Finding] = []
 
-      match entry.path.read_text() {
-        Ok(src) => {
-          let rel = entry.path.relative_to(root).display()
+      if let Ok(src) = entry.path.read_text() {
+        let rel = entry.path.relative_to(root).display()
 
-          for item in src.lines() |> enumerate() {
-            let line_num = item.index + 1
-            let line = item.value
+        for item in src.lines() |> enumerate() {
+          let line_num = item.index + 1
+          let line = item.value
 
-            for pattern in patterns {
-              if pattern.re.matches(line) {
-                hits = hits.push({file: rel, line: line_num, kind: pattern.kind, text: line.trim()})
-              }
+          for pattern in patterns {
+            if pattern.re.matches(line) {
+              hits = hits.push({file: rel, line: line_num, kind: pattern.kind, text: line.trim()})
             }
           }
         }
-        Err(_) => {}
       }
 
       hits

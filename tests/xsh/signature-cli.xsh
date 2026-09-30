@@ -5,8 +5,11 @@ cli main(zlabel: Str, count: Int, jobs: Int = 4, verbose: Bool = false, tags: Li
   print $zlabel $count $jobs $verbose ${[f"$tag" for tag in tags].join(",")} $names
 }
 """, ["source", "3", "--jobs=8", "--verbose", "--tags", "one", "--tags=two", "first", "--", "-last"], {}, b"", "signature-bindings.xsh")?
-  test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "source 3 8 true base,one,two first,-last\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
+  (result.stdout) == ("source 3 8 true base,one,two first,-last\n")
 }
 
 test test_signature_cli_help_and_invalid_arguments_skip_initializers_and_body [fs, error] { |ctx|
@@ -17,15 +20,38 @@ let initialized = mark()
 cli main(root: Path, jobs: Int = 4) [] { print "BODY-MARKER" }
 """
   let help = test.run_script(ctx, source, ["--help"], {}, b"", "signature-help.xsh")?
-  test.ok(help.success, help.stderr)?
-  test.ok("usage: signature-help.xsh-" in help.stdout, help.stdout)?
-  test.ok("--jobs" in help.stdout, help.stdout)?
-  test.ok("MARKER" not in help.stdout, help.stdout)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = help
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "usage: signature-help.xsh-" in help.stdout
+    let assertion_message = help.stdout
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "--jobs" in help.stdout
+    let assertion_message = help.stdout
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "MARKER" not in help.stdout
+    let assertion_message = help.stdout
+    assert assertion_condition, assertion_message
+  }
   for arguments in [[], ["root", "--unknown"], ["root", "--jobs", "invalid"], ["root", "--jobs=2", "--jobs=3"]] {
     let rejected = test.run_script(ctx, source, arguments, {}, b"", "signature-invalid.xsh")?
-    test.ok(!rejected.success, rejected.stderr)?
-    test.eq(rejected.stdout, "")?
-    test.ok("usage:" in rejected.stderr, rejected.stderr)?
+    {
+      let assertion_condition = !rejected.success
+      let assertion_message = rejected.stderr
+      assert assertion_condition, assertion_message
+    }
+    (rejected.stdout) == ("")
+    {
+      let assertion_condition = "usage:" in rejected.stderr
+      let assertion_message = rejected.stderr
+      assert assertion_condition, assertion_message
+    }
   }
 }
 
@@ -42,8 +68,16 @@ test test_signature_cli_rejects_invalid_declaration_shapes [fs, error] { |ctx|
     "proc default_jobs() [] -> Int { print \"DEFAULT-MARKER\"; 4 }\ncli main(jobs: Int = default_jobs()) [] {}\n",
   ] {
     let result = test.run_script(ctx, source, ["--help"], {}, b"", "signature-rejected.xsh")?
-    test.ok(!result.success, source)?
-    test.ok("MARKER" not in result.stdout, result.stdout)?
+    {
+      let assertion_condition = !result.success
+      let assertion_message = source
+      assert assertion_condition, assertion_message
+    }
+    {
+      let assertion_condition = "MARKER" not in result.stdout
+      let assertion_message = result.stdout
+      assert assertion_condition, assertion_message
+    }
   }
 }
 
@@ -59,18 +93,39 @@ cli main(root: Path, worker_count: Count = DEFAULT_COUNT, tags: Tags = DEFAULT_T
 }
 """
   let defaults = test.run_script(ctx, source, ["nonexistent"], {}, b"", "signature-defaults.xsh")?
-  test.ok(defaults.success, defaults.stderr)?
-  test.eq(defaults.stdout, "nonexistent 4 1,2 true 20ms\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = defaults
+    assert assertion_condition, assertion_message
+  }
+  (defaults.stdout) == ("nonexistent 4 1,2 true 20ms\n")
   let supplied = test.run_script(ctx, source, ["nonexistent", "--worker-count=8", "--tags=3", "--verbose=false", "--delay=30ms"], {}, b"", "signature-aliases.xsh")?
-  test.ok(supplied.success, supplied.stderr)?
-  test.eq(supplied.stdout, "nonexistent 8 1,2,3 false 30ms\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = supplied
+    assert assertion_condition, assertion_message
+  }
+  (supplied.stdout) == ("nonexistent 8 1,2,3 false 30ms\n")
   let negative = test.run_script(ctx, source, ["nonexistent", "--worker-count=-1"], {}, b"", "signature-unsigned.xsh")?
-  test.ok(!negative.success, negative.stderr)?
-  test.eq(negative.stdout, "")?
+  {
+    let assertion_condition = !negative.success
+    let assertion_message = negative.stderr
+    assert assertion_condition, assertion_message
+  }
+  (negative.stdout) == ("")
   let help = test.run_script(ctx, source, ["-h"], {}, b"", "signature-doc.xsh")?
-  test.ok(help.success, help.stderr)?
-  test.ok("Parse typed options" in help.stdout, help.stdout)?
-  test.ok("UInt, default: 4" in help.stdout, help.stdout)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = help
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "Parse typed options" in help.stdout
+    let assertion_message = help.stdout
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "UInt, default: 4" in help.stdout
+    let assertion_message = help.stdout
+    assert assertion_condition, assertion_message
+  }
 }
 
 test test_signature_cli_rest_is_ordered_after_option_termination [fs, error] { |ctx|
@@ -78,9 +133,15 @@ test test_signature_cli_rest_is_ordered_after_option_termination [fs, error] { |
 cli main(...operands: List[Str]) [] { print ${operands.join(",")} }
 """
   let result = test.run_script(ctx, source, ["--", "--help", "-h", "last"], {}, b"", "signature-rest.xsh")?
-  test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "--help,-h,last\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
+  (result.stdout) == ("--help,-h,last\n")
   let empty = test.run_script(ctx, source, [], {}, b"", "signature-empty-rest.xsh")?
-  test.ok(empty.success, empty.stderr)?
-  test.eq(empty.stdout, "\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = empty
+    assert assertion_condition, assertion_message
+  }
+  (empty.stdout) == ("\n")
 }

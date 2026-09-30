@@ -8,15 +8,11 @@ type ShadowFinding = {name: Str, path: Str, detail: Str}
 type SeenCommand = {name: Path, path: Str}
 
 pure severity_label(severity: Int) -> Str {
-  if severity == 1 {
-    return "error"
-  }
+  return "error" when severity == 1
 
-  if severity == 2 {
-    return "warn"
-  }
+  return "warn" when severity == 2
 
-  return "info"
+  "info"
 }
 
 pure add_dir_finding(
@@ -26,7 +22,7 @@ pure add_dir_finding(
   item_path: Str,
   detail: Str,
 ) -> List[DirFinding] {
-  return findings.push({severity, kind, path: item_path, detail})
+  findings.push({severity, kind, path: item_path, detail})
 }
 
 proc main(...argv: List[Str]) [fs, env, error] {
@@ -54,7 +50,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
 
   let parts = env.path_entries(opts.env_var)?
   var dir_findings: List[DirFinding] = []
-  var valid_dirs: List[Path] = []
+  var valid_dirs = []
   var seen_dirs: Map[List[Path]] = {}
 
   for part in parts {
@@ -99,7 +95,7 @@ proc main(...argv: List[Str]) [fs, env, error] {
       seen_dirs[resolved_text] = same_display.push(resolved)
 
       if ! opts.duplicates_only and meta.executable {
-        valid_dirs = valid_dirs.push(resolved)
+        valid_dirs += [resolved]
       }
     }
 

@@ -30,11 +30,11 @@ const DHCP_RETRIES = 5
 const DHCP_TIMEOUT_MS = 3000
 
 pure empty_interface() -> Interface {
-  let pre_up: List[Str] = []
-  let up: List[Str] = []
-  let post_up: List[Str] = []
+  let pre_up = []
+  let up = []
+  let post_up = []
 
-  return {
+  {
     logical: "",
     family: "",
     method: "",
@@ -48,101 +48,79 @@ pure empty_interface() -> Interface {
 }
 
 pure empty_config() -> Config {
-  let auto: List[Str] = []
+  let auto = []
   let interfaces: List[Interface] = []
-  return {auto, interfaces}
+  {auto, interfaces}
 }
 
 proc default_interfaces_path() [env] -> Result[Path] {
   let raw = env("XSH_IFUP_INTERFACES") ?? { |_|
     "/etc/network/interfaces"
   }
-  return fp"${raw}"
+  fp"${raw}"
 }
 
 proc default_state_path() [env] -> Result[Path] {
   let raw = env("XSH_IFUP_STATE") ?? { |_|
     "/run/network/ifstate"
   }
-  return fp"${raw}"
+  fp"${raw}"
 }
 
 pure first_word(line: Str) -> Str {
   let words = line.words()
 
-  if words.len() == 0 {
-    return ""
-  }
+  return "" when words.len() == 0
 
-  return words[0]
+  words[0]
 }
 
 pure rest_after_word(line: Str) -> Str {
   let word = first_word(line)
 
-  if word == "" {
-    return ""
-  }
+  return "" when word == ""
 
-  return (line.split("") |> drop(word.count_chars())).join("").trim()
+  (line.split("") |> drop(word.count_chars())).join("").trim()
 }
 
 pure add_unique(items: List[Str], item: Str) -> List[Str] {
-  if item in items {
-    return items
-  }
+  return items when item in items
 
-  return items.push(item)
+  items.push(item)
 }
 
 pure glob_match(pattern: Str, text: Str) -> Bool {
-  if pattern == "*" {
-    return true
-  }
+  return true when pattern == "*"
 
-  if ! ("*" in pattern) {
-    return pattern == text
-  }
+  return pattern == text unless ("*" in pattern)
 
   let parts = pattern.split("*")
 
-  if pattern.starts_with("*") and pattern.ends_with("*") {
-    return parts[1] in text
-  }
+  return parts[1] in text when pattern.starts_with("*") and pattern.ends_with("*")
 
-  if pattern.starts_with("*") {
-    return text.ends_with(parts[1])
-  }
+  return text.ends_with(parts[1]) when pattern.starts_with("*")
 
-  if pattern.ends_with("*") {
-    return text.starts_with(parts[0])
-  }
+  return text.starts_with(parts[0]) when pattern.ends_with("*")
 
-  return text.starts_with(parts[0]) and text.ends_with(parts[1])
+  text.starts_with(parts[0]) and text.ends_with(parts[1])
 }
 
 pure append_current(config: Config, current: Interface) -> Config {
-  if current.logical == "" {
-    return config
-  }
+  return config when current.logical == ""
 
-  return {...config, interfaces: config.interfaces.push(current)}
+  {...config, interfaces: config.interfaces.push(current)}
 }
 
 proc parse_source_path(source: Str, config: Config) [fs, error] -> Result[Config] {
   let path_value = fp"${source}"
 
-  if ! ("*" in source) {
-    return parse_interfaces_file(path_value, config)?
-  }
+  return parse_interfaces_file(path_value, config)? unless ("*" in source)
 
   let dir = path_value.parent()
   let pattern = path_value.name()
   var result = config
 
-  if ! dir.exists()? {
-    return result
-  }
+  return result unless dir.exists()?
 
   for entry in fs.children(dir)?
     |> where .kind == "file" and glob_match(pattern, .name)
@@ -150,11 +128,11 @@ proc parse_source_path(source: Str, config: Config) [fs, error] -> Result[Config
     result = parse_interfaces_file(entry.path, result)?
   }
 
-  return result
+  result
 }
 
 proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Result[Config] {
-  if ! path_value.exists()? {
+  guard path_value.exists()? else {
     return config
   }
 
@@ -253,19 +231,17 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
     }
   }
 
-  return append_current(result, current)
+  append_current(result, current)
 }
 
 pure state_has_iface(state: Str, physical: Str) -> Bool {
   for line in state.lines() {
     let fields = line.words()
 
-    if fields.len() >= 1 and fields[0].split("=")[0] == physical {
-      return true
-    }
+    return true when fields.len() >= 1 and fields[0].split("=")[0] == physical
   }
 
-  return false
+  false
 }
 
 proc mark_configured(state_path: Path, physical: Str, logical: Str) [fs, error] {
@@ -281,9 +257,7 @@ proc mark_configured(state_path: Path, physical: Str, logical: Str) [fs, error] 
     text = state_path.read_text()?
   }
 
-  if state_has_iface(text, physical) {
-    return
-  }
+  return when state_has_iface(text, physical)
 
   if text != "" and ! text.ends_with("\n") {
     text = f"""${text}
@@ -295,9 +269,7 @@ proc mark_configured(state_path: Path, physical: Str, logical: Str) [fs, error] 
 }
 
 proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str) [process, error] {
-  if command == "" {
-    return
-  }
+  return when command == ""
 
   let env_record = {
     IFACE: physical,
@@ -350,28 +322,20 @@ proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, pro
 
 proc find_stanza(config: Config, logical: Str) [error] -> Result[Interface] {
   for stanza in config.interfaces {
-    if stanza.logical == logical {
-      return stanza
-    }
+    return stanza when stanza.logical == logical
   }
 
-  return Err(IfupError.Config(f"unknown interface ${logical}"))
+  Err(IfupError.Config(f"unknown interface ${logical}"))
 }
 
 pure hex_nibble(code: Int) -> Int {
-  if 48 <= code <= 57 {
-    return code - 48
-  }
+  return code - 48 when 48 <= code <= 57
 
-  if 97 <= code <= 102 {
-    return code - 87
-  }
+  return code - 87 when 97 <= code <= 102
 
-  if 65 <= code <= 70 {
-    return code - 55
-  }
+  return code - 55 when 65 <= code <= 70
 
-  return 0
+  0
 }
 
 pure parse_mac(mac: Str) -> List[Int] {
@@ -381,11 +345,11 @@ pure parse_mac(mac: Str) -> List[Int] {
 type DhcpLease = {valid: Bool, message_type: Int, yiaddr: List[Int], netmask: Str, gateway: Str, dns: List[Str], server_id: List[Int]}
 
 pure empty_lease() -> DhcpLease {
-  let yiaddr: List[Int] = []
-  let dns_servers: List[Str] = []
-  let server_id: List[Int] = []
+  let yiaddr = []
+  let dns_servers = []
+  let server_id = []
 
-  return {
+  {
     valid: false,
     message_type: 0,
     yiaddr,
@@ -397,15 +361,15 @@ pure empty_lease() -> DhcpLease {
 }
 
 pure ints_to_ip(octets: List[Int]) -> Str {
-  if octets.len() != 4 {
+  guard octets.len() == 4 else {
     return ""
   }
 
-  return f"${octets[0]}.${octets[1]}.${octets[2]}.${octets[3]}"
+  f"${octets[0]}.${octets[1]}.${octets[2]}.${octets[3]}"
 }
 
 proc read_ip_octets(packet: Bytes, offset: Int) [error] -> Result[List[Int]] {
-  return [
+  [
     bytes.unpack_be(packet, 1, offset)?,
     bytes.unpack_be(packet, 1, offset + 1)?,
     bytes.unpack_be(packet, 1, offset + 2)?,
@@ -423,7 +387,7 @@ proc dhcp_packet(
   requested_ip: List[Int],
   server_id: List[Int],
 ) [error] -> Result[Bytes] {
-  var chunks: List[Bytes] = []
+  var chunks = []
   chunks = chunks.push(bytes.from_ints([1, 1, 6, 0])?)
   chunks = chunks.push(bytes.pack_be(xid, 4)?)
   chunks = chunks.push(bytes.from_ints([0, 0])?)
@@ -436,24 +400,22 @@ proc dhcp_packet(
   var options = [53, 1, msg_type, 61, 7, 1].extend(mac)
 
   if requested_ip.len() == 4 {
-    options = options.extend([50, 4]).extend(requested_ip)
+    options = [@options, 50, 4, @requested_ip]
   }
 
   if server_id.len() == 4 {
-    options = options.extend([54, 4]).extend(server_id)
+    options = [@options, 54, 4, @server_id]
   }
 
   options = options.extend([55, 5, 1, 3, 6, 15, 28]).push(255)
   chunks = chunks.push(bytes.from_ints(options)?)
-  return bytes.concat(chunks)
+  bytes.concat(chunks)
 }
 
 proc parse_dhcp_reply(packet: Bytes, xid: Int) [error] -> Result[DhcpLease] {
   let total = packet.len()
 
-  if total < DHCP_HEADER_LEN {
-    return empty_lease()
-  }
+  return empty_lease() when total < DHCP_HEADER_LEN
 
   if bytes.unpack_be(packet, 1, 0)? != 2 or bytes.unpack_be(packet, 4, 4)? != xid {
     return empty_lease()
@@ -463,8 +425,8 @@ proc parse_dhcp_reply(packet: Bytes, xid: Int) [error] -> Result[DhcpLease] {
   var message_type = 0
   var netmask = ""
   var gateway = ""
-  var dns_servers: List[Str] = []
-  var server_id: List[Int] = []
+  var dns_servers = []
+  var server_id = []
   var pos = DHCP_HEADER_LEN
 
   while pos < total {
@@ -499,7 +461,7 @@ proc parse_dhcp_reply(packet: Bytes, xid: Int) [error] -> Result[DhcpLease] {
     pos = value + len
   }
 
-  return {
+  {
     valid: true,
     message_type,
     yiaddr,
@@ -512,7 +474,7 @@ proc parse_dhcp_reply(packet: Bytes, xid: Int) [error] -> Result[DhcpLease] {
 
 # Drive the handshake on `physical` and return the acknowledged lease.
 proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[DhcpLease] {
-  var mac: List[Int] = []
+  var mac = []
 
   for iface in linux.interfaces()? {
     if iface.name == physical {
@@ -526,7 +488,7 @@ proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Dhcp
 
   linux.link_up(physical)?
   let xid = time.now() % 4294967296
-  let none: List[Int] = []
+  let none = []
   let fd = linux.dhcp_socket(physical)?
   defer linux.dhcp_close(fd)?
   var offer = empty_lease()
@@ -547,9 +509,7 @@ proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Dhcp
     attempt = attempt + 1
   }
 
-  if ! offer.valid {
-    return Err(IfupError.State(f"${physical}: no DHCP offer received"))
-  }
+  return Err(IfupError.State(f"${physical}: no DHCP offer received")) unless offer.valid
 
   var lease = empty_lease()
   attempt = 0
@@ -573,13 +533,11 @@ proc dhcp_request_lease(physical: Str) [fs, process, time, error] -> Result[Dhcp
     return Err(IfupError.State(f"${physical}: DHCP request was not acknowledged"))
   }
 
-  return lease
+  lease
 }
 
 proc write_resolv_conf(servers: List[Str]) [fs, error] {
-  if servers.len() == 0 {
-    return
-  }
+  return when servers.len() == 0
 
   var body = ""
 
@@ -623,9 +581,7 @@ proc configure_static(physical: Str, stanza: Interface) [process, error] {
 }
 
 proc configure_interface(config: Config, state_path: Path, physical: Str, logical: Str) [fs, process, time, error] {
-  if state_path.exists()? and state_has_iface(state_path.read_text()?, physical) {
-    return
-  }
+  return when state_path.exists()? and state_has_iface(state_path.read_text()?, physical)
 
   let stanza = find_stanza(config, logical)?
 
@@ -661,11 +617,9 @@ proc configure_interface(config: Config, state_path: Path, physical: Str, logica
 pure split_iface_arg(arg: Str) -> InterfaceSelection {
   let parts = arg.split("=", maxsplit: 1)
 
-  if parts.len() >= 2 {
-    return {physical: parts[0], logical: parts[1]}
-  }
+  return {physical: parts[0], logical: parts[1]} when parts.len() >= 2
 
-  return {physical: arg, logical: arg}
+  {physical: arg, logical: arg}
 }
 
 type IfupOptions = {all: Bool, operands: List[Str]}
@@ -687,8 +641,7 @@ proc main(...argv: List[Str]) [fs, process, env, time, error] {
       },
     },
   )?
-  let all = opts.all
-  let operands = opts.operands
+  let {all, operands, ..} = opts
 
   if ! all and operands.len() == 0 {
     return Err(IfupError.Usage("ifup: expected -a or interface name"))

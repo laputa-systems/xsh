@@ -10,19 +10,17 @@ type MvOptions = {
 }
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 pure dest_for(source: Path, target: Path, target_is_dir: Bool) -> Path {
-  if target_is_dir {
-    return fp"${target}/${source.name()}"
-  }
+  return fp"${target}/${source.name()}" when target_is_dir
 
-  return target
+  target
 }
 
 proc main(...argv: List[Str]) [fs, error] {
@@ -56,15 +54,12 @@ proc main(...argv: List[Str]) [fs, error] {
       },
     },
   )?
-  let no_target_directory = opts.no_target_directory
-  let no_clobber = opts.no_clobber
+  let {no_target_directory, no_clobber, ..} = opts
   let target_directory = fp"${opts.target}"
   let has_target_directory = opts.target != ""
   let paths = opts.operands
 
-  if paths.len() < 1 {
-    return Err(usage_error("mv", "[-fT] [-t DIR] SOURCE... DEST"))
-  }
+  return Err(usage_error("mv", "[-fT] [-t DIR] SOURCE... DEST")) when paths.len() < 1
 
   let dest = if has_target_directory { target_directory } else { fp"${paths[paths.len() - 1]}" }
   let sources = if has_target_directory { paths } else { paths |> take(paths.len() - 1) }

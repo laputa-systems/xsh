@@ -65,20 +65,17 @@ proc main(...argv: List[Str]) [fs, error] {
     |> par-map { |entry|
       var file_hits: List[Hit] = []
 
-      match entry.path.read_text() {
-        Ok(src) => {
-          let rel = entry.path.relative_to(root).display()
+      if let Ok(src) = entry.path.read_text() {
+        let rel = entry.path.relative_to(root).display()
 
-          for item in src.lines() |> enumerate() {
-            let caps = re.captures(item.value)
-            continue when caps.len() == 0
-            let tag = caps[1]
-            continue when opts.tag != "" and tag != opts.tag
-            let body = caps[2].trim()
-            file_hits = file_hits.push({file: rel, line: item.index + 1, tag: tag, text: body})
-          }
+        for item in src.lines() |> enumerate() {
+          let caps = re.captures(item.value)
+          continue when caps.len() == 0
+          let tag = caps[1]
+          continue when opts.tag != "" and tag != opts.tag
+          let body = caps[2].trim()
+          file_hits = file_hits.push({file: rel, line: item.index + 1, tag: tag, text: body})
         }
-        Err(_) => {}
       }
 
       file_hits

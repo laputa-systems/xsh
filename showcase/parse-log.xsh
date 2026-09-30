@@ -7,7 +7,7 @@ type LogEntry = {timestamp: Str, level: Str, module: Str, message: Str}
 
 type Match = {start: Int, end: Int, text: Str}
 
-proc main(input: Str = "") [fs, error] {
+proc main(input = "") [fs, error] {
   let sample = """2026-01-15T10:00:01Z INFO [auth] user login from 192.168.1.10
 2026-01-15T10:00:02Z WARN [db] slow query from 10.0.0.5 took 2s
 2026-01-15T10:00:03Z ERROR [auth] failed login attempt from 203.0.113.42

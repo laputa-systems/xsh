@@ -30,9 +30,7 @@ proc main(...argv: List[Str]) [process, error] {
   }
   let status = process.run(process.command_argv("date", date_argv))?
 
-  if status.ok {
-    return
-  }
+  return when status.ok
 
   if status.exited() {
     abort(status.exit_code()?)

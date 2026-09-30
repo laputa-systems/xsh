@@ -1,15 +1,13 @@
 pure normalize_df_mount(line: Str) -> Str {
   let fields = line.words()
-  if (fields.get(0) ?? "") == "Filesystem" {
-    return fields.join(" ")
-  }
+  return fields.join(" ") when (fields.get(0) ?? "") == "Filesystem"
 
-  return f"${(fields.get(0) ?? "")} ${(fields.get(1) ?? "")} ${(fields.get(5) ?? "")}"
+  f"${(fields.get(0) ?? "")} ${(fields.get(1) ?? "")} ${(fields.get(5) ?? "")}"
 }
 
 proc normalize_df_mounts(text: Str) [error] -> Str {
   let lines = [normalize_df_mount(line) for line in text.trim().lines().collect()]
-  return lines.join("\n")
+  lines.join("\n")
 }
 
 test test_df [fs, process, env, error] { |ctx|

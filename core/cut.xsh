@@ -11,40 +11,34 @@ pure selected_index(index: Int, spec: Str) -> Bool {
       let end_text = (parts.get(1) ?? "")
 
       if end_text == "" {
-        if position >= start {
-          return true
-        }
+        return true when position >= start
       } else {
         let end = end_text.parse_int() ?? start
 
-        if position >= start and position <= end {
-          return true
-        }
+        return true when position >= start and position <= end
       }
     } else {
-      if position == (raw.parse_int() ?? -1) {
-        return true
-      }
+      return true when position == (raw.parse_int() ?? -1)
     }
   }
 
-  return false
+  false
 }
 
 pure cut_fields(line: Str, delimiter: Str, spec: Str, separated_only: Bool) -> Str {
-  if ! (delimiter in line) {
+  guard delimiter in line else {
     return if separated_only { "" } else { line }
   }
 
   let parts = line.split(delimiter)
   let selected = [item.value for item in parts |> enumerate() if selected_index(item.index, spec)]
-  return selected.join(delimiter)
+  selected.join(delimiter)
 }
 
 pure cut_chars(line: Str, spec: Str) -> Str {
   let chars = line.split("")
   let selected = [item.value for item in chars |> enumerate() if selected_index(item.index, spec)]
-  return selected.join("")
+  selected.join("")
 }
 
 type CutOptions = {delimiter: Str, fields: Str, characters: Str, separated_only: Bool, paths: List[Str]}
@@ -76,9 +70,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
   )?
   let delimiter = opts.delimiter
   var field_spec = opts.fields
-  let char_spec = opts.characters
-  let separated_only = opts.separated_only
-  let paths = opts.paths
+  let {characters: char_spec, separated_only, paths, ..} = opts
 
   if field_spec == "" and char_spec == "" {
     field_spec = "1"

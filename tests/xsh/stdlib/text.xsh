@@ -124,7 +124,11 @@ test test_text_wrap_rejects_a_non_positive_width [fs, error] { |ctx|
 print $lines.len()
 """,
   )?
-  test.ok(! zero.success, zero.stderr)?
+  {
+    let assertion_condition = ! zero.success
+    let assertion_message = zero.stderr
+    assert assertion_condition, assertion_message
+  }
   zero.status == 3
   "text-wrap" in zero.stderr
   "width must be positive" in zero.stderr
@@ -135,7 +139,11 @@ print $lines.len()
 print $lines.len()
 """,
   )?
-  test.ok(! negative.success, negative.stderr)?
+  {
+    let assertion_condition = ! negative.success
+    let assertion_message = negative.stderr
+    assert assertion_condition, assertion_message
+  }
   negative.status == 3
   "text-wrap" in negative.stderr
   "width must be positive" in negative.stderr

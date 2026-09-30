@@ -6,7 +6,8 @@ pure translate_build_error(failure: SourceCauseError) -> Result[Str, BuildCauseE
 }
 
 let translated = translate_build_error(SourceCauseError.Missing(message: "source missing"))
-match translated {
-  Err(BuildCauseError.CompileFailed {package}) => print $package
-  _ => print "unexpected success"
+if let Err(BuildCauseError.CompileFailed {package}) = translated {
+  print $package
+} else {
+  print "unexpected success"
 }

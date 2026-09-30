@@ -14,13 +14,13 @@ beta
   |> json.lines
   |> sort-by .size
 
-  test.eq(json_lines[0].name, "beta")?
+  (json_lines[0].name) == ("beta")
 
   let json_stream = """{"ok":true}
 {"ok":false}
 """ |> json.stream
 
-  test.eq(json_stream[1].ok, false)?
+  (json_stream[1].ok) == (false)
 
   [3, 1, 2, 2]
       |> where . > 1
@@ -93,10 +93,10 @@ beta
     |> fold(map.empty()) { |acc, it|
       acc.set(it, (acc.get(it) ?? 0) + 1)
     }
-  test.eq((fold_counts.get("a") ?? 0), 2)?
-  test.eq((fold_counts.get("b") ?? 0), 1)?
-  test.eq((fold_counts.get("c") ?? 0), 1)?
-  test.eq(fold_counts.len(), 3)?
+  ((fold_counts.get("a") ?? 0)) == (2)
+  ((fold_counts.get("b") ?? 0)) == (1)
+  ((fold_counts.get("c") ?? 0)) == (1)
+  (fold_counts.len()) == (3)
 
   [1, 2, 3]
       |> reduce(10) { |acc|
@@ -110,7 +110,7 @@ beta
   (([3, 1, 2] |> last())?) == 2
   [1, 2, 3] |> any . == 2
   [1, 2, 3] |> all . > 0
-  let expected_counts = map.empty().set("1", 2).set("2", 1)
+  let expected_counts: Map[Int] = {["1"]: 2, ["2"]: 1}
 
   ["a", "bb", "c"]
       |> count { |word|
@@ -122,7 +122,7 @@ beta
         value * 2
       } == [2, 4, 6]
 
-  test.eq([1, 2, 3, 4] |> batch(count: 2), [[1, 2], [3, 4]])?
+  ([1, 2, 3, 4] |> batch(count: 2)) == ([[1, 2], [3, 4]])
   let enumerated = ["x", "y"] |> enumerate()
   enumerated[1].index == 1
   enumerated[1].value == "y"
@@ -154,12 +154,12 @@ beta
 
   [1, 2]
     |> each { |value|
-      test.ok(value > 0)?
+      (value > 0)
     }
 
   [1, 2]
       |> tee { |value|
-        test.ok(value > 0)?
+        (value > 0)
       }
       |> map { |value|
         value + 1
@@ -239,7 +239,10 @@ proc main() [io, process, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pull 0
 fold 0
 defer 0
@@ -277,7 +280,11 @@ proc main() [fs, error] {
 }
 """,
   )?
-  test.ok(! output.success, output.stdout)?
+  {
+    let assertion_condition = ! output.success
+    let assertion_message = output.stdout
+    assert assertion_condition, assertion_message
+  }
   (pulled.read_text()?) == "pull 1"
   (closed.read_text()?) == "closed"
 }
@@ -302,9 +309,9 @@ proc main() [io] {
 }
 """,
   )?
-  test.eq(output.status, 2)?
+  (output.status) == (2)
   "check.dynamic-boundary" in output.stderr
-  test.eq(output.stdout, "")?
+  (output.stdout) == ("")
 }
 
 test test_keyed_stages_errors_stop_live_source [error] { |ctx|
@@ -324,7 +331,11 @@ proc main() [io, error] {
 }
 """
     let output = test.run_script(ctx, source)?
-    test.ok(! output.success, output.stdout)?
+    {
+      let assertion_condition = ! output.success
+      let assertion_message = output.stdout
+      assert assertion_condition, assertion_message
+    }
     output.stdout == """pull 0
 pull 1
 closed
@@ -358,7 +369,10 @@ proc main() [io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """group pull 2
 key 2
 group pull 1
@@ -408,7 +422,10 @@ proc main() [io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """right
 pull 0
 pull 1
@@ -469,7 +486,10 @@ proc main() [io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """right 10
 right 20
 left 1
@@ -490,7 +510,10 @@ proc main() [io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pairs=1
 """
 }
@@ -519,7 +542,10 @@ proc main() [io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """last 3
 last 1
 last 2
@@ -550,7 +576,10 @@ proc main() [io] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """one
 two
 three
@@ -574,7 +603,10 @@ proc main() [io] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pull 0
 each 0
 pull 1
@@ -604,7 +636,11 @@ proc main() [fs, error] {
 }
 """,
   )?
-  test.ok(! output.success, output.stdout)?
+  {
+    let assertion_condition = ! output.success
+    let assertion_message = output.stdout
+    assert assertion_condition, assertion_message
+  }
   (pulled.read_text()?) == "pull 1"
   (closed.read_text()?) == "closed"
 }
@@ -740,10 +776,10 @@ test test_reduce_by_stream_aggregates [error] {
       {key: "all", value: n}
     }
 
-  test.eq((agg.get("even") ?? {count: 0, total: 0}), {count: 3, total: 12})?
-  test.eq((agg.get("odd") ?? {count: 0, total: 0}), {count: 3, total: 9})?
-  test.eq((lo.get("all") ?? 0), 1)?
-  test.eq((hi.get("all") ?? 0), 6)?
+  ((agg.get("even") ?? {count: 0, total: 0})) == ({count: 3, total: 12})
+  ((agg.get("odd") ?? {count: 0, total: 0})) == ({count: 3, total: 9})
+  ((lo.get("all") ?? 0)) == (1)
+  ((hi.get("all") ?? 0)) == (6)
 }
 
 test test_reduce_by_live_source_folds_each_item_before_next_pull [error] { |ctx|
@@ -771,7 +807,10 @@ proc main() [io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pull 0
 reduce 0
 pull 1
@@ -805,7 +844,11 @@ proc main() [fs, error] {
 }
 """,
   )?
-  test.ok(! output.success, output.stdout)?
+  {
+    let assertion_condition = ! output.success
+    let assertion_message = output.stdout
+    assert assertion_condition, assertion_message
+  }
   (pulled.read_text()?) == "pull 1"
   (closed.read_text()?) == "closed"
 }
@@ -825,7 +868,7 @@ test test_reduce_by_jobs_hint_preserves_results [error] {
     }
 
   for k in serial.keys() {
-    test.eq((par.get(k) ?? {count: 0, total: 0}), (serial.get(k) ?? {count: 0, total: 0}))?
+    ((par.get(k) ?? {count: 0, total: 0})) == ((serial.get(k) ?? {count: 0, total: 0}))
   }
 
   par.keys().len() == 3
@@ -862,7 +905,10 @@ proc main() [io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """reduce
 total=3
 after-map
@@ -879,8 +925,16 @@ test test_serial_stages_reject_jobs_option [error] { |ctx|
     "proc main() [] { let _ = [1] |> count(jobs: 2) }",
   ] {
     let output = test.run_script(ctx, script)?
-    test.ok(! output.success, script)?
-    test.ok("check.arity" in output.stderr, output.stderr)?
+    {
+      let assertion_condition = ! output.success
+      let assertion_message = script
+      assert assertion_condition, assertion_message
+    }
+    {
+      let assertion_condition = "check.arity" in output.stderr
+      let assertion_message = output.stderr
+      assert assertion_condition, assertion_message
+    }
   }
 }
 
@@ -907,8 +961,16 @@ proc main() [fs, error] {
 }
 """,
   )?
-  test.ok(! output.success, output.stdout)?
-  test.ok("stream worker count must be positive" in output.stderr, output.stderr)?
+  {
+    let assertion_condition = ! output.success
+    let assertion_message = output.stdout
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "stream worker count must be positive" in output.stderr
+    let assertion_message = output.stderr
+    assert assertion_condition, assertion_message
+  }
   (evaluated.read_text()?) == "evaluated"
   ! pulled.exists()?
 }
@@ -925,8 +987,16 @@ proc main() [error] {
 }
 """,
   )?
-  test.ok(! output.success, output.stdout)?
-  test.ok("stream worker count must be positive" in output.stderr, output.stderr)?
+  {
+    let assertion_condition = ! output.success
+    let assertion_message = output.stdout
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "stream worker count must be positive" in output.stderr
+    let assertion_message = output.stderr
+    assert assertion_condition, assertion_message
+  }
 }
 
 test test_reduce_by_jobs_rejects_static_zero_in_checker [error] { |ctx|
@@ -939,8 +1009,16 @@ proc main() [error] {
 }
 """,
   )?
-  test.ok(! output.success, output.stdout)?
-  test.ok("check.stream-jobs" in output.stderr, output.stderr)?
+  {
+    let assertion_condition = ! output.success
+    let assertion_message = output.stdout
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "check.stream-jobs" in output.stderr
+    let assertion_message = output.stderr
+    assert assertion_condition, assertion_message
+  }
 }
 
 test test_par_map_reduce_by_fuses_to_worker_aggregation [error] {
@@ -971,11 +1049,11 @@ test test_par_map_reduce_by_fuses_to_worker_aggregation [error] {
     }
 
   for k in unfused.keys() {
-    test.eq((fused.get(k) ?? {count: 0, total: 0}), (unfused.get(k) ?? {count: 0, total: 0}))?
+    ((fused.get(k) ?? {count: 0, total: 0})) == ((unfused.get(k) ?? {count: 0, total: 0}))
   }
 
-  test.eq(fused.keys().len(), 4)?
-  test.eq((fused.get("a") ?? {count: 0, total: 0}), {count: 12500, total: 624950000})?
+  (fused.keys().len()) == (4)
+  ((fused.get("a") ?? {count: 0, total: 0})) == ({count: 12500, total: 624950000})
 }
 
 test test_flat_map_identity_reduce_by_matches_direct_rows [error] {
@@ -1000,8 +1078,8 @@ test test_flat_map_identity_reduce_by_matches_direct_rows [error] {
       {key: row.key, value: {count: row.count, total: row.total}}
     }
 
-  test.eq((nested.get("even") ?? {count: 0, total: 0}), (direct.get("even") ?? {count: 0, total: 0}))?
-  test.eq((nested.get("odd") ?? {count: 0, total: 0}), {count: 500, total: 250000})?
+  ((nested.get("even") ?? {count: 0, total: 0})) == ((direct.get("even") ?? {count: 0, total: 0}))
+  ((nested.get("odd") ?? {count: 0, total: 0})) == ({count: 500, total: 250000})
 }
 
 test test_live_files_flat_map_reduce_by_matches_collected_rows [fs, error] { |ctx|
@@ -1029,9 +1107,9 @@ test test_live_files_flat_map_reduce_by_matches_collected_rows [fs, error] { |ct
     |> reduce-by(sum: true) { |row|
       {key: row.ext, value: {count: row.count, size: row.size}}
     }
-  test.eq(streamed, collected)?
-  test.eq((streamed.get("txt") ?? {count: 0, size: 0}), {count: 2, size: 5})?
-  test.eq((streamed.get("md") ?? {count: 0, size: 0}), {count: 1, size: 4})?
+  (streamed) == (collected)
+  ((streamed.get("txt") ?? {count: 0, size: 0})) == ({count: 2, size: 5})
+  ((streamed.get("md") ?? {count: 0, size: 0})) == ({count: 1, size: 4})
 }
 
 test test_live_files_par_map_for_matches_collected_rows [fs, error] { |ctx|
@@ -1071,10 +1149,10 @@ test test_live_files_par_map_for_matches_collected_rows [fs, error] { |ctx|
     |> reduce-by(sum: true) { |row|
       {key: row.ext, value: {count: row.count, size: row.size}}
     }
-  test.eq({count: streamed_txt_count, size: streamed_txt_size}, (collected.get("txt") ?? {count: 0, size: 0}))?
-  test.eq({count: streamed_md_count, size: streamed_md_size}, (collected.get("md") ?? {count: 0, size: 0}))?
-  test.eq({count: streamed_txt_count, size: streamed_txt_size}, {count: 2, size: 5})?
-  test.eq({count: streamed_md_count, size: streamed_md_size}, {count: 1, size: 4})?
+  ({count: streamed_txt_count, size: streamed_txt_size}) == ((collected.get("txt") ?? {count: 0, size: 0}))
+  ({count: streamed_md_count, size: streamed_md_size}) == ((collected.get("md") ?? {count: 0, size: 0}))
+  ({count: streamed_txt_count, size: streamed_txt_size}) == ({count: 2, size: 5})
+  ({count: streamed_md_count, size: streamed_md_size}) == ({count: 1, size: 4})
 }
 
 test test_par_map_filesystem_reads_preserve_all_results [fs, error] { |ctx|
@@ -1110,7 +1188,10 @@ let g = (reduced.get("g") ?? {x: 0, y: 0})
 print f"x=\${g.x}"
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """x=6
 """
 }
@@ -1139,7 +1220,10 @@ print \${Path("${rows.display()}").read_text() ?}
 print \${Path("${marker.display()}").read_text() ?}
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """false
 0
 row 0
@@ -1182,7 +1266,10 @@ proc main() [fs, io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pull 0
 any=true
 closed
@@ -1239,7 +1326,10 @@ proc main() [fs, io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """count
 pull 0
 tee 0
@@ -1272,7 +1362,10 @@ proc main() [io] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pull 0
 first 0
 second 0
@@ -1305,7 +1398,10 @@ proc main() [io] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pull 0
 first 0
 second 0
@@ -1341,7 +1437,10 @@ proc main() [fs, io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pull 0
 tee 0
 row 0
@@ -1383,7 +1482,10 @@ row 1:11
 row 2:2
 kept 2
 """
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
 }
 
 test test_live_serial_for_take_closes_producer [fs, error] { |ctx|
@@ -1407,7 +1509,10 @@ proc main() [fs, io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pull 0
 row 0
 pull 1
@@ -1435,7 +1540,10 @@ proc main() [io] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pull 0
 row 0
 pull 1
@@ -1471,7 +1579,10 @@ proc main() [fs, io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """source
 pull 0
 row 0
@@ -1534,7 +1645,10 @@ proc main() [fs, io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pull 0
 expand 0
 expanded 0
@@ -1588,7 +1702,10 @@ proc main() [fs, io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pull 0
 pull 1
 pull 2
@@ -1664,7 +1781,10 @@ proc main() [io, fs, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pull 0
 tee 0
 found=true
@@ -1745,7 +1865,10 @@ let first = once() |> first()
 print f"first=\${first ?? -1}"
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """direct=3
 bound=2
 total=3
@@ -1779,17 +1902,17 @@ test test_count_and_group_by_preserve_large_group_counts_and_order [error] {
       g.items
     }
 
-  test.eq((counts.get("even") ?? 0), 10000)?
-  test.eq((counts.get("odd") ?? 0), 10000)?
-  test.eq(groups.len(), 3)?
-  test.eq(groups[0].len(), 6667)?
-  test.eq(groups[0][0], 0)?
-  test.eq(groups[0][1], 3)?
-  test.eq(groups[0][6666], 19998)?
-  test.eq(groups[1].len(), 6667)?
-  test.eq(groups[1][6666], 19999)?
-  test.eq(groups[2].len(), 6666)?
-  test.eq(groups[2][6665], 19997)?
+  ((counts.get("even") ?? 0)) == (10000)
+  ((counts.get("odd") ?? 0)) == (10000)
+  (groups.len()) == (3)
+  (groups[0].len()) == (6667)
+  (groups[0][0]) == (0)
+  (groups[0][1]) == (3)
+  (groups[0][6666]) == (19998)
+  (groups[1].len()) == (6667)
+  (groups[1][6666]) == (19999)
+  (groups[2].len()) == (6666)
+  (groups[2][6665]) == (19997)
 }
 
 test test_stream_adapters_bridge_text_bytes_and_json_lines [process, error] {
@@ -1817,9 +1940,9 @@ test test_stream_adapters_bridge_text_bytes_and_json_lines [process, error] {
   paths[1].name == "b.log"
   chunks[0] == b"ab"
   chunks[2] == b"e"
-  test.eq(rows[1].name, "b")?
-  test.eq(rows[0].size, 1)?
-  test.eq(streamed[0].name, "c")?
+  (rows[1].name) == ("b")
+  (rows[0].size) == (1)
+  (streamed[0].name) == ("c")
   words[1] == "two"
 }
 
@@ -1846,16 +1969,13 @@ blue
   |> text.lines
   |> take(1))[0] == "red"
 
-  test.eq(
-    """x
+  ("""x
 y
 """.lines()
-  .collect()[1],
-    "y",
-  )?
+  .collect()[1]) == ("y")
 
-  test.eq(b"a\nb\n".lines().collect().len(), 2)?
-  test.eq(input.bytes_lines()?.collect()[1], b"beta")?
+  (b"a\nb\n".lines().collect().len()) == (2)
+  (input.bytes_lines()?.collect()[1]) == (b"beta")
 }
 
 test test_terminal_newline_does_not_add_empty_line_for_round_trip [error] {
@@ -1864,7 +1984,7 @@ b
 """.lines()
   .collect()
 
-  test.eq(lines, ["a", "b"])?
+  (lines) == (["a", "b"])
   f"""${lines.join("\n")}
 """ == """a
 b
@@ -1916,7 +2036,10 @@ proc main() [io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """outer 0
 inner 0:0
 inner 0:1
@@ -1951,7 +2074,10 @@ proc main() [io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """pull 2
 tee 2
 pull 1
@@ -2107,15 +2233,27 @@ for r in out { print \${r.name} }
 """,
   )?
 
-  test.ok(! failed.success, failed.stdout)?
-  test.ok("sort-by" in failed.stderr, failed.stderr)?
-  test.ok("List" in failed.stderr, failed.stderr)?
+  {
+    let assertion_condition = ! failed.success
+    let assertion_message = failed.stdout
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "sort-by" in failed.stderr
+    let assertion_message = failed.stderr
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "List" in failed.stderr
+    let assertion_message = failed.stderr
+    assert assertion_condition, assertion_message
+  }
 }
 
 test test_sort_by_map_accumulator_any_typed_fields [error] {
   # The explicit dynamic value domain survives integer additions. Sorting
   # still validates each actual key as an orderable scalar at runtime.
-  let counts: Map[Str, Any] = map.empty()
+  let counts: Map[Str, Any] = {}
   let keys = ["b", "a"]
   let acc = counts.set("a", 2).set("b", 1)
 
@@ -2124,19 +2262,20 @@ test test_sort_by_map_accumulator_any_typed_fields [error] {
       {count: (acc.get(k) ?? 0), ext: k}
     }
     |> sort-by .count
-  by_count == [{count: 1, ext: "b"}, {count: 2, ext: "a"}]
+  [row.ext for row in by_count] == ["b", "a"]
+  [row.count.require(Int)? for row in by_count] == [1, 2]
 
   # The list-comprehension equivalent accepts and sorts identically.
   let by_count_comp = [{count: (acc.get(k) ?? 0), ext: k} for k in keys] |> sort-by .count
-  test.eq(by_count_comp, by_count)?
+  (by_count_comp) == (by_count)
 }
 
 test test_structured_stream_batch_count_and_argv_limits [process, error] {
   let by_count = [1, 2, 3, 4, 5] |> batch(count: 2)
   let by_size = [p"aaaa", p"bbbb", p"cccc"] |> batch(max_bytes: 10)
-  test.eq(by_count, [[1, 2], [3, 4], [5]])?
-  test.eq(by_size[0], [p"aaaa", p"bbbb"])?
-  test.eq(by_size[1], [p"cccc"])?
+  (by_count) == ([[1, 2], [3, 4], [5]])
+  (by_size[0]) == ([p"aaaa", p"bbbb"])
+  (by_size[1]) == ([p"cccc"])
 
   [p"one", p"two"]
     |> batch(max_argv: true)
@@ -2197,7 +2336,10 @@ proc main() [io, error] {
 }
 """,
   )?
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   output.stdout == """rows=0
 """
 }
@@ -2276,11 +2418,11 @@ test test_parallel_stream_stages_are_bounded_and_deterministic [error] {
         x * 2
       } == [2, 4, 6, 8]
 
-  var seen: List[Str] = []
+  var seen = []
 
   ["a", "b"]
     |> each { |x|
-      seen = seen.push(x)
+      seen += [x]
     }
 
   seen == ["a", "b"]
@@ -2296,7 +2438,10 @@ proc main() [io] {
 """,
     ["--trace", "--raw"],
   )?
-  test.ok(trace.success, trace.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = trace
+    assert assertion_condition, assertion_message
+  }
   trace.stdout == """item=1
 item=2
 """
@@ -2356,13 +2501,20 @@ let rows = [{name: "very-long-command-name-that-keeps-going", size: 123}]
     {COLUMNS: "40"},
   )?
 
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
   "\u{2026}" not in output.stdout
   "very-long-command-name-that-k" in output.stdout
   "eeps-going" in output.stdout
 
   for line in output.stdout.lines() {
-    test.ok(line.count_chars() <= 40, line)?
+    {
+      let assertion_condition = line.count_chars() <= 40
+      let assertion_message = line
+      assert assertion_condition, assertion_message
+    }
   }
 }
 
@@ -2376,7 +2528,10 @@ let rows = [{name: "b", size: 2}, {name: "a", size: 1}]
     ["--trace", "--raw"],
   )?
 
-  test.ok(table_trace.success, table_trace.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = table_trace
+    assert assertion_condition, assertion_message
+  }
   "\u{2502} a" in table_trace.stdout
   "\u{2502} b" in table_trace.stdout
   "kind=stream.stage.enter" in table_trace.stderr
@@ -2401,7 +2556,10 @@ proc main() [io, error] {
 """,
     ["--trace", "--raw"],
   )?
-  test.ok(bounded_trace.success, bounded_trace.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = bounded_trace
+    assert assertion_condition, assertion_message
+  }
   bounded_trace.stdout == """seen=1
 count=1
 """
@@ -2417,7 +2575,10 @@ count=1
     ["--raw"],
   )?
 
-  test.ok(adapter_trace.success, adapter_trace.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = adapter_trace
+    assert assertion_condition, assertion_message
+  }
   "kind=stream.stage.enter" in adapter_trace.stderr
   "kind=stream.stage.exit" in adapter_trace.stderr
   "name=\"text.lines\"" in adapter_trace.stderr
@@ -2430,7 +2591,10 @@ count=1
     ["--raw"],
   )?
 
-  test.ok(batch_trace.success, batch_trace.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = batch_trace
+    assert assertion_condition, assertion_message
+  }
   "kind=stream.stage.enter" in batch_trace.stderr
   "kind=stream.stage.exit" in batch_trace.stderr
   "name=\"batch\"" in batch_trace.stderr
@@ -2537,8 +2701,11 @@ let counts = stats.keys()
   |> sort-by .count
 for row in counts { print f"${row.ext}:${row.count}" }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "md:1\nrs:2\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("md:1\nrs:2\n")
 }
 
 
@@ -2553,8 +2720,11 @@ proc summarize() [error] {
 }
 summarize()
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "3:2:2\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("3:2:2\n")
 }
 
 type StreamLabelRow = {name: Str, unit: Str}
@@ -2568,15 +2738,15 @@ test test_stream_where_string_views_match_ordinary_record_comparison [error] {
   }
 
   let owned: List[StreamLabelRow] = [{name: "MemFree", unit: "bytes"}, {name: "VendorCounter", unit: "widgets"}]
-  test.ok(viewed[0].name == "MemFree")?
-  test.ok(viewed[1].name != "MemFree")?
-  test.eq((viewed |> where .name == "MemFree").len(), 1)?
-  test.eq((viewed |> where "MemFree" == .name).len(), 1)?
-  test.eq((viewed |> where .name != "MemFree").len(), 1)?
-  test.eq((viewed |> where "MemFree" != .name).len(), 1)?
-  test.eq((viewed |> where .name == "MemFree" and .unit == "bytes").len(), 1)?
-  test.eq((viewed |> where .name == "MemFree" or .unit == "widgets").len(), 2)?
-  test.eq(viewed |> where .name == "MemFree", owned |> where .name == "MemFree")?
-  test.eq(viewed |> where .name != "MemFree", owned |> where .name != "MemFree")?
-  test.eq(viewed |> where .name == "MemFree", viewed |> where { |row| row.name == "MemFree" })?
+  (viewed[0].name == "MemFree")
+  (viewed[1].name != "MemFree")
+  ((viewed |> where .name == "MemFree").len()) == (1)
+  ((viewed |> where "MemFree" == .name).len()) == (1)
+  ((viewed |> where .name != "MemFree").len()) == (1)
+  ((viewed |> where "MemFree" != .name).len()) == (1)
+  ((viewed |> where .name == "MemFree" and .unit == "bytes").len()) == (1)
+  ((viewed |> where .name == "MemFree" or .unit == "widgets").len()) == (2)
+  (viewed |> where .name == "MemFree") == (owned |> where .name == "MemFree")
+  (viewed |> where .name != "MemFree") == (owned |> where .name != "MemFree")
+  (viewed |> where .name == "MemFree") == (viewed |> where { |row| row.name == "MemFree" })
 }

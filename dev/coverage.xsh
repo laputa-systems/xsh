@@ -17,10 +17,10 @@ enum CoverageRequest {
 ## Decodes the CLI coverage request before workflow dispatch.
 export pure parse_request(value: Str) -> Result[CoverageRequest] {
   match value {
-    "" => return Automatic
-    "native" => return NativeRequest
-    "docker" => return DockerRequest
-    _ => return Err(
+    "" => Automatic
+    "native" => NativeRequest
+    "docker" => DockerRequest
+    _ => Err(
       stages.StageError.Failed(
         stage: "coverage",
         target: "",
@@ -40,32 +40,28 @@ export pure automatic_backend_for(
   let native_host = ctx.host_os == targets.Linux and ctx.host_arch == targets.X86_64
   let prerequisites = alpine_linux and cargo_available and linker_available
 
-  if native_host and prerequisites {
-    return NativeBackend
-  }
+  return NativeBackend when native_host and prerequisites
 
-  return DockerBackend
+  DockerBackend
 }
 
 ## Renders a backend only at the test and display boundary.
 export pure backend_name(backend: CoverageBackend) -> Str {
   match backend {
-    NativeBackend => return "native"
-    DockerBackend => return "docker"
+    NativeBackend => "native"
+    DockerBackend => "docker"
   }
 }
 
 ## Chooses a native-architecture Linux container unless the caller selected a target.
 export pure docker_target_triple(host_arch: targets.HostArch, selected: Str) -> Str {
-  if selected != "" {
+  guard selected == "" else {
     return selected
   }
 
-  if host_arch == targets.Aarch64 {
-    return "aarch64-unknown-linux-musl"
-  }
+  return "aarch64-unknown-linux-musl" when host_arch == targets.Aarch64
 
-  return "x86_64-unknown-linux-musl"
+  "x86_64-unknown-linux-musl"
 }
 
 ## Selects the automatic coverage backend from the preserved Alpine Linux contract.
@@ -83,16 +79,14 @@ export proc automatic_backend(ctx: context.Context) [fs, process, error] -> Resu
     }
   }
 
-  return automatic_backend_for(ctx, alpine_linux, cargo_available, linker_available)
+  automatic_backend_for(ctx, alpine_linux, cargo_available, linker_available)
 }
 
 ## Resolves the native linker without hiding an unavailable tool.
 export proc native_linker() [process, env, error] -> Result[Path] {
   let configured = env.get_or("COV_NATIVE_LINKER", "")?.trim()
 
-  if configured != "" {
-    return fp"${configured}"
-  }
+  return fp"${configured}" when configured != ""
 
   for name in ["cc", "clang", "gcc"] {
     if let Ok(found) = process.which(name) {
@@ -100,7 +94,7 @@ export proc native_linker() [process, env, error] -> Result[Path] {
     }
   }
 
-  return Err(stages.StageError.MissingTool(tool: "cc, clang, or gcc"))
+  Err(stages.StageError.MissingTool(tool: "cc, clang, or gcc"))
 }
 
 ## Runs the retained native combined Rust LLVM and XSH API coverage program.
@@ -205,9 +199,7 @@ export proc coverage(ctx: context.Context, request: CoverageRequest) [fs, proces
       let selected = env.get_or("TARGET", "")?.trim()
       let triple = docker_target_triple(ctx.host_arch, selected)
 
-      if triple == ctx.target.triple {
-        return docker_backend(ctx)
-      }
+      return docker_backend(ctx) when triple == ctx.target.triple
 
       env TARGET=$triple {
         docker_backend(context.create()?)?

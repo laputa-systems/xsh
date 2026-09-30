@@ -4,8 +4,15 @@ use xsh::frontend::syntax::arena::{ArenaCallArgKind, ArenaExprKind, ArenaExprOrR
 use xsh::frontend::syntax::parser::Parser;
 
 pub(super) fn lint_callable_aliases(program: &ArenaProgram, source: &str) -> Vec<Diagnostic> {
-    let before = Checker::check_arena(program, source);
-    if !before.diagnostics.is_empty() { return Vec::new(); }
+    lint_callable_aliases_with_check(program, source, || Checker::check_arena(program, source))
+}
+
+fn lint_callable_aliases_with_check(
+    program: &ArenaProgram,
+    source: &str,
+    check_original: impl FnOnce() -> xsh::frontend::check::CheckOutput,
+) -> Vec<Diagnostic> {
+    let before = std::cell::LazyCell::new(check_original);
     let mut diagnostics = Vec::new();
     for statement in program.statement_ids() {
         let outer = program.arena.stmt(statement);
@@ -42,7 +49,6 @@ pub(super) fn lint_callable_aliases(program: &ArenaProgram, source: &str) -> Vec
             }
         });
         let Some(target) = target else { continue; };
-        if !same_signature(program, source, &before.prepared_constants, definition, target) { continue; }
         let params = program.arena.params(wrapper.params);
         let arguments = program.arena.call_args(args);
         if params.len() != arguments.len() || !params.iter().zip(arguments).all(|(parameter, argument)| {
@@ -54,6 +60,10 @@ pub(super) fn lint_callable_aliases(program: &ArenaProgram, source: &str) -> Vec
             };
             matches!(program.arena.expr(expression).kind, ArenaExprKind::Ident(name) if name == parameter.name)
         }) { continue; }
+        // Preparing the complete program is needed only after a local wrapper
+        // has forwarded every parameter unchanged to a callable of the same kind.
+        if !before.diagnostics.is_empty() { return Vec::new(); }
+        if !same_signature(program, source, &before.prepared_constants, definition, target) { continue; }
         let mut diagnostic = Diagnostic::warning("an exact forwarding callable can preserve its signature through an immutable alias")
             .with_code("lint.prefer-callable-alias")
             .with_label(Label::secondary(inner.span, "the alias executes the original callable without a wrapper traceback frame"));
@@ -100,4 +110,47 @@ fn same_signature(program: &ArenaProgram, source: &str, constants: &xsh::fronten
             (Some(left), Some(right)) => constants.analyze_expression(&program.arena, left).is_some_and(|left| Some(left) == constants.analyze_expression(&program.arena, right)),
             _ => false,
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+    use xsh::frontend::source::SourceId;
+
+    fn lint_with_preparation_count(source: &str) -> (Vec<Diagnostic>, usize) {
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let preparations = Cell::new(0);
+        let diagnostics = parsed.arena.symbol_owner().with_current(|| {
+            lint_callable_aliases_with_check(&parsed.arena, source, || {
+                preparations.set(preparations.get() + 1);
+                Checker::check_arena(&parsed.arena, source)
+            })
+        });
+        (diagnostics, preparations.get())
+    }
+
+    #[test]
+    fn callable_aliases_skip_original_preparation_without_exact_local_forwarding() {
+        for source in [
+            "let prepared = rx\"ready\"\n",
+            "pure render(value: Str) -> Str { value }\nproc format(value: Str) [] -> Str { render(value) }\n",
+            "pure render(left: Str, right: Str) -> Str { left + right }\npure format(left: Str, right: Str) -> Str { render(right, left) }\n",
+            "pure render(value: Str) -> Str { value }\npure format(value: Str) -> Str { render(value.trim()) }\n",
+        ] {
+            let (diagnostics, preparations) = lint_with_preparation_count(source);
+            assert!(diagnostics.is_empty(), "{source}: {diagnostics:?}");
+            assert_eq!(preparations, 0, "{source}");
+        }
+    }
+
+    #[test]
+    fn callable_aliases_cache_original_preparation_across_forwarding_candidates() {
+        let source = "pure render(value: Str) -> Str { value }\npure first(value: Str) -> Str { render(value) }\npure second(value: Str) -> Str { render(value) }\n";
+        let (diagnostics, preparations) = lint_with_preparation_count(source);
+        assert_eq!(preparations, 1);
+        assert_eq!(diagnostics.len(), 2, "{diagnostics:?}");
+        assert!(diagnostics.iter().all(|diagnostic| diagnostic.fix_hints.len() == 1));
+    }
 }

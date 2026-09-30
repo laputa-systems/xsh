@@ -56,15 +56,15 @@ type CoverageReport = {
 type CodeDelimiterScan = {brace_delta: Int, delimiter_delta: Int, in_triple_string: Bool}
 
 pure count_char(text: Str, needle: Str) -> Int {
-  return text.count_chars() - text.replace(needle, "").count_chars()
+  text.count_chars() - text.replace(needle, "").count_chars()
 }
 
 pure brace_delta(line: Str) -> Int {
-  return count_char(line, "{") - count_char(line, "}")
+  count_char(line, "{") - count_char(line, "}")
 }
 
 pure delimiter_delta(line: Str) -> Int {
-  return brace_delta(line) + count_char(line, "[") - count_char(line, "]") + count_char(line, "(") - count_char(
+  brace_delta(line) + count_char(line, "[") - count_char(line, "]") + count_char(line, "(") - count_char(
     line,
     ")",
   )
@@ -73,17 +73,15 @@ pure delimiter_delta(line: Str) -> Int {
 pure variant_name(line: Str) -> Str {
   let trimmed = line.trim()
 
-  if trimmed == "" or trimmed.starts_with("}") or trimmed.starts_with("//") {
-    return ""
-  }
+  return "" when trimmed == "" or trimmed.starts_with("}") or trimmed.starts_with("//")
 
-  return (trimmed.replace("{", " ").replace("(", " ").replace(",", " ").fields().get(0) ?? "")
+  (trimmed.replace("{", " ").replace("(", " ").replace(",", " ").fields().get(0) ?? "")
 }
 
 pure enum_variants(source: Str, enum_name: Str) -> List[Str] {
   let public_marker = f"pub enum ${enum_name}"
   let private_marker = f"enum ${enum_name}"
-  var variants: List[Str] = []
+  var variants = []
   var in_enum = false
   var depth = 0
 
@@ -103,18 +101,16 @@ pure enum_variants(source: Str, enum_name: Str) -> List[Str] {
       let name = variant_name(line)
 
       if name != "" {
-        variants = variants.push(name)
+        variants += [name]
       }
     }
 
     depth += brace_delta(line)
 
-    if depth <= 0 {
-      return variants
-    }
+    return variants when depth <= 0
   }
 
-  return variants
+  variants
 }
 
 pure list_intersection(left: List[Str], right: List[Str]) -> List[Str] {
@@ -126,18 +122,16 @@ pure list_difference(left: List[Str], right: List[Str]) -> List[Str] {
 }
 
 pure percent(covered: Int, total: Int) -> Int {
-  if total == 0 {
-    return 0
-  }
+  return 0 when total == 0
 
-  return covered * 100 / total
+  covered * 100 / total
 }
 
 pure coverage_row(name: Str, all: List[Str], supported: List[Str]) -> CoverageRow {
   let covered = list_intersection(all, supported) |> sort
   let unsupported = list_difference(all, supported) |> sort
 
-  return {
+  {
     name: name,
     covered: covered.len(),
     total: all.len(),
@@ -149,24 +143,24 @@ pure coverage_row(name: Str, all: List[Str], supported: List[Str]) -> CoverageRo
 
 pure quoted_tokens(line: Str) -> List[Str] {
   let parts = line.split("\"")
-  var values: List[Str] = []
+  var values = []
   var index = 1
 
   while index < parts.len() {
     let token = (parts.get(index) ?? "")
 
     if token != "" {
-      values = values.push(token)
+      values += [token]
     }
 
     index += 2
   }
 
-  return values
+  values
 }
 
 pure lowered_method_names(source: Str) -> List[Str] {
-  var methods: List[Str] = []
+  var methods = []
   var in_list = false
 
   for raw in source.lines() {
@@ -182,18 +176,16 @@ pure lowered_method_names(source: Str) -> List[Str] {
 
     for token in quoted_tokens(line) {
       if ! (token in methods) {
-        methods = methods.push(token)
+        methods += [token]
       }
     }
 
     # The list is a `const LOWERED_METHOD_NAMES: &[&str] = &[ ... ];` array, so
     # the closing bracket terminates it.
-    if "]" in line {
-      return methods |> sort
-    }
+    return methods |> sort when "]" in line
   }
 
-  return methods |> sort
+  methods |> sort
 }
 
 pure code_delimiter_scan(line: Str, start_in_triple_string: Bool) -> CodeDelimiterScan {
@@ -216,11 +208,11 @@ pure code_delimiter_scan(line: Str, start_in_triple_string: Bool) -> CodeDelimit
     index += 1
   }
 
-  return {brace_delta: brace, delimiter_delta: delimiter, in_triple_string: in_triple_string}
+  {brace_delta: brace, delimiter_delta: delimiter, in_triple_string: in_triple_string}
 }
 
 pure standard_record_names(source: Str) -> List[Str] {
-  var names: List[Str] = []
+  var names = []
 
   for raw in source.lines() {
     let line = raw.trim()
@@ -229,38 +221,38 @@ pure standard_record_names(source: Str) -> List[Str] {
       let name = (line.split("\"").get(1) ?? "")
 
       if name != "" and ! (name in names) {
-        names = names.push(name)
+        names += [name]
       }
     }
   }
 
-  return names |> sort
+  names |> sort
 }
 
 pure starts_pure(line: Str) -> Bool {
   let trimmed = line.trim()
-  return trimmed.starts_with("pure ") or trimmed.starts_with("export pure ")
+  trimmed.starts_with("pure ") or trimmed.starts_with("export pure ")
 }
 
 pure starts_proc(line: Str) -> Bool {
   let trimmed = line.trim()
-  return trimmed.starts_with("proc ") or trimmed.starts_with("export proc ")
+  trimmed.starts_with("proc ") or trimmed.starts_with("export proc ")
 }
 
 pure pure_name(signature: Str) -> Str {
   let trimmed = signature.trim().replace("export pure ", "pure ")
   let after_pure = (trimmed.split("pure ").get(1) ?? trimmed)
-  return (after_pure.split("(").get(0) ?? after_pure).trim()
+  (after_pure.split("(").get(0) ?? after_pure).trim()
 }
 
 pure proc_name(signature: Str) -> Str {
   let trimmed = signature.trim().replace("export proc ", "proc ")
   let after_proc = (trimmed.split("proc ").get(1) ?? trimmed)
-  return (after_proc.split("(").get(0) ?? after_proc).trim()
+  (after_proc.split("(").get(0) ?? after_proc).trim()
 }
 
 pure pure_function_names(source: Str) -> List[Str] {
-  var names: List[Str] = []
+  var names = []
 
   for raw in source.lines() {
     let line = raw.trim()
@@ -269,16 +261,16 @@ pure pure_function_names(source: Str) -> List[Str] {
       let name = pure_name(line)
 
       if name != "" and ! (name in names) {
-        names = names.push(name)
+        names += [name]
       }
     }
   }
 
-  return names
+  names
 }
 
 pure proc_function_names(source: Str) -> List[Str] {
-  var names: List[Str] = []
+  var names = []
 
   for raw in source.lines() {
     let line = raw.trim()
@@ -287,16 +279,16 @@ pure proc_function_names(source: Str) -> List[Str] {
       let name = proc_name(line)
 
       if name != "" and ! (name in names) {
-        names = names.push(name)
+        names += [name]
       }
     }
   }
 
-  return names
+  names
 }
 
 pure record_schema_names(source: Str) -> List[Str] {
-  var names: List[Str] = []
+  var names = []
 
   for raw in source.lines() {
     let line = raw.trim().replace("export type ", "type ")
@@ -305,16 +297,16 @@ pure record_schema_names(source: Str) -> List[Str] {
       let name = ((line.split("type ").get(1) ?? "").split("=").get(0) ?? "").trim()
 
       if name != "" and ! (name in names) {
-        names = names.push(name)
+        names += [name]
       }
     }
   }
 
-  return names
+  names
 }
 
 pure tag_union_names(source: Str) -> List[Str] {
-  var names: List[Str] = []
+  var names = []
 
   for raw in source.lines() {
     let line = raw.trim().replace("export enum ", "enum ")
@@ -323,41 +315,37 @@ pure tag_union_names(source: Str) -> List[Str] {
       let name = ((line.split("enum ").get(1) ?? "").split("{").get(0) ?? "").trim()
 
       if name != "" and ! (name in names) {
-        names = names.push(name)
+        names += [name]
       }
     }
   }
 
-  return names
+  names
 }
 
 pure qualified_names(namespace: Str, names: List[Str]) -> List[Str] {
-  var values: List[Str] = []
+  var values = []
 
   for name in names {
-    values = values.push(name)
+    values += [name]
 
     if namespace != "" {
-      values = values.push(f"${namespace}.${name}")
+      values += [f"${namespace}.${name}"]
     }
   }
 
-  return values
+  values
 }
 
 pure module_namespace(path_text: Str) -> Str {
-  if ! path_text.ends_with(".xsh") {
-    return ""
-  }
+  return "" when ! path_text.ends_with(".xsh")
 
   let without_ext = (path_text.split(".xsh").get(0) ?? path_text)
   let parts = without_ext.split("/")
 
-  if parts.len() < 2 {
-    return ""
-  }
+  return "" when parts.len() < 2
 
-  return (parts.get(parts.len() - 1) ?? "")
+  (parts.get(parts.len() - 1) ?? "")
 }
 
 pure extend_unique(values: List[Str], extra: List[Str]) -> List[Str] {
@@ -365,15 +353,15 @@ pure extend_unique(values: List[Str], extra: List[Str]) -> List[Str] {
 
   for item in extra {
     if item != "" and ! (item in result) {
-      result = result.push(item)
+      result += [item]
     }
   }
 
-  return result
+  result
 }
 
 pure error_variant_names(source: Str) -> List[Str] {
-  var names: List[Str] = []
+  var names = []
 
   for raw in source.lines() {
     let line = raw.trim().replace("export error ", "error ")
@@ -385,59 +373,49 @@ pure error_variant_names(source: Str) -> List[Str] {
         let name = (raw_variant.trim().replace("(", " ").fields().get(0) ?? "")
 
         if name != "" and ! (name in names) {
-          names = names.push(name)
+          names += [name]
         }
       }
     }
   }
 
-  return names
+  names
 }
 
 pure lowerable_named_type(raw: Str, record_types: List[Str]) -> Bool {
-  if raw == "Unit" or raw == "Int" or raw == "Bool" or raw == "Str" or raw == "Regex" or raw == "Status" or raw == "Path" or raw == "Error" or raw == "Record" {
-    return true
-  }
+  return true when raw == "Unit" or raw == "Int" or raw == "Bool" or raw == "Str" or raw == "Regex" or raw == "Status" or raw == "Path" or raw == "Error" or raw == "Record"
 
-  if raw in record_types {
-    return true
-  }
+  return true when raw in record_types
 
   let short = (raw.split(".").get(raw.split(".").len() - 1) ?? raw)
-  return short in record_types
+  short in record_types
 }
 
 pure lowerable_type(raw: Str, allow_result: Bool, record_types: List[Str]) -> Bool {
   let ty = raw.trim().replace("?", "")
 
-  if lowerable_named_type(ty, record_types) {
-    return true
-  }
+  return true when lowerable_named_type(ty, record_types)
 
-  if ty.starts_with("List[") or ty.starts_with("Map[") {
-    return true
-  }
+  return true when ty.starts_with("List[") or ty.starts_with("Map[")
 
   if allow_result and ty.starts_with("Result[") {
     let inner = ((ty.split("Result[").get(1) ?? "").split("]").get(0) ?? "")
     return lowerable_type(inner, false, record_types)
   }
 
-  return false
+  false
 }
 
 pure add_reason(reasons: List[Str], reason: Str) -> List[Str] {
-  if reason == "" or reason in reasons {
-    return reasons
-  }
+  return reasons when reason == "" or reason in reasons
 
-  return reasons.push(reason)
+  reasons.push(reason)
 }
 
 pure signature_reasons(signature: Str, record_types: List[Str]) -> List[Str] {
   let normalized = signature.replace("(", " ").replace(")", " ").replace(",", " ").replace("{", " ")
   let tokens = normalized.fields()
-  var reasons: List[Str] = []
+  var reasons = []
   var index = 0
 
   while index < tokens.len() {
@@ -455,7 +433,7 @@ pure signature_reasons(signature: Str, record_types: List[Str]) -> List[Str] {
     index += 1
   }
 
-  return reasons
+  reasons
 }
 
 pure method_reasons(
@@ -465,7 +443,7 @@ pure method_reasons(
   pure_functions: List[Str],
 ) -> List[Str] {
   let parts = line.split(".")
-  var reasons: List[Str] = []
+  var reasons = []
   var index = 1
 
   while index < parts.len() {
@@ -484,17 +462,15 @@ pure method_reasons(
     index += 1
   }
 
-  return reasons
+  reasons
 }
 
 pure receiver_name(raw: Str) -> Str {
   let fields = raw.replace("(", " ").replace("{", " ").replace("[", " ").fields()
 
-  if fields.len() == 0 {
-    return ""
-  }
+  return "" when fields.len() == 0
 
-  return (fields.get(fields.len() - 1) ?? "")
+  (fields.get(fields.len() - 1) ?? "")
 }
 
 pure known_module_receiver(name: Str) -> Bool {
@@ -523,43 +499,29 @@ pure known_module_receiver(name: Str) -> Bool {
     "unix",
   ]
 
-  return name in modules
+  name in modules
 }
 
 pure plausible_field_call_name(name: Str) -> Bool {
-  if name == "" {
-    return false
-  }
+  return false when name == ""
 
-  if " " in name or "}" in name or "{" in name or "|" in name or ")" in name {
-    return false
-  }
+  return false when " " in name or "}" in name or "{" in name or "|" in name or ")" in name
 
-  if "$" in name or "\"" in name or "'" in name or ":" in name {
-    return false
-  }
+  return false when "$" in name or "\"" in name or "'" in name or ":" in name
 
-  if "," in name or "/" in name or "[" in name or "]" in name or "+" in name {
-    return false
-  }
+  return false when "," in name or "/" in name or "[" in name or "]" in name or "+" in name
 
-  if name.lower() != name {
-    return false
-  }
+  return false when name.lower() != name
 
-  return true
+  true
 }
 
 pure supported_lowered_pipeline_line(line: Str) -> Bool {
   let supported_stage = "|> take(" in line or "|> drop(" in line or "|> where " in line or "|> map " in line or "|> enumerate()" in line or "|> sort" in line or "|> sort-by " in line or "|> group-by " in line or "|> text.lines" in line
 
-  if ! supported_stage {
-    return false
-  }
+  return false when ! supported_stage
 
-  if "{ |" in line and ! ("|> map { |" in line) {
-    return false
-  }
+  return false when "{ |" in line and ! ("|> map { |" in line)
 
   let unsupported = [
     "|> par-map",
@@ -590,12 +552,10 @@ pure supported_lowered_pipeline_line(line: Str) -> Bool {
   ]
 
   for marker in unsupported {
-    if marker in line {
-      return false
-    }
+    return false when marker in line
   }
 
-  return true
+  true
 }
 
 pure body_line_reasons(
@@ -605,11 +565,9 @@ pure body_line_reasons(
   pure_functions: List[Str],
 ) -> List[Str] {
   let trimmed = line.trim()
-  var reasons: List[Str] = []
+  var reasons = []
 
-  if trimmed == "" or trimmed.starts_with("#") {
-    return reasons
-  }
+  return reasons when trimmed == "" or trimmed.starts_with("#")
 
   if trimmed.starts_with("loop ") {
     reasons = add_reason(reasons, "stmt.loop")
@@ -623,9 +581,7 @@ pure body_line_reasons(
     reasons = add_reason(reasons, "stmt.break")
   }
 
-  if trimmed.starts_with("continue") {
-    return reasons
-  }
+  return reasons when trimmed.starts_with("continue")
 
   if "|>" in trimmed and ! supported_lowered_pipeline_line(trimmed) {
     reasons = add_reason(reasons, "expr.pipeline")
@@ -635,7 +591,7 @@ pure body_line_reasons(
     reasons = add_reason(reasons, reason)
   }
 
-  return reasons
+  reasons
 }
 
 pure pure_scan(
@@ -656,7 +612,7 @@ pure pure_scan(
     }
   }
 
-  return {
+  {
     path: script_path,
     line: line,
     name: pure_name(signature),
@@ -668,37 +624,31 @@ pure pure_scan(
 pure proc_effects(signature: Str) -> List[Str] {
   let before_return = (signature.split("->").get(0) ?? signature).trim()
 
-  if ! before_return.ends_with("]") {
-    return ["unrestricted"]
-  }
+  return ["unrestricted"] when ! before_return.ends_with("]")
 
   let parts = before_return.split("[")
   let raw = ((parts.get(parts.len() - 1) ?? "").split("]").get(0) ?? "").trim()
-  var effects: List[Str] = []
+  var effects = []
 
-  if raw == "" {
-    return effects
-  }
+  return effects when raw == ""
 
   for effect in raw.split(",") {
     let name = effect.trim()
 
     if name != "" {
-      effects = effects.push(name)
+      effects += [name]
     }
   }
 
-  return effects
+  effects
 }
 
 pure lowerable_proc_effect_set(effects: List[Str]) -> Bool {
   for effect in effects {
-    if effect != "error" {
-      return false
-    }
+    return false when effect != "error"
   }
 
-  return true
+  true
 }
 
 pure proc_scan(
@@ -724,7 +674,7 @@ pure proc_scan(
     }
   }
 
-  return {
+  {
     path: script_path,
     line: line,
     name: proc_name(signature),
@@ -753,7 +703,7 @@ proc scan_pures_in_file(
 
   let error_variants = extend_unique(corpus_error_variants, error_variant_names(text))
   let pure_functions = extend_unique(corpus_pure_functions, qualified_names(namespace, pure_function_names(text)))
-  var scans: List[PureScan] = []
+  var scans = []
   var in_pure = false
   var seen_body = false
   var depth = 0
@@ -830,7 +780,7 @@ proc scan_pures_in_file(
     }
   }
 
-  return scans
+  scans
 }
 
 proc scan_procs_in_file(
@@ -857,7 +807,7 @@ proc scan_procs_in_file(
     qualified_names(namespace, pure_function_names(text)),
   )
 
-  var scans: List[ProcScan] = []
+  var scans = []
   var in_proc = false
   var seen_body = false
   var depth = 0
@@ -943,11 +893,11 @@ proc scan_procs_in_file(
     }
   }
 
-  return scans
+  scans
 }
 
 pure add_reason_count(counts: Map[Int], reason: Str) -> Map[Int] {
-  return counts.set(reason, (counts.get(reason) ?? 0) + 1)
+  counts.set(reason, (counts.get(reason) ?? 0) + 1)
 }
 
 pure reason_rows(counts: Map[Int]) -> List[ReasonCount] {
@@ -955,35 +905,21 @@ pure reason_rows(counts: Map[Int]) -> List[ReasonCount] {
 }
 
 pure reason_group(reason: Str) -> Str {
-  if reason == "stmt.Use" {
-    return "import-boundary"
-  }
+  return "import-boundary" when reason == "stmt.Use"
 
-  if reason == "stmt.Command" or reason == "expr.run" or reason == "stmt.Defer" or reason == "stmt.SignalHook" {
-    return "runtime-boundary"
-  }
+  return "runtime-boundary" when reason == "stmt.Command" or reason == "expr.run" or reason == "stmt.Defer" or reason == "stmt.SignalHook"
 
-  if reason.starts_with("effect.") {
-    return "effect-boundary"
-  }
+  return "effect-boundary" when reason.starts_with("effect.")
 
-  if reason.starts_with("method.") {
-    return "method"
-  }
+  return "method" when reason.starts_with("method.")
 
-  if reason.starts_with("type.") {
-    return "type"
-  }
+  return "type" when reason.starts_with("type.")
 
-  if reason.starts_with("expr.") {
-    return "expression"
-  }
+  return "expression" when reason.starts_with("expr.")
 
-  if reason.starts_with("stmt.") {
-    return "statement"
-  }
+  return "statement" when reason.starts_with("stmt.")
 
-  return "other"
+  "other"
 }
 
 pure reason_groups(rows: List[ReasonCount]) -> List[ReasonGroup] {
@@ -998,38 +934,38 @@ pure reason_groups(rows: List[ReasonCount]) -> List[ReasonGroup] {
     "other",
   ]
 
-  var groups: List[ReasonGroup] = []
+  var groups = []
 
   for bucket in order {
     var total = 0
-    var reasons: List[ReasonCount] = []
+    var reasons = []
 
     for row in rows {
       if reason_group(row.reason) == bucket {
         total += row.count
-        reasons = reasons.push(row)
+        reasons += [row]
       }
     }
 
     if total > 0 {
-      groups = groups.push({group: bucket, total: total, reasons: reasons})
+      groups += [{group: bucket, total: total, reasons: reasons}]
     }
   }
 
-  return groups
+  groups
 }
 
 pure corpus_report(roots: List[Str], scans: List[PureScan]) -> CorpusReport {
   var lowerable = 0
   var counts: Map[Int] = {}
-  var samples: List[PureScan] = []
+  var samples = []
 
   for scan in scans {
     if scan.lowerable {
       lowerable += 1
     } else {
       if samples.len() < 20 {
-        samples = samples.push(scan)
+        samples += [scan]
       }
 
       for reason in scan.reasons {
@@ -1040,7 +976,7 @@ pure corpus_report(roots: List[Str], scans: List[PureScan]) -> CorpusReport {
 
   let reasons = reason_rows(counts)
 
-  return {
+  {
     roots: roots,
     total: scans.len(),
     lowerable: lowerable,
@@ -1054,14 +990,14 @@ pure corpus_report(roots: List[Str], scans: List[PureScan]) -> CorpusReport {
 pure proc_report(roots: List[Str], scans: List[ProcScan]) -> ProcReport {
   var lowerable = 0
   var counts: Map[Int] = {}
-  var samples: List[ProcScan] = []
+  var samples = []
 
   for scan in scans {
     if scan.lowerable {
       lowerable += 1
     } else {
       if samples.len() < 20 {
-        samples = samples.push(scan)
+        samples += [scan]
       }
 
       for reason in scan.reasons {
@@ -1072,7 +1008,7 @@ pure proc_report(roots: List[Str], scans: List[ProcScan]) -> ProcReport {
 
   let reasons = reason_rows(counts)
 
-  return {
+  {
     roots: roots,
     total: scans.len(),
     lowerable: lowerable,
@@ -1086,114 +1022,70 @@ pure proc_report(roots: List[Str], scans: List[ProcScan]) -> ProcReport {
 pure script_shape(line: Str) -> Str {
   let trimmed = line.trim()
 
-  if trimmed == "" or trimmed.starts_with("#") or trimmed.starts_with("}") {
-    return ""
-  }
+  return "" when trimmed == "" or trimmed.starts_with("#") or trimmed.starts_with("}")
 
   let normalized = trimmed.replace("export ", "")
 
-  if normalized.starts_with("use ") {
-    return "Use"
-  }
+  return "Use" when normalized.starts_with("use ")
 
-  if normalized.starts_with("type ") or normalized.starts_with("error ") or normalized.starts_with("proc ") or normalized.starts_with(
-    "pure ",
-  ) {
-    return ""
-  }
+  return "" when normalized.starts_with("type ") or normalized.starts_with("error ") or normalized.starts_with("proc ") or normalized.starts_with("pure ")
 
-  if normalized.starts_with("signal ") or normalized.starts_with("on ") {
-    return "SignalHook"
-  }
+  return "SignalHook" when normalized.starts_with("signal ") or normalized.starts_with("on ")
 
-  if normalized.starts_with("defer ") {
-    return "Defer"
-  }
+  return "Defer" when normalized.starts_with("defer ")
 
-  if normalized.starts_with("let ") {
-    return "Let"
-  }
+  return "Let" when normalized.starts_with("let ")
 
-  if normalized.starts_with("var ") {
-    return "Var"
-  }
+  return "Var" when normalized.starts_with("var ")
 
-  if normalized.starts_with("if ") {
-    return "If"
-  }
+  return "If" when normalized.starts_with("if ")
 
-  if normalized.starts_with("while ") {
-    return "While"
-  }
+  return "While" when normalized.starts_with("while ")
 
-  if normalized.starts_with("for ") {
-    return "For"
-  }
+  return "For" when normalized.starts_with("for ")
 
-  if normalized.starts_with("match ") {
-    return "Match"
-  }
+  return "Match" when normalized.starts_with("match ")
 
-  if normalized.starts_with("guard ") {
-    return "Guard"
-  }
+  return "Guard" when normalized.starts_with("guard ")
 
-  if normalized.starts_with("with ") {
-    return "With"
-  }
+  return "With" when normalized.starts_with("with ")
 
-  if normalized.starts_with("loop ") {
-    return "Loop"
-  }
+  return "Loop" when normalized.starts_with("loop ")
 
-  if normalized.starts_with("return") {
-    return "Return"
-  }
+  return "Return" when normalized.starts_with("return")
 
-  if normalized.starts_with("break") {
-    return "Break"
-  }
+  return "Break" when normalized.starts_with("break")
 
-  if normalized.starts_with("continue") {
-    return "Continue"
-  }
+  return "Continue" when normalized.starts_with("continue")
 
-  if normalized.starts_with("print ") or normalized.starts_with("eprint ") or normalized.starts_with("run ") {
-    return "Command"
-  }
+  return "Command" when normalized.starts_with("print ") or normalized.starts_with("eprint ") or normalized.starts_with("run ")
 
-  if " = " in normalized or " += " in normalized or " -= " in normalized or " *= " in normalized or " /= " in normalized or " %= " in normalized {
-    return "Assign"
-  }
+  return "Assign" when " = " in normalized or " += " in normalized or " -= " in normalized or " *= " in normalized or " /= " in normalized or " %= " in normalized
 
-  if normalized.fields().len() == 1 and ! ("(" in normalized) {
-    return "TailBareIdent"
-  }
+  return "TailBareIdent" when normalized.fields().len() == 1 and ! ("(" in normalized)
 
-  return "Expr"
+  "Expr"
 }
 
 pure script_continuation_line(line: Str) -> Bool {
   let trimmed = line.trim()
-  return trimmed.starts_with("|>")
+  trimmed.starts_with("|>")
 }
 
 pure non_executable_signature_start(line: Str) -> Bool {
   let normalized = line.trim().replace("export ", "")
-  return normalized.starts_with("proc ") or normalized.starts_with("pure ")
+  normalized.starts_with("proc ") or normalized.starts_with("pure ")
 }
 
 pure append_scan_line(text: Str, line: Str) -> Str {
-  if text == "" {
-    return line
-  }
+  return line when text == ""
 
   let newline = "\n"
-  return f"${text}${newline}${line}"
+  f"${text}${newline}${line}"
 }
 
 pure script_supported_shape(shape: Str) -> Bool {
-  return shape == "Let" or shape == "Var" or shape == "Assign" or shape == "If" or shape == "While" or shape == "For" or shape == "Match" or shape == "Expr"
+  shape == "Let" or shape == "Var" or shape == "Assign" or shape == "If" or shape == "While" or shape == "For" or shape == "Match" or shape == "Expr"
 }
 
 pure script_region_reasons(
@@ -1203,11 +1095,9 @@ pure script_region_reasons(
   error_variants: List[Str],
   pure_functions: List[Str],
 ) -> List[Str] {
-  var reasons: List[Str] = []
+  var reasons = []
 
-  if shape == "" {
-    return reasons
-  }
+  return reasons when shape == ""
 
   if ! script_supported_shape(shape) {
     reasons = add_reason(reasons, f"stmt.${shape}")
@@ -1223,20 +1113,20 @@ pure script_region_reasons(
     }
   }
 
-  return reasons
+  reasons
 }
 
 pure script_report(roots: List[Str], scans: List[ScriptScan]) -> ScriptReport {
   var lowerable = 0
   var counts: Map[Int] = {}
-  var samples: List[ScriptScan] = []
+  var samples = []
 
   for scan in scans {
     if scan.lowerable {
       lowerable += 1
     } else {
       if samples.len() < 20 {
-        samples = samples.push(scan)
+        samples += [scan]
       }
 
       for reason in scan.reasons {
@@ -1247,7 +1137,7 @@ pure script_report(roots: List[Str], scans: List[ScriptScan]) -> ScriptReport {
 
   let reasons = reason_rows(counts)
 
-  return {
+  {
     roots: roots,
     total: scans.len(),
     lowerable: lowerable,
@@ -1260,28 +1150,28 @@ pure script_report(roots: List[Str], scans: List[ScriptScan]) -> ScriptReport {
 
 pure default_corpus_roots(root: Path) -> List[Path] {
   let parent = root.parent()
-  return [root, fp"${parent}/packages", fp"${parent}/laputa"]
+  [root, fp"${parent}/packages", fp"${parent}/laputa"]
 }
 
 proc scan_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[CorpusReport] {
   let display_root = root.parent()
   let records_path = fp"${root}/src/sema/records.rs"
   let standard_records = standard_record_names(fs.read_text(records_path)?)
-  var roots: List[Str] = []
-  var files: List[Path] = []
+  var roots = []
+  var files = []
   var corpus_record_types = standard_records
-  var corpus_error_variants: List[Str] = []
-  var corpus_pure_functions: List[Str] = []
-  var scans: List[PureScan] = []
+  var corpus_error_variants = []
+  var corpus_pure_functions = []
+  var scans = []
 
   for corpus_root in default_corpus_roots(root) {
     continue unless corpus_root.exists()?
-    roots = roots.push(corpus_root.strip_prefix(display_root)?.display())
+    roots += [corpus_root.strip_prefix(display_root)?.display()]
 
     for entry in fs.walk(corpus_root)?
       |> where .kind == "file" and .path.ext() == "xsh"
       |> sort-by .path {
-      files = files.push(entry.path)
+      files += [entry.path]
       let text = fs.read_text(entry.path)?
       let path_text = entry.path.strip_prefix(display_root)?.display()
       let namespace = module_namespace(path_text)
@@ -1313,28 +1203,28 @@ proc scan_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[C
     )
   }
 
-  return corpus_report(roots, scans)
+  corpus_report(roots, scans)
 }
 
 proc scan_proc_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[ProcReport] {
   let display_root = root.parent()
   let records_path = fp"${root}/src/sema/records.rs"
   let standard_records = standard_record_names(fs.read_text(records_path)?)
-  var roots: List[Str] = []
-  var files: List[Path] = []
+  var roots = []
+  var files = []
   var corpus_record_types = standard_records
-  var corpus_error_variants: List[Str] = []
-  var corpus_lowerable_functions: List[Str] = []
-  var scans: List[ProcScan] = []
+  var corpus_error_variants = []
+  var corpus_lowerable_functions = []
+  var scans = []
 
   for corpus_root in default_corpus_roots(root) {
     continue unless corpus_root.exists()?
-    roots = roots.push(corpus_root.strip_prefix(display_root)?.display())
+    roots += [corpus_root.strip_prefix(display_root)?.display()]
 
     for entry in fs.walk(corpus_root)?
       |> where .kind == "file" and .path.ext() == "xsh"
       |> sort-by .path {
-      files = files.push(entry.path)
+      files += [entry.path]
       let text = fs.read_text(entry.path)?
       let path_text = entry.path.strip_prefix(display_root)?.display()
       let namespace = module_namespace(path_text)
@@ -1371,7 +1261,7 @@ proc scan_proc_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Res
     )
   }
 
-  return proc_report(roots, scans)
+  proc_report(roots, scans)
 }
 
 proc scan_script_statements_in_file(
@@ -1383,7 +1273,7 @@ proc scan_script_statements_in_file(
 ) [fs, error] -> Result[List[ScriptScan]] {
   let text = fs.read_text(script_path)?
   let path_text = script_path.strip_prefix(display_root)?.display()
-  var scans: List[ScriptScan] = []
+  var scans = []
   var pending_text = ""
   var pending_shape = ""
   var pending_line = 0
@@ -1506,25 +1396,25 @@ proc scan_script_statements_in_file(
     )
   }
 
-  return scans
+  scans
 }
 
 proc scan_script_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> Result[ScriptReport] {
   let display_root = root.parent()
-  var roots: List[Str] = []
-  var files: List[Path] = []
-  var corpus_error_variants: List[Str] = []
-  var corpus_pure_functions: List[Str] = []
-  var scans: List[ScriptScan] = []
+  var roots = []
+  var files = []
+  var corpus_error_variants = []
+  var corpus_pure_functions = []
+  var scans = []
 
   for corpus_root in default_corpus_roots(root) {
     continue unless corpus_root.exists()?
-    roots = roots.push(corpus_root.strip_prefix(display_root)?.display())
+    roots += [corpus_root.strip_prefix(display_root)?.display()]
 
     for entry in fs.walk(corpus_root)?
       |> where .kind == "file" and .path.ext() == "xsh"
       |> sort-by .path {
-      files = files.push(entry.path)
+      files += [entry.path]
       let text = fs.read_text(entry.path)?
       let path_text = entry.path.strip_prefix(display_root)?.display()
       let namespace = module_namespace(path_text)
@@ -1543,7 +1433,7 @@ proc scan_script_corpus(root: Path, lowered_methods: List[Str]) [fs, error] -> R
     )
   }
 
-  return script_report(roots, scans)
+  script_report(roots, scans)
 }
 
 pure render_row(row: CoverageRow) -> List[Str] {
@@ -1551,90 +1441,88 @@ pure render_row(row: CoverageRow) -> List[Str] {
   lines = lines.push(f"  supported: ${row.supported.join(", ")}")
 
   if row.unsupported.len() == 0 {
-    lines = lines.push("  unsupported: none")
+    lines += ["  unsupported: none"]
   } else {
     lines = lines.push(f"  unsupported: ${row.unsupported.join(", ")}")
   }
 
-  return lines
+  lines
 }
 
 pure render_reason_groups(groups: List[ReasonGroup]) -> List[Str] {
-  var lines: List[Str] = []
+  var lines = []
 
-  if groups.len() == 0 {
-    return lines
-  }
+  return lines when groups.len() == 0
 
-  lines = lines.push("  fallback groups:")
+  lines += ["  fallback groups:"]
 
   for bucket in groups {
     lines = lines.push(f"    ${bucket.group}: ${bucket.total}")
   }
 
-  return lines
+  lines
 }
 
 pure render_report(report: CoverageReport) -> Str {
   var lines = ["lowered IR coverage", "scope: static AST surface compared to the current lowered IR capability map", ""]
 
   for row in report.rows {
-    lines = lines.extend(render_row(row))
-    lines = lines.push("")
+    lines += render_row(row)
+    lines += [""]
   }
 
-  lines = lines.push("lowered IR nodes")
+  lines += ["lowered IR nodes"]
   lines = lines.push(f"  statements: ${report.lowered_nodes.statements}")
   lines = lines.push(f"  expressions: ${report.lowered_nodes.expressions}")
   lines = lines.push(f"  pipeline stages: ${report.lowered_nodes.pipeline_stages}")
   lines = lines.push(f"  types: ${report.lowered_nodes.types}")
-  lines = lines.push("")
+  lines += [""]
   lines = lines.push(f"lowered method whitelist: ${report.lowered_methods.len()}")
   lines = lines.push(f"  ${report.lowered_methods.join(", ")}")
-  lines = lines.push("")
-  lines = lines.push("corpus pure-function lowerability")
+  lines += [""]
+  lines += ["corpus pure-function lowerability"]
   lines = lines.push(f"  roots: ${report.corpus.roots.join(", ")}")
   lines = lines.push(f"  lowerable: ${report.corpus.lowerable}/${report.corpus.total} (${report.corpus.percent}%)")
 
   if report.corpus.reasons.len() == 0 {
-    lines = lines.push("  fallback reasons: none")
+    lines += ["  fallback reasons: none"]
   } else {
-    lines = lines.push("  fallback reasons:")
+    lines += ["  fallback reasons:"]
 
     for row in report.corpus.reasons {
       lines = lines.push(f"    ${row.reason}: ${row.count}")
     }
   }
 
-  lines = lines.extend(render_reason_groups(report.corpus.groups))
+  lines += render_reason_groups(report.corpus.groups)
 
   if report.corpus.samples.len() > 0 {
-    lines = lines.push("  non-lowerable samples:")
+    lines += ["  non-lowerable samples:"]
 
     for scan in report.corpus.samples {
       lines = lines.push(f"    ${scan.path}:${scan.line} ${scan.name} -> ${scan.reasons.join(", ")}")
     }
   }
 
-  lines = lines.push("")
-  lines = lines.push("corpus effect-free proc-body lowerability")
+  lines += [""]
+  lines += ["corpus effect-free proc-body lowerability"]
   lines = lines.push(f"  roots: ${report.procs.roots.join(", ")}")
   lines = lines.push(f"  lowerable: ${report.procs.lowerable}/${report.procs.total} (${report.procs.percent}%)")
 
   if report.procs.reasons.len() == 0 {
-    lines = lines.push("  fallback reasons: none")
+    lines += ["  fallback reasons: none"]
   } else {
-    lines = lines.push("  fallback reasons:")
+    lines += ["  fallback reasons:"]
 
     for row in report.procs.reasons {
       lines = lines.push(f"    ${row.reason}: ${row.count}")
     }
   }
 
-  lines = lines.extend(render_reason_groups(report.procs.groups))
+  lines += render_reason_groups(report.procs.groups)
 
   if report.procs.samples.len() > 0 {
-    lines = lines.push("  non-lowerable samples:")
+    lines += ["  non-lowerable samples:"]
 
     for scan in report.procs.samples {
       lines = lines.push(
@@ -1643,44 +1531,44 @@ pure render_report(report: CoverageReport) -> Str {
     }
   }
 
-  lines = lines.push("")
-  lines = lines.push("corpus top-level script lowerability")
+  lines += [""]
+  lines += ["corpus top-level script lowerability"]
   lines = lines.push(f"  roots: ${report.script.roots.join(", ")}")
   lines = lines.push(f"  lowerable: ${report.script.lowerable}/${report.script.total} (${report.script.percent}%)")
 
   if report.script.reasons.len() == 0 {
-    lines = lines.push("  fallback reasons: none")
+    lines += ["  fallback reasons: none"]
   } else {
-    lines = lines.push("  fallback reasons:")
+    lines += ["  fallback reasons:"]
 
     for row in report.script.reasons {
       lines = lines.push(f"    ${row.reason}: ${row.count}")
     }
   }
 
-  lines = lines.extend(render_reason_groups(report.script.groups))
+  lines += render_reason_groups(report.script.groups)
 
   if report.script.samples.len() > 0 {
-    lines = lines.push("  non-lowerable samples:")
+    lines += ["  non-lowerable samples:"]
 
     for scan in report.script.samples {
       lines = lines.push(f"    ${scan.path}:${scan.line} ${scan.shape} -> ${scan.reasons.join(", ")}")
     }
   }
 
-  lines = lines.push("")
-  lines = lines.push("notes")
+  lines += [""]
+  lines += ["notes"]
 
-  lines = lines.push(
+  lines += [
     "  This is not whole-language runtime coverage. Process forms, modules, streams, tracing-sensitive calls, unrestricted procs, and OS effects are intentionally outside the lowered fast path.",
-  )
+  ]
 
-  lines = lines.push(
+  lines += [
     "  Use the unsupported lists as the next IR expansion map; use benchmark deltas to decide whether a supported construct is worth optimizing further.",
-  )
+  ]
 
-  lines = lines.push("")
-  return lines.join("\n")
+  lines += [""]
+  lines.join("\n")
 }
 
 let opts: Options = cli.parse(
@@ -1708,9 +1596,9 @@ var indexed_expr_variants: List[Str] = []
 
 for variant in indexed_variants {
   if variant.starts_with("Stmt") {
-    indexed_stmt_variants = indexed_stmt_variants.push(variant)
+    indexed_stmt_variants += [variant]
   } else if variant.starts_with("Expr") {
-    indexed_expr_variants = indexed_expr_variants.push(variant)
+    indexed_expr_variants += [variant]
   }
 }
 
@@ -1784,19 +1672,19 @@ let rows = [
   coverage_row("assignment operators", assign_variants, ["Set", "Add", "Sub", "Mul", "Div", "Rem"]),
 ]
 
-let report: CoverageReport = {
-  rows: rows,
+let report = CoverageReport(
+  rows:,
   lowered_nodes: {
     statements: indexed_stmt_variants.len(),
     expressions: indexed_expr_variants.len(),
     pipeline_stages: lowered_pipeline_stage_variants.len(),
     types: lowered_type_variants.len(),
   },
-  lowered_methods: lowered_methods,
+  lowered_methods:,
   corpus: scan_corpus(root, lowered_methods)?,
   procs: scan_proc_corpus(root, lowered_methods)?,
   script: scan_script_corpus(root, lowered_methods)?,
-}
+)
 
 let text = render_report(report)
 print $text

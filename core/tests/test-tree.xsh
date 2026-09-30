@@ -8,12 +8,12 @@ test test_tree_renders_sorted_branches_and_symlinks [fs, process, env, error] { 
   fs.symlink(fp"${root}/a.txt", fp"${root}/link-a")?
   let output = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- $root ?
   let lines = output.lines().collect()
-  test.eq(lines[0], root.display())?
-  test.eq(lines[1], "|-- a.txt")?
-  test.eq(lines[2], "|-- dir")?
-  test.eq(lines[3], "|   `-- file.txt")?
-  "link-a ->" in lines[4].require(Str)?
-  test.eq(lines[5], "`-- z.txt")?
+  lines[0] == root.display()
+  lines[1] == "|-- a.txt"
+  lines[2] == "|-- dir"
+  lines[3] == "|   `-- file.txt"
+  "link-a ->" in lines[4]
+  lines[5] == "`-- z.txt"
   "1 directory, 4 files" in output
   ! (".hidden" in output)
   let all = run.text ${ctx.xsh_bin} fp"${ctx.core_dir}/tree.xsh" -- -a $root ?

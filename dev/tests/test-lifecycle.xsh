@@ -1,5 +1,5 @@
 pure context_source(root: Path) -> Str {
-  return f"""{
+  f"""{
     root: p"${root}",
     target_dir: p"${root}/target",
     coverage_dir: p"${root}/target/cov",
@@ -13,7 +13,7 @@ pure context_source(root: Path) -> Str {
 }
 
 pure darwin_context_source(root: Path) -> Str {
-  return f"""{
+  f"""{
     root: p"${root}",
     target_dir: p"${root}/target",
     coverage_dir: p"${root}/target/cov",
@@ -66,10 +66,44 @@ match build.build(ctx) {
       XSH_MODULE_PATH: fp"${repository}/dev".display(),
     },
   )?
-  test.ok(result.success, result.stderr)?
-  test.ok("[build target=x86_64-unknown-linux-musl] cargo build" in result.stdout, result.stdout)?
-  test.ok("StageError.Failed" in result.stdout, result.stdout)?
+  assert result.success, result.stderr
+  assert "[build target=x86_64-unknown-linux-musl] cargo build" in result.stdout, result.stdout
+  assert "StageError.Failed" in result.stdout, result.stdout
   cargo_marker.exists()?
+}
+
+test test_check_lint_runs_only_the_read_only_performance_gate [fs, error] { |ctx|
+  let root = test.temp_dir(ctx, name: "check-lint")?
+  let tools = fp"${root}/tools"
+  tools.mkdir()?
+  let repository = fs.cwd()?
+  let xsh = fp"${repository}/target/debug/xsh"
+  let cargo_marker = fp"${root}/cargo-argv"
+  write_fake_tool(
+    fp"${tools}/cargo",
+    xsh,
+    f"""p"${cargo_marker.display()}".write(args.join("|"))?
+abort(23)""",
+  )?
+  let result = test.run_script(
+    ctx,
+    f"""
+use build
+use context
+use targets as target_policy
+
+let ctx: context.Context = ${context_source(root)}
+match build.check_lint(ctx) {
+  Ok(_) => abort(1)
+  Err(error) => print \${error.message}
+}
+""",
+    [],
+    {PATH: tools.display(), XSH_MODULE_PATH: fp"${repository}/dev".display()},
+  )?
+  assert result.success, result.stderr
+  assert "StageError.Failed" in result.stdout, result.stdout
+  cargo_marker.read_text()? == "test|-p|xsht|--test|integration|lint_performance::|--|--test-threads=1|--nocapture"
 }
 
 test test_lint_fix_rebuilds_the_debug_xsh_binary [fs, error] { |ctx|
@@ -108,13 +142,12 @@ build.lint_fix(ctx)?
     [],
     {PATH: tools.display(), XSH_MODULE_PATH: fp"${repository}/dev".display()},
   )?
-  test.ok(
-    result.success,
-    f"""${result.stdout}
-${result.stderr}""",
-  )?
-  test.ok(xsh_marker.exists()?, "lint --fix did not rebuild the debug xsh binary")?
-  test.ok("--bin|xsh" in xsh_marker.read_text()?, xsh_marker.read_text()?)?
+  assert result.success, f"""${result.stdout}
+${result.stderr}"""
+  assert xsh_marker.exists()?, "lint --fix did not rebuild the debug xsh binary"
+  let xsh_arguments = xsh_marker.read_text()?
+  let xsh_diagnostic = xsh_marker.read_text()?
+  assert "--bin|xsh" in xsh_arguments, xsh_diagnostic
 }
 
 test test_docker_container_failure_runs_target_ownership_cleanup [fs, error] { |ctx|
@@ -154,9 +187,9 @@ match internal.linux_ci_test(ctx) {
       HOST_GID: "20",
     },
   )?
-  test.ok(result.success, result.stderr)?
-  test.ok("[linux-ci-build-products target=x86_64-unknown-linux-musl] cargo build" in result.stdout, result.stdout)?
-  test.ok("StageError.Failed" in result.stdout, result.stdout)?
+  assert result.success, result.stderr
+  assert "[linux-ci-build-products target=x86_64-unknown-linux-musl] cargo build" in result.stdout, result.stdout
+  assert "StageError.Failed" in result.stdout, result.stdout
   cargo_marker.exists()?
   cleanup_marker.exists()?
 }
@@ -193,10 +226,10 @@ match docker.run_internal(ctx, "dist", false, []) {
     [],
     {PATH: tools.display(), XSH_MODULE_PATH: fp"${repository}/dev".display()},
   )?
-  test.ok(result.success, result.stderr)?
-  test.ok("[docker-image-build target=x86_64-unknown-linux-musl] docker build" in result.stdout, result.stdout)?
-  test.ok("[docker-dist target=x86_64-unknown-linux-musl] docker run" in result.stdout, result.stdout)?
-  test.ok("StageError.Failed" in result.stdout, result.stdout)?
+  assert result.success, result.stderr
+  assert "[docker-image-build target=x86_64-unknown-linux-musl] docker build" in result.stdout, result.stdout
+  assert "[docker-dist target=x86_64-unknown-linux-musl] docker run" in result.stdout, result.stdout
+  assert "StageError.Failed" in result.stdout, result.stdout
   "run" in docker_marker.read_text()?
 }
 
@@ -229,9 +262,9 @@ match docker.run_internal(ctx, "dist", false, []) {
     [],
     {PATH: tools.display(), XSH_MODULE_PATH: fp"${repository}/dev".display()},
   )?
-  test.ok(result.success, result.stderr)?
-  test.ok("[docker-image-build target=x86_64-unknown-linux-musl] docker build" in result.stdout, result.stdout)?
-  test.ok("[docker-dist" not in result.stdout, result.stdout)?
+  assert result.success, result.stderr
+  assert "[docker-image-build target=x86_64-unknown-linux-musl] docker build" in result.stdout, result.stdout
+  assert "[docker-dist" not in result.stdout, result.stdout
   "build" in docker_marker.read_text()?
 }
 
@@ -243,7 +276,7 @@ run.status false
 """,
     ["--trace", "--raw"],
   )?
-  test.ok(traced.success, traced.stderr)?
+  assert traced.success, traced.stderr
   "kind=run.start" in traced.stderr
   "kind=run.end" in traced.stderr
   "status={kind:exit success:false code:1}" in traced.stderr
@@ -255,17 +288,18 @@ test test_make_facade_only_delegates_to_the_development_entrypoint [fs, error] {
   for command in [
     "$(XSH_DEV) dev/main.xsh --",
     "cargo dev",
+    "$(DEV) check lint",
     "$(DEV) lint --fix",
     "$(DEV) test linux --ci",
     "$(DEV) coverage --backend docker",
     "$(DEV) bench --syscalls",
     "$(DEV) dist --docker always",
   ] {
-    test.ok(command in facade, facade)?
+    assert command in facade, facade
   }
 
   for forbidden in ["cargo build", "cargo test", "sh -c", "bash -c", "docker run"] {
-    test.ok(forbidden not in facade, facade)?
+    assert forbidden not in facade, facade
   }
 }
 
@@ -292,6 +326,15 @@ test test_make_facade_bootstraps_by_default_and_honors_an_explicit_binary [fs, p
   }
   process.run(default)?.exited_with(0)
   output.read_text()? == """cargo dev build
+"""
+
+  let lint_check = process.command {
+    cwd = root
+    stdout = output
+    run make --no-print-directory -n check
+  }
+  process.run(lint_check)?.exited_with(0)
+  output.read_text()? == """cargo dev check lint
 """
 
   let override = process.command {
@@ -348,11 +391,13 @@ match install.darwin(ctx) {
       XSH_MODULE_PATH: fp"${repository}/dev".display(),
     },
   )?
-  test.ok(result.success, result.stderr)?
-  test.ok("[install-darwin-codesign target=aarch64-apple-darwin] codesign" in result.stdout, result.stdout)?
-  test.ok("StageError.Failed" in result.stdout, result.stdout)?
+  assert result.success, result.stderr
+  assert "[install-darwin-codesign target=aarch64-apple-darwin] codesign" in result.stdout, result.stdout
+  assert "StageError.Failed" in result.stdout, result.stdout
   codesign_marker.exists()?
-  test.ok("build-std" in cargo_marker.read_text()?, cargo_marker.read_text()?)?
+  let cargo_arguments = cargo_marker.read_text()?
+  let cargo_diagnostic = cargo_marker.read_text()?
+  assert "build-std" in cargo_arguments, cargo_diagnostic
 }
 
 test test_darwin_install_rejects_linux_target_before_building [fs, error] { |ctx|
@@ -398,9 +443,9 @@ match install.darwin(ctx) {
       XSH_MODULE_PATH: fp"${repository}/dev".display(),
     },
   )?
-  test.ok(result.success, result.stderr)?
-  test.ok("StageError.Failed" in result.stdout, result.stdout)?
-  test.ok(! cargo_marker.exists()?, "darwin install with a Linux target must fail before cargo")?
+  assert result.success, result.stderr
+  assert "StageError.Failed" in result.stdout, result.stdout
+  assert ! cargo_marker.exists()?, "darwin install with a Linux target must fail before cargo"
 }
 
 test test_linux_install_requires_native_musl_target [fs, error] { |ctx|
@@ -446,9 +491,9 @@ match install.linux_install(ctx) {
       XSH_MODULE_PATH: fp"${repository}/dev".display(),
     },
   )?
-  test.ok(cross.success, cross.stderr)?
-  test.ok("StageError.Failed" in cross.stdout, cross.stdout)?
-  test.ok(! cargo_marker.exists()?, "cross-arch Linux install must fail before cargo")?
+  assert cross.success, cross.stderr
+  assert "StageError.Failed" in cross.stdout, cross.stdout
+  assert ! cargo_marker.exists()?, "cross-arch Linux install must fail before cargo"
 
   let non_linux = test.run_script(
     ctx,
@@ -480,6 +525,6 @@ match install.linux_install(ctx) {
       XSH_MODULE_PATH: fp"${repository}/dev".display(),
     },
   )?
-  test.ok(non_linux.success, non_linux.stderr)?
-  test.ok("StageError.Failed" in non_linux.stdout, non_linux.stdout)?
+  assert non_linux.success, non_linux.stderr
+  assert "StageError.Failed" in non_linux.stdout, non_linux.stdout
 }

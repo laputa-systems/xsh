@@ -4,11 +4,11 @@ use fixtures
 use verify
 
 pure verification_context(root: Path, profile: Str = "dist") -> Result[context.Context] {
-  return fixtures.linux_context(root, profile)
+  fixtures.linux_context(root, profile)
 }
 
 pure verification_context_source(root: Path) -> Str {
-  return f"""{
+  f"""{
   root: p"${root}",
   target_dir: p"${root}/target",
   coverage_dir: p"${root}/target/cov",
@@ -34,7 +34,7 @@ test test_binary_verification_rejects_missing_and_non_elf_products [fs, process,
 
   match verify.binary(verify_ctx, "xsh", false) {
     Ok(_) => test.fail("missing product passed verification")?
-    Err(error) => test.ok("StageError.Failed" in error.message, error.message)?
+    Err(error) => { assert "StageError.Failed" in error.message, error.message }
   }
 
   let product = fp"${root}/target/x86_64-unknown-linux-musl/dist/xsh"
@@ -47,7 +47,7 @@ test test_binary_verification_rejects_missing_and_non_elf_products [fs, process,
 
   match verify.binary(verify_ctx, "xsh", false) {
     Ok(_) => test.fail("non-ELF product passed verification")?
-    Err(error) => test.ok("StageError.Failed" in error.message, error.message)?
+    Err(error) => { assert "StageError.Failed" in error.message, error.message }
   }
 }
 
@@ -101,8 +101,8 @@ main()?
     [],
     {PATH: tools.display(), XSH_MODULE_PATH: module_path},
   )?
-  test.ok(wrong_machine.success, wrong_machine.stderr)?
-  test.ok("StageError.Failed" in wrong_machine.stdout, wrong_machine.stdout)?
+  assert wrong_machine.success, wrong_machine.stderr
+  assert "StageError.Failed" in wrong_machine.stdout, wrong_machine.stdout
 
   write_fake_tool(
     fp"${tools}/readelf",
@@ -133,6 +133,6 @@ main()?
     [],
     {PATH: tools.display(), XSH_MODULE_PATH: module_path},
   )?
-  test.ok(dynamic.success, dynamic.stderr)?
-  test.ok("StageError.Failed" in dynamic.stdout, dynamic.stdout)?
+  assert dynamic.success, dynamic.stderr
+  assert "StageError.Failed" in dynamic.stdout, dynamic.stdout
 }

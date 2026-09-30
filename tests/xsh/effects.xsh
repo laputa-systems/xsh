@@ -4,19 +4,19 @@ proc run_check(src: Path) [fs, process, error] -> Result[CheckResult] {
   let err = fp"${src}.err"
   let status: Status = run.status "xsht" check $src 2> $err
   let out = err.read_text()?
-  return Ok({ok: status.exited_with(0), out})
+  {ok: status.exited_with(0), out}
 }
 
 proc run_lint(src: Path) [fs, process] -> Result[Str] {
   let err = fp"${src}.err"
   run.status "xsht" lint $src 2> $err
-  return err.read_text()
+  err.read_text()
 }
 
 test test_module_call_blocked_by_annotation [fs, process, error] { |ctx|
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc bad() [fs] {\n  dns.lookup(\"g.com\")\n}\n")?
   let result = run_check(src)?
-  test.ok(! result.ok, "expected check failure")?
+  assert ! result.ok, "expected check failure"
   "check.effect-violation" in result.out
   "net" in result.out
 }
@@ -29,7 +29,7 @@ test test_correct_annotation_passes [fs, process, error] { |ctx|
   )?
 
   let result = run_check(src)?
-  test.ok(result.ok, "expected clean check")?
+  assert result.ok, "expected clean check"
 }
 
 test test_print_requires_no_effect [fs, process, error] { |ctx|
@@ -39,7 +39,7 @@ test test_print_requires_no_effect [fs, process, error] { |ctx|
     contents: b"proc good() [fs] { print \"ok\"; eprint \"warn\" }\n",
   )?
   let result = run_check(src)?
-  test.ok(result.ok, "print and eprint should require no effect")?
+  assert result.ok, "print and eprint should require no effect"
 }
 
 test test_io_covers_net [fs, process, error] { |ctx|
@@ -50,13 +50,13 @@ test test_io_covers_net [fs, process, error] { |ctx|
   )?
 
   let result = run_check(src)?
-  test.ok(result.ok, "io should cover net")?
+  assert result.ok, "io should cover net"
 }
 
 test test_io_does_not_cover_time [fs, process, error] { |ctx|
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc bad() [io] {\n  let _ = time.now()\n}\n")?
   let result = run_check(src)?
-  test.ok(! result.ok, "expected check failure")?
+  assert ! result.ok, "expected check failure"
   "check.effect-violation" in result.out
   "time" in result.out
 }
@@ -69,7 +69,7 @@ test test_question_mark_requires_error_effect [fs, process, error] { |ctx|
   )?
 
   let result = run_check(src)?
-  test.ok(! result.ok, "expected check failure")?
+  assert ! result.ok, "expected check failure"
   "check.effect-violation" in result.out
   "error" in result.out
 }
@@ -77,7 +77,7 @@ test test_question_mark_requires_error_effect [fs, process, error] { |ctx|
 test test_run_form_requires_process_effect [fs, process, error] { |ctx|
   let src = test.temp_file(ctx, name: "t.xsh", contents: b"proc bad() [fs] {\n  run echo hello\n}\n")?
   let result = run_check(src)?
-  test.ok(! result.ok, "expected check failure")?
+  assert ! result.ok, "expected check failure"
   "check.effect-violation" in result.out
   "process" in result.out
 }
@@ -90,7 +90,7 @@ test test_unrestricted_proc_unchecked [fs, process, error] { |ctx|
   )?
 
   let result = run_check(src)?
-  test.ok(result.ok, "private proc effects should be inferred")?
+  assert result.ok, "private proc effects should be inferred"
 }
 
 test test_restricted_cannot_call_unrestricted_proc [fs, process, error] { |ctx|
@@ -101,7 +101,7 @@ test test_restricted_cannot_call_unrestricted_proc [fs, process, error] { |ctx|
   )?
 
   let result = run_check(src)?
-  test.ok(! result.ok, "expected check failure")?
+  assert ! result.ok, "expected check failure"
   "check.effect-violation" in result.out
 }
 
@@ -113,7 +113,7 @@ test test_proc_to_proc_subset_passes [fs, process, error] { |ctx|
   )?
 
   let result = run_check(src)?
-  test.ok(result.ok, "superset caller should pass")?
+  assert result.ok, "superset caller should pass"
 }
 
 test test_linter_infers_fs_error [fs, process, error] { |ctx|
@@ -145,7 +145,7 @@ test test_annotated_proc_not_flagged_by_linter [fs, process, error] { |ctx|
   )?
 
   let out = run_lint(src)?
-  let unannotated_effects = regex.compile("unannotated-effects")?
+  let unannotated_effects = rx"unannotated-effects"
   let flagged = unannotated_effects.matches(out)
-  test.ok(! flagged, "already annotated, no suggestion expected")?
+  assert ! flagged, "already annotated, no suggestion expected"
 }

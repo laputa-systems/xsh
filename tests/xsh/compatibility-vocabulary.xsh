@@ -1,4 +1,4 @@
-test test_removed_compatibility_vocabulary_prevents_execution { |ctx|
+test test_removed_compatibility_vocabulary_prevents_execution [error] { |ctx|
   for source in [
     "print \"unreachable\"\nlet old = ARGV\n",
     "print \"unreachable\"\nlet old = \"é\".count_bytes()\n",
@@ -6,26 +6,28 @@ test test_removed_compatibility_vocabulary_prevents_execution { |ctx|
     "print \"unreachable\"\nrun.builtin printf \"old\\n\" ?\n",
   ] {
     let output = test.run_script(ctx, source)?
-    test.ok(! output.success, source)?
-    test.eq(output.stdout, "")?
-    test.ok("compatibility-vocabulary" in output.stderr)?
+    let rejected = ! output.success
+    let rejected_source = source
+    assert rejected, rejected_source
+    output.stdout == ""
+    "compatibility-vocabulary" in output.stderr
   }
 }
 
-test test_canonical_compatibility_vocabulary_keeps_byte_and_child_contracts { |ctx|
-  test.eq("é🍃".byte_len(), 6)?
-  test.eq("é🍃".count_chars(), 2)?
+test test_canonical_compatibility_vocabulary_keeps_byte_and_child_contracts [fs, error] { |ctx|
+  "é🍃".byte_len() == 6
+  "é🍃".count_chars() == 2
   let root = test.temp_dir(ctx, name: "canonical-children")?
   fs.mkdir(fp"${root}/nested")?
   fs.write(fp"${root}/z.txt", "z")?
   fs.write(fp"${root}/a.txt", "a")?
   fs.write(fp"${root}/nested/child.txt", "child")?
-  test.eq(fs.children(root)? |> map .name, ["a.txt", "nested", "z.txt"])?
+  (fs.children(root)? |> map .name) == ["a.txt", "nested", "z.txt"]
   let absent = test.temp_path(ctx, name: "canonical-missing")
-  test.ok(fs.children(absent) is Err(_))?
+  fs.children(absent) is Err(_)
 }
 
-test test_compatibility_vocabulary_migration_preserves_comments_and_rechecks { |ctx|
+test test_compatibility_vocabulary_migration_preserves_comments_and_rechecks [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "vocabulary-migration")?
   fs.write(fp"${root}/entry", "data")?
   let source = f"""# café ARGV fs.ls run.builtin count_bytes
@@ -40,26 +42,33 @@ print \$capture.stdout
 """
   let candidate = test.temp_file(ctx, name: "compatibility-migration.xsh", contents: bytes.from_text(source))?
   let diagnosed = run.capture --text "xsht" lint $candidate ?
-  test.ok("lint.compatibility-vocabulary" in diagnosed.stderr, diagnosed.stderr)?
+  let diagnosed_migration = "lint.compatibility-vocabulary" in diagnosed.stderr
+  let diagnosis_details = diagnosed.stderr
+  assert diagnosed_migration, diagnosis_details
   let applied = run.capture --text "xsht" lint --fix $candidate ?
-  test.ok(applied.status.exited_with(0), applied.stderr)?
+  let applied_succeeded = applied.status.exited_with(0)
+  let applied_details = applied.stderr
+  assert applied_succeeded, applied_details
   let fixed = candidate.read_text()?
-  test.ok("# café ARGV fs.ls run.builtin count_bytes" in fixed)?
-  test.ok("# keep bytes" in fixed)?
-  test.ok("external ARGV run.builtin fs.ls count_bytes" in fixed)?
-  test.ok("let input = args" in fixed)?
-  test.ok("\"é🍃\".byte_len()" in fixed)?
-  test.ok("fs.children(" in fixed)?
-  test.ok("run.capture --text printf" in fixed)?
+  "# café ARGV fs.ls run.builtin count_bytes" in fixed
+  "# keep bytes" in fixed
+  "external ARGV run.builtin fs.ls count_bytes" in fixed
+  "let input = args" in fixed
+  "\"é🍃\".byte_len()" in fixed
+  "fs.children(" in fixed
+  "run.capture --text printf" in fixed
   let output = test.run_script(ctx, fixed)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "0 6 1\nexternal ARGV run.builtin fs.ls count_bytes\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "0 6 1\nexternal ARGV run.builtin fs.ls count_bytes\n"
   let repeated = run.capture --text "xsht" lint --fix $candidate ?
-  test.ok(repeated.status.exited_with(0), repeated.stderr)?
-  test.eq(candidate.read_text()?, fixed)?
+  let repeated_succeeded = repeated.status.exited_with(0)
+  let repeated_details = repeated.stderr
+  assert repeated_succeeded, repeated_details
+  candidate.read_text()? == fixed
 }
 
-test test_compatibility_vocabulary_migration_preserves_shorthand_wire_keys { |ctx|
+test test_compatibility_vocabulary_migration_preserves_shorthand_wire_keys [fs, process, error] { |ctx|
   let source = r"""pure count(ARGV: List[Str]) -> Int { ARGV.len() }
 let record_value = {ARGV}
 print ${record_value.ARGV.len()}
@@ -68,20 +77,24 @@ print ${count(ARGV:)}
 """
   let candidate = test.temp_file(ctx, name: "argv-shorthand-migration.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --fix $candidate ?
-  test.ok(applied.status.exited_with(0), applied.stderr)?
+  let applied_succeeded = applied.status.exited_with(0)
+  let applied_details = applied.stderr
+  assert applied_succeeded, applied_details
   let fixed = candidate.read_text()?
-  test.ok("{ARGV: args}" in fixed)?
-  test.ok("print $args.len()" in fixed)?
+  "{ARGV: args}" in fixed
+  r"print $args.len()" in fixed
   let output = test.run_script(ctx, fixed)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "0\n0\n0\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "0\n0\n0\n"
 }
 
-test test_compatibility_vocabulary_keeps_user_names_and_refuses_shadowed_targets { |ctx|
+test test_compatibility_vocabulary_keeps_user_names_and_refuses_shadowed_targets [fs, process, error] { |ctx|
   let source = "let ARGV = [\"local\"]\nlet object = {count_bytes: 7}\nprint \${ARGV[0]} \${object.count_bytes}\nrun printf \"%s\\n\" ARGV run.builtin fs.ls count_bytes ?\n"
   let output = test.run_script(ctx, source)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "ARGV\nrun.builtin\nfs.ls\ncount_bytes\nlocal 7\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "ARGV\nrun.builtin\nfs.ls\ncount_bytes\nlocal 7\n"
   for rejected in [
     "proc inspect(args: List[Str]) [] { let old = ARGV }\ninspect([])\n",
     "let old = \"é\".count_bytes()\nlet unrelated = missing\n",
@@ -91,12 +104,14 @@ test test_compatibility_vocabulary_keeps_user_names_and_refuses_shadowed_targets
   ] {
     let candidate = test.temp_file(ctx, name: "compatibility-no-fix.xsh", contents: bytes.from_text(rejected))?
     let refused = run.capture --text "xsht" lint --fix $candidate ?
-    test.ok(! refused.status.exited_with(0), refused.stderr)?
-    test.eq(candidate.read_text()?, rejected)?
+    let declined = ! refused.status.exited_with(0)
+    let refusal_details = refused.stderr
+    assert declined, refusal_details
+    candidate.read_text()? == rejected
   }
 }
 
-test test_run_qualifier_migration_keeps_each_result_mode { |ctx|
+test test_run_qualifier_migration_keeps_each_result_mode [fs, process, error] { |ctx|
   for source in [
     "run.builtin printf \"plain\\n\" ?\n",
     "let status = run.builtin.status false\nprint \${status.ok}\n",
@@ -109,27 +124,34 @@ test test_run_qualifier_migration_keeps_each_result_mode { |ctx|
   ] {
     let candidate = test.temp_file(ctx, name: "run-qualifier-migration.xsh", contents: bytes.from_text(source))?
     let applied = run.capture --text "xsht" lint --fix $candidate ?
-    test.ok(applied.status.exited_with(0), applied.stderr)?
+    let applied_succeeded = applied.status.exited_with(0)
+    let applied_details = applied.stderr
+    assert applied_succeeded, applied_details
     let fixed = candidate.read_text()?
-    test.eq(fixed, source.replace("run.builtin", "run"))?
+    fixed == source.replace("run.builtin", "run")
     let actual = test.run_script(ctx, fixed)?
     let expected = test.run_script(ctx, source.replace("run.builtin", "run"))?
-    test.ok(actual.success, actual.stderr)?
-    test.eq(actual.stdout, expected.stdout)?
-    test.eq(actual.status, expected.status)?
+    let {success: succeeded, stderr: failure_details, ..} = actual
+    assert succeeded, failure_details
+    actual.stdout == expected.stdout
+    actual.status == expected.status
   }
 }
 
-test test_compatibility_vocabulary_public_inventory_is_canonical { |ctx|
+test test_compatibility_vocabulary_public_inventory_is_canonical [process, error] {
   let removed = run.capture --text "xsht" api --format jsonl --strict api:fs.ls method:Str.count_bytes ?
-  test.ok(! removed.status.exited_with(0), removed.stdout)?
-  test.ok("\"status\":\"missing\"" in removed.stdout)?
+  let removed_absent = ! removed.status.exited_with(0)
+  let removed_details = removed.stdout
+  assert removed_absent, removed_details
+  "\"status\":\"missing\"" in removed.stdout
   let canonical = run.capture --text "xsht" api --format jsonl --strict api:fs.children method:Str.byte_len ?
-  test.ok(canonical.status.exited_with(0), canonical.stderr)?
-  test.ok("\"status\":\"exact\"" in canonical.stdout)?
+  let canonical_succeeded = canonical.status.exited_with(0)
+  let canonical_details = canonical.stderr
+  assert canonical_succeeded, canonical_details
+  "\"status\":\"exact\"" in canonical.stdout
 }
 
-test test_compatibility_vocabulary_migration_keeps_imported_user_methods { |ctx|
+test test_compatibility_vocabulary_migration_keeps_imported_user_methods [fs, process, error] { |ctx|
   let root = test.temp_dir(ctx, name: "compatibility-import")?
   let library = fp"${root}/custom.xsh"
   library.write("##! Custom fixture.\n## Returns a user-defined count.\nexport pure count_bytes() -> Int { 7 }\n")?
@@ -137,38 +159,44 @@ test test_compatibility_vocabulary_migration_keeps_imported_user_methods { |ctx|
   let candidate = fp"${root}/entry.xsh"
   candidate.write(source)?
   let applied = run.capture --text "xsht" lint --fix $candidate ?
-  test.ok(applied.status.exited_with(0), applied.stderr)?
+  let applied_succeeded = applied.status.exited_with(0)
+  let applied_details = applied.stderr
+  assert applied_succeeded, applied_details
   let fixed = candidate.read_text()?
-  test.ok("custom.count_bytes()" in fixed)?
-  test.ok("value?.byte_len()" in fixed)?
+  "custom.count_bytes()" in fixed
+  "value?.byte_len()" in fixed
   let output = run.capture --text "xsh" $candidate ?
-  test.ok(output.status.exited_with(0), output.stderr)?
-  test.eq(output.stdout, "7\ntrue\n")?
+  let succeeded = output.status.exited_with(0)
+  let failure_details = output.stderr
+  assert succeeded, failure_details
+  output.stdout == "7\ntrue\n"
 }
 
-test test_compatibility_vocabulary_keeps_environment_names_and_serialized_keys { |ctx|
+test test_compatibility_vocabulary_keeps_environment_names_and_serialized_keys [error] { |ctx|
   let output = test.run_script(ctx, r"""run ARGV="kept" printenv ARGV ?
 let object = {ARGV: "wire", count_bytes: 7}
 print $object.ARGV
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "kept\nwire\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "kept\nwire\n"
 }
 
-test test_compatibility_vocabulary_trace_has_no_removed_dispatch_names { |ctx|
+test test_compatibility_vocabulary_trace_has_no_removed_dispatch_names [error] { |ctx|
   let traced = test.run_xsht_trace(ctx, r"""let byte_count = "é".byte_len()
 let children = fs.children(p".")?
 let child_count = children |> count()
 print $byte_count $child_count
 """, ["--trace", "--raw", "--trace-format", "jsonl"])?
-  test.ok(traced.success, traced.stderr)?
-  test.ok("stream.count" in traced.stderr)?
-  test.ok("core.print" in traced.stderr)?
-  test.ok("module.fs.ls" not in traced.stderr)?
-  test.ok("method.Str.count_bytes" not in traced.stderr)?
+  let {success: succeeded, stderr: failure_details, ..} = traced
+  assert succeeded, failure_details
+  "stream.count" in traced.stderr
+  "core.print" in traced.stderr
+  "module.fs.ls" not in traced.stderr
+  "method.Str.count_bytes" not in traced.stderr
 }
 
-test test_compatibility_vocabulary_migration_rechecks_inferred_pures_and_pipeline_receivers { |ctx|
+test test_compatibility_vocabulary_migration_rechecks_inferred_pures_and_pipeline_receivers [fs, process, error] { |ctx|
   let source = r"""pure byte_count(value: Str) { value.count_bytes() }
 let sizes = ["a", "é"] |> map .count_bytes()
 let captured = run.builtin.text printf "capture" ?
@@ -178,27 +206,35 @@ print $direct_size $second_size $captured
 """
   let candidate = test.temp_file(ctx, name: "compatibility-inference-migration.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --fix $candidate ?
-  test.ok(applied.status.exited_with(0), applied.stderr)?
+  let applied_succeeded = applied.status.exited_with(0)
+  let applied_details = applied.stderr
+  assert applied_succeeded, applied_details
   let fixed = candidate.read_text()?
-  test.ok("value.byte_len()" in fixed)?
-  test.ok("map .byte_len()" in fixed)?
-  test.ok("run.text printf" in fixed)?
+  "value.byte_len()" in fixed
+  "map .byte_len()" in fixed
+  "run.text printf" in fixed
   let output = test.run_script(ctx, fixed)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "2 2 capture\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "2 2 capture\n"
 }
 
-test test_checked_compatibility_migration_preserves_literal_bytes_and_line_endings { |ctx|
+test test_checked_compatibility_migration_preserves_literal_bytes_and_line_endings [fs, process, error] { |ctx|
   let source = "# café ARGV count_bytes\r\nlet width = \"é🍃\".count_bytes() # keep\r\nprint $width\r\n"
   let candidate = test.temp_file(ctx, name: "checked-vocabulary-layout.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --fix $candidate ?
-  test.ok(applied.status.exited_with(0), applied.stderr)?
+  let applied_succeeded = applied.status.exited_with(0)
+  let applied_details = applied.stderr
+  assert applied_succeeded, applied_details
   let fixed = candidate.read_text()?
-  test.eq(fixed, source.replace(".count_bytes()", ".byte_len()"))?
+  fixed == source.replace(".count_bytes()", ".byte_len()")
   let repeated = run.capture --text "xsht" lint --fix $candidate ?
-  test.ok(repeated.status.exited_with(0), repeated.stderr)?
-  test.eq(candidate.read_text()?, fixed)?
+  let repeated_succeeded = repeated.status.exited_with(0)
+  let repeated_details = repeated.stderr
+  assert repeated_succeeded, repeated_details
+  candidate.read_text()? == fixed
   let output = test.run_script(ctx, fixed)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "6\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "6\n"
 }

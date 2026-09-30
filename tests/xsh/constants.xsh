@@ -1,41 +1,42 @@
-test test_constants_prepare_data_and_keep_aliases [error] {
-  const count = 2 + 3
-  const values: List[Int] = [count, 9]
-  var copy = values
-  copy += [10]
-  test.eq(count, 5)?
-  test.eq(values, [5, 9])?
-  test.eq(copy, [5, 9, 10])?
-}
-
-test test_constants_reject_runtime_dependencies [error] { |ctx|
-  let ordinary = test.run_script(ctx, "let source = 1\nconst value = source\nprint value\n")?
-  test.eq(ordinary.success, false)?
-  let overflow = test.run_script(ctx, "const value = 9223372036854775807 + 1\nprint value\n")?
-  test.eq(overflow.success, false)?
-}
-
 const global_constant = later_constant + 1
 const later_constant = 4
 const protocol_path = p"relative/config"
 const protocol_pattern = rx"^static$"
 const protocol_bytes = b"static"
 const empty_numbers: List[Int] = []
+
+test test_constants_prepare_data_and_keep_aliases [error] {
+  const count = 2 + 3
+  const values = [count, 9]
+  var copy = values
+  copy += [10]
+  count == 5
+  values == [5, 9]
+  copy == [5, 9, 10]
+}
+
+test test_constants_reject_runtime_dependencies [error] { |ctx|
+  let ordinary = test.run_script(ctx, "let source = 1\nconst value = source\nprint value\n")?
+  ! ordinary.success
+  let overflow = test.run_script(ctx, "const value = 9223372036854775807 + 1\nprint value\n")?
+  ! overflow.success
+}
+
 const empty_alias = empty_numbers
 type ConstantConfig = {name: Str = "default", values: List[Int] = empty_numbers}
 const protocol_config = ConstantConfig(name: "static")
 enum ConstantEvent { Ready, Count(Int) }
-const protocol_event = Count(global_constant)
+const protocol_event: ConstantEvent = Count(global_constant)
 
 test test_constants_prepare_constructors_paths_regex_and_forward_references [error] {
-  test.eq(global_constant, 5)?
-  test.eq(protocol_path.display(), "relative/config")?
-  test.eq(protocol_pattern.matches("static"), true)?
-  test.eq(protocol_bytes.len(), 6)?
-  test.eq(protocol_config.name, "static")?
-  test.eq(protocol_config.values, [])?
-  test.eq(empty_alias, [])?
-  test.eq(protocol_event, Count(5))?
+  global_constant == 5
+  protocol_path.display() == "relative/config"
+  protocol_pattern.matches("static")
+  protocol_bytes.len() == 6
+  protocol_config.name == "static"
+  protocol_config.values == []
+  empty_alias == []
+  protocol_event == Count(5)
 }
 
 test test_constants_reject_cycles_contextless_empty_values_and_local_captures [error] { |ctx|
@@ -53,7 +54,7 @@ test test_constants_reject_cycles_contextless_empty_values_and_local_captures [e
   ]
   for source in sources {
     let executed = test.run_script(ctx, source)?
-    test.eq(executed.success, false)?
+    ! executed.success
   }
 }
 
@@ -78,8 +79,9 @@ print ${config.values.len()}
 print ${c.values.len()}
 print ${values.len()}
 """, [], {XSH_MODULE_PATH: root.display()})?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "4\n2\n2\n3\n")?
+  let {success: succeeded, stderr: failure_details, ..} = executed
+  assert succeeded, failure_details
+  executed.stdout == "4\n2\n2\n3\n"
 }
 
 test test_constants_contextual_maps_share_without_mutation [error] {
@@ -87,10 +89,10 @@ test test_constants_contextual_maps_share_without_mutation [error] {
   const combined: Map[Int] = {...table, first: 4}
   var changed = combined
   changed["first"] = 9
-  test.eq(table.get("last")?, 3)?
-  test.eq(table.get("first")?, 2)?
-  test.eq(combined.get("first")?, 4)?
-  test.eq(changed.get("first")?, 9)?
+  table.get("last")? == 3
+  table.get("first")? == 2
+  combined.get("first")? == 4
+  changed.get("first")? == 9
 }
 
 test test_constants_reject_shadowed_runtime_values [error] { |ctx|
@@ -104,7 +106,7 @@ test test_constants_reject_shadowed_runtime_values [error] { |ctx|
   ]
   for source in sources {
     let executed = test.run_script(ctx, source)?
-    test.eq(executed.success, false)?
+    ! executed.success
   }
 }
 
@@ -115,10 +117,11 @@ const value = 8
 proc display() { print $value }
 display()
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "8\n8\n")?
+  let {success: succeeded, stderr: failure_details, ..} = executed
+  assert succeeded, failure_details
+  executed.stdout == "8\n8\n"
   let asserted = test.run_script(ctx, "const condition = false\nproc check() [error] { condition }\ncheck()\n")?
-  test.eq(asserted.success, false)?
+  ! asserted.success
 }
 
 test test_constants_checked_operators_keep_typed_optional_and_duration_data [error] {
@@ -127,26 +130,26 @@ test test_constants_checked_operators_keep_typed_optional_and_duration_data [err
   const maybe: Str? = "ready"
   const present = maybe != null
   const equal_zero = [-0.0] == [0.0]
-  test.eq(pause, 1500ms)?
-  test.eq(intervals, 4)?
-  test.eq(present, true)?
-  test.eq(equal_zero, true)?
+  pause == 1500ms
+  intervals == 4
+  present == true
+  equal_zero
 }
 
 test test_constants_fail_before_any_runtime_statement [error] { |ctx|
   let prepared = test.run_script(ctx, "print starting\nconst invalid = 1 / 0\n")?
-  test.eq(prepared.success, false)?
-  test.eq(prepared.stdout, "")?
+  ! prepared.success
+  prepared.stdout == ""
   let runtime = test.run_script(ctx, "print starting\nlet invalid = 1 / 0\n")?
-  test.eq(runtime.success, false)?
-  test.eq(runtime.stdout, "starting\n")?
+  ! runtime.success
+  runtime.stdout == "starting\n"
 }
 
 test test_constants_constructor_spreads_use_prepared_visible_fields [error] {
   const supplied = {name: "spread"}
   const configured = ConstantConfig(...supplied)
-  test.eq(configured.name, "spread")?
-  test.eq(configured.values, [])?
+  configured.name == "spread"
+  configured.values == []
 }
 
 test test_constants_constructor_spreads_reject_runtime_and_erased_sources [error] { |ctx|
@@ -159,14 +162,14 @@ test test_constants_constructor_spreads_reject_runtime_and_erased_sources [error
     "type Config = {value: Int}\nconst source: Config? = {value: 1}\nconst config = Config(...source)\n",
   ] {
     let executed = test.run_script(ctx, source)?
-    test.eq(executed.success, false)?
+    ! executed.success
   }
 }
 
 test test_constants_closed_record_projections_preserve_declared_field_types [error] { |ctx|
   const source = {nested: {value: "ready"}}
   const selected = source.nested.value
-  test.eq(selected, "ready")?
+  selected == "ready"
   let rejected = test.run_script(ctx, "type Item = {value: Str?}\nconst source: Item = {value: \"ready\"}\nconst selected: Str = source.value\n")?
-  test.eq(rejected.success, false)?
+  ! rejected.success
 }

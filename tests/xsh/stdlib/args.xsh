@@ -67,8 +67,8 @@ test test_args_parse_tokens_and_commands [error] {
     {count: {kind: "Int", required: true}, file: {kind: "Path", positional: true}},
   )?
 
-  test.eq(full.values.count, 2)?
-  test.eq(full.sources.count, "argv")?
+  (full.values.count) == (2)
+  (full.sources.count) == ("argv")
   let usage = cli.usage({count: {kind: "Int", required: true}}, "demo")
   "usage: demo" in usage
 
@@ -280,7 +280,7 @@ test test_cli_applet_parses_cp_compatibility_flags [error] {
 
   ! parsed.no_clobber
   parsed.force
-  test.eq(parsed.target.name(), "dest")?
+  (parsed.target.name()) == ("dest")
   parsed.operands.join(",") == "src1,src2"
 
   let reversed: CpAppletOptions = cli.applet(
@@ -409,15 +409,15 @@ test test_cli_parse_advanced_descriptors [fs, error] {
 
   let full = cli.parse_full(["--color", "-v", "--left", "a"], schema)?
   let values = full.values.require(AdvancedArgs)?
-  test.eq(values.color, "always")?
-  test.eq(values.config.name(), "config.toml")?
-  test.eq(values.workspace.name(), root.name())?
-  test.eq(values.count, 1)?
-  test.eq(f"${values.timeout}", "1s")?
-  test.ok(values.verbose)?
-  test.eq(full.sources.get("color")?.require(Str)?, "argv")?
-  test.eq(full.sources.get("mode")?.require(Str)?, "default")?
-  test.eq(full.warnings.len(), 1)?
+  (values.color) == ("always")
+  (values.config.name()) == ("config.toml")
+  (values.workspace.name()) == (root.name())
+  (values.count) == (1)
+  (f"${values.timeout}") == ("1s")
+  (values.verbose)
+  (full.sources.get("color")?.require(Str)?) == ("argv")
+  (full.sources.get("mode")?.require(Str)?) == ("default")
+  (full.warnings.len()) == (1)
 
   let env_full = cli.parse_full(
     [],
@@ -425,8 +425,8 @@ test test_cli_parse_advanced_descriptors [fs, error] {
     {XSH_PROFILE: "prod"},
   )?
 
-  test.eq(env_full.values.profile, "prod")?
-  test.eq(env_full.sources.get("profile")?.require(Str)?, "env")?
+  (env_full.values.profile) == ("prod")
+  (env_full.sources.get("profile")?.require(Str)?) == ("env")
   let usage = cli.usage(schema, "demo")
   ("usage: demo [OPTIONS]" in usage)
   ("--mode MODE" in usage)
@@ -509,5 +509,5 @@ test test_cli_parse_positional_default_is_optional [error] {
   }
 
   let relaxed = cli.parse([], {file: {form: "FILE", required: false}})?
-  test.eq(relaxed.file, null)?
+  (relaxed.file) == (null)
 }

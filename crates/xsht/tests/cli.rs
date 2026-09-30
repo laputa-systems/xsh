@@ -9,6 +9,37 @@ use tempfile::TempDir;
 static SIGNAL_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
+fn cli_workers_check_and_lint_nested_schema_constructors_without_stack_environment() {
+    let root = TempDir::new().expect("nested schema worker fixture");
+    let script = root.path().join("nested.xsh");
+    let mut source = "type Leaf = {value: Int}\n".to_string();
+    let mut previous = "Leaf".to_string();
+    let mut constructor = "Leaf(value: 1)".to_string();
+    for depth in 0..40 {
+        let name = format!("Layer{depth}");
+        source.push_str(&format!("type {name} = {{child: {previous}}}\n"));
+        constructor = format!("{name}(child: {constructor})");
+        previous = name;
+    }
+    source.push_str(&format!("pure build() -> {previous} {{ {constructor} }}\nlet value = build()\nlet _ = value\n"));
+    fs::write(&script, &source).expect("write nested constructors");
+    for command in ["check", "lint"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_xsht"))
+            .args([command, "nested.xsh"])
+            .current_dir(root.path())
+            .env_remove("RUST_MIN_STACK")
+            .env_remove("XSH_MODULE_PATH")
+            .output().expect("run nested constructor tooling");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(if command == "check" { output.status.success() }
+            else { matches!(output.status.code(), Some(0 | 1)) },
+            "{command}: {:?}\n{stderr}", output.status);
+        assert!(!stderr.contains("stack overflow"), "{command}: {stderr}");
+        assert_eq!(fs::read_to_string(&script).unwrap(), source);
+    }
+}
+
+#[test]
 fn mixed_enum_and_record_require_migration_rechecks_import_graph_and_converges_in_stages() {
     let root = TempDir::new().expect("mixed migration fixture");
     let entry = root.path().join("entry.xsh");

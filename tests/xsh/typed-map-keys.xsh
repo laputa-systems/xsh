@@ -1,3 +1,5 @@
+pure typed_unsigned_keys(keys: List[UInt]) -> List[UInt] { keys }
+
 test test_typed_map_integer_keys_order_and_lookup [error] { |ctx|
   let output = test.run_script(ctx, r"""
 var numbers: Map[Int, Str] = {}
@@ -9,8 +11,11 @@ for {key, value} in numbers {
 print (numbers.get(3)?)
 print (numbers.get(99) ?? "missing")
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "3 three\n20 twenty\nthree\nmissing\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("3 three\n20 twenty\nthree\nmissing\n")
 }
 
 type Identifier = Int
@@ -19,51 +24,52 @@ test test_typed_map_scalar_domains_aliases_and_updates [error] {
   var numbers: Map[Identifier, Str] = { [20]: "twenty", [3]: "three", [-1]: "negative"}
   let snapshot = numbers
   numbers[3] = "changed"
-  test.eq(numbers.keys(), [-1, 3, 20])?
-  test.eq(numbers.values(), ["negative", "changed", "twenty"])?
-  test.eq(snapshot[3], "three")?
-  test.ok(3 in numbers)?
-  test.ok(99 not in numbers)?
-  test.eq(numbers.remove(3).keys(), [-1, 20])?
+  (numbers.keys()) == ([-1, 3, 20])
+  (numbers.values()) == (["negative", "changed", "twenty"])
+  (snapshot[3]) == ("three")
+  (3 in numbers)
+  (99 not in numbers)
+  (numbers.remove(3).keys()) == ([-1, 20])
   let flags: Map[Bool, Int] = { [true]: 1, [false]: 0}
-  test.eq(flags.keys(), [false, true])?
+  (flags.keys()) == ([false, true])
   let data: Map[Bytes, Int] = { [b"z"]: 2, [b"a"]: 1}
-  test.eq(data.keys(), [b"a", b"z"])?
-  test.eq(data.get(b"a")?, 1)?
+  (data.keys()) == ([b"a", b"z"])
+  (data.get(b"a")?) == (1)
   let paths: Map[Path, Str] = { [p"z"]: "last", [p"a"]: "first"}
-  test.eq(paths.keys(), [p"a", p"z"])?
-  test.eq(paths[p"a"], "first")?
+  (paths.keys()) == ([p"a", p"z"])
+  (paths[p"a"]) == ("first")
   let delays: Map[Duration, Int] = { [20ms]: 2, [3ms]: 1}
-  test.eq(delays.keys(), [3ms, 20ms])?
-  test.eq(delays[3ms], 1)?
+  (delays.keys()) == ([3ms, 20ms])
+  (delays[3ms]) == (1)
   let unsigned: Map[UInt, Str] = { [20]: "twenty", [3]: "three"}
-  test.eq(unsigned.keys(), [3, 20])?
-  test.eq(unsigned.keys()[0] + 1, 4)?
-  let strings: Map[Str] = {a: "first", "z": "last"}
-  test.eq(strings.keys(), ["a", "z"])?
+  let expected_unsigned = typed_unsigned_keys([3, 20])
+  unsigned.keys() == expected_unsigned
+  (unsigned.keys()[0] + 1) == (4)
+  let strings: Map[Str] = {a: "first", z: "last"}
+  (strings.keys()) == (["a", "z"])
 }
 
 test test_typed_map_inference_comprehension_null_and_empty [error] {
   let inferred = { [20]: "twenty", [3]: "three"}
-  let key: Int = inferred.keys()[0]
-  let value: Str = inferred.values()[0]
-  test.eq(key, 3)?
-  test.eq(value, "three")?
-  let comprehension: Map[Int, Str] = {item: f"$item" for item in [20, 3]}
-  test.eq(comprehension.keys(), [3, 20])?
-  let entries: List[Int] = [key for {key, value} in comprehension if value != "20"]
-  test.eq(entries, [3])?
+  let first_key = inferred.keys()[0]
+  let first_value = inferred.values()[0]
+  (first_key) == (3)
+  (first_value) == ("three")
+  let comprehension = {item: f"$item" for item in [20, 3]}
+  (comprehension.keys()) == ([3, 20])
+  let entries = [key for {key, value} in comprehension if value != "20"]
+  (entries) == ([3])
   let nullable: Map[Int, Str?] = { [1]: null}
-  test.eq(nullable.get(1)?, null)?
+  (nullable.get(1)?) == (null)
   test.error_kind(nullable.get(2), "map-missing")?
-  let empty: Map[Int, Str] = map.empty()
-  test.eq(empty.keys(), [])?
-  test.eq(empty.set(3, "three").get(3)?, "three")?
+  let empty: Map[Int, Str] = {}
+  (empty.keys()) == ([])
+  (empty.set(3, "three").get(3)?) == ("three")
   let nested: Map[Int, List[Int]] = { [1]: [2, 3]}
   var changed = nested
   changed[1][0] = 9
-  test.eq(changed[1], [9, 3])?
-  test.eq(nested[1], [2, 3])?
+  (changed[1]) == ([9, 3])
+  (nested[1]) == ([2, 3])
 }
 
 test test_typed_map_rejects_mixed_and_unsupported_keys [error] { |ctx|
@@ -76,8 +82,8 @@ test test_typed_map_rejects_mixed_and_unsupported_keys [error] { |ctx|
     "let values: Map[Int, Str] = {}\nlet invalid = values.set(1, false)\n",
   ] {
     let output = test.run_script(ctx, source)?
-    test.ok(!output.success)?
-    test.ok(("check." in output.stderr))?
+    (!output.success)
+    (("check." in output.stderr))
   }
 }
 
@@ -92,8 +98,8 @@ test test_typed_map_json_rejects_non_string_keys [error] {
   test.error_kind(json.encode(data), "json-compatible")?
   test.error_kind(json.encode(path_keys), "json-compatible")?
   test.error_kind(json.encode(duration), "json-compatible")?
-  let encoded: Map[Str, Int] = {[f"${key}"]: value for {key, value} in {[1]: 2}}
-  test.eq(json.encode(encoded)?, "{\"1\":2}")?
+  let encoded = {[f"${key}"]: value for {key, value} in {[1]: 2}}
+  (json.encode(encoded)?) == ("{\"1\":2}")
 }
 
 type UnsignedIdentifier = UInt
@@ -110,24 +116,32 @@ test test_typed_map_unsigned_keys_reject_negative_boundaries [error] { |ctx|
     "var values: Map[UInt, Str] = {}\nlet bad: Map[Int, Str] = {[-1]: \"bad\"}\nvalues = bad\n",
   ] {
     let output = test.run_script(ctx, source)?
-    test.ok(!output.success, source)?
-    test.ok(("UInt" in output.stderr), output.stderr)?
+    {
+      let assertion_condition = !output.success
+      let assertion_message = source
+      assert assertion_condition, assertion_message
+    }
+    {
+      let assertion_condition = ("UInt" in output.stderr)
+      let assertion_message = output.stderr
+      assert assertion_condition, assertion_message
+    }
   }
   let values: Map[UnsignedIdentifier, Str] = {[3]: "three"}
-  test.eq(values.get(3)?, "three")?
+  (values.get(3)?) == ("three")
 }
 
 test test_typed_map_path_and_bytes_keep_native_identity [error] {
   let first = Path.parse_bytes(b"\xff")?
   let second = Path.parse_bytes(b"\xfe")?
   let paths: Map[Path, Int] = {[first]: 1, [second]: 2}
-  test.eq(paths.len(), 2)?
-  test.eq(paths.keys(), [second, first])?
-  test.eq(paths.get(first)?, 1)?
-  test.eq(paths.get(second)?, 2)?
+  (paths.len()) == (2)
+  (paths.keys()) == ([second, first])
+  (paths.get(first)?) == (1)
+  (paths.get(second)?) == (2)
   let data: Map[Bytes, Int] = {[b"\xff"]: 1, [b"\xfe"]: 2}
-  test.eq(data.keys(), [b"\xfe", b"\xff"])?
-  test.eq(data.get(b"\xff")?, 1)?
+  (data.keys()) == ([b"\xfe", b"\xff"])
+  (data.get(b"\xff")?) == (1)
 }
 
 test test_typed_map_erased_updates_reject_mixed_domains [error] { |ctx|
@@ -135,8 +149,16 @@ test test_typed_map_erased_updates_reject_mixed_domains [error] { |ctx|
     "let values: Any = {[1]: 2}\nprint (values.set(\"one\", 3))\n",
   ] {
     let output = test.run_script(ctx, source)?
-    test.ok(!output.success, source)?
-    test.ok(("type-error" in output.stderr), output.stderr)?
+    {
+      let assertion_condition = !output.success
+      let assertion_message = source
+      assert assertion_condition, assertion_message
+    }
+    {
+      let assertion_condition = ("type-error" in output.stderr)
+      let assertion_message = output.stderr
+      assert assertion_condition, assertion_message
+    }
   }
 }
 
@@ -148,13 +170,13 @@ const prepared_duration_keys = {[20ms]: 2, [3ms]: 1}
 const prepared_unsigned_keys: Map[UInt, Str] = {[3]: "three"}
 
 test test_typed_map_prepared_constants_keep_scalar_keys [error] {
-  test.eq(prepared_numeric_keys.keys(), [3, 20])?
-  test.eq(prepared_numeric_keys.get(3)?, "three")?
-  test.eq(prepared_flag_keys.keys(), [false, true])?
-  test.eq(prepared_byte_keys.keys(), [b"\xfe", b"\xff"])?
-  test.eq(prepared_path_keys.keys(), [p"a", p"z"])?
-  test.eq(prepared_duration_keys.keys(), [3ms, 20ms])?
-  test.eq(prepared_unsigned_keys.get(3)?, "three")?
+  (prepared_numeric_keys.keys()) == ([3, 20])
+  (prepared_numeric_keys.get(3)?) == ("three")
+  (prepared_flag_keys.keys()) == ([false, true])
+  (prepared_byte_keys.keys()) == ([b"\xfe", b"\xff"])
+  (prepared_path_keys.keys()) == ([p"a", p"z"])
+  (prepared_duration_keys.keys()) == ([3ms, 20ms])
+  (prepared_unsigned_keys.get(3)?) == ("three")
 }
 
 test test_typed_map_prepared_constants_reject_mixed_and_unsigned_negative_keys [error] { |ctx|
@@ -164,7 +186,15 @@ test test_typed_map_prepared_constants_reject_mixed_and_unsigned_negative_keys [
     "type Key = UInt\nconst values: Map[Key, Str] = {[-1]: \"bad\"}\n",
   ] {
     let result = test.run_script(ctx, source)?
-    test.ok(!result.success, source)?
-    test.ok(("check." in result.stderr), result.stderr)?
+    {
+      let assertion_condition = !result.success
+      let assertion_message = source
+      assert assertion_condition, assertion_message
+    }
+    {
+      let assertion_condition = ("check." in result.stderr)
+      let assertion_message = result.stderr
+      assert assertion_condition, assertion_message
+    }
   }
 }

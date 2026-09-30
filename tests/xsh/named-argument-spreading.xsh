@@ -1,29 +1,29 @@
 type SpreadFirst = {first: Int}
 type SpreadOptions = {first: Int, second: Int = 20, label: Str? = "default"}
-pure spread_sum(first: Int, second: Int = 20) -> Int { first + second }
-pure spread_middle(first: Int, second: Int = 20, third: Int = 30) -> Int { first + second + third }
-pure spread_map_default(options: Map[Int] = {}, count: Int = 3) -> Int { options.len() + count }
-pure spread_label(first: Int, label: Str? = "default") -> Str? { label }
+pure spread_sum(first: Int, second = 20) -> Int { first + second }
+pure spread_middle(first: Int, second = 20, third = 30) -> Int { first + second + third }
+pure spread_map_default(options: Map[Int] = {}, count = 3) -> Int { options.len() + count }
+pure spread_label(first: Int, label: Str? = "default") -> Str? { let _ = first; label }
 pure spread_rest(first: Int, ...items: List[Int]) -> List[Int] { [first, @items] }
 
 test test_named_argument_spreads_use_visible_fields_and_constructor_defaults [error] {
   let options = {first: 2, second: 3}
-  test.eq(spread_sum(...options), 5)?
-  test.eq(spread_sum(...{first: 4}), 24)?
-  test.eq(spread_middle(...{first: 1, third: 3}), 24)?
-  test.eq(spread_map_default(...{count: 4}), 4)?
-  test.eq(spread_sum(...{second: 5}, first: 2), 7)?
-  test.eq(spread_sum(2, ...{second: 5}), 7)?
-  test.eq(spread_sum(...{first: 2}, ...{second: 5}), 7)?
+  (spread_sum(...options)) == (5)
+  (spread_sum(...{first: 4})) == (24)
+  (spread_middle(...{first: 1, third: 3})) == (24)
+  (spread_map_default(...{count: 4})) == (4)
+  (spread_sum(...{second: 5}, first: 2)) == (7)
+  (spread_sum(2, ...{second: 5})) == (7)
+  (spread_sum(...{first: 2}, ...{second: 5})) == (7)
   let first = 2
-  test.eq(spread_sum(first:, ...{second: 5}), 7)?
+  (spread_sum(first:, ...{second: 5})) == (7)
   let original = {first: 2, second: 99}
-  let selected = original.require(SpreadFirst)?
-  test.eq(spread_sum(...selected), 22)?
+  let selected: SpreadFirst = original
+  (spread_sum(...selected)) == (22)
   let config = SpreadOptions(...{first: 8, label: null})
-  test.eq(config.second, 20)?
-  test.eq(config.label, null)?
-  test.eq(spread_label(...{first: 1, label: null}), null)?
+  (config.second) == (20)
+  (config.label) == (null)
+  (spread_label(...{first: 1, label: null})) == (null)
 }
 
 test test_named_argument_spreads_evaluate_entries_once_in_source_order [error] { |ctx|
@@ -39,8 +39,11 @@ proc marked(value: Int) -> Int {
 pure sum(first: Int, second: Int, third: Int) -> Int { first + second + third }
 print ${sum(third: marked(7), ...options())}
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "7\nspread\n12\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = executed
+    assert assertion_condition, assertion_message
+  }
+  (executed.stdout) == ("7\nspread\n12\n")
 }
 
 test test_named_argument_spreads_reject_unknown_duplicate_and_dynamic_shapes [error] { |ctx|
@@ -58,17 +61,21 @@ test test_named_argument_spreads_reject_unknown_duplicate_and_dynamic_shapes [er
     "let failed = error.fail(...{other: \"wrong label\"})\n",
   ] {
     let rejected = test.run_script(ctx, source)?
-    test.ok(! rejected.success, source)?
-    test.ok("check." in rejected.stderr)?
+    {
+      let assertion_condition = ! rejected.success
+      let assertion_message = source
+      assert assertion_condition, assertion_message
+    }
+    ("check." in rejected.stderr)
   }
 }
 
 test test_named_argument_spreads_support_modules_methods_and_rest [error] {
-  test.eq("abc".replace(...{from: "b", to: "X"}), "aXc")?
-  test.eq(shlex.join(...{argv: ["a", "b"]}), "a b")?
-  test.eq(spread_rest(...{first: 1}, 2, 3), [1, 2, 3])?
+  ("abc".replace(...{from: "b", to: "X"})) == ("aXc")
+  (shlex.join(...{argv: ["a", "b"]})) == ("a b")
+  (spread_rest(...{first: 1}, 2, 3)) == ([1, 2, 3])
   let tail = [2, 3]
-  test.eq(spread_rest(...{first: 1}, @tail), [1, 2, 3])?
+  (spread_rest(...{first: 1}, @tail)) == ([1, 2, 3])
 }
 
 test test_named_argument_spreads_project_before_later_mutation [error] {
@@ -78,8 +85,8 @@ test test_named_argument_spreads_project_before_later_mutation [error] {
     options.first = 99
     next
   } else { 0 })
-  test.eq(total, 3)?
-  test.eq(options.first, 99)?
+  (total) == (3)
+  (options.first) == (99)
 }
 
 test test_named_argument_spreads_evaluate_receiver_first_and_stop_on_failure [error] { |ctx|
@@ -88,8 +95,11 @@ proc receiver() -> Str { print receiver; return "abc" }
 proc options() -> ReplaceOptions { print options; return ReplaceOptions(from: "b", to: "X") }
 print ${receiver().replace(...options())}
 """)?
-  test.ok(ordered.success, ordered.stderr)?
-  test.eq(ordered.stdout, "receiver\noptions\naXc\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = ordered
+    assert assertion_condition, assertion_message
+  }
+  (ordered.stdout) == ("receiver\noptions\naXc\n")
   let stopped = test.run_script(ctx, r"""type Pair = {first: Int, second: Int}
 error SpreadFailure = Bad(message: Str)
 proc options() -> Result[Pair] { print failed; return Err(SpreadFailure.Bad(message: "stop")) }
@@ -97,20 +107,27 @@ proc later() -> Int { print forbidden; return 3 }
 pure total(first: Int, second: Int, third: Int) -> Int { first + second + third }
 print ${total(...(options()?), third: later())}
 """)?
-  test.ok(! stopped.success, stopped.stderr)?
-  test.ok("SpreadFailure.Bad" in stopped.stderr, stopped.stderr)?
-  test.eq(stopped.stdout, "failed\n")?
+  {
+    let assertion_condition = ! stopped.success
+    let assertion_message = stopped.stderr
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "SpreadFailure.Bad" in stopped.stderr
+    let assertion_message = stopped.stderr
+    assert assertion_condition, assertion_message
+  }
+  (stopped.stdout) == ("failed\n")
 }
 
 error SpreadPayload = Bad(message: Str, code: Int)
 test test_named_argument_spreads_support_static_error_payloads [error] {
   let failure = SpreadPayload.Bad(...{code: 3, message: "supplied"})
-  match failure {
-    SpreadPayload.Bad {code: code, message: message} => {
-      test.eq(code, 3)?
-      test.eq(message, "supplied")?
-    }
-    _ => test.fail("expected supplied error payload")?,
+  if let SpreadPayload.Bad {code, message} = failure {
+    code == 3
+    message == "supplied"
+  } else {
+    test.fail("expected supplied error payload")?
   }
 }
 
@@ -125,15 +142,15 @@ test test_named_argument_spreads_bind_checked_loaded_module_contracts [fs, error
 export pure total(first: Int, second: Int = 20, third: Int = 30) -> Int { first + second + third }
 """)?
   let loaded = module.load(source_path)?.require(SpreadModule)?
-  test.eq(loaded.total(...{first: 1, third: 3}), 24)?
+  (loaded.total(...{first: 1, third: 3})) == (24)
 }
 
 test test_named_argument_spreads_native_method_signatures [error] {
-  test.eq("alphabet".starts_with(...{prefix: "alpha"}), true)?
-  test.eq("alphabet".ends_with(...{suffix: "bet"}), true)?
-  test.eq("alphabet".find(...{needle: "pha"}), 2)?
+  ("alphabet".starts_with(...{prefix: "alpha"})) == (true)
+  ("alphabet".ends_with(...{suffix: "bet"})) == (true)
+  ("alphabet".find(...{needle: "pha"})) == (2)
   let failure = error.fail(...{message: "spread failure"})
-  test.eq(failure is Err(_), true)?
+  (failure is Err(_)) == (true)
 }
 
 test test_named_argument_spreads_preserve_native_omitted_slots [fs, error] { |ctx|
@@ -146,5 +163,5 @@ test test_named_argument_spreads_preserve_native_omitted_slots [fs, error] { |ct
   restored.write("replace this")?
   archive.compress(source, compressed, ...{overwrite: true})?
   archive.decompress(compressed, restored, ...{overwrite: true})?
-  test.eq(restored.read_text()?, "spread defaults")?
+  (restored.read_text()?) == ("spread defaults")
 }

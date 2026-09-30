@@ -16,8 +16,11 @@ match rejected {
   _ => abort(98)
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "row\nfinal\ncaptured\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("row\nfinal\ncaptured\n")
 }
 
 test test_accept_stream_decode_failure_is_a_checked_process_error [error] { |ctx|
@@ -31,8 +34,11 @@ match rejected {
   _ => abort(98)
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "captured decode\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("captured decode\n")
 }
 
 test test_accept_malformed_stream_option_stays_outside_checked_capture [error] { |ctx|
@@ -47,7 +53,7 @@ let rejected = try {
 }
 print "captured"
 """)?
-  test.ok(!output.success)?
-  test.eq(output.stdout, "option evaluated\n")?
-  test.ok("accept-policy" in output.stderr)?
+  (!output.success)
+  (output.stdout) == ("option evaluated\n")
+  ("accept-policy" in output.stderr)
 }

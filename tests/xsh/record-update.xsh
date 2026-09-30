@@ -1,40 +1,62 @@
-test test_record_update_nested_spread_before_witness [error] {
+test test_record_update_nested_spread_before_witness [error] { |ctx|
+  let output = test.run_script(ctx, r"""
+proc witness() [error] {
   let config = {build: {jobs: 2, flags: {debug: false, optimize: true}}, name: "demo"}
   let updated = {
     ...config,
     build: {...config.build, jobs: 8, flags: {...config.build.flags, debug: true}},
   }
-  test.eq(updated.build.jobs, 8)?
-  test.eq(updated.build.flags.debug, true)?
-  test.eq(updated.build.flags.optimize, true)?
-  test.eq(config.build.jobs, 2)?
-  test.eq(config.build.flags.debug, false)?
+  (updated.build.jobs) == (8)
+  (updated.build.flags.debug) == (true)
+  (updated.build.flags.optimize) == (true)
+  (config.build.jobs) == (2)
+  (config.build.flags.debug) == (false)
+}
+witness()
+""")?
+  let {success: assertion_condition, stderr: assertion_message, ..} = output
+  assert assertion_condition, assertion_message
+  output.stdout == ""
 }
 
-test test_record_update_disjoint_paths_match_nested_spreads [error] {
+test test_record_update_disjoint_paths_match_nested_spreads [error] { |ctx|
+  let output = test.run_script(ctx, r"""
+proc witness() [error] {
   let config = {build: {jobs: 2, flags: {debug: false, optimize: true}}, name: "demo"}
   let before = {...config, build: {...config.build, jobs: 8, flags: {...config.build.flags, debug: true}}}
   let after = {...config, build.jobs: 8, build.flags.debug: true}
-  test.ok(after == before)?
-  test.eq(config.build.jobs, 2)?
-  test.eq(config.build.flags.debug, false)?
+  (after == before)
+  (config.build.jobs) == (2)
+  (config.build.flags.debug) == (false)
+}
+witness()
+""")?
+  let {success: assertion_condition, stderr: assertion_message, ..} = output
+  assert assertion_condition, assertion_message
+  output.stdout == ""
 }
 
-type RecordUpdateFlags = {debug: Bool, optimize: Bool}
+test test_record_update_keeps_schema_and_contextual_replacements [error] { |ctx|
+  let output = test.run_script(ctx, r"""type RecordUpdateFlags = {debug: Bool, optimize: Bool}
 type RecordUpdateBuild = {jobs: Int, flags: RecordUpdateFlags, tags: List[Str]}
 type RecordUpdateConfig = {build: RecordUpdateBuild, name: Str = "default"}
-
-test test_record_update_keeps_schema_and_contextual_replacements [error] {
+proc witness() [error] {
   let config = RecordUpdateConfig(build: {jobs: 2, flags: {debug: false, optimize: true}, tags: ["old"]}, name: "kept")
   let name = "renamed"
   let updated: RecordUpdateConfig = {...config, build.jobs: 8, build.tags: [], name}
-  test.eq(updated.build.tags.len(), 0)?
-  test.eq(updated.build.jobs, 8)?
-  test.eq(updated.name, "renamed")?
-  test.eq(config.name, "kept")?
-  test.eq(config.build.tags[0], "old")?
+  (updated.build.tags.len()) == (0)
+  (updated.build.jobs) == (8)
+  (updated.name) == ("renamed")
+  (config.name) == ("kept")
+  (config.build.tags[0]) == ("old")
   let quoted = {"build.jobs": 7}
-  test.eq(quoted.get("build.jobs")?, 7)?
+  (quoted.get("build.jobs")?) == (7)
+}
+witness()
+""")?
+  let {success: assertion_condition, stderr: assertion_message, ..} = output
+  assert assertion_condition, assertion_message
+  output.stdout == ""
 }
 
 test test_record_update_evaluates_snapshot_and_rhs_in_source_order [error] { |ctx|
@@ -56,8 +78,11 @@ print f"${alias.name},${alias.build.flags.debug},${source.name},${source.build.f
 }
 inspect()
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "base\njobs\noptimize\noriginal,8,false,true\noriginal,false,changed,true\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("base\njobs\noptimize\noriginal,8,false,true\noriginal,false,changed,true\n")
 }
 
 test test_record_update_failure_stops_later_rhs_and_keeps_published_value [error] { |ctx|
@@ -80,6 +105,9 @@ match update(published) {
 }
 print f"${published.name},${published.build.jobs},${published.build.flags.debug}"
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "first\nfailure\nclosed\ncaught=7\noriginal,2,false\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("first\nfailure\nclosed\ncaught=7\noriginal,2,false\n")
 }

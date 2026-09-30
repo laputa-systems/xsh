@@ -3,7 +3,7 @@ if offset != null {
   print ${offset}
 }
 let first_byte = "é".byte_at(0) ?? 0
-let entries: Map[Int?] = {present: null}
+const entries: Map[Int?] = {present: null}
 let present = entries.get("present") ?? 7
 let missing = entries.get("missing") ?? 7
 if present == null { print "present null" }

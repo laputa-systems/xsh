@@ -6,17 +6,17 @@ pure inferred_label(name: Str) { name.trim().lower() }
 pure inferred_forward(name: Str) { inferred_label(name) }
 pure inferred_bool(value: Int) { value > 0 }
 pure inferred_returns(value: Int) {
-  if value < 0 { return -1 }
+  guard value >= 0 else { return -1 }
   value + 1
 }
 pure inferred_record(value: Int) { {value, label: "ready"} }
 
 test test_private_pure_inference_values [error] {
-  test.eq(inferred_forward(" Label "), "label")?
-  test.eq(inferred_bool(-1), false)?
-  test.eq(inferred_returns(-2), -1)?
-  test.eq(inferred_returns(2), 3)?
-  test.eq(inferred_record(4).value, 4)?
+  (inferred_forward(" Label ")) == ("label")
+  (inferred_bool(-1)) == (false)
+  (inferred_returns(-2)) == (-1)
+  (inferred_returns(2)) == (3)
+  (inferred_record(4).value) == (4)
 }
 
 test test_private_pure_inference_declaration_order [fs, error] { |ctx|
@@ -25,8 +25,11 @@ pure first(value: Int) { second(value) }
 pure second(value: Int) { value + 1 }
 print first(2)
 """, [], {}, b"", "inferred-order.xsh")?
-  test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "3\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
+  (result.stdout) == ("3\n")
 }
 
 test test_private_pure_inference_rejects_underdetermined_boundaries [fs, error] { |ctx|
@@ -44,7 +47,11 @@ test test_private_pure_inference_rejects_underdetermined_boundaries [fs, error] 
     "export pure public_value() { 1 }\n",
   ] {
     let result = test.run_script(ctx, source, [], {}, b"", "inferred-rejected.xsh")?
-    test.ok(!result.success, source)?
+    {
+      let assertion_condition = !result.success
+      let assertion_message = source
+      assert assertion_condition, assertion_message
+    }
   }
 }
 
@@ -58,8 +65,11 @@ pure propagated(value: Str) { let parsed = value.parse_int()?; Ok(parsed) }
 pure optional(flag: Bool) { if flag { 1 } else { null } }
 print early() selected(true).len() reversed(false).len() (outcome("3")?) (optional(false) ?? 0) (propagated("4")?)
 """, [], {}, b"", "inferred-shapes.xsh")?
-  test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "2 0 0 3 0 4\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
+  (result.stdout) == ("2 0 0 3 0 4\n")
 }
 
 test test_private_pure_inference_module_private_capture [fs, error] { |ctx|
@@ -73,7 +83,7 @@ pure private_label(value: Str) { prefix + value.trim() }
 export pure label(value: Str) -> Str { private_label(value) }
 """)?
   let loaded = module.load(module_path)?.require(InferredPrivateModule)?
-  test.eq(loaded.label(" ready "), "label:ready")?
+  (loaded.label(" ready ")) == ("label:ready")
 }
 
 test test_private_pure_inference_lexical_dependencies [fs, error] { |ctx|
@@ -86,8 +96,11 @@ pure destructured() { left + right }
 pure pattern(value: Int?) { match value { null => 0, first => first } }
 print $first parameter(1) destructured() (pattern(2) ?? 0)
 """, [], {}, b"", "inferred-dependencies.xsh")?
-  test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "1 2 5 2\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
+  (result.stdout) == ("1 2 5 2\n")
 }
 
 test test_private_pure_inference_condition_and_fallback_capture_shadowing [fs, error] { |ctx|
@@ -98,8 +111,11 @@ pure looped(outcome: Result[Int]) { var value = 0; while let Ok(looped) = outcom
 pure recovered(outcome: Result[Str]) { outcome ?? { |recovered| recovered.message } }
 print selected(Ok(2)) expression(Ok(3)) looped(Ok(5)) recovered(Ok("ready"))
 """, [], {}, b"", "inferred-capture-shadowing.xsh")?
-  test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "3 4 5 ready\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
+  (result.stdout) == ("3 4 5 ready\n")
 }
 
 test test_private_pure_inference_imported_module_tag_variants [fs, error] { |ctx|
@@ -112,6 +128,9 @@ pure private_enabled(value: Selection) { value == Included }
 export pure enabled() -> Bool { private_enabled(Included) }
 """)?
   let result = test.run_script(ctx, "use inferred_tags\nprint inferred_tags.enabled()\n", [], {XSH_MODULE_PATH: root.display()}, b"", "inferred-tag-capture.xsh")?
-  test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "true\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
+  (result.stdout) == ("true\n")
 }

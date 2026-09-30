@@ -42,21 +42,21 @@ type ReleaseOptions = {action: Str, tag: Str}
 
 pure test_kind(value: Str) -> Result[TestKind] {
   match value {
-    "rust" => return Rust
-    "xsh" => return Xsh
-    "linux" => return Linux
-    "macos" => return Macos
-    _ => return Err(usage(f"unsupported test target ${value}"))
+    "rust" => Rust
+    "xsh" => Xsh
+    "linux" => Linux
+    "macos" => Macos
+    _ => Err(usage(f"unsupported test target ${value}"))
   }
 }
 
 pure release_operation(value: Str) -> Result[ReleaseOperation] {
   match value {
-    "smoke" => return Smoke
-    "package" => return Package
-    "core" => return Core
-    "validate" => return Validate
-    _ => return Err(usage(f"unsupported release action ${value}"))
+    "smoke" => Smoke
+    "package" => Package
+    "core" => Core
+    "validate" => Validate
+    _ => Err(usage(f"unsupported release action ${value}"))
   }
 }
 
@@ -69,22 +69,22 @@ enum InternalOperation {
 
 pure internal_operation(value: Str) -> Result[InternalOperation] {
   match value {
-    "dist" => return Dist
-    "test-linux" => return TestLinux
-    "test-linux-ci" => return TestLinuxCi
-    "coverage" => return Coverage
-    _ => return Err(usage(f"unsupported internal operation ${value}"))
+    "dist" => Dist
+    "test-linux" => TestLinux
+    "test-linux-ci" => TestLinuxCi
+    "coverage" => Coverage
+    _ => Err(usage(f"unsupported internal operation ${value}"))
   }
 }
 
 pure help_text() -> Str {
-  return """XSH development lifecycle
+  """XSH development lifecycle
 
 usage: cargo dev COMMAND [OPTIONS]
 
 commands:
   build
-  check
+  check [lint]
   lint --fix
   test [xsh|linux|macos] [--ci]
   coverage [--backend native|docker]
@@ -148,7 +148,7 @@ internal container commands are intentionally omitted from public help.
 }
 
 pure usage(message: Str) -> Error {
-  return DevUsage.Invalid(message: f"""${message}
+  DevUsage.Invalid(message: f"""${message}
 
 ${help_text()}""")
 }
@@ -162,9 +162,7 @@ pure parse_global(args: List[Str]) -> Result[GlobalOptions] {
     let arg = args[index]
 
     if arg == "--target" {
-      if index + 1 >= args.len() {
-        return Err(usage("--target requires a target triple"))
-      }
+      return Err(usage("--target requires a target triple")) when index + 1 >= args.len()
 
       target = args[index + 1]
       index += 2
@@ -177,11 +175,11 @@ pure parse_global(args: List[Str]) -> Result[GlobalOptions] {
       continue
     }
 
-    rest = rest.push(arg)
+    rest += [arg]
     index += 1
   }
 
-  return {target: target, rest: rest}
+  {target: target, rest: rest}
 }
 
 proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io] {
@@ -189,15 +187,17 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
 
   match command {
     "build" => {
-      if args.len() != 0 {
+      guard args.len() == 0 else {
         return Err(usage("build accepts no arguments"))
       }
 
       return builds.build(ctx)
     }
     "check" => {
-      if args.len() != 0 {
-        return Err(usage("check accepts no arguments"))
+      return builds.check_lint(ctx) when args == ["lint"]
+
+      guard args.len() == 0 else {
+        return Err(usage("check accepts only the optional lint gate"))
       }
 
       return builds.check(ctx)
@@ -205,9 +205,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
     "lint" => {
       let options = cli.parse(args, {fix: {form: "--fix", default: false}})?
 
-      if ! options.fix {
-        return Err(usage("lint is mutating and requires --fix"))
-      }
+      return Err(usage("lint is mutating and requires --fix")) unless options.fix
 
       return builds.lint_fix(ctx)
     }
@@ -226,13 +224,13 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
         },
       )?
 
-      let options: TestOptions = {kind: test_kind(parsed.kind)?, ci: parsed.ci}
+      let options = TestOptions(kind: test_kind(parsed.kind)?, ci: parsed.ci)
       match options.kind {
         Rust => return tests.rust(ctx)
         Xsh => return tests.xsh(ctx)
         Linux => return tests.linux_test(ctx, options.ci)
         Macos => {
-          if ! options.ci {
+          guard options.ci else {
             return Err(usage("test macos is a CI-only target; pass --ci"))
           }
 
@@ -242,7 +240,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
     }
     "coverage" => {
       let parsed = cli.parse(args, {backend: {form: "--backend BACKEND", default: ""}})?
-      let options: CoverageOptions = {backend: parsed.backend}
+      let options = CoverageOptions(backend: parsed.backend)
       return coverage_workflow.coverage(ctx, coverage_workflow.parse_request(options.backend)?)
     }
     "bench" => {
@@ -262,9 +260,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
         },
       )?
 
-      if options.syscalls {
-        return benchmarks.syscalls(ctx)
-      }
+      return benchmarks.syscalls(ctx) when options.syscalls
 
       return benchmarks.benchmark(ctx, options.fast)
     }
@@ -282,12 +278,12 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
           },
         },
       )?
-      let options: DistOptions = {docker: parsed.docker, ci: parsed.ci}
+      let options = DistOptions(...parsed)
       let docker_policy = distributions.parse_docker_policy(options.docker)?
       return distributions.build_distribution(ctx, docker_policy, options.ci)
     }
     "install" => {
-      if args.len() != 0 {
+      guard args.len() == 0 else {
         return Err(usage("install accepts no arguments"))
       }
 
@@ -310,7 +306,7 @@ proc dispatch(command: Str, args: List[Str]) [fs, process, env, time, error, io]
         },
       )?
 
-      let options: ReleaseOptions = parsed.require(ReleaseOptions)?
+      let options: ReleaseOptions = parsed.require()?
       match release_operation(options.action)? {
         Smoke => return releases.smoke(ctx)
         Package => return releases.package_binaries(ctx, options.tag)
@@ -341,9 +337,7 @@ proc main(...raw: List[Str]) [fs, process, env, time, error, io] {
   let command = raw[0]
   let global = parse_global(raw |> drop(1))?
 
-  if global.target == "" {
-    return dispatch(command, global.rest)
-  }
+  return dispatch(command, global.rest) when global.target == ""
 
   env TARGET=$global.target {
     dispatch(command, global.rest)?

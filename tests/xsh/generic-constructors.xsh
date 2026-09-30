@@ -1,6 +1,3 @@
-type InferredBox[T] = {value: T, items: List[T] = []}
-type InferredObservation[T] = {value: T? = null, samples: List[T] = []}
-
 test test_generic_constructor_fields_establish_concrete_instances [error] { |ctx|
   let executed = test.run_script(ctx, r"""type Box[T] = {value: T, items: List[T] = []}
 type Observation[T] = {value: T? = null, samples: List[T] = []}
@@ -13,8 +10,8 @@ print ${text.value.upper()}
 print ${samples.samples[0] + samples.samples[1]}
 print ${count.items.len()}
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "19\nDEMO\n7\n0\n")?
+  assert executed.success, executed.stderr
+  executed.stdout == "19\nDEMO\n7\n0\n"
 }
 
 test test_generic_constructor_context_anchors_null_empty_and_unused_parameters [error] { |ctx|
@@ -27,8 +24,8 @@ print ${absent.value ?? 8}
 print ${empty.samples.len()}
 print $marker.name
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "8\n0\nanchored\n")?
+  assert executed.success, executed.stderr
+  executed.stdout == "8\n0\nanchored\n"
 }
 
 test test_generic_constructor_unresolved_and_conflicting_fields_are_rejected [error] { |ctx|
@@ -40,8 +37,8 @@ test test_generic_constructor_unresolved_and_conflicting_fields_are_rejected [er
     "type Marker[T] = {name: Str}\nlet missing = Marker(name: \"unused\")\n",
   ] {
     let rejected = test.run_script(ctx, source)?
-    test.ok(!rejected.success, rejected.stderr)?
-    test.ok("check." in rejected.stderr)?
+    assert !rejected.success, rejected.stderr
+    "check." in rejected.stderr
   }
 }
 
@@ -59,8 +56,8 @@ print ${second.inner.value ?? "missing"}
 print $marked.marker.name
 print ${contextual[0].name}
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "7\ninner\nkept\nlist\n")?
+  assert executed.success, executed.stderr
+  executed.stdout == "7\ninner\nkept\nlist\n"
 }
 
 test test_generic_constructor_uses_annotated_function_slots_and_returns [error] { |ctx|
@@ -83,8 +80,8 @@ print ${absent().value ?? 7}
 print (marker().name)
 print (result_marker()?.name)
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "slot\n7\nreturn\nresult\n")?
+  assert executed.success, executed.stderr
+  executed.stdout == "slot\n7\nreturn\nresult\n"
 }
 
 test test_generic_constructor_preserves_named_spreads_puns_and_field_order [error] { |ctx|
@@ -103,11 +100,11 @@ print ${spread.left + spread.right}
 print ${ordered.left * 10 + ordered.right}
 print $visits
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "15\n7\n12\n2\n")?
+  assert executed.success, executed.stderr
+  executed.stdout == "15\n7\n12\n2\n"
   let duplicate = test.run_script(ctx, "type Pair[T] = {left: T, right: T}\nlet wrong = Pair(...{left: 1}, left: 2, right: 3)\n")?
-  test.ok(!duplicate.success, duplicate.stderr)?
-  test.ok("check." in duplicate.stderr)?
+  assert !duplicate.success, duplicate.stderr
+  "check." in duplicate.stderr
 }
 
 test test_generic_constructor_constants_use_the_same_field_and_context_constraints [error] { |ctx|
@@ -122,8 +119,8 @@ print $marked.name
 print ${spread.inner.value ?? "missing"}
 print ${inferred.items.len()}
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "7\nconstant\ntext\n0\n")?
+  assert executed.success, executed.stderr
+  executed.stdout == "7\nconstant\ntext\n0\n"
 }
 
 test test_generic_constructor_retains_both_typed_map_parameters [error] { |ctx|
@@ -137,8 +134,8 @@ print ${strings.entries["one"] + strings.entries["two"]}
 print ${nested.entries.len()}
 print ${prepared.entries[3]}
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "ONE\n3\n0\nthree\n")?
+  assert executed.success, executed.stderr
+  executed.stdout == "ONE\n3\n0\nthree\n"
 }
 
 test test_generic_constructor_context_reaches_nested_container_instances [error] { |ctx|
@@ -153,8 +150,8 @@ print ${selected[0].name}
 print ${made.markers[0].name}
 print ${made.keyed["first"].name}
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "list\nmap\nexpected\nconstant\nprepared\n")?
+  assert executed.success, executed.stderr
+  executed.stdout == "list\nmap\nexpected\nconstant\nprepared\n"
 }
 
 test test_generic_constructor_phantom_arguments_preserve_structural_assignability [error] { |ctx|
@@ -164,11 +161,11 @@ let marker: Marker[Str] = Marker(name: "structural")
 let wrapped: Wrap[Int] = Wrap(marker: marker)
 print $wrapped.marker.name
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "structural\n")?
+  assert executed.success, executed.stderr
+  executed.stdout == "structural\n"
   let unresolved = test.run_script(ctx, "type Marker[T] = {name: Str}\ntype Wrap[T] = {marker: Marker[T]}\nlet marker: Marker[Str] = Marker(name: \"value\")\nlet wrapped = Wrap(marker: marker)\n")?
-  test.ok(!unresolved.success, unresolved.stderr)?
-  test.ok("check.constructor-inference" in unresolved.stderr)?
+  assert !unresolved.success, unresolved.stderr
+  "check.constructor-inference" in unresolved.stderr
 }
 
 test test_generic_constructor_qualified_aliases_keep_private_schema_owners [fs, error] { |ctx|
@@ -187,8 +184,8 @@ let values = m.Alias(value: [3, 4], owner: {name: "alias"})
 print ${count.value + values.value[0]}
 print ${count.owner.name.upper()}
 """, [], {XSH_MODULE_PATH: root.display()})?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "10\nPRIVATE\n")?
+  assert executed.success, executed.stderr
+  executed.stdout == "10\nPRIVATE\n"
 }
 
 test test_generic_constructor_explicit_any_and_null_are_authoritative [error] { |ctx|
@@ -198,11 +195,11 @@ let nothing: Box[Null] = Box(value: null)
 print $dynamic.value
 print ${nothing.value == null}
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "7\ntrue\n")?
+  assert executed.success, executed.stderr
+  executed.stdout == "7\ntrue\n"
   let rejected = test.run_script(ctx, "type Box[T] = {value: T}\nlet raw: Any = 7\nlet unknown = Box(value: raw)\n")?
-  test.ok(!rejected.success, rejected.stderr)?
-  test.ok("check.constructor-inference" in rejected.stderr)?
+  assert !rejected.success, rejected.stderr
+  "check.constructor-inference" in rejected.stderr
 }
 
 test test_generic_constructor_receiver_slots_retain_declared_application_context [error] { |ctx|
@@ -224,9 +221,9 @@ print ${third[0].name}
 print ${fourth[3].name}
 print ${fifth[0].name}
 """)?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "binding\ndestructured\nreturn\nmap\nnested\n")?
+  assert executed.success, executed.stderr
+  executed.stdout == "binding\ndestructured\nreturn\nmap\nnested\n"
   let rejected = test.run_script(ctx, "type Marker[T] = {name: Str}\nlet values = [{name: \"plain\"}]\nlet guessed = values.push(Marker(name: \"unobservable\"))\n")?
-  test.ok(!rejected.success, rejected.stderr)?
-  test.ok("check.constructor-inference" in rejected.stderr)?
+  assert !rejected.success, rejected.stderr
+  "check.constructor-inference" in rejected.stderr
 }

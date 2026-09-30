@@ -22,58 +22,42 @@ type RgOptions = {
 }
 
 pure glob_match(pattern: Str, text: Str) -> Bool {
-  if pattern == "*" {
-    return true
-  }
+  return true when pattern == "*"
 
   let parts = pattern.split("*")
 
-  if parts.len() == 1 {
-    return text == pattern
-  }
+  return text == pattern when parts.len() == 1
 
-  if pattern.starts_with("*") and pattern.ends_with("*") {
-    return parts[1] in text
-  }
+  return parts[1] in text when pattern.starts_with("*") and pattern.ends_with("*")
 
-  if pattern.starts_with("*") {
-    return text.ends_with(parts[1])
-  }
+  return text.ends_with(parts[1]) when pattern.starts_with("*")
 
-  if pattern.ends_with("*") {
-    return text.starts_with(parts[0])
-  }
+  return text.starts_with(parts[0]) when pattern.ends_with("*")
 
-  return text.starts_with(parts[0]) and text.ends_with(parts[1])
+  text.starts_with(parts[0]) and text.ends_with(parts[1])
 }
 
 pure selected_by_glob_at(globs: List[Str], text: Str, index: Int, selected: Bool) -> Bool {
-  if index >= globs.len() {
-    return selected
-  }
+  return selected when index >= globs.len()
 
   let glob = globs[index]
 
-  if glob.starts_with("!") and glob_match(glob.replace("!", ""), text) {
-    return false
-  }
+  return false when glob.starts_with("!") and glob_match(glob.replace("!", ""), text)
 
   let next_selected = selected or ! glob.starts_with("!") and glob_match(glob, text)
-  return selected_by_glob_at(globs, text, index + 1, next_selected)
+  selected_by_glob_at(globs, text, index + 1, next_selected)
 }
 
 pure selected_by_glob(globs: List[Str], file_path: Path) -> Bool {
-  if globs.len() == 0 {
-    return true
-  }
+  return true when globs.len() == 0
 
-  return selected_by_glob_at(globs, file_path.display(), 0, false)
+  selected_by_glob_at(globs, file_path.display(), 0, false)
 }
 
 pure regex_pattern(pattern: Str, ignore_case: Bool, word: Bool, line: Bool) -> Str {
   let word_pattern = if word { f"\\b(?:${pattern})\\b" } else { pattern }
   let line_pattern = if line { f"^(?:${word_pattern})$" } else { word_pattern }
-  return if ignore_case { f"(?i:${line_pattern})" } else { line_pattern }
+  if ignore_case { f"(?i:${line_pattern})" } else { line_pattern }
 }
 
 proc search_file(
@@ -126,9 +110,7 @@ proc search_file(
     continue when ! selected
     matches += 1
 
-    if quiet {
-      return true
-    }
+    return true when quiet
 
     if list_files {
       print $file_path
@@ -164,7 +146,7 @@ proc search_file(
     }
   }
 
-  return matches > 0
+  matches > 0
 }
 
 proc main(...argv: List[Str]) [fs, error, io] {
@@ -247,31 +229,32 @@ proc main(...argv: List[Str]) [fs, error, io] {
   }
   let path_args = if opts.pattern_option != "" { opts.operands } else { opts.operands |> drop(1) }
   var paths: List[Path] = [fp"${arg}" for arg in path_args]
-  let ignore_case = opts.ignore_case
-  let fixed = opts.fixed
-  let word = opts.word
-  let line_match = opts.line_match
-  let invert = opts.invert
-  let line_numbers = opts.line_numbers
-  let with_filename = opts.with_filename
-  let no_filename = opts.no_filename
-  let list_files = opts.list_files
-  let count = opts.count
-  let quiet = opts.quiet
-  let hidden = opts.hidden
-  let ignore = opts.ignore
-  let globs = opts.globs
+  let {
+    ignore_case,
+    fixed,
+    word,
+    line_match,
+    invert,
+    line_numbers,
+    with_filename,
+    no_filename,
+    list_files,
+    count,
+    quiet,
+    hidden,
+    ignore,
+    globs,
+    ..
+  } = opts
   let color = opts.color == "always"
 
-  if pattern == "" {
-    return Err(AppletError.Usage("rg: missing pattern"))
-  }
+  return Err(AppletError.Usage("rg: missing pattern")) when pattern == ""
 
   if paths.len() == 0 {
     paths = [p"."]
   }
 
-  var files: List[Path] = []
+  var files = []
 
   for target in paths {
     let meta = target.metadata()?
@@ -284,7 +267,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
         files = files.push(entry.path)
       }
     } else if meta.kind == "file" {
-      files = files.push(target)
+      files += [target]
     }
   }
 
@@ -309,9 +292,7 @@ proc main(...argv: List[Str]) [fs, error, io] {
     )? {
       any_match = true
 
-      if quiet {
-        return
-      }
+      return when quiet
     }
   }
 

@@ -2,8 +2,16 @@ test test_fold_and_reduce_reject_callback_result_lifting [error] { |ctx|
   for stage in ["fold", "reduce"] {
     let source = "let total = [1, 2] |> " + stage + "(0) { |acc, item| Ok(acc + item) }\n"
     let output = test.run_script(ctx, source)?
-    test.ok(!output.success, stage)?
-    test.ok("check.type-mismatch" in output.stderr, output.stderr)?
+    {
+      let assertion_condition = !output.success
+      let assertion_message = stage
+      assert assertion_condition, assertion_message
+    }
+    {
+      let assertion_condition = "check.type-mismatch" in output.stderr
+      let assertion_message = output.stderr
+      assert assertion_condition, assertion_message
+    }
   }
 }
 
@@ -11,8 +19,11 @@ test test_fold_and_reduce_allow_explicit_callback_propagation [error] { |ctx|
   for stage in ["fold", "reduce"] {
     let source = "let total = [1, 2] |> " + stage + "(0) { |acc, item| Ok(acc + item)? }\nprint $total\n"
     let output = test.run_script(ctx, source)?
-    test.ok(output.success, output.stderr)?
-    test.eq(output.stdout, "3\n")?
+    {
+      let {success: assertion_condition, stderr: assertion_message, ..} = output
+      assert assertion_condition, assertion_message
+    }
+    (output.stdout) == ("3\n")
   }
 }
 
@@ -32,8 +43,11 @@ match outcome {
 }
 """
     let output = test.run_script(ctx, source)?
-    test.ok(output.success, output.stderr)?
-    test.eq(output.stdout, "retained\n")?
+    {
+      let {success: assertion_condition, stderr: assertion_message, ..} = output
+      assert assertion_condition, assertion_message
+    }
+    (output.stdout) == ("retained\n")
   }
 }
 
@@ -60,8 +74,11 @@ match outcome {
   _ => print "unexpected"
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "pull 1\ncallback closed 1\npull 2\ncallback closed 2\nsource closed\ncaught\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("pull 1\ncallback closed 1\npull 2\ncallback closed 2\nsource closed\ncaught\n")
 }
 
 test test_reduce_by_requires_explicit_record_callback_propagation [error] { |ctx|
@@ -69,13 +86,24 @@ test test_reduce_by_requires_explicit_record_callback_propagation [error] { |ctx
   Ok({key: "total", value: item})
 }
 """)?
-  test.ok(!rejected.success, rejected.stderr)?
-  test.ok("check.type-mismatch" in rejected.stderr, rejected.stderr)?
+  {
+    let assertion_condition = !rejected.success
+    let assertion_message = rejected.stderr
+    assert assertion_condition, assertion_message
+  }
+  {
+    let assertion_condition = "check.type-mismatch" in rejected.stderr
+    let assertion_message = rejected.stderr
+    assert assertion_condition, assertion_message
+  }
   let accepted = test.run_script(ctx, r"""let totals = [1, 2] |> reduce-by(sum: true) { |item|
   Ok({key: "total", value: item})?
 }
 print ${totals.get("total")?}
 """)?
-  test.ok(accepted.success, accepted.stderr)?
-  test.eq(accepted.stdout, "3\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = accepted
+    assert assertion_condition, assertion_message
+  }
+  (accepted.stdout) == ("3\n")
 }

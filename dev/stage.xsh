@@ -13,7 +13,7 @@ export pure command(
   cwd: Path,
   environment: Record,
 ) -> contract.CommandSpec {
-  return {
+  {
     stage: stage,
     target: target,
     executable: executable,
@@ -26,9 +26,9 @@ export pure command(
 ## Resolves a required external program with a named diagnostic on absence.
 export proc require_tool(name: Str) [process, error] -> Result[Path] {
   if let Ok(tool_path) = process.which(name) {
-    return tool_path
+    tool_path
   } else {
-    return Err(StageError.MissingTool(tool: name))
+    Err(StageError.MissingTool(tool: name))
   }
 }
 
@@ -43,9 +43,7 @@ export proc ensure_dir(directory: Path) [fs, error] -> Result[Unit] {
 export proc execute(spec: contract.CommandSpec) [process, error, io] -> Result[Unit] {
   print f"[${spec.stage} target=${spec.target}] ${spec.argv.join(" ")}"
   let status = process.run(process.command_argv(spec.executable, spec.argv, cwd: spec.cwd, env: spec.environment))?
-  if status.ok {
-    return
-  }
+  return when status.ok
 
   let detail = if status.exited() {
     f"exit ${status.exit_code()?}"

@@ -5,16 +5,12 @@ use targets
 
 ## Prepares the native musl sysroot only on the Linux host/target combination that needs it.
 export proc prepare_native_musl(ctx: context.Context) [fs, process, error] -> Result[Unit] {
-  if ctx.host_os != targets.Linux or ! ctx.target.static_musl {
-    return
-  }
+  return when ctx.host_os != targets.Linux or ! ctx.target.static_musl
 
   let libc = /usr/lib/libc.so
   let libgcc = /usr/lib/libgcc_s.so.1
 
-  if ! libc.exists()? or ! libgcc.exists()? {
-    return
-  }
+  return when ! libc.exists()? or ! libgcc.exists()?
 
   let sysroot_text: Str = run.text rustc --print sysroot ?
   let sysroot = fp"${sysroot_text.trim()}/lib/rustlib/${ctx.target.triple}/lib"
@@ -56,9 +52,7 @@ export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Resul
     )
   }
 
-  if result.status.ok or result.status.exited_with(1) {
-    return
-  }
+  return when result.status.ok or result.status.exited_with(1)
 
   return Err(
     stages.StageError.Failed(
@@ -67,6 +61,31 @@ export proc check_libxsh_imports(ctx: context.Context) [process, error] -> Resul
       detail: f"rg exited ${result.status.exit_code()?}",
     ),
   )
+}
+
+## Compiles the debug lint gate before measuring read-only lint on the configured repository corpus.
+export proc check_lint(ctx: context.Context) [process, error, io] -> Result[Unit] {
+  stages.execute(
+    stages.command(
+      "check-lint",
+      ctx.target.triple,
+      "cargo",
+      [
+        "cargo",
+        "test",
+        "-p",
+        "xsht",
+        "--test",
+        "integration",
+        "lint_performance::",
+        "--",
+        "--test-threads=1",
+        "--nocapture",
+      ],
+      ctx.root,
+      {},
+    ),
+  )?
 }
 
 ## Runs the focused, source-non-mutating development check suite.

@@ -12,8 +12,8 @@ test test_hash_digests_checksums_and_digest_methods [fs, error] { |ctx|
   hash.crc32(b"123456789") == 3421780262
   hash.crc32c(b"123456789") == 3808858755
   let check = hash.parse_check_line(f"${digest.hex()}  ${data_path.name()}")?
-  test.eq(check.hex, digest.hex())?
-  test.eq(check.path, data_path.name())?
+  (check.hex) == (digest.hex())
+  (check.path) == (data_path.name())
   hash.verify_file(data_path, sha256: digest.hex())?
   test.error_kind(hash.verify_file(data_path, sha256: "00"), "checksum-format")?
 
@@ -28,8 +28,8 @@ test test_hash_digests_checksums_and_digest_methods [fs, error] { |ctx|
 # asserted through this.
 pure verify_message(result: Result[Unit]) -> Str {
   match result {
-    Ok(_) => return ""
-    Err(error) => return error.message
+    Ok(_) => ""
+    Err(error) => error.message
   }
 }
 
@@ -138,8 +138,8 @@ test test_hash_verify_file_policy [fs, error] { |ctx|
 # through this.
 pure check_line_message(result: Result[Record]) -> Str {
   match result {
-    Ok(_) => return ""
-    Err(error) => return error.message
+    Ok(_) => ""
+    Err(error) => error.message
   }
 }
 
@@ -147,19 +147,19 @@ test test_parse_check_line_reads_both_gnu_separators [error] {
   let digest = "900150983cd24fb0d6963f7d28e17f72"
 
   let two_space = hash.parse_check_line(f"${digest}  docs/readme.txt")?
-  test.eq(two_space.hex, digest)?
-  test.eq(two_space.path, "docs/readme.txt")?
-  test.eq(two_space.binary, false)?
+  (two_space.hex) == (digest)
+  (two_space.path) == ("docs/readme.txt")
+  (two_space.binary) == (false)
 
   let space_star = hash.parse_check_line(f"${digest} *readme.bin")?
-  test.eq(space_star.hex, digest)?
-  test.eq(space_star.path, "readme.bin")?
-  test.eq(space_star.binary, true)?
+  (space_star.hex) == (digest)
+  (space_star.path) == ("readme.bin")
+  (space_star.binary) == (true)
 
   # A path may contain spaces: everything after the separator is kept, and
   # only trailing carriage returns are trimmed.
   let spaced = hash.parse_check_line(f"${digest}  my file.txt ")?
-  test.eq(spaced.path, "my file.txt ")?
+  (spaced.path) == ("my file.txt ")
 }
 
 test test_parse_check_line_handles_path_star_and_marker [error] {
@@ -168,37 +168,37 @@ test test_parse_check_line_handles_path_star_and_marker [error] {
   # The marker comes from the separator, so a star that begins a double-space
   # path is stripped as part of the path and does not set the marker.
   let starred = hash.parse_check_line(f"${digest}  *readme.bin")?
-  test.eq(starred.path, "readme.bin")?
-  test.eq(starred.binary, false)?
+  (starred.path) == ("readme.bin")
+  (starred.binary) == (false)
 
   # Exactly one leading star is dropped; a second one stays in the path.
   let twice = hash.parse_check_line(f"${digest}  **readme.bin")?
-  test.eq(twice.path, "*readme.bin")?
-  test.eq(twice.binary, false)?
+  (twice.path) == ("*readme.bin")
+  (twice.binary) == (false)
 }
 
 test test_parse_check_line_normalizes_case_and_carriage_returns [error] {
   let upper = hash.parse_check_line("900150983CD24FB0D6963F7D28E17F72  readme.txt")?
-  test.eq(upper.hex, "900150983cd24fb0d6963f7d28e17f72")?
-  test.eq(upper.path, "readme.txt")?
+  (upper.hex) == ("900150983cd24fb0d6963f7d28e17f72")
+  (upper.path) == ("readme.txt")
 
   let crlf = hash.parse_check_line("900150983CD24FB0D6963F7D28E17F72 *readme.bin\r")?
-  test.eq(crlf.hex, "900150983cd24fb0d6963f7d28e17f72")?
-  test.eq(crlf.path, "readme.bin")?
-  test.eq(crlf.binary, true)?
+  (crlf.hex) == ("900150983cd24fb0d6963f7d28e17f72")
+  (crlf.path) == ("readme.bin")
+  (crlf.binary) == (true)
 
   # Every trailing carriage return is trimmed, not just the last one.
   let doubled = hash.parse_check_line("900150983CD24FB0D6963F7D28E17F72  readme.txt\r\r")?
-  test.eq(doubled.hex, "900150983cd24fb0d6963f7d28e17f72")?
-  test.eq(doubled.path, "readme.txt")?
+  (doubled.hex) == ("900150983cd24fb0d6963f7d28e17f72")
+  (doubled.path) == ("readme.txt")
 }
 
 test test_parse_check_line_prefers_the_double_space_separator [error] {
   # Digest length is a `hash.verify_file` policy: the line parser accepts any
   # non-empty hexadecimal field.
   let short = hash.parse_check_line("abc  readme.txt")?
-  test.eq(short.hex, "abc")?
-  test.eq(short.path, "readme.txt")?
+  (short.hex) == ("abc")
+  (short.path) == ("readme.txt")
 
   # The whole line is searched for the double-space separator first, so a
   # space-star pair that appears earlier does not win. The digest field then

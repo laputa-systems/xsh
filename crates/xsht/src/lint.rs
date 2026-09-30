@@ -83,6 +83,9 @@ pub struct LintOptions {
     pub statement_positions: BTreeMap<Span, xsh::frontend::check::StatementPosition>,
     pub callable_effects: FxHashMap<String, Option<Vec<Effect>>>,
     pub function_effect_facts: BTreeMap<xsh::frontend::check::EffectDeclarationId, xsh::frontend::check::FunctionEffectFact>,
+    /// A checked source without callable declarations supplies a valid empty
+    /// fact set. Distinguish it from a caller requesting effect analysis.
+    pub function_effect_facts_checked: bool,
     pub terminating_call_spans: BTreeSet<Span>,
     pub assertion_effect_spans: BTreeSet<Span>,
     pub statement_expression_spans: BTreeSet<Span>,
@@ -111,6 +114,7 @@ impl Default for LintOptions {
             statement_positions: BTreeMap::default(),
             callable_effects: FxHashMap::default(),
             function_effect_facts: BTreeMap::default(),
+            function_effect_facts_checked: false,
             terminating_call_spans: BTreeSet::default(),
             assertion_effect_spans: BTreeSet::default(),
             statement_expression_spans: BTreeSet::default(),
@@ -132,6 +136,7 @@ struct Binding {
     report_unused: bool,
     comparison_stable: bool,
     absence_lookup: bool,
+    materialized_record: bool,
 }
 
 pub struct Linter<'a> {
@@ -140,6 +145,7 @@ pub struct Linter<'a> {
     prefer_inferred_pure_returns: bool,
     prefer_inferred_private_effects: bool,
     return_removal_before: Option<Option<CheckedReturnRemovalFacts>>,
+    local_annotation_before: Option<Option<CheckedLocalAnnotationFacts>>,
     source: &'a str,
     source_cst: std::sync::OnceLock<xsh::frontend::syntax::cst::SyntaxTree>,
     runless: bool,
@@ -165,6 +171,7 @@ pub struct Linter<'a> {
     standard_call_spans: BTreeMap<Span, (String, String)>,
     statement_call_spans: BTreeMap<Span, Span>,
     whole_statement_call_spans: BTreeMap<Span, Span>,
+    whole_statement_values: std::sync::OnceLock<FxHashSet<ExprId>>,
     guarded_statement_depth: usize,
     negated_call_spans: BTreeMap<Span, Span>,
     statically_resolved_call_spans: BTreeSet<Span>,
@@ -172,6 +179,7 @@ pub struct Linter<'a> {
     dead_code: bool,
     tag_variants: FxHashSet<String>,
     type_declarations: FxHashMap<String, Span>,
+    user_type_names: FxHashSet<String>,
     record_type_names: FxHashSet<String>,
     used_type_names: FxHashSet<String>,
     assigned_names: FxHashSet<Name>,
@@ -249,12 +257,23 @@ impl<'a> Linter<'a> {
         options: LintOptions,
         include_reachability: bool,
     ) -> LintOutput {
+        Self::lint_internal_with_effect_check(program, source, options, include_reachability,
+            || xsh::frontend::check::Checker::check_arena(program, source))
+    }
+
+    fn lint_internal_with_effect_check(
+        program: &'a ArenaProgram,
+        source: &'a str,
+        options: LintOptions,
+        include_reachability: bool,
+        check_effects: impl FnOnce() -> xsh::frontend::check::CheckOutput,
+    ) -> LintOutput {
         // Constructor facts intern qualified enum names after checking. Retain
         // those names in the source program even when the caller is a worker.
         let _symbols = program.symbol_owner().enter();
         let native_test_file = options.native_test_file;
-        let checked_effects = if options.function_effect_facts.is_empty() {
-            xsh::frontend::check::Checker::check_arena(program, source).function_effect_facts
+        let checked_effects = if options.function_effect_facts.is_empty() && !options.function_effect_facts_checked {
+            check_effects().function_effect_facts
         } else { options.function_effect_facts };
         let mut linter = Self {
             record_constructors: xsh::frontend::check::RecordConstructors::collect(program),
@@ -267,6 +286,7 @@ impl<'a> Linter<'a> {
             prefer_inferred_pure_returns: options.prefer_inferred_pure_returns,
             prefer_inferred_private_effects: options.prefer_inferred_private_effects,
             return_removal_before: None,
+            local_annotation_before: None,
             source,
             source_cst: std::sync::OnceLock::new(),
             runless: options.runless,
@@ -292,6 +312,7 @@ impl<'a> Linter<'a> {
             standard_call_spans: options.standard_call_spans,
             statement_call_spans: BTreeMap::new(),
             whole_statement_call_spans: BTreeMap::new(),
+            whole_statement_values: std::sync::OnceLock::new(),
             guarded_statement_depth: 0,
             negated_call_spans: BTreeMap::new(),
             statically_resolved_call_spans: options.statically_resolved_call_spans,
@@ -299,6 +320,7 @@ impl<'a> Linter<'a> {
             dead_code: options.dead_code,
             tag_variants: FxHashSet::default(),
             type_declarations: FxHashMap::default(),
+            user_type_names: FxHashSet::default(),
             record_type_names: FxHashSet::default(),
             used_type_names: FxHashSet::default(),
             assigned_names: FxHashSet::default(),
@@ -433,6 +455,7 @@ impl<'a> Linter<'a> {
                 ArenaStmtKind::TypeDef(def_id) => {
                     let def = self.arena.type_def(*def_id).clone();
                     self.define(def.name.as_str().as_str(), stmt.span, false);
+                    self.user_type_names.insert(def.name.to_string());
                     if !def.name.as_str().starts_with('_') && !is_exported {
                         self.type_declarations
                             .insert(def.name.to_string(), stmt.span);
@@ -710,6 +733,13 @@ impl<'a> Linter<'a> {
     }
 
     fn collect_type_expr_refs(&mut self, ty: TypeExprId) {
+        if self.arena.type_expr_tags[ty.index()] == ArenaTypeExprTag::Applied {
+            let base = TypeExprId::from_index(self.arena.type_expr_data[ty.index()].lhs as usize);
+            self.collect_type_expr_refs(base);
+            let arguments = self.arena.applied_type_arguments(ty).collect::<Vec<_>>();
+            for argument in arguments { self.collect_type_expr_refs(argument); }
+            return;
+        }
         match type_expr_kind(self.arena, ty) {
             ArenaTypeExprKind::Named(name) => {
                 self.used_type_names.insert(name.to_string());
@@ -847,11 +877,13 @@ impl<'a> Linter<'a> {
                 }
                 self.lint_expr_or_run(&initializer);
                 let absence_lookup = match initializer { ArenaExprOrRun::Expr(value) => self.proven_absence_lookup(value), _ => false };
+                let materialized_record = match initializer { ArenaExprOrRun::Expr(value) => self.proven_materialized_record(value), _ => false };
                 self.define_binding_target(target, stmt.span, true);
                 if let ArenaBindingTargetKind::Name(name) = self.arena.binding_target(target).kind {
                     if let Some(binding) = self.scopes.last_mut().and_then(|scope| scope.get_mut(name.as_str().as_str())) {
                         binding.comparison_stable = true;
                         binding.absence_lookup = absence_lookup;
+                        binding.materialized_record = materialized_record;
                     }
                 }
             }
@@ -1133,14 +1165,14 @@ impl<'a> Linter<'a> {
         let deletion = Span::new(ty_span.source_id, start, ty_span.end());
         let Some(annotation) = self.source.get(start..ty_span.end()) else { return; };
         if annotation.contains('#') { return; }
-        let mut rewritten = self.source.to_string();
-        rewritten.replace_range(start..ty_span.end(), "");
         if self.return_removal_before.is_none() {
             self.return_removal_before = Some(checked_return_removal_facts(self.source, ty_span.source_id, None));
         }
-        let before = self.return_removal_before.as_ref().unwrap();
+        let Some(before) = self.return_removal_before.as_ref().unwrap().as_ref() else { return; };
+        let mut rewritten = self.source.to_string();
+        rewritten.replace_range(start..ty_span.end(), "");
         let after = checked_return_removal_facts(&rewritten, ty_span.source_id, Some((start, ty_span.end() - start)));
-        if before.is_none() || before != &after { return; }
+        if Some(before) != after.as_ref() { return; }
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "private pure return type can be inferred exactly")
             .with_code("lint.prefer-inferred-pure-return")
             .with_label(Label::secondary(ty_span, "definition and caller types remain identical without this annotation"))
@@ -1156,14 +1188,14 @@ impl<'a> Linter<'a> {
         let start = param_span.start() + colon;
         let Some(annotation) = self.source.get(start..span.end()) else { return; };
         if annotation.contains('#') { return; }
-        let mut rewritten = self.source.to_string();
-        rewritten.replace_range(start..span.end(), "");
         if self.return_removal_before.is_none() {
             self.return_removal_before = Some(checked_return_removal_facts(self.source, span.source_id, None));
         }
-        let before = self.return_removal_before.as_ref().unwrap();
+        let Some(before) = self.return_removal_before.as_ref().unwrap().as_ref() else { return; };
+        let mut rewritten = self.source.to_string();
+        rewritten.replace_range(start..span.end(), "");
         let after = checked_return_removal_facts(&rewritten, span.source_id, Some((start, span.end() - start)));
-        if before.is_none() || before != &after { return; }
+        if Some(before) != after.as_ref() { return; }
         self.diagnostics.push(Diagnostic::new(Severity::Warning, "default establishes exactly the declared parameter type")
             .with_code("lint.default-param-type")
             .with_label(Label::secondary(span, "checked signatures, expression types, effects and conversions remain identical"))
@@ -1769,8 +1801,7 @@ impl<'a> Linter<'a> {
         if matches!(annotation_ty, Type::Map(_, _)) && is_map_empty_call(self.arena, *init_expr_id) {
             return;
         }
-        let init = self.arena.expr(*init_expr_id);
-        if !self.annotation_is_needless(&annotation_ty, &init, exported) {
+        if !self.annotation_is_needless(&annotation_ty, *init_expr_id) {
             return;
         }
         if self.annotation_refs_user_type(ty) {
@@ -1823,24 +1854,21 @@ impl<'a> Linter<'a> {
         true
     }
 
-    fn local_annotation_removal_preserves_contract(&self, deletion: Span, binding: Span) -> bool {
-        let old_parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(deletion.source_id, self.source);
-        if !old_parsed.diagnostics.is_empty() { return false; }
-        let old_checked = xsh::frontend::check::Checker::check_arena(&old_parsed.arena, self.source);
-        if old_checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error) { return false; }
-        let old = old_parsed.arena.symbol_owner().with_current(|| {
-            let shape = old_checked.local_binding_types.iter().find(|(span, _)| span.start() == binding.start())
-                .map(|(_, ty)| checked_return_type_shape(ty))?;
-            let facts = old_checked.expr_types.iter().filter(|(span, _)| span.source_id == deletion.source_id)
-                .map(|(span, ty)| ((shift_after_deletion(span.start(), deletion), shift_after_deletion(span.end(), deletion)), checked_return_type_shape(ty)))
-                .collect::<BTreeMap<_, _>>();
-            Some((shape, facts))
-        });
-        let Some((old_shape, old_facts)) = old else { return false; };
+    fn local_annotation_removal_preserves_contract(&mut self, deletion: Span, binding: Span) -> bool {
+        if self.local_annotation_before.is_none() {
+            self.local_annotation_before = Some(checked_local_annotation_facts(self.source, deletion.source_id));
+        }
+        let Some(before) = self.local_annotation_before.as_ref().unwrap().as_ref() else { return false; };
+        let Some(old_shape) = before.bindings.get(&binding.start()) else { return false; };
+        let old_facts = before.expressions.iter().map(|((start, end), shape)|
+            ((shift_after_deletion(*start, deletion), shift_after_deletion(*end, deletion)), shape.clone()))
+            .collect::<BTreeMap<_, _>>();
         let mut rewritten = self.source.to_string();
         rewritten.replace_range(deletion.range(), "");
         let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(deletion.source_id, &rewritten);
         if !parsed.diagnostics.is_empty() { return false; }
+        #[cfg(test)]
+        local_annotation_probe_tests::record_candidate();
         let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, &rewritten);
         if checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error) { return false; }
         parsed.arena.symbol_owner().with_current(|| {
@@ -1849,11 +1877,12 @@ impl<'a> Linter<'a> {
             let facts = checked.expr_types.iter().filter(|(span, _)| span.source_id == deletion.source_id)
                 .map(|(span, ty)| ((span.start(), span.end()), checked_return_type_shape(ty)))
                 .collect::<BTreeMap<_, _>>();
-            shape.as_ref() == Some(&old_shape) && facts == old_facts
+            shape.as_ref() == Some(old_shape) && facts == old_facts
         })
     }
 
-    fn annotation_is_needless(&self, annotation: &Type, init: &ArenaExpr, exported: bool) -> bool {
+    fn annotation_is_needless(&self, annotation: &Type, initializer: ExprId) -> bool {
+        let init = self.arena.expr(initializer);
         // Branches and record fields can acquire their types from the binding.
         // Their checked type alone cannot prove that removing context is safe.
         if matches!(
@@ -1865,7 +1894,10 @@ impl<'a> Linter<'a> {
         if matches!(annotation, Type::List(inner) if matches!(inner.as_ref(), Type::Record(_))) {
             return false;
         }
-        if self.is_empty_collection(init) {
+        if self.is_empty_collection(&init) {
+            return false;
+        }
+        if self.expression_depends_on_expected_type(initializer, true) {
             return false;
         }
         let Some(actual) = self.expr_types.get(&init.span) else {
@@ -1874,10 +1906,40 @@ impl<'a> Linter<'a> {
         if matches!(actual, Type::Any | Type::Unknown | Type::Invalid) {
             return false;
         }
-        if exported {
-            *actual == *annotation
-        } else {
-            actual.matches_expected(annotation) && annotation.matches_expected(actual)
+        *actual == *annotation
+    }
+
+    // Checked expression types include conversions and inference supplied by
+    // the enclosing contract. Moving an expression out of that context must
+    // retain collection element domains and independent validation targets.
+    fn expression_depends_on_expected_type(&self, expr: ExprId, removing_annotation: bool) -> bool {
+        let expression = self.arena.expr(expr);
+        match expression.kind {
+            ArenaExprKind::Int(_) => self.expr_types.get(&expression.span) == Some(&Type::UInt),
+            ArenaExprKind::List(_) | ArenaExprKind::ListComp { .. } | ArenaExprKind::MapComp { .. } => {
+                (removing_annotation && self.is_empty_collection(&expression))
+                    || self.expr_types.get(&expression.span).is_some_and(type_has_contextual_collection_domain)
+                    || expr_child_exprs(self.arena, expr).into_iter().any(|child| self.expression_depends_on_expected_type(child, removing_annotation))
+            }
+            ArenaExprKind::Record(_) | ArenaExprKind::If { .. } | ArenaExprKind::Match { .. }
+            | ArenaExprKind::PatternTest { .. } | ArenaExprKind::PatternCondition { .. }
+            | ArenaExprKind::ValueBlock(_) | ArenaExprKind::Capture(_) | ArenaExprKind::Retry { .. } | ArenaExprKind::Loop { .. }
+            | ArenaExprKind::ErrorContext { .. } | ArenaExprKind::ContextScope { .. } => true,
+            ArenaExprKind::Require { schema, .. } => {
+                schema.is_none()
+                    || (removing_annotation
+                        && self.requirement_targets.get(&expression.span).is_some_and(|target|
+                            self.requirement_expected_targets.get(&expression.span) == Some(target)))
+                    || expr_child_exprs(self.arena, expr).into_iter().any(|child| self.expression_depends_on_expected_type(child, removing_annotation))
+            }
+            ArenaExprKind::Call { callee, .. } => {
+                // Err has no success value from which to infer its domain; Ok
+                // obtains a nondefault error domain only from its boundary.
+                matches!(self.arena.expr(callee).kind, ArenaExprKind::Ident(name) if name == "Err"
+                    || (name == "Ok" && matches!(self.expr_types.get(&expression.span), Some(Type::Result(_, error)) if error.as_ref() != &Type::Error)))
+                    || expr_child_exprs(self.arena, expr).into_iter().any(|child| self.expression_depends_on_expected_type(child, removing_annotation))
+            }
+            _ => expr_child_exprs(self.arena, expr).into_iter().any(|child| self.expression_depends_on_expected_type(child, removing_annotation)),
         }
     }
 
@@ -1888,7 +1950,7 @@ impl<'a> Linter<'a> {
     fn type_expr_refs_user_type(&self, ty: TypeExprId) -> bool {
         match type_expr_kind(self.arena, ty) {
             ArenaTypeExprKind::Named(name) => {
-                self.type_declarations.contains_key(name.as_str().as_str())
+                self.user_type_names.contains(name.as_str().as_str())
             }
             ArenaTypeExprKind::List(inner)
 
@@ -1900,7 +1962,9 @@ impl<'a> Linter<'a> {
                 self.type_expr_refs_user_type(ok)
                     || err.is_some_and(|err| self.type_expr_refs_user_type(err))
             }
-            ArenaTypeExprKind::Qualified => false,
+            // Qualified and applied schemas retain a named declaring domain
+            // that cannot be established by comparing their structural shape.
+            ArenaTypeExprKind::Qualified => true,
         }
     }
 
@@ -2122,7 +2186,8 @@ impl<'a> Linter<'a> {
             return None;
         };
         let base_span = self.arena.expr(base).span;
-        if name != "display" || !matches!(self.expr_types.get(&base_span), Some(Type::Path)) {
+        if name != "display" || !matches!(self.expr_types.get(&base_span), Some(Type::Path))
+            || !self.path_expression_has_utf8_bytes(base) {
             return None;
         }
         let replacement = self.source.get(base_span.range())?.to_string();
@@ -2143,7 +2208,7 @@ impl<'a> Linter<'a> {
                 let literal_text = self.source.get(arg_span.range())?;
                 Some((arg_span, format!("p{literal_text}")))
             }
-            ArenaExprKind::FmtString(_) => {
+            ArenaExprKind::FmtString(parts) if self.text_path_interpolation_preserves_bytes(parts) => {
                 let literal_text = self.source.get(arg_span.range())?;
                 Some((arg_span, path_fmt_literal_text(literal_text)?))
             }
@@ -2165,7 +2230,27 @@ impl<'a> Linter<'a> {
         let ArenaExprKind::FmtString(parts) = self.arena.expr(arg).kind else {
             return None;
         };
+        if !self.text_path_interpolation_preserves_bytes(parts) { return None; }
         self.single_path_interpolation_parts_replacement(parts)
+    }
+
+    fn path_expression_has_utf8_bytes(&self, expr: ExprId) -> bool {
+        match self.arena.expr(expr).kind {
+            ArenaExprKind::PathStr(_) => true,
+            ArenaExprKind::PathFmtString(parts) => self.text_path_interpolation_preserves_bytes(parts),
+            _ => false,
+        }
+    }
+
+    // Text interpolation displays Path values, while path interpolation appends
+    // their native bytes. The two agree only when every Path piece is UTF-8.
+    fn text_path_interpolation_preserves_bytes(&self, parts: ArenaRange) -> bool {
+        self.arena.fmt_parts(parts).all(|part| match part {
+            ArenaFmtPart::Text(_) => true,
+            ArenaFmtPart::Expr(expr, _) => self.expr_types.get(&self.arena.expr(expr).span)
+                .is_some_and(|ty| matches!(ty, Type::Str | Type::Bool | Type::Int | Type::Float | Type::Duration | Type::Bytes)
+                    || (ty == &Type::Path && self.path_expression_has_utf8_bytes(expr))),
+        })
     }
 
     fn single_path_interpolation_parts_replacement(
@@ -2225,25 +2310,10 @@ impl<'a> Linter<'a> {
         };
         let inner = single_interpolation_expr(self.arena, parts)?;
         if simple_command_value_expr(self.arena, inner) {
+            if !self.text_path_interpolation_preserves_bytes(parts) { return None; }
             return Some(command_value_replacement(self.arena, inner));
         }
-        let ArenaExprKind::Call { callee, args } = self.arena.expr(inner).kind else {
-            return None;
-        };
-        if !args.is_empty() {
-            return None;
-        }
-        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else {
-            return None;
-        };
-        let base_span = self.arena.expr(base).span;
-        if name != "display"
-            || !matches!(self.expr_types.get(&base_span), Some(Type::Path))
-            || !simple_command_value_expr(self.arena, base)
-        {
-            return None;
-        }
-        Some(command_value_replacement(self.arena, base))
+        None
     }
 
     fn require_replacement(&self, expr: ExprId) -> Option<(Span, String)> {
@@ -2265,16 +2335,11 @@ impl<'a> Linter<'a> {
         if expr_is_dynamic_require_boundary(self.arena, value) {
             return None;
         }
-        if !value_ty.matches_expected(ok) {
+        // Assignability permits constrained scalar boundaries and record width
+        // changes. Removing validation requires the identical validated shape.
+        if value_ty != ok.as_ref() || type_has_unsigned_constraint(ok) {
             return None;
         }
-        let selected = match self.arena.expr(value).kind { ArenaExprKind::Try(inner) => inner, _ => value };
-        let keyed = matches!(self.arena.expr(selected).kind, ArenaExprKind::Index { .. })
-            || matches!(self.arena.expr(selected).kind, ArenaExprKind::Call { callee, .. }
-                if matches!(self.arena.expr(callee).kind, ArenaExprKind::Field { name, .. } if name == "get"));
-        // A selected field keeps its exact shape; validation must not change its
-        // checked width or apply a schema conversion while removing this call.
-        if keyed && (value_ty != ok.as_ref() || type_has_unsigned_constraint(value_ty)) { return None; }
         if self.source.get(value_span.end()..expr_span.end())?.contains('#') { return None; }
         let replacement = self.source.get(value_span.range())?.to_string();
         Some((value_span, replacement))
@@ -2422,8 +2487,8 @@ impl<'a> Linter<'a> {
         );
     }
 
-    /// If `expr` is a `.display()` call with no args, returns the base expression's span and source text.
-    fn path_display_base(&self, expr: ExprId) -> Option<(Span, String)> {
+    /// Recognize an explicit text conversion of a checked Path receiver.
+    fn path_display_base(&self, expr: ExprId) -> Option<Span> {
         let ArenaExprKind::Call { callee, args } = self.arena.expr(expr).kind else {
             return None;
         };
@@ -2437,26 +2502,23 @@ impl<'a> Linter<'a> {
             return None;
         }
         let base_span = self.arena.expr(base).span;
-        Some((base_span, self.source.get(base_span.range())?.to_string()))
+        if self.expr_types.get(&base_span) != Some(&Type::Path) { return None; }
+        Some(base_span)
     }
 
     fn lint_redundant_path_display(&mut self, expr: ExprId) {
         let expr_span = self.arena.expr(expr).span;
-        let Some((_base_span, replacement)) = self.path_display_base(expr) else {
+        if self.path_display_base(expr).is_none() {
             return;
-        };
+        }
         self.diagnostics.push(
-            Diagnostic::new(Severity::Warning, "redundant `.display()` on a Path value")
+            Diagnostic::new(Severity::Warning, "explicit Path display conversion selects text")
                 .with_code("lint.redundant-path-display")
                 .with_label(Label::secondary(
                     expr_span,
-                    "Path values display automatically in command arguments",
+                    "native Path arguments can preserve bytes that display text replaces",
                 ))
-                .with_fix_hint(FixHint::replacement(
-                    expr_span,
-                    "remove `.display()`",
-                    replacement,
-                )),
+                .with_note("retain .display() for text; use the Path directly only when native bytes are intended"),
         );
     }
 
@@ -2504,10 +2566,16 @@ impl<'a> Linter<'a> {
                 let prefix = Span::new(stmt.span.source_id, start, start + "return".len() + whitespace);
                 if self.diagnostics.iter().flat_map(|diagnostic| &diagnostic.fix_hints).filter_map(|fix| fix.span).any(|span| span.source_id == prefix.source_id && span.start() < prefix.end() && prefix.start() < span.end()) { return; }
                 if self.source.get(prefix.range()).is_none_or(|text| text.contains('#')) { return; }
+                let (replacement_span, replacement) = if matches!(self.arena.expr(value).kind, ArenaExprKind::Record(_)) {
+                    // A bare opening brace after a match arm introduces a body.
+                    // Group literal records so removing return preserves an expression.
+                    (Span::new(stmt.span.source_id, start, value_span.end()),
+                        format!("({})", &self.source[value_span.range()]))
+                } else { (prefix, String::new()) };
                 self.diagnostics.push(Diagnostic::warning("tail return can supply its value implicitly")
                     .with_code("lint.redundant-tail-return")
                     .with_label(Label::primary(prefix, "remove the tail return"))
-                    .with_fix_hint(FixHint::replacement(prefix, "use the tail value", String::new())));
+                    .with_fix_hint(FixHint::replacement(replacement_span, "use the tail value", replacement)));
             }
             _ => {}
         }
@@ -3496,6 +3564,10 @@ impl<'a> Linter<'a> {
         let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
         if name.as_str() != "keys" { return; }
         let ArenaExprKind::Ident(map) = self.arena.expr(base).kind else { return; };
+        // Entry iteration retains a value snapshot. A mutable map may change
+        // inside a value block before a later key lookup reads its current value.
+        if !self.scopes.iter().rev().find_map(|scope| scope.get(map.as_str().as_str()))
+            .is_some_and(|binding| !binding.mutable) { return; }
         if self.assigned_names.contains(&map) || key == map || !matches!(self.expr_types.get(&self.arena.expr(base).span), Some(Type::Map(_, _))) { return; }
         let statements: Vec<_> = self.arena.stmt_ids(self.arena.block(block).statements).collect();
         if statements.len() < 2 { return; }
@@ -4105,16 +4177,22 @@ impl<'a> Linter<'a> {
     }
 
     fn lint_nested_value_pipeline(&mut self, value: ExprId) {
-        // Whole statement values need no new parentheses or precedence rules.
-        let whole_value = (0..self.arena.stmt_tags.len()).any(|raw| match self.arena.stmt(StmtId::from_index(raw)).kind {
-            ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(expr), .. }
-            | ArenaStmtKind::Var { initializer: ArenaExprOrRun::Expr(expr), .. }
-            | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expr)))
-            | ArenaStmtKind::Expr(expr) => expr == value,
-            _ => false,
-        });
-        if !whole_value { return; }
         let Some((_, args)) = self.pipeline_ordinary_call(value) else { return; };
+        // Whole statement values need no new parentheses or precedence rules.
+        let whole_values = self.whole_statement_values.get_or_init(|| {
+            (0..self.arena.stmt_tags.len()).filter_map(|raw| {
+                #[cfg(test)]
+                nested_pipeline_index_tests::record_statement();
+                match self.arena.stmt(StmtId::from_index(raw)).kind {
+                    ArenaStmtKind::Let { initializer: ArenaExprOrRun::Expr(expr), .. }
+                    | ArenaStmtKind::Var { initializer: ArenaExprOrRun::Expr(expr), .. }
+                    | ArenaStmtKind::Return(Some(ArenaExprOrRun::Expr(expr)))
+                    | ArenaStmtKind::Expr(expr) => Some(expr),
+                    _ => None,
+                }
+            }).collect()
+        });
+        if !whole_values.contains(&value) { return; }
         let args = self.arena.call_args(args);
         let inputs = args.iter().enumerate().filter_map(|(index, arg)| {
             let expr = pipeline_argument_expr(arg).unwrap();
@@ -4724,19 +4802,24 @@ impl<'a> Linter<'a> {
         };
         let (index, fallback) = (*index, *fallback);
         let fallback_node = self.arena.expr(fallback);
+        let immutable_read = matches!(fallback_node.kind, ArenaExprKind::Ident(name)
+            if self.scopes.iter().rev().find_map(|scope| scope.get(name.as_str().as_str()))
+                .is_some_and(|binding| !binding.mutable));
         let fallback_type = match fallback_node.kind {
             ArenaExprKind::Int(_) | ArenaExprKind::Unary { op: UnaryOp::Neg, .. } => Some(Type::Int),
             ArenaExprKind::Bool(_) => Some(Type::Bool), ArenaExprKind::Null => Some(Type::Null),
             ArenaExprKind::Str(_) => Some(Type::Str), ArenaExprKind::Bytes(_) => Some(Type::Bytes),
+            ArenaExprKind::PathStr(_) => Some(Type::Path),
             ArenaExprKind::Float(_) => Some(Type::Float), ArenaExprKind::Duration(_) => Some(Type::Duration),
             ArenaExprKind::List(items) if items.is_empty() => Some(expected.clone()),
+            ArenaExprKind::Ident(_) if immutable_read => self.expr_types.get(&fallback_node.span).cloned(),
             _ => None,
         };
         let inert = matches!(fallback_node.kind, ArenaExprKind::Int(_) | ArenaExprKind::Bool(_) | ArenaExprKind::Null | ArenaExprKind::Str(_)
-            | ArenaExprKind::Bytes(_) | ArenaExprKind::Float(_) | ArenaExprKind::Duration(_))
+            | ArenaExprKind::Bytes(_) | ArenaExprKind::PathStr(_) | ArenaExprKind::Float(_) | ArenaExprKind::Duration(_))
             || matches!(fallback_node.kind, ArenaExprKind::Unary { op: UnaryOp::Neg, expr } if matches!(self.arena.expr(expr).kind, ArenaExprKind::Int(value) if self.arena.int_literal(value).value().and_then(i64::checked_neg).is_some()))
             || matches!(fallback_node.kind, ArenaExprKind::List(items) if items.is_empty() && matches!(expected, Type::List(_)));
-        let safe = inert && fallback_type.is_some_and(|ty| ty.matches_expected(expected)) && !self.source[span.range()].contains('#');
+        let safe = (inert || immutable_read) && fallback_type.is_some_and(|ty| ty.matches_expected(expected)) && !self.source[span.range()].contains('#');
         self.diagnostics.push(if safe {
             let replacement = format!("(({}).{}({}) ?? ({}))", &self.source[receiver.span.range()], name,
                 &self.source[self.arena.expr(index).span.range()], &self.source[fallback_node.span.range()]);
@@ -4764,6 +4847,53 @@ impl<'a> Linter<'a> {
         lexed.diagnostics.is_empty()
             && lexed.token_table.label_text_at(0).is_some_and(|name| name.as_ref() == text)
             && lexed.token_table.tag_at(1) == Some(xsh::frontend::syntax::token::TokenTag::Eof)
+    }
+
+    // Host-backed records may materialize other metadata during `get`. Only
+    // locally constructed ordinary records and their immutable snapshots prove
+    // that selecting one guaranteed field cannot drop a metadata failure.
+    fn proven_materialized_record(&self, expr: ExprId) -> bool {
+        if !matches!(self.expr_types.get(&self.arena.expr(expr).span), Some(Type::Record(_))) { return false; }
+        match self.arena.expr(expr).kind {
+            ArenaExprKind::Record(_) => true,
+            ArenaExprKind::Ident(name) => self.scopes.iter().rev().find_map(|scope| scope.get(name.as_str().as_str()))
+                .is_some_and(|binding| binding.materialized_record && !binding.mutable) && !self.assigned_names.contains(&name),
+            ArenaExprKind::Call { callee, .. } => self.record_constructors.resolve_call(self.arena, callee, None).is_some(),
+            _ => false,
+        }
+    }
+
+    fn lint_known_field_access(&mut self, expr: ExprId) {
+        let outer = self.arena.expr(expr);
+        let ArenaExprKind::Try(call) = outer.kind else { return; };
+        let expression = self.arena.expr(call);
+        let ArenaExprKind::Call { callee, args } = expression.kind else { return; };
+        let ArenaExprKind::Field { base, name } = self.arena.expr(callee).kind else { return; };
+        if name != "get" || !self.proven_materialized_record(base) { return; }
+        let [argument] = self.arena.call_args(args) else { return; };
+        let key = match argument.kind {
+            ArenaCallArgKind::Positional(key) => key,
+            ArenaCallArgKind::Named { name, value, .. } if name == "field" => value,
+            _ => return,
+        };
+        let ArenaExprKind::Str(key) = self.arena.expr(key).kind else { return; };
+        let field = self.arena.string_literal(key);
+        if !self.bare_field_label(field) { return; }
+        let Some(Type::Record(fields)) = self.expr_types.get(&self.arena.expr(base).span) else { return; };
+        if fields.contains_key(&Name::intern("get")) { return; }
+        let Some(expected) = fields.get(&Name::intern(field)) else { return; };
+        let Some(Type::Result(success, _)) = self.expr_types.get(&expression.span) else { return; };
+        if success.as_ref() != expected || self.expr_types.get(&outer.span) != Some(expected) { return; }
+        let span = self.expression_source_span(outer.span);
+        let receiver_span = self.expression_source_span(self.arena.expr(base).span);
+        let cst = self.source_cst.get().expect("expression span initializes CST");
+        if cst.contains_comment(span) { return; }
+        let receiver = &self.source[receiver_span.range()];
+        let receiver = if matches!(self.arena.expr(base).kind, ArenaExprKind::Record(_)) { format!("({receiver})") } else { receiver.to_owned() };
+        self.diagnostics.push(Diagnostic::warning("a guaranteed field on an ordinary record can be selected directly")
+            .with_code("lint.prefer-known-field-access")
+            .with_label(Label::secondary(span, "the selected value retains its exact checked type"))
+            .with_fix_hint(FixHint::replacement(span, "select the known record field", format!("{receiver}.{field}"))));
     }
 
     fn lint_quoted_field_labels(&mut self, fields: ArenaRange) {
@@ -4992,7 +5122,7 @@ impl<'a> Linter<'a> {
                 let literal_text = &self.source[expr_span.start()..expr_span.end()];
                 Some(format!("p{literal_text}"))
             }
-            ArenaExprKind::FmtString(parts) => {
+            ArenaExprKind::FmtString(parts) if self.text_path_interpolation_preserves_bytes(parts) => {
                 if self
                     .single_path_interpolation_parts_replacement(parts)
                     .is_some()
@@ -5002,6 +5132,7 @@ impl<'a> Linter<'a> {
                     path_fmt_literal_text(&self.source[expr_span.start()..expr_span.end()])
                 }
             }
+            ArenaExprKind::FmtString(_) => None,
             _ => self
                 .source
                 .get(expr_span.range())
@@ -5510,7 +5641,9 @@ impl<'a> Linter<'a> {
             self.expr_types.get(&self.arena.expr(first).span) == Some(&Type::Bool)
         } else {
             match (self.expr_types.get(&self.arena.expr(first).span), self.expr_types.get(&self.arena.expr(second.unwrap()).span)) {
-                (Some(left), Some(right)) => !matches!(left, Type::Any | Type::Unknown | Type::Invalid) && !matches!(right, Type::Any | Type::Unknown | Type::Invalid) && right.matches_expected(left),
+                (Some(left), Some(right)) => !matches!(left, Type::Any | Type::Unknown | Type::Invalid) && !matches!(right, Type::Any | Type::Unknown | Type::Invalid) && right.matches_expected(left)
+                    && !self.expression_depends_on_expected_type(first, false)
+                    && !self.expression_depends_on_expected_type(second.unwrap(), false),
                 _ => false,
             }
         };
@@ -5888,6 +6021,7 @@ impl<'a> Linter<'a> {
                     used: false,
                     comparison_stable: false,
                     absence_lookup: false,
+                    materialized_record: false,
                     report_unused: report_unused && name != "_",
                 },
             );
@@ -6515,6 +6649,15 @@ fn type_has_unsigned_constraint(ty: &Type) -> bool {
         Type::List(inner) | Type::Stream(inner) | Type::Optional(inner) => type_has_unsigned_constraint(inner),
         Type::Map(key, value) | Type::Result(key, value) => type_has_unsigned_constraint(key) || type_has_unsigned_constraint(value),
         Type::Record(fields) => fields.values().any(type_has_unsigned_constraint),
+        _ => false,
+    }
+}
+
+fn type_has_contextual_collection_domain(ty: &Type) -> bool {
+    match ty {
+        Type::UInt | Type::Optional(_) | Type::Record(_) => true,
+        Type::List(inner) | Type::Stream(inner) => type_has_contextual_collection_domain(inner),
+        Type::Map(key, value) | Type::Result(key, value) => type_has_contextual_collection_domain(key) || type_has_contextual_collection_domain(value),
         _ => false,
     }
 }
@@ -7420,6 +7563,7 @@ impl LintExprVisitor<'_, '_> {
             self.linter.lint_error_fallback_block(expr);
             self.linter.lint_path_roundtrip(expr);
             self.linter.lint_redundant_require(expr);
+            self.linter.lint_known_field_access(expr);
             self.linter.lint_inferred_require_target(expr);
             self.linter.lint_redundant_single_interpolation(expr);
             self.linter.lint_scalar_display_parse_roundtrip(expr);
@@ -7694,38 +7838,7 @@ impl LintExprVisitor<'_, '_> {
                 }
                 for part in &part_list {
                     if let ArenaWordPart::Interpolation(expr) = *part {
-                        let expr_span = self.linter.arena.expr(expr).span;
-                        // ${foo.display()} → $foo (single interp, simple ident base)
-                        if let Some((_base_span, base_text)) = self.linter.path_display_base(expr) {
-                            if part_list.len() == 1
-                                && matches!(
-                                    base_text.as_bytes().first(),
-                                    Some(b'a'..=b'z' | b'A'..=b'Z' | b'_')
-                                )
-                            {
-                                let replacement = format!("${base_text}");
-                                self.linter.diagnostics.push(
-                                    Diagnostic::new(
-                                        Severity::Warning,
-                                        "redundant `.display()` on a Path value",
-                                    )
-                                    .with_code("lint.redundant-path-display")
-                                    .with_label(Label::secondary(
-                                        expr_span,
-                                        "Path values display automatically in command arguments",
-                                    ))
-                                    .with_fix_hint(
-                                        FixHint::replacement(
-                                            arg_span,
-                                            "use `$` shorthand",
-                                            replacement,
-                                        ),
-                                    ),
-                                );
-                            } else {
-                                self.linter.lint_redundant_path_display(expr);
-                            }
-                        }
+                        self.linter.lint_redundant_path_display(expr);
                         self.visit_command_embedded_expr(expr);
                     } else if let ArenaWordPart::Shorthand(expr) = *part {
                         self.linter.lint_redundant_path_display(expr);
@@ -7739,45 +7852,7 @@ impl LintExprVisitor<'_, '_> {
             }
             ArenaCommandArgKind::Typed(expr) => {
                 let expr_span = self.linter.arena.expr(expr).span;
-                // Implicit typed args (no parens, detected by at_call_or_index_chain)
-                // need `$` prefix after .display() removal so the result stays a
-                // variable reference. E.g. `input.display()` → `$input`.
-                if self.linter.source.as_bytes().get(arg_span.start()) != Some(&b'(') {
-                    if let Some(base_text) = self
-                        .linter
-                        .path_display_base(expr)
-                        .map(|(_, t)| t)
-                        .filter(|t| {
-                            !t.starts_with('$')
-                                && t.as_bytes()
-                                    .first()
-                                    .is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_')
-                                && t.bytes()
-                                    .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'.')
-                        })
-                    {
-                        self.linter.diagnostics.push(
-                            Diagnostic::new(
-                                Severity::Warning,
-                                "redundant `.display()` on a Path value",
-                            )
-                            .with_code("lint.redundant-path-display")
-                            .with_label(Label::secondary(
-                                expr_span,
-                                "Path values display automatically in command arguments",
-                            ))
-                            .with_fix_hint(FixHint::replacement(
-                                arg_span,
-                                "use `$` shorthand",
-                                format!("${base_text}"),
-                            )),
-                        );
-                    } else {
-                        self.linter.lint_redundant_path_display(expr);
-                    }
-                } else {
-                    self.linter.lint_redundant_path_display(expr);
-                }
+                self.linter.lint_redundant_path_display(expr);
                 // (f"...") → f"..." : f-strings don't need paren wrapping
                 if matches!(
                     self.linter.arena.expr(expr).kind,
@@ -10092,12 +10167,60 @@ struct CheckedReturnRemovalFacts {
     effects: BTreeMap<String, Option<Vec<Effect>>>,
 }
 
+// Original facts are independent of each deletion. Keep their source coordinates
+// and complete type shapes so every candidate still proves the same contract.
+struct CheckedLocalAnnotationFacts {
+    bindings: BTreeMap<usize, String>,
+    expressions: BTreeMap<(usize, usize), String>,
+}
+
+// Standalone proof parses do not load user modules. An invalid unresolved
+// top-level use always errors, so its source cannot supply a proof baseline.
+fn standalone_annotation_imports_available(program: &ArenaProgram) -> bool {
+    program.symbol_owner().with_current(|| program.statement_ids().all(|statement| {
+        let kind = match program.arena.stmt(statement).kind {
+            ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,
+            other => other,
+        };
+        let ArenaStmtKind::Use(import) = kind else { return true; };
+        let import = program.arena.use_stmt(import);
+        if import.resolved.is_some() { return true; }
+        let mut path = program.arena.names(import.path);
+        let Some(name) = path.next() else { return false; };
+        path.next().is_none() && import.alias.is_none()
+            && xsh::api::api_spec().module(&name.as_str()).is_some()
+    }))
+}
+
+fn checked_local_annotation_facts(source: &str, source_id: xsh::frontend::source::SourceId)
+    -> Option<CheckedLocalAnnotationFacts> {
+    #[cfg(test)]
+    local_annotation_probe_tests::record_original();
+    let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(source_id, source);
+    if !parsed.diagnostics.is_empty() || !standalone_annotation_imports_available(&parsed.arena) { return None; }
+    #[cfg(test)]
+    local_annotation_probe_tests::record_original_check();
+    let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
+    if checked.diagnostics.iter().any(|diagnostic| diagnostic.severity == Severity::Error) { return None; }
+    parsed.arena.symbol_owner().with_current(|| {
+        let mut bindings = BTreeMap::new();
+        for (span, ty) in &checked.local_binding_types {
+            bindings.entry(span.start()).or_insert_with(|| checked_return_type_shape(ty));
+        }
+        let expressions = checked.expr_types.iter().filter(|(span, _)| span.source_id == source_id)
+            .map(|(span, ty)| ((span.start(), span.end()), checked_return_type_shape(ty))).collect();
+        Some(CheckedLocalAnnotationFacts { bindings, expressions })
+    })
+}
+
 /// Source edits must preserve every checked expression and statement purpose,
 /// including caller overload selection, conversions, and implicit Result tails.
 fn checked_return_removal_facts(source: &str, source_id: xsh::frontend::source::SourceId, removed: Option<(usize, usize)>)
     -> Option<CheckedReturnRemovalFacts> {
+    #[cfg(test)]
+    annotation_probe_tests::record_probe();
     let parsed = xsh::frontend::syntax::parser::Parser::parse_source_arena_only(source_id, source);
-    if !parsed.diagnostics.is_empty() { return None; }
+    if !parsed.diagnostics.is_empty() || !standalone_annotation_imports_available(&parsed.arena) { return None; }
     let checked = xsh::frontend::check::Checker::check_arena(&parsed.arena, source);
     if !checked.diagnostics.is_empty() { return None; }
     let original_offset = |offset: usize| match removed { Some((start, length)) if offset >= start => offset + length, _ => offset };
@@ -10149,5 +10272,220 @@ fn inert_constant_initializer(arena: &AstArena, value: ExprId) -> bool {
             _ => false,
         }),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod effect_fact_tests {
+    use super::*;
+    use std::cell::Cell;
+    use xsh::frontend::check::Checker;
+    use xsh::frontend::source::SourceId;
+    use xsh::frontend::syntax::parser::Parser;
+
+    #[test]
+    fn checked_empty_effect_facts_avoid_duplicate_frontend_checking() {
+        let source = "print \"ready\"\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty());
+        for supplied in [false, true] {
+            let checks = Cell::new(0);
+            let output = Linter::lint_internal_with_effect_check(&parsed.arena, source, LintOptions {
+                function_effect_facts_checked: supplied,
+                ..LintOptions::default()
+            }, true, || {
+                checks.set(checks.get() + 1);
+                Checker::check_arena(&parsed.arena, source)
+            });
+            assert!(output.diagnostics.is_empty(), "{:?}", output.diagnostics);
+            assert_eq!(checks.get(), usize::from(!supplied), "supplied checked facts: {supplied}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod annotation_probe_tests {
+    use super::{LintOptions, Linter};
+    use std::cell::Cell;
+    use xsh::frontend::source::SourceId;
+    use xsh::frontend::syntax::parser::Parser;
+
+    thread_local! {
+        static PROBES: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn record_probe() {
+        PROBES.with(|probes| probes.set(probes.get() + 1));
+    }
+
+    #[test]
+    fn annotation_probes_stop_after_original_signature_cannot_be_checked() {
+        let mut source = "use missing\n".to_owned();
+        for index in 0..12 {
+            source.push_str(&format!("pure choose_{index}(value: Int = 1) -> Int {{ value }}\n"));
+        }
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty());
+        PROBES.with(|probes| probes.set(0));
+        let output = Linter::lint(&parsed.arena, &source, LintOptions {
+            prefer_inferred_pure_returns: true,
+            function_effect_facts_checked: true,
+            ..LintOptions::default()
+        });
+        assert!(!output.diagnostics.iter().any(|diagnostic| matches!(diagnostic.code.as_deref(),
+            Some("lint.prefer-inferred-pure-return" | "lint.default-param-type"))));
+        assert_eq!(PROBES.with(Cell::get), 1, "a failed baseline makes every candidate unprovable");
+    }
+}
+
+#[cfg(test)]
+mod nested_pipeline_index_tests {
+    use super::{LintOptions, Linter};
+    use std::cell::Cell;
+    use xsh::frontend::source::SourceId;
+    use xsh::frontend::syntax::parser::Parser;
+
+    thread_local! {
+        static STATEMENTS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn record_statement() {
+        STATEMENTS.with(|statements| statements.set(statements.get() + 1));
+    }
+
+    #[test]
+    fn nested_pipeline_statement_membership_is_indexed_once() {
+        let mut source = "pure identity(value: Int) -> Int { value }\n".to_owned();
+        for index in 0..64 {
+            source.push_str(&format!("let selected_{index} = identity({index})\n"));
+        }
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+        assert!(parsed.diagnostics.is_empty());
+        STATEMENTS.with(|statements| statements.set(0));
+        let output = Linter::lint(&parsed.arena, &source, LintOptions {
+            function_effect_facts_checked: true,
+            ..LintOptions::default()
+        });
+        assert!(!output.diagnostics.iter().any(|diagnostic|
+            diagnostic.code.as_deref() == Some("lint.prefer-value-pipeline")));
+        assert_eq!(STATEMENTS.with(Cell::get), parsed.arena.arena.stmt_tags.len(),
+            "whole statement membership must require one scan for every eligible expression");
+    }
+}
+
+#[cfg(test)]
+mod local_annotation_probe_tests {
+    use super::{LintOptions, Linter};
+    use std::cell::Cell;
+    use xsh::frontend::check::Checker;
+    use xsh::frontend::source::SourceId;
+    use xsh::frontend::syntax::parser::Parser;
+
+    thread_local! {
+        static ORIGINALS: Cell<usize> = const { Cell::new(0) };
+        static CANDIDATES: Cell<usize> = const { Cell::new(0) };
+        static ORIGINAL_CHECKS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn record_original_check() {
+        ORIGINAL_CHECKS.with(|checks| checks.set(checks.get() + 1));
+    }
+
+    pub(super) fn record_original() {
+        ORIGINALS.with(|originals| originals.set(originals.get() + 1));
+    }
+
+    pub(super) fn record_candidate() {
+        CANDIDATES.with(|candidates| candidates.set(candidates.get() + 1));
+    }
+
+    #[test]
+    fn exported_nominal_local_annotations_keep_their_declared_domain_without_probes() {
+        let source = "##! Rows.\n## A row.\nexport type Row = {value: Int}\n## Produces rows.\nexport pure rows() -> List[Row] {\n  var values: List[Row] = []\n  values = values.push(Row(value: 1))\n  values\n}\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty());
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        ORIGINALS.with(|originals| originals.set(0));
+        CANDIDATES.with(|candidates| candidates.set(0));
+        let output = Linter::lint(&parsed.arena, source, LintOptions {
+            function_effect_facts_checked: true,
+            expr_types: checked.expr_types,
+            function_return_types: checked.function_return_types,
+            ..LintOptions::default()
+        });
+        assert!(!output.diagnostics.iter().any(|diagnostic|
+            diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{:?}", output.diagnostics);
+        assert_eq!(ORIGINALS.with(Cell::get), 0);
+        assert_eq!(CANDIDATES.with(Cell::get), 0);
+    }
+
+    #[test]
+    fn standalone_annotation_import_availability_matches_checker_use_errors() {
+        for import in ["", "use json\n", "use missing\n", "use json.nested\n", "use json as renamed\n"] {
+            let source = format!("{import}pure count() -> Int {{ 1 }}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            let available = super::standalone_annotation_imports_available(&parsed.arena);
+            assert_eq!(available, !checked.diagnostics.iter().any(|diagnostic|
+                diagnostic.severity == xsh::diagnostic::Severity::Error), "{import}: {:?}", checked.diagnostics);
+        }
+    }
+
+    #[test]
+    fn local_annotation_probes_cache_original_facts_and_failure() {
+        for missing_import in [false, true] {
+            let mut source = if missing_import { "use missing\n".to_owned() } else { String::new() };
+            source.push_str("pure count() -> Int {\n");
+            for index in 0..12 {
+                source.push_str(&format!("var values_{index}: List[Int] = []\nvalues_{index} = values_{index}.push(1)\n"));
+            }
+            source.push_str("values_0.len()\n}\n");
+            let parsed = Parser::parse_source_arena_only(SourceId::new(0), &source);
+            assert!(parsed.diagnostics.is_empty());
+            let checked = Checker::check_arena(&parsed.arena, &source);
+            assert_eq!(checked.diagnostics.is_empty(), !missing_import, "{:?}", checked.diagnostics);
+            ORIGINALS.with(|originals| originals.set(0));
+            CANDIDATES.with(|candidates| candidates.set(0));
+            ORIGINAL_CHECKS.with(|checks| checks.set(0));
+            let output = Linter::lint(&parsed.arena, &source, LintOptions {
+                function_effect_facts_checked: true,
+                ..LintOptions::default()
+            });
+            if missing_import {
+                assert!(!output.diagnostics.iter().any(|diagnostic|
+                    diagnostic.code.as_deref() == Some("lint.needless-annotation")));
+            }
+            assert_eq!(ORIGINALS.with(Cell::get), 1, "the original source is unchanged between candidates");
+            assert_eq!(CANDIDATES.with(Cell::get), if missing_import { 0 } else { 12 });
+            assert_eq!(ORIGINAL_CHECKS.with(Cell::get), usize::from(!missing_import),
+                "an unresolved standalone import already proves the original unavailable");
+        }
+    }
+}
+
+#[cfg(test)]
+mod user_type_reference_tests {
+    use super::{LintOptions, Linter};
+    use xsh::frontend::check::Checker;
+    use xsh::frontend::source::SourceId;
+    use xsh::frontend::syntax::parser::Parser;
+
+    #[test]
+    fn applied_user_type_references_keep_the_generic_head_and_nominal_arguments() {
+        let source = "##! Collected rows.\ntype Row = {value: Int}\ntype CollectedDevices[T] = {values: List[T]}\ntype Unused = {value: Str}\n## Counts rows.\nexport pure count(rows: CollectedDevices[Row]) -> Int { rows.values.len() }\n";
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+        assert!(parsed.diagnostics.is_empty(), "{:?}", parsed.diagnostics);
+        let checked = Checker::check_arena(&parsed.arena, source);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let output = Linter::lint(&parsed.arena, source, LintOptions {
+            function_effect_facts_checked: true,
+            ..LintOptions::default()
+        });
+        let unused = output.diagnostics.iter().filter(|diagnostic|
+            diagnostic.code.as_deref() == Some("lint.unused-type"))
+            .map(|diagnostic| diagnostic.message.as_str()).collect::<Vec<_>>();
+        assert_eq!(unused, vec!["unused type declaration `Unused`"]);
     }
 }

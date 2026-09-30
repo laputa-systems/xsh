@@ -41,8 +41,8 @@ test test_backup_rotate_reports_failed_deletion_without_claiming_it_happened [fs
   defer dir.chmod(0o700)?
 
   let output = run.capture --text "xsh" "showcase/backup-rotate.xsh" -- --dir $dir --keep 1 --dry-run=false ?
-  test.ok(! output.status.exited_with(0), "deletion must report permission failure")?
-  test.ok("delete: backup-2024-01-01.tar.gz" not in output.stdout, "failed deletion must not be reported as done")?
+  assert ! output.status.exited_with(0), "deletion must report permission failure"
+  assert "delete: backup-2024-01-01.tar.gz" not in output.stdout, "failed deletion must not be reported as done"
   old.read_text()? == "old"
   newest.read_text()? == "new"
 }

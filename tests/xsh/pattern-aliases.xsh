@@ -1,7 +1,9 @@
-enum AliasEvent { Added(Str), Changed(Str), Count(Int) }
+enum AliasEvent {
+  Added(Str),
+  Changed(Str),
+  Count(Int),
+}
 type AliasText = Str
-type AliasOtherText = Str
-enum AliasMixed { Number(Int), Text(Str) }
 
 pure alias_event_name(event: AliasEvent) -> Str {
   match event {
@@ -13,9 +15,10 @@ pure alias_event_name(event: AliasEvent) -> Str {
   }
 }
 
-test test_pattern_aliases_capture_whole_nodes_and_preserve_types [error] {
-  test.eq(alias_event_name(Added("one")), "one")?
-  test.eq(alias_event_name(Changed("two")), "two")?
+test test_pattern_aliases_capture_whole_nodes_and_preserve_types [error] { |ctx|
+  (alias_event_name(Added("one"))) == ("one")
+  (alias_event_name(Changed("two"))) == ("two")
+  let output = test.run_script(ctx, r"""proc witness() [error] {
   let values = [{name: "item", count: 3}]
   let selected = match values {
     [{name, count} as entry] as all => {
@@ -24,38 +27,52 @@ test test_pattern_aliases_capture_whole_nodes_and_preserve_types [error] {
     }
     _ => "other"
   }
-  test.eq(selected, "item:item:item:3")?
+  (selected) == ("item:item:item:3")
+}
+witness()
+""")?
+  let {success: assertion_condition, stderr: assertion_message, ..} = output
+  assert assertion_condition, assertion_message
+  output.stdout == ""
 }
 
-test test_pattern_alternatives_publish_only_first_complete_match [error] {
+test test_pattern_alternatives_publish_only_first_complete_match [error] { |ctx|
+  let output = test.run_script(ctx, r"""
+proc witness() [error] {
   let result = match [[99], [7, 8]] {
     ([[value, ..tail], [99]] | [[99], [value, ..tail]]) as original => {
-      test.eq(original, [[99], [7, 8]])?
+      (original) == ([[99], [7, 8]])
       value + tail.len()
     }
     _ => 0
   }
-  test.eq(result, 8)?
+  (result) == (8)
   let first = match [7, 9] {
     [value, _] | [_, value] => value
     _ => 0
   }
-  test.eq(first, 7)?
+  (first) == (7)
+}
+witness()
+""")?
+  let {success: assertion_condition, stderr: assertion_message, ..} = output
+  assert assertion_condition, assertion_message
+  output.stdout == ""
 }
 
 test test_pattern_aliases_work_in_iflet_and_whilelet [error] {
   if let (Added(file) | Changed(file)) as original = Changed("selected") {
-    test.eq(file, "selected")?
-    test.eq(original is Changed(_), true)?
+    (file) == ("selected")
+    (original is Changed(_)) == (true)
   } else { test.fail("expected selected branch")? }
   var current = [1, 2]
   var total = 0
   while let [head, ..tail] as values = current {
-    test.eq(values.len(), tail.len() + 1)?
+    (values.len()) == (tail.len() + 1)
     total += head
     current = tail
   }
-  test.eq(total, 3)?
+  (total) == (3)
 }
 
 test test_pattern_aliases_and_alternatives_evaluate_subject_and_guard_once [error] { |ctx|
@@ -68,15 +85,18 @@ let selected = match subject() {
 print $selected
 """
   let result = test.run_script(ctx, source)?
-  test.ok(result.success, result.stderr)?
-  test.eq(result.stdout, "subject\nguard\n9\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = result
+    assert assertion_condition, assertion_message
+  }
+  (result.stdout) == ("subject\nguard\n9\n")
 }
 
 test test_pattern_tests_accept_only_grouped_capture_free_alternatives [error] {
-  test.eq(1 is (1 | 2), true)?
-  test.eq(3 is (1 | 2), false)?
-  test.eq(["build"] is (["build"] | ["clean"]), true)?
-  test.eq(Added("item") is (Added(_) | Changed(_)), true)?
+  (1 is (1 | 2)) == (true)
+  (3 is (1 | 2)) == (false)
+  (["build"] is (["build"] | ["clean"])) == (true)
+  (Added("item") is (Added(_) | Changed(_))) == (true)
 }
 
 test test_pattern_aliases_reject_invalid_names_duplicates_and_incompatible_alternatives [error] { |ctx|
@@ -88,8 +108,12 @@ test test_pattern_aliases_reject_invalid_names_duplicates_and_incompatible_alter
     "let result = match 1 { 1 | 2 as original => 1 _ => 0 }\n",
   ] {
     let result = test.run_script(ctx, source)?
-    test.ok(! result.success, result.stderr)?
-    test.ok("check.pattern-" in result.stderr)?
+    {
+      let assertion_condition = ! result.success
+      let assertion_message = result.stderr
+      assert assertion_condition, assertion_message
+    }
+    ("check.pattern-" in result.stderr)
   }
   for source in [
     "let result = match 1 { 1 as _ => 1 _ => 0 }\n",
@@ -97,30 +121,47 @@ test test_pattern_aliases_reject_invalid_names_duplicates_and_incompatible_alter
     "let result = 1 is 1 | 2\n",
   ] {
     let result = test.run_script(ctx, source)?
-    test.ok(! result.success, result.stderr)?
-    test.ok("parse." in result.stderr)?
+    {
+      let assertion_condition = ! result.success
+      let assertion_message = result.stderr
+      assert assertion_condition, assertion_message
+    }
+    ("parse." in result.stderr)
   }
   for source in [
     "let result = [1] is ([value] | [value])\n",
     "let result = 1 is (1 as value | 2 as value)\n",
   ] {
     let result = test.run_script(ctx, source)?
-    test.ok(! result.success, result.stderr)?
-    test.ok("check.pattern-test-binding" in result.stderr)?
+    {
+      let assertion_condition = ! result.success
+      let assertion_message = result.stderr
+      assert assertion_condition, assertion_message
+    }
+    ("check.pattern-test-binding" in result.stderr)
   }
 }
 
-test test_pattern_alternatives_compare_resolved_type_aliases [error] {
+test test_pattern_alternatives_compare_resolved_type_aliases [error] { |ctx|
+  let output = test.run_script(ctx, r"""type AliasText = Str
+type AliasOtherText = Str
+proc witness() [error] {
   let dynamic = json.decode("\"item\"")?
   let selected = match dynamic {
     (value is AliasText | value is AliasOtherText) as original => {
       let typed: Any = original
-      test.eq(typed is Str, true)?
+      (typed is Str) == (true)
       value.upper()
     }
     _ => "other"
   }
-  test.eq(selected, "ITEM")?
+  (selected) == ("ITEM")
+}
+witness()
+""")?
+  let {success: assertion_condition, stderr: assertion_message, ..} = output
+  assert assertion_condition, assertion_message
+  output.stdout == ""
 }
 
 test test_pattern_alternatives_respect_capture_order_and_conservative_narrowing [error] {
@@ -128,14 +169,15 @@ test test_pattern_alternatives_respect_capture_order_and_conservative_narrowing 
     [left, right] | [right, left] => left * 10 + right
     _ => 0
   }
-  test.eq(selected, 47)?
+  (selected) == (47)
   let dynamic = json.decode("\"item\"")?
   if dynamic is (_ is Str | _ is AliasText) {
-    test.eq(dynamic.upper(), "ITEM")?
+    (dynamic.upper()) == ("ITEM")
   } else { test.fail("expected string")? }
 }
 
-error AliasFailure = Missing(message: Str) : NotFound | Denied(message: Str) : PermissionDenied
+test test_pattern_aliases_preserve_nominal_error_identity_and_inferred_returns [error] { |ctx|
+  let output = test.run_script(ctx, r"""error AliasFailure = Missing(message: Str) : NotFound | Denied(message: Str) : PermissionDenied
 
 pure alias_failure_message(failure: AliasFailure) -> Str {
   match failure {
@@ -153,38 +195,47 @@ pure alias_inferred_tail(values: List[Int]) {
     _ => 0
   }
 }
-
-test test_pattern_aliases_preserve_nominal_error_identity_and_inferred_returns [error] {
-  test.eq(alias_failure_message(AliasFailure.Missing("absent")), "absentabsent")?
-  test.eq(alias_failure_message(AliasFailure.Denied("denied")), "denieddenied")?
+proc witness() [error] {
+  (alias_failure_message(AliasFailure.Missing("absent"))) == ("absentabsent")
+  (alias_failure_message(AliasFailure.Denied("denied"))) == ("denieddenied")
   let failure: AliasFailure = AliasFailure.Missing("one")
   if let (AliasFailure.Missing {message} | AliasFailure.Denied {message}) as original = failure {
-    test.eq(original is NotFound, true)?
-    test.eq(message, "one")?
+    (original is NotFound) == (true)
+    (message) == ("one")
   }
   let inferred: Int = alias_inferred_tail([4, 8])
-  test.eq(inferred, 7)?
+  (inferred) == (7)
+}
+witness()
+""")?
+  let {success: assertion_condition, stderr: assertion_message, ..} = output
+  assert assertion_condition, assertion_message
+  output.stdout == ""
 }
 
 test test_pattern_aliases_keep_list_value_semantics [error] {
   let source = [1, 2]
   if let [head, ..tail] as original = source {
     var copied = original
-    copied = copied.push(3)
+    copied += [3]
     var rest = tail
-    rest = rest.push(4)
-    test.eq(source, [1, 2])?
-    test.eq(original, [1, 2])?
-    test.eq(tail, [2])?
-    test.eq(copied, [1, 2, 3])?
-    test.eq(rest, [2, 4])?
-    test.eq(head, 1)?
+    rest += [4]
+    (source) == ([1, 2])
+    (original) == ([1, 2])
+    (tail) == ([2])
+    (copied) == ([1, 2, 3])
+    (rest) == ([2, 4])
+    (head) == (1)
   }
 }
 
 test test_pattern_tests_require_grouping_for_nested_alternatives [error] { |ctx|
   let bad = test.run_script(ctx, "let selected = [1] is [1 | 2]\n")?
-  test.ok(! bad.success, bad.stderr)?
-  test.ok("check.pattern-test-alternation" in bad.stderr)?
-  test.eq([1] is [(1 | 2)], true)?
+  {
+    let assertion_condition = ! bad.success
+    let assertion_message = bad.stderr
+    assert assertion_condition, assertion_message
+  }
+  ("check.pattern-test-alternation" in bad.stderr)
+  ([1] is [(1 | 2)]) == (true)
 }

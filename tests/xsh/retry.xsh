@@ -21,7 +21,10 @@ print f"\${value} \${attempts}"
 """,
   )?
 
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
 
   output.stdout == """done 3
 """
@@ -82,7 +85,10 @@ print f"\${value} \${attempts} \${cleaned}"
 """,
   )?
 
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
 
   output.stdout == """ok 2 2
 """
@@ -106,7 +112,10 @@ print \${result}
 """,
   )?
 
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
 
   output.stdout == """outer
 """
@@ -138,7 +147,10 @@ print \${value}
     ["--raw", "--trace-format", "jsonl"],
   )?
 
-  test.ok(output.success, output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
 
   output.stdout == """ok
 """
@@ -169,8 +181,11 @@ match result {
 }
 print f"\${attempts} \${delays} \${cleaned}"
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "original\n1 2 1\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("original\n1 2 1\n")
 }
 
 test test_retry_filter_matching_exhaustion_and_mixed_failures [error] { |ctx|
@@ -199,8 +214,11 @@ match result {
 }
 print \${attempts}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "attempt 3\nsecond\n2\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("attempt 3\nsecond\n2\n")
 }
 
 test test_retry_filter_empty_delays_success_and_nested_retry [error] { |ctx|
@@ -222,8 +240,11 @@ let nested = retry [0ms] on (FetchError.Busy) {
 print \${attempts}
 match nested { Err(FetchError.Busy {message}) => print \${message}; _ => print "wrong" }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "1\nok\n2\nlast\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("1\nok\n2\nlast\n")
 }
 
 test test_retry_filter_trace_records_selection_and_stop_reason [error] { |ctx|
@@ -233,11 +254,14 @@ proc attempt() -> Result[Str, FetchError] { Err(FetchError.Fatal(message: "origi
 let result = retry [0ms] on (FetchError.Busy) { attempt()? }
 match result { Err(_) => print "stopped"; _ => print "wrong" }
 """, ["--raw", "--trace-format", "jsonl"])?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "stopped\n")?
-  test.ok("\"kind\":\"retry.attempt\"" in output.stderr)?
-  test.ok("\"selected\":false" in output.stderr)?
-  test.ok("\"stop_reason\":\"nonmatching\"" in output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("stopped\n")
+  ("\"kind\":\"retry.attempt\"" in output.stderr)
+  ("\"selected\":false" in output.stderr)
+  ("\"stop_reason\":\"nonmatching\"" in output.stderr)
 }
 
 test test_retry_filter_rejects_captures_and_impossible_families [error] { |ctx|
@@ -246,16 +270,16 @@ error FetchError = Busy(message: Str)
 proc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: "busy")) }
 let result = retry [] on (FetchError.Busy {message}) { attempt()? }
 """)?
-  test.eq(capture.status, 2)?
-  test.ok("check.pattern-test-binding" in capture.stderr)?
+  (capture.status) == (2)
+  ("check.pattern-test-binding" in capture.stderr)
   let impossible = test.run_script(ctx, """
 error FetchError = Busy(message: Str)
 error OtherError = Busy(message: Str)
 proc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: "busy")) }
 let result = retry [] on (OtherError.Busy) { attempt()? }
 """)?
-  test.eq(impossible.status, 2)?
-  test.ok("check.pattern-type" in impossible.stderr)?
+  (impossible.status) == (2)
+  ("check.pattern-type" in impossible.stderr)
 }
 
 test test_retry_filter_facets_and_cleanup_failure_priority [error] { |ctx|
@@ -278,9 +302,12 @@ let result = retry [0ms] on (NotFound) {
 match result { Err(FetchError.Busy {message}) => print \${message}; _ => print "wrong" }
 print f"\${attempts} \${cleaned}"
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "primary\n2 2\n")?
-  test.ok("secondary" in output.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("primary\n2 2\n")
+  ("secondary" in output.stderr)
 }
 
 test test_retry_filter_does_not_retry_abort [error] { |ctx|
@@ -291,8 +318,8 @@ let result = retry [0ms] on (_) {
 }
 print "after"
 """)?
-  test.eq(output.status, 7)?
-  test.eq(output.stdout, "attempt\n")?
+  (output.status) == (7)
+  (output.stdout) == ("attempt\n")
 }
 
 test test_retry_filter_alias_and_impossible_facet_diagnostics [error] { |ctx|
@@ -301,8 +328,8 @@ test test_retry_filter_alias_and_impossible_facet_diagnostics [error] { |ctx|
     "error FetchError = Busy(message: Str)\nproc attempt() -> Result[Str, FetchError] { Err(FetchError.Busy(message: \"busy\")) }\nlet result = retry [] on (NotFound) { attempt()? }\n",
   ] {
     let output = test.run_script(ctx, source)?
-    test.eq(output.status, 2)?
-    test.ok("check.pattern-" in output.stderr)?
+    (output.status) == (2)
+    ("check.pattern-" in output.stderr)
   }
 }
 
@@ -321,8 +348,11 @@ let result = retry [0ms] on (FetchError.Busy) {
 match result { Err(FetchError.Fatal {message}) => print \${message}; _ => print "wrong" }
 print \${cleaned}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "cleanup\n1\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("cleanup\n1\n")
 }
 
 test test_retry_filter_rejects_string_classification [error] { |ctx|
@@ -330,8 +360,8 @@ test test_retry_filter_rejects_string_classification [error] { |ctx|
 proc attempt() -> Result[Str, Str] { Err("busy") }
 let result = retry [] on ("busy") { attempt()? }
 """)?
-  test.eq(output.status, 2)?
-  test.ok("check.retry-pattern" in output.stderr)?
+  (output.status) == (2)
+  ("check.retry-pattern" in output.stderr)
 }
 
 test test_retry_filter_nested_try_and_lexical_return_keep_destinations [error] { |ctx|
@@ -359,6 +389,9 @@ proc escaped() -> Result[Str, FetchError] {
 }
 match escaped() { Err(FetchError.Fatal {message}) => print \${message}; _ => print "wrong" }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "local\nlocal\n2\nescape\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("local\nlocal\n2\nescape\n")
 }

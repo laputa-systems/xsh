@@ -2,11 +2,11 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 type RmdirOptions = {parents: Bool, targets: List[Str]}
@@ -24,12 +24,9 @@ proc main(...argv: List[Str]) [fs, error] {
       },
     },
   )?
-  let parents = opts.parents
-  let targets = opts.targets
+  let {parents, targets, ..} = opts
 
-  if targets.len() == 0 {
-    return Err(usage_error("rmdir", "[-p] DIR..."))
-  }
+  return Err(usage_error("rmdir", "[-p] DIR...")) when targets.len() == 0
 
   for item in targets {
     var current = fp"${item}"

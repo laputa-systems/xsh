@@ -17,9 +17,7 @@ proc print_environment() [env] {
 }
 
 proc handle_status(status: Status) [error] {
-  if status.ok {
-    return
-  }
+  return when status.ok
 
   if status.exited() {
     abort(status.exit_code()?)
@@ -76,7 +74,7 @@ proc main(...raw: List[Str]) [process, env, error] {
     return
   }
 
-  var command_argv: List[Str] = []
+  var command_argv = []
 
   while index < argv.len() {
     command_argv = command_argv.push(argv[index])

@@ -6,7 +6,7 @@ test test_unix_dry_run_covers_module_surface [fs, process, env, error] { |ctx|
   let command = process.command_argv("demo", ["demo", "arg"])
 
   env XSH_UNIX_DRY_RUN=1 XSH_UNIX_DRY_RUN_SIGNAL=USR1 XSH_UNIX_UPTIME_SECONDS=17 XSH_UNIX_DRY_RUN_LOG=$log {
-    test.eq(unix.reap_child_events()?.collect().len(), 0)?
+    (unix.reap_child_events()?.collect().len()) == (0)
     unix.pid1_setup(["TERM"], subreaper: true, allow_non_pid1: true)?
     let event = unix.wait_pid1_event()?
     event.kind == "signal"
@@ -90,7 +90,7 @@ test test_unix_uptime_seconds_dry_run_log [fs, process, env, error] { |ctx|
 }
 
 test test_unix_uptime_seconds_log_failure_kind [fs, process, env, error] { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     # The script-backed entry reports a log failure as the call's `Err`, while
     # the native dry-run arm raises it, so the failure is only a value on the
     # platform that uses this implementation.
@@ -110,7 +110,7 @@ test test_unix_uptime_seconds_log_failure_kind [fs, process, env, error] { |ctx|
 }
 
 test test_unix_uptime_seconds_reads_the_host_text [process, env, error] {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     # The entry reads `/proc/uptime` on Linux only; on other platforms the
     # binding is still native, so there is nothing to add here.
     test.skip("unix.uptime_seconds reads /proc/uptime on Linux only")

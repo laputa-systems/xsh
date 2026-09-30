@@ -831,6 +831,190 @@ struct ConstantScope {
     bindings: FxHashMap<Name, Option<StmtId>>,
 }
 
+/// Scope containment is resolved in batches: a start-position sweep inserts
+/// blocks into an end-position prefix index. Each prefix retains the shortest
+/// two distinct lengths so a block's parent excludes all equal-span blocks.
+struct ConstantScopeIndex {
+    blocks: Vec<(usize, crate::source::Span)>,
+    #[cfg(test)]
+    visits: std::cell::Cell<usize>,
+}
+
+impl ConstantScopeIndex {
+    fn new(mut blocks: Vec<(usize, crate::source::Span)>) -> Self {
+        blocks.sort_unstable_by_key(|(index, span)| (span.source_id, span.start(), span.end(), *index));
+        Self { blocks, #[cfg(test)] visits: std::cell::Cell::new(0) }
+    }
+
+    fn scopes(&self, queries: &[(crate::source::Span, bool)]) -> Vec<Option<usize>> {
+        let mut order = (0..queries.len()).collect::<Vec<_>>();
+        order.sort_unstable_by_key(|index| (queries[*index].0.source_id, queries[*index].0.start()));
+        let mut scopes = vec![None; queries.len()];
+        let mut source = None;
+        let mut ends = Vec::new();
+        let mut prefixes = Vec::new();
+        let mut next_block = 0;
+        let mut block_end = 0;
+        for query_index in order {
+            let (query, strict) = queries[query_index];
+            if source != Some(query.source_id) {
+                source = Some(query.source_id);
+                next_block = self.blocks.partition_point(|(_, span)| span.source_id < query.source_id);
+                block_end = self.blocks.partition_point(|(_, span)| span.source_id <= query.source_id);
+                ends.clear();
+                ends.extend(self.blocks[next_block..block_end].iter().map(|(_, span)| span.end()));
+                ends.sort_unstable();
+                ends.dedup();
+                prefixes.clear();
+                prefixes.resize(ends.len() + 1, ConstantScopeCandidates::default());
+            }
+            while next_block < block_end && self.blocks[next_block].1.start() <= query.start() {
+                let (block, span) = self.blocks[next_block];
+                let mut position = ends.len() - ends.binary_search(&span.end()).expect("indexed block end");
+                while position < prefixes.len() {
+                    #[cfg(test)]
+                    self.visits.set(self.visits.get() + 1);
+                    prefixes[position].insert((span.end() - span.start(), block));
+                    position += position & position.wrapping_neg();
+                }
+                next_block += 1;
+            }
+            let mut position = ends.len() - ends.partition_point(|end| *end < query.end());
+            let mut candidates = ConstantScopeCandidates::default();
+            while position > 0 {
+                #[cfg(test)]
+                self.visits.set(self.visits.get() + 1);
+                for candidate in prefixes[position].shortest.into_iter().flatten() { candidates.insert(candidate); }
+                position &= position - 1;
+            }
+            scopes[query_index] = candidates.shortest.into_iter().flatten()
+                .find(|(length, _)| !strict || *length > query.end() - query.start()).map(|(_, block)| block);
+        }
+        scopes
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct ConstantScopeCandidates {
+    shortest: [Option<(usize, usize)>; 2],
+}
+
+impl ConstantScopeCandidates {
+    fn insert(&mut self, candidate: (usize, usize)) {
+        match self.shortest[0] {
+            None => self.shortest[0] = Some(candidate),
+            Some(first) if candidate.0 == first.0 => self.shortest[0] = Some(first.min(candidate)),
+            Some(first) if candidate < first => {
+                self.shortest[1] = Some(first);
+                self.shortest[0] = Some(candidate);
+            }
+            _ => self.shortest[1] = Some(self.shortest[1].map_or(candidate, |second| second.min(candidate))),
+        }
+    }
+}
+
+#[cfg(test)]
+mod constant_scope_index_tests {
+    use super::*;
+    use crate::source::{SourceId, Span};
+
+    #[test]
+    fn constant_scope_index_bounds_workspace_lookup_work() {
+        let blocks = (0..512).map(|index| (index, Span::new(SourceId::new(index % 8), index * 10, index * 10 + 9))).collect();
+        let index = ConstantScopeIndex::new(blocks);
+        let queries = (0..1024).map(|query| {
+            let block = query % 512;
+            (Span::new(SourceId::new(block % 8), block * 10 + 1, block * 10 + 8), false)
+        }).collect::<Vec<_>>();
+        let scopes = index.scopes(&queries);
+        for (query, scope) in scopes.into_iter().enumerate() { assert_eq!(scope, Some(query % 512)); }
+        assert!(index.visits.get() <= (512 + 1024) * 10 * 4, "{} block visits", index.visits.get());
+    }
+
+    #[test]
+    fn constant_scope_index_preserves_containment_identity_and_strict_parents() {
+        let mut blocks = Vec::new();
+        for source in 0..3 {
+            for start in 0..=12 {
+                for end in start..=12 {
+                    blocks.push((blocks.len(), Span::new(SourceId::new(source), start, end)));
+                }
+            }
+        }
+        for span in [Span::new(SourceId::new(0), 0, 12), Span::new(SourceId::new(1), 4, 8)] {
+            blocks.push((blocks.len(), span));
+        }
+        blocks.reverse();
+        let index = ConstantScopeIndex::new(blocks.clone());
+        let mut queries = Vec::new();
+        for source in 0..4 {
+            for start in 0..=14 {
+                for end in start..=14 {
+                    for strict in [false, true] { queries.push((Span::new(SourceId::new(source), start, end), strict)); }
+                }
+            }
+        }
+        let actual = index.scopes(&queries);
+        for ((query, strict), actual) in queries.into_iter().zip(actual) {
+            let expected = blocks.iter().filter(|(_, span)| {
+                span.source_id == query.source_id && span.start() <= query.start() && span.end() >= query.end()
+                    && (!strict || span.start() < query.start() || span.end() > query.end())
+            }).min_by_key(|(block, span)| (span.end() - span.start(), *block)).map(|(block, _)| *block);
+            assert_eq!(actual, expected, "{query:?}, strict parent: {strict}");
+        }
+    }
+
+    #[test]
+    fn constant_scope_index_bounds_nested_lookup_work() {
+        let blocks = (0..512).map(|index| (index, Span::new(SourceId::new(0), index, 2048 - index))).collect();
+        let index = ConstantScopeIndex::new(blocks);
+        let queries = (0..1024).map(|_| (Span::new(SourceId::new(0), 512, 1536), false)).collect::<Vec<_>>();
+        assert!(index.scopes(&queries).into_iter().all(|scope| scope == Some(511)));
+        assert!(index.visits.get() <= (512 + 1024) * 10 * 4, "{} block visits", index.visits.get());
+    }
+
+    #[test]
+    fn prepared_constants_keep_only_configured_workspace_sources() {
+        use crate::syntax::arena::ArenaProgramBuilder;
+        use crate::syntax::parser::Parser;
+        for source in ["const local = 7\nprint $local\n", "print clean\n"] {
+            let mut builder = ArenaProgramBuilder::with_token_capacity(128);
+            let unrelated = Parser::parse_source_into_arena_builder(SourceId::new(0), "const unrelated = 1 / 0\n", &mut builder);
+            assert!(unrelated.diagnostics.is_empty());
+            let root = Parser::parse_source_into_arena_builder(SourceId::new(1), source, &mut builder);
+            assert!(root.diagnostics.is_empty());
+            let program = builder.finish_with_statements(root.statements);
+            program.symbol_owner().with_current(|| {
+                let constructors = RecordConstructors::collect(&program);
+                let prepared = PreparedConstants::collect(&program, &constructors);
+                assert!(prepared.diagnostics.is_empty(), "{:?}", prepared.diagnostics);
+                assert!(prepared.values.keys().all(|id| program.arena.expr(*id).span.source_id == SourceId::new(1)));
+                assert!(!prepared.global_bindings.contains_key(&(None, Name::intern("unrelated"))));
+                if source.starts_with("const") {
+                    let local = prepared.global_bindings[&(None, Name::intern("local"))];
+                    assert_eq!(prepared.values[&local], LiteralConstant::Int(7));
+                } else {
+                    assert!(prepared.values.is_empty());
+                    assert!(prepared.global_bindings.is_empty());
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn prepared_constants_check_unreachable_declarations_in_configured_sources() {
+        use crate::syntax::parser::Parser;
+        let parsed = Parser::parse_source_arena_only(SourceId::new(0), "const valid = 1\nproc unused() { const invalid = 1 / 0 }\n");
+        assert!(parsed.diagnostics.is_empty());
+        parsed.arena.symbol_owner().with_current(|| {
+            let constructors = RecordConstructors::collect(&parsed.arena);
+            let prepared = PreparedConstants::collect(&parsed.arena, &constructors);
+            assert_eq!(prepared.diagnostics.len(), 1);
+            assert_eq!(prepared.diagnostics[0].code.as_deref(), Some("check.const"));
+        });
+    }
+}
+
 struct ConstantPreparation<'a> {
     program: &'a ArenaProgram,
     constructors: &'a RecordConstructors,
@@ -950,8 +1134,23 @@ impl PreparedConstants {
     pub fn collect(program: &ArenaProgram, constructors: &RecordConstructors) -> Self {
         use crate::syntax::arena::{BlockId, FunctionDefId};
         let arena = &program.arena;
-        if !arena.stmt_tags.contains(&crate::syntax::arena::ArenaStmtTag::Const) { return Self::default(); }
+        let active_sources = program.statement_ids().chain(program.modules.iter().flat_map(|module| program.module_statements(module)))
+            .map(|id| arena.stmt(id).span.source_id).collect::<FxHashSet<_>>();
+        let statements = (0..arena.stmt_tags.len()).map(StmtId::from_index)
+            .filter(|id| active_sources.contains(&arena.stmt(*id).span.source_id)).collect::<Vec<_>>();
+        if !statements.iter().any(|id| matches!(arena.stmt(*id).kind, ArenaStmtKind::Const { .. })) { return Self::default(); }
         let block_count = arena.blocks.len();
+        let blocks = arena.blocks.iter().enumerate().map(|(index, block)| (index, arena.span(block.span)))
+            .filter(|(_, span)| active_sources.contains(&span.source_id)).collect::<Vec<_>>();
+        let references = (0..arena.expr_tags.len()).map(ExprId::from_index).filter_map(|id| {
+            let expression = arena.expr(id);
+            (active_sources.contains(&expression.span.source_id)
+                && matches!(expression.kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. })).then_some((id, expression.span))
+        }).collect::<Vec<_>>();
+        let queries = blocks.iter().map(|(_, span)| (*span, true))
+            .chain(statements.iter().map(|id| (arena.stmt(*id).span, false)))
+            .chain(references.iter().map(|(_, span)| (*span, false))).collect::<Vec<_>>();
+        let resolved_scopes = ConstantScopeIndex::new(blocks.clone()).scopes(&queries);
         let main_scope = block_count;
         let mut preparation = ConstantPreparation {
             program, constructors,
@@ -968,14 +1167,8 @@ impl PreparedConstants {
             preparation.module_scopes.insert(module.name, scope);
             for statement in program.module_statements(module) { sources.insert(arena.stmt(statement).span.source_id, scope); }
         }
-        for index in 0..block_count {
-            let span = arena.span(arena.block(BlockId::from_index(index)).span);
-            let parent = (0..block_count).filter(|other| *other != index).filter(|other| {
-                let outer = arena.span(arena.block(BlockId::from_index(*other)).span);
-                outer.source_id == span.source_id && outer.start() <= span.start() && outer.end() >= span.end()
-                    && (outer.start() < span.start() || outer.end() > span.end())
-            }).min_by_key(|other| { let span = arena.span(arena.block(BlockId::from_index(*other)).span); span.end() - span.start() })
-                .unwrap_or_else(|| sources.get(&span.source_id).copied().unwrap_or(main_scope));
+        for (query, &(index, span)) in blocks.iter().enumerate() {
+            let parent = resolved_scopes[query].unwrap_or_else(|| sources.get(&span.source_id).copied().unwrap_or(main_scope));
             preparation.scopes[index].parent = Some(parent);
             preparation.scopes[index].namespace = sources.get(&span.source_id).map(|scope| preparation.scopes[*scope].namespace).flatten();
             for param in arena.block_params(arena.block(BlockId::from_index(index)).params) {
@@ -984,15 +1177,12 @@ impl PreparedConstants {
         }
         for index in 0..arena.function_defs.len() {
             let function = arena.function_def(FunctionDefId::from_index(index));
+            if !active_sources.contains(&arena.span(arena.block(function.body).span).source_id) { continue; }
             for param in arena.params(function.params) { preparation.scopes[function.body.index()].bindings.insert(param.name, None); }
         }
-        for index in 0..arena.stmt_tags.len() {
-            let id = StmtId::from_index(index);
+        for (query, &id) in statements.iter().enumerate() {
             let statement = arena.stmt(id);
-            let scope = (0..block_count).filter(|block| {
-                let span = arena.span(arena.block(BlockId::from_index(*block)).span);
-                span.source_id == statement.span.source_id && span.start() <= statement.span.start() && span.end() >= statement.span.end()
-            }).min_by_key(|block| { let span = arena.span(arena.block(BlockId::from_index(*block)).span); span.end() - span.start() })
+            let scope = resolved_scopes[blocks.len() + query]
                 .unwrap_or_else(|| sources.get(&statement.span.source_id).copied().unwrap_or(main_scope));
             preparation.statement_scopes.insert(id, scope);
             match statement.kind {
@@ -1005,8 +1195,7 @@ impl PreparedConstants {
                 _ => {}
             }
         }
-        for index in 0..arena.stmt_tags.len() {
-            let id = StmtId::from_index(index);
+        for &id in &statements {
             let scope = preparation.statement_scopes[&id];
             match arena.stmt(id).kind {
                 ArenaStmtKind::Let { target, .. } | ArenaStmtKind::Var { target, .. } | ArenaStmtKind::Guard { target, .. } => {
@@ -1022,10 +1211,10 @@ impl PreparedConstants {
             }
         }
         for arm in &arena.match_arms {
+            if !active_sources.contains(&arena.span(arena.block(arm.block).span).source_id) { continue; }
             for name in constant_pattern_names(arena, arm.pattern) { preparation.scopes[arm.block.index()].bindings.insert(name, None); }
         }
-        for index in 0..arena.stmt_tags.len() {
-            let id = StmtId::from_index(index);
+        for &id in &statements {
             if matches!(arena.stmt(id).kind, ArenaStmtKind::Const { .. }) {
                 preparation.steps = 0;
                 if let Err((span, message)) = preparation.declaration(id, 0) {
@@ -1034,23 +1223,16 @@ impl PreparedConstants {
                 }
             }
         }
-        for index in 0..arena.expr_tags.len() {
-            let id = ExprId::from_index(index);
-            let expression = arena.expr(id);
-            if !matches!(expression.kind, ArenaExprKind::Ident(_) | ArenaExprKind::Field { .. }) { continue; }
-            let scope = (0..block_count).filter(|block| {
-                let span = arena.span(arena.block(BlockId::from_index(*block)).span);
-                span.source_id == expression.span.source_id && span.start() <= expression.span.start() && span.end() >= expression.span.end()
-            }).min_by_key(|block| { let span = arena.span(arena.block(BlockId::from_index(*block)).span); span.end() - span.start() })
-                .unwrap_or_else(|| sources.get(&expression.span.source_id).copied().unwrap_or(main_scope));
+        for (query, &(id, span)) in references.iter().enumerate() {
+            let scope = resolved_scopes[blocks.len() + statements.len() + query]
+                .unwrap_or_else(|| sources.get(&span.source_id).copied().unwrap_or(main_scope));
             preparation.steps = 0;
             if let Ok(value) = preparation.expression(id, scope, None, 0) {
                 preparation.prepared.types.entry(id).or_insert_with(|| value.value_type());
                 preparation.prepared.values.insert(id, value);
             }
         }
-        for index in 0..arena.stmt_tags.len() {
-            let id = StmtId::from_index(index);
+        for &id in &statements {
             let statement = arena.stmt(id);
             let ArenaStmtKind::TailBareIdent(name) = statement.kind else { continue; };
             let mut current = Some(preparation.statement_scopes[&id]);

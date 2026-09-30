@@ -6,11 +6,9 @@ use stage as stages
 export proc command_prefix(ctx: context.Context) [process, env, error] -> Result[List[Str]] {
   let configured = env.get_or("RUSTYBENCH", "")?.trim()
 
-  if configured != "" {
-    return process.argv_words(configured)?
-  }
+  return process.argv_words(configured)? when configured != ""
 
-  return [
+  [
     "cargo",
     "run",
     "--quiet",
@@ -31,7 +29,7 @@ export proc benchmark(ctx: context.Context, fast: Bool) [process, env, error, io
   var argv = prefix.extend(["baseline", "--root", ctx.root.display(), "--baseline", baseline.display()])
 
   if fast {
-    argv = argv.push("--fast")
+    argv += ["--fast"]
   }
 
   argv += ["--", "cargo", "bench", "-p", "xshi", "--bench", "bench", "--features", "benchmark"]

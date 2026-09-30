@@ -22,11 +22,11 @@ test test_linux_dry_run_covers_module_surface [fs, process, env, error] { |ctx|
     linux.del_default_ipv4_route("192.0.2.1", interface: "eth0")?
     linux.dhcp_send_release("eth0", "192.0.2.10", "192.0.2.1")?
     let interfaces = linux.interfaces()?.collect()
-    test.eq(interfaces[0].name, "eth0")?
-    test.eq(interfaces[0].addresses[0].family, "inet")?
+    (interfaces[0].name) == ("eth0")
+    (interfaces[0].addresses[0].family) == ("inet")
     let routes = linux.routes()?.collect()
-    test.eq(routes[0].dst, "default")?
-    test.eq(routes[0].gateway, "192.0.2.1")?
+    (routes[0].dst) == ("default")
+    (routes[0].gateway) == ("192.0.2.1")
     let network = linux.network_dump()?
     network.state == "complete"
     network.links[0].name == "eth0"
@@ -34,11 +34,11 @@ test test_linux_dry_run_covers_module_surface [fs, process, env, error] { |ctx|
     network.routes[0].table == 254
     network.rules[0].priority == 32766
     (linux.meminfo()?.total > 0)
-    test.eq(linux.modules()?.collect()[0].name, "xsh_demo")?
-    "xsh" in linux.dmesg()?.collect()[0].require(Str)?
+    (linux.modules()?.collect()[0].name) == ("xsh_demo")
+    "xsh" in linux.dmesg()?.collect()[0]
     linux.is_mountpoint(/proc)?
-    test.eq(linux.disk_usage(/)?.collect()[0].device, "rootfs")?
-    test.eq(linux.block_devices()?.collect()[0].name, "vda")?
+    (linux.disk_usage(/)?.collect()[0].device) == ("rootfs")
+    (linux.block_devices()?.collect()[0].name) == ("vda")
     let sysctl_value = linux.sysctl_get("kernel.pid_max")?
     sysctl_value == "1"
     linux.sysctl_set("kernel.pid_max", sysctl_value)?
@@ -57,12 +57,12 @@ test test_linux_dry_run_covers_module_surface [fs, process, env, error] { |ctx|
     linux.set_hwclock(epoch_ms)?
     linux.set_system_clock(epoch_ms)?
     let rfkill = linux.rfkill_list()?.collect()
-    test.eq(rfkill[0].type, "wlan")?
+    (rfkill[0].type) == ("wlan")
     linux.rfkill_block(rfkill[0].id)?
     linux.rfkill_unblock(rfkill[0].id)?
     let loop_device = linux.loop_attach(seed)?
     linux.loop_detach(loop_device)?
-    test.eq(linux.loop_list()?.collect()[0].device, loop_device)?
+    (linux.loop_list()?.collect()[0].device) == (loop_device)
     linux.mkswap(seed)?
     linux.swapon(seed, priority: 1)?
     linux.swapoff(seed)?
@@ -70,7 +70,7 @@ test test_linux_dry_run_covers_module_surface [fs, process, env, error] { |ctx|
     linux.modinfo("demo")?.params[0].name == "debug"
     linux.modprobe("demo", params: "debug=1")?
     linux.depmod("dry-run")?
-    test.eq(linux.open_files(123)?.collect()[0].type, "file")?
+    (linux.open_files(123)?.collect()[0].type) == ("file")
     let table = linux.partition_table(seed)?
     table.partitions[0].name == "root"
     linux.write_partition_table(seed, table)?
@@ -127,8 +127,8 @@ test test_linux_dry_run_covers_module_surface [fs, process, env, error] { |ctx|
 # reports a record on success.
 pure meminfo_failure(result: Result[LinuxMemInfo]) -> Str {
   match result {
-    Ok(_) => return ""
-    Err(failure) => return failure.message
+    Ok(_) => ""
+    Err(failure) => failure.message
   }
 }
 
@@ -174,10 +174,10 @@ test test_linux_text_dry_run_values_and_log [fs, process, env, error] { |ctx|
     memory.swap_free == (384 * 1024 * 1024)
 
     let modules = linux.modules()?.collect()
-    test.eq(modules.len(), 1)?
-    test.eq(modules[0].name, "xsh_demo")?
-    test.eq(modules[0].size, 4096)?
-    test.eq(modules[0].used_by, ["xsh_dep"])?
+    (modules.len()) == (1)
+    (modules[0].name) == ("xsh_demo")
+    (modules[0].size) == (4096)
+    (modules[0].used_by) == (["xsh_dep"])
   } ?
 
   log.read_text()? == """{"op":"meminfo"}
@@ -189,13 +189,13 @@ test test_linux_dry_run_disk_usage_and_sysctl_records [process, env, error] {
   env XSH_LINUX_DRY_RUN=1 XSH_LINUX_SYSCTL_VALUE=65535 {
     let root_usage = linux.disk_usage()?.collect()
     let tmp_usage = linux.disk_usage(/tmp)?.collect()
-    test.eq(root_usage[0].device, "rootfs")?
-    test.eq(root_usage[0].mount, "/")?
-    test.eq(root_usage[0].fstype, "tmpfs")?
-    test.eq(root_usage[0].total, 1073741824)?
-    test.eq(root_usage[0].used, 268435456)?
-    test.eq(root_usage[0].available, 805306368)?
-    test.eq(tmp_usage[0].mount, "/tmp")?
+    (root_usage[0].device) == ("rootfs")
+    (root_usage[0].mount) == ("/")
+    (root_usage[0].fstype) == ("tmpfs")
+    (root_usage[0].total) == (1073741824)
+    (root_usage[0].used) == (268435456)
+    (root_usage[0].available) == (805306368)
+    (tmp_usage[0].mount) == ("/tmp")
     linux.is_mountpoint(/proc)?
     ! linux.is_mountpoint(/tmp)?
     linux.sysctl_get("kernel.pid_max")? == "65535"
@@ -232,7 +232,7 @@ test test_linux_dry_run_file_attrs_decode_seed_flags [fs, process, env, error] {
 test test_linux_dry_run_rejects_invalid_seed_inputs [process, env, error] {
   env XSH_LINUX_DRY_RUN=1 {
     match linux.sysctl_get("kernel..pid_max") {
-      Ok(_) => test.ok(false, "invalid sysctl name was accepted")?
+      Ok(_) => assert (false), "invalid sysctl name was accepted"
       Err(failure) => {
         test.error_kind(failure, "linux-sysctl")?
         "invalid" in failure.message
@@ -240,7 +240,7 @@ test test_linux_dry_run_rejects_invalid_seed_inputs [process, env, error] {
     }
 
     match linux.sysctl_set("../kernel.pid_max", "1") {
-      Ok(_) => test.ok(false, "invalid sysctl path was accepted")?
+      Ok(_) => assert (false), "invalid sysctl path was accepted"
       Err(failure) => {
         test.error_kind(failure, "linux-sysctl")?
         "invalid" in failure.message
@@ -249,7 +249,7 @@ test test_linux_dry_run_rejects_invalid_seed_inputs [process, env, error] {
 
     for flags in [-1, 4294967296] {
       match linux.set_file_attrs(/tmp/file, flags) {
-        Ok(_) => test.ok(false, "invalid file attribute flags were accepted")?
+        Ok(_) => assert (false), "invalid file attribute flags were accepted"
         Err(failure) => {
           test.error_kind(failure, "linux-file-attrs")?
           "between 0 and 4294967295" in failure.message
@@ -258,7 +258,7 @@ test test_linux_dry_run_rejects_invalid_seed_inputs [process, env, error] {
     }
 
     match linux.set_file_version(/tmp/file, -1) {
-      Ok(_) => test.ok(false, "invalid file version was accepted")?
+      Ok(_) => assert (false), "invalid file version was accepted"
       Err(failure) => {
         test.error_kind(failure, "linux-file-version")?
         "between 0 and 4294967295" in failure.message
@@ -267,7 +267,7 @@ test test_linux_dry_run_rejects_invalid_seed_inputs [process, env, error] {
 
     test.error_kind(linux.kill_all(signal: "BOGUS"), "invalid-signal")?
     match linux.mknod(/tmp/file, "socket", 0, 0) {
-      Ok(_) => test.ok(false, "invalid node kind was accepted")?
+      Ok(_) => assert (false), "invalid node kind was accepted"
       Err(failure) => {
         test.error_kind(failure, "linux-mknod")?
         "block" in failure.message
@@ -277,7 +277,7 @@ test test_linux_dry_run_rejects_invalid_seed_inputs [process, env, error] {
 }
 
 test test_linux_dry_run_log_appends_in_place [fs, process, env, error] { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     # This checks Linux's in-place append behavior.
     test.skip("the dry-run log is appended on Linux only")
     return
@@ -334,7 +334,7 @@ test test_linux_dry_run_log_appends_in_place [fs, process, env, error] { |ctx|
 }
 
 test test_linux_text_log_failure_kind [fs, process, env, error] { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("Linux dry-run logging is tested on Linux only")
     return
   }
@@ -371,7 +371,7 @@ test test_linux_text_log_failure_kind [fs, process, env, error] { |ctx|
 }
 
 test test_linux_meminfo_reads_the_host_text [process, env, error] {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     # The entry reads `/proc/meminfo` on Linux only; on other platforms the
     # binding is still native, so there is nothing to add here.
     test.skip("linux.meminfo reads /proc/meminfo on Linux only")
@@ -394,7 +394,7 @@ test test_linux_meminfo_reads_the_host_text [process, env, error] {
 }
 
 test test_linux_modules_streams_the_host_text [process, env, error] {
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     # The entry reads `/proc/modules` on Linux only; on other platforms the
     # binding is still native, so there is nothing to add here.
     test.skip("linux.modules reads /proc/modules on Linux only")
@@ -440,7 +440,7 @@ test test_linux_modules_streams_the_host_text [process, env, error] {
 # retained scan, so a scoped `env` block around the call would not be visible
 # to it.
 test test_linux_module_policy_uses_the_configured_tree [fs, process, env, error] { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     # On other platforms the binding is still native, so there is nothing to
     # add here.
     test.skip("linux.modinfo reads a module tree on Linux only")
@@ -488,7 +488,10 @@ test test_linux_module_policy_uses_the_configured_tree [fs, process, env, error]
     b"",
     "linux-module-policy",
   )?
-  test.ok(nested.success, nested.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = nested
+    assert assertion_condition, assertion_message
+  }
   nested.stdout == f"""demo_name|Demo module|MIT|2
 param=debug|bool|Enable debug
 param=mode|charp|Mode
@@ -501,7 +504,7 @@ dep.ko:
 }
 
 test test_linux_open_files_tracks_a_live_child_descriptor [fs, process, env, time, error] { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("linux.open_files reads live Linux process descriptors")
     return
   }
@@ -533,11 +536,11 @@ test test_linux_open_files_tracks_a_live_child_descriptor [fs, process, env, tim
     time.sleep(10ms)?
   }
 
-  test.ok(ready.exists()?, "child did not open its descriptor")?
+  assert (ready.exists()?), "child did not open its descriptor"
 
   env XSH_LINUX_REAL=1 XSH_LINUX_DRY_RUN=0 {
     let before = linux.open_files(child.pid)?.collect()
-    test.ok(before |> any .path == source, "open descriptor must be visible")?
+    assert (before |> any .path == source), "open descriptor must be visible"
 
     release.write("")?
     for _ in range(0, 500) {
@@ -545,10 +548,10 @@ test test_linux_open_files_tracks_a_live_child_descriptor [fs, process, env, tim
       time.sleep(10ms)?
     }
 
-    test.ok(closed.exists()?, "child did not close its descriptor")?
+    assert (closed.exists()?), "child did not close its descriptor"
     let after = linux.open_files(child.pid)?.collect()
-    test.ok(after.len() > 0, "child must still be visible")?
-    test.ok(! (after |> any .path == source), "closed descriptor must disappear")?
+    assert (after.len() > 0), "child must still be visible"
+    assert (! (after |> any .path == source)), "closed descriptor must disappear"
   } ?
 
   stop.write("")?

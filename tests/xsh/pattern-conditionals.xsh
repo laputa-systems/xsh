@@ -1,5 +1,4 @@
 error PatternLoopError = Done(detail: Str) : NotFound
-enum PatternBranchTag { SelectedBranch(Int), OtherBranch }
 
 pure pattern_loop_subject(index: Int) -> Result[Int] {
   if index < 3 { Ok(index) } else { Err(PatternLoopError.Done(detail: "done")) }
@@ -14,43 +13,51 @@ pure pattern_conditional_label(outcome: Result[Int]) -> Str {
   }
 }
 
-test test_pattern_conditionals_bind_immutable_branch_payloads [error] {
+test test_pattern_conditionals_bind_immutable_branch_payloads [error] { |ctx|
+  let output = test.run_script(ctx, r"""enum PatternBranchTag { SelectedBranch(Int), OtherBranch }
+proc witness() [error] {
   let outcome: Result[Int] = Ok(7)
   let value = "outer"
   if let Ok(value) = outcome {
-    test.eq(value, 7)?
+    (value) == (7)
   } else {
-    test.eq(value, "outer")?
+    (value) == ("outer")
   }
-  test.eq(value, "outer")?
+  (value) == ("outer")
   if let SelectedBranch(value) = SelectedBranch(7) {
-    test.eq(value, 7)?
+    (value) == (7)
   }
-  test.eq(value, "outer")?
+  (value) == ("outer")
   if let Err(_) = outcome {
     test.fail("unexpected error branch")?
   } else if let Ok(value) = outcome {
-    test.eq(value, 7)?
+    (value) == (7)
   } else {
     test.fail("expected matching branch")?
   }
   if let Ok(outcome) = outcome {
-    test.eq(outcome, 7)?
+    (outcome) == (7)
   }
-  test.eq(outcome, Ok(7))?
+  (outcome) == (Ok(7))
+}
+witness()
+""")?
+  let {success: assertion_condition, stderr: assertion_message, ..} = output
+  assert assertion_condition, assertion_message
+  output.stdout == ""
 }
 
 test test_pattern_conditionals_produce_values_and_keep_literal_results [error] {
-  let outcome: Result[Int] = Ok(9)
+  let outcome = Ok(9)
   let selected = if let Ok(value) = outcome { value + 1 } else { 0 }
-  test.eq(selected, 10)?
+  (selected) == (10)
   let accepted = if let Ok(value) = outcome { value < 0 } else { true }
-  test.eq(accepted, false)?
-  test.eq(pattern_conditional_label(outcome), "9")?
+  (accepted) == (false)
+  (pattern_conditional_label(outcome)) == ("9")
   let missing: Result[Int] = Err(PatternLoopError.Done(detail: "done"))
-  test.eq(pattern_conditional_label(missing), "missing")?
+  (pattern_conditional_label(missing)) == ("missing")
   if let Err(error) = missing {
-    test.eq(error is PatternLoopError.Done, true)?
+    (error is PatternLoopError.Done) == (true)
   } else {
     test.fail("Result was implicitly unwrapped")?
   }
@@ -61,13 +68,13 @@ test test_pattern_loops_reevaluate_after_continue_and_keep_lexical_targets [erro
   var total = 0
   while let Ok(value) = pattern_loop_subject(index) {
     index += 1
-    if value == 1 { continue }
+    continue when value == 1
     total += value
   }
-  test.eq(index, 3)?
-  test.eq(total, 2)?
+  (index) == (3)
+  (total) == (2)
   while let Ok(value) = pattern_loop_subject(0) {
-    test.eq(value, 0)?
+    (value) == (0)
     break
   }
 }
@@ -84,22 +91,29 @@ test test_pattern_conditionals_reject_irrefutable_and_leaking_captures [error] {
     "let value = if let Ok(payload) = Ok(1) { payload } else { \"bad\" }\n",
   ] {
     let output = test.run_script(ctx, source)?
-    test.eq(output.success, false, source)?
+    {
+      let assertion_actual = output.success
+      let assertion_expected = false
+      let assertion_message = source
+      assert assertion_actual == assertion_expected, assertion_message
+    }
   }
 }
 
-pure pattern_condition_dynamic() -> Any { "hello" }
 
-test test_pattern_conditionals_reuse_nested_record_type_and_facet_patterns [error] {
+test test_pattern_conditionals_reuse_nested_record_type_and_facet_patterns [error] { |ctx|
+  let output = test.run_script(ctx, r"""error PatternLoopError = Done(detail: Str) : NotFound
+pure pattern_condition_dynamic() -> Any { "hello" }
+proc witness() [error] {
   let failure: PatternLoopError = PatternLoopError.Done(detail: "done")
   if let is NotFound = failure {
-    test.eq(failure is NotFound, true)?
+    (failure is NotFound) == (true)
   } else {
     test.fail("facet pattern did not match")?
   }
   let outcome = Ok({message: "ready", code: 7})
   if let Ok({message: label, code: 7}) = outcome {
-    test.eq(label, "ready")?
+    (label) == ("ready")
   } else {
     test.fail("nested pattern did not match")?
   }
@@ -107,16 +121,22 @@ test test_pattern_conditionals_reuse_nested_record_type_and_facet_patterns [erro
   if let Ok({message: label, code: 8}) = outcome {
     test.fail("partial nested pattern selected a branch")?
   } else {
-    test.eq(label, "outer")?
+    (label) == ("outer")
   }
-  test.eq(label, "outer")?
+  (label) == ("outer")
   let value = pattern_condition_dynamic()
   if let text is Str = value {
-    test.eq(text.upper(), "HELLO")?
+    (text.upper()) == ("HELLO")
   }
   if let _ is Str = value {
-    test.eq(value.upper(), "HELLO")?
+    (value.upper()) == ("HELLO")
   }
+}
+witness()
+""")?
+  let {success: assertion_condition, stderr: assertion_message, ..} = output
+  assert assertion_condition, assertion_message
+  output.stdout == ""
 }
 
 test test_pattern_conditionals_evaluate_once_and_cleanup_loop_defers [error] { |ctx|
@@ -137,8 +157,11 @@ while let Ok(value) = subject(index) {
 }
 print finished
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "5\nmismatch\n0\ncleanup 0\n1\ncleanup 1\n2\nfinished\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("5\nmismatch\n0\ncleanup 0\n1\ncleanup 1\n2\nfinished\n")
 }
 
 test test_pattern_conditionals_propagate_explicit_subject_errors [error] { |ctx|
@@ -147,10 +170,10 @@ error Finish = Done(detail: Str)
 proc subject() -> Result[Int] { return Err(Finish.Done(detail: "subject failed")) }
 if let 7 = subject()? { print selected } else { print unexpected }
 """)?
-  test.eq(output.success, false)?
-  test.eq(output.stdout, "")?
-  test.ok("Finish.Done" in output.stderr)?
-  test.ok("result.propagate" in output.stderr)?
+  (output.success) == (false)
+  (output.stdout) == ("")
+  ("Finish.Done" in output.stderr)
+  ("result.propagate" in output.stderr)
 }
 
 test test_pattern_conditional_lint_and_formatter_fixes_are_stable [fs, process, error] { |ctx|
@@ -160,19 +183,38 @@ test test_pattern_conditional_lint_and_formatter_fixes_are_stable [fs, process, 
   ] {
     let candidate = test.temp_file(ctx, name: "pattern-conditional-fix.xsh", contents: bytes.from_text(source))?
     let fixed = run.capture --text "xsht" lint --fix $candidate ?
-    test.ok(fixed.status.exited_with(0), fixed.stderr)?
+    {
+      let assertion_condition = fixed.status.exited_with(0)
+      let assertion_message = fixed.stderr
+      assert assertion_condition, assertion_message
+    }
     let first = candidate.read_text()?
-    test.ok("if let Ok(value)" in first)?
-    test.ok("else" in first)?
+    ("if let Ok(value)" in first)
+    ("else" in first)
     let stable = run.capture --text "xsht" lint --fix $candidate ?
-    test.ok(stable.status.exited_with(0), stable.stderr)?
-    test.eq(candidate.read_text()?, first)?
+    {
+      let assertion_condition = stable.status.exited_with(0)
+      let assertion_message = stable.stderr
+      assert assertion_condition, assertion_message
+    }
+    (candidate.read_text()?) == (first)
     let formatted = run.capture --text "xsht" fmt $candidate ?
-    test.ok(formatted.status.exited_with(0), formatted.stderr)?
+    {
+      let assertion_condition = formatted.status.exited_with(0)
+      let assertion_message = formatted.stderr
+      assert assertion_condition, assertion_message
+    }
     let checked = run.capture --text "xsht" fmt --check $candidate ?
-    test.ok(checked.status.exited_with(0), checked.stderr)?
+    {
+      let assertion_condition = checked.status.exited_with(0)
+      let assertion_message = checked.stderr
+      assert assertion_condition, assertion_message
+    }
     let output = test.run_script(ctx, candidate.read_text()?)?
-    test.ok(output.success, output.stderr)?
+    {
+      let {success: assertion_condition, stderr: assertion_message, ..} = output
+      assert assertion_condition, assertion_message
+    }
   }
 }
 
@@ -183,8 +225,8 @@ test test_pattern_conditional_lint_retains_comments_guards_and_error_bindings [f
     "let outcome = Ok(7)\nmatch outcome { Ok(value) => { print $value }, Err(error) => { print $error } }\n",
   ] {
     let candidate = test.temp_file(ctx, name: "pattern-conditional-no-fix.xsh", contents: bytes.from_text(source))?
-    let ignored = run.capture --text "xsht" lint --fix $candidate ?
-    test.eq(candidate.read_text()?, source)?
+    let _ = run.capture --text "xsht" lint --fix $candidate ?
+    (candidate.read_text()?) == (source)
   }
 }
 
@@ -199,45 +241,64 @@ while let
 """
   let candidate = test.temp_file(ctx, name: "pattern-loop-format.xsh", contents: bytes.from_text(source))?
   let formatted = run.capture --text "xsht" fmt $candidate ?
-  test.ok(formatted.status.exited_with(0), formatted.stderr)?
+  {
+    let assertion_condition = formatted.status.exited_with(0)
+    let assertion_message = formatted.stderr
+    assert assertion_condition, assertion_message
+  }
   let first = candidate.read_text()?
-  test.ok("while let Ok(value) = outcome" in first)?
+  ("while let Ok(value) = outcome" in first)
   let checked = run.capture --text "xsht" fmt --check $candidate ?
-  test.ok(checked.status.exited_with(0), checked.stderr)?
+  {
+    let assertion_condition = checked.status.exited_with(0)
+    let assertion_message = checked.stderr
+    assert assertion_condition, assertion_message
+  }
   let output = test.run_script(ctx, first)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "7\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("7\n")
 }
 
-test test_pattern_conditionals_match_lists_and_bind_typed_remainders [error] {
+test test_pattern_conditionals_match_lists_and_bind_typed_remainders [error] { |ctx|
+  let output = test.run_script(ctx, r"""
+proc witness() [error] {
   let argv = ["build", "native", "debug"]
   let target = "outer"
   if let ["build", target, ..tail] = argv {
-    test.eq(target.upper(), "NATIVE")?
-    test.eq(tail, ["debug"])?
+    (target.upper()) == ("NATIVE")
+    (tail) == (["debug"])
   } else {
     test.fail("list branch did not match")?
   }
-  test.eq(target, "outer")?
+  (target) == ("outer")
   var remaining = [1, 2, 3]
   var total = 0
   while let [head, ..tail] = remaining {
     total += head
     remaining = tail
   }
-  test.eq(total, 6)?
-  test.eq(remaining, [])?
+  (total) == (6)
+  (remaining) == ([])
+}
+witness()
+""")?
+  let {success: assertion_condition, stderr: assertion_message, ..} = output
+  assert assertion_condition, assertion_message
+  output.stdout == ""
 }
 
 proc pattern_conditional_open_root(root_path: Path) [fs, error] -> Result[FsRoot] {
-  return if let Ok(root) = fs.open_root(root_path) { root } else { fs.open_root(root_path)? }
+  if let Ok(root) = fs.open_root(root_path) { root } else { fs.open_root(root_path)? }
 }
 
 test test_pattern_conditionals_preserve_escaping_owned_resources [fs, error] { |ctx|
   let root_path = test.temp_dir(ctx, name: "pattern-root")?
   let root = pattern_conditional_open_root(root_path)?
   root.write(p"value", "retained")?
-  test.eq(root.read_text(p"value")?, "retained")?
+  (root.read_text(p"value")?) == ("retained")
   root.close()?
 }
 
@@ -251,6 +312,6 @@ pure pattern_sibling_label(subject: PatternSiblingValue) -> Str {
 }
 
 test test_pattern_conditionals_preserve_sibling_match_capture_reuse [error] {
-  test.eq(pattern_sibling_label(SiblingWord("word")), "word")?
-  test.eq(pattern_sibling_label(SiblingNumber(7)), "7")?
+  (pattern_sibling_label(SiblingWord("word"))) == ("word")
+  (pattern_sibling_label(SiblingNumber(7))) == ("7")
 }

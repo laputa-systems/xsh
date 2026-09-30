@@ -13,12 +13,12 @@ test test_dns_module_with_mocks [net, error] { |ctx|
   dns.resolve_host("localhost", "ipv4")?[0].family == "inet"
   dns.reverse("127.0.0.1")?[0] == "localhost"
   dns.nameservers()?[0] == "127.0.0.53"
-  test.eq(test.calls(ctx, "dns.lookup")[0].args.name, "example.test")?
-  test.eq(test.calls(ctx, "dns.lookup")[0].args.record, "AAAA")?
-  test.eq(test.calls(ctx, "dns.lookup")[0].args.server, "127.0.0.1:5353")?
-  test.eq(test.calls(ctx, "dns.lookup")[0].args.timeout_ms, 2000)?
-  test.eq(test.calls(ctx, "dns.resolve_host")[0].args.family, "ipv4")?
-  test.eq(test.calls(ctx, "dns.reverse")[0].args.addr, "127.0.0.1")?
+  (test.calls(ctx, "dns.lookup")[0].args.name) == ("example.test")
+  (test.calls(ctx, "dns.lookup")[0].args.record) == ("AAAA")
+  (test.calls(ctx, "dns.lookup")[0].args.server) == ("127.0.0.1:5353")
+  (test.calls(ctx, "dns.lookup")[0].args.timeout_ms) == (2000)
+  (test.calls(ctx, "dns.resolve_host")[0].args.family) == ("ipv4")
+  (test.calls(ctx, "dns.reverse")[0].args.addr) == ("127.0.0.1")
 }
 
 test test_dns_module_rejects_invalid_arguments [net, error] {

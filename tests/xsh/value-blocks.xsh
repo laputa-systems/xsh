@@ -35,7 +35,7 @@ test test_value_blocks_and_tails [error] {
   } else {
     0
   }
-  test.eq(result, 42)?
+  (result) == (42)
   let matched = match result {
     42 => {
       let detail = "selected"
@@ -43,27 +43,35 @@ test test_value_blocks_and_tails [error] {
     }
     _ => "other"
   }
-  test.eq(matched, "selected")?
-  test.eq(value_label(0), "ok")?
-  test.eq(value_label(3), "exit 3")?
-  test.eq(value_choice(true), false)?
-  test.eq(value_choice(false), true)?
-  test.eq(value_optional("  ready  "), "ready")?
-  test.eq(value_optional(null), "default")?
+  (matched) == ("selected")
+  (value_label(0)) == ("ok")
+  (value_label(3)) == ("exit 3")
+  (value_choice(true)) == (false)
+  (value_choice(false)) == (true)
+  (value_optional("  ready  ")) == ("ready")
+  (value_optional(null)) == ("default")
 }
 
-test test_value_match_preserves_record_literals [error] {
+test test_value_match_preserves_record_literals [error] { |ctx|
+  let output = test.run_script(ctx, r"""
+proc witness() [error] {
   let field = 9
   let empty = match 1 { _ => {} }
   let shorthand = match 1 { _ => {field} }
   let named = match 1 { _ => {field: 10} }
   let quoted = match 1 { _ => {"run": 11} }
   let keyword = match 1 { _ => {run: 12} }
-  test.eq(empty, {})?
-  test.eq(shorthand.field, 9)?
-  test.eq(named.field, 10)?
-  test.eq(quoted["run"], 11)?
-  test.eq(keyword.run, 12)?
+  (empty) == ({})
+  (shorthand.field) == (9)
+  (named.field) == (10)
+  (quoted["run"]) == (11)
+  (keyword.run) == (12)
+}
+witness()
+""")?
+  let {success: assertion_condition, stderr: assertion_message, ..} = output
+  assert assertion_condition, assertion_message
+  output.stdout == ""
 }
 
 proc value_block_return_keeps_function_target() [] -> Int {
@@ -76,7 +84,7 @@ proc value_block_return_keeps_function_target() [] -> Int {
 }
 
 test test_value_blocks_preserve_lexical_control [error] {
-  test.eq(value_block_return_keeps_function_target(), 7)?
+  (value_block_return_keeps_function_target()) == (7)
   var visits = 0
   for number in [1, 2, 3] {
     let chosen = if number == 2 {
@@ -86,7 +94,7 @@ test test_value_blocks_preserve_lexical_control [error] {
     }
     visits += chosen
   }
-  test.eq(visits, 4)?
+  (visits) == (4)
 }
 
 test test_bool_value_callbacks_and_retry [error] {
@@ -97,7 +105,7 @@ test test_bool_value_callbacks_and_retry [error] {
       true
     }
   } |> collect()
-  test.eq(filtered, [1, 3])?
+  (filtered) == ([1, 3])
   let result = retry [] {
     let marker = false
     if marker {
@@ -106,9 +114,9 @@ test test_bool_value_callbacks_and_retry [error] {
       false
     }
   }?
-  test.eq(result, false)?
+  (result) == (false)
   let wrapped = retry [] { Ok(false) }?
-  test.eq(wrapped, false)?
+  (wrapped) == (false)
 }
 
 test test_bool_statement_assertions [error] { |ctx|
@@ -119,8 +127,8 @@ test test_bool_statement_assertions [error] { |ctx|
 }
 assertion()
 """)?
-  test.eq(failed.success, false)?
-  test.ok("AssertionError" in failed.stderr)?
+  (failed.success) == (false)
+  ("AssertionError" in failed.stderr)
   let passed = test.run_script(ctx, """proc assertion() {
   if true {
     true
@@ -128,7 +136,7 @@ assertion()
 }
 assertion()
 """)?
-  test.eq(passed.success, true)?
+  (passed.success) == (true)
 }
 
 pure value_result_bool(choose: Bool) -> Result[Bool] {
@@ -140,7 +148,7 @@ pure value_result_bool(choose: Bool) -> Result[Bool] {
 }
 
 test test_result_bool_tails_and_nested_predicates [error] {
-  test.eq(value_result_bool(true)?, false)?
+  (value_result_bool(true)?) == (false)
   let mapped = [1, 2] |> map { |number|
     match number {
       1 => {
@@ -150,19 +158,19 @@ test test_result_bool_tails_and_nested_predicates [error] {
       _ => true
     }
   }
-  test.eq(mapped, [false, true])?
+  (mapped) == ([false, true])
 }
 
 test test_value_branch_rejections_have_cli_witnesses [error] { |ctx|
   let inconsistent = test.run_script(ctx, "let bad = if true { 1 } else { \"wrong\" }\n")?
-  test.eq(inconsistent.success, false)?
-  test.ok("check.type-mismatch" in inconsistent.stderr)?
+  (inconsistent.success) == (false)
+  ("check.type-mismatch" in inconsistent.stderr)
   let incomplete = test.run_script(ctx, "let bad = match 1 { 1 => 2 }\n")?
-  test.eq(incomplete.success, false)?
-  test.ok("check.match-value-exhaustive" in incomplete.stderr)?
+  (incomplete.success) == (false)
+  ("check.match-value-exhaustive" in incomplete.stderr)
   let guarded = test.run_script(ctx, "let bad = match 1 { _ if false => 2 }\n")?
-  test.eq(guarded.success, false)?
-  test.ok("check.match-value-exhaustive" in guarded.stderr)?
+  (guarded.success) == (false)
+  ("check.match-value-exhaustive" in guarded.stderr)
 }
 
 test test_value_blocks_evaluate_before_scope_cleanup [error] { |ctx|
@@ -178,8 +186,11 @@ proc choose() [error] -> Int {
 }
 print \${choose()}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "value\ncleanup\nafter\n7\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("value\ncleanup\nafter\n7\n")
 }
 
 test test_value_blocks_return_through_loop_and_retry [error] { |ctx|
@@ -199,8 +210,8 @@ proc attempted() [] -> Int {
 }
 print \${choose()} \${attempted()}
 """)?
-  test.eq(output.success, true)?
-  test.eq(output.stdout, "7 9\n")?
+  (output.success) == (true)
+  (output.stdout) == ("7 9\n")
 }
 
 test test_value_callback_return_survives_retry_and_stream_cleanup [error] { |ctx|
@@ -224,8 +235,11 @@ proc choose() [error] -> Int {
 }
 print \${choose()}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "branch cleanup\nsource cleanup\n7\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("branch cleanup\nsource cleanup\n7\n")
 }
 
 test test_value_callbacks_keep_enclosing_loop_targets [error] {
@@ -241,7 +255,7 @@ test test_value_callbacks_keep_enclosing_loop_targets [error] {
     }
     visits += number
   }
-  test.eq(visits, 4)?
+  (visits) == (4)
   visits = 0
   for number in [1, 2, 3] {
     [number] |> each { |item|
@@ -254,7 +268,7 @@ test test_value_callbacks_keep_enclosing_loop_targets [error] {
     }
     visits += number
   }
-  test.eq(visits, 1)?
+  (visits) == (1)
 }
 
 test test_value_callback_tail_precedes_cleanup [error] { |ctx|
@@ -266,8 +280,8 @@ let mapped = [7] |> map { |number|
 } |> collect
 print \${mapped[0]}
 """)?
-  test.eq(output.success, true)?
-  test.eq(output.stdout, "value\ncleanup\n7\n")?
+  (output.success) == (true)
+  (output.stdout) == ("value\ncleanup\n7\n")
 }
 
 test test_value_parallel_callback_keeps_lexical_return [error] { |ctx|
@@ -294,8 +308,8 @@ proc serial() [] -> Int {
 }
 print \${choose()} \${fused()} \${serial()}
 """)?
-  test.eq(output.success, true)?
-  test.eq(output.stdout, "7 9 11\n")?
+  (output.success) == (true)
+  (output.stdout) == ("7 9 11\n")
 }
 
 test test_value_parallel_callback_failure_is_propagation [error] { |ctx|
@@ -307,40 +321,39 @@ let values = [1, 2] |> par-map(jobs: 2) { |number|
 } |> collect
 print "unreachable"
 """)?
-  test.eq(output.status, 3)?
-  test.ok("WorkerError.failed" in output.stderr)?
-  test.eq(("return-outside-function" in output.stderr), false)?
-  test.eq(output.stdout, "")?
+  (output.status) == (3)
+  ("WorkerError.failed" in output.stderr)
+  (("return-outside-function" in output.stderr)) == (false)
+  (output.stdout) == ("")
 }
 
 test test_value_fold_and_key_callbacks_have_ordinary_scopes [error] {
   let total = [1, 2] |> fold(0) { |acc, number|
     let added = acc + number
     match number {
-      1 => { let result = added; result }
-      _ => { let result = added; result }
+      1 | _ => { let result = added; result }
     }
   }
-  test.eq(total, 3)?
+  (total) == (3)
   let grouped = [1, 2] |> reduce-by(sum: true) { |number|
     let key = "all"
     if number == 1 { {key, value: number} } else { {key, value: number} }
   }
-  test.eq((grouped.get("all") ?? 0), 3)?
+  ((grouped.get("all") ?? 0)) == (3)
   let sorted = [2, 1] |> sort-by { |number| let key = number; key } |> collect
-  test.eq(sorted, [1, 2])?
+  (sorted) == ([1, 2])
 }
 
 test test_value_branches_preserve_tags_dotted_pipelines_and_tee [error] {
   let options = {items: [1, 2]}
   let selected = if false { options.items } else { options.items |> drop(1) }
-  test.eq(selected, [2])?
-  let chosen = if true { ValueEmpty } else { ValueNumber(1) }
-  test.eq(chosen, ValueEmpty)?
+  (selected) == ([2])
+  let chosen: ValueChoice = if true { ValueEmpty } else { ValueNumber(1) }
+  (chosen) == (ValueEmpty)
   let rows = [1] |> tee { |number|
     if false { print $number }
   } |> collect
-  test.eq(rows, [1])?
+  (rows) == ([1])
 }
 
 pure value_block_subtract(depth: Int) -> Int {
@@ -353,6 +366,6 @@ pure value_block_subtract(depth: Int) -> Int {
 }
 
 test test_value_branch_identifier_subtraction_is_a_value [error] {
-  test.eq(value_block_subtract(3), 2)?
-  test.eq(value_block_subtract(0), 0)?
+  (value_block_subtract(3)) == (2)
+  (value_block_subtract(0)) == (0)
 }

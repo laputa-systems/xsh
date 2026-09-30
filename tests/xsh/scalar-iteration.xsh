@@ -1,44 +1,44 @@
 test str_iteration_keeps_unicode_scalars_and_nul [error] {
-  var characters: List[Str] = []
+  var characters = []
   for character in "A\u{e9}e\u{301}\u{1f642}\0" {
-    characters = characters.extend([character])
+    characters += [character]
   }
-  test.eq(characters, ["A", "\u{e9}", "e", "\u{301}", "\u{1f642}", "\0"])?
-  test.eq([character for character in ""], [])?
+  (characters) == (["A", "\u{e9}", "e", "\u{301}", "\u{1f642}", "\0"])
+  ([character for character in ""]) == ([])
 }
 
 test bytes_iteration_keeps_all_octets_without_decoding [error] {
-  var octets: List[Int] = []
+  var octets = []
   for octet in b"\x00\x7f\x80\xff" {
-    octets = octets.extend([octet])
+    octets += [octet]
   }
-  test.eq(octets, [0, 127, 128, 255])?
-  test.eq([octet for octet in b""], [])?
+  (octets) == ([0, 127, 128, 255])
+  ([octet for octet in b""]) == ([])
 }
 
 test scalar_iteration_retains_sources_across_reassignment [error] {
   var text = "\u{e9}ab"
-  var characters: List[Str] = []
+  var characters = []
   for character in text {
     text = "replacement"
-    characters = characters.extend([character])
+    characters += [character]
   }
   var payload = b"\x00\xff"
-  var octets: List[Int] = []
+  var octets = []
   for octet in payload {
     payload = b"changed"
-    octets = octets.extend([octet])
+    octets += [octet]
   }
-  test.eq(characters, ["\u{e9}", "a", "b"])?
-  test.eq(octets, [0, 255])?
+  (characters) == (["\u{e9}", "a", "b"])
+  (octets) == ([0, 255])
 }
 
 test scalar_comprehensions_keep_types_nested_order_and_guards [error] {
-  let pairs: List[Str] = [f"$character:$octet" for character in "\u{e9}x" for octet in b"\x01\x02" if octet == 2]
-  test.eq(pairs, ["\u{e9}:2", "x:2"])?
-  let entries: Map[Int] = {character: character.byte_len() for character in "a\u{e9}"}
-  test.eq(entries.get("a")?, 1)?
-  test.eq(entries.get("\u{e9}")?, 2)?
+  let pairs = [f"$character:$octet" for character in "\u{e9}x" for octet in b"\x01\x02" if octet == 2]
+  (pairs) == (["\u{e9}:2", "x:2"])
+  let entries = {character: character.byte_len() for character in "a\u{e9}"}
+  (entries.get("a")?) == (1)
+  (entries.get("\u{e9}")?) == (2)
 }
 
 error ScalarSourceFailure = Missing(source: Str) : NotFound
@@ -54,17 +54,22 @@ ctx "iteration" {
   for octet in missing() { print "unreached" }
 }
 """)?
-  test.ok(! output.success, output.stderr)?
-  test.eq(output.stdout, "cleanup\n")?
-  test.ok("SourceFailure.Missing" in output.stderr)?
-  test.ok("ctx: iteration" in output.stderr)?
-  let actual = try { for character in missing_scalar_source() { print "unreached" } }
-  match actual {
-    Err(ScalarSourceFailure.Missing {source}) => test.eq(source, "text")?
-    _ => test.fail("expected unchanged source error")?
+  {
+    let assertion_condition = ! output.success
+    let assertion_message = output.stderr
+    assert assertion_condition, assertion_message
   }
-  test.eq([character for character in Ok("ab")], ["a", "b"])?
-  test.eq([octet for octet in Ok(b"\xff")], [255])?
+  (output.stdout) == ("cleanup\n")
+  ("SourceFailure.Missing" in output.stderr)
+  ("ctx: iteration" in output.stderr)
+  let actual = try { for _ in missing_scalar_source() { print "unreached" } }
+  if let Err(ScalarSourceFailure.Missing {source}) = actual {
+    source == "text"
+  } else {
+    test.fail("expected unchanged source error")?
+  }
+  ([character for character in Ok("ab")]) == (["a", "b"])
+  ([octet for octet in Ok(b"\xff")]) == ([255])
 }
 
 test scalar_iteration_evaluates_source_once_and_keeps_cleanup_transfers [error] { |ctx|
@@ -80,29 +85,37 @@ stream octets() [error] -> Stream[Int] {
 }
 for octet in octets() { print $octet; break }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "source\ncleanup:a\nb\ncleanup:b\n1\noctet:1\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("source\ncleanup:a\nb\ncleanup:b\n1\noctet:1\n")
 }
 
 test scalar_iteration_bindings_remain_immutable_and_protocols_stay_bounded [error] { |ctx|
   for source in ["for character in \"ab\" { character = \"x\" }", "for octet in b\"ab\" { octet = 1 }", "let characters = [@\"ab\"]", "stream bad() [] -> Stream[Str] { yield @\"ab\" }"] {
     let output = test.run_script(ctx, source)?
-    test.ok(! output.success, f"expected rejection: $source")?
+    {
+      let assertion_condition = ! output.success
+      let assertion_message = f"expected rejection: $source"
+      assert assertion_condition, assertion_message
+    }
   }
 }
 
 test scalar_iteration_preserves_source_view_bounds [error] {
   let text = "a\u{e9}\u{1f642}z".byte_slice(1, 6)
-  test.eq([character for character in text], ["\u{e9}", "\u{1f642}"])?
-  let payload = b"\x01\x00\xff\x02".slice(1, 2)
-  test.eq([octet for octet in payload], [0, 255])?
+  ([character for character in text]) == (["\u{e9}", "\u{1f642}"])
+  let payload = b"\x01\x00\xff\x02"[1..3]
+  ([octet for octet in payload]) == ([0, 255])
 }
 
 test scalar_comprehension_errors_keep_nominal_payloads [error] {
   let actual = try { [character for character in missing_scalar_source()] }
-  match actual {
-    Err(ScalarSourceFailure.Missing {source}) => test.eq(source, "text")?
-    _ => test.fail("expected unchanged comprehension source error")?
+  if let Err(ScalarSourceFailure.Missing {source}) = actual {
+    source == "text"
+  } else {
+    test.fail("expected unchanged comprehension source error")?
   }
 }
 
@@ -112,8 +125,12 @@ test scalar_result_sources_keep_error_effect_checks [error] { |ctx|
     "proc forbidden(value: Result[Bytes]) [] { let _ = [octet for octet in value] }",
   ] {
     let output = test.run_script(ctx, source)?
-    test.ok(! output.success, f"expected error effect rejection: $source")?
-    test.ok("effect" in output.stderr)?
+    {
+      let assertion_condition = ! output.success
+      let assertion_message = f"expected error effect rejection: $source"
+      assert assertion_condition, assertion_message
+    }
+    ("effect" in output.stderr)
   }
 }
 
@@ -134,8 +151,11 @@ stream characters() [] -> Stream[Str] {
 print ${pick()}
 for character in characters() { print $character; break }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "a\nb\n7\né\ncleanup:é\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("a\nb\n7\né\ncleanup:é\n")
 }
 
 test scalar_iteration_body_failure_stops_before_later_items_and_finishes_defers [error] { |ctx|
@@ -148,8 +168,12 @@ test scalar_iteration_body_failure_stops_before_later_items_and_finishes_defers 
   }
 }
 """)?
-  test.ok(! output.success, output.stderr)?
-  test.eq(output.stdout, "é\ncleanup:é\nx\ncleanup:x\nouter\n")?
-  test.ok("AssertionError" in output.stderr)?
-  test.ok("ctx: characters" in output.stderr)?
+  {
+    let assertion_condition = ! output.success
+    let assertion_message = output.stderr
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("é\ncleanup:é\nx\ncleanup:x\nouter\n")
+  ("AssertionError" in output.stderr)
+  ("ctx: characters" in output.stderr)
 }

@@ -9,7 +9,7 @@ impl Checker {
         let count = statements.len();
         for _ in 0..=count {
             let before = self.parameter_types.len();
-            let mut probe = self.clone();
+            let mut probe = self.constraint_probe();
             for &id in statements {
                 let kind = match program.arena.stmt(id).kind {
                     ArenaStmtKind::Export(inner) => program.arena.stmt(inner).kind,

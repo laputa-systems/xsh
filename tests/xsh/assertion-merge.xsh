@@ -16,12 +16,12 @@ for result in [bare, explicit, chain, captured()] {
   }
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.ok("false" in output.stdout)?
-  test.ok("explicit context" in output.stdout)?
-  test.ok("3 < 2" in output.stdout)?
-  test.ok("private capture" in output.stdout)?
-  test.ok("unexpected" not in output.stdout, output.stdout)?
+  assert output.success, output.stderr
+  "false" in output.stdout
+  "explicit context" in output.stdout
+  "3 < 2" in output.stdout
+  "private capture" in output.stdout
+  assert "unexpected" not in output.stdout, output.stdout
 }
 
 test test_assertion_nominal_filter_runs_attempt_cleanup [error] { |ctx|
@@ -35,8 +35,8 @@ let result: Result[Unit, AssertionError] = retry [0ms] on (AssertionError) {
 match result { Ok(_) => print "done"; Err(_) => print "unexpected" }
 print $attempts
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "cleaned\ncleaned\ndone\n2\n")?
+  assert output.success, output.stderr
+  output.stdout == "cleaned\ncleaned\ndone\n2\n"
 }
 
 test test_assertion_message_failure_keeps_its_nominal_type [error] { |ctx|
@@ -58,8 +58,8 @@ match failure {
   _ => print "unexpected"
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "message\ncleaned\npassed\nmessage failure\n")?
+  assert output.success, output.stderr
+  output.stdout == "message\ncleaned\npassed\nmessage failure\n"
 }
 
 test test_membership_assertions_preserve_typed_map_key_domains [error] { |ctx|
@@ -80,18 +80,18 @@ let erased: Record = fields
 "absent" not in erased
 print "checked"
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "checked\n")?
+  assert output.success, output.stderr
+  output.stdout == "checked\n"
   for statement in ["\"bad\" in values", "assert \"bad\" in values, \"key\"", "values.has(\"bad\")"] {
     let invalid = test.run_script(ctx, "let values: Map[Int, Str] = {[1]: \"one\"}\n" + statement + "\n")?
-    test.eq(invalid.status, 2, invalid.stderr)?
-    test.ok("check.type-mismatch" in invalid.stderr)?
-    test.ok("Int" in invalid.stderr)?
+    assert invalid.status == 2, invalid.stderr
+    "check.type-mismatch" in invalid.stderr
+    "Int" in invalid.stderr
   }
   let removed = test.run_script(ctx, "let values: Map[Int, Str] = {[1]: \"one\"}\nvalues.has(1)\n")?
-  test.eq(removed.status, 2, removed.stderr)?
-  test.ok("check.removed-membership" in removed.stderr)?
-  test.ok("check.type-mismatch" not in removed.stderr, removed.stderr)?
+  assert removed.status == 2, removed.stderr
+  "check.removed-membership" in removed.stderr
+  assert "check.type-mismatch" not in removed.stderr, removed.stderr
 }
 
 test test_membership_assertions_accept_checked_module_exports [fs, error] { |ctx|
@@ -101,6 +101,6 @@ test test_membership_assertions_accept_checked_module_exports [fs, error] { |ctx
 assert "absent" not in membership_merge.keys(), "module export absence"
 print "checked"
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "checked\n")?
+  assert output.success, output.stderr
+  output.stdout == "checked\n"
 }

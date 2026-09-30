@@ -2,26 +2,24 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 pure unescape(raw: Str) -> Str {
   let newline = raw.replace("\\n", "\n")
   let tab = newline.replace("\\t", "\t")
   let slash = tab.replace("\\\\", "\\")
-  return slash.replace("%%", "%")
+  slash.replace("%%", "%")
 }
 
 pure render_string_lines(values: List[Str]) -> Str {
-  if values.len() == 0 {
-    return ""
-  }
+  return "" when values.len() == 0
 
-  return f"""${values.join("\n")}
+  f"""${values.join("\n")}
 """
 }
 
@@ -31,18 +29,16 @@ pure render_pairs_between(values: List[Str], index: Int, lines: List[Str]) -> St
     return render_pairs_between(values, index + 2, next)
   }
 
-  return render_string_lines(lines)
+  render_string_lines(lines)
 }
 
 pure render_pairs(values: List[Str]) -> Str {
-  let lines: List[Str] = []
-  return render_pairs_between(values, 0, lines)
+  let lines = []
+  render_pairs_between(values, 0, lines)
 }
 
 pure render(fmt: Str, values: List[Str]) -> Str {
-  if fmt == "%s" {
-    return values.join("")
-  }
+  return values.join("") when fmt == "%s"
 
   if fmt == "%s\\n" or fmt == "%d\\n" or fmt == "%i\\n" or fmt == """%s
 """ or fmt == """%d
@@ -56,13 +52,11 @@ pure render(fmt: Str, values: List[Str]) -> Str {
     return render_pairs(values)
   }
 
-  return unescape(fmt)
+  unescape(fmt)
 }
 
-proc main(fmt: Str = "", ...values: List[Str]) [error, io] {
-  if fmt == "" {
-    return Err(usage_error("printf", "FORMAT [ARG...]"))
-  }
+proc main(fmt = "", ...values: List[Str]) [error, io] {
+  return Err(usage_error("printf", "FORMAT [ARG...]")) when fmt == ""
 
   io.write_stdout(render(fmt, values))?
 }

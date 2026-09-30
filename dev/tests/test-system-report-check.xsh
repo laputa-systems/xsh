@@ -57,12 +57,12 @@ test result: FAILED. 0 passed; 1 failed
 }
 
 pure assertion(id: Str, tier: Str) -> ReportCoverageAssertion {
-  return {
-    id: id,
+  ReportCoverageAssertion(
+    id:,
     domain: "cpu",
     field: "frequency_policy.related_cpus",
     relation: "membership",
-    tier: tier,
+    tier:,
     source_abi: "/sys/devices/system/cpu/cpufreq/policy*/related_cpus",
     reference_adapter: "lscpu-json",
     reference_commands: [
@@ -76,20 +76,20 @@ pure assertion(id: Str, tier: Str) -> ReportCoverageAssertion {
     fixture_scenarios: [
       "offline_related_cpu",
     ],
-  }
+  )
 }
 
 pure manifest(assertions: List[ReportCoverageAssertion]) -> ReportCoverageManifest {
-  return {
+  ReportCoverageManifest(
     schema_version: 4,
     producer: "system-report",
-    assertions: assertions,
+    assertions:,
     fixture_cases: [],
     macos_fixture_cases: [],
     fixture_scenarios: [
       "offline_related_cpu",
     ],
-  }
+  )
 }
 
 test test_system_report_cpufreq_reference_scores_policy_membership_and_bounds [error] {
@@ -1058,7 +1058,9 @@ test test_system_report_power_supply_bundle_replays_raw_attributes_and_rejects_t
   let output = test.temp_path(ctx, name: "power-supply-replay.stdout")
   let stderr = test.temp_path(ctx, name: "power-supply-replay.stderr")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-power-supply-bundle $bundle_path > $output 2> $stderr
-  test.ok(status.exited_with(0), stderr.read_text()?)?
+  let exited_successfully = status.exited_with(0)
+  let diagnostic = stderr.read_text()?
+  assert exited_successfully, diagnostic
   "power supply raw replay: exact" in (output.read_text()?)
   bundle.write(
         fp"${battery}/energy_now",
@@ -1111,7 +1113,7 @@ test test_system_report_power_supply_bundle_rejects_escaping_class_link [fs, tim
 }
 
 test test_system_report_powercap_reference_scores_nested_zones_constraints_and_counter_brackets [error] {
-  let package: report_checks.PowerCapZoneReference = {
+  let package = report_checks.PowerCapZoneReference(
     entry_name: "intel-rapl:0",
     name: {
       value: "package-0",
@@ -1162,8 +1164,8 @@ test test_system_report_powercap_reference_scores_nested_zones_constraints_and_c
       },
     ],
     constraints_complete: true,
-  }
-  let core: report_checks.PowerCapZoneReference = {
+  )
+  let core = report_checks.PowerCapZoneReference(
     entry_name: "intel-rapl:0:0",
     name: {
       value: "core-0",
@@ -1183,7 +1185,7 @@ test test_system_report_powercap_reference_scores_nested_zones_constraints_and_c
     },
     constraints: [],
     constraints_complete: true,
-  }
+  )
   let candidate = """{"power":{"status":{"state":"complete","enumeration_succeeded":true},"cap_zones":[{"entry_name":"intel-rapl:0","name":"package-0","parent":null,"energy_uj":120,"maximum_energy_range_uj":1000,"constraints":[{"index":0,"name":"long_term","power_limit_uw":45000000,"time_window_us":1000000},{"index":10,"name":null,"power_limit_uw":80000000,"time_window_us":null}]},{"entry_name":"intel-rapl:0:0","name":"core-0","parent":"intel-rapl:0","energy_uj":null,"maximum_energy_range_uj":null,"constraints":[]}]}}"""
   let later = {...package, energy_uj: {value: 150, complete: true}}
   report_checks.compare_powercap(candidate, [package, core], [later, core])?.exact
@@ -1755,7 +1757,7 @@ test test_system_report_block_bundle_keeps_absent_class_unscoreable [fs, time, e
 }
 
 test test_system_report_block_raw_reference_checks_each_layer_direction [error] {
-  let reference: report_checks.BlockRawReference = {
+  let reference = report_checks.BlockRawReference(
     devices: [
       {
         name: "sda",
@@ -1800,7 +1802,7 @@ test test_system_report_block_raw_reference_checks_each_layer_direction [error] 
       },
     ],
     queue: [],
-  }
+  )
   let candidate = """{"storage":{"devices":[{"name":"sda","major":8,"minor":0,"kind":"disk","size_bytes":8192,"logical_sector_bytes":null,"physical_sector_bytes":null,"removable":null,"rotational":null,"read_only":null,"parent_device_index":null,"holder_indices":[],"slave_indices":[]},{"name":"dm-0","major":253,"minor":0,"kind":"virtual","size_bytes":8192,"logical_sector_bytes":null,"physical_sector_bytes":null,"removable":null,"rotational":null,"read_only":null,"parent_device_index":null,"holder_indices":[],"slave_indices":[0]}]}}"""
   let compared = report_checks.compare_block_raw(candidate, reference)?
   ! compared.exact
@@ -1873,7 +1875,9 @@ test test_system_report_pci_capture_keeps_unavailable_pcie_links_unscored [fs, p
   let output = test.temp_path(ctx, name: "pci-unavailable.stdout")
   let stderr = test.temp_path(ctx, name: "pci-unavailable.stderr")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-pci-bundle $bundle_path > $output 2> $stderr
-  test.ok(status.exited_with(0), stderr.read_text()?)?
+  let exited_successfully = status.exited_with(0)
+  let diagnostic = stderr.read_text()?
+  assert exited_successfully, diagnostic
   "link=unavailable" in (output.read_text()?)
 }
 
@@ -2052,7 +2056,9 @@ test test_system_report_usb_capture_keeps_unavailable_power_and_interfaces_unsco
   let output = test.temp_path(ctx, name: "usb-unavailable.stdout")
   let stderr = test.temp_path(ctx, name: "usb-unavailable.stderr")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --replay-usb-bundle $bundle_path > $output 2> $stderr
-  test.ok(status.exited_with(0), stderr.read_text()?)?
+  let exited_successfully = status.exited_with(0)
+  let diagnostic = stderr.read_text()?
+  assert exited_successfully, diagnostic
   "power=unavailable" in (output.read_text()?)
   "interfaces=unavailable" in (output.read_text()?)
 }
@@ -2282,9 +2288,9 @@ test test_system_report_dmidecode_dump_relocates_smbios3_entry_point [error] {
   let table = b"\x7f\x04\0\0\0\0"
   let dump = smbios_reference.craft_dmidecode_dump(entry, table)?
   dump.len() == 38
-  dump.slice(16, 8) == (bytes.from_ints([32, 0, 0, 0, 0, 0, 0, 0])?)
+  dump[16..24] == (bytes.from_ints([32, 0, 0, 0, 0, 0, 0, 0])?)
   (dump.byte_at(5) ?? -1) == 43
-  dump.slice(32, 6) == table
+  dump[32..38] == table
   var checksum = 0
   for index in range(24) {
     checksum += (dump.byte_at(index) ?? -1)
@@ -2341,9 +2347,9 @@ test test_system_report_dmidecode_dump_relocates_smbios2_entry_point [error] {
   let table = b"\x7f\x04\0\0\0\0"
   let dump = smbios_reference.craft_dmidecode_dump(entry, table)?
   dump.len() == 38
-  dump.slice(24, 4) == (bytes.from_ints([32, 0, 0, 0])?)
+  dump[24..28] == (bytes.from_ints([32, 0, 0, 0])?)
   (dump.byte_at(21) ?? -1) == 25
-  dump.slice(32, 6) == table
+  dump[32..38] == table
   var primary_checksum = 0
   for index in range(31) {
     primary_checksum += (dump.byte_at(index) ?? -1)
@@ -2628,7 +2634,9 @@ printf 'Handle 0x0000, DMI type 127, 4 bytes\nEnd Of Table\n  Header and Data:\n
   let output = test.temp_path(ctx, name: "system-report-dmidecode.stdout")
   let stderr = test.temp_path(ctx, name: "system-report-dmidecode.stderr")
   let status = run.status ${ctx.xsh_bin} fp"${ctx.core_dir.parent()}/dev/main.xsh" -- system-report-check --corroborate-smbios-bundle $bundle_path --dmidecode-bin $executable > $output 2> $stderr
-  test.ok(status.exited_with(0), stderr.read_text()?)?
+  let exited_successfully = status.exited_with(0)
+  let diagnostic = stderr.read_text()?
+  assert exited_successfully, diagnostic
   "firmware.dmidecode:" in (output.read_text()?)
   "\"exact\": true" in (bundle.read_text(p"dmidecode-comparison.json")?)
 }
@@ -3024,7 +3032,7 @@ test test_system_report_cpu_topology_capture_rejects_escaping_numa_link [fs, tim
 }
 
 test test_system_report_cpuidle_reference_scores_state_indices_and_bracketed_counters [error] {
-  let shallow: report_checks.CpuIdleStateReference = {
+  let shallow = report_checks.CpuIdleStateReference(
     cpu_id: 0,
     state_index: 0,
     name: "C1",
@@ -3034,7 +3042,7 @@ test test_system_report_cpuidle_reference_scores_state_indices_and_bracketed_cou
     residency_us: 2,
     usage_count: 3,
     time_us: 10,
-  }
+  )
   let deep = {
     ...shallow,
     state_index: 1,
@@ -3044,8 +3052,8 @@ test test_system_report_cpuidle_reference_scores_state_indices_and_bracketed_cou
     usage_count: 6,
     time_us: 40,
   }
-  let before: report_checks.CpuIdleReference = {driver: "intel_idle", governor: "menu", available_governors: ["menu", "teo"], states: [shallow, deep]}
-  let after: report_checks.CpuIdleReference = {...before, states: [{...shallow, usage_count: 5, time_us: 30}, {...deep, usage_count: 8, time_us: 60}]}
+  let before = report_checks.CpuIdleReference(driver: "intel_idle", governor: "menu", available_governors: ["menu", "teo"], states: [shallow, deep])
+  let after = report_checks.CpuIdleReference(driver: before.driver, governor: before.governor, available_governors: before.available_governors, states: [{...shallow, usage_count: 5, time_us: 30}, {...deep, usage_count: 8, time_us: 60}])
   let candidate = """{"cpu":{"status":{"state":"complete","enumeration_succeeded":true},"global_idle_driver":"intel_idle","global_idle_governor":"menu","available_idle_governors":["menu","teo"],"idle_states":[{"cpu_id":0,"state_index":1,"name":"C1","description":"second","disable_setting":0,"latency_us":8,"residency_us":20,"usage_count":7,"time_us":50},{"cpu_id":0,"state_index":0,"name":"C1","description":"first","disable_setting":0,"latency_us":1,"residency_us":2,"usage_count":4,"time_us":20}]}}"""
   let exact = report_checks.compare_cpuidle(candidate, before, after)?
   exact.eligible
@@ -3453,8 +3461,8 @@ test test_system_report_cache_rooted_reference_reads_shared_instance_sources [fs
 }
 
 test test_system_report_network_link_raw_reference_scores_flags_type_and_stable_counters [error] {
-  let reference: List[report_checks.NetworkLinkRawReference] = [
-    {
+  let reference = [
+    report_checks.NetworkLinkRawReference(
       ifindex: 2,
       name: "eth0",
       hardware_type: 1,
@@ -3462,7 +3470,7 @@ test test_system_report_network_link_raw_reference_scores_flags_type_and_stable_
       rx_bytes: 100,
       tx_bytes: 200,
       complete: true,
-    },
+    ),
   ]
   let candidate = """{"network":{"status":{"state":"complete","enumeration_succeeded":true},"links":[{"ifindex":2,"name":{"state":"observed","value":"eth0"},"hardware_type":1,"flags":["up","broadcast","multicast","raw_bits=4099"],"counters":[{"name":"rx_bytes","value":100,"unit":"bytes"},{"name":"tx_bytes","value":200,"unit":"bytes"}]}]}}"""
   let exact = report_checks.compare_network_link_raw(candidate, reference, reference)?
@@ -3708,8 +3716,8 @@ test test_system_report_ip_address_reference_preserves_ipv6_identity_and_link_me
 }
 
 test test_system_report_ip_address_lifetimes_score_bracketed_countdowns [error] {
-  let first: List[report_checks.IpAddressReference] = [
-    {
+  let first = [
+    report_checks.IpAddressReference(
       ifindex: 2,
       family: "ipv6",
       address: "2001:db8::10",
@@ -3718,9 +3726,18 @@ test test_system_report_ip_address_lifetimes_score_bracketed_countdowns [error] 
       broadcast: null,
       valid_lifetime_seconds: 300,
       preferred_lifetime_seconds: 120,
-    },
+    ),
   ]
-  let later: List[report_checks.IpAddressReference] = [{...first[0], valid_lifetime_seconds: 297, preferred_lifetime_seconds: 117}]
+  let later = [report_checks.IpAddressReference(
+    ifindex: first[0].ifindex,
+    family: first[0].family,
+    address: first[0].address,
+    prefix_length: first[0].prefix_length,
+    scope: first[0].scope,
+    broadcast: first[0].broadcast,
+    valid_lifetime_seconds: 297,
+    preferred_lifetime_seconds: 117,
+  )]
   let candidate = """{"network":{"status":{"state":"complete","enumeration_succeeded":true},"links":[{"ifindex":2,"addresses":[{"family":"ipv6","address":{"state":"observed","value":"2001:db8::10"},"prefix_length":64,"valid_lifetime_seconds":299,"preferred_lifetime_seconds":119}]}]}}"""
   let exact = report_checks.compare_ip_address_lifetimes(candidate, first, later)?
   exact.exact
@@ -4802,7 +4819,7 @@ test test_system_report_cpu_scope_rooted_reference_reads_current_and_visible_anc
 }
 
 test test_system_report_cpu_scope_cgroup_comparison_scores_visible_limits [error] {
-  let before: report_checks.CpuScopeCgroupObservation = {
+  let before = report_checks.CpuScopeCgroupObservation(
     ancestors: [
       {
         path: "/tenant/worker",
@@ -4835,7 +4852,7 @@ test test_system_report_cpu_scope_cgroup_comparison_scores_visible_limits [error
     ],
     started: 1,
     ended: 2,
-  }
+  )
   let candidate = """{"cpu":{"effective_cpuset":[2,0]},"memory":{"cgroup":[{"path":{"state":"observed","value":"/tenant/worker"},"hierarchy_level":0,"resource":"cpuset.cpus.effective","state":"observed","quota":null,"period":null,"maximum_unlimited":null,"effective_cpus":[0,2]},{"path":{"state":"observed","value":"/tenant/worker"},"hierarchy_level":0,"resource":"cpu.max","state":"observed","quota":50000,"period":100000,"maximum_unlimited":false,"effective_cpus":[]},{"path":{"state":"observed","value":"/tenant"},"hierarchy_level":1,"resource":"cpuset.cpus.effective","state":"observed","quota":null,"period":null,"maximum_unlimited":null,"effective_cpus":[0,1,2,3]},{"path":{"state":"observed","value":"/tenant"},"hierarchy_level":1,"resource":"cpu.max","state":"observed","quota":null,"period":100000,"maximum_unlimited":true,"effective_cpus":[]}]}}"""
   let exact = report_checks.compare_cpu_scope_cgroup(candidate, before, before)?
   exact.eligible == true
@@ -5143,7 +5160,7 @@ test test_system_report_cgroup_v2_bundle_records_missing_membership_source [fs, 
 }
 
 test test_system_report_cgroup_v2_comparison_scores_stable_limits_and_bracketed_counters [error] {
-  let before: report_checks.Cgroup2ResourceObservation = {
+  let before = report_checks.Cgroup2ResourceObservation(
     ancestors: [
       "/tenant/worker",
     ],
@@ -5177,9 +5194,11 @@ test test_system_report_cgroup_v2_comparison_scores_stable_limits_and_bracketed_
         effective_cpus: [],
       },
     ],
-  }
-  let after: report_checks.Cgroup2ResourceObservation = {
-    ...before,
+  )
+  let after = report_checks.Cgroup2ResourceObservation(
+    ancestors: before.ancestors,
+    started: before.started,
+    ended: before.ended,
     resources: [
       {
         ...before.resources[0],
@@ -5190,7 +5209,7 @@ test test_system_report_cgroup_v2_comparison_scores_stable_limits_and_bracketed_
         current_value: 12,
       },
     ],
-  }
+  )
   let candidate = """{"memory":{"cgroup":[{"path":{"state":"observed","value":"/tenant/worker"},"hierarchy_level":0,"controller":"memory","resource":"memory.max","state":"observed","maximum_value":8192,"current_value":4000,"unit":"bytes","maximum_unlimited":false,"quota":null,"period":null,"effective_cpus":[],"hidden_ancestors_possible":true},{"path":{"state":"observed","value":"/tenant/worker"},"hierarchy_level":0,"controller":"cpu","resource":"cpu.stat.usage_usec","state":"observed","maximum_value":null,"current_value":10,"unit":"microseconds","maximum_unlimited":null,"quota":null,"period":null,"effective_cpus":[],"hidden_ancestors_possible":true}]}}"""
   let exact = report_checks.compare_cgroup2_resources(candidate, before, after)?
   exact.eligible == true
@@ -5206,7 +5225,7 @@ test test_system_report_cgroup_v2_comparison_scores_stable_limits_and_bracketed_
       before,
       after,
     )?.exact_scored == false
-  let changing: report_checks.Cgroup2ResourceObservation = {...after, resources: [{...after.resources[0], current_value: 4500}, after.resources[1]]}
+  let changing = report_checks.Cgroup2ResourceObservation(ancestors: after.ancestors, started: after.started, ended: after.ended, resources: [{...after.resources[0], current_value: 4500}, after.resources[1]])
   let partial = report_checks.compare_cgroup2_resources(candidate, before, changing)?
   partial.exact_stable == true
   partial.exact_scored == false
@@ -5988,7 +6007,7 @@ test test_system_report_process_reference_excludes_exits_and_new_arrivals_from_s
 }
 
 test test_system_report_traced_live_and_replay_paths_keep_host_effect_contract [fs, process, env, error] { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("the production syscall audit requires Linux strace")
     return
   }
@@ -7560,7 +7579,7 @@ test test_system_report_pci_binding_rooted_reference_reads_links_and_unknown_num
 }
 
 test test_system_report_thermal_reference_preserves_sparse_trip_indexes_and_brackets_temperature [error] {
-  let zone: report_checks.ThermalZoneReference = {
+  let zone = report_checks.ThermalZoneReference(
     id: 3,
     kind: "cpu_thermal",
     temperature_millidegrees: 41000,
@@ -7578,7 +7597,7 @@ test test_system_report_thermal_reference_preserves_sparse_trip_indexes_and_brac
         hysteresis_millidegrees: 0,
       },
     ],
-  }
+  )
   let candidate = """{"sensors":{"status":{"state":"complete","enumeration_succeeded":true},"thermal_zones":[{"id":3,"kind":"cpu_thermal","temperature_millidegrees":41000,"trips":[{"index":0,"kind":"critical","temperature_millidegrees":95000,"hysteresis_millidegrees":2000},{"index":2,"kind":"passive","temperature_millidegrees":85000,"hysteresis_millidegrees":0}]}]}}"""
   let exact = report_checks.compare_thermal_zones(candidate, [zone], [zone])?
   exact.exact
@@ -7686,7 +7705,7 @@ test test_system_report_thermal_capture_replays_raw_zone_and_rejects_tampering [
   let metadata = bundle.read_text(p"capture.json")?
   "\"origin\": \"synthetic_fixture\"" in metadata
   "\"reference_adapter\": \"thermal-raw-v1\"" in metadata
-  test.ok("\"scoreable\": true" in metadata, metadata)?
+  assert "\"scoreable\": true" in metadata, metadata
   bundle.write(p"capture.json", metadata.replace("\"stable\": true", "\"stable\": false"))?
   report_checks.validate_thermal_bundle(bundle)?.len() == 1
   bundle.write(p"capture.json", metadata.replace("\"errno\": null", "\"errno\": 13"))?
@@ -8411,20 +8430,20 @@ test test_system_report_kernel_parameter_reference_scores_values_and_absence [er
 }
 
 test test_system_report_kernel_parameter_reference_rejects_duplicate_or_unexpected_names [error] {
-  let reference: List[report_checks.KernelParameterReference] = [
-    {
+  let reference = [
+    report_checks.KernelParameterReference(
       name: "kernel.pid_max",
       source: "sysctl",
       state: "observed",
       value: "4194304",
       raw_bytes_base64: null,
-    },
+    ),
   ]
   test.error_kind(
     report_checks.compare_kernel_parameters("{}", reference.extend(reference)),
     "SystemReportCheckError.Invalid",
   )?
-  let invalid: List[report_checks.KernelParameterReference] = [{name: "kernel.pid_max", source: "sysctl", state: "absent", value: "4194304", raw_bytes_base64: null}]
+  let invalid = [report_checks.KernelParameterReference(name: "kernel.pid_max", source: "sysctl", state: "absent", value: "4194304", raw_bytes_base64: null)]
   test.error_kind(report_checks.compare_kernel_parameters("{}", invalid), "SystemReportCheckError.Invalid")?
   let repeated = json.encode({
     kernel: {

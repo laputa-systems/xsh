@@ -2,11 +2,11 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 type TouchOptions = {no_create: Bool, reference: Str, paths: List[Str]}
@@ -37,9 +37,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let has_reference = opts.reference != ""
   let paths = opts.paths
 
-  if paths.len() == 0 {
-    return Err(usage_error("touch", "[-c] [-r FILE] PATH..."))
-  }
+  return Err(usage_error("touch", "[-c] [-r FILE] PATH...")) when paths.len() == 0
 
   for item in paths {
     let target = fp"${item}"

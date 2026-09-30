@@ -28,10 +28,10 @@ pure ergonomics_pattern_name(value: Any) -> Str {
 }
 
 test test_ergonomics_boolean_branch_tails_and_pattern_values [error] {
-  test.eq(ergonomics_result_flag(Ok(1)), false)?
-  let outcome: Result[Int] = Ok(1)
+  !ergonomics_result_flag(Ok(1))
+  let outcome = Ok(1)
   let accepted = outcome is Ok(_)
-  test.eq(accepted, true)?
+  assert accepted, "Ok pattern recognizes the successful outcome"
   let filtered = [1, 2, 3] |> where { |value|
     if value == 2 {
       let keep = false
@@ -40,28 +40,28 @@ test test_ergonomics_boolean_branch_tails_and_pattern_values [error] {
       true
     }
   } |> collect()
-  test.eq(filtered, [1, 3])?
+  filtered == [1, 3]
 }
 
 test test_ergonomics_guarded_return_narrows_nullable_payload [error] {
-  test.eq(ergonomics_guarded_name(null), "default")?
-  test.eq(ergonomics_guarded_name("  configured  "), "configured")?
-  test.eq(ergonomics_conditional_name(null), "default")?
-  test.eq(ergonomics_conditional_name("  configured  "), "configured")?
-  test.eq(ergonomics_pattern_name("configured"), "configured")?
-  test.eq(ergonomics_pattern_name(42), "missing")?
+  ergonomics_guarded_name(null) == "default"
+  ergonomics_guarded_name("  configured  ") == "configured"
+  ergonomics_conditional_name(null) == "default"
+  ergonomics_conditional_name("  configured  ") == "configured"
+  ergonomics_pattern_name("configured") == "configured"
+  ergonomics_pattern_name(42) == "missing"
 }
 
 test test_ergonomics_retry_branch_false_is_a_value [error] {
   let value = retry [] {
     if true {
-      let outcome: Result[Bool] = Ok(false)
+      let outcome = Ok(false)
       outcome?
     } else {
       true
     }
   }?
-  test.eq(value, false)?
+  !value
 }
 
 test test_ergonomics_optional_method_retains_result_layer [error] {
@@ -69,17 +69,17 @@ test test_ergonomics_optional_method_retains_result_layer [error] {
   let present: Str? = "42"
   let absent_result = absent?.parse_int()
   let present_result = present?.parse_int()
-  test.eq((absent_result ?? Ok(0))?, 0)?
-  test.eq((present_result ?? Ok(0))?, 42)?
+  (absent_result ?? Ok(0))? == 0
+  (present_result ?? Ok(0))? == 42
 }
 
 test test_ergonomics_nullable_bytes_slice_and_fallback [error] {
   let absent: Bytes? = null
   let present: Bytes? = b"abcdef"
-  test.eq(absent?[1..4] ?? b"fallback", b"fallback")?
-  test.eq(present?[1..4] ?? b"fallback", b"bcd")?
-  test.eq(present?[..2], b"ab")?
-  test.eq(present?[4..], b"ef")?
+  (absent?[1..4] ?? b"fallback") == b"fallback"
+  (present?[1..4] ?? b"fallback") == b"bcd"
+  present?[..2] == b"ab"
+  present?[4..] == b"ef"
 }
 
 test test_ergonomics_renamed_targets_in_filtered_nested_comprehensions [error] {
@@ -94,13 +94,13 @@ test test_ergonomics_renamed_targets_in_filtered_nested_comprehensions [error] {
     for job in jobs
     if 2 < job <= 4
   ]
-  test.eq(selected, ["second:3", "second:4"])?
-  var combined: List[Str] = []
+  selected == ["second:3", "second:4"]
+  var combined = []
   let previous = combined
   combined += selected
   combined += ["last"]
-  test.eq(previous, [])?
-  test.eq(combined, ["second:3", "second:4", "last"])?
+  previous.len() == 0
+  combined == ["second:3", "second:4", "last"]
 }
 
 test test_ergonomics_optional_call_skips_punned_argument_evaluation [error] { |ctx|
@@ -120,8 +120,8 @@ print (skipped ?? "absent")
 print (skipped_effect ?? "absent")
 """,
   )?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "1\nabsent\nabsent\n")?
+  assert output.success, output.stderr
+  output.stdout == "1\nabsent\nabsent\n"
 }
 
 test test_ergonomics_failed_chain_reports_only_reached_operands [error] { |ctx|
@@ -134,10 +134,10 @@ test test_ergonomics_failed_chain_reports_only_reached_operands [error] { |ctx|
 3 < 2 < skipped()
 """,
   )?
-  test.ok(! output.success, output.stderr)?
-  test.eq(output.stdout, "")?
-  test.ok("3" in output.stderr)?
-  test.ok("2" in output.stderr)?
+  assert ! output.success, output.stderr
+  output.stdout == ""
+  "3" in output.stderr
+  "2" in output.stderr
 }
 
 test test_ergonomics_statement_branch_false_still_asserts [error] { |ctx|
@@ -153,6 +153,6 @@ test test_ergonomics_statement_branch_false_still_asserts [error] { |ctx|
 check_branch()?
 """,
   )?
-  test.ok(! output.success, output.stderr)?
-  test.ok("assert" in output.stderr)?
+  assert ! output.success, output.stderr
+  "assert" in output.stderr
 }

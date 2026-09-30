@@ -85,9 +85,7 @@ proc main(...argv: List[Str]) [fs, process, time, error] {
       last_stamp = stamp(root, exts)
       trigger = false
 
-      if opts.once {
-        return
-      }
+      return when opts.once
     }
 
     for _ in range(interval) {

@@ -2,15 +2,15 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 pure reject_unsupported(applet_name: Str, flag: Str) -> Error {
-  return AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
+  AppletError.Usage(f"${applet_name}: unsupported option '${flag}'")
 }
 
 pure common_int(raw: Str, label: Str) -> Result[Int] {
@@ -27,7 +27,7 @@ proc main(...argv: List[Str]) [fs, error] {
   var compression = "auto"
   var strip = 0
   var overwrite = false
-  var operands: List[Path] = []
+  var operands = []
 
   for token in cli.tokens(argv, ["f", "C", "strip-components"])? {
     match token.kind {
@@ -41,7 +41,6 @@ proc main(...argv: List[Str]) [fs, error] {
           "J" => compression = "xz"
           "f" => archive_path = fp"${token.value}"
           "C" => root = fp"${token.value}"
-          "O" | "k" | "X" => return Err(reject_unsupported("tar", f"-${token.name}"))
           _ => return Err(reject_unsupported("tar", f"-${token.name}"))
         }
       }
@@ -58,11 +57,9 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   if mode == "create" {
-    if operands.len() == 0 {
-      return Err(usage_error("tar", "expected entries to archive"))
-    }
+    return Err(usage_error("tar", "expected entries to archive")) when operands.len() == 0
 
-    archive.tar_create(archive_path, root, operands, compression, overwrite: overwrite)?
+    archive.tar_create(archive_path, root, operands, compression, overwrite:)?
   } else if mode == "list" {
     for entry in archive.tar_list(archive_path, compression, members: operands)? {
       print --flush $entry.path
@@ -74,8 +71,8 @@ proc main(...argv: List[Str]) [fs, error] {
       archive_path,
       root,
       strip_components: strip,
-      compression: compression,
-      overwrite: overwrite,
+      compression:,
+      overwrite:,
       members: operands,
     )?
   } else {

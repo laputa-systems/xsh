@@ -1,8 +1,8 @@
+const build_defaults = {jobs: 4, timeout: 30s}
+
 pure add(left: Int, right: Int) {
   left + right
 }
-
-const build_defaults = {jobs: 4, timeout: 30s}
 
 pure build_jobs(jobs = build_defaults.jobs + 1) -> Int {
   jobs

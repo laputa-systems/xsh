@@ -16,33 +16,23 @@ type FdOptions = {
 }
 
 pure glob_match(pattern: Str, text: Str) -> Bool {
-  if pattern == "*" {
-    return true
-  }
+  return true when pattern == "*"
 
   let parts = pattern.split("*")
 
-  if parts.len() == 1 {
-    return text == pattern
-  }
+  return text == pattern when parts.len() == 1
 
-  if pattern.starts_with("*") and pattern.ends_with("*") {
-    return parts[1] in text
-  }
+  return parts[1] in text when pattern.starts_with("*") and pattern.ends_with("*")
 
-  if pattern.starts_with("*") {
-    return text.ends_with(parts[1])
-  }
+  return text.ends_with(parts[1]) when pattern.starts_with("*")
 
-  if pattern.ends_with("*") {
-    return text.starts_with(parts[0])
-  }
+  return text.starts_with(parts[0]) when pattern.ends_with("*")
 
-  return text.starts_with(parts[0]) and text.ends_with(parts[1])
+  text.starts_with(parts[0]) and text.ends_with(parts[1])
 }
 
 pure hidden_path(path_text: Str) -> Bool {
-  return path_text.starts_with(".") or "/." in path_text
+  path_text.starts_with(".") or "/." in path_text
 }
 
 proc main(...argv: List[Str]) [fs, error, io] {
@@ -101,10 +91,8 @@ proc main(...argv: List[Str]) [fs, error, io] {
   )?
   let operands = opts.operands
   let pattern = (operands.get(0) ?? "")
-  let kind = opts.kind
-  let ext = opts.ext
-  let excludes = opts.excludes
-  var roots: List[Path] = []
+  let {kind, ext, excludes, ..} = opts
+  var roots = []
 
   if operands.len() > 1 {
     for operand in operands |> drop(1) {

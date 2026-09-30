@@ -3,13 +3,13 @@ test test_pass [error] {
 }
 
 test test_guard_failure_controls_enclosing_loop [error] {
-  var numbers: List[Int] = []
+  var numbers = []
   for source in ["1", "invalid", "2"] {
     guard let number = source.parse_int() else { |_|
       continue
     }
 
-    numbers = numbers.push(number)
+    numbers += [number]
   }
 
   numbers == [1, 2]
@@ -20,7 +20,7 @@ test test_guard_failure_controls_enclosing_loop [error] {
       break
     }
 
-    numbers = numbers.push(number)
+    numbers += [number]
   }
 
   numbers == [1]
@@ -41,7 +41,7 @@ test test_typed_integer_augmented_assignment_keeps_results_and_errors [error] { 
 value += 1
 """,
   )?
-  test.ok(! overflow.success, overflow.stderr)?
+  assert ! overflow.success, overflow.stderr
   "integer-overflow" in overflow.stderr
 
   let division = test.run_script(
@@ -50,20 +50,20 @@ value += 1
 value /= 0
 """,
   )?
-  test.ok(! division.success, division.stderr)?
+  assert ! division.success, division.stderr
   "division-by-zero" in division.stderr
 }
 
 pure sibling_branch_value(choice: Str) -> Int {
   if choice == "first" {
     let value = 0
-    return value
+    value
   } else if choice == "second" {
     let value = 10
-    return value
+    value
   } else {
     let value = 20
-    return value
+    value
   }
 }
 
@@ -100,7 +100,7 @@ test test_repeated_if_branches_select_statement_and_expression_arms [error] {
 }
 
 pure locally_selected_arguments(argv: List[Str]) -> List[Str] {
-  return if argv.len() > 0 and argv[0] == "--" { [] } else { argv }
+  if argv.len() > 0 and argv[0] == "--" { [] } else { argv }
 }
 
 test test_local_args_shadows_predeclared_script_arguments [error] {
@@ -130,7 +130,7 @@ test test_process_command_builder [process, error] {
   }
 
   let status = process.run(command)?
-  test.ok(status.exited_with(0), "builder command should run")?
+  assert status.exited_with(0), "builder command should run"
 }
 
 pure language_sugar_label(value: Str) -> Result[Str] {
@@ -138,7 +138,8 @@ pure language_sugar_label(value: Str) -> Result[Str] {
 }
 
 pure language_sugar_returned(value: Str) -> Result[Str] {
-  return value
+  return value when value != ""
+  value
 }
 
 test test_language_sugar_edge_cases [fs, error] { |ctx|
@@ -196,5 +197,5 @@ test test_net_mock [net, error] { |ctx|
   let response = net.request({method: "GET", url: "https://example.test/"})?
   response.body == b"ok"
   let calls = test.calls(ctx, "net.request")
-  test.eq(calls[0].args.method, "GET")?
+  calls[0].args.get("method")?.require(Str)? == "GET"
 }

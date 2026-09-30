@@ -17,7 +17,7 @@ test test_release_pack_refuses_existing_output [fs, process, error] { |ctx|
   old_archive.write("previous release")?
 
   let status = run.status "xsh" "showcase/release-pack.xsh" -- $source $out --dry-run=false
-  test.ok(! status.exited_with(0), "existing output must not be replaced")?
+  assert ! status.exited_with(0), "existing output must not be replaced"
   old_archive.read_text()? == "previous release"
 }
 
@@ -26,7 +26,7 @@ test test_release_pack_cleans_failed_staging [fs, process, error] { |ctx|
   let out = test.temp_path(ctx, name: "new-release")
   let pending = fp"${out.parent}/.${out.name()}.xsh-stage"
   let status = run.status "xsh" "showcase/release-pack.xsh" -- $source $out --dry-run=false
-  test.ok(! status.exited_with(0), "invalid source must fail")?
+  assert ! status.exited_with(0), "invalid source must fail"
   ! out.exists()?
   ! pending.exists()?
 }
@@ -36,7 +36,7 @@ test test_release_pack_rejects_output_inside_input [fs, process, error] { |ctx|
   fp"${source}/input".write("unchanged")?
   let out = fp"${source}/release"
   let status = run.status "xsh" "showcase/release-pack.xsh" -- $source $out --dry-run=false
-  test.ok(! status.exited_with(0), "output inside source would recurse during copy")?
+  assert ! status.exited_with(0), "output inside source would recurse during copy"
   fp"${source}/input".read_text()? == "unchanged"
   ! out.exists()?
 }

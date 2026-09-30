@@ -57,7 +57,7 @@ error SystemReportSourceError = InvalidPciAddress(message: Str) | InvalidPciId(m
 
 ## Parses a canonical kernel state directory without publishing an inexact JSON integer.
 export pure parse_idle_state_index(name: Str) -> Result[Int] {
-  if ! name.starts_with("state") {
+  guard name.starts_with("state") else {
     return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle directory does not start with state"))
   }
 
@@ -66,16 +66,17 @@ export pure parse_idle_state_index(name: Str) -> Result[Int] {
     return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle state index is empty"))
   }
 
-  for digit in suffix.split("") {
+  for digit in suffix {
     if digit not in "0123456789" {
       return Err(SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle state index is not decimal"))
     }
   }
 
   var index = -1
-  match suffix.parse_int() {
-    Ok(value) => index = value
-    Err(_) => return Err(
+  if let Ok(value) = suffix.parse_int() {
+    index = value
+  } else {
+    return Err(
       SystemReportSourceError.InvalidIdleStateIndex(message: "CPUIdle state index is outside the supported integer range"),
     )
   }
@@ -93,9 +94,10 @@ export pure parse_idle_state_index(name: Str) -> Result[Int] {
 
 ## Requires an unambiguous CPU list before a cache can claim shared ownership.
 export pure parse_cache_shared_cpus(value: Str) -> Result[List[Int]] {
-  match report.parse_cpu_list(value) {
-    Ok(ids) => return Ok(ids)
-    Err(_) => return Err(SystemReportSourceError.InvalidCacheSharing(message: "cache shared CPU list is malformed"))
+  if let Ok(ids) = report.parse_cpu_list(value) {
+    Ok(ids)
+  } else {
+    Err(SystemReportSourceError.InvalidCacheSharing(message: "cache shared CPU list is malformed"))
   }
 }
 
@@ -111,7 +113,7 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int]] {
   var seen = set.empty()
   for word in value.split(" ") {
     continue when word == ""
-    for character in word.split("") {
+    for character in word {
       if character not in "0123456789" {
         return Err(
           SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership has a non-decimal CPU identifier"),
@@ -121,17 +123,16 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int]] {
 
     let parsed = report.parse_cpu_list(word)
     var cpu_id = -1
-    match parsed {
-      Ok(members) => {
-        if members.len() != 1 {
-          return Err(
-            SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership must use individual CPU identifiers"),
-          )
-        }
-
-        cpu_id = members[0]
+    if let Ok(members) = parsed {
+      guard members.len() == 1 else {
+        return Err(
+          SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership must use individual CPU identifiers"),
+        )
       }
-      Err(_) => return Err(
+
+      cpu_id = members[0]
+    } else {
+      return Err(
         SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership has a non-decimal CPU identifier"),
       )
     }
@@ -146,22 +147,22 @@ export pure parse_cpufreq_members(value: Str) -> Result[List[Int]] {
     }
 
     seen = set.add(seen, key)
-    ids = ids.push(cpu_id)
+    ids += [cpu_id]
   }
 
   if ids.len() == 0 {
     return Err(SystemReportSourceError.InvalidCpuFreqMembers(message: "CPUFreq membership is empty"))
   }
 
-  return ids |> sort-by .
+  ids |> sort-by .
 }
 
 pure is_hex_component(value: Str, width: Int) -> Bool {
-  if value.count_chars() != width {
+  guard value.count_chars() == width else {
     return false
   }
 
-  for digit in value.split("") {
+  for digit in value {
     if digit not in [
       "0",
       "1",
@@ -190,11 +191,11 @@ pure is_hex_component(value: Str, width: Int) -> Bool {
     }
   }
 
-  return true
+  true
 }
 
 pure parse_hex_component(value: Str) -> Result[Int] {
-  return f"0x${value}".parse_int()
+  f"0x${value}".parse_int()
 }
 
 ## Parses the complete domain:bus:device.function sysfs identity.
@@ -220,7 +221,7 @@ export pure parse_pci_address(value: Str) -> Result[PciAddress] {
     return Err(SystemReportSourceError.InvalidPciAddress(message: "PCI device or function value exceeds its ABI range"))
   }
 
-  return Ok({domain: domain, bus: bus, device: device, function: function})
+  Ok({domain: domain, bus: bus, device: device, function: function})
 }
 
 ## Parses one hexadecimal PCI sysfs identifier without converting it to text labels.
@@ -250,7 +251,7 @@ export pure parse_pci_decimal_value(value: Str) -> Result[Int] {
     return Err(SystemReportSourceError.InvalidPciId(message: "PCI decimal attribute is empty"))
   }
 
-  for digit in value.split("") {
+  for digit in value {
     if digit not in "0123456789" {
       return Err(SystemReportSourceError.InvalidPciId(message: "PCI decimal attribute is not unsigned decimal"))
     }
@@ -306,7 +307,7 @@ export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescripto
       offset: offset,
       length: length,
       descriptor_type: descriptor_type,
-      raw: data.slice(offset, length),
+      raw: data[offset..offset + length],
     })
     offset += length
   }
@@ -315,15 +316,13 @@ export pure parse_usb_descriptor_stream(data: Bytes) -> Result[List[UsbDescripto
 }
 
 pure source_observation_state(state: Str, truncated: Bool) -> report.ObservationState {
-  if truncated {
-    return report.Truncated
-  }
+  return report.Truncated when truncated
 
   match state {
-    "observed" => return report.Observed
-    "absent" => return report.Absent
-    "permission_denied" => return report.PermissionDenied
-    _ => return report.ReadFailure
+    "observed" => report.Observed
+    "absent" => report.Absent
+    "permission_denied" => report.PermissionDenied
+    _ => report.ReadFailure
   }
 }
 
@@ -343,15 +342,14 @@ export proc read_source_text(
 
   if raw.data != null {
     let data = raw.data
-    match data.utf8() {
-      Ok(text) => value = if preserve_whitespace { text } else { text.trim() }
-      Err(_) => {
-        if state == report.Observed {
-          state = report.Malformed
-        }
-
-        raw_bytes_base64 = data.base64()
+    if let Ok(text) = data.utf8() {
+      value = if preserve_whitespace { text } else { text.trim() }
+    } else {
+      if state == report.Observed {
+        state = report.Malformed
       }
+
+      raw_bytes_base64 = data.base64()
     }
   } else if state == report.Observed {
     state = report.Malformed
@@ -361,7 +359,7 @@ export proc read_source_text(
     value = null
   }
 
-  return {
+  {
     observation: {
       state: state,
       value: value,
@@ -373,11 +371,9 @@ export proc read_source_text(
 }
 
 pure decimal_digits(value: Str) -> Bool {
-  if value == "" {
-    return false
-  }
+  return false when value == ""
 
-  for digit in value.split("") {
+  for digit in value {
     if digit not in [
       "0",
       "1",
@@ -394,14 +390,12 @@ pure decimal_digits(value: Str) -> Bool {
     }
   }
 
-  return true
+  true
 }
 
 ## Separates the two membership headers without splitting a colon in the pathname.
 export pure parse_unified_cgroup_path(value: Str) -> UnifiedCgroupPath {
-  if value == "" {
-    return {state: report.Malformed, path: null, has_v1: false}
-  }
+  return {state: report.Malformed, path: null, has_v1: false} when value == ""
 
   var found: Str? = null
   var has_v1 = false
@@ -417,7 +411,7 @@ export pure parse_unified_cgroup_path(value: Str) -> UnifiedCgroupPath {
     }
 
     if hierarchy == 0 {
-      if found != null {
+      guard found == null else {
         return {state: report.Malformed, path: null, has_v1: false}
       }
 
@@ -427,16 +421,14 @@ export pure parse_unified_cgroup_path(value: Str) -> UnifiedCgroupPath {
     }
   }
 
-  if found == null {
-    return {state: report.Unsupported, path: null, has_v1: has_v1}
-  }
+  return {state: report.Unsupported, path: null, has_v1: has_v1} when found == null
 
-  return {state: report.Observed, path: found, has_v1: has_v1}
+  {state: report.Observed, path: found, has_v1: has_v1}
 }
 
 ## Chooses the most specific visible cgroup mount whose root contains the membership path.
 export pure select_cgroup_mount(group_path: Str, mounts: List[CgroupMount]) -> Result[CgroupMount?] {
-  if ! group_path.starts_with("/") {
+  guard group_path.starts_with("/") else {
     return Err(SystemReportSourceError.InvalidCgroupMount(message: "cgroup membership path is not absolute"))
   }
 
@@ -464,15 +456,16 @@ export pure valid_psi_average(value: Str) -> Bool {
     return false
   }
 
-  match parts[0].parse_int() {
-    Ok(whole) => return whole >= 0 and whole <= 100 and (whole < 100 or parts[1] == "00")
-    Err(_) => return false
+  if let Ok(whole) = parts[0].parse_int() {
+    whole >= 0 and whole <= 100 and (whole < 100 or parts[1] == "00")
+  } else {
+    false
   }
 }
 
 ## Parses the bracketed selected value without assuming a fixed policy vocabulary.
 export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy] {
-  if value.lines().len() != 1 {
+  guard value.lines().len() == 1 else {
     return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy must contain one line"))
   }
 
@@ -482,7 +475,7 @@ export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy] {
   for choice in choices {
     var name = choice
     if choice.starts_with("[") and choice.ends_with("]") and choice.count_chars() >= 3 {
-      if selected != null {
+      guard selected == null else {
         return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy has multiple selected values"))
       }
 
@@ -496,21 +489,19 @@ export pure parse_thp_policy(value: Str) -> Result[TransparentHugePagePolicy] {
       return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy has an invalid or repeated value"))
     }
 
-    available = available.push(name)
+    available += [name]
   }
 
   if selected == null {
     return Err(SystemReportSourceError.InvalidThpPolicy(message: "THP policy has no selected value"))
   }
 
-  return Ok({selected: selected ?? "", available: available})
+  Ok({selected: selected, available: available})
 }
 
 ## Requires exactly one bracketed active scheduler in one complete sysfs row.
 export pure parse_block_scheduler(value: Str) -> BlockScheduler? {
-  if value.trim() == "" or value.lines().len() != 1 {
-    return null
-  }
+  return null when value.trim() == "" or value.lines().len() != 1
 
   let choices = value.replace("\t", " ").split(" ") |> where .trim() != ""
   var available: List[Str] = []
@@ -518,7 +509,7 @@ export pure parse_block_scheduler(value: Str) -> BlockScheduler? {
   for choice in choices {
     var name = choice
     if choice.starts_with("[") and choice.ends_with("]") and choice.count_chars() >= 3 {
-      if active != null {
+      guard active == null else {
         return null
       }
 
@@ -528,34 +519,26 @@ export pure parse_block_scheduler(value: Str) -> BlockScheduler? {
       active = name
     }
 
-    if name == "" or "[" in name or "]" in name or name in available {
-      return null
-    }
+    return null when name == "" or "[" in name or "]" in name or name in available
 
-    available = available.push(name)
+    available += [name]
   }
 
-  if active == null {
-    return null
-  }
+  return null when active == null
 
-  return {active: active ?? "", available: available}
+  {active: active, available: available}
 }
 
 ## Decodes one os-release value as data and withholds malformed quoting.
 export pure decode_os_release_value(raw: Str) -> Str? {
   let value = raw
-  if value == "" {
-    return ""
-  }
+  return "" when value == ""
 
   let single_quoted = value.starts_with("'")
   let quoted = value.starts_with("\"")
   if single_quoted or quoted {
     let delimiter = if single_quoted { "'" } else { "\"" }
-    if value.count_chars() < 2 or ! value.ends_with(delimiter) {
-      return null
-    }
+    return null when value.count_chars() < 2 or ! value.ends_with(delimiter)
   } else if value.ends_with("'") or value.ends_with("\"") {
     return null
   }
@@ -564,9 +547,7 @@ export pure decode_os_release_value(raw: Str) -> Str? {
     let content = (value.split("")
       |> drop(1)
       |> take(value.count_chars() - 2)).join("")
-    if "'" in content {
-      return null
-    }
+    return null when "'" in content
 
     return content
   }
@@ -580,7 +561,7 @@ export pure decode_os_release_value(raw: Str) -> Str? {
   }
   var output = ""
   var escaped = false
-  for character in content.split("") {
+  for character in content {
     if escaped {
       if character in ["$", "`", "\"", "\\"] {
         output = f"${output}${character}"
@@ -600,18 +581,14 @@ export pure decode_os_release_value(raw: Str) -> Str? {
     }
   }
 
-  if escaped {
-    return null
-  }
+  return null when escaped
 
-  return output
+  output
 }
 
 ## Accepts only shell assignment identifiers for os-release keys.
 export pure valid_os_release_key(key: Str) -> Bool {
-  if key == "" {
-    return false
-  }
+  return false when key == ""
 
   let characters = key.split("")
   if characters[0] not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_" {
@@ -624,46 +601,38 @@ export pure valid_os_release_key(key: Str) -> Bool {
     }
   }
 
-  return true
+  true
 }
 
 ## Accepts only lowercase os-release identities suitable for script and filename use.
 export pure valid_os_release_id(value: Str) -> Bool {
-  if value == "" {
-    return false
+  return false when value == ""
+
+  for character in value {
+    return false when character not in "0123456789abcdefghijklmnopqrstuvwxyz._-"
   }
 
-  for character in value.split("") {
-    if character not in "0123456789abcdefghijklmnopqrstuvwxyz._-" {
-      return false
-    }
-  }
-
-  return true
+  true
 }
 
 ## Decodes a device-tree string list only when every element has its NUL terminator.
 export pure decode_device_tree_strings(raw: Str) -> List[Str]? {
   var values: List[Str] = []
   var current = ""
-  for character in raw.split("") {
+  for character in raw {
     if character == "\0" {
-      if current == "" {
-        return null
-      }
+      return null when current == ""
 
-      values = values.push(current)
+      values += [current]
       current = ""
     } else {
       current = current + character
     }
   }
 
-  if current != "" or values.len() == 0 {
-    return null
-  }
+  return null when current != "" or values.len() == 0
 
-  return values
+  values
 }
 
 ## Parses only complete source observations and keeps integers exact in JSON.
@@ -687,15 +656,14 @@ export pure bounded_number(source: SourceRead, nonnegative: Bool) -> BoundedNumb
     return {value: null, state: report.Malformed, error_kind: "negative_integer", errno: null}
   }
 
-  match raw.parse_int() {
-    Ok(number) => {
-      if number < -9007199254740991 or number > 9007199254740991 {
-        return {value: null, state: report.RangeFailure, error_kind: "json_integer_out_of_range", errno: null}
-      }
-
-      return {value: number, state: null, error_kind: null, errno: null}
+  if let Ok(number) = raw.parse_int() {
+    if number < -9007199254740991 or number > 9007199254740991 {
+      return {value: null, state: report.RangeFailure, error_kind: "json_integer_out_of_range", errno: null}
     }
-    Err(_) => return {value: null, state: report.RangeFailure, error_kind: "integer_out_of_range", errno: null}
+
+    {value: number, state: null, error_kind: null, errno: null}
+  } else {
+    {value: null, state: report.RangeFailure, error_kind: "integer_out_of_range", errno: null}
   }
 }
 
@@ -719,15 +687,13 @@ export pure parse_uptime_seconds(source: SourceRead) -> BoundedNumber {
   }
 
   let seconds = columns[0].split(".")[0]
-  return bounded_number({...source, observation: {...observed, value: seconds}}, true)
+  bounded_number({...source, observation: {...observed, value: seconds}}, true)
 }
 
 ## Converts kernel size suffixes only after a complete read and bounds the byte value.
 export pure bounded_size_bytes(source: SourceRead) -> BoundedNumber {
   let observed = source.observation
-  if observed.state != report.Observed {
-    return bounded_number(source, true)
-  }
+  return bounded_number(source, true) when observed.state != report.Observed
 
   let raw = observed.value ?? ""
   var number_text = raw
@@ -748,16 +714,14 @@ export pure bounded_size_bytes(source: SourceRead) -> BoundedNumber {
   }
 
   let parsed = bounded_number({...source, observation: {...observed, value: number_text}}, true)
-  if parsed.value == null {
-    return parsed
-  }
+  return parsed when parsed.value == null
 
-  let number = parsed.value ?? 0
+  let number = parsed.value
   if number > maximum {
     return {value: null, state: report.RangeFailure, error_kind: "json_integer_out_of_range", errno: null}
   }
 
-  return {value: number * multiplier, state: null, error_kind: null, errno: null}
+  {value: number * multiplier, state: null, error_kind: null, errno: null}
 }
 
 pure source_issue(
@@ -767,7 +731,7 @@ pure source_issue(
   errno: Int?,
   error_kind: Str?,
 ) -> report.CollectionIssue {
-  return {
+  {
     section: section,
     field: field,
     state: state,
@@ -806,7 +770,7 @@ proc read_numeric_attribute(
     return {value: null, state: report.Malformed, errno: source.errno, error_kind: "invalid_text"}
   }
 
-  let source_text = source.observation.value ?? ""
+  let source_text = source.observation.value
   let parsed = if hexadecimal {
     parse_pci_hex_value(source_text)
   } else if allow_unknown_numa and source_text == "-1" {
@@ -814,41 +778,32 @@ proc read_numeric_attribute(
   } else {
     parse_pci_decimal_value(source_text)
   }
-  match parsed {
-    Ok(value) => {
-      if value < 0 and ! (allow_unknown_numa and value == -1) {
-        return {value: null, state: report.RangeFailure, errno: null, error_kind: "negative_value"}
-      }
-
-      return {value: value, state: report.Observed, errno: null, error_kind: null}
+  if let Ok(value) = parsed {
+    if value < 0 and ! (allow_unknown_numa and value == -1) {
+      return {value: null, state: report.RangeFailure, errno: null, error_kind: "negative_value"}
     }
-    Err(_) => return {value: null, state: report.Malformed, errno: null, error_kind: "invalid_integer"}
+
+    {value: value, state: report.Observed, errno: null, error_kind: null}
+  } else {
+    {value: null, state: report.Malformed, errno: null, error_kind: "invalid_integer"}
   }
 }
 
 pure pci_section_state(enumeration: Str, issues: List[report.CollectionIssue]) -> report.SectionState {
-  if enumeration == "absent" {
-    return report.SectionAbsent
-  }
+  return report.SectionAbsent when enumeration == "absent"
 
-  if enumeration == "truncated" {
-    return report.SectionTruncated
-  }
+  return report.SectionTruncated when enumeration == "truncated"
 
-  if enumeration == "complete" and issues.len() == 0 {
-    return report.Complete
-  }
+  return report.Complete when enumeration == "complete" and issues.len() == 0
 
-  return report.Partial
+  report.Partial
 }
 
 ## Resolves the bridge immediately before a PCI function in its sysfs path.
 export pure pci_parent_address(target: Path, child_address: Str) -> Str? {
   var previous: Str? = null
   for component in target.display().split("/") {
-    if component == child_address {
-      return previous
-    }
+    return previous when component == child_address
 
     match parse_pci_address(component) {
       Ok(_) => previous = component
@@ -856,7 +811,7 @@ export pure pci_parent_address(target: Path, child_address: Str) -> Str? {
     }
   }
 
-  return null
+  null
 }
 
 proc optional_link_name(root: FsRoot, source_path: Path) [fs, error] -> SourceRead {
@@ -886,7 +841,7 @@ proc optional_link_name(root: FsRoot, source_path: Path) [fs, error] -> SourceRe
     }
   }
 
-  return {
+  {
     observation: {
       state: report.Observed,
       value: source.target.require(Path)?.name(),
@@ -994,7 +949,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     let parent_source = root.readlink_result(device_path)?
     var parent_target: Str? = null
     if parent_source.state == "observed" and parent_source.target != null {
-      parent_target = pci_parent_address(parent_source.target.require(Path)?, address_text)
+      parent_target = pci_parent_address(parent_source.target, address_text)
     } else if parent_source.state == "observed" {
       issues = issues.push(
         source_issue("pci", f"functions.${address_text}.parent_function_index", report.Malformed, null, "invalid_parent_target"),
@@ -1125,7 +1080,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
         maximum_link_width: maximum_link_width.value,
       },
     )
-    parent_addresses = parent_addresses.push(parent_target)
+    parent_addresses += [parent_target]
   }
 
   var function_index_by_address: Map[Int] = {}
@@ -1156,7 +1111,7 @@ export proc collect_pci(root: FsRoot) [fs, error] -> PciCollection {
     function_index += 1
   }
 
-  return {
+  {
     status: {
       state: pci_section_state(listing.state, issues),
       enumeration_succeeded: listing.enumeration_succeeded,

@@ -18,11 +18,11 @@ type Config = {auto: List[Str], interfaces: List[Interface]}
 type InterfaceSelection = {physical: Str, logical: Str}
 
 pure empty_interface() -> Interface {
-  let pre_down: List[Str] = []
-  let down: List[Str] = []
-  let post_down: List[Str] = []
+  let pre_down = []
+  let down = []
+  let post_down = []
 
-  return {
+  {
     logical: "",
     family: "",
     method: "",
@@ -36,101 +36,79 @@ pure empty_interface() -> Interface {
 }
 
 pure empty_config() -> Config {
-  let auto: List[Str] = []
+  let auto = []
   let interfaces: List[Interface] = []
-  return {auto, interfaces}
+  {auto, interfaces}
 }
 
 proc default_interfaces_path() [env] -> Result[Path] {
   let raw = env("XSH_IFUP_INTERFACES") ?? { |_|
     "/etc/network/interfaces"
   }
-  return fp"${raw}"
+  fp"${raw}"
 }
 
 proc default_state_path() [env] -> Result[Path] {
   let raw = env("XSH_IFUP_STATE") ?? { |_|
     "/run/network/ifstate"
   }
-  return fp"${raw}"
+  fp"${raw}"
 }
 
 pure first_word(line: Str) -> Str {
   let words = line.words()
 
-  if words.len() == 0 {
-    return ""
-  }
+  return "" when words.len() == 0
 
-  return words[0]
+  words[0]
 }
 
 pure rest_after_word(line: Str) -> Str {
   let word = first_word(line)
 
-  if word == "" {
-    return ""
-  }
+  return "" when word == ""
 
-  return (line.split("") |> drop(word.count_chars())).join("").trim()
+  (line.split("") |> drop(word.count_chars())).join("").trim()
 }
 
 pure add_unique(items: List[Str], item: Str) -> List[Str] {
-  if item in items {
-    return items
-  }
+  return items when item in items
 
-  return items.push(item)
+  items.push(item)
 }
 
 pure glob_match(pattern: Str, text: Str) -> Bool {
-  if pattern == "*" {
-    return true
-  }
+  return true when pattern == "*"
 
-  if ! ("*" in pattern) {
-    return pattern == text
-  }
+  return pattern == text unless ("*" in pattern)
 
   let parts = pattern.split("*")
 
-  if pattern.starts_with("*") and pattern.ends_with("*") {
-    return parts[1] in text
-  }
+  return parts[1] in text when pattern.starts_with("*") and pattern.ends_with("*")
 
-  if pattern.starts_with("*") {
-    return text.ends_with(parts[1])
-  }
+  return text.ends_with(parts[1]) when pattern.starts_with("*")
 
-  if pattern.ends_with("*") {
-    return text.starts_with(parts[0])
-  }
+  return text.starts_with(parts[0]) when pattern.ends_with("*")
 
-  return text.starts_with(parts[0]) and text.ends_with(parts[1])
+  text.starts_with(parts[0]) and text.ends_with(parts[1])
 }
 
 pure append_current(config: Config, current: Interface) -> Config {
-  if current.logical == "" {
-    return config
-  }
+  return config when current.logical == ""
 
-  return {...config, interfaces: config.interfaces.push(current)}
+  {...config, interfaces: config.interfaces.push(current)}
 }
 
 proc parse_source_path(source: Str, config: Config) [fs, error] -> Result[Config] {
   let path_value = fp"${source}"
 
-  if ! ("*" in source) {
-    return parse_interfaces_file(path_value, config)?
-  }
+  return parse_interfaces_file(path_value, config)? unless ("*" in source)
 
   let dir = path_value.parent()
   let pattern = path_value.name()
   var result = config
 
-  if ! dir.exists()? {
-    return result
-  }
+  return result unless dir.exists()?
 
   for entry in fs.children(dir)?
     |> where .kind == "file" and glob_match(pattern, .name)
@@ -138,11 +116,11 @@ proc parse_source_path(source: Str, config: Config) [fs, error] -> Result[Config
     result = parse_interfaces_file(entry.path, result)?
   }
 
-  return result
+  result
 }
 
 proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Result[Config] {
-  if ! path_value.exists()? {
+  guard path_value.exists()? else {
     return config
   }
 
@@ -240,23 +218,19 @@ proc parse_interfaces_file(path_value: Path, config: Config) [fs, error] -> Resu
     }
   }
 
-  return append_current(result, current)
+  append_current(result, current)
 }
 
 proc find_stanza(config: Config, logical: Str) [error] -> Result[Interface] {
   for stanza in config.interfaces {
-    if stanza.logical == logical {
-      return stanza
-    }
+    return stanza when stanza.logical == logical
   }
 
-  return Err(IfdownError.Config(f"unknown interface ${logical}"))
+  Err(IfdownError.Config(f"unknown interface ${logical}"))
 }
 
 proc run_hook(command: Str, physical: Str, stanza: Interface, phase: Str) [process, error] {
-  if command == "" {
-    return
-  }
+  return when command == ""
 
   let env_record = {
     IFACE: physical,
@@ -308,17 +282,17 @@ proc run_parts(dir: Path, physical: Str, stanza: Interface, phase: Str) [fs, pro
 }
 
 proc state_remove_iface(state_path: Path, physical: Str) [fs, error] {
-  if ! state_path.exists()? {
+  guard state_path.exists()? else {
     return
   }
 
   let text = state_path.read_text()?
-  var new_lines: List[Str] = []
+  var new_lines = []
 
   for line in text.lines() {
     let fields = line.words()
     continue when fields.len() >= 1 and fields[0].split("=")[0] == physical
-    new_lines = new_lines.push(line)
+    new_lines += [line]
   }
 
   if new_lines.len() == 0 {
@@ -375,7 +349,7 @@ proc teardown_static(physical: Str, stanza: Interface) [fs, process, error] {
 }
 
 proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logical: Str) [fs, process, error] {
-  if ! state_path.exists()? {
+  guard state_path.exists()? else {
     return
   }
 
@@ -390,9 +364,7 @@ proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logi
     }
   }
 
-  if ! found {
-    return
-  }
+  return unless found
 
   let stanza = find_stanza(config, logical)?
 
@@ -428,17 +400,15 @@ proc deconfigure_interface(config: Config, state_path: Path, physical: Str, logi
 pure split_iface_arg(arg: Str) -> InterfaceSelection {
   let parts = arg.split("=", maxsplit: 1)
 
-  if parts.len() >= 2 {
-    return {physical: parts[0], logical: parts[1]}
-  }
+  return {physical: parts[0], logical: parts[1]} when parts.len() >= 2
 
-  return {physical: arg, logical: arg}
+  {physical: arg, logical: arg}
 }
 
 type IfdownOptions = {all: Bool, operands: List[Str]}
 
 stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[InterfaceSelection] {
-  if ! state_path.exists()? {
+  guard state_path.exists()? else {
     return
   }
 
@@ -448,9 +418,7 @@ stream state_configured_ifaces(state_path: Path) [fs, error] -> Stream[Interface
     if fields.len() >= 1 {
       let parts = fields[0].split("=", maxsplit: 1)
 
-      if parts.len() >= 2 {
-        yield {physical: parts[0], logical: parts[1]}
-      }
+      yield {physical: parts[0], logical: parts[1]} when parts.len() >= 2
     }
   }
 }
@@ -472,8 +440,7 @@ proc main(...argv: List[Str]) [fs, process, env, error] {
       },
     },
   )?
-  let all = opts.all
-  let operands = opts.operands
+  let {all, operands, ..} = opts
 
   if ! all and operands.len() == 0 {
     return Err(IfdownError.Usage("ifdown: expected -a or interface name"))

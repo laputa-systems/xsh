@@ -217,6 +217,13 @@ struct RenderedDiagnostic {
     text: String,
 }
 
+// The final convergence round has already checked the complete import graph.
+// Keep its diagnostics with that exact source so publishing it needs no second check.
+struct ValidatedFixedText {
+    text: String,
+    diagnostics: Vec<RenderedDiagnostic>,
+}
+
 // Fix-mode validation can revisit imported modules; keep these failures keyed so the
 // command-level aggregation emits one diagnostic per source location.
 enum FixedTextValidationError {
@@ -291,6 +298,8 @@ struct WorkspaceModule {
 struct LintWorkspace {
     sources: SourceMap,
     program: ArenaProgram,
+    module_indices: FxHashMap<String, usize>,
+    type_program: std::sync::OnceLock<Arc<ArenaProgram>>,
     modules: FxHashMap<String, WorkspaceModule>,
     roots: Vec<String>,
     input_errors: Vec<String>,
@@ -375,12 +384,7 @@ impl WorkspaceLoader {
             })
             .collect::<Vec<_>>();
 
-        let name = self.builder.symbol_owner().clone().with_current(|| {
-            path.file_stem()
-                .and_then(|stem| stem.to_str())
-                .map(Name::intern)
-                .unwrap_or_else(|| Name::intern("module"))
-        });
+        let name = self.builder.name(&key);
         self.builder
             .push_arena_module(key.clone(), name, fragment.statements);
         self.modules.insert(
@@ -480,6 +484,18 @@ fn lint_workspace(
     cwd_config: &XshConfig,
     config_cache: &ConfigCache,
 ) -> Vec<LintResult> {
+    let available = thread::available_parallelism().map(|count| count.get()).unwrap_or(1);
+    lint_workspace_with_parallelism(discovery, fix, runless, cwd_config, config_cache, available)
+}
+
+fn lint_workspace_with_parallelism(
+    discovery: &LintDiscovery,
+    fix: bool,
+    runless: bool,
+    cwd_config: &XshConfig,
+    config_cache: &ConfigCache,
+    available: usize,
+) -> Vec<LintResult> {
     let mut loader = WorkspaceLoader::new();
     let mut input_errors = Vec::new();
     let mut candidate_keys = Vec::new();
@@ -525,16 +541,14 @@ fn lint_workspace(
         .cloned()
         .collect::<FxHashSet<_>>();
     let roots = select_lint_roots(&candidate_keys, &modules, &explicit_roots);
-    let mut workspace = LintWorkspace {
+    program.modules.shrink_to_fit();
+    let mut workspace = LintWorkspace::new(
         sources,
-        program: {
-            program.modules.shrink_to_fit();
-            program
-        },
+        program,
         modules,
         roots,
         input_errors,
-    };
+    );
 
     let mut results = Vec::new();
     let mut index = 0usize;
@@ -548,16 +562,19 @@ fn lint_workspace(
     let linted_modules = Mutex::new(FxHashSet::default());
     let next_root = AtomicUsize::new(0);
     let (tx, rx) = crossbeam_channel::unbounded();
-    let workers = worker_count(workspace.roots.len());
+    let workers = worker_count_for_parallelism(workspace.roots.len(), available);
     thread::scope(|scope| {
         for _ in 0..workers {
             let next_root = &next_root;
             let tx = tx.clone();
             let linted_modules = &linted_modules;
             let workspace = &workspace;
-            scope.spawn(move || {
+            thread::Builder::new()
+                .name("xsht-lint".to_string())
+                .stack_size(super::FRONTEND_WORKER_STACK_BYTES)
+                .spawn_scoped(scope, move || {
                 let mut bundle = workspace.program.clone();
-                let type_program = Arc::new(bundle.clone());
+                let type_program = workspace.type_program();
                 loop {
                     if cancellation_output().is_some() {
                         break;
@@ -578,7 +595,7 @@ fn lint_workspace(
                         break;
                     }
                 }
-            });
+            }).expect("spawn lint worker");
         }
     });
     drop(tx);
@@ -592,6 +609,45 @@ fn lint_workspace(
         }
     }
     results
+}
+
+// A lint traversal owns one source range. Imported declarations retain their
+// contracts in the program, while checked expression and statement facts use
+// that source's spans. Ordered ranges avoid walking or cloning other files.
+fn source_checked_map<T: Clone>(facts: &std::collections::BTreeMap<Span, T>, source_id: SourceId)
+    -> std::collections::BTreeMap<Span, T> {
+    facts.range(Span::at(source_id, 0)..).take_while(|(span, _)| span.source_id == source_id)
+        .map(|(span, fact)| (*span, fact.clone())).collect()
+}
+
+fn source_checked_set(facts: &std::collections::BTreeSet<Span>, source_id: SourceId)
+    -> std::collections::BTreeSet<Span> {
+    facts.range(Span::at(source_id, 0)..).take_while(|span| span.source_id == source_id)
+        .copied().collect()
+}
+
+fn set_checked_lint_facts_for_source(
+    options: &mut LintOptions,
+    checked: &xsh::frontend::check::CheckOutput,
+    source_id: SourceId,
+) {
+    options.function_return_types = source_checked_map(&checked.function_return_types, source_id);
+    options.expr_types = source_checked_map(&checked.expr_types, source_id);
+    options.proven_nonnull_fallback_receivers = source_checked_set(&checked.proven_nonnull_fallback_receivers, source_id);
+    options.requirement_targets = source_checked_map(&checked.requirement_targets, source_id);
+    options.requirement_expected_targets = source_checked_map(&checked.requirement_expected_targets, source_id);
+    options.statement_positions = source_checked_map(&checked.statement_positions, source_id);
+    options.callable_effects = checked.callable_effects.clone();
+    options.function_effect_facts = checked.function_effect_facts.iter().filter(|(id, _)| id.body.source_id == source_id)
+        .map(|(id, fact)| (*id, fact.clone())).collect();
+    options.function_effect_facts_checked = true;
+    options.terminating_call_spans = source_checked_set(&checked.terminating_call_spans, source_id);
+    options.assertion_effect_spans = source_checked_set(&checked.assertion_effect_spans, source_id);
+    options.statement_expression_spans = source_checked_set(&checked.statement_expression_spans, source_id);
+    options.membership_migration_spans = source_checked_set(&checked.membership_migration_spans, source_id);
+    options.standard_call_spans = source_checked_map(&checked.standard_call_spans, source_id);
+    options.definitely_exiting_block_spans = source_checked_set(&checked.definitely_exiting_block_spans, source_id);
+    options.statically_resolved_call_spans = if checked.diagnostics.is_empty() { source_checked_set(&checked.statically_resolved_call_spans, source_id) } else { Default::default() };
 }
 
 fn lint_workspace_root(
@@ -679,21 +735,7 @@ fn lint_workspace_root(
             bundle.modules.clear();
         }
         let mut options = module.config.lint_options.clone();
-        options.function_return_types = checked.function_return_types.clone();
-        options.expr_types = checked.expr_types.clone();
-        options.proven_nonnull_fallback_receivers = checked.proven_nonnull_fallback_receivers.clone();
-        options.requirement_targets = checked.requirement_targets.clone();
-        options.requirement_expected_targets = checked.requirement_expected_targets.clone();
-        options.statement_positions = checked.statement_positions.clone();
-        options.callable_effects = checked.callable_effects.clone();
-        options.function_effect_facts = checked.function_effect_facts.clone();
-        options.terminating_call_spans = checked.terminating_call_spans.clone();
-        options.assertion_effect_spans = checked.assertion_effect_spans.clone();
-        options.statement_expression_spans = checked.statement_expression_spans.clone();
-        options.membership_migration_spans = checked.membership_migration_spans.clone();
-        options.standard_call_spans = checked.standard_call_spans.clone();
-        options.definitely_exiting_block_spans = checked.definitely_exiting_block_spans.clone();
-        options.statically_resolved_call_spans = if checked.diagnostics.is_empty() { checked.statically_resolved_call_spans.clone() } else { Default::default() };
+        set_checked_lint_facts_for_source(&mut options, &checked, module.source_id);
         let mut linted = if key == root {
             Linter::lint(bundle, &module.text, options)
         } else {
@@ -802,7 +844,7 @@ fn migrate_workspace_syntax(
         return failure(Vec::new(), message, 2);
     }
     let (sources, program, modules) = loader.finish();
-    let candidate = LintWorkspace { sources, program, modules, roots: vec![root.to_string()], input_errors: Vec::new() };
+    let candidate = LintWorkspace::new(sources, program, modules, vec![root.to_string()], Vec::new());
     let diagnostics = candidate.modules.values().flat_map(|module| module.diagnostics.iter().cloned()).collect::<Vec<_>>();
     if !diagnostics.is_empty() {
         return failure(render_diagnostics_with_keys(&diagnostics, &candidate.sources), String::new(), 2);
@@ -830,14 +872,9 @@ fn migrate_workspace_syntax(
     }).collect()
 }
 
-fn worker_count(file_count: usize) -> usize {
-    if file_count == 0 {
-        return 0;
-    }
-    thread::available_parallelism()
-        .map(|count| count.get())
-        .unwrap_or(1)
-        .clamp(1, file_count.min(2))
+fn worker_count_for_parallelism(file_count: usize, available: usize) -> usize {
+    if file_count == 0 { return 0; }
+    available.clamp(1, file_count.min(4))
 }
 
 /// Select entry roots from the candidate-file graph. Explicit file arguments
@@ -945,6 +982,29 @@ fn reachable_keys(
 }
 
 impl LintWorkspace {
+    fn new(
+        sources: SourceMap,
+        program: ArenaProgram,
+        modules: FxHashMap<String, WorkspaceModule>,
+        roots: Vec<String>,
+        input_errors: Vec<String>,
+    ) -> Self {
+        let module_indices = program.modules.iter().enumerate()
+            .map(|(index, module)| (module.key.clone(), index))
+            .collect();
+        Self { sources, program, module_indices, type_program: std::sync::OnceLock::new(), modules, roots, input_errors }
+    }
+
+    fn type_program(&self) -> Arc<ArenaProgram> {
+        self.type_program.get_or_init(|| {
+            let mut program = self.program.clone();
+            // Type references share the arena; entry bundles own module membership.
+            // Keeping every root as a module would qualify its local enum constructors.
+            program.modules.clear();
+            Arc::new(program)
+        }).clone()
+    }
+
     fn reachable_modules(&self, root: &str) -> FxHashSet<String> {
         reachable_keys(&[root.to_string()].into_iter().collect(), &self.modules)
     }
@@ -969,17 +1029,11 @@ impl LintWorkspace {
             &mut visited,
             &mut ordered_keys,
         );
-        let mut modules_by_key = self
-            .program
-            .modules
-            .iter()
-            .cloned()
-            .map(|module| (module.key.clone(), module))
-            .collect::<FxHashMap<_, _>>();
         program.modules = ordered_keys
             .into_iter()
             .filter(|key| key != root)
-            .filter_map(|key| modules_by_key.remove(&key))
+            .filter_map(|key| self.module_indices.get(&key))
+            .map(|index| self.program.modules[*index].clone())
             .collect();
         let allowed_ranges = std::iter::once(program.statements)
             .chain(program.modules.iter().map(|module| module.statements))
@@ -1090,9 +1144,9 @@ fn lint_workspace_node_with_fixes(
     }
 
     let config = &module.config;
-    let final_text =
+    let fixed =
         match apply_cst_fixes(&module.path.to_string_lossy(), &module.text, &fixes, config, check_diagnostics, is_module) {
-            Ok(Some(text)) => text,
+            Ok(Some(fixed)) => fixed,
             Ok(None) => {
                 return LintResult {
                     index,
@@ -1114,24 +1168,8 @@ fn lint_workspace_node_with_fixes(
                 };
             }
         };
-    let remaining = match validate_fixed_text(
-        &module.path.to_string_lossy(),
-        &final_text,
-        config,
-        check_diagnostics,
-    ) {
-        Ok(diagnostics) => diagnostics,
-        Err(FixedTextValidationError::Diagnostics(diagnostics)) => {
-            return LintResult {
-                index,
-                kind: LintResultKind::FixDiagnostics {
-                    status: 2,
-                    diagnostics,
-                    stderr: String::new(),
-                },
-            };
-        }
-    };
+    let final_text = fixed.text;
+    let remaining = fixed.diagnostics;
     if final_text == module.text {
         return LintResult {
             index,
@@ -1190,6 +1228,7 @@ fn lint_config_for_file(
         statement_positions: Default::default(),
         callable_effects: Default::default(),
         function_effect_facts: Default::default(),
+        function_effect_facts_checked: false,
         terminating_call_spans: Default::default(),
         assertion_effect_spans: Default::default(),
         statement_expression_spans: Default::default(),
@@ -1263,6 +1302,7 @@ fn lint_one_file_with_fixes(
     lint_options.statement_positions = checked.statement_positions.clone();
     lint_options.callable_effects = checked.callable_effects.clone();
     lint_options.function_effect_facts = checked.function_effect_facts.clone();
+    lint_options.function_effect_facts_checked = true;
     lint_options.terminating_call_spans = checked.terminating_call_spans.clone();
     lint_options.assertion_effect_spans = checked.assertion_effect_spans.clone();
     lint_options.statement_expression_spans = checked.statement_expression_spans.clone();
@@ -1313,8 +1353,8 @@ fn lint_one_file_with_fixes(
         };
     }
 
-    let final_text = match apply_cst_fixes(file, &text, &ast_fixes, config, &checked.diagnostics, false) {
-        Ok(Some(text)) => text,
+    let fixed = match apply_cst_fixes(file, &text, &ast_fixes, config, &checked.diagnostics, false) {
+        Ok(Some(fixed)) => fixed,
         Ok(None) => {
             return LintResult {
                 index,
@@ -1339,20 +1379,8 @@ fn lint_one_file_with_fixes(
             };
         }
     };
-    let remaining_check_diagnostics =
-        match validate_fixed_text(file, &final_text, config, &checked.diagnostics) {
-            Ok(diagnostics) => diagnostics,
-            Err(FixedTextValidationError::Diagnostics(diagnostics)) => {
-                return LintResult {
-                    index,
-                    kind: LintResultKind::FixDiagnostics {
-                        status: 2,
-                        diagnostics,
-                        stderr: String::new(),
-                    },
-                };
-            }
-        };
+    let final_text = fixed.text;
+    let remaining_check_diagnostics = fixed.diagnostics;
 
     if final_text == text {
         if remaining_check_diagnostics.is_empty() {
@@ -1438,13 +1466,14 @@ fn apply_cst_fixes(
     config: &ResolvedLintConfig,
     original_check_diagnostics: &[Diagnostic],
     is_module: bool,
-) -> Result<Option<String>, String> {
+) -> Result<Option<ValidatedFixedText>, String> {
     let migrating_syntax = Parser::parse_source_arena_only(SourceId::new(0), text)
         .diagnostics.iter().any(|diagnostic| migration_lint_code(diagnostic.code.as_deref()).is_some());
     let mut candidate = text.to_owned();
     let mut fixes = fixes.to_vec();
     let mut seen = FxHashSet::default();
     seen.insert(candidate.clone());
+    let mut remaining_diagnostics = None;
     // Outer edits can expose safe inner edits. Every round uses fresh checked
     // facts and source spans; a rejected round never reaches the filesystem.
     for _ in 0..64 {
@@ -1456,7 +1485,18 @@ fn apply_cst_fixes(
         let Some(next) = apply_cst_guarded_edits(file, &candidate, &edits, config.line_width)? else {
             return Ok(None);
         };
-        if next == candidate { return Ok(Some(candidate)); }
+        if next == candidate {
+            let diagnostics = match remaining_diagnostics {
+                Some(diagnostics) => diagnostics,
+                None => match validate_fixed_text(file, &candidate, config, original_check_diagnostics) {
+                    Ok(diagnostics) => diagnostics,
+                    Err(FixedTextValidationError::Diagnostics(diagnostics)) => {
+                        return Err(diagnostics.into_iter().map(|diagnostic| diagnostic.text).collect());
+                    }
+                },
+            };
+            return Ok(Some(ValidatedFixedText { text: candidate, diagnostics }));
+        }
         if !seen.insert(next.clone()) {
             return Err(format!("xsht: safe fixes for {file} do not converge\n"));
         }
@@ -1472,7 +1512,13 @@ fn apply_cst_fixes(
         if !check_diagnostics_are_preserved(original_check_diagnostics, &checked.diagnostics) {
             return Err(DiagnosticRenderer::new().render(&checked.diagnostics, &program.sources));
         }
-        if migrating_syntax { return Ok(Some(candidate)); }
+        remaining_diagnostics = Some(render_diagnostics_with_keys(&checked.diagnostics, &program.sources));
+        if migrating_syntax {
+            return Ok(Some(ValidatedFixedText {
+                text: candidate,
+                diagnostics: remaining_diagnostics.unwrap(),
+            }));
+        }
         let mut options = config.lint_options.clone();
         options.function_return_types = checked.function_return_types.clone();
         options.expr_types = checked.expr_types.clone();
@@ -1482,6 +1528,7 @@ fn apply_cst_fixes(
         options.statement_positions = checked.statement_positions.clone();
         options.callable_effects = checked.callable_effects.clone();
         options.function_effect_facts = checked.function_effect_facts.clone();
+        options.function_effect_facts_checked = true;
         options.terminating_call_spans = checked.terminating_call_spans.clone();
         options.assertion_effect_spans = checked.assertion_effect_spans.clone();
         options.statement_expression_spans = checked.statement_expression_spans.clone();
@@ -1496,7 +1543,12 @@ fn apply_cst_fixes(
         };
         fixes = collect_fix_spans_for_source(&linted.diagnostics, SourceId::new(0));
         fixes.extend(collect_fix_spans_for_source(&checked.diagnostics, SourceId::new(0)));
-        if fixes.is_empty() { return Ok(Some(candidate)); }
+        if fixes.is_empty() {
+            return Ok(Some(ValidatedFixedText {
+                text: candidate,
+                diagnostics: remaining_diagnostics.unwrap(),
+            }));
+        }
     }
     Err(format!("xsht: safe fixes for {file} exceeded the convergence limit\n"))
 }
@@ -1648,7 +1700,8 @@ fn diagnostic_key(diagnostic: &Diagnostic, sources: &SourceMap) -> String {
 mod tests {
     use crate::xsht::cli::lint::{
         ConfigCache, LintResultKind, ResolvedLintConfig, apply_cst_fixes, collect_fix_spans,
-        discover_lint_files, lint_config_for_file, lint_one_file_with_fixes,
+        discover_lint_files, lint_config_for_file, lint_one_file_with_fixes, lint_workspace,
+        LintWorkspace, WorkspaceLoader,
     };
     use crate::xsht::format::DEFAULT_LINE_WIDTH;
     use crate::xsht::lint::LintOptions;
@@ -1706,6 +1759,79 @@ mod tests {
 
         assert!(!config.lint_options.dead_code);
         assert!(!config.lint_options.runless);
+    }
+
+    #[test]
+    fn lint_worker_count_respects_available_cpus_roots_and_four_worker_bound() {
+        for (roots, available, expected) in [(0, 8, 0), (1, 8, 1), (16, 1, 1),
+            (16, 2, 2), (16, 4, 4), (16, 64, 4), (3, 8, 3)] {
+            assert_eq!(super::worker_count_for_parallelism(roots, available), expected,
+                "{roots} roots with {available} available CPUs");
+        }
+    }
+
+    #[test]
+    fn lint_four_workers_preserve_shared_import_diagnostics_and_source_bytes() {
+        let fixture = TempDir::new().unwrap();
+        let module = fixture.path().join("helper.xsh");
+        let module_source = "##! Helper.\n## Returns one.\nexport pure value() -> Int { return 1 }\n";
+        fs::write(&module, module_source).unwrap();
+        let mut paths = Vec::new();
+        let source = "use helper\nprint (helper.value())\n";
+        for index in 0..8 {
+            let path = fixture.path().join(format!("entry{index}.xsh"));
+            fs::write(&path, source).unwrap();
+            paths.push(path.to_string_lossy().into_owned());
+        }
+        let config = crate::xsht::cli::XshConfig::default();
+        let discovery = discover_lint_files(&paths, &config).unwrap();
+        let run = |available| {
+            let results = super::lint_workspace_with_parallelism(&discovery, false, false,
+                &config, &ConfigCache::default(), available);
+            let mut output = Vec::new();
+            for result in results {
+                match result.kind {
+                    LintResultKind::Clean => {},
+                    LintResultKind::Diagnostics { status, diagnostics } => {
+                        assert_eq!(status, 1);
+                        for diagnostic in diagnostics { output.push((diagnostic.key, diagnostic.text)); }
+                    },
+                    _ => panic!("read-only valid workspace must only return lint diagnostics"),
+                }
+            }
+            output
+        };
+        let serial = run(1);
+        let parallel = run(4);
+        assert_eq!(serial.len(), 1, "{serial:?}");
+        assert!(serial[0].1.contains("lint.redundant-tail-return"));
+        assert_eq!(parallel, serial);
+        assert_eq!(fs::read_to_string(&module).unwrap(), module_source);
+        for path in paths { assert_eq!(fs::read_to_string(path).unwrap(), source); }
+    }
+
+    #[test]
+    fn lint_workspace_copies_only_current_source_checked_facts() {
+        let local = SourceId::new(1);
+        let foreign = SourceId::new(2);
+        let local_span = Span::new(local, 10, 12);
+        let mut checked = xsh::frontend::check::CheckOutput::default();
+        checked.expr_types.insert(local_span, xsh::frontend::check::Type::Int);
+        checked.statement_positions.insert(local_span, xsh::frontend::check::StatementPosition::Statement);
+        checked.proven_nonnull_fallback_receivers.insert(local_span);
+        for offset in 0..100 {
+            let span = Span::new(foreign, offset, offset + 1);
+            checked.expr_types.insert(span, xsh::frontend::check::Type::Str);
+            checked.statement_positions.insert(span, xsh::frontend::check::StatementPosition::Value);
+            checked.proven_nonnull_fallback_receivers.insert(span);
+        }
+        let mut options = LintOptions::default();
+        super::set_checked_lint_facts_for_source(&mut options, &checked, local);
+        assert_eq!(options.expr_types.len(), 1);
+        assert_eq!(options.expr_types.get(&local_span), Some(&xsh::frontend::check::Type::Int));
+        assert_eq!(options.statement_positions.len(), 1);
+        assert_eq!(options.proven_nonnull_fallback_receivers.len(), 1);
+        assert!(options.function_effect_facts_checked);
     }
 
     #[test]
@@ -1787,13 +1913,13 @@ print ${value}
         )
         .expect("apply fixes");
 
-        assert_eq!(result, None);
+        assert!(result.is_none());
     }
 
     #[test]
     fn lint_fix_rewrites_empty_map_initializer_through_ast() {
         for (map_type, key) in [("Map[Int]", "\"x\""), ("Map[Int, Str]", "1")] {
-            let source = format!("let counts: {map_type} = map.empty()\nprint ${{counts.has({key})}}\n");
+            let source = format!("let counts: {map_type} = map.empty()\nprint ({key} in counts)\n");
             let config = config();
             let result = lint_one_file_with_fixes(0, "fixture.xsh", source, &config);
             let LintResultKind::Write { text, .. } = result.kind else {
@@ -1801,7 +1927,7 @@ print ${value}
             };
 
             assert!(text.contains(&format!("counts: {map_type} = {{}}")), "{text}");
-            assert!(text.contains(&format!("print counts.has({key})")), "{text}");
+            assert!(text.contains(&format!("print ({key} in counts)")), "{text}");
             assert!(!text.contains("map.empty()"));
             let second = lint_one_file_with_fixes(0, "fixture.xsh", text, &config);
             assert!(matches!(second.kind, LintResultKind::Clean));
@@ -1824,12 +1950,235 @@ print ${name}
         assert!(!text.contains(": Str"));
     }
 
+    #[cfg(feature = "native-tests")]
+    #[test]
+    fn lint_fix_checks_the_converged_source_once() {
+        xsh::frontend::stdlib_preparation::reset();
+        let source = "print tui.red()\nlet target_path = Path(\"/srv/xsh\")\nprint target_path\n";
+        let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config());
+        let LintResultKind::Write {
+            text,
+            status,
+            diagnostics,
+            ..
+        } = result.kind else {
+            panic!("expected the path constructor to be fixed");
+        };
+        assert_eq!(
+            status,
+            0,
+            "{}",
+            diagnostics.iter().map(|diagnostic| diagnostic.text.as_str()).collect::<String>()
+        );
+        assert!(!text.contains("Path("), "{text}");
+        assert_eq!(
+            xsh::frontend::stdlib_preparation::parsed_modules(),
+            2,
+            "prepare once for the original and once for the converged source"
+        );
+    }
+
+    #[test]
+    fn lint_workspace_migrates_imported_enums_and_refuses_unrelated_import_errors() {
+        for (source, expected_error) in [
+            ("##! Choices.\n## An option.\nexport type Choice = One | Two\n", None),
+            ("##! Choices.\nuse missing\n## An option.\nexport type Choice = One | Two\n", Some("parse.module-read")),
+            ("##! Choices.\n## An option.\nexport type Choice = One | Two\nlet broken: Int = \"wrong\"\n", Some("check.type-mismatch")),
+        ] {
+            let root = TempDir::new().expect("create import migration fixture");
+            let module = root.path().join("choice.xsh");
+            fs::write(&module, source).expect("write imported enum");
+            let entry = root.path().join("entry.xsh");
+            fs::write(&entry, "use choice\nlet selected: choice.Choice = choice.One\n")
+                .expect("write entry");
+            let config = crate::xsht::cli::XshConfig::default();
+            let discovery = discover_lint_files(&[entry.to_string_lossy().into_owned()], &config)
+                .expect("discover entry");
+            let results = lint_workspace(&discovery, true, false, &config, &ConfigCache::default());
+            if let Some(expected_error) = expected_error {
+                assert!(results.iter().all(|result| !matches!(result.kind, LintResultKind::Write { .. })));
+                assert!(results.iter().any(|result| matches!(&result.kind,
+                    LintResultKind::Diagnostics { status: 2, diagnostics }
+                    | LintResultKind::FixDiagnostics { status: 2, diagnostics, .. }
+                    if diagnostics.iter().any(|diagnostic| diagnostic.text.contains(expected_error)))));
+            } else {
+                assert!(results.iter().any(|result| matches!(&result.kind,
+                    LintResultKind::Write { file, text, status: 0, .. }
+                    if file == &module.to_string_lossy() && text.contains("export enum Choice {"))),
+                    "{}", results.iter().map(|result| match &result.kind {
+                        LintResultKind::Diagnostics { diagnostics, .. } | LintResultKind::FixDiagnostics { diagnostics, .. } => diagnostics.iter().map(|diagnostic| diagnostic.text.as_str()).collect::<String>(),
+                        LintResultKind::Write { text, .. } => text.clone(),
+                        _ => String::new(),
+                    }).collect::<String>());
+            }
+            assert_eq!(fs::read_to_string(&module).expect("read imported enum"), source);
+        }
+    }
+
+    #[test]
+    fn lint_workspace_source_facts_preserve_bundle_diagnostics() {
+        let fixture = TempDir::new().expect("create checked fact fixture");
+        let module = fixture.path().join("helper.xsh");
+        fs::write(&module, "##! Helpers.\n## Echoes an integer.\nexport pure echo(value: Int) -> Int { return value }\n").unwrap();
+        let entry = fixture.path().join("entry.xsh");
+        fs::write(&entry, "use helper\nlet value: Int = helper.echo(1)\nprint $value\n").unwrap();
+        let mut loader = WorkspaceLoader::new();
+        let root = loader.load(entry.clone(), fs::read(&entry).unwrap(), Vec::new()).unwrap();
+        let (sources, program, modules) = loader.finish();
+        let workspace = LintWorkspace::new(sources, program, modules, vec![root.clone()], Vec::new());
+        let reachable = workspace.reachable_modules(&root);
+        let mut bundle = workspace.program.clone();
+        workspace.configure_program_for(&root, &reachable, &mut bundle);
+        let checked = xsh::frontend::check::Checker::check_arena(&bundle, &workspace.modules[&root].text);
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        for key in reachable {
+            let module = &workspace.modules[&key];
+            let mut projected = LintOptions::default();
+            super::set_checked_lint_facts_for_source(&mut projected, &checked, module.source_id);
+            let mut complete = projected.clone();
+            complete.function_return_types = checked.function_return_types.clone();
+            complete.expr_types = checked.expr_types.clone();
+            complete.statement_positions = checked.statement_positions.clone();
+            complete.standard_call_spans = checked.standard_call_spans.clone();
+            complete.function_effect_facts = checked.function_effect_facts.clone();
+            assert!(projected.expr_types.len() < complete.expr_types.len());
+            bundle.statements = module.statements;
+            if key != root { bundle.modules.clear(); }
+            let lint = |options| if key == root {
+                crate::xsht::lint::Linter::lint(&bundle, &module.text, options)
+            } else { crate::xsht::lint::Linter::lint_module(&bundle, &module.text, options) };
+            assert_eq!(format!("{:?}", lint(projected).diagnostics), format!("{:?}", lint(complete).diagnostics));
+        }
+    }
+
+    #[test]
+    fn lint_workspace_root_configuration_keeps_shared_module_identity_and_docs() {
+        let root = TempDir::new().expect("create workspace fixture");
+        let sources = [
+            ("shared.xsh", "##! Shared.\n## Shared value.\nexport const value = 1\n"),
+            ("branch.xsh", "##! Branch.\nuse shared\n## Branch value.\nexport const value = shared.value\n"),
+            ("left.xsh", "##! Left.\nuse branch\nprint branch.value\n"),
+            ("right.xsh", "##! Right.\nuse shared\nprint shared.value\n"),
+        ];
+        for (name, text) in sources {
+            fs::write(root.path().join(name), text).expect("write workspace source");
+        }
+        let mut loader = WorkspaceLoader::new();
+        let mut roots = Vec::new();
+        for name in ["left.xsh", "right.xsh"] {
+            let file = root.path().join(name);
+            roots.push(loader.load(file.clone(), fs::read(file).unwrap(), Vec::new()).unwrap());
+        }
+        let (sources, program, modules) = loader.finish();
+        let workspace = LintWorkspace::new(sources, program, modules, roots, Vec::new());
+        let type_program = workspace.type_program();
+        assert!(type_program.modules.is_empty());
+        assert!(std::sync::Arc::ptr_eq(&type_program, &workspace.type_program()),
+            "workers share the same immutable arena for type references");
+        let mut bundle = workspace.program.clone();
+        for (root_index, expected_modules) in [(0, vec!["shared", "branch"]), (1, vec!["shared"]), (0, vec!["shared", "branch"])] {
+            let key = &workspace.roots[root_index];
+            let reachable = workspace.reachable_modules(key);
+            workspace.configure_program_for(key, &reachable, &mut bundle);
+            assert_eq!(bundle.statements, workspace.modules[key].statements);
+            assert_eq!(
+                bundle.modules.iter().map(|module| module.key.clone()).collect::<Vec<_>>(),
+                expected_modules.iter().map(|name| xsh::frontend::load::module_key(&root.path().join(format!("{name}.xsh")))).collect::<Vec<_>>()
+            );
+            for module in &bundle.modules {
+                assert_eq!(module.statements, workspace.modules[&module.key].statements);
+                assert_eq!(module.name.as_str(), module.key.as_str());
+            }
+            let allowed_sources = reachable.iter().map(|key| workspace.modules[key].source_id).collect::<rustc_hash::FxHashSet<_>>();
+            assert_eq!(bundle.docs.module_ranges.len(), reachable.len());
+            assert!(bundle.docs.module_ranges.iter().all(|(_, span)| allowed_sources.contains(&span.source_id)));
+            assert!(bundle.docs.exports.iter().all(|(_, span)| allowed_sources.contains(&span.source_id)));
+            assert_eq!(bundle.docs.exports.len(), expected_modules.len());
+        }
+    }
+
+    #[test]
+    fn lint_workspace_root_enum_contract_matches_entry_checker() {
+        for invalid_assignment in [false, true] {
+            let root = TempDir::new().expect("create nominal root fixture");
+            let file = root.path().join("choice.xsh");
+            let mut source = "##! Choices.\n## A selection.\nexport enum Choice { One, Other(Int) }\n## A holder.\nexport type Holder = {choice: Choice}\n## Keep a selection.\nexport pure select(selected: Choice) -> Choice { selected }\nvar selected: Choice = One\nselected = Other(7)\nlet holder = Holder(choice: selected)\nlet _ = select(holder.choice)\nmatch selected { One => print \"one\"; Other(number) => print $number }\n".to_owned();
+            if invalid_assignment { source.push_str("selected = 1\n"); }
+            fs::write(&file, &source).expect("write nominal root fixture");
+            let checked = xsh::frontend::load::parse_load_check_text(
+                file.to_str().unwrap(), source, Vec::new(), xsh::frontend::check::CheckOptions::default(),
+            );
+            assert!(checked.parsed.diagnostics.is_empty());
+            let expected = &checked.checked.unwrap().diagnostics;
+            assert_eq!(expected.is_empty(), !invalid_assignment, "{expected:?}");
+            let config = crate::xsht::cli::XshConfig::default();
+            let discovery = discover_lint_files(&[file.to_string_lossy().into_owned()], &config).unwrap();
+            let results = lint_workspace(&discovery, false, false, &config, &ConfigCache::default());
+            let errors = results.iter().filter_map(|result| match &result.kind {
+                LintResultKind::Diagnostics { status: 2, diagnostics } => Some(diagnostics),
+                _ => None,
+            }).flatten().map(|diagnostic| diagnostic.text.as_str()).collect::<String>();
+            if invalid_assignment {
+                assert!(errors.contains("check.type-mismatch"), "{errors}");
+            } else {
+                assert!(errors.is_empty(), "{errors}");
+            }
+        }
+    }
+
+    #[test]
+    fn lint_workspace_legacy_root_enum_helper_migration_rechecks() {
+        let root = TempDir::new().expect("create root enum migration fixture");
+        let file = root.path().join("target.xsh");
+        let source = "##! Targets.\n## A target.\nexport type Target = A | B\n## The selected target.\nexport pure target() -> Target { return A }\n";
+        fs::write(&file, source).unwrap();
+        let config = crate::xsht::cli::XshConfig::default();
+        let discovery = discover_lint_files(&[file.to_string_lossy().into_owned()], &config).unwrap();
+        let results = lint_workspace(&discovery, true, false, &config, &ConfigCache::default());
+        let fixed = results.into_iter().find_map(|result| match result.kind {
+            LintResultKind::Write { text, status: 0, .. } => Some(text),
+            _ => None,
+        }).expect("migrate the root enum without false nominal mismatches");
+        assert!(fixed.contains("export enum Target {"), "{fixed}");
+        let checked = xsh::frontend::load::parse_load_check_text(
+            file.to_str().unwrap(), fixed, Vec::new(), xsh::frontend::check::CheckOptions::default(),
+        );
+        assert!(checked.parsed.diagnostics.is_empty());
+        assert!(checked.checked.unwrap().diagnostics.is_empty());
+        assert_eq!(fs::read_to_string(file).unwrap(), source);
+    }
+
+    #[test]
+    fn lint_workspace_preserves_distinct_imported_enum_identities_with_same_file_name() {
+        let root = TempDir::new().expect("create distinct nominal import fixture");
+        let module = "##! Choices.\n## A choice.\nexport enum Choice { Selected }\n## Consume a choice.\nexport pure consume(selected: Choice) -> Int { 1 }\n";
+        for directory in ["left", "right"] {
+            fs::create_dir(root.path().join(directory)).unwrap();
+            fs::write(root.path().join(directory).join("choice.xsh"), module).unwrap();
+        }
+        let file = root.path().join("entry.xsh");
+        let source = "use left.choice as first\nuse right.choice as second\nlet selected: first.Choice = first.Selected\nlet _ = second.consume(selected)\n";
+        fs::write(&file, source).unwrap();
+        let checked = xsh::frontend::load::parse_load_check_text(
+            file.to_str().unwrap(), source.to_owned(), Vec::new(), xsh::frontend::check::CheckOptions::default(),
+        );
+        assert!(checked.parsed.diagnostics.is_empty());
+        assert!(checked.checked.unwrap().diagnostics.iter().any(|diagnostic|
+            diagnostic.code.as_deref() == Some("check.type-mismatch")));
+        let config = crate::xsht::cli::XshConfig::default();
+        let discovery = discover_lint_files(&[file.to_string_lossy().into_owned()], &config).unwrap();
+        let results = lint_workspace(&discovery, false, false, &config, &ConfigCache::default());
+        assert!(results.iter().any(|result| matches!(&result.kind,
+            LintResultKind::Diagnostics { status: 2, diagnostics }
+            if diagnostics.iter().any(|diagnostic| diagnostic.text.contains("check.type-mismatch")))));
+    }
+
     #[test]
     fn lint_fix_keeps_var_annotation_when_reassigned() {
         let source = "\
 var build_env: Record = {A: \"1\"}
 build_env = {A: \"1\", B: \"2\"}
-let _ = build_env.has(\"B\")
+let _ = \"B\" in build_env
 ";
         let config = config();
         let result = lint_one_file_with_fixes(0, "fixture.xsh", source.to_string(), &config);

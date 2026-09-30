@@ -11,7 +11,7 @@ let out = fp"${root}/metadata.json"
 let lines = fp"${root}/events.jsonl"
 let summary_path = fp"${root}/summary.json"
 let status = run.status false
-let error_message = "shown"
+const error_message = "shown"
 let metadata = {
   name: "demo",
   root: p"src".display(),

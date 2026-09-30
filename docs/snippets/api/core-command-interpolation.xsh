@@ -1,2 +1,2 @@
-let name = "world"
+const name = "world"
 run echo ${name}

@@ -15,8 +15,8 @@ let grouped = { (answer) }
 let shorthand = {answer}
 print \${answer} \${negative} \${grouped} \${shorthand.answer}
 """)?
-  test.eq(output.success, true)?
-  test.eq(output.stdout, "statement cleanup\nvalue cleanup\n42 false 42 42\n")?
+  output.success
+  output.stdout == "statement cleanup\nvalue cleanup\n42 false 42 42\n"
 }
 
 test test_bare_statement_blocks_assert_false [error] { |ctx|
@@ -28,9 +28,9 @@ test test_bare_statement_blocks_assert_false [error] { |ctx|
 
 print unreachable
 """)?
-  test.eq(output.success, false)?
-  test.eq(output.stdout, "cleanup\n")?
-  test.ok("assertion" in output.stderr)?
+  ! output.success
+  output.stdout == "cleanup\n"
+  "assertion" in output.stderr
 }
 
 
@@ -39,7 +39,7 @@ pure lexical_tail() -> Bool {
 }
 
 test test_bare_value_tail_preserves_false [error] {
-  test.eq(lexical_tail(), false)?
+  ! lexical_tail()
 }
 
 test test_bare_blocks_preserve_lexical_transfers [error] { |ctx|
@@ -64,8 +64,9 @@ proc visit() [error] {
 print \${answer()}
 visit()
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "return cleanup\n7\n1\nloop cleanup\nloop cleanup\nloop cleanup\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "return cleanup\n7\n1\nloop cleanup\nloop cleanup\nloop cleanup\n"
 }
 
 test test_bare_blocks_preserve_literal_and_callable_tails [error] { |ctx|
@@ -82,8 +83,9 @@ let selected = { let value = 5; {value} }
 let indexed = { [6][0] }
 print ${empty.len()} ${named.if} ${updated.get("next")?} ${called} ${selected.value} ${indexed} ${row().value}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "0 1 4 9 5 6 3\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "0 1 4 9 5 6 3\n"
 }
 
 test test_bare_blocks_keep_checker_and_result_boundaries [error] { |ctx|
@@ -95,7 +97,9 @@ test test_bare_blocks_keep_checker_and_result_boundaries [error] { |ctx|
     "{ continue }\n",
   ] {
     let output = test.run_script(ctx, source)?
-    test.ok(! output.success, source + output.stderr)?
+    let rejected = ! output.success
+    let rejection_details = source + output.stderr
+    assert rejected, rejection_details
   }
   let output = test.run_script(ctx, r"""
 error BlockError = Failed(message: Str)
@@ -105,8 +109,9 @@ print ${captured ?? {|failure| failure.message}}
 let data = { Err(BlockError.Failed(message: "data")) }
 print ${data ?? {|failure| failure.message}}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "identity\ndata\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "identity\ndata\n"
 }
 
 test test_bare_blocks_run_cleanup_before_exposing_values [error] { |ctx|
@@ -122,9 +127,10 @@ print ${captured ?? {|failure| failure.message}}
 let primary = try { { defer failed()?; false }; "value" }
 print ${primary ?? {|failure| failure.message}}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.ok("1 2\ncleanup failure\n" in output.stdout)?
-  test.ok("assertion" in output.stdout)?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  "1 2\ncleanup failure\n" in output.stdout
+  "assertion" in output.stdout
 }
 
 test test_lexical_block_lint_preserves_scope_comments_and_converges [fs, process, error] { |ctx|
@@ -138,20 +144,28 @@ if true { # Keep the scope rationale.
 print $selected
 """
   let before = test.run_script(ctx, source)?
-  test.ok(before.success, before.stderr)?
+  let {success: before_succeeded, stderr: before_failure_details, ..} = before
+  assert before_succeeded, before_failure_details
   let candidate = test.temp_file(ctx, name: "lexical-block-fix.xsh", contents: bytes.from_text(source))?
   let applied = run.capture --text "xsht" lint --fix $candidate ?
-  test.ok(applied.status.exited_with(0), applied.stderr)?
+  let applied_succeeded = applied.status.exited_with(0)
+  let applied_failure_details = applied.stderr
+  assert applied_succeeded, applied_failure_details
   let fixed = candidate.read_text()?
-  test.ok(("if true" not in fixed), fixed)?
-  test.ok("# Keep the scope rationale." in fixed)?
-  test.ok("defer mark" in fixed)?
+  let condition_removed = "if true" not in fixed
+  let fixed_source = fixed
+  assert condition_removed, fixed_source
+  "# Keep the scope rationale." in fixed
+  "defer mark" in fixed
   let after = test.run_script(ctx, fixed)?
-  test.ok(after.success, after.stderr)?
-  test.eq(after.stdout, before.stdout)?
+  let {success: after_succeeded, stderr: after_failure_details, ..} = after
+  assert after_succeeded, after_failure_details
+  after.stdout == before.stdout
   let repeated = run.capture --text "xsht" lint --fix $candidate ?
-  test.ok(repeated.status.exited_with(0), repeated.stderr)?
-  test.eq(candidate.read_text()?, fixed)?
+  let repeated_succeeded = repeated.status.exited_with(0)
+  let repeated_failure_details = repeated.stderr
+  assert repeated_succeeded, repeated_failure_details
+  candidate.read_text()? == fixed
 }
 
 test test_lexical_block_lint_declines_changed_value_and_comment_boundaries [fs, process, error] { |ctx|
@@ -163,10 +177,12 @@ test test_lexical_block_lint_declines_changed_value_and_comment_boundaries [fs, 
   ] {
     let candidate = test.temp_file(ctx, name: "lexical-block-no-fix.xsh", contents: bytes.from_text(source))?
     let inspected = run.capture --text "xsht" lint $candidate ?
-    test.ok(("lint.lexical-block" not in inspected.stderr), inspected.stderr)?
-    let applied = run.capture --text "xsht" lint --fix $candidate ?
+    let declined = "lint.lexical-block" not in inspected.stderr
+    let inspection_details = inspected.stderr
+    assert declined, inspection_details
+    let _ = run.capture --text "xsht" lint --fix $candidate ?
     let fixed = candidate.read_text()?
-    test.ok("if true" in fixed)?
+    "if true" in fixed
   }
 }
 
@@ -183,8 +199,9 @@ stream values() [] -> Stream[Int] {
 for value in values() { print $value; break }
 print done
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "1\ninner\nouter\ndone\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "1\ninner\nouter\ndone\n"
 }
 
 test test_bare_blocks_do_not_expand_module_or_integer_exit_permissions [fs, error] { |ctx|
@@ -192,16 +209,48 @@ test test_bare_blocks_do_not_expand_module_or_integer_exit_permissions [fs, erro
   let module_path = fp"${root}/invalid.xsh"
   module_path.write("##! Invalid executable module.\n{ print forbidden }\n## Exported name.\nexport let name = \"invalid\"\n")?
   let loaded = test.run_script(ctx, f"let _ = module.load(p\"${module_path.display()}\")?\n")?
-  test.ok(! loaded.success, f"loaded status=${loaded.status}: ${loaded.stderr}")?
-  test.ok("check.module-top-level" in loaded.stderr)?
-  test.ok(("forbidden" not in loaded.stdout), loaded.stdout)?
+  let load_rejected = ! loaded.success
+  let load_details = f"loaded status=${loaded.status}: ${loaded.stderr}"
+  assert load_rejected, load_details
+  "check.module-top-level" in loaded.stderr
+  let load_silent = "forbidden" not in loaded.stdout
+  let load_stdout = loaded.stdout
+  assert load_silent, load_stdout
   let imported = test.run_script(ctx, "use invalid\n", [], {XSH_MODULE_PATH: root.display()})?
-  test.ok(! imported.success, imported.stderr)?
-  test.ok("check.module-top-level" in imported.stderr)?
-  test.ok(("forbidden" not in imported.stdout), imported.stdout)?
+  let import_rejected = ! imported.success
+  let import_details = imported.stderr
+  assert import_rejected, import_details
+  "check.module-top-level" in imported.stderr
+  let import_silent = "forbidden" not in imported.stdout
+  let import_stdout = imported.stdout
+  assert import_silent, import_stdout
   let bare = test.run_script(ctx, "{ 7 }\n")?
-  test.ok(bare.success, f"bare status=${bare.status}: ${bare.stderr}")?
-  test.eq(bare.status, 0, message: f"bare status=${bare.status}: ${bare.stderr}")?
+  let succeeded = bare.success
+  let failure_details = f"bare status=${bare.status}: ${bare.stderr}"
+  assert succeeded, failure_details
+  let status = bare.status
+  let expected_status = 0
+  let status_details = f"bare status=${bare.status}: ${bare.stderr}"
+  assert status == expected_status, status_details
+}
+
+test test_bare_statement_discard_preserves_callable_return_contracts [error] { |ctx|
+  for source in [
+    "pure value() -> Unit { 7 }\n",
+    "pure value() -> Unit { { 7 } }\n",
+    "proc value() [] -> Unit { 7 }\n",
+    "proc value() [] -> Unit { { 7 } }\n",
+  ] {
+    let output = test.run_script(ctx, source)?
+    let {success: succeeded, stderr: diagnostics, ..} = output
+    assert ! succeeded, source
+    let wrong_return = "expected Unit, found Int" in diagnostics
+    assert wrong_return, diagnostics
+  }
+  let output = test.run_script(ctx, "proc value() [] { { 7 }; print retained }\nvalue()\n")?
+  let {success: succeeded, stderr: diagnostics, stdout: written, ..} = output
+  assert succeeded, diagnostics
+  written == "retained\n"
 }
 
 test test_bare_block_resource_escape_keeps_explicit_cleanup_validity [error] { |ctx|
@@ -217,15 +266,18 @@ let closed = {
 let inspected = closed.exists(p".")
 print ${inspected ?? false}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "true\nfalse\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "true\nfalse\n"
 }
 
 test test_bare_block_grep_and_refactor_preserve_literal_distinctions [fs, process, error] { |ctx|
   let reference = run.capture --text "xsht" api "language:core.bare-blocks" ?
-  test.ok(reference.status.exited_with(0), reference.stderr)?
-  test.ok("Bool values may be false" in reference.stdout)?
-  test.ok("let grouped = { (selected) }" in reference.stdout)?
+  let reference_succeeded = reference.status.exited_with(0)
+  let reference_failure_details = reference.stderr
+  assert reference_succeeded, reference_failure_details
+  "Bool values may be false" in reference.stdout
+  "let grouped = { (selected) }" in reference.stdout
   let source = r"""pure calculate() -> Int { 9 }
 let answer = { calculate() }
 let row = {answer}
@@ -233,17 +285,26 @@ print $answer ${row.answer}
 """
   let candidate = test.temp_file(ctx, name: "lexical-block-refactor.xsh", contents: bytes.from_text(source))?
   let found = run.capture --text "xsht" grep "{ (EXPR) }" $candidate ?
-  test.ok(found.status.exited_with(0), found.stderr)?
-  test.ok("{ calculate() }" in found.stdout)?
-  test.ok(("let row" not in found.stdout), found.stdout)?
+  let found_succeeded = found.status.exited_with(0)
+  let found_failure_details = found.stderr
+  assert found_succeeded, found_failure_details
+  "{ calculate() }" in found.stdout
+  let row_absent = "let row" not in found.stdout
+  let found_text = found.stdout
+  assert row_absent, found_text
   let rewritten = run.capture --text "xsht" refactor "{ (EXPR) }" "{ (EXPR) }" $candidate ?
-  test.ok(rewritten.status.exited_with(0), rewritten.stderr)?
+  let rewritten_succeeded = rewritten.status.exited_with(0)
+  let rewritten_failure_details = rewritten.stderr
+  assert rewritten_succeeded, rewritten_failure_details
   let fixed = candidate.read_text()?
-  test.ok(("EXPR" not in fixed), fixed)?
-  test.ok("let row = {answer}" in fixed)?
+  let holes_absent = "EXPR" not in fixed
+  let fixed_source = fixed
+  assert holes_absent, fixed_source
+  "let row = {answer}" in fixed
   let checked = test.run_script(ctx, fixed)?
-  test.ok(checked.success, checked.stderr)?
-  test.eq(checked.stdout, "9 9\n")?
+  let {success: checked_succeeded, stderr: checked_failure_details, ..} = checked
+  assert checked_succeeded, checked_failure_details
+  checked.stdout == "9 9\n"
 }
 
 test test_bare_blocks_preserve_implicit_stream_item_values [error] { |ctx|
@@ -251,6 +312,7 @@ test test_bare_blocks_preserve_implicit_stream_item_values [error] { |ctx|
 let selected = [{value: 7}] |> map { { .value } }
 print ${selected[0]}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "7\n")?
+  let {success: succeeded, stderr: failure_details, ..} = output
+  assert succeeded, failure_details
+  output.stdout == "7\n"
 }

@@ -912,7 +912,7 @@ let newline = \"\"\"
 }
 
 #[test]
-fn linter_autofixes_redundant_path_display_parse_roundtrips() {
+fn linter_retains_path_display_parse_roundtrips_without_utf8_proof() {
     let source = "\
 proc parsed(root: Path, value: Str) -> Path {
   return Path(fp\"${root}/${value}\".display())
@@ -942,29 +942,7 @@ proc main(root: Path, value: Str) [error] {
         .filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-path-parse"))
         .collect();
 
-    assert_eq!(
-        path_parse_diagnostics.len(),
-        3,
-        "diagnostics: {diagnostics:?}"
-    );
-
-    let replacements: Vec<_> = path_parse_diagnostics
-        .iter()
-        .map(|diagnostic| {
-            diagnostic.fix_hints[0]
-                .replacement
-                .as_deref()
-                .expect("path parse lint has replacement")
-        })
-        .collect();
-    assert_eq!(
-        replacements,
-        [
-            "fp\"${root}/${value}\"",
-            "fp\"${root}/${value}\"",
-            "fp\"${root}/${value}\"",
-        ]
-    );
+    assert!(path_parse_diagnostics.is_empty(), "diagnostics: {diagnostics:?}");
 }
 
 #[test]
@@ -1004,6 +982,7 @@ proc main(root: Path, name: Str, row: Row, count: Int, ratio: Float) [error] {
         diagnostics
             .iter()
             .filter(|diagnostic| diagnostic.code.as_deref() == Some(code))
+            .filter(|diagnostic| !diagnostic.fix_hints.is_empty())
             .map(|diagnostic| {
                 diagnostic.fix_hints[0]
                     .replacement
@@ -1015,11 +994,7 @@ proc main(root: Path, name: Str, row: Row, count: Int, ratio: Float) [error] {
 
     assert_eq!(
         fixes_for("lint.path-constructor"),
-        [
-            "p\"tmp/out\"",
-            "fp\"${root}/${name}\"",
-            "fp\"${root}/${name}\"",
-        ]
+        ["p\"tmp/out\""]
     );
     assert_eq!(fixes_for("lint.redundant-path-interpolation"), ["root"]);
     assert_eq!(fixes_for("lint.redundant-string-interpolation"), ["name"]);
@@ -1061,7 +1036,7 @@ proc main(manifest: Path, name: Str) {
                 .expect("command f-string diagnostic has replacement")
         })
         .collect();
-    assert_eq!(replacements, ["$manifest", "$name"]);
+    assert_eq!(replacements, ["$name"]);
     assert!(
         diagnostics
             .iter()
@@ -1553,7 +1528,7 @@ fn linter_suggests_multiline_tag_union() {
 }
 
 #[test]
-fn linter_autofixes_redundant_path_display_in_command_args() {
+fn linter_retains_explicit_path_display_in_command_args() {
     let source = "\
 proc main(foo: Path) {
   print (foo.display())
@@ -1588,28 +1563,80 @@ proc main(foo: Path) {
         "expected 4 lint.redundant-path-display diagnostics, got {path_display_diagnostics:?}; all: {diagnostics:?}"
     );
 
-    // Check fix replacements
-    let fixes: Vec<(&str, &str)> = path_display_diagnostics
-        .iter()
-        .map(|d| {
-            let hint = &d.fix_hints[0];
-            let replacement = hint.replacement.as_deref().expect("fix has replacement");
-            let span = hint.span.expect("fix has span");
-            (&source[span.start()..span.end()], replacement)
-        })
-        .collect();
-    // (foo.display()) → expr span replaced with "foo" (explicit typed, keeps parens)
-    assert_eq!(fixes[0].0, "foo.display()");
-    assert_eq!(fixes[0].1, "foo");
-    // $foo.display() → shorthand expr span includes $, replace with "$foo"
-    assert_eq!(fixes[1].0, "$foo.display()");
-    assert_eq!(fixes[1].1, "$foo");
-    // ${foo.display()} → arg span becomes "$foo" (combined fix)
-    assert_eq!(fixes[2].0, "${foo.display()}");
-    assert_eq!(fixes[2].1, "$foo");
-    // foo.display() → implicit typed arg replaced with "$foo"
-    assert_eq!(fixes[3].0, "foo.display()");
-    assert_eq!(fixes[3].1, "$foo");
+    assert!(path_display_diagnostics.iter().all(|diagnostic| diagnostic.fix_hints.is_empty()));
+}
+
+#[test]
+fn linter_command_text_path_conversions_preserve_native_byte_boundaries() {
+    let source = r#"let raw = Path.parse_bytes(b"raw\xff name")?
+run printf "%s" "--target=${raw.display()}" ?
+run printf "%s" ${raw.display()} ?
+run printf "%s" (raw.display()) ?
+run printf "%s" f"${raw.display()}" ?
+run printf "%s" f"${raw}" ?
+"#;
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        ..LintOptions::default()
+    }).diagnostics;
+    assert!(diagnostics.iter().filter(|diagnostic| matches!(diagnostic.code.as_deref(),
+        Some("lint.redundant-path-display" | "lint.redundant-command-fmt")))
+        .all(|diagnostic| diagnostic.fix_hints.is_empty()), "{diagnostics:?}");
+}
+
+#[test]
+fn linter_path_text_roundtrips_preserve_native_byte_boundaries() {
+    let source = r#"let raw = Path.parse_bytes(b"raw\xff name")?
+let displayed = Path(raw.display())
+let formatted = Path(f"${raw}")
+let compound = Path(f"${raw}/child")
+print $displayed $formatted $compound
+"#;
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        ..LintOptions::default()
+    }).diagnostics;
+    assert!(diagnostics.iter().filter(|diagnostic| matches!(diagnostic.code.as_deref(),
+        Some("lint.redundant-path-parse" | "lint.path-constructor")))
+        .all(|diagnostic| diagnostic.fix_hints.is_empty()
+            || diagnostic.fix_hints.iter().all(|hint| hint.replacement.as_deref().is_some_and(|text| text.contains(".display()")))), "{diagnostics:?}");
+}
+
+#[test]
+fn linter_path_constructor_utf8_text_fix_rechecks_and_converges() {
+    let source = "pure known(name: Str, count: Int) -> Path { Path(f\"${name}/${count}\") }\npure dynamic(raw: Any) -> Path { Path(f\"${raw}\") }\nlet literal = Path(p\"known\".display())\nprint known(\"name\", 2) $literal\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        ..LintOptions::default()
+    }).diagnostics;
+    let mut fixes = diagnostics.iter().filter(|diagnostic| matches!(diagnostic.code.as_deref(),
+        Some("lint.path-constructor" | "lint.redundant-path-parse")))
+        .flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
+    fixes.sort_by_key(|hint| std::cmp::Reverse(hint.span.unwrap().start()));
+    fixes.dedup_by_key(|hint| hint.span.unwrap());
+    assert_eq!(fixes.len(), 2, "{diagnostics:?}");
+    let mut fixed = source.to_owned();
+    for hint in fixes { fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap()); }
+    assert!(fixed.contains("fp\"${name}/${count}\""));
+    assert!(fixed.contains("Path(f\"${raw}\")"));
+    assert_parse_check_standalone("UTF-8 path construction", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    assert!(Linter::lint(&parsed.arena, &fixed, LintOptions {
+        expr_types: checked.expr_types,
+        ..LintOptions::default()
+    }).diagnostics.iter().filter(|diagnostic| matches!(diagnostic.code.as_deref(),
+        Some("lint.path-constructor" | "lint.redundant-path-parse")))
+        .all(|diagnostic| diagnostic.fix_hints.is_empty()));
 }
 
 #[test]
@@ -1911,6 +1938,150 @@ let source_path: Path = p\"src/main.c\"
         4,
         "expected 4 needless annotation diagnostics"
     );
+}
+
+fn context_safety_lints(source: &str) -> Vec<Diagnostic> {
+    let parsed = parse_lint_source(source);
+    assert!(parsed.diagnostics.is_empty(), "{source}: {:?}", parsed.diagnostics);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{source}: {:?}", checked.diagnostics);
+    Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types,
+        requirement_targets: checked.requirement_targets,
+        requirement_expected_targets: checked.requirement_expected_targets,
+        statement_expression_spans: checked.statement_expression_spans,
+        assertion_effect_spans: checked.assertion_effect_spans,
+        standard_call_spans: checked.standard_call_spans,
+        ..LintOptions::default()
+    }).diagnostics
+}
+
+#[test]
+fn needless_annotation_retains_contextual_collection_element_domains() {
+    for source in [
+        "let values: List[Int?] = [null, 3]\nlet _ = values\n",
+        "let expected: List[Int?] = [0, 2]\npure compare(actual: List[Int?]) { actual == expected }\n",
+        "let expected: List[UInt] = [0, 2]\npure compare(actual: List[UInt]) { actual == expected }\n",
+        "let expected: List[Int?] = [item for item in [0, 2]]\npure compare(actual: List[Int?]) { actual == expected }\n",
+        "type Row = {value: Str?}\npure take(rows: List[Row]) {}\nlet rows: List[Row] = [{value: null}]\ntake(rows)\n",
+    ] {
+        let diagnostics = context_safety_lints(source);
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
+    }
+}
+
+#[test]
+fn needless_annotation_retains_independent_inferred_require_boundary() {
+    for source in [
+        "let raw: Any = Ok(3)\nlet inner: Result[Int] = raw.require()?\nlet _ = inner\n",
+        "let raw: Any = Ok(Ok(3))\nlet inner: Result[Result[Int]] = raw.require()?\nlet _ = inner\n",
+        "let raw: Any = 3\nlet captured: Result[Int] = try { raw.require()? }\nlet _ = captured\n",
+        "let raw: Any = 3\nlet value: Int = raw.require(Int)?\nlet _ = value\n",
+    ] {
+        let diagnostics = context_safety_lints(source);
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
+        for diagnostic in diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.inferred-require-target")) {
+            let hint = &diagnostic.fix_hints[0];
+            let mut fixed = source.to_string();
+            fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+            assert_parse_check_standalone("independent require boundary", &fixed);
+        }
+    }
+}
+
+#[test]
+fn needless_annotation_retains_empty_splice_element_anchor() {
+    for source in [
+        "let empty: List[Str] = [@[], @[]]\npure consume(values: List[Str]) {}\nconsume(empty)\n",
+        "let empty: List[Str] = [@[@[]], @[]]\npure consume(values: List[Str]) {}\nconsume(empty)\n",
+    ] {
+        let diagnostics = context_safety_lints(source);
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
+    }
+}
+
+#[test]
+fn needless_annotation_retains_result_constructor_contract() {
+    let temp = TempDir::new().unwrap();
+    for source in [
+        "error Failure = Missing(message: Str)\nlet failed: Result[Str, Failure] = Err(Failure.Missing(message: \"missing\"))\nlet recovered = failed ?? { |_error| \"fallback\" }\nlet _ = recovered\n",
+        "error Failure = Missing(message: Str)\nlet failed: Result[Bool, Failure] = Err(Failure.Missing(message: \"missing\"))\nlet recovered = failed ?? { |_error| false }\nlet _ = recovered\n",
+        "error Failure = Missing(message: Str)\nlet failed: Result[Unit, Failure] = Err(Failure.Missing(message: \"missing\"))\nlet _ = failed\n",
+        "error Failure = Missing(message: Str)\nlet success: Result[Str, Failure] = Ok(\"present\")\nlet _ = success\n",
+    ] {
+        let (declaration, body) = source.split_once('\n').unwrap();
+        for source in [source.to_owned(), format!("{declaration}\ntest result [error] {{ {body} }}\n")] {
+            let diagnostics = context_safety_lints(&source);
+            assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
+            let path = temp.path().join("result-constructor.xsh");
+            fs::write(&path, &source).unwrap();
+            let result = xsht::lint_files(&[path.to_string_lossy().into_owned()], false, false);
+            assert!(!String::from_utf8_lossy(&result.stderr).contains("lint.needless-annotation"), "{source}: {}", String::from_utf8_lossy(&result.stderr));
+        }
+    }
+}
+
+#[test]
+fn needless_annotation_retains_applied_nominal_element_anchor() {
+    let source = "type Row[T] = {value: T}\nproc gather() -> List[Row[Int]] { var rows: List[Row[Int]] = []; rows = rows.push(Row(value: 1)); rows }\n";
+    let diagnostics = context_safety_lints(source);
+    assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.needless-annotation")), "{source}: {diagnostics:?}");
+}
+
+#[test]
+fn needless_annotation_retains_imported_nominal_element_anchor() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("rows.xsh"), "##! Row contracts.\n## A fixed integer row.\nexport type Row = {value: Int}\n## A row with a concrete value domain.\nexport type Box[T] = {value: T}\n").unwrap();
+    for schema in ["rows.Row", "rows.Box[Int]"] {
+        let constructor = if schema == "rows.Row" { "rows.Row" } else { "rows.Box" };
+        let source = format!("use rows\nproc gather() -> List[{schema}] {{ var values: List[{schema}] = []; values = values.push({constructor}(value: 1)); values }}\n");
+        let entry = temp.path().join("entry.xsh");
+        fs::write(&entry, &source).unwrap();
+        let loaded = parse_load_check_text(entry.to_str().unwrap(), source.clone(), Vec::new(), Default::default());
+        assert!(loaded.parsed.diagnostics.is_empty(), "{:?}", loaded.parsed.diagnostics);
+        let checked = loaded.checked.unwrap();
+        assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+        let result = xsht::lint_files(&[entry.to_string_lossy().into_owned()], false, false);
+        assert!(!String::from_utf8_lossy(&result.stderr).contains("lint.needless-annotation"), "{source}: {}", String::from_utf8_lossy(&result.stderr));
+        assert_eq!(fs::read_to_string(entry).unwrap(), source);
+    }
+}
+
+#[test]
+fn redundant_require_retains_unsigned_validation() {
+    let temp = TempDir::new().unwrap();
+    for (index, source) in [
+        "let value = (-1).require(UInt)?\nlet _ = value\n",
+        "let value = [1, -1].require(List[UInt])?\nlet _ = value\n",
+    ].into_iter().enumerate() {
+        let diagnostics = context_safety_lints(source);
+        assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-require")), "{source}: {diagnostics:?}");
+        let path = temp.path().join(format!("unsigned-{index}.xsh"));
+        fs::write(&path, source).unwrap();
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsht"))
+            .arg("trace").arg(&path).output().unwrap();
+        assert!(!output.status.success(), "{source}");
+        assert!(String::from_utf8_lossy(&output.stderr).contains("schema"), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+}
+
+#[test]
+fn assertion_helper_fix_retains_contextual_collection_domains() {
+    for source in [
+        "proc compare(actual: List[UInt]) { test.eq(actual, [3, 20])? }\n",
+        "proc compare(actual: List[Int?]) { test.eq(actual, [3, 20])? }\n",
+        "proc compare(actual: List[UInt]) { test.ne(right: [3, 20], left: actual)? }\n",
+        "test unsigned [error] { let values: Map[UInt, Str] = {[3]: \"three\", [20]: \"twenty\"}; test.eq(values.keys(), [3, 20])? }\n",
+    ] {
+        let diagnostics = context_safety_lints(source);
+        let diagnostics = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-bare-assertion")).collect::<Vec<_>>();
+        assert_eq!(diagnostics.len(), 1, "{source}");
+        for hint in &diagnostics[0].fix_hints {
+            let mut fixed = source.to_string();
+            fixed.replace_range(hint.span.unwrap().range(), hint.replacement.as_deref().unwrap());
+            assert_parse_check_standalone("contextual assertion operand", &fixed);
+        }
+    }
 }
 
 fn membership_lints(source: &str) -> Vec<Diagnostic> {
@@ -2594,6 +2765,25 @@ fn linter_removes_checked_tail_returns_in_value_branches() {
 }
 
 #[test]
+fn linter_tail_return_keeps_match_arm_record_an_expression() {
+    let source = "type Row = {value: Int}\npure row(code: Int) -> Row {\n  match code {\n    0 => return {value: 1}\n    _ => return {value: 2}\n  }\n}\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions {
+        expr_types: checked.expr_types, statement_positions: checked.statement_positions,
+        ..LintOptions::default()
+    }).diagnostics;
+    let mut fixes = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-tail-return"))
+        .flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
+    assert_eq!(fixes.len(), 2);
+    fixes.sort_by_key(|fix| std::cmp::Reverse(fix.span.unwrap().start()));
+    let mut fixed = source.to_owned();
+    for fix in fixes { fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_deref().unwrap()); }
+    assert_parse_check_standalone("record match arm tail", &fixed);
+}
+
+#[test]
 fn linter_tail_return_preserves_grouping_and_unicode_comments() {
     let source = "pure sum() -> Int {\n  return (1 + 2) # café\n}\n";
     let parsed = parse_lint_source(source);
@@ -3159,6 +3349,27 @@ fn linter_map_entry_iteration_keeps_mutation_annotations_comments_and_unknown_me
 }
 
 #[test]
+fn linter_map_entry_iteration_preserves_mutation_inside_value_blocks() {
+    let source = "var counts: Map[Int] = {a: 1, b: 2}\nfor key in counts.keys() {\n  let count = counts.get(key)?\n  let changed = if true { counts[\"b\"] = 9; 0 } else { 0 }\n  print f\"$key=$count\"\n  let _ = changed\n}\n";
+    let snapshot = source.replace("for key in counts.keys() {\n  let count = counts.get(key)?", "for {key, value: count} in counts {");
+    let temp = TempDir::new().unwrap();
+    for (name, script, expected) in [("original", source, b"a=1\nb=9\n".as_slice()), ("snapshot", snapshot.as_str(), b"a=1\nb=2\n".as_slice())] {
+        let path = temp.path().join(format!("{name}.xsh"));
+        fs::write(&path, script).unwrap();
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_xsht"))
+            .arg("trace").arg(&path).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(output.stdout, expected, "{name}");
+    }
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    assert!(diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-map-entry-iteration"))
+        .all(|diagnostic| diagnostic.fix_hints.is_empty()), "{diagnostics:?}");
+}
+
+#[test]
 fn linter_list_splicing_rechecks_preserves_unicode_and_converges() {
     let source = "# café\nlet flags = [\"-g\"]\nlet names = [\"main.xsh\"]\nlet argv = [\"cc\"].extend(flags).extend([\"-o\", \"app\"]).extend(names)\nprint argv.len()\n";
     let parsed = parse_lint_source(source);
@@ -3580,12 +3791,12 @@ fn field_label_fixes_preserve_key_bytes_conversions_comments_and_converge() {
     let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
     let mut edits = output.diagnostics.iter().filter(|d| matches!(d.code.as_deref(), Some("lint.prefer-bare-field-label" | "lint.prefer-known-field-access")))
         .flat_map(|d| &d.fix_hints).map(|h| (h.span.unwrap(), h.replacement.as_ref().unwrap())).collect::<Vec<_>>();
-    assert_eq!(edits.len(), 3, "{:?}", output.diagnostics);
+    assert_eq!(edits.len(), 4, "{:?}", output.diagnostics);
     edits.sort_by_key(|(span, _)| span.start());
     let mut fixed = source.to_string();
     for (span, replacement) in edits.into_iter().rev() { fixed.replace_range(span.range(), replacement); }
     assert!(fixed.contains("{type: \"file\", in: 2, \"a.b\": 3, \"x-y\": 4, size: 5} # retained"), "{fixed}");
-    assert!(fixed.contains("let label: Str = row.get(\"type\")?"), "{fixed}");
+    assert!(fixed.contains("let label: Str = row.type"), "{fixed}");
     assert_parse_check_standalone("field label fixes", &fixed);
     let formatted = Formatter::new().format_source(SourceId::new(0), &fixed);
     assert!(formatted.diagnostics.is_empty());
@@ -3604,8 +3815,32 @@ fn field_label_access_fixes_retain_dynamic_results_context_recovery_and_consumer
     assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
     let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
     let fields = diagnostics.iter().filter(|d| d.code.as_deref() == Some("lint.prefer-known-field-access")).collect::<Vec<_>>();
-    assert!(fields.is_empty());
+    assert_eq!(fields.len(), 1, "{diagnostics:?}");
+    assert_eq!(fields[0].fix_hints[0].replacement.as_deref(), Some("row.type"));
     assert!(!Linter::lint(&parsed.arena, source, LintOptions::default()).diagnostics.iter().any(|d| d.code.as_deref() == Some("lint.prefer-known-field-access")));
+}
+
+#[test]
+fn field_label_known_get_fix_preserves_nullable_values_aliases_and_converges() {
+    let source = "# café\nlet row = {type: \"file\", value: null}\nlet alias = row\nlet label = alias.get(\"type\")?\nlet absent = row.get(field: \"value\")?\nprint $label\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    assert!(checked.diagnostics.is_empty(), "{:?}", checked.diagnostics);
+    let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
+    let fixes = diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-known-field-access"))
+        .flat_map(|diagnostic| &diagnostic.fix_hints).collect::<Vec<_>>();
+    assert_eq!(fixes.len(), 2, "{diagnostics:?}");
+    let mut fixed = source.to_owned();
+    for fix in fixes.into_iter().rev() {
+        fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+    }
+    assert!(fixed.contains("let label = alias.type"), "{fixed}");
+    assert!(fixed.contains("let absent = row.value"), "{fixed}");
+    assert_parse_check_standalone("known record field", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics
+        .iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.prefer-known-field-access")));
 }
 
 #[test]
@@ -4365,12 +4600,44 @@ fn absence_lookup_literal_fallback_fix_rechecks_and_converges() {
 }
 
 #[test]
+fn absence_lookup_path_literal_fallback_fix_rechecks_and_converges() {
+    let source = "let paths: List[Path] = [p\"one\"]\nlet selected = paths.get(4, p\".\")\nprint $selected\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let fix = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.lookup-fallback"))
+        .flat_map(|diagnostic| &diagnostic.fix_hints).next().expect("inert Path fallback must be fixable");
+    let mut fixed = source.to_owned();
+    fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+    assert_parse_check_standalone("Path lookup fallback", &fixed);
+    let parsed = parse_lint_source(&fixed);
+    let checked = Checker::check_arena(&parsed.arena, &fixed);
+    assert!(!Linter::lint(&parsed.arena, &fixed, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics
+        .iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.lookup-fallback")));
+}
+
+#[test]
+fn absence_lookup_immutable_fallback_fix_preserves_typed_parameter_and_alias() {
+    let source = "pure pick(values: List[Str], fallback: Str) -> Str {\n  let default_value = fallback\n  values.get(4, default_value)\n}\n";
+    let parsed = parse_lint_source(source);
+    let checked = Checker::check_arena(&parsed.arena, source);
+    let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
+    let fix = output.diagnostics.iter().filter(|diagnostic| diagnostic.code.as_deref() == Some("lint.lookup-fallback"))
+        .flat_map(|diagnostic| &diagnostic.fix_hints).next().expect("immutable typed fallback must be fixable");
+    let mut fixed = source.to_owned();
+    fixed.replace_range(fix.span.unwrap().range(), fix.replacement.as_ref().unwrap());
+    assert_parse_check_standalone("immutable lookup fallback", &fixed);
+    assert!(fixed.contains("?? (default_value)"));
+}
+
+#[test]
 fn absence_lookup_fallback_fix_refuses_eager_effects_failure_comments_and_named_order() {
     for source in [
         "pure fallback() -> Int { 1 / 0 }\nlet values = [1]\nlet value = values.get(0, fallback())\n",
         "let values = [1]\nlet value = values.get(0, 1 / 0)\n",
         "let values = [1]\nlet value = values.get(\n  0, # preserve this explanation\n  7\n)\n",
         "let values = [1]\nlet value = values.get(fallback: 7, index: 0)\n",
+        "let values = [1]\nvar fallback = 7\nlet value = values.get(0, fallback)\nfallback = 8\n",
     ] {
         let parsed = parse_lint_source(source);
         let checked = Checker::check_arena(&parsed.arena, source);

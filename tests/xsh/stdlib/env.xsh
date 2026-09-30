@@ -3,16 +3,16 @@
 # this.
 pure str_failure(result: Result[Str]) -> Str {
   match result {
-    Ok(_) => return ""
-    Err(error) => return error.message
+    Ok(_) => ""
+    Err(error) => error.message
   }
 }
 
 # The message of a failed integer lookup, or the empty string on success.
 pure int_failure(result: Result[Int]) -> Str {
   match result {
-    Ok(_) => return ""
-    Err(error) => return error.message
+    Ok(_) => ""
+    Err(error) => error.message
   }
 }
 
@@ -87,7 +87,12 @@ test test_env_bool_accepts_only_the_baseline_spellings [env, error] {
       "XSH_ENV_BOOL_FRENCH",
     ]
     for name in rejected {
-      test.eq(env.bool(name, true)?, false, f"${name} should not be true")?
+      {
+        let assertion_actual = env.bool(name, true)?
+        let assertion_expected = false
+        let assertion_message = f"${name} should not be true"
+        assert assertion_actual == assertion_expected, assertion_message
+      }
     }
 
     test.error_kind(env.bool("", true), "env-name")?
@@ -112,18 +117,18 @@ test test_env_int_parses_the_baseline_grammar [env, error] {
     XSH_ENV_INT_MIN: "-9223372036854775808",
     XSH_ENV_INT_MIN_ZEROED: "-0009223372036854775808",
   }) {
-    test.eq(env.int("XSH_ENV_INT_ZERO")?, 0)?
-    test.eq(env.int("XSH_ENV_INT_PLAIN")?, 42)?
-    test.eq(env.int("XSH_ENV_INT_SPACED")?, 42)?
-    test.eq(env.int("XSH_ENV_INT_TABBED")?, 7)?
-    test.eq(env.int("XSH_ENV_INT_NBSP")?, 42)?
-    test.eq(env.int("XSH_ENV_INT_PLUS")?, 42)?
-    test.eq(env.int("XSH_ENV_INT_MINUS")?, -42)?
-    test.eq(env.int("XSH_ENV_INT_PADDED")?, -42)?
-    test.eq(env.int("XSH_ENV_INT_ZEROED")?, 7)?
-    test.eq(env.int("XSH_ENV_INT_MANY_ZEROS")?, 42)?
-    test.eq(env.int("XSH_ENV_INT_MAX")?, 9223372036854775807)?
-    test.eq(env.int("XSH_ENV_INT_MAX_ZEROED")?, 9223372036854775807)?
+    (env.int("XSH_ENV_INT_ZERO")?) == (0)
+    (env.int("XSH_ENV_INT_PLAIN")?) == (42)
+    (env.int("XSH_ENV_INT_SPACED")?) == (42)
+    (env.int("XSH_ENV_INT_TABBED")?) == (7)
+    (env.int("XSH_ENV_INT_NBSP")?) == (42)
+    (env.int("XSH_ENV_INT_PLUS")?) == (42)
+    (env.int("XSH_ENV_INT_MINUS")?) == (-42)
+    (env.int("XSH_ENV_INT_PADDED")?) == (-42)
+    (env.int("XSH_ENV_INT_ZEROED")?) == (7)
+    (env.int("XSH_ENV_INT_MANY_ZEROS")?) == (42)
+    (env.int("XSH_ENV_INT_MAX")?) == (9223372036854775807)
+    (env.int("XSH_ENV_INT_MAX_ZEROED")?) == (9223372036854775807)
 
     # The negative bound cannot be written as a literal: the indexed IR rejects
     # the `-9223372036854775808` spelling, so it is built from its neighbour.
@@ -183,11 +188,12 @@ test test_env_int_rejects_unparsable_and_out_of_range_text [env, error] {
     ]
     for name in rejected {
       test.error_kind(env.int(name, 7), "env-int", f"${name} should be rejected")?
-      test.eq(
-        int_failure(env.int(name, 7)),
-        "environment value is not an integer",
-        f"${name} should report the baseline message",
-      )?
+      {
+        let assertion_actual = int_failure(env.int(name, 7))
+        let assertion_expected = "environment value is not an integer"
+        let assertion_message = f"${name} should report the baseline message"
+        assert assertion_actual == assertion_expected, assertion_message
+      }
     }
   } ?
 }
@@ -206,8 +212,8 @@ test test_env_conversions_read_the_scoped_overlay [env, error] {
       env ({
         XSH_ENV_OVERLAY_BOOL: "off",
       }) {
-        test.eq(env.bool("XSH_ENV_OVERLAY_BOOL", true)?, false)?
-        test.eq(env.get_or("XSH_ENV_OVERLAY")?, "inner")?
+        (env.bool("XSH_ENV_OVERLAY_BOOL", true)?) == (false)
+        (env.get_or("XSH_ENV_OVERLAY")?) == ("inner")
       } ?
     } ?
 
@@ -339,7 +345,7 @@ beta """.trim()
     home == root
     ("child" in env.Path.CHILD?)
     decoded == b"abc"
-    test.eq(lines[1], "beta")?
+    (lines[1]) == ("beta")
     b"abc".compare(b"abd").byte == 3
     let line = run.text sh -c "printf '%s|%s|%s' \"\$HOME\" \"\$DIGEST\" \"\$COUNT\";" ?
     line == f"${root.display()}|ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad|3"

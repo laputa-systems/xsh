@@ -21,7 +21,7 @@ pure parse_env(content: Str) -> Map[Str] {
     }
   }
 
-  return values
+  values
 }
 
 proc main(...argv: List[Str]) [fs, error] {

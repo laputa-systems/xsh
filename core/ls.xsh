@@ -75,8 +75,7 @@ proc main(...argv: List[Str]) [fs, error] {
       },
     },
   )?
-  let show_all = opts.show_all
-  let list_directory_itself = opts.list_directory_itself
+  let {show_all, list_directory_itself, ..} = opts
   let long_format = opts.long_format or opts.long_aliases
   let recursive = opts.recursive
   let indicator = if opts.indicator { "/" } else { "" }

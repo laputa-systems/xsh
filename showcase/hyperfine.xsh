@@ -42,28 +42,26 @@ type Summary = {
 type Baseline = {wall_ns: Int, user_ns: Int, system_ns: Int}
 
 pure ns_to_ms(ns: Int) -> Float {
-  return ns.float() / 1000000.0
+  ns.float() / 1000000.0
 }
 
 pure floor0(n: Int) -> Int {
-  if n < 0 {
+  guard n >= 0 else {
     return 0
   }
 
-  return n
+  n
 }
 
 pure mean_ms_of(times_ns: List[Int]) -> Float {
-  return ns_to_ms(times_ns |> sum) / times_ns.len().float()
+  ns_to_ms(times_ns |> sum) / times_ns.len().float()
 }
 
 # Sample standard deviation in milliseconds (divides by n-1, matching hyperfine).
 pure stddev_ms_of(times_ns: List[Int], mean_ms: Float) -> Float {
   let n = times_ns.len()
 
-  if n <= 1 {
-    return 0.0
-  }
+  return 0.0 when n <= 1
 
   var acc = 0.0
 
@@ -72,7 +70,7 @@ pure stddev_ms_of(times_ns: List[Int], mean_ms: Float) -> Float {
     acc += delta * delta
   }
 
-  return (acc / (n - 1).float()).sqrt()
+  (acc / (n - 1).float()).sqrt()
 }
 
 pure median_ms_of(sorted_ns: List[Int]) -> Float {
@@ -84,17 +82,17 @@ pure median_ms_of(sorted_ns: List[Int]) -> Float {
     return (lo + hi) / 2.0
   }
 
-  return ns_to_ms((sorted_ns.get(n / 2) ?? 0))
+  ns_to_ms((sorted_ns.get(n / 2) ?? 0))
 }
 
 proc build_command(text: Str, opts: Opts) [] -> Command {
-  if opts.shell != "" {
+  guard opts.shell == "" else {
     return process.command_argv(opts.shell, [opts.shell, "-c", text])
   }
 
   # Direct execution: tokenize on whitespace and run argv through xsh's launcher.
   let argv = text.fields()
-  return process.command_argv((argv.get(0) ?? text), argv)
+  process.command_argv((argv.get(0) ?? text), argv)
 }
 
 # Mean cost of `xsh --startup` (boot the interpreter and exit), used as a calibration
@@ -119,7 +117,7 @@ proc xsh_startup_baseline() [process, time, error] -> Result[Baseline] {
     system_total += result.system_ns
   }
 
-  return {wall_ns: wall_total / n, user_ns: user_total / n, system_ns: system_total / n}
+  {wall_ns: wall_total / n, user_ns: user_total / n, system_ns: system_total / n}
 }
 
 proc bench(text: Str, opts: Opts, baseline: Baseline) [time, error] -> Result[Summary] {
@@ -129,7 +127,7 @@ proc bench(text: Str, opts: Opts, baseline: Baseline) [time, error] -> Result[Su
     time.measure(command, quiet: true)?
   }
 
-  var times_ns: List[Int] = []
+  var times_ns = []
   var user_total = 0
   var system_total = 0
   var failures = 0
@@ -155,7 +153,7 @@ proc bench(text: Str, opts: Opts, baseline: Baseline) [time, error] -> Result[Su
   let mean = mean_ms_of(times_ns)
   var times_ms = [ns_to_ms(t) for t in times_ns]
 
-  return {
+  {
     name: text,
     mean_ms: mean,
     stddev_ms: stddev_ms_of(times_ns, mean),
@@ -282,7 +280,7 @@ proc main(...argv: List[Str]) [fs, process, time, error, io] {
   for command_text in opts.commands {
     let summary = bench(command_text, opts, baseline)?
     report(summary, opts.runs)
-    results = results.push(summary)
+    results += [summary]
   }
 
   if results.len() > 1 {

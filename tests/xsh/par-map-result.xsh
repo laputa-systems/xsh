@@ -1,9 +1,7 @@
 error TestError = DivisionByZero(message: Str) : InvalidData
 
 proc safe_div(x: Int) [error] -> Result[Int] {
-  if x == 0 {
-    return Err(TestError.DivisionByZero("division by zero"))
-  }
+  return Err(TestError.DivisionByZero("division by zero")) when x == 0
 
   Ok(100 / x)
 }
@@ -32,10 +30,18 @@ main()?
 """,
   )?
 
-  test.ok(! failed.success, failed.stderr)?
+  {
+    let assertion_condition = ! failed.success
+    let assertion_message = failed.stderr
+    assert assertion_condition, assertion_message
+  }
   failed.status == 3
   failed.stdout == ""
-  test.ok("DivisionByZero" in failed.stderr or "division by zero" in failed.stderr, failed.stderr)?
+  {
+    let assertion_condition = "DivisionByZero" in failed.stderr or "division by zero" in failed.stderr
+    let assertion_message = failed.stderr
+    assert assertion_condition, assertion_message
+  }
 }
 
 test test_par_map_all_ok [error] {
@@ -52,14 +58,13 @@ test test_par_map_all_ok [error] {
 
 test test_par_map_collect_all_retains_nominal_error_data_in_order [error] {
   let results = [10, 0, 20] |> par-map { |x| safe_div(x) }
-  test.eq(results.len(), 3)?
-  test.eq(results[0]?, 10)?
-  test.eq(results[2]?, 5)?
-  match results[1] {
-    Err(failure) => {
-      test.ok(failure is TestError.DivisionByZero)?
-      test.eq(failure.message, "division by zero")?
-    }
-    _ => test.ok(false, "expected the middle item's nominal error")?
+  (results.len()) == (3)
+  (results[0]?) == (10)
+  (results[2]?) == (5)
+  if let Err(failure) = results[1] {
+      (failure is TestError.DivisionByZero)
+      (failure.message) == ("division by zero")
+  } else {
+    assert false, "expected the middle item's nominal error"
   }
 }

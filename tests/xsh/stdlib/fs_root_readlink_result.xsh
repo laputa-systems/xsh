@@ -6,23 +6,23 @@ test test_fs_root_readlink_result_distinguishes_link_absence_and_read_failure [f
   root.write(p"nested/regular", "data")?
 
   let observed = root.readlink_result(p"nested/link")?
-  test.eq(observed.state, "observed")?
-  test.eq(observed.target.require(Path)?.display(), "target")?
-  test.eq(observed.errno, null)?
-  test.eq(root.readlink_result(p"nested/../nested/link")?.target.require(Path)?.display(), "target")?
+  (observed.state) == ("observed")
+  (observed.target.require(Path)?.display()) == ("target")
+  (observed.errno) == (null)
+  (root.readlink_result(p"nested/../nested/link")?.target.require(Path)?.display()) == ("target")
 
   let absent = root.readlink_result(p"nested/missing")?
-  test.eq(absent.state, "absent")?
-  test.eq(absent.target, null)?
-  test.eq(absent.error_kind, "not_found")?
+  (absent.state) == ("absent")
+  (absent.target) == (null)
+  (absent.error_kind) == ("not_found")
 
   let failed = root.readlink_result(p"nested/regular")?
-  test.eq(failed.state, "read_failure")?
-  test.eq(failed.target, null)?
-  test.ok(failed.errno != null)?
+  (failed.state) == ("read_failure")
+  (failed.target) == (null)
+  (failed.errno != null)
 
   let missing_parent = root.readlink_result(p"absent/link")?
-  test.eq(missing_parent.state, "absent")?
+  (missing_parent.state) == ("absent")
   test.error_kind(root.readlink_result(../escape), "fs-root-readlink-result")?
   test.error_kind(root.readlink_result(p"nested/../../escape"), "fs-root-readlink-result")?
 }

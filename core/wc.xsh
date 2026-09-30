@@ -3,11 +3,11 @@ type Counts = {lines: Int, words: Int, bytes: Int}
 
 pure count_data(data: Bytes, show_words: Bool) -> Result[Counts] {
   let words = if show_words { data.utf8()?.count_words() } else { 0 }
-  return {lines: data.count_lines(), words, bytes: data.len()}
+  {lines: data.count_lines(), words, bytes: data.len()}
 }
 
 pure add_counts(left: Counts, right: Counts) -> Counts {
-  return {lines: left.lines + right.lines, words: left.words + right.words, bytes: left.bytes + right.bytes}
+  {lines: left.lines + right.lines, words: left.words + right.words, bytes: left.bytes + right.bytes}
 }
 
 pure max_digits(counts: List[Counts], show_lines: Bool, show_words: Bool, show_bytes: Bool) -> Int {
@@ -30,11 +30,11 @@ pure max_digits(counts: List[Counts], show_lines: Bool, show_words: Bool, show_b
     }
   }
 
-  return widest
+  widest
 }
 
 pure format_counts(counts: Counts, show_lines: Bool, show_words: Bool, show_bytes: Bool, width: Int) -> Str {
-  var cols: List[Str] = []
+  var cols = []
 
   if show_lines {
     cols = cols.push(tui.left_pad(f"${counts.lines}", width))
@@ -48,7 +48,7 @@ pure format_counts(counts: Counts, show_lines: Bool, show_words: Bool, show_byte
     cols = cols.push(tui.left_pad(f"${counts.bytes}", width))
   }
 
-  return cols.join(" ")
+  cols.join(" ")
 }
 
 proc print_line(counts: Counts, label: Str, show_lines: Bool, show_words: Bool, show_bytes: Bool, width: Int) [io] {
@@ -103,8 +103,8 @@ proc main(...argv: List[Str]) [fs, error, io] {
   }
 
   var counts_list: List[Counts] = []
-  var labels: List[Str] = []
-  var total: Counts = {lines: 0, words: 0, bytes: 0}
+  var labels = []
+  var total: Counts = Counts(lines: 0, words: 0, bytes: 0)
 
   for item in parsed.paths {
     var counts = {lines: 0, words: 0, bytes: 0}
@@ -122,13 +122,13 @@ proc main(...argv: List[Str]) [fs, error, io] {
     }
 
     total = add_counts(total, counts)
-    counts_list = counts_list.push(counts)
-    labels = labels.push(label)
+    counts_list += [counts]
+    labels += [label]
   }
 
   if parsed.paths.len() > 1 {
-    counts_list = counts_list.push(total)
-    labels = labels.push("total")
+    counts_list += [total]
+    labels += ["total"]
   }
 
   let width = max_digits(counts_list, show_lines, show_words, show_bytes)

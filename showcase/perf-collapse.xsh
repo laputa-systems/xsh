@@ -17,7 +17,7 @@ error ScriptError = Failed(kind: Str, message: Str)
 type Options = {input: Path, comm: Str, include: Str, exclude: Str, top: Int, leaf_first: Bool}
 
 pure usage() -> Str {
-  return "usage: xsh showcase/perf-collapse.xsh -- PERF_SCRIPT [--comm NAME] [--include REGEX] [--exclude REGEX] [--top N] [--leaf-first]"
+  "usage: xsh showcase/perf-collapse.xsh -- PERF_SCRIPT [--comm NAME] [--include REGEX] [--exclude REGEX] [--top N] [--leaf-first]"
 }
 
 pure clean_symbol(raw: Str) -> Str {
@@ -27,41 +27,31 @@ pure clean_symbol(raw: Str) -> Str {
   let without_open = without_semis.replace("(", "")
   let symbol = without_open.replace(")", "")
 
-  if symbol == "" {
-    return "[unknown]"
-  }
+  return "[unknown]" when symbol == ""
 
-  return symbol
+  symbol
 }
 
 pure frame_symbol(line: Str) -> Str {
   let fields = line.trim().fields()
 
-  if fields.len() == 0 {
-    return ""
-  }
+  return "" when fields.len() == 0
 
-  if fields.len() == 1 {
-    return clean_symbol(fields[0])
-  }
+  return clean_symbol(fields[0]) when fields.len() == 1
 
   let first = fields[0]
   let second = fields[1]
   let looks_like_addr = first.starts_with("0x") or fields.len() >= 3
 
-  if looks_like_addr {
-    return clean_symbol(second)
-  }
+  return clean_symbol(second) when looks_like_addr
 
-  return clean_symbol(first)
+  clean_symbol(first)
 }
 
 pure stack_key(stack: List[Str], leaf_first: Bool) -> Result[Str] {
-  if leaf_first {
-    return stack.join(";")
-  }
+  return stack.join(";") when leaf_first
 
-  var out: List[Str] = []
+  var out = []
   var i = stack.len() - 1
 
   while i >= 0 {
@@ -69,17 +59,15 @@ pure stack_key(stack: List[Str], leaf_first: Bool) -> Result[Str] {
     i -= 1
   }
 
-  return out.join(";")
+  out.join(";")
 }
 
 pure comm_from_header(line: Str) -> Str {
   let words = line.trim().fields()
 
-  if words.len() == 0 {
-    return ""
-  }
+  return "" when words.len() == 0
 
-  return words[0]
+  words[0]
 }
 
 pure parse_options(argv: List[Str]) -> Result[Options] {
@@ -114,11 +102,9 @@ pure parse_options(argv: List[Str]) -> Result[Options] {
   )?
   let input = (parsed.operands.get(0) ?? "")
 
-  if parsed.operands.len() != 1 {
-    return Err(ScriptError.Failed("usage", usage()))
-  }
+  return Err(ScriptError.Failed("usage", usage())) when parsed.operands.len() != 1
 
-  return {
+  {
     input: fp"${input}",
     comm: parsed.comm,
     include: parsed.include,
@@ -133,7 +119,7 @@ pure collapse_text(source: Str, opts: Options) -> Result[Map[Int]] {
   let exclude_re = regex.compile(if opts.exclude == "" { "a^" } else { opts.exclude })?
   var counts: Map[Int] = {}
   var current_comm = ""
-  var current_stack: List[Str] = []
+  var current_stack = []
 
   for line in source.lines() {
     if line.trim() == "" {
@@ -154,7 +140,7 @@ pure collapse_text(source: Str, opts: Options) -> Result[Map[Int]] {
       let symbol = frame_symbol(line)
 
       if symbol != "" {
-        current_stack = current_stack.push(symbol)
+        current_stack += [symbol]
       }
 
       continue
@@ -180,7 +166,7 @@ pure collapse_text(source: Str, opts: Options) -> Result[Map[Int]] {
     }
   }
 
-  return counts
+  counts
 }
 
 proc print_folded(counts: Map[Int], top: Int) [error] {
@@ -213,14 +199,7 @@ xsh 1242 [000] 10.002000: cycles:
 """
 
   if argv.len() == 0 {
-    let opts: Options = {
-      input: p"",
-      comm: "",
-      include: "",
-      exclude: "",
-      top: 0,
-      leaf_first: false,
-    }
+    let opts = Options(input: p"", comm: "", include: "", exclude: "", top: 0, leaf_first: false)
 
     print_folded(collapse_text(sample, opts)?, 0)
     return

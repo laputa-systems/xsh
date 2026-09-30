@@ -80,30 +80,32 @@ let values = [1, 2] |> batch(count: 1)
     run $xsh $tool -- --root $root --json $report_path
   }
   let status = process.run(command)?
-  test.ok(status.exited_with(0), stderr_path.read_text()?)?
+  let succeeded = status.exited_with(0)
+  let diagnostic = stderr_path.read_text()?
+  assert succeeded, diagnostic
   let report = json.read(report_path)?.require(IRWireReport)?
-  test.eq(report.rows.len(), 5)?
-  test.eq(report.rows[0].total, 2)?
-  test.eq(report.rows[0].unsupported, ["Command"])?
-  test.eq(report.lowered_nodes, {statements: 1, expressions: 1, pipeline_stages: 1, types: 1})?
-  test.eq(report.lowered_methods, ["len"])?
-  test.eq(report.corpus.total, 1)?
-  test.eq(report.corpus.lowerable, 1)?
-  test.eq(report.procs.total, 1)?
-  test.eq(report.procs.lowerable, 1)?
-  test.eq(report.script.total, 2)?
-  test.eq(report.script.lowerable, 1)?
-  test.eq(report.script.reasons, [{reason: "expr.pipeline", count: 1}])?
-  test.eq(report.script.groups[0].group, "expression")?
-  test.eq(report.script.samples[0].shape, "Let")?
-  test.ok("lowered IR coverage" in stdout_path.read_text()?)?
+  report.rows.len() == 5
+  report.rows[0].total == 2
+  report.rows[0].unsupported == ["Command"]
+  report.lowered_nodes == {statements: 1, expressions: 1, pipeline_stages: 1, types: 1}
+  report.lowered_methods == ["len"]
+  report.corpus.total == 1
+  report.corpus.lowerable == 1
+  report.procs.total == 1
+  report.procs.lowerable == 1
+  report.script.total == 2
+  report.script.lowerable == 1
+  report.script.reasons == [{reason: "expr.pipeline", count: 1}]
+  report.script.groups[0].group == "expression"
+  report.script.samples[0].shape == "Let"
+  "lowered IR coverage" in stdout_path.read_text()?
   let invalid = process.command {
     stdout = stdout_path
     stderr = stderr_path
     run $xsh $tool -- --root fp"${root}/absent"
   }
-  test.ok(!process.run(invalid)?.exited_with(0))?
-  test.ok(stderr_path.read_text()? != "")?
+  !process.run(invalid)?.exited_with(0)
+  stderr_path.read_text()? != ""
 }
 
 test test_ir_coverage_report_validation_rejects_incomplete_wire_data [error] {

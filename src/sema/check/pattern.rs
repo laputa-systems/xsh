@@ -92,6 +92,31 @@ impl Checker {
         if !applicable { self.error(span, "error facet pattern does not match value type", "check.pattern-type"); }
     }
 
+    fn check_type_pattern_applicability(&mut self, tested: &Type, value_ty: &Type, span: Span) {
+        if type_pattern_input_is_dynamic(value_ty) { return; }
+        let family = match tested {
+            Type::ErrorFamily(family) => Some(*family),
+            Type::ProcessError => Some(Name::PROCESS_ERROR),
+            Type::Error => None,
+            _ => {
+                self.error(span, "type patterns require a dynamic value", "check.pattern-type");
+                return;
+            }
+        };
+        // A nominal error selector preserves a statically known family. The
+        // broad error carrier permits selection, but unrelated families cannot match.
+        let applicable = match value_ty {
+            Type::Error | Type::ErrorFacet(_) => true,
+            Type::ErrorFamily(actual) | Type::ErrorVariant { family: actual, .. } =>
+                family.is_none_or(|family| family == *actual),
+            Type::ProcessError => family.is_none_or(|family| family == Name::PROCESS_ERROR),
+            _ => false,
+        };
+        if !applicable {
+            self.error(span, "error type pattern does not match value type", "check.pattern-type");
+        }
+    }
+
     pub(super) fn check_pattern_arena(
         &mut self,
         arena: &ArenaProgram,
@@ -165,8 +190,8 @@ impl Checker {
                     let tested = self.type_from_arena(arena, *ty);
                     self.pattern_test_types.insert(pattern_id, tested.clone());
                     if let Type::ErrorFacet(facet) = tested { self.check_error_facet_applicability(facet, value_ty, span); }
-                    if !matches!(tested, Type::ErrorFacet(_)) && !type_pattern_input_is_dynamic(value_ty) {
-                        self.error(span, "type patterns require a dynamic value", "check.pattern-type");
+                    if !matches!(tested, Type::ErrorFacet(_)) {
+                        self.check_type_pattern_applicability(&tested, value_ty, span);
                     }
                     if matches!(tested, Type::ErrorFacet(_)) && !matches!(value_ty, Type::Any | Type::Unknown | Type::Error | Type::ProcessError | Type::ErrorFamily(_) | Type::ErrorVariant { .. } | Type::ErrorFacet(_)) {
                         self.error(span, "error facet patterns require an error value", "check.pattern-type");
@@ -195,14 +220,8 @@ impl Checker {
                 self.define_pattern_binding(*name, value_ty.clone(), span);
             }
             ArenaPatternKind::Type { binding, ty } => {
-                if !type_pattern_input_is_dynamic(value_ty) {
-                    self.error(
-                        span,
-                        "type patterns require a dynamic value",
-                        "check.pattern-type",
-                    );
-                }
                 let narrowed_ty = self.type_from_arena(arena, *ty);
+                self.check_type_pattern_applicability(&narrowed_ty, value_ty, span);
                 self.pattern_test_types.insert(pattern_id, narrowed_ty.clone());
                 if let Some(name) = binding {
                     self.define_pattern_binding(*name, narrowed_ty, span);

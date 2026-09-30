@@ -2,11 +2,11 @@
 error AppletError = Usage(message: Str) : Usage
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 pure common_int(raw: Str, label: Str) -> Result[Int] {
@@ -17,19 +17,13 @@ pure common_int(raw: Str, label: Str) -> Result[Int] {
 }
 
 proc read_bytes_input(applet_name: Str, paths: List[Str]) [fs, error, io] -> Result[Bytes] {
-  if paths.len() == 0 {
-    return io.stdin_bytes()?
-  }
+  return io.stdin_bytes()? when paths.len() == 0
 
-  if paths.len() != 1 {
-    return Err(usage_error(applet_name, "FILE"))
-  }
+  return Err(usage_error(applet_name, "FILE")) when paths.len() != 1
 
-  if paths[0] == "-" {
-    return io.stdin_bytes()?
-  }
+  return io.stdin_bytes()? when paths[0] == "-"
 
-  return fp"${paths[0]}".read_bytes()?
+  fp"${paths[0]}".read_bytes()?
 }
 
 proc main(...argv: List[Str]) [fs, error, io] {

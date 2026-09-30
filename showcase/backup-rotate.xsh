@@ -36,7 +36,7 @@ proc main(...argv: List[Str]) [fs, error] {
   )?
 
   let dir = opts.dir.resolve()?
-  let name_re = if opts.pattern == "" { regex.compile(".")? } else { regex.compile(opts.pattern)? }
+  let name_re = if opts.pattern == "" { rx"." } else { regex.compile(opts.pattern)? }
 
   # Sort descending by path so the lexicographically largest names (newest ISO dates) come first
   let all_files = fs.children(dir)

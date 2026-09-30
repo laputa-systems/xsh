@@ -62,7 +62,7 @@ pure parse_getty_args(argv: List[Str]) -> Result[GettyOptions] {
     return Err(auth.AuthError.Failed("missing operand"))
   }
 
-  return {
+  {
     no_prompt: opts.no_prompt,
     no_issue: opts.no_issue,
     issue_file: opts.issue_file,
@@ -81,22 +81,20 @@ proc run_external_login(options: GettyOptions, username: Str) [process, error] -
   var argv = [login]
 
   if options.host != "" {
-    argv = argv.push("-h")
+    argv += ["-h"]
     argv = argv.push(options.host)
   }
 
   if username != "" {
-    argv = argv.push(username)
+    argv += [username]
   }
 
   let env_record = if options.term == "" { {} } else { {TERM: options.term} }
   let status = process.run(process.command_argv(login, argv, env: env_record))?
 
-  if status.exited() {
-    return status.exit_code()?
-  }
+  return status.exit_code()? when status.exited()
 
-  return 1
+  1
 }
 
 proc main(...argv: List[Str]) [fs, process, error, io] -> Result[Int] {
@@ -116,7 +114,7 @@ proc main(...argv: List[Str]) [fs, process, error, io] -> Result[Int] {
     username = tui.read_secret("login: ")?
   }
 
-  return run_external_login(options, username)?
+  run_external_login(options, username)?
 }
 
 abort(main(@args)?)

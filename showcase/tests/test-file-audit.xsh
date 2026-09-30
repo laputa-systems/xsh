@@ -28,7 +28,7 @@ test test_file_audit_findings [fs, process, error] { |ctx|
 }
 
 test test_file_audit_distinguishes_non_utf8_sibling_paths [fs, process, env, error] { |ctx|
-  if system.uname()?.sysname != "Linux" {
+  guard system.uname()?.sysname == "Linux" else {
     test.skip("creating non-UTF-8 path components requires the pinned Linux filesystem")
     return
   }

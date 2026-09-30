@@ -19,8 +19,11 @@ proc main() [io, error] {
   print f"${lists.len()} ${lists[0].len()} ${lists[2].len()}"
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "0\n1\n2\n3\n4\n5\n3 2 2\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("0\n1\n2\n3\n4\n5\n3 2 2\n")
 }
 
 test test_yield_delegation_pulls_lazily_and_closes_child_first [error] { |ctx|
@@ -50,8 +53,11 @@ proc main() [io, error] {
   print "consumer-after"
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "created\nparent-start\npull 0\nrow 0\npull 1\nrow 1\nchild-close\nparent-close\nconsumer-after\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("created\nparent-start\npull 0\nrow 0\npull 1\nrow 1\nchild-close\nparent-close\nconsumer-after\n")
 }
 
 test test_yield_delegation_evaluates_source_once_and_resumes [error] { |ctx|
@@ -76,8 +82,11 @@ proc main() [io, error] {
   for n in parent() { print f"row ${n}" }
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "row 1\nchild-close\nbetween\nsource\nrow 2\nrow 3\nafter\nparent-close\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("row 1\nchild-close\nbetween\nsource\nrow 2\nrow 3\nafter\nparent-close\n")
 }
 
 test test_yield_delegation_result_handling_and_late_failure [error] { |ctx|
@@ -102,9 +111,9 @@ proc main() [io, error] {
   print "consumer-after"
 }
 """)?
-  test.eq(output.success, false)?
-  test.eq(output.stdout, "row 1\nrow 2\nrow 3\nchild-close\nparent-close\n")?
-  test.ok("RowsError.Late" in output.stderr)?
+  (output.success) == (false)
+  (output.stdout) == ("row 1\nrow 2\nrow 3\nchild-close\nparent-close\n")
+  ("RowsError.Late" in output.stderr)
 }
 
 test test_yield_delegation_aliases_share_one_cursor [error] { |ctx|
@@ -120,19 +129,22 @@ proc main() [io, error] {
   print f"remaining ${remaining.len()}"
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "1\nremaining 0\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("1\nremaining 0\n")
 }
 
 test test_yield_delegation_requires_explicit_list_or_stream [error] { |ctx|
   for value in ["1", "\"text\"", "b\"bytes\"", "{name: 1}", "Ok([1])"] {
     let output = test.run_script(ctx, f"stream bad() -> Stream[Int] { yield @${value} }\n")?
-    test.eq(output.success, false)?
-    test.ok("check.yield-delegation" in output.stderr)?
+    (output.success) == (false)
+    ("check.yield-delegation" in output.stderr)
   }
   let output = test.run_script(ctx, "proc bad() { yield @[1] }\n")?
-  test.eq(output.success, false)?
-  test.ok("check.yield" in output.stderr)?
+  (output.success) == (false)
+  ("check.yield" in output.stderr)
 }
 
 test test_yield_delegation_guard_and_zero_take_do_not_evaluate_source [error] { |ctx|
@@ -149,8 +161,11 @@ proc main() [io] {
   for row in rows() { print f"row ${row}" }
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "empty 0\nsource\nrow 1\nrow 2\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("empty 0\nsource\nrow 1\nrow 2\n")
 }
 
 test test_yield_delegation_live_source_and_list_snapshot [fs, error] { |ctx|
@@ -173,8 +188,11 @@ proc main() [io, fs, error] {
   print f"original \${values[0]}"
 }
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "first\nsecond\nlast\n1\n2\n3\noriginal 99\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = output
+    assert assertion_condition, assertion_message
+  }
+  (output.stdout) == ("first\nsecond\nlast\n1\n2\n3\noriginal 99\n")
 }
 
 test test_yield_delegation_cleanup_failure_still_closes_parent [error] { |ctx|
@@ -200,9 +218,9 @@ proc main() [io, error] {
   for row in parent() { print f"row ${row}"; break }
 }
 """)?
-  test.eq(output.success, false)?
-  test.eq(output.stdout, "row 1\nchild-close\nparent-close\n")?
-  test.ok("child cleanup failed" in output.stderr)?
+  (output.success) == (false)
+  (output.stdout) == ("row 1\nchild-close\nparent-close\n")
+  ("child cleanup failed" in output.stderr)
 }
 
 test test_yield_delegation_rejects_item_and_effect_mismatches [error] { |ctx|
@@ -212,7 +230,7 @@ test test_yield_delegation_rejects_item_and_effect_mismatches [error] { |ctx|
     "stream child() [] -> Stream[Int] { yield 1 }\nstream bad() [] -> Stream[Int] { yield child() }\n",
   ] {
     let output = test.run_script(ctx, source)?
-    test.eq(output.success, false)?
-    test.ok("check." in output.stderr)?
+    (output.success) == (false)
+    ("check." in output.stderr)
   }
 }

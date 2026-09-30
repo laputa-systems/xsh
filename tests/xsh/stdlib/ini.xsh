@@ -6,14 +6,11 @@ message = hello
   world
 """)?
 
-  test.eq(config.global, "root")?
-  test.eq(config.server.host, "example.test")?
+  (config.global) == ("root")
+  (config.server.host) == ("example.test")
 
-  test.eq(
-    config.server.message,
-    """hello
-world""",
-  )?
+  (config.server.message) == ("""hello
+world""")
 
   let encoded = ini.encode({server: {message: config.server.message, host: config.server.host}, global: config.global})?
   "global = root" in encoded
@@ -22,12 +19,12 @@ world""",
   let config_path = test.temp_path(ctx, name: "app.ini")
   ini.write(config_path, {global: "root", server: {host: "example.test"}})?
   let read_back = ini.read(config_path)?
-  test.eq(read_back.server.host, "example.test")?
+  (read_back.server.host) == ("example.test")
   test.error_kind(ini.write(config_path, {global: "again"}, overwrite: false), "ini-write")?
 
   # Encoding fails before overwrite policy examines the existing destination.
   test.error_kind(ini.write(config_path, {global: 1}, overwrite: false), "ini-encode")?
-  test.eq(ini.read(config_path)?.global, "root")?
+  (ini.read(config_path)?.global) == ("root")
 }
 
 # The message of a rejected encode, or the empty string when the record encoded.
@@ -35,8 +32,8 @@ world""",
 # this.
 pure encode_message(result: Result[Str]) -> Str {
   match result {
-    Ok(_) => return ""
-    Err(error) => return error.message
+    Ok(_) => ""
+    Err(error) => error.message
   }
 }
 
@@ -198,12 +195,9 @@ test test_ini_encode_rejects_non_string_values [fs, error] {
   test.error_kind(ini.encode({a: [1, 2]}), "ini-encode")?
 
   # A map is not a section record.
-  let empty_map: Map[Str] = map.empty()
+  let empty_map: Map[Str] = {}
   test.error_kind(ini.encode({s: empty_map}), "ini-encode")?
-  test.eq(
-    encode_message(ini.encode({s: empty_map})),
-    "INI records may contain only global string keys or section records",
-  )?
+  (encode_message(ini.encode({s: empty_map}))) == ("INI records may contain only global string keys or section records")
 
   # A section field must be a string.
   test.error_kind(ini.encode({s: {a: 1}}), "ini-encode")?
@@ -273,10 +267,7 @@ world""",
   },
 })?,
   )?
-  test.eq(round_trip.global, "root")?
-  test.eq(
-    round_trip.server.message,
-    """hello
-world""",
-  )?
+  (round_trip.global) == ("root")
+  (round_trip.server.message) == ("""hello
+world""")
 }

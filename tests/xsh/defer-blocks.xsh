@@ -19,8 +19,8 @@ proc exercise() [error] {
 }
 exercise()
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "body\ninner\noutside\nblock:cleanup:registered\nfirst\n")?
+  assert output.success, output.stderr
+  output.stdout == "body\ninner\noutside\nblock:cleanup:registered\nfirst\n"
 }
 
 test test_defer_blocks_keep_loop_cleanup_local_and_nested_defers_lifo [error] { |ctx|
@@ -45,8 +45,8 @@ proc exercise() [] {
 }
 exercise()
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "body:1\ncleanup:1:2\nnested\nbody:2\ncleanup:2:2\nnested\ndone\n")?
+  assert output.success, output.stderr
+  output.stdout == "body:1\ncleanup:1:2\nnested\nbody:2\ncleanup:2:2\nnested\ndone\n"
 }
 
 test test_defer_block_failure_stops_its_body_and_keeps_other_actions [error] { |ctx|
@@ -62,9 +62,9 @@ proc exercise() [error] {
 }
 exercise()?
 """)?
-  test.ok(! output.success, output.stderr)?
-  test.eq(output.stdout, "body\nfailing\nremaining\n")?
-  test.ok("cleanup failure" in output.stderr)?
+  assert ! output.success, output.stderr
+  output.stdout == "body\nfailing\nremaining\n"
+  "cleanup failure" in output.stderr
 }
 
 test test_defer_blocks_preserve_primary_failure_and_report_secondary_cleanup [error] { |ctx|
@@ -79,11 +79,11 @@ proc exercise() [error] {
 }
 exercise()?
 """)?
-  test.ok(! output.success, output.stderr)?
-  test.eq(output.stdout, "failing\nremaining\n")?
-  test.ok("primary failure" in output.stderr)?
-  test.ok("cleanup failure" in output.stderr)?
-  test.ok("cleanup error [" in output.stderr)?
+  assert ! output.success, output.stderr
+  output.stdout == "failing\nremaining\n"
+  "primary failure" in output.stderr
+  "cleanup failure" in output.stderr
+  "cleanup error [" in output.stderr
 }
 
 test test_defer_blocks_run_bare_assertions_and_implicit_result_unit [error] { |ctx|
@@ -102,10 +102,10 @@ proc exercise() [error] {
 }
 exercise()?
 """)?
-  test.ok(! output.success, output.stderr)?
-  test.eq(output.stdout, "assertion\nremaining\n")?
-  test.ok("assertion" in output.stderr)?
-  test.ok("result cleanup failure" in output.stderr)?
+  assert ! output.success, output.stderr
+  output.stdout == "assertion\nremaining\n"
+  "assertion" in output.stderr
+  "result cleanup failure" in output.stderr
 }
 
 test test_defer_blocks_unwind_started_stream_on_early_consumer_exit [error] { |ctx|
@@ -123,8 +123,8 @@ for value in values() {
 }
 print "done"
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "1\ninner:1\nouter\ndone\n")?
+  assert output.success, output.stderr
+  output.stdout == "1\ninner:1\nouter\ndone\n"
 }
 
 test test_defer_blocks_reject_escaping_control_and_check_unselected_effects [error] { |ctx|
@@ -139,8 +139,8 @@ test test_defer_blocks_reject_escaping_control_and_check_unselected_effects [err
     "proc bad() [] { if false { defer { fs.remove(p\"unused\")? } } }\n",
   ] {
     let output = test.run_script(ctx, source)?
-    test.ok(! output.success, source)?
-    test.ok(output.stderr != "", source)?
+    assert ! output.success, source
+    assert output.stderr != "", source
   }
 }
 
@@ -156,10 +156,10 @@ proc exercise() [error] {
 }
 exercise()?
 """)?
-  test.ok(! output.success, output.stderr)?
-  test.eq(output.stdout, "body\nlast\n")?
-  test.ok("first cleanup" in output.stderr)?
-  test.ok("second cleanup" in output.stderr)?
+  assert ! output.success, output.stderr
+  output.stdout == "body\nlast\n"
+  "first cleanup" in output.stderr
+  "second cleanup" in output.stderr
 }
 
 test test_defer_blocks_unwind_failed_module_procedure [fs, error] { |ctx|
@@ -173,10 +173,10 @@ export proc exercise() [error] {
 }
 """)?
   let output = test.run_script(ctx, "use cleanup\ncleanup.exercise()?\n", [], {XSH_MODULE_PATH: root.display()})?
-  test.ok(! output.success, output.stderr)?
-  test.ok(output.stdout != "", output.stderr)?
-  test.eq(output.stdout, "module cleanup\n")?
-  test.ok("module failure" in output.stderr)?
+  assert ! output.success, output.stderr
+  assert output.stdout != "", output.stderr
+  output.stdout == "module cleanup\n"
+  "module failure" in output.stderr
 }
 
 test test_defer_blocks_unwind_return_and_keep_return_value [error] { |ctx|
@@ -191,8 +191,8 @@ proc value() [] -> Int {
 }
 print ${value()}
 """)?
-  test.ok(output.success, output.stderr)?
-  test.eq(output.stdout, "inner\nouter\n7\n")?
+  assert output.success, output.stderr
+  output.stdout == "inner\nouter\n7\n"
 }
 
 test test_defer_block_force_abort_skips_remaining_actions [error] { |ctx|
@@ -203,8 +203,8 @@ proc exercise() [] {
 }
 exercise()
 """)?
-  test.eq(output.status, 9)?
-  test.eq(output.stdout, "")?
+  output.status == 9
+  output.stdout == ""
 }
 
 test test_defer_block_force_abort_during_failure_keeps_force_status [error] { |ctx|
@@ -216,8 +216,8 @@ proc exercise() [error] {
 }
 exercise()?
 """)?
-  test.eq(output.status, 9)?
-  test.eq(output.stdout, "")?
+  output.status == 9
+  output.stdout == ""
 }
 
 test test_defer_block_top_level_force_abort_during_failure [error] { |ctx|
@@ -226,12 +226,12 @@ defer { print "skipped" }
 defer { abort(9, force: true) }
 let _ = "primary".parse_int()?
 """)?
-  test.eq(output.status, 9)?
-  test.eq(output.stdout, "")?
+  output.status == 9
+  output.stdout == ""
 }
 
 test test_defer_blocks_reject_delegated_yield_during_checking [error] { |ctx|
   let output = test.run_script(ctx, "stream bad() [] -> Stream[Int] { if false { defer { yield @[1] } }; yield 2 }\nlet _ = bad() |> collect\n")?
-  test.ok(! output.success, output.stderr)?
-  test.ok("check.defer-control-flow" in output.stderr)?
+  assert ! output.success, output.stderr
+  "check.defer-control-flow" in output.stderr
 }

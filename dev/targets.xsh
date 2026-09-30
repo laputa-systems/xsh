@@ -41,75 +41,65 @@ export let default_triple = "x86_64-unknown-linux-musl"
 
 ## Returns the host-native target triple used when TARGET is unset.
 export pure host_default_triple(os: HostOs, arch: HostArch) -> Result[Str] {
-  if os == Linux and arch == X86_64 {
-    return "x86_64-unknown-linux-musl"
-  }
+  return "x86_64-unknown-linux-musl" when os == Linux and arch == X86_64
 
-  if os == Linux and arch == Aarch64 {
-    return "aarch64-unknown-linux-musl"
-  }
+  return "aarch64-unknown-linux-musl" when os == Linux and arch == Aarch64
 
-  if os == Darwin and arch == Aarch64 {
-    return "aarch64-apple-darwin"
-  }
+  return "aarch64-apple-darwin" when os == Darwin and arch == Aarch64
 
-  return Err(TargetError.Unsupported(target: "host default target"))
+  Err(TargetError.Unsupported(target: "host default target"))
 }
 
 ## Classifies the host operating system reported by `system.uname`.
 export pure host_os(sysname: Str) -> Result[Str] {
   match sysname {
-    "Linux" => return "linux"
-    "Darwin" => return "darwin"
-    _ => return Err(TargetError.Unsupported(target: f"host OS ${sysname}"))
+    "Linux" => "linux"
+    "Darwin" => "darwin"
+    _ => Err(TargetError.Unsupported(target: f"host OS ${sysname}"))
   }
 }
 
 ## Decodes the host operating-system boundary into closed policy.
 export pure host_os_tag(sysname: Str) -> Result[HostOs] {
   match sysname {
-    "Linux" => return Linux
-    "Darwin" => return Darwin
-    _ => return Err(TargetError.Unsupported(target: f"host OS ${sysname}"))
+    "Linux" => Linux
+    "Darwin" => Darwin
+    _ => Err(TargetError.Unsupported(target: f"host OS ${sysname}"))
   }
 }
 
 ## Classifies the host architecture reported by `system.uname`.
 export pure host_arch(machine: Str) -> Result[Str] {
   match machine {
-    "x86_64" => return "x86_64"
-    "amd64" => return "x86_64"
-    "aarch64" => return "aarch64"
-    "arm64" => return "aarch64"
-    _ => return Err(TargetError.Unsupported(target: f"host architecture ${machine}"))
+    "x86_64" | "amd64" => "x86_64"
+    "aarch64" | "arm64" => "aarch64"
+    _ => Err(TargetError.Unsupported(target: f"host architecture ${machine}"))
   }
 }
 
 ## Decodes the host architecture boundary into closed policy.
 export pure host_arch_tag(machine: Str) -> Result[HostArch] {
   match machine {
-    "x86_64" => return X86_64
-    "amd64" => return X86_64
-    "aarch64" => return Aarch64
-    "arm64" => return Aarch64
-    _ => return Err(TargetError.Unsupported(target: f"host architecture ${machine}"))
+    "x86_64" | "amd64" => X86_64
+    "aarch64" | "arm64" => Aarch64
+    _ => Err(TargetError.Unsupported(target: f"host architecture ${machine}"))
   }
 }
 
 ## Decodes a supported target triple into its closed identity.
 export pure target_id(triple: Str) -> Result[TargetId] {
   match triple {
-    "x86_64-unknown-linux-musl" => return X86_64LinuxMusl
-    "aarch64-unknown-linux-musl" => return Aarch64LinuxMusl
-    "aarch64-apple-darwin" => return Aarch64AppleDarwin
-    _ => return Err(TargetError.Unsupported(target: triple))
+    "x86_64-unknown-linux-musl" => X86_64LinuxMusl
+    "aarch64-unknown-linux-musl" => Aarch64LinuxMusl
+    "aarch64-apple-darwin" => Aarch64AppleDarwin
+    _ => Err(TargetError.Unsupported(target: triple))
   }
 }
 
 ## Resolves one supported Rust target triple into its complete policy record.
 export pure resolve(triple: Str) -> Result[Target] {
   match triple {
-    "x86_64-unknown-linux-musl" => return {
+    "x86_64-unknown-linux-musl" => ({
       triple: triple,
       id: X86_64LinuxMusl,
       os: "linux",
@@ -125,8 +115,8 @@ export pure resolve(triple: Str) -> Result[Target] {
         "-march=x86-64-v3",
       ],
       static_musl: true,
-    }
-    "aarch64-unknown-linux-musl" => return {
+    })
+    "aarch64-unknown-linux-musl" => ({
       triple: triple,
       id: Aarch64LinuxMusl,
       os: "linux",
@@ -144,8 +134,8 @@ export pure resolve(triple: Str) -> Result[Target] {
         "-mcpu=neoverse-n2+nosve+nosve2",
       ],
       static_musl: true,
-    }
-    "aarch64-apple-darwin" => return {
+    })
+    "aarch64-apple-darwin" => ({
       triple: triple,
       id: Aarch64AppleDarwin,
       os: "darwin",
@@ -161,17 +151,17 @@ export pure resolve(triple: Str) -> Result[Target] {
         "-mcpu=apple-m1",
       ],
       static_musl: false,
-    }
-    _ => return Err(TargetError.Unsupported(target: triple))
+    })
+    _ => Err(TargetError.Unsupported(target: triple))
   }
 }
 
 ## Reports whether a target can execute directly on a classified host.
 export pure can_execute_natively(target: Target, os: HostOs, arch: HostArch) -> Bool {
   match target.id {
-    X86_64LinuxMusl => return os == Linux and arch == X86_64
-    Aarch64LinuxMusl => return os == Linux and arch == Aarch64
-    Aarch64AppleDarwin => return os == Darwin and arch == Aarch64
+    X86_64LinuxMusl => os == Linux and arch == X86_64
+    Aarch64LinuxMusl => os == Linux and arch == Aarch64
+    Aarch64AppleDarwin => os == Darwin and arch == Aarch64
   }
 }
 
@@ -179,47 +169,44 @@ export pure can_execute_natively(target: Target, os: HostOs, arch: HostArch) -> 
 export pure profile_directory(profile: Str) -> Str {
   return "release" when profile == "release"
 
-  return profile
+  profile
 }
 
 ## Combines inherited and XSH-owned Linux distribution compiler flags.
 export pure target_rustflags(target: Target, inherited: Str) -> Str {
   let common = ["-Zlocation-detail=none", "-Zunstable-options", "-Cpanic=immediate-abort"]
-  var flags: List[Str] = []
+  var flags = []
 
   if inherited.trim() != "" {
-    flags = flags.push(inherited.trim())
+    flags += [inherited.trim()]
   }
 
-  flags = flags.extend(common).extend(target.cpu_rustflags)
+  flags = [@flags, @common, @target.cpu_rustflags]
 
   if target.static_musl {
-    flags = flags.extend(
-      [
-        "-C",
-        "target-feature=+crt-static",
-        "-C",
-        "link-arg=--defsym=__isoc23_sscanf=sscanf",
-        "-C",
-        "link-arg=--defsym=__isoc23_strtol=strtol",
-      ],
-    )
+    flags += [
+      "-C",
+      "target-feature=+crt-static",
+      "-C",
+      "link-arg=--defsym=__isoc23_sscanf=sscanf",
+      "-C",
+      "link-arg=--defsym=__isoc23_strtol=strtol",
+    ]
   }
 
-  return flags.join(" ")
+  flags.join(" ")
 }
 
 ## Combines inherited and XSH-owned Darwin distribution compiler flags.
 export pure darwin_rustflags(target: Target, inherited: Str) -> Str {
-  var flags: List[Str] = []
+  var flags = []
 
   if inherited.trim() != "" {
-    flags = flags.push(inherited.trim())
+    flags += [inherited.trim()]
   }
 
-  return flags.extend(["-C", "linker=rust-lld", "-C", "linker-flavor=ld64.lld", "-C", "link-arg=--icf=safe"])
-    .extend(["-Zlocation-detail=none", "-Zunstable-options", "-Cpanic=immediate-abort"])
-    .extend(target.cpu_rustflags)
+  [@flags, "-C", "linker=rust-lld", "-C", "linker-flavor=ld64.lld", "-C", "link-arg=--icf=safe",
+    "-Zlocation-detail=none", "-Zunstable-options", "-Cpanic=immediate-abort", @target.cpu_rustflags]
     .join(" ")
 }
 
@@ -275,31 +262,29 @@ export pure distribution_env(
     }
   }
 
-  return Err(TargetError.Unsupported(target: triple))
+  Err(TargetError.Unsupported(target: triple))
 }
 
 ## Reports whether selected tagged target and host policies can execute directly.
-export pure native_execution(target: Target, os: HostOs, arch: HostArch) -> Bool {
-  return can_execute_natively(target, os, arch)
-}
+export let native_execution = can_execute_natively
 
 ## Maps a target triple to the stable release artifact suffix.
 export pure release_suffix(triple: Str) -> Result[Str] {
   match triple {
-    "x86_64-unknown-linux-musl" => return "x86_64-linux-musl"
-    "aarch64-unknown-linux-musl" => return "aarch64-linux-musl"
-    "aarch64-apple-darwin" => return "aarch64-apple-darwin"
-    _ => return Err(TargetError.Unsupported(target: triple))
+    "x86_64-unknown-linux-musl" => "x86_64-linux-musl"
+    "aarch64-unknown-linux-musl" => "aarch64-linux-musl"
+    "aarch64-apple-darwin" => "aarch64-apple-darwin"
+    _ => Err(TargetError.Unsupported(target: triple))
   }
 }
 
 ## Returns the target-specific C compiler environment variable name.
 export pure cflags_variable(triple: Str) -> Result[Str] {
   match triple {
-    "x86_64-unknown-linux-musl" => return "CFLAGS_x86_64_unknown_linux_musl"
-    "aarch64-unknown-linux-musl" => return "CFLAGS_aarch64_unknown_linux_musl"
-    "aarch64-apple-darwin" => return "CFLAGS_aarch64_apple_darwin"
-    _ => return Err(TargetError.Unsupported(target: triple))
+    "x86_64-unknown-linux-musl" => "CFLAGS_x86_64_unknown_linux_musl"
+    "aarch64-unknown-linux-musl" => "CFLAGS_aarch64_unknown_linux_musl"
+    "aarch64-apple-darwin" => "CFLAGS_aarch64_apple_darwin"
+    _ => Err(TargetError.Unsupported(target: triple))
   }
 }
 
@@ -312,8 +297,8 @@ export pure docker_test_env(triple: Str) -> Result[Record] {
   ].join(" ")
 
   match triple {
-    "x86_64-unknown-linux-musl" => return {CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags}
-    "aarch64-unknown-linux-musl" => return {CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags}
-    _ => return Err(TargetError.Unsupported(target: triple))
+    "x86_64-unknown-linux-musl" => ({CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags})
+    "aarch64-unknown-linux-musl" => ({CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS: flags})
+    _ => Err(TargetError.Unsupported(target: triple))
   }
 }

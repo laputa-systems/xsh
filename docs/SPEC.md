@@ -597,7 +597,9 @@ Within a function, an unannotated empty List has one unresolved element type.
 An explicit empty Map constructor has unresolved key and value types. Checked
 writes and independently determined parameter or return expectations solve
 these types across all branches and loop bodies, including loops that may run
-zero times. A mutable binding initialized with `null` similarly has one fixed
+zero times. Explicit returns and implicit value tails apply the same
+return expectation, including the success type of an implicit Ok boundary.
+A mutable binding initialized with `null` similarly has one fixed
 optional type once non-null contributions determine its inner type. Immutable
 `let value = null` remains Null. An unannotated `{}` remains a record.
 
@@ -1772,6 +1774,9 @@ computed fields, and spreads remain literals. `{value}` is a shorthand record;
 Malformed field-shaped syntax retains literal diagnostics. A bare block adds
 only a lexical binding and cleanup scope; it adds no error or function-return
 boundary, module statement permission, or top-level integer-exit permission.
+In statement position, the block consumes its contents as statements and
+discards a final scalar value. In a callable's value tail, the block retains
+the callable's declared return contract: a returned Int cannot satisfy Unit.
 It leaves cwd/env handling unchanged. Scope defers run exactly once before an
 outgoing value is exposed; deferred invalidation still invalidates an escaping
 handle. `lint.lexical-block` removes a literal true conditional only in checked
@@ -1998,6 +2003,11 @@ ownership, effects, and deferred cleanup follow the ordinary control statement.
 A guarded return does not make subsequent statements unreachable. A break payload
 follows the existing break rules; only a `loop` expression consumes it as a loop
 result. `while` and `for` retain statement semantics.
+When the selected payload leaves the current continuation, subsequent statements
+retain the condition proof for the branch that skipped it. This applies to
+guarded returns and valid loop exits, including retained Bool proof aliases.
+Guarded yields resume at the next statement and establish no such proof.
+Mutations in an exiting payload do not invalidate the skipped branch's bindings.
 
 Group a run-valued payload: `return (run.status /usr/bin/true) when ready`.
 Ungrouped `return run.status /usr/bin/true when ready` passes `when` and `ready`

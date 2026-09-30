@@ -15,6 +15,24 @@ them to the owner and report that limit. Unfiltered `cargo test` includes
 `runtime::coverage` cases and two `runtime::examples` cases that launch
 `xsht fmt` or `xsht lint`, so agents use the filtered runtime gate below.
 
+## Read-only lint performance gate
+
+`make check` delegates to `cargo dev check lint`, which runs
+`cargo test -p xsht --test integration lint_performance::
+-- --test-threads=1 --nocapture`. The repository case invokes `xsht lint`
+from the repository root with ordinary configured discovery, requires a
+successful exit with no diagnostics, and enforces a 60-second wall deadline.
+Compilation finishes before timing begins; discovery, checking, linting, and
+process startup count toward the deadline. It never supplies `--fix`.
+The harness kills and reaps a timed-out child and captures both output streams
+to files. Isolated cases verify imported diagnostics, configured fixture
+exclusions, unchanged source bytes, and deadline cleanup.
+
+The frontend worker stack boundary is covered by `cargo test -p xsht --test
+integration cli_workers_check_and_lint_nested_schema -- --nocapture`. The
+subprocess fixture checks and lints nested named schema constructors with
+`RUST_MIN_STACK` absent, and verifies that both commands leave the source intact.
+
 ## IR coverage report tool
 
 `target/debug/xsht check tools/xsh-ir-coverage.xsh` checks the maintained scanner.
@@ -202,7 +220,7 @@ after the shell terminated it.
 | Error payload/cause ownership transfers and long shared resource reachability | `target/debug/xsht test --jobs 1 tests/xsh/error-resource-ownership.xsh` and `cargo test -p xsh --lib resource_reachable_values -j1 -- --test-threads=1` | Rebuild exact debug xsh/xsht binaries; `tests/xsh/stdlib/process.xsh` and `tests/xsh/typed-causes.xsh` |
 | Typed causes, outer Result error inference, immutable aliases, context/process metadata, bounded diagnostics, and constructor frames | `target/debug/xsht test --jobs 1 tests/xsh/typed-causes.xsh` and `cargo test -p xsh --lib typed_cause -- --test-threads=1` | Syntax/checker gates, indexed verifier tests, `cargo test -p xsht --test integration typed_cause`; rebuild the exact debug xsh/xsht binaries before native tests |
 | Rust compile only | `cargo build` | relevant filtered package tests; unfiltered `cargo test` is owner-run |
-| Local empty collection and nullable inference, monomorphic aliases, static branch/loop contributions, and concrete indexed publication | `target/debug/xsht test --jobs 1 tests/xsh/local-inference.xsh` and `cargo test -p xsh --lib local_collection_inference_publishes_concrete_indexed_call_and_slot_types -- --test-threads=1` | Checker and syntax gates; shared constraint solver tests; `empty_map_fold_inference_publishes_concrete_accumulator_types`; focused annotation rewrite acceptance |
+| Local empty collection and nullable inference, monomorphic aliases, static branch/loop contributions, and concrete indexed publication | `target/debug/xsht test --jobs 1 tests/xsh/local-inference.xsh` and `cargo test -p xsh --lib local_collection_inference_publishes_concrete_indexed_call_and_slot_types -- --test-threads=1` | Checker and syntax gates; shared constraint solver tests; `local_constraint_probe_does_not_copy_completed_body_binding_history` and `local_constraint_probe_does_not_copy_checked_expression_history`; `empty_map_fold_inference_publishes_concrete_accumulator_types`; focused annotation rewrite acceptance |
 | Canonical builtin signature templates and collection call binding | `target/debug/xsht test --jobs 1 tests/xsh/builtin-templates.xsh` | Native collection and Map suites; checker, indexed verifier, registry signature, and API gates |
 | Checked dynamic boundaries and removed check strict option | `target/debug/xsht test --jobs 1 tests/xsh/dynamic-boundaries.xsh` and `cargo test -p xsht --test integration check_dynamic_boundary` / `check_strict_option` | Checker full/compact facts, indexed verifier, native JSON/module/auth gates; checker and runners share `tests/fixtures/sema/invalid/unchecked-json-boundary.xsh`, and rejected annotation passes preserve source bytes |
 | `Lexer::lex_compact`, `Parser::parse_source_arena_only`, or formatter | targeted `cargo test --test integration syntax::TEST_NAME` | `cargo test --test integration syntax::` |
@@ -743,6 +761,11 @@ review. Its focused tooling tests verify formatter preservation and convergence.
 
 Guarded value control uses `tests/xsh/guarded-control.xsh` for condition-first
 payload laziness, selected-branch narrowing, stream yields, and deferred cleanup.
+`tests/xsh/guarded-control-proofs.xsh` checks full-check and runtime agreement for
+complementary return/loop proofs, Bool aliases, exiting mutations, resumable
+yields, and invalid control targets.
+`tests/sema.rs::checker_guarded_control_proofs_agree_on_full_and_compact_routes`
+pins the same retained receiver types on both checker routes.
 `tests/syntax.rs::guarded_value_controls_round_trip_without_absorbing_guard_into_run_argv`
 and `guarded_value_control_keeps_payload_and_condition_source_spans` cover the
 parser/formatter boundary; `tests/sema.rs::checker_guarded_value_control_*` retain
@@ -859,6 +882,9 @@ before the ordinary syntax/tooling gates.
 `target/debug/xsht test --jobs 1 tests/xsh/constants.xsh` covers lexical and
 qualified references, forward dependencies, concrete empty containers, schema
 and tag construction, immutable aliases, and rejected runtime initialization.
+`cargo test -p xsh --lib constant_scope_index_tests -- --test-threads=1`
+checks bounded containment lookup work, equal-span and overlapping block
+identity, shared workspace source isolation, and preparation of unused bodies.
 `cargo test -p xsh --lib prepared_constant_pool --features native-tests -- --test-threads=1`
 checks pool reuse, checkpoint rewind, and verifier rejection. Tooling acceptance
 uses `cargo test -p xsht --test integration prepared_constant_fix`; it checks

@@ -260,6 +260,21 @@ when a conditional or fallback would be parsed as a statement or command.
 `lint.prefer-guard` preserves the complete condition spelling, including the
 closing parentheses around pipelines.
 
+Workspace lint traversals copy only checked facts belonging to the current
+source. Span-ordered fact ranges keep shared imports from multiplying the
+expression and statement data cloned for each file; declaration contracts
+remain available in the checked bundle.
+
+Annotation-removal proofs cache the original checked type shapes for each
+source. `Linter::local_annotation_removal_preserves_contract` still checks every
+candidate against the complete expression contract; an unavailable original
+contract prevents candidate checks. Standalone proof parses refuse unresolved
+user imports before body checking because they cannot supply a valid baseline.
+Named user types retain their explicit domain,
+including exported types; these annotations do not enter removal probes.
+`lint.unused-type` counts both the generic head and applied arguments as type
+references, so a type used only in `CollectedDevices[Row]` remains used.
+
 `lint.prefer-record-constructor` replaces checked schema-typed record literals
 with static named-field construction while retaining the annotation. It preserves
 field evaluation order and omits explicit defaults only for identical bounded
@@ -277,6 +292,34 @@ silently moving comments or relying on final formatting to reconstruct intent.
 `xsht lint --fix` retains diagnostic keys while validating rewritten files, so
 an error reported by an imported module is emitted once per command even when
 several entry files reach that module.
+Each convergence round checks the rewritten import graph; the final round's
+diagnostics remain attached to that exact source instead of loading and checking
+the same graph again before writing it.
+
+Workspace linting parses imported sources once and selects each entry's
+dependency closure from a shared module index in
+`LintWorkspace::configure_program_for`. Entry bundles preserve canonical module
+identities and retain documentation only for reachable sources.
+Linting uses at most four workers, bounded by available CPU parallelism and
+entry-root count. Workers share one immutable arena for type references.
+It carries no module membership: the
+entry bundle determines whether an enum belongs to the root or an import.
+Imported identities use canonical module keys, so matching file names in
+different directories remain distinct nominal domains.
+
+`lint.prefer-known-field-access` replaces a propagated literal-key get only
+for an ordinary materialized record with an identical checked field type.
+Literal records, local constructors, and immutable aliases establish that
+provenance. Static record shape alone does not establish that a host-backed
+receiver's get cannot fail. Nullable field values remain nullable.
+
+`lint.lookup-fallback` accepts compatible literal data and checked immutable
+binding reads, including parameters. These reads cannot observe a different
+value when moved from an eager argument to a lazy fallback. Mutable reads,
+calls, failing expressions, comments, and named argument order remain guarded.
+Path command rewrites also require evidence that removing a text conversion
+preserves bytes; an arbitrary Path can contain non-UTF-8 bytes that its text
+display replaces.
 
 ## Reachability Diagnostics
 

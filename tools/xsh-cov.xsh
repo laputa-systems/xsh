@@ -25,43 +25,35 @@ type CoverageReport = {
 }
 
 pure repo_path(root: Path, value: Str) -> Path {
-  if value.starts_with("/") {
-    return fp"${value}"
-  }
+  return fp"${value}" when value.starts_with("/")
 
-  return fp"${root}/${value}"
+  fp"${root}/${value}"
 }
 
 proc env_path(root: Path, name: Str, default: Path) [env] -> Path {
   let value = (env.get(name) ?? "").trim()
 
-  if value == "" {
-    return default
-  }
+  return default when value == ""
 
-  return repo_path(root, value)
+  repo_path(root, value)
 }
 
 proc xsht_path(root: Path) [env] -> Path {
   let configured = (env.get("XSHT") ?? "").trim()
 
-  if configured != "" {
-    return repo_path(root, configured)
-  }
+  return repo_path(root, configured) when configured != ""
 
-  return fp"${root}/target/debug/xsht"
+  fp"${root}/target/debug/xsht"
 }
 
 proc relative_display(root: Path, target: Path) [error] -> Result[Str] {
-  return target.strip_prefix(root)?.display()
+  target.strip_prefix(root)?.display()
 }
 
 pure suite_json_name(name: Str) -> Str {
-  if name == "." {
-    return "root.json"
-  }
+  return "root.json" when name == "."
 
-  return f"${name.replace("/", "__")}.json"
+  f"${name.replace("/", "__")}.json"
 }
 
 pure suite_test_args(name: Str, suite_json: Path) -> List[Str] {
@@ -69,12 +61,12 @@ pure suite_test_args(name: Str, suite_json: Path) -> List[Str] {
     return ["test", "--cov", "--api", "--cov-json", suite_json.display(), "tests/xsh"]
   }
 
-  return ["test", "--cov", "--api", "--cov-json", suite_json.display()]
+  ["test", "--cov", "--api", "--cov-json", suite_json.display()]
 }
 
 proc discover_suites(root: Path) [fs, error] -> Result[List[Suite]] {
   var suites: List[Suite] = [{name: ".", path: root}]
-  var seen = map.empty().set(root.display(), true)
+  var seen = {[root.display()]: true}
   let core = fp"${root}/core"
 
   if fp"${core}/tests".exists()? {
@@ -97,7 +89,7 @@ proc discover_suites(root: Path) [fs, error] -> Result[List[Suite]] {
     }
   }
 
-  return suites
+  suites
 }
 
 proc run_suites(
@@ -136,7 +128,7 @@ proc run_suites(
     return Err(ScriptError.Failed("coverage", "one or more coverage suites failed"))
   }
 
-  return outputs
+  outputs
 }
 
 proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[CoverageReport] {
@@ -192,7 +184,7 @@ proc merge_reports(root: Path, inputs: List[SuiteInput]) [fs, error] -> Result[C
     }
   }
 
-  return {
+  {
     suites: inputs,
     api_hits: api_hits,
     standard_apis: sorted_standard,
@@ -207,17 +199,15 @@ proc render_text(report: CoverageReport) [error] -> Result[Str] {
   let totals = report.totals
 
   for row in totals {
-    let group_name = row.group
-    let covered = row.covered
-    let total = row.total
+    let {group: group_name, covered, total, ..} = row
     lines = lines.push(f"${group_name}: ${covered}/${total}")
   }
 
-  lines = lines.extend(["", "uncovered standard APIs"])
+  lines += ["", "uncovered standard APIs"]
   let uncovered = report.uncovered
 
   if uncovered.len() == 0 {
-    lines = lines.push("  none")
+    lines += ["  none"]
   } else {
     var count = 0
 
@@ -230,25 +220,24 @@ proc render_text(report: CoverageReport) [error] -> Result[Str] {
     }
 
     if uncovered.len() > 80 {
-      lines = lines.push("  ...")
+      lines += ["  ..."]
     }
   }
 
-  lines = lines.extend(["", "APIs covered by examples/tests"])
+  lines += ["", "APIs covered by examples/tests"]
   let covered_rows = report.covered
 
   if covered_rows.len() == 0 {
-    lines = lines.push("  none")
+    lines += ["  none"]
   } else {
     for row in covered_rows {
-      let api_id = row.api_id
-      let total = row.total
+      let {api_id, total, ..} = row
       lines = lines.push(f"  ${api_id}: ${total}")
     }
   }
 
-  lines = lines.push("")
-  return lines.join("\n")
+  lines += [""]
+  lines.join("\n")
 }
 
 proc main(...argv: List[Str]) [fs, process, env, error, io] {

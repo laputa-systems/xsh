@@ -13,19 +13,17 @@ type CpOptions = {
 }
 
 pure usage(applet_name: Str, summary: Str) -> Str {
-  return f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
+  f"usage: xsh applets/${applet_name}.xsh -- ${summary}"
 }
 
 pure usage_error(applet_name: Str, summary: Str) -> Error {
-  return AppletError.Usage(usage(applet_name, summary))
+  AppletError.Usage(usage(applet_name, summary))
 }
 
 pure dest_for(source: Path, target: Path, target_is_dir: Bool) -> Path {
-  if target_is_dir {
-    return fp"${target}/${source.name()}"
-  }
+  return fp"${target}/${source.name()}" when target_is_dir
 
-  return target
+  target
 }
 
 proc main(...argv: List[Str]) [fs, error] {
@@ -73,9 +71,7 @@ proc main(...argv: List[Str]) [fs, error] {
       },
     },
   )?
-  let recursive = opts.recursive
-  let no_clobber = opts.no_clobber
-  let no_target_directory = opts.no_target_directory
+  let {recursive, no_clobber, no_target_directory, ..} = opts
   let link_mode = if opts.symlink { "symlink" } else if opts.hardlink { "hardlink" } else { "copy" }
   let target_directory = fp"${opts.target}"
   let has_target_directory = opts.target != ""
@@ -108,7 +104,7 @@ proc main(...argv: List[Str]) [fs, error] {
     } else if link_mode == "hardlink" {
       source.hardlink(target)?
     } else if source_meta.kind == "dir" {
-      if ! recursive {
+      guard recursive else {
         return Err(AppletError.Usage(f"cp: omitting directory '${source}'"))
       }
 

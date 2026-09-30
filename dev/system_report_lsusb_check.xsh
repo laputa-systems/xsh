@@ -2,7 +2,7 @@
 error LsusbCheckError = Invalid(message: Str)
 
 pure lsusb_failure(message: Str) -> LsusbCheckError {
-  return LsusbCheckError.Invalid(message:)
+  LsusbCheckError.Invalid(message:)
 }
 
 ## Retains numeric identity without depending on the installed USB ID database.
@@ -64,7 +64,7 @@ pure decimal(value: Str) -> Result[Int] {
     return Err(lsusb_failure("USB reference has an empty decimal identity"))
   }
 
-  for digit in value.split("") {
+  for digit in value {
     if digit not in [
       "0",
       "1",
@@ -81,15 +81,15 @@ pure decimal(value: Str) -> Result[Int] {
     }
   }
 
-  return value.parse_int()
+  value.parse_int()
 }
 
 pure hex4(value: Str) -> Result[Int] {
-  if value.byte_len() != 4 {
+  guard value.byte_len() == 4 else {
     return Err(lsusb_failure("USB reference has a noncanonical hex ID"))
   }
 
-  for digit in value.split("") {
+  for digit in value {
     if digit not in [
       "0",
       "1",
@@ -118,11 +118,11 @@ pure hex4(value: Str) -> Result[Int] {
     }
   }
 
-  return f"0x${value}".parse_int()
+  f"0x${value}".parse_int()
 }
 
 pure words(value: Str) -> List[Str] {
-  return value.split(" ") |> where . != ""
+  value.split(" ") |> where . != ""
 }
 
 ## Parses stable `Bus NNN Device NNN: ID VVVV:PPPP` prefixes only.
@@ -131,7 +131,7 @@ export pure parse_lsusb_list(output: Str) -> Result[List[LsusbDevice]] {
     return Err(lsusb_failure("lsusb list output exceeds its bound"))
   }
 
-  var devices: List[LsusbDevice] = []
+  var devices = []
   var seen = set.empty()
   for line in output.lines() {
     continue when line.trim() == ""
@@ -143,9 +143,7 @@ export pure parse_lsusb_list(output: Str) -> Result[List[LsusbDevice]] {
     let bus = decimal(fields[1])?
     let device = decimal(fields[3].byte_slice(0, length: fields[3].byte_len() - 1))?
     let ids = fields[5].split(":")
-    if ids.len() != 2 {
-      return Err(lsusb_failure("lsusb list row has invalid IDs"))
-    }
+    return Err(lsusb_failure("lsusb list row has invalid IDs")) when ids.len() != 2
 
     let key = f"${bus}:${device}"
     if bus <= 0 or device <= 0 or key in seen {
@@ -156,17 +154,15 @@ export pure parse_lsusb_list(output: Str) -> Result[List[LsusbDevice]] {
     devices = devices.push({bus: bus, device: device, vendor_id: hex4(ids[0])?, product_id: hex4(ids[1])?})
   }
 
-  return devices |> sort-by f"${.bus}:${.device}"
+  devices |> sort-by f"${.bus}:${.device}"
 }
 
 pure field_after(fields: List[Str], name: Str) -> Str? {
   for index in range(fields.len()) {
-    if fields[index] == name and index + 1 < fields.len() {
-      return fields[index + 1]
-    }
+    return fields[index + 1] when fields[index] == name and index + 1 < fields.len()
   }
 
-  return null
+  null
 }
 
 ## Keeps the current root bus while parsing child interface rows.
@@ -176,17 +172,15 @@ export pure parse_lsusb_tree(output: Str) -> Result[List[LsusbTreeRow]] {
   }
 
   var bus = 0
-  var rows: List[LsusbTreeRow] = []
+  var rows = []
   for line in output.lines() {
     continue when line.trim() == ""
     let fields = words(line.trim().replace(",", "").replace(":", " "))
     let bus_token = field_after(fields, "Bus")
-    var root_port: Str? = null
+    var root_port = null
     if bus_token != null {
       let parts = bus_token.split(".Port")
-      if parts.len() != 2 {
-        return Err(lsusb_failure("lsusb tree root bus is malformed"))
-      }
+      return Err(lsusb_failure("lsusb tree root bus is malformed")) when parts.len() != 2
 
       bus = decimal(parts[0])?
       root_port = field_after(fields, bus_token)
@@ -199,12 +193,12 @@ export pure parse_lsusb_tree(output: Str) -> Result[List[LsusbTreeRow]] {
     }
 
     let interface_token = field_after(fields, "If")
-    var interface_number: Int? = null
+    var interface_number = null
     if interface_token != null {
       interface_number = decimal(interface_token)?
     }
 
-    var driver: Str? = null
+    var driver = null
     for token in fields {
       if token.starts_with("Driver=") {
         driver = token.byte_slice(7).split("/")[0]
@@ -213,24 +207,24 @@ export pure parse_lsusb_tree(output: Str) -> Result[List[LsusbTreeRow]] {
 
     rows = rows.push({
       bus: bus,
-      device: decimal(dev_token ?? "")?,
-      port: decimal(port_token ?? "")?,
+      device: decimal(dev_token)?,
+      port: decimal(port_token)?,
       interface_number: interface_number,
       driver: driver,
     })
   }
 
-  return rows
+  rows
 }
 
 pure verbose_number(output: Str, key: Str, hex: Bool) -> Result[Int] {
-  var values: List[Int] = []
+  var values = []
   for line in output.lines() {
     let fields = words(line.trim())
     continue when fields.len() < 2 or fields[0] != key
     var value = 0
     if hex {
-      if ! fields[1].starts_with("0x") {
+      guard fields[1].starts_with("0x") else {
         return Err(lsusb_failure(f"lsusb verbose ${key} lacks hex value"))
       }
 
@@ -239,14 +233,14 @@ pure verbose_number(output: Str, key: Str, hex: Bool) -> Result[Int] {
       value = decimal(fields[1])?
     }
 
-    values = values.push(value)
+    values += [value]
   }
 
   if values.len() != 1 {
     return Err(lsusb_failure(f"lsusb verbose ${key} is absent or ambiguous"))
   }
 
-  return values[0]
+  values[0]
 }
 
 ## Reads one device descriptor without interpreting configuration or interface text tables.
@@ -255,7 +249,7 @@ export pure parse_lsusb_verbose(output: Str, bus: Int, device: Int) -> Result[Ls
     return Err(lsusb_failure("lsusb verbose output exceeds its bound"))
   }
 
-  var headers: List[LsusbDevice] = []
+  var headers = []
   for line in output.lines() {
     if line.starts_with("Bus ") {
       headers = headers.extend(parse_lsusb_list(line)?)
@@ -272,7 +266,7 @@ export pure parse_lsusb_verbose(output: Str, bus: Int, device: Int) -> Result[Ls
     return Err(lsusb_failure("lsusb verbose descriptor IDs disagree with its header"))
   }
 
-  return {
+  {
     bus: bus,
     device: device,
     vendor_id: vendor_id,
@@ -291,19 +285,19 @@ export pure compare_lsusb(
 ) -> Result[LsusbComparison] {
   let report = json.decode(candidate_json)?.require(CandidateReport)?
   var candidate_by_key: Map[Int] = {}
-  var mismatches: List[Str] = []
-  var partial: List[Str] = []
+  var mismatches = []
+  var partial = []
   var matched_devices = 0
   var matched_tree_rows = 0
   var matched_descriptor_fields = 0
   for index in range(report.usb.devices.len()) {
     let item = report.usb.devices[index]
     if item.bus_number == null or item.device_number == null {
-      partial = partial.push("candidate_bus_device")
+      partial += ["candidate_bus_device"]
       continue
     }
 
-    let key = f"${item.bus_number ?? 0}:${item.device_number ?? 0}"
+    let key = f"${item.bus_number}:${item.device_number}"
     if key in candidate_by_key {
       mismatches = mismatches.push(f"${key}.duplicate")
     }
@@ -411,7 +405,7 @@ export pure compare_lsusb(
     }
   }
 
-  return {
+  {
     matched_devices: matched_devices,
     matched_tree_rows: matched_tree_rows,
     matched_descriptor_fields: matched_descriptor_fields,
@@ -432,16 +426,14 @@ proc lsusb_output(root: FsRoot, executable: Str, name: Str, argv: List[Str]) [fs
       stderr: fp"${scratch_path}/${name}-error",
     ),
   )?
-  if ! status.exited_with(0) {
-    return Err(lsusb_failure(f"lsusb ${name} command failed"))
-  }
+  return Err(lsusb_failure(f"lsusb ${name} command failed")) unless status.exited_with(0)
 
   let raw = root.read_result(fp"${name}", max_bytes: 1048576)?
   if raw.state != "observed" or raw.truncated or raw.data == null {
     return Err(lsusb_failure(f"lsusb ${name} output is incomplete"))
   }
 
-  return (raw.data ?? b"").utf8()?
+  (raw.data).utf8()?
 }
 
 ## Selects one verbose device from the independent list and brackets identity and tree shape.
@@ -464,9 +456,7 @@ export proc compare_live_lsusb(
   let started = time.now()
   let before_output = lsusb_output(scratch, executable, "before", [executable])?
   let before = parse_lsusb_list(before_output)?
-  if before.len() == 0 {
-    return Err(lsusb_failure("lsusb has no selectable device"))
-  }
+  return Err(lsusb_failure("lsusb has no selectable device")) when before.len() == 0
 
   let tree_output = lsusb_output(scratch, executable, "tree", [executable, "-t"])?
   let tree = parse_lsusb_tree(tree_output)?
@@ -495,7 +485,7 @@ export proc compare_live_lsusb(
     return Err(lsusb_failure("candidate USB output is incomplete"))
   }
 
-  let candidate = (candidate_raw.data ?? b"").utf8()?
+  let candidate = (candidate_raw.data).utf8()?
   if json.get(json.decode(candidate)?, ["source_mode"])?.require(Str)? != "live_linux" {
     return Err(lsusb_failure("candidate is not a live Linux report"))
   }
@@ -506,7 +496,7 @@ export proc compare_live_lsusb(
     return Err(lsusb_failure("lsusb inventory changed around candidate collection"))
   }
 
-  return {
+  {
     version: version,
     executable: executable,
     comparison: compare_lsusb(candidate, before, tree, descriptor)?,

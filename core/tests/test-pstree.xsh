@@ -18,14 +18,12 @@ proc parent_for(pid: Int) [process, time, error] -> Result[Int] {
   for _ in range(10) {
     let rows: List[Process] = process.list()? |> where .pid == pid
 
-    if rows.len() > 0 {
-      return rows[0].parent_pid
-    }
+    return rows[0].parent_pid when rows.len() > 0
 
     time.sleep(100ms)?
   }
 
-  return Err(BusyboxTestError.ProcessList(message: f"spawned process ${pid} was not visible"))
+  Err(BusyboxTestError.ProcessList(message: f"spawned process ${pid} was not visible"))
 }
 
 test test_pstree_renders_tree_with_pid_labels [process, env, time, error] { |ctx|

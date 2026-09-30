@@ -1,4 +1,4 @@
-pure named_argument_values(first: Int, second: Int, third: Int = 30) -> List[Int] {
+pure named_argument_values(first: Int, second: Int, third = 30) -> List[Int] {
   [first, second, third]
 }
 
@@ -6,16 +6,13 @@ test test_named_argument_puns_use_lexical_values [error] {
   let first = 10
   let second = 20
   let third = 40
-  test.eq(named_argument_values(first:, second:), [10, 20, 30])?
-  test.eq(named_argument_values(1, second:, third:), [1, 20, 40])?
-  test.eq(
-    named_argument_values(
+  (named_argument_values(first:, second:)) == ([10, 20, 30])
+  (named_argument_values(1, second:, third:)) == ([1, 20, 40])
+  (named_argument_values(
       first:,
       second: second + 1,
       third:,
-    ),
-    [10, 21, 40],
-  )?
+    )) == ([10, 21, 40])
 }
 
 test test_named_argument_puns_preserve_source_order_and_effects [error] { |ctx|
@@ -35,8 +32,11 @@ let result = combine(first: marked("first", 10), second:, third: marked("third",
 print $result
 """,
   )?
-  test.ok(executed.success, executed.stderr)?
-  test.eq(executed.stdout, "first\nthird\n60\n")?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = executed
+    assert assertion_condition, assertion_message
+  }
+  (executed.stdout) == ("first\nthird\n60\n")
 }
 
 test test_named_argument_puns_keep_resolution_and_call_errors [error] { |ctx|
@@ -48,9 +48,13 @@ let result = accept(value:)
 print $result
 """,
   )?
-  test.ok(! missing.success, missing.stderr)?
-  test.ok("check.unresolved-name" in missing.stderr)?
-  test.ok("accept(value:)" in missing.stderr)?
+  {
+    let assertion_condition = ! missing.success
+    let assertion_message = missing.stderr
+    assert assertion_condition, assertion_message
+  }
+  ("check.unresolved-name" in missing.stderr)
+  ("accept(value:)" in missing.stderr)
 
   let duplicate = test.run_script(
     ctx,
@@ -60,9 +64,13 @@ let result = accept(value:, value: 2)
 print $result
 """,
   )?
-  test.ok(! duplicate.success, duplicate.stderr)?
-  test.ok("check.named-arg" in duplicate.stderr)?
-  test.ok("parameter `value` supplied more than once" in duplicate.stderr)?
+  {
+    let assertion_condition = ! duplicate.success
+    let assertion_message = duplicate.stderr
+    assert assertion_condition, assertion_message
+  }
+  ("check.named-arg" in duplicate.stderr)
+  ("parameter `value` supplied more than once" in duplicate.stderr)
 
   let wrong_type = test.run_script(
     ctx,
@@ -72,40 +80,65 @@ let result = accept(value:)
 print $result
 """,
   )?
-  test.ok(! wrong_type.success, wrong_type.stderr)?
-  test.ok("Int" in wrong_type.stderr)?
-  test.ok("Str" in wrong_type.stderr)?
+  {
+    let assertion_condition = ! wrong_type.success
+    let assertion_message = wrong_type.stderr
+    assert assertion_condition, assertion_message
+  }
+  ("Int" in wrong_type.stderr)
+  ("Str" in wrong_type.stderr)
 }
 
 test test_named_argument_puns_apply_to_module_and_method_calls [fs, error] { |ctx|
   let name = "punned-temp.xsh"
   let contents = b"punning"
   let candidate = test.temp_file(ctx, name:, contents:)?
-  test.eq(candidate.read_bytes()?, contents)?
-  let offset = 1
-  let length = 3
-  test.eq(b"abcde".slice(offset:, length:), b"bcd")?
+  (candidate.read_bytes()?) == (contents)
+  let method_call = test.run_script(ctx, r"""let offset = 1
+let length = 3
+b"abcde".slice(offset:, length:) == b"bcd"
+""")?
+  let {success: method_success, stderr: method_message, ..} = method_call
+  assert method_success, method_message
 }
 
 test test_named_argument_pun_tooling_preserves_behavior_and_is_idempotent [fs, process, error] { |ctx|
   let source = p"tests/fixtures/syntax/valid/named-argument-pun-explicit.xsh".read_text()?
   let before = test.run_script(ctx, source)?
-  test.ok(before.success, before.stderr)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = before
+    assert assertion_condition, assertion_message
+  }
   let candidate = test.temp_file(ctx, name: "named-pun-fix.xsh", contents: bytes.from_text(source))?
   let first = run.capture --text "xsht" lint --fix $candidate ?
-  test.ok(first.status.exited_with(0), first.stderr)?
+  {
+    let assertion_condition = first.status.exited_with(0)
+    let assertion_message = first.stderr
+    assert assertion_condition, assertion_message
+  }
   let fixed = candidate.read_text()?
-  test.ok("accept(value:)" in fixed)?
-  test.ok("# Preserve this comment." in fixed)?
+  ("accept(value:)" in fixed)
+  ("# Preserve this comment." in fixed)
   let after = test.run_script(ctx, fixed)?
-  test.ok(after.success, after.stderr)?
-  test.eq(after.stdout, before.stdout)?
+  {
+    let {success: assertion_condition, stderr: assertion_message, ..} = after
+    assert assertion_condition, assertion_message
+  }
+  (after.stdout) == (before.stdout)
   let second = run.capture --text "xsht" lint --fix $candidate ?
-  test.ok(second.status.exited_with(1), second.stderr)?
-  test.ok("lint.prefer-named-argument-pun" in second.stderr)?
-  test.eq(candidate.read_text()?, fixed)?
+  {
+    let assertion_condition = second.status.exited_with(1)
+    let assertion_message = second.stderr
+    assert assertion_condition, assertion_message
+  }
+  ("lint.prefer-named-argument-pun" in second.stderr)
+  (candidate.read_text()?) == (fixed)
   let formatted = run.capture --text "xsht" fmt --check $candidate ?
-  test.ok(formatted.status.exited_with(0), formatted.stderr)?
+  {
+    let assertion_condition = formatted.status.exited_with(0)
+    let assertion_message = formatted.stderr
+    assert assertion_condition, assertion_message
+  }
 }
 
 test test_named_argument_pun_fixes_shared_import_once [fs, process, error] { |ctx|
@@ -121,12 +154,24 @@ print ${helper.relay(1)}
 print ${helper.relay(2)}
 """)?
   let applied = run.capture --text "xsht" lint --fix $root ?
-  test.ok(applied.status.exited_with(0), applied.stderr)?
+  {
+    let assertion_condition = applied.status.exited_with(0)
+    let assertion_message = applied.stderr
+    assert assertion_condition, assertion_message
+  }
   let fixed = helper.read_text()?
-  test.ok("accept(value:)" in fixed)?
+  ("accept(value:)" in fixed)
   let repeated = run.capture --text "xsht" lint --fix $root ?
-  test.ok(repeated.status.exited_with(0), repeated.stderr)?
-  test.eq(helper.read_text()?, fixed)?
+  {
+    let assertion_condition = repeated.status.exited_with(0)
+    let assertion_message = repeated.stderr
+    assert assertion_condition, assertion_message
+  }
+  (helper.read_text()?) == (fixed)
   let checked = run.capture --text "xsht" check $root ?
-  test.ok(checked.status.exited_with(0), checked.stderr)?
+  {
+    let assertion_condition = checked.status.exited_with(0)
+    let assertion_message = checked.stderr
+    assert assertion_condition, assertion_message
+  }
 }

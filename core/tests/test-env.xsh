@@ -18,5 +18,5 @@ test test_env_split_string_as_single_shebang_arg_runs_command [process, env, err
 }
 
 test test_env_uses_direct_xsh_shebang [fs, env, error] { |ctx|
-  test.ok(fp"${ctx.core_dir}/env.xsh".read_text()?.starts_with("#!/bin/xsh"))?
+  fp"${ctx.core_dir}/env.xsh".read_text()?.starts_with("#!/bin/xsh")
 }

@@ -39,7 +39,7 @@ proc main(...argv: List[Str]) [fs, error] {
   let content = manifest.read_text()?
 
   let version_re = regex.compile("^[ \\t]*version[ \\t]*=[ \\t]*\"(\\d+)\\.(\\d+)\\.(\\d+)\"")?
-  let section_re = regex.compile("^[ \\t]*\\[([^\\]]+)\\]")?
+  let section_re = rx"^[ \t]*\[([^\]]+)\]"
   var old_line = ""
   var version_line_index = -1
   var major = 0

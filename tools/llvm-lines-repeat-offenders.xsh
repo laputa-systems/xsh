@@ -63,75 +63,67 @@ type Offender = {
 }
 
 pure is_digit_byte(ch: Int) -> Bool {
-  return ch >= 48 and ch <= 57
+  ch >= 48 and ch <= 57
 }
 
 pure is_decimal(text: Str) -> Bool {
-  if text == "" {
-    return false
-  }
+  return false when text == ""
 
   var index = 0
 
   while index < text.byte_len() {
-    if ! is_digit_byte((text.byte_at(index) ?? -1)) {
+    guard is_digit_byte((text.byte_at(index) ?? -1)) else {
       return false
     }
 
     index += 1
   }
 
-  return true
+  true
 }
 
 pure normalize_function_name(name: Str) -> Str {
   let parts = name.split("::<")
 
-  if parts.len() > 1 {
-    return f"${parts[0]}::<_>"
-  }
+  return f"${parts[0]}::<_>" when parts.len() > 1
 
-  return name
+  name
 }
 
 pure is_project_owned(name: Str) -> Bool {
-  return name.starts_with("xsh[") or name.starts_with("<xsh[")
+  name.starts_with("xsh[") or name.starts_with("<xsh[")
 }
 
 pure parse_mono_row(line: Str) -> Result[MonoRow] {
   let trimmed = line.trim()
   let fields = trimmed.fields()
   let original = (fields |> drop(6)).join(" ")
-  let lines: Int = json.decode(fields[0])?.require(Int)?
-  let copies: Int = json.decode(fields[3])?.require(Int)?
-  return Ok({name: normalize_function_name(original), original: original, lines: lines, copies: copies})
+  let lines = json.decode(fields[0])?.require(Int)?
+  let copies = json.decode(fields[3])?.require(Int)?
+  Ok({name: normalize_function_name(original), original: original, lines: lines, copies: copies})
 }
 
 pure is_llvm_lines_row(line: Str) -> Bool {
   let trimmed = line.trim()
 
-  if trimmed == "" or ! is_digit_byte((trimmed.byte_at(0) ?? -1)) {
-    return false
-  }
+  return false when trimmed == "" or ! is_digit_byte((trimmed.byte_at(0) ?? -1))
 
   let fields = trimmed.fields()
-  return fields.len() >= 7 and is_decimal(fields[0]) and is_decimal(fields[3])
+  fields.len() >= 7 and is_decimal(fields[0]) and is_decimal(fields[3])
 }
 
 pure maybe_add_example(examples: List[Str], value: Str, limit: Int) -> List[Str] {
-  if examples.len() < limit and ! (value in examples) {
-    return examples.push(value)
-  }
+  return examples.push(value) when examples.len() < limit and ! (value in examples)
 
-  return examples
+  examples
 }
 
 pure option_takes_value(arg: Str) -> Bool {
-  return arg == "--limit" or arg == "--min-instances" or arg == "--min-total-lines" or arg == "--examples" or arg == "--artifact-rows" or arg == "--artifact"
+  arg == "--limit" or arg == "--min-instances" or arg == "--min-total-lines" or arg == "--examples" or arg == "--artifact-rows" or arg == "--artifact"
 }
 
 pure has_generate_arg(argv: List[Str]) -> Bool {
-  return "--generate" in argv
+  "--generate" in argv
 }
 
 pure has_positional_input(argv: List[Str]) -> Bool {
@@ -148,20 +140,16 @@ pure has_positional_input(argv: List[Str]) -> Bool {
       continue
     }
 
-    if ! arg.starts_with("--") {
-      return true
-    }
+    return true unless arg.starts_with("--")
   }
 
-  return false
+  false
 }
 
 pure argv_for_parse(argv: List[Str]) -> List[Str] {
-  if has_generate_arg(argv) and ! has_positional_input(argv) {
-    return argv.push("-")
-  }
+  return argv.push("-") when has_generate_arg(argv) and ! has_positional_input(argv)
 
-  return argv
+  argv
 }
 
 pure maybe_push_offender(
@@ -189,7 +177,7 @@ pure maybe_push_offender(
     })
   }
 
-  return offenders
+  offenders
 }
 
 pure offenders_from_text(
@@ -208,7 +196,7 @@ pure offenders_from_text(
       let row = parse_mono_row(trimmed)?
 
       if include_dependencies or is_project_owned(row.name) {
-        rows = rows.push(row)
+        rows += [row]
       }
     }
   }
@@ -221,7 +209,7 @@ pure offenders_from_text(
   var total_lines = 0
   var max_instance_lines = 0
   var copies = 0
-  var examples: List[Str] = []
+  var examples = []
 
   for row in sorted {
     if active and row.name != name {
@@ -270,7 +258,7 @@ pure offenders_from_text(
     )
   }
 
-  return offenders |> sort-by(desc: true) .duplicated_lines
+  offenders |> sort-by(desc: true) .duplicated_lines
 }
 
 pure total_from_llvm_lines(text: Str) -> Result[Int] {
@@ -281,7 +269,7 @@ pure total_from_llvm_lines(text: Str) -> Result[Int] {
       let fields = trimmed.fields()
 
       if fields.len() >= 1 {
-        let total: Int = json.decode(fields[0])?.require(Int)?
+        let total = json.decode(fields[0])?.require(Int)?
         return Ok(total)
       }
     }
@@ -291,7 +279,7 @@ pure total_from_llvm_lines(text: Str) -> Result[Int] {
 }
 
 pure filter_offenders(rows: List[Offender], filter: Str, min_duplicated: Int) -> List[Offender] {
-  return [
+  [
     row
     for row in rows
     if row.duplicated_lines >= min_duplicated
@@ -301,13 +289,13 @@ pure filter_offenders(rows: List[Offender], filter: Str, min_duplicated: Int) ->
 
 pure bounded_llvm_lines_artifact(text: Str, artifact_rows: Int) -> Str {
   let max_rows = if artifact_rows < 0 { 0 } else { artifact_rows }
-  var output: List[Str] = []
+  var output = []
   var rows = 0
 
   for line in text.lines() {
     if is_llvm_lines_row(line) {
       if rows < max_rows {
-        output = output.push(line)
+        output += [line]
       }
 
       rows += 1
@@ -315,13 +303,13 @@ pure bounded_llvm_lines_artifact(text: Str, artifact_rows: Int) -> Str {
     }
 
     if rows == 0 {
-      output = output.push(line)
+      output += [line]
     }
   }
 
   output = output.push(f"# truncated: kept top ${max_rows} individual llvm-lines rows from ${rows} rows")
 
-  return f"""${output.join("\n")}
+  f"""${output.join("\n")}
 """
 }
 
@@ -332,9 +320,7 @@ proc generated_input(artifact: Str, artifact_rows: Int) [fs, process, error, io]
     io.write_stdout(captured.stderr)?
   }
 
-  if ! captured.status.ok {
-    return Err(LlvmLinesError.Failed("cargo llvm-lines failed"))
-  }
+  return Err(LlvmLinesError.Failed("cargo llvm-lines failed")) unless captured.status.ok
 
   var artifact_path = /tmp/xsh-llvm-lines.txt
 
@@ -353,16 +339,14 @@ proc generated_input(artifact: Str, artifact_rows: Int) [fs, process, error, io]
 
   artifact_path.parent().mkdir()?
   artifact_path.write(bounded_llvm_lines_artifact(captured.stdout, artifact_rows))?
-  return Ok({text: captured.stdout, artifact: artifact_path.display()})
+  Ok({text: captured.stdout, artifact: artifact_path.display()})
 }
 
 proc read_input(input: Str) [fs, error, io] -> Result[InputText] {
-  if input == "-" {
-    return Ok({text: io.stdin_text()?, artifact: ""})
-  }
+  return Ok({text: io.stdin_text()?, artifact: ""}) when input == "-"
 
   let input_path = fp"${input}"
-  return Ok({text: fs.read_text(input_path)?, artifact: input_path.display()})
+  Ok({text: fs.read_text(input_path)?, artifact: input_path.display()})
 }
 
 proc print_text(rows: List[Offender], limit: Int, artifact: Str) [io] {
@@ -480,7 +464,7 @@ proc main(...argv: List[Str]) [fs, process, error, io] {
   let filtered = filter_offenders(rows, opts.filter, opts.min_duplicated)
 
   if opts.sum {
-    let grand = match total_from_llvm_lines(input.text) { Ok(n) => n, Err(_) => -1 }
+    let grand = total_from_llvm_lines(input.text) ?? -1
     print_summary(filtered, opts.filter, opts.all, grand, opts.json)
   } else {
     let shown = if opts.limit <= 0 or opts.limit > filtered.len() { filtered } else { filtered |> take(opts.limit) }

@@ -23,19 +23,17 @@ pure parse_args(argv: List[Str]) -> Result[DfOpts] {
       },
     },
   )?
-  return {human: options.show_human or ! options.kilobytes, portable: options.portable, paths: options.paths}
+  {human: options.show_human or ! options.kilobytes, portable: options.portable, paths: options.paths}
 }
 
 pure size_text(size_1k: Int, human: Bool) -> Str {
-  if human {
-    return bytes.human(size_1k * 1024)
-  }
+  return bytes.human(size_1k * 1024) when human
 
-  return f"${size_1k}"
+  f"${size_1k}"
 }
 
 pure percent_text(percent: Int) -> Str {
-  return f"${percent}%"
+  f"${percent}%"
 }
 
 proc print_linux_row(mount: FsMount, human: Bool) [fs, env, error] {

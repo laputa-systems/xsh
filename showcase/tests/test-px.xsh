@@ -1,5 +1,5 @@
 pure sleeper_bin(ctx: TestContext) -> Path {
-  return fp"${ctx.xsh_bin.parent()}/xsh-test-sleeper"
+  fp"${ctx.xsh_bin.parent()}/xsh-test-sleeper"
 }
 
 proc marker_executable(ctx: TestContext, marker: Str) [fs, error] -> Result[Path] {
@@ -7,7 +7,7 @@ proc marker_executable(ctx: TestContext, marker: Str) [fs, error] -> Result[Path
   let executable = fp"${root}/${marker}"
   fs.copy(sleeper_bin(ctx).resolve()?, executable)?
   fs.chmod(executable, 0o755)?
-  return executable
+  executable
 }
 
 proc wait_for_process_marker(pid: Int, marker: Str) [process, time, error] {
@@ -24,7 +24,7 @@ proc wait_for_process_marker(pid: Int, marker: Str) [process, time, error] {
     attempts += 1
   }
 
-  test.ok(visible, "spawned process marker should be visible in process metadata")?
+  assert visible, "spawned process marker should be visible in process metadata"
 }
 
 test test_px_finds_current_test_process [process, error] {
@@ -75,16 +75,16 @@ test test_px_kill_accepts_numeric_signal [fs, process, time, error] { |ctx|
 test test_px_kill_requires_a_filter [fs, process, error] { |ctx|
   let err = test.temp_file(ctx, name: "px-kill-filter-stderr", contents: b"")?
   let status = run.status "xsh" "showcase/px.xsh" -- "--kill" 2> $err
-  test.ok(! status.exited_with(0), "unfiltered kill should fail")?
+  assert ! status.exited_with(0), "unfiltered kill should fail"
 }
 
 test test_px_kill_signal_is_parse_bounded [fs, process, error] { |ctx|
   let err = test.temp_file(ctx, name: "px-kill-signal-stderr", contents: b"")?
   let status = run.status "xsh" "showcase/px.xsh" -- "--kill=129" "xsh-px-no-such-process-pattern" 2> $err
-  test.ok(! status.exited_with(0), "out-of-range kill signal should fail during argument parsing")?
+  assert ! status.exited_with(0), "out-of-range kill signal should fail during argument parsing"
 }
 
 test test_px_returns_one_when_no_process_matches [process, error] {
   let status = run.status "xsh" "showcase/px.xsh" -- "xsh-px-no-such-process-pattern"
-  test.ok(status.exited_with(1), "unmatched process search should exit 1")?
+  assert status.exited_with(1), "unmatched process search should exit 1"
 }

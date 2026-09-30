@@ -15,10 +15,10 @@ enum DockerPolicy {
 ## Decodes the CLI Docker policy before distribution dispatch.
 export pure parse_docker_policy(value: Str) -> Result[DockerPolicy] {
   match value {
-    "auto" => return Auto
-    "always" => return Always
-    "never" => return Never
-    _ => return Err(
+    "auto" => Auto
+    "always" => Always
+    "never" => Never
+    _ => Err(
       stages.StageError.Failed(
         stage: "dist",
         target: "",
@@ -30,21 +30,19 @@ export pure parse_docker_policy(value: Str) -> Result[DockerPolicy] {
 
 ## Parses a whitespace-delimited Cargo override without using a shell boundary.
 export proc cargo_words(value: Str) [process, error] -> Result[List[Str]] {
-  if value.trim() == "" {
-    return []
-  }
+  return [] when value.trim() == ""
 
-  return process.argv_words(value)?
+  process.argv_words(value)?
 }
 
 ## Resolves one Cargo profile product path before normalization.
 export pure profile_product_path(target_dir: Path, triple: Str, profile: Str, product: Str) -> Path {
-  return fp"${target_dir}/${triple}/${targets.profile_directory(profile)}/${product}"
+  fp"${target_dir}/${triple}/${targets.profile_directory(profile)}/${product}"
 }
 
 ## Resolves one stable final distribution product path.
 export pure distribution_product_path(target_dir: Path, triple: Str, product: Str) -> Path {
-  return fp"${target_dir}/${triple}/dist/${product}"
+  fp"${target_dir}/${triple}/dist/${product}"
 }
 
 ## Copies non-dist profile output into the stable distribution artifact directory.
@@ -52,9 +50,7 @@ export proc normalize(ctx: context.Context) [fs, error] -> Result[Unit] {
   let profile_dir = targets.profile_directory(ctx.profile)
   let dist_dir = fp"${ctx.target_dir}/${ctx.target.triple}/dist"
 
-  if profile_dir == "dist" {
-    return
-  }
+  return when profile_dir == "dist"
 
   stages.ensure_dir(dist_dir)?
 

@@ -4,39 +4,29 @@ error AppletError = Usage(message: Str) : Usage
 type DuOptions = {summarize: Bool, all: Bool, human: Bool, apparent: Bool, megabytes: Bool}
 
 pure ceil_div(value: Int, unit: Int) -> Int {
-  if value == 0 {
-    return 0
-  }
+  return 0 when value == 0
 
-  return (value + unit - 1) / unit
+  (value + unit - 1) / unit
 }
 
 pure entry_size(meta: FsEntry, apparent: Bool) -> Int {
   if apparent {
-    if meta.kind == "dir" {
-      return 0
-    }
+    return 0 when meta.kind == "dir"
 
     return meta.size
   }
 
-  return ceil_div(meta.blocks_512, 2)
+  ceil_div(meta.blocks_512, 2)
 }
 
 pure size_label(size_1k: Int, opts: DuOptions) -> Str {
-  if opts.apparent {
-    return f"${size_1k}"
-  }
+  return f"${size_1k}" when opts.apparent
 
-  if opts.human {
-    return bytes.human(size_1k * 1024)
-  }
+  return bytes.human(size_1k * 1024) when opts.human
 
-  if opts.megabytes {
-    return f"${ceil_div(size_1k, 1024)}"
-  }
+  return f"${ceil_div(size_1k, 1024)}" when opts.megabytes
 
-  return f"${size_1k}"
+  f"${size_1k}"
 }
 
 proc disk_usage(target: Path, opts: DuOptions, top_level: Bool) [fs, error] -> Result[Int] {
@@ -53,7 +43,7 @@ proc disk_usage(target: Path, opts: DuOptions, top_level: Bool) [fs, error] -> R
     print f"${size_label(size, opts)}\t${target}"
   }
 
-  return size
+  size
 }
 
 type DuCliOptions = {
@@ -103,12 +93,7 @@ proc main(...argv: List[Str]) [fs, error] {
       },
     },
   )?
-  let summarize = cli_opts.summarize
-  let human = cli_opts.human
-  let all = cli_opts.all
-  let total = cli_opts.total
-  let apparent = cli_opts.apparent
-  let megabytes = cli_opts.megabytes
+  let {summarize, human, all, total, apparent, megabytes, ..} = cli_opts
   var targets = cli_opts.targets
 
   if targets.len() == 0 {
@@ -116,7 +101,7 @@ proc main(...argv: List[Str]) [fs, error] {
   }
 
   var grand_total = 0
-  let opts: DuOptions = {summarize, all, human, apparent, megabytes}
+  let opts: DuOptions = DuOptions(summarize:, all:, human:, apparent:, megabytes:)
 
   for item in targets {
     let target = fp"${item}"

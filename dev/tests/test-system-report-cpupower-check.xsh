@@ -18,14 +18,14 @@ analyzing CPU 0:
 Number of idle states: 2
 Available idle states: POLL C1
 """)?
-  let reference: cpupower_reference.CpupowerReference = {
+  let reference = cpupower_reference.CpupowerReference(
     driver: frequency.driver,
     hardware_min_khz: frequency.minimum_khz,
     hardware_max_khz: frequency.maximum_khz,
     idle_driver: idle.driver,
     idle_governor: idle.governor,
     idle_state_names: idle.names,
-  }
+  )
   let candidate = """{"cpu":{"frequency_policies":[{"name":"policy7","related_cpus":[0,2],"driver":"amd-pstate-epp","hardware_min_khz":624194,"hardware_max_khz":5756452}],"global_idle_driver":"acpi_idle","global_idle_governor":"menu","idle_states":[{"cpu_id":0,"state_index":0,"name":"POLL"},{"cpu_id":0,"state_index":1,"name":"C1"}]}}"""
   let exact = cpupower_reference.compare_cpupower(candidate, reference)?
   exact.matched_fields == 6

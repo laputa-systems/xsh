@@ -102,6 +102,10 @@ impl Checker {
         }
     }
 
+    pub(super) fn is_inert_expression_discard(&self, span: Span) -> bool {
+        self.local_inference.nonmaterial_expressions.contains(&span)
+    }
+
     pub(super) fn prepare_local_inference(&mut self, program: &ArenaProgram) {
         for index in 0..program.arena.stmt_tags.len() {
             let statement = program.arena.stmt(StmtId::from_index(index));
@@ -134,7 +138,7 @@ impl Checker {
         let start = Span::new(body.source_id, body.start(), body.start());
         let end = Span::new(body.source_id, body.end(), body.end());
         if self.local_inference.seeds.range(start..end).next().is_none() { return; }
-        let mut probe = self.clone();
+        let mut probe = self.constraint_probe();
         probe.local_inference.collecting = true;
         if stream { probe.check_stream_function_arena(program, source, definition); }
         else { probe.check_function_arena(program, source, definition, pure); }
@@ -143,8 +147,77 @@ impl Checker {
         self.local_inference.solved_functions.insert(body);
     }
 
+    /// Speculative checks retain declaration and lexical contracts but rebuild
+    /// expression facts and branch joins before consuming them. Prior published
+    /// facts carry no additional constraints, and copying them makes each probe
+    /// pay for every earlier body, including captured module contracts.
+    pub(super) fn constraint_probe(&mut self) -> Self {
+        let block_exit_bindings = std::mem::take(&mut self.block_exit_bindings);
+        let expr_types = std::mem::take(&mut self.expr_types);
+        let projections = std::mem::take(&mut self.projections);
+        let record_constructor_instances = std::mem::take(&mut self.record_constructor_instances);
+        let requirement_targets = std::mem::take(&mut self.requirement_targets);
+        let requirement_expected_targets = std::mem::take(&mut self.requirement_expected_targets);
+        let condition_proofs = std::mem::take(&mut self.condition_proofs);
+        let proven_nonnull_fallback_receivers = std::mem::take(&mut self.proven_nonnull_fallback_receivers);
+        let static_callable_aliases = std::mem::take(&mut self.static_callable_aliases);
+        let diagnostics = std::mem::take(&mut self.diagnostics);
+        let annotation_facts = std::mem::take(&mut self.annotation_facts);
+        let reveal_types = std::mem::take(&mut self.reveal_types);
+        let stream_stage_types = std::mem::take(&mut self.stream_stage_types);
+        let statement_positions = std::mem::take(&mut self.statement_positions);
+        let pattern_test_types = std::mem::take(&mut self.pattern_test_types);
+        let terminating_call_spans = std::mem::take(&mut self.terminating_call_spans);
+        let assertion_spans = std::mem::take(&mut self.assertion_spans);
+        let assertion_effect_spans = std::mem::take(&mut self.assertion_effect_spans);
+        let statement_expression_spans = std::mem::take(&mut self.statement_expression_spans);
+        let membership_migration_spans = std::mem::take(&mut self.membership_migration_spans);
+        let standard_call_spans = std::mem::take(&mut self.standard_call_spans);
+        let statically_resolved_call_spans = std::mem::take(&mut self.statically_resolved_call_spans);
+        let definitely_exiting_block_spans = std::mem::take(&mut self.definitely_exiting_block_spans);
+        let checked_bindings = std::mem::take(&mut self.local_inference.checked_bindings);
+        let probe = self.clone();
+        self.block_exit_bindings = block_exit_bindings;
+        self.expr_types = expr_types;
+        self.projections = projections;
+        self.record_constructor_instances = record_constructor_instances;
+        self.requirement_targets = requirement_targets;
+        self.requirement_expected_targets = requirement_expected_targets;
+        self.condition_proofs = condition_proofs;
+        self.proven_nonnull_fallback_receivers = proven_nonnull_fallback_receivers;
+        self.static_callable_aliases = static_callable_aliases;
+        self.diagnostics = diagnostics;
+        self.annotation_facts = annotation_facts;
+        self.reveal_types = reveal_types;
+        self.stream_stage_types = stream_stage_types;
+        self.statement_positions = statement_positions;
+        self.pattern_test_types = pattern_test_types;
+        self.terminating_call_spans = terminating_call_spans;
+        self.assertion_spans = assertion_spans;
+        self.assertion_effect_spans = assertion_effect_spans;
+        self.statement_expression_spans = statement_expression_spans;
+        self.membership_migration_spans = membership_migration_spans;
+        self.standard_call_spans = standard_call_spans;
+        self.statically_resolved_call_spans = statically_resolved_call_spans;
+        self.definitely_exiting_block_spans = definitely_exiting_block_spans;
+        self.local_inference.checked_bindings = checked_bindings;
+        probe
+    }
+
     pub(super) fn local_binding_expectation(&self, span: Span) -> Option<Type> {
         self.local_inference.bindings.get(&span).and_then(|ty| self.type_constraints.resolve(ty).ok())
+    }
+
+    /// Returned local values retain the binding's monomorphic identities. Resolve
+    /// earlier contributions before comparison, and let a declared return
+    /// anchor remaining holes through the same implicit Ok boundary as expressions.
+    pub(super) fn resolve_local_tail_type(&mut self, ty: Type, expected: Option<&Type>, span: Span) -> Type {
+        let resolved = self.type_constraints.resolve(&ty).unwrap_or(Type::Invalid);
+        if resolved.contains_inference() && let Some(expected) = expected {
+            let context = if resolved.is_result() { expected } else { expected.result_ok().unwrap_or(expected) };
+            self.expect_type(context, &resolved, span);
+        }
+        self.type_constraints.resolve(&resolved).unwrap_or(Type::Invalid)
     }
 
     // Later parameter and return destinations can solve holes nested in a
@@ -253,5 +326,56 @@ pub(super) fn finalize_projection(constraints: &crate::sema::constraints::TypeCo
         Some(crate::sema::types::ModuleExportType::Value { ty, .. }) => finalize_type(constraints, ty, span, reported, diagnostics),
         Some(crate::sema::types::ModuleExportType::Proc { sig, .. } | crate::sema::types::ModuleExportType::Pure { sig, .. }) => finalize_callable(constraints, sig, span, reported, diagnostics),
         None => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::source::SourceId;
+    use crate::syntax::arena::BlockId;
+
+    #[test]
+    fn local_constraint_probe_does_not_copy_completed_body_binding_history() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut checker = Checker::new(super::super::CheckOptions::default());
+            let span = Span::new(SourceId::new(0), 0, 1);
+            let name = super::super::Name::intern("prior");
+            for block in 0..256 {
+                checker.block_exit_bindings.insert(BlockId::from_index(block), rustc_hash::FxHashMap::from_iter([
+                    (name, super::super::Binding::new(Type::Int, false)),
+                ]));
+            }
+            checker.expr_types.insert(span, Type::Int);
+            let probe = checker.constraint_probe();
+            let copied_bindings = probe.block_exit_bindings.values().map(|scope| scope.len()).sum::<usize>();
+            assert_eq!(copied_bindings, 0, "completed body bindings copied into the constraint probe");
+            assert_eq!(checker.block_exit_bindings.len(), 256);
+            assert_eq!(checker.expr_types[&span], Type::Int);
+        });
+    }
+
+    #[test]
+    fn local_constraint_probe_does_not_copy_checked_expression_history() {
+        crate::symbol::SymbolOwner::new().with_current(|| {
+            let mut checker = Checker::new(super::super::CheckOptions::default());
+            let contract = Span::new(SourceId::new(0), 0, 1);
+            let name = super::super::Name::intern("captured");
+            checker.define(name, super::super::Binding::new(Type::Int, false), contract);
+            checker.parameter_types.insert(contract, Type::Str);
+            checker.function_return_types.insert(contract, Type::Bool);
+            let variable = checker.type_constraints.fresh(contract);
+            checker.type_constraints.constrain(&variable, &Type::Int, contract).unwrap();
+            for index in 0..256 {
+                checker.expr_types.insert(Span::new(SourceId::new(1), index, index + 1), Type::Int);
+            }
+            let probe = checker.constraint_probe();
+            assert_eq!(probe.expr_types.len(), 0, "checked expression facts copied into the constraint probe");
+            assert_eq!(checker.expr_types.len(), 256);
+            assert_eq!(probe.lookup(name).unwrap().ty, Type::Int);
+            assert_eq!(probe.parameter_types[&contract], Type::Str);
+            assert_eq!(probe.function_return_types[&contract], Type::Bool);
+            assert_eq!(probe.type_constraints.resolve(&variable).unwrap(), Type::Int);
+        });
     }
 }

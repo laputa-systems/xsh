@@ -8,13 +8,13 @@ test test_record_require_removed_api_has_actionable_diagnostic [error] { |ctx|
 let checked = record.require({name: "demo"}, {name: "Str"})?
 print $checked.name
 """)?
-  test.eq(output.status, 2)?
-  test.ok("check.removed-record-require" in output.stderr)?
-  test.ok(".require(Schema)" in output.stderr)?
+  output.status == 2
+  "check.removed-record-require" in output.stderr
+  ".require(Schema)" in output.stderr
 }
 
 test test_record_named_schema_keeps_nested_fields_extras_and_aliases [error] {
-  let raw = {name: "demo", details: {jobs: 4}, extra: "retained"}
+  let raw: Record = {name: "demo", details: {jobs: 4}, extra: "retained"}
   let checked = raw.require(Package)?
   assert checked.name == "demo", "name survives validation"
   assert checked.details.jobs == 4, "nested schema preserves its field"
@@ -38,7 +38,8 @@ test test_record_optional_key_validation_distinguishes_absent_null_and_wrong_typ
     test.error_kind(checked.get("version")?.require(Str), "schema")?
   }
   test.error_kind(({name: "demo"}).require(NullableVersion), "schema")?
-  let present = ({name: "demo", version: null}).require(NullableVersion)?
+  let nullable: Record = {name: "demo", version: null}
+  let present = nullable.require(NullableVersion)?
   assert ("version" in present), "nullable field is present"
   assert present.version == null, "present null is retained"
 }
@@ -56,6 +57,6 @@ use helper as record
 let selected = record.require("hello")
 print $selected
 """, [], {XSH_MODULE_PATH: root.display()})?
-  test.eq(output.status, 0)?
-  test.eq(output.stdout, "hello\n")?
+  output.status == 0
+  output.stdout == "hello\n"
 }

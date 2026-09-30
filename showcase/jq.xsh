@@ -67,15 +67,15 @@ type RawStr = {raw: Str, pos: Int}
 error JqError = Jq(message: Str)
 
 pure jq_err(msg: Str) -> JqError {
-  return JqError.Jq(message: msg)
+  JqError.Jq(message: msg)
 }
 
 pure is_ws(c: Str) -> Bool {
-  return c == " " or c == "\n" or c == "\t" or c == "\r"
+  c == " " or c == "\n" or c == "\t" or c == "\r"
 }
 
 pure is_digit(c: Str) -> Bool {
-  return c != "" and c in "0123456789"
+  c != "" and c in "0123456789"
 }
 
 # Scan a quoted string starting at `pos` (which points at the opening quote),
@@ -88,25 +88,25 @@ pure scan_string(chars: List[Str], pos: Int) -> Result[RawStr] {
     let c = (chars.get(p) ?? "")
 
     if c == "\\" {
-      buf = buf.push(c)
+      buf += [c]
       buf = buf.push((chars.get(p + 1) ?? ""))
       p = p + 2
     } else if c == "\"" {
-      buf = buf.push("\"")
+      buf += ["\""]
       return Ok({raw: buf.join(""), pos: p + 1})
     } else {
-      buf = buf.push(c)
+      buf += [c]
       p = p + 1
     }
   }
 
-  return Err(jq_err("Unterminated string in JSON"))
+  Err(jq_err("Unterminated string in JSON"))
 }
 
 # Decode a numeric token to a Float. json.decode collapses integral values to Int
 # (regardless of literal syntax) and keeps only genuinely-fractional values as Float.
 pure decode_num(tok: Str) -> Result[Json] {
-  return match json.decode(tok)? {
+  match json.decode(tok)? {
     i is Int => Ok(JNum(i.float())),
     f is Float => Ok(JNum(f)),
     _ => Err(jq_err("Invalid JSON number")),
@@ -132,15 +132,15 @@ pure bws(s: Str, pos: Int) -> Int {
     }
   }
 
-  return p
+  p
 }
 
 pure bdigit(b: Int) -> Bool {
-  return b >= 48 and b <= 57
+  b >= 48 and b <= 57
 }
 
 pure bnumchar(b: Int) -> Bool {
-  return bdigit(b) or b == 45 or b == 43 or b == 46 or b == 101 or b == 69
+  bdigit(b) or b == 45 or b == 43 or b == 46 or b == 101 or b == 69
 }
 
 # Scan a quoted string starting at byte `pos` (the opening quote); return the raw
@@ -151,9 +151,7 @@ pure scan_string_b(s: Str, pos: Int) -> Result[RawStr] {
   while true {
     let b = (s.byte_at(p) ?? -1)
 
-    if b == -1 {
-      return Err(jq_err("Unterminated string in JSON"))
-    }
+    return Err(jq_err("Unterminated string in JSON")) when b == -1
 
     if b == 92 {
       p = p + 2
@@ -164,7 +162,7 @@ pure scan_string_b(s: Str, pos: Int) -> Result[RawStr] {
     }
   }
 
-  return Err(jq_err("Unterminated string in JSON"))
+  Err(jq_err("Unterminated string in JSON"))
 }
 
 pure parse_number_b(s: Str, pos: Int) -> Result[Parsed] {
@@ -174,37 +172,29 @@ pure parse_number_b(s: Str, pos: Int) -> Result[Parsed] {
     p = p + 1
   }
 
-  if p == pos {
-    return Err(jq_err("Invalid JSON value"))
-  }
+  return Err(jq_err("Invalid JSON value")) when p == pos
 
-  return Ok({val: decode_num(s.byte_slice(pos, p - pos))?, pos: p})
+  Ok({val: decode_num(s.byte_slice(pos, p - pos))?, pos: p})
 }
 
 pure parse_value_b(s: Str, pos: Int) -> Result[Parsed] {
   let p = bws(s, pos)
   let b = (s.byte_at(p) ?? -1)
 
-  if b == -1 {
-    return Err(jq_err("Unexpected end of JSON input"))
-  }
+  return Err(jq_err("Unexpected end of JSON input")) when b == -1
 
-  if b == 123 {
-    return parse_object_b(s, p)
-  }
+  return parse_object_b(s, p) when b == 123
 
-  if b == 91 {
-    return parse_array_b(s, p)
-  }
+  return parse_array_b(s, p) when b == 91
 
   if b == 34 {
     let r = scan_string_b(s, p)?
-    let str: Str = json.decode(r.raw)?.require(Str)?
+    let str = json.decode(r.raw)?.require(Str)?
     return Ok({val: JStr(str), pos: r.pos})
   }
 
   if b == 110 {
-    if s.byte_slice(p, 4) != "null" {
+    guard s.byte_slice(p, 4) == "null" else {
       return Err(jq_err("Invalid JSON value"))
     }
 
@@ -212,7 +202,7 @@ pure parse_value_b(s: Str, pos: Int) -> Result[Parsed] {
   }
 
   if b == 116 {
-    if s.byte_slice(p, 4) != "true" {
+    guard s.byte_slice(p, 4) == "true" else {
       return Err(jq_err("Invalid JSON value"))
     }
 
@@ -220,23 +210,21 @@ pure parse_value_b(s: Str, pos: Int) -> Result[Parsed] {
   }
 
   if b == 102 {
-    if s.byte_slice(p, 5) != "false" {
+    guard s.byte_slice(p, 5) == "false" else {
       return Err(jq_err("Invalid JSON value"))
     }
 
     return Ok({val: JBool(false), pos: p + 5})
   }
 
-  return parse_number_b(s, p)
+  parse_number_b(s, p)
 }
 
 pure parse_array_b(s: Str, pos: Int) -> Result[Parsed] {
   var p = bws(s, pos + 1)
   var items: List[Json] = []
 
-  if (s.byte_at(p) ?? -1) == 93 {
-    return Ok({val: JArr(items), pos: p + 1})
-  }
+  return Ok({val: JArr(items), pos: p + 1}) when (s.byte_at(p) ?? -1) == 93
 
   while true {
     let r = parse_value_b(s, p)?
@@ -253,29 +241,25 @@ pure parse_array_b(s: Str, pos: Int) -> Result[Parsed] {
     }
   }
 
-  return Err(jq_err("unreachable"))
+  Err(jq_err("unreachable"))
 }
 
 pure parse_object_b(s: Str, pos: Int) -> Result[Parsed] {
   var p = bws(s, pos + 1)
   var entries: List[Entry] = []
 
-  if (s.byte_at(p) ?? -1) == 125 {
-    return Ok({val: JObj(entries), pos: p + 1})
-  }
+  return Ok({val: JObj(entries), pos: p + 1}) when (s.byte_at(p) ?? -1) == 125
 
   while true {
-    if (s.byte_at(p) ?? -1) != 34 {
+    guard (s.byte_at(p) ?? -1) == 34 else {
       return Err(jq_err("Expected string key in JSON object"))
     }
 
     let kr = scan_string_b(s, p)?
-    let key: Str = json.decode(kr.raw)?.require(Str)?
+    let key = json.decode(kr.raw)?.require(Str)?
     p = bws(s, kr.pos)
 
-    if (s.byte_at(p) ?? -1) != 58 {
-      return Err(jq_err("Expected ':' in JSON object"))
-    }
+    return Err(jq_err("Expected ':' in JSON object")) when (s.byte_at(p) ?? -1) != 58
 
     let vr = parse_value_b(s, bws(s, p + 1))?
     entries = entries.push({k: key, v: vr.val})
@@ -291,7 +275,7 @@ pure parse_object_b(s: Str, pos: Int) -> Result[Parsed] {
     }
   }
 
-  return Err(jq_err("unreachable"))
+  Err(jq_err("unreachable"))
 }
 
 # Parse a whitespace-separated stream of JSON values (jq reads many).
@@ -315,15 +299,13 @@ pure parse_stream(s: Str) -> Result[List[Json]] {
 pure render_num(n: Float) -> Str {
   let i = n.floor() ?? 0
 
-  if i.float() == n {
-    return f"${i}"
-  }
+  return f"${i}" when i.float() == n
 
-  return f"${n}"
+  f"${n}"
 }
 
 pure encode_str(s: Str) -> Str {
-  return json.encode(s) ?? "\"\""
+  json.encode(s) ?? "\"\""
 }
 
 pure ser(j: Json) -> Str {
@@ -381,34 +363,32 @@ enum Tok {
 }
 
 pure is_alpha(c: Str) -> Bool {
-  return c != "" and c in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
+  c != "" and c in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"
 }
 
-pure is_ident_start(c: Str) -> Bool {
-  return is_alpha(c)
-}
+let is_ident_start = is_alpha
 
 pure is_ident_char(c: Str) -> Bool {
-  return is_alpha(c) or is_digit(c)
+  is_alpha(c) or is_digit(c)
 }
 
 type LexNum = {tok: Tok, pos: Int}
 
 pure lex_ident(chars: List[Str], pos: Int) -> LexNum {
   var p = pos
-  var buf: List[Str] = []
+  var buf = []
 
   while p < chars.len() and is_ident_char((chars.get(p) ?? "")) {
     buf = buf.push((chars.get(p) ?? ""))
     p = p + 1
   }
 
-  return {tok: TIdent(buf.join("")), pos: p}
+  {tok: TIdent(buf.join("")), pos: p}
 }
 
 pure lex_number(chars: List[Str], pos: Int) -> Result[LexNum] {
   var p = pos
-  var buf: List[Str] = []
+  var buf = []
 
   while p < chars.len() and is_digit((chars.get(p) ?? "")) {
     buf = buf.push((chars.get(p) ?? ""))
@@ -416,7 +396,7 @@ pure lex_number(chars: List[Str], pos: Int) -> Result[LexNum] {
   }
 
   if (chars.get(p) ?? "") == "." {
-    buf = buf.push(".")
+    buf += ["."]
     p = p + 1
 
     while p < chars.len() and is_digit((chars.get(p) ?? "")) {
@@ -428,12 +408,12 @@ pure lex_number(chars: List[Str], pos: Int) -> Result[LexNum] {
   let e = (chars.get(p) ?? "")
 
   if e == "e" or e == "E" {
-    buf = buf.push(e)
+    buf += [e]
     p = p + 1
     let sign = (chars.get(p) ?? "")
 
     if sign == "+" or sign == "-" {
-      buf = buf.push(sign)
+      buf += [sign]
       p = p + 1
     }
 
@@ -445,9 +425,10 @@ pure lex_number(chars: List[Str], pos: Int) -> Result[LexNum] {
 
   let num = decode_num(buf.join(""))?
 
-  match num {
-    JNum(f) => return Ok({tok: TNum(f), pos: p})
-    _ => return Err(jq_err("Invalid number literal"))
+  if let JNum(f) = num {
+    Ok({tok: TNum(f), pos: p})
+  } else {
+    Err(jq_err("Invalid number literal"))
   }
 }
 
@@ -457,22 +438,16 @@ pure lex_op(chars: List[Str], pos: Int) -> Str {
   let d = (chars.get(pos + 1) ?? "")
 
   if c == "/" and d == "/" {
-    if (chars.get(pos + 2) ?? "") == "=" {
-      return "//="
-    }
+    return "//=" when (chars.get(pos + 2) ?? "") == "="
 
     return "//"
   }
 
-  if d == "=" and c != "" and c in "=!<>+-*/%|" {
-    return c + "="
-  }
+  return c + "=" when d == "=" and c != "" and c in "=!<>+-*/%|"
 
-  if c != "" and c in "=<>+-*/%" {
-    return c
-  }
+  return c when c != "" and c in "=<>+-*/%"
 
-  return ""
+  ""
 }
 
 type RawScan = {text: Str, pos: Int}
@@ -482,18 +457,18 @@ type RawScan = {text: Str, pos: Int}
 pure scan_balanced(chars: List[Str], pos: Int) -> Result[RawScan] {
   var p = pos
   var depth = 0
-  var buf: List[Str] = []
+  var buf = []
 
   while p < chars.len() {
     let c = (chars.get(p) ?? "")
 
     if c == "\"" {
-      buf = buf.push(c)
+      buf += [c]
       p = p + 1
 
       while p < chars.len() {
         let d = (chars.get(p) ?? "")
-        buf = buf.push(d)
+        buf += [d]
 
         if d == "\\" {
           buf = buf.push((chars.get(p + 1) ?? ""))
@@ -507,41 +482,37 @@ pure scan_balanced(chars: List[Str], pos: Int) -> Result[RawScan] {
       }
     } else if c == "(" {
       depth = depth + 1
-      buf = buf.push(c)
+      buf += [c]
       p = p + 1
     } else if c == ")" {
-      if depth == 0 {
-        return Ok({text: buf.join(""), pos: p + 1})
-      }
+      return Ok({text: buf.join(""), pos: p + 1}) when depth == 0
 
       depth = depth - 1
-      buf = buf.push(c)
+      buf += [c]
       p = p + 1
     } else {
-      buf = buf.push(c)
+      buf += [c]
       p = p + 1
     }
   }
 
-  return Err(jq_err("Unterminated interpolation"))
+  Err(jq_err("Unterminated interpolation"))
 }
 
 pure interp_token(parts: List[RawPart]) -> Tok {
   var has_expr = false
-  var lit: List[Str] = []
+  var lit = []
 
   for pt in parts {
     match pt {
       RExpr(_) => has_expr = true
-      RLit(s) => lit = lit.push(s)
+      RLit(s) => lit += [s]
     }
   }
 
-  if has_expr {
-    return TStrInterp(parts)
-  }
+  return TStrInterp(parts) when has_expr
 
-  return TStr(lit.join(""))
+  TStr(lit.join(""))
 }
 
 # Lex a string literal, splitting on `\(...)` interpolations. Literal chunks are
@@ -549,7 +520,7 @@ pure interp_token(parts: List[RawPart]) -> Tok {
 pure lex_string(chars: List[Str], pos: Int) -> Result[LexNum] {
   var p = pos + 1
   var parts: List[RawPart] = []
-  var litraw: List[Str] = []
+  var litraw = []
 
   while p < chars.len() {
     let c = (chars.get(p) ?? "")
@@ -558,7 +529,7 @@ pure lex_string(chars: List[Str], pos: Int) -> Result[LexNum] {
       let chunk = litraw.join("")
 
       if chunk != "" {
-        let dec: Str = json.decode("\"" + chunk + "\"")?.require(Str)?
+        let dec = json.decode("\"" + chunk + "\"")?.require(Str)?
         parts = parts.push(RLit(dec))
       }
 
@@ -570,7 +541,7 @@ pure lex_string(chars: List[Str], pos: Int) -> Result[LexNum] {
         let chunk = litraw.join("")
 
         if chunk != "" {
-          let dec: Str = json.decode("\"" + chunk + "\"")?.require(Str)?
+          let dec = json.decode("\"" + chunk + "\"")?.require(Str)?
           parts = parts.push(RLit(dec))
         }
 
@@ -579,17 +550,17 @@ pure lex_string(chars: List[Str], pos: Int) -> Result[LexNum] {
         parts = parts.push(RExpr(inner.text))
         p = inner.pos
       } else {
-        litraw = litraw.push("\\")
-        litraw = litraw.push(d)
+        litraw += ["\\"]
+        litraw += [d]
         p = p + 2
       }
     } else {
-      litraw = litraw.push(c)
+      litraw += [c]
       p = p + 1
     }
   }
 
-  return Err(jq_err("Unterminated string"))
+  Err(jq_err("Unterminated string"))
 }
 
 pure lex(s: Str) -> Result[List[Tok]] {
@@ -610,41 +581,44 @@ pure lex(s: Str) -> Result[List[Tok]] {
       let d = (chars.get(p + 1) ?? "")
 
       if d == "." {
-        toks = toks.push(TDotDot)
+        toks += [TDotDot]
         p = p + 2
       } else if is_ident_start(d) {
         let r = lex_ident(chars, p + 1)
 
-        match r.tok {
-          TIdent(name) => toks = toks.push(TField(name))
-          _ => return Err(jq_err("lex field"))
+        if let TIdent(name) = r.tok {
+          toks = toks.push(TField(name))
+        } else {
+          return Err(jq_err("lex field"))
         }
 
         p = r.pos
       } else if d == "\"" {
         let rs = scan_string(chars, p + 1)?
-        let name: Str = json.decode(rs.raw)?.require(Str)?
+        let name = json.decode(rs.raw)?.require(Str)?
         toks = toks.push(TField(name))
         p = rs.pos
       } else {
-        toks = toks.push(TDot)
+        toks += [TDot]
         p = p + 1
       }
     } else if c == "$" {
       let r = lex_ident(chars, p + 1)
 
-      match r.tok {
-        TIdent(name) => toks = toks.push(TVar(name))
-        _ => return Err(jq_err("lex var"))
+      if let TIdent(name) = r.tok {
+        toks = toks.push(TVar(name))
+      } else {
+        return Err(jq_err("lex var"))
       }
 
       p = r.pos
     } else if c == "@" {
       let r = lex_ident(chars, p + 1)
 
-      match r.tok {
-        TIdent(name) => toks = toks.push(TFormat(name))
-        _ => return Err(jq_err("lex format"))
+      if let TIdent(name) = r.tok {
+        toks = toks.push(TFormat(name))
+      } else {
+        return Err(jq_err("lex format"))
       }
 
       p = r.pos
@@ -665,52 +639,50 @@ pure lex(s: Str) -> Result[List[Tok]] {
         toks = toks.push(TOp("|="))
         p = p + 2
       } else {
-        toks = toks.push(TPipe)
+        toks += [TPipe]
         p = p + 1
       }
     } else if c == "(" {
-      toks = toks.push(TLParen)
+      toks += [TLParen]
       p = p + 1
     } else if c == ")" {
-      toks = toks.push(TRParen)
+      toks += [TRParen]
       p = p + 1
     } else if c == "[" {
-      toks = toks.push(TLBracket)
+      toks += [TLBracket]
       p = p + 1
     } else if c == "]" {
-      toks = toks.push(TRBracket)
+      toks += [TRBracket]
       p = p + 1
     } else if c == "{" {
-      toks = toks.push(TLBrace)
+      toks += [TLBrace]
       p = p + 1
     } else if c == "}" {
-      toks = toks.push(TRBrace)
+      toks += [TRBrace]
       p = p + 1
     } else if c == "," {
-      toks = toks.push(TComma)
+      toks += [TComma]
       p = p + 1
     } else if c == ":" {
-      toks = toks.push(TColon)
+      toks += [TColon]
       p = p + 1
     } else if c == ";" {
-      toks = toks.push(TSemi)
+      toks += [TSemi]
       p = p + 1
     } else if c == "?" {
-      toks = toks.push(TQuestion)
+      toks += [TQuestion]
       p = p + 1
     } else {
       let op = lex_op(chars, p)
 
-      if op == "" {
-        return Err(jq_err("Unexpected character in program: " + c))
-      }
+      return Err(jq_err("Unexpected character in program: " + c)) when op == ""
 
       toks = toks.push(TOp(op))
       p = p + op.byte_len()
     }
   }
 
-  toks = toks.push(TEOF)
+  toks += [TEOF]
   toks
 }
 
@@ -777,27 +749,27 @@ enum Env {
 type PJq = {node: Jq, pos: Int}
 
 pure tok_at(toks: List[Tok], pos: Int) -> Tok {
-  return (toks.get(pos) ?? TEOF)
+  (toks.get(pos) ?? TEOF)
 }
 
 pure is_op(t: Tok, name: Str) -> Bool {
-  match t {
-    TOp(s) => s == name
-    _ => false
+  if let TOp(s) = t {
+    s == name
+  } else {
+    false
   }
 }
 
 pure is_ident_tok(t: Tok, name: Str) -> Bool {
-  match t {
-    TIdent(s) => s == name
-    _ => false
+  if let TIdent(s) = t {
+    s == name
+  } else {
+    false
   }
 }
 
 pure parse_pipe(toks: List[Tok], pos: Int) -> Result[PJq] {
-  if is_ident_tok(tok_at(toks, pos), "def") {
-    return parse_def(toks, pos)
-  }
+  return parse_def(toks, pos) when is_ident_tok(tok_at(toks, pos), "def")
 
   let left = parse_comma(toks, pos)?
 
@@ -816,9 +788,9 @@ pure parse_pipe(toks: List[Tok], pos: Int) -> Result[PJq] {
   match tok_at(toks, left.pos) {
     TPipe => {
       let right = parse_pipe(toks, left.pos + 1)?
-      return Ok({node: Pipe(left.node, right.node), pos: right.pos})
+      Ok({node: Pipe(left.node, right.node), pos: right.pos})
     }
-    _ => return Ok(left)
+    _ => Ok(left)
   }
 }
 
@@ -828,7 +800,7 @@ pure parse_pattern(toks: List[Tok], pos: Int) -> Result[PPat] {
   let t = tok_at(toks, pos)
 
   match t {
-    TVar(name) => return Ok({pat: PVar(name), pos: pos + 1})
+    TVar(name) => Ok({pat: PVar(name), pos: pos + 1})
     TLBracket => {
       var p = pos + 1
       var pats: List[Pattern] = []
@@ -849,10 +821,10 @@ pure parse_pattern(toks: List[Tok], pos: Int) -> Result[PPat] {
         }
       }
 
-      return Err(jq_err("unreachable"))
+      Err(jq_err("unreachable"))
     }
-    TLBrace => return parse_obj_pattern(toks, pos)
-    _ => return Err(jq_err("Expected pattern"))
+    TLBrace => parse_obj_pattern(toks, pos)
+    _ => Err(jq_err("Expected pattern"))
   }
 }
 
@@ -905,7 +877,7 @@ pure parse_obj_pattern(toks: List[Tok], pos: Int) -> Result[PPat] {
     }
   }
 
-  return Err(jq_err("unreachable"))
+  Err(jq_err("unreachable"))
 }
 
 # def NAME (PARAMS)? : BODY ; REST
@@ -913,13 +885,14 @@ pure parse_def(toks: List[Tok], pos: Int) -> Result[PJq] {
   let nametok = tok_at(toks, pos + 1)
   var fname = ""
 
-  match nametok {
-    TIdent(n) => fname = n
-    _ => return Err(jq_err("Expected function name after 'def'"))
+  if let TIdent(n) = nametok {
+    fname = n
+  } else {
+    return Err(jq_err("Expected function name after 'def'"))
   }
 
   var p = pos + 2
-  var params: List[Str] = []
+  var params = []
 
   match tok_at(toks, p) {
     TLParen => {
@@ -930,7 +903,7 @@ pure parse_def(toks: List[Tok], pos: Int) -> Result[PJq] {
 
         match pt {
           TVar(vn) => params = params.push("$" + vn)
-          TIdent(fn2) => params = params.push(fn2)
+          TIdent(fn2) => params += [fn2]
           _ => return Err(jq_err("Expected parameter name"))
         }
 
@@ -963,7 +936,7 @@ pure parse_def(toks: List[Tok], pos: Int) -> Result[PJq] {
 
   let rest = parse_pipe(toks, p)?
   let fdef = {fname: fname, params: params, fbody: body.node}
-  return Ok({node: FuncDef(fdef, rest.node), pos: rest.pos})
+  Ok({node: FuncDef(fdef, rest.node), pos: rest.pos})
 }
 
 pure parse_comma(toks: List[Tok], pos: Int) -> Result[PJq] {
@@ -979,7 +952,7 @@ pure parse_comma(toks: List[Tok], pos: Int) -> Result[PJq] {
     }
   }
 
-  return Ok(cur)
+  Ok(cur)
 }
 
 # // alternative operator (right-associative), lower precedence than assignment.
@@ -991,7 +964,7 @@ pure parse_alt(toks: List[Tok], pos: Int) -> Result[PJq] {
     return Ok({node: Alt(left.node, right.node), pos: right.pos})
   }
 
-  return Ok(left)
+  Ok(left)
 }
 
 # Assignment operators (non-associative): =, |=, +=, -=, *=, /=, %=, //=.
@@ -999,32 +972,31 @@ pure parse_assign(toks: List[Tok], pos: Int) -> Result[PJq] {
   let left = parse_or(toks, pos)?
   let t = tok_at(toks, left.pos)
 
-  match t {
-    TOp(s) => {
-      if s == "=" {
-        let rhs = parse_or(toks, left.pos + 1)?
-        return Ok({node: Assign(left.node, rhs.node), pos: rhs.pos})
-      }
-
-      if s == "|=" {
-        let rhs = parse_or(toks, left.pos + 1)?
-        return Ok({node: Update(left.node, rhs.node), pos: rhs.pos})
-      }
-
-      if s == "+=" or s == "-=" or s == "*=" or s == "/=" or s == "%=" {
-        let rhs = parse_or(toks, left.pos + 1)?
-        let op = s.byte_slice(0, 1)
-        return Ok({node: ArithUpdate(op, left.node, rhs.node), pos: rhs.pos})
-      }
-
-      if s == "//=" {
-        let rhs = parse_or(toks, left.pos + 1)?
-        return Ok({node: ArithUpdate("//", left.node, rhs.node), pos: rhs.pos})
-      }
-
-      return Ok(left)
+  if let TOp(s) = t {
+    if s == "=" {
+      let rhs = parse_or(toks, left.pos + 1)?
+      return Ok({node: Assign(left.node, rhs.node), pos: rhs.pos})
     }
-    _ => return Ok(left)
+
+    if s == "|=" {
+      let rhs = parse_or(toks, left.pos + 1)?
+      return Ok({node: Update(left.node, rhs.node), pos: rhs.pos})
+    }
+
+    if s == "+=" or s == "-=" or s == "*=" or s == "/=" or s == "%=" {
+      let rhs = parse_or(toks, left.pos + 1)?
+      let op = s.byte_slice(0, 1)
+      return Ok({node: ArithUpdate(op, left.node, rhs.node), pos: rhs.pos})
+    }
+
+    if s == "//=" {
+      let rhs = parse_or(toks, left.pos + 1)?
+      return Ok({node: ArithUpdate("//", left.node, rhs.node), pos: rhs.pos})
+    }
+
+    Ok(left)
+  } else {
+    Ok(left)
   }
 }
 
@@ -1032,40 +1004,38 @@ pure parse_or(toks: List[Tok], pos: Int) -> Result[PJq] {
   var cur = parse_and(toks, pos)?
 
   while true {
-    match tok_at(toks, cur.pos) {
-      TIdent(s) => {
-        if s == "or" {
-          let right = parse_and(toks, cur.pos + 1)?
-          cur = {node: BinOp("or", cur.node, right.node), pos: right.pos}
-        } else {
-          return Ok(cur)
-        }
+    if let TIdent(s) = tok_at(toks, cur.pos) {
+      if s == "or" {
+        let right = parse_and(toks, cur.pos + 1)?
+        cur = {node: BinOp("or", cur.node, right.node), pos: right.pos}
+      } else {
+        return Ok(cur)
       }
-      _ => return Ok(cur)
+    } else {
+      return Ok(cur)
     }
   }
 
-  return Ok(cur)
+  Ok(cur)
 }
 
 pure parse_and(toks: List[Tok], pos: Int) -> Result[PJq] {
   var cur = parse_cmp(toks, pos)?
 
   while true {
-    match tok_at(toks, cur.pos) {
-      TIdent(s) => {
-        if s == "and" {
-          let right = parse_cmp(toks, cur.pos + 1)?
-          cur = {node: BinOp("and", cur.node, right.node), pos: right.pos}
-        } else {
-          return Ok(cur)
-        }
+    if let TIdent(s) = tok_at(toks, cur.pos) {
+      if s == "and" {
+        let right = parse_cmp(toks, cur.pos + 1)?
+        cur = {node: BinOp("and", cur.node, right.node), pos: right.pos}
+      } else {
+        return Ok(cur)
       }
-      _ => return Ok(cur)
+    } else {
+      return Ok(cur)
     }
   }
 
-  return Ok(cur)
+  Ok(cur)
 }
 
 # Comparison operators are non-associative (parse at most one).
@@ -1073,16 +1043,15 @@ pure parse_cmp(toks: List[Tok], pos: Int) -> Result[PJq] {
   let left = parse_add(toks, pos)?
   let t = tok_at(toks, left.pos)
 
-  match t {
-    TOp(s) => {
-      if s == "==" or s == "!=" or s == "<" or s == "<=" or s == ">" or s == ">=" {
-        let right = parse_add(toks, left.pos + 1)?
-        return Ok({node: BinOp(s, left.node, right.node), pos: right.pos})
-      }
-
-      return Ok(left)
+  if let TOp(s) = t {
+    if s == "==" or s == "!=" or s == "<" or s == "<=" or s == ">" or s == ">=" {
+      let right = parse_add(toks, left.pos + 1)?
+      return Ok({node: BinOp(s, left.node, right.node), pos: right.pos})
     }
-    _ => return Ok(left)
+
+    Ok(left)
+  } else {
+    Ok(left)
   }
 }
 
@@ -1093,7 +1062,7 @@ pure parse_add(toks: List[Tok], pos: Int) -> Result[PJq] {
     let t = tok_at(toks, cur.pos)
 
     if is_op(t, "+") or is_op(t, "-") {
-      let opname = match t { TOp(s) => s, _ => "+" }
+      let opname = if let TOp(s) = t { s } else { "+" }
       let right = parse_mul(toks, cur.pos + 1)?
       cur = {node: BinOp(opname, cur.node, right.node), pos: right.pos}
     } else {
@@ -1101,7 +1070,7 @@ pure parse_add(toks: List[Tok], pos: Int) -> Result[PJq] {
     }
   }
 
-  return Ok(cur)
+  Ok(cur)
 }
 
 pure parse_mul(toks: List[Tok], pos: Int) -> Result[PJq] {
@@ -1111,7 +1080,7 @@ pure parse_mul(toks: List[Tok], pos: Int) -> Result[PJq] {
     let t = tok_at(toks, cur.pos)
 
     if is_op(t, "*") or is_op(t, "/") or is_op(t, "%") {
-      let opname = match t { TOp(s) => s, _ => "*" }
+      let opname = if let TOp(s) = t { s } else { "*" }
       let right = parse_unary(toks, cur.pos + 1)?
       cur = {node: BinOp(opname, cur.node, right.node), pos: right.pos}
     } else {
@@ -1119,7 +1088,7 @@ pure parse_mul(toks: List[Tok], pos: Int) -> Result[PJq] {
     }
   }
 
-  return Ok(cur)
+  Ok(cur)
 }
 
 pure parse_unary(toks: List[Tok], pos: Int) -> Result[PJq] {
@@ -1128,7 +1097,7 @@ pure parse_unary(toks: List[Tok], pos: Int) -> Result[PJq] {
     return Ok({node: Neg(inner.node), pos: inner.pos})
   }
 
-  return parse_postfix(toks, pos)
+  parse_postfix(toks, pos)
 }
 
 # Postfix chain: .field, [...], [], [a:b], and trailing ?.
@@ -1149,7 +1118,7 @@ pure parse_postfix(toks: List[Tok], pos: Int) -> Result[PJq] {
     }
   }
 
-  return Ok(cur)
+  Ok(cur)
 }
 
 # Parse a [...] suffix applied to `base`. pos points at TLBracket.
@@ -1157,16 +1126,14 @@ pure parse_bracket(toks: List[Tok], pos: Int, base: Jq) -> Result[PJq] {
   let after = pos + 1
 
   match tok_at(toks, after) {
-    TRBracket => return Ok({node: Iterate(base), pos: after + 1})
+    TRBracket => Ok({node: Iterate(base), pos: after + 1})
     TColon => {
       # [:hi]
       let hi = parse_pipe(toks, after + 1)?
 
-      if ! is_rbracket(tok_at(toks, hi.pos)) {
-        return Err(jq_err("Expected ] in slice"))
-      }
+      return Err(jq_err("Expected ] in slice")) when ! is_rbracket(tok_at(toks, hi.pos))
 
-      return Ok({node: Slice(base, Identity, hi.node), pos: hi.pos + 1})
+      Ok({node: Slice(base, Identity, hi.node), pos: hi.pos + 1})
     }
     _ => {
       let lo = parse_pipe(toks, after)?
@@ -1180,14 +1147,12 @@ pure parse_bracket(toks: List[Tok], pos: Int, base: Jq) -> Result[PJq] {
 
           let hi = parse_pipe(toks, lo.pos + 1)?
 
-          if ! is_rbracket(tok_at(toks, hi.pos)) {
-            return Err(jq_err("Expected ] in slice"))
-          }
+          return Err(jq_err("Expected ] in slice")) when ! is_rbracket(tok_at(toks, hi.pos))
 
-          return Ok({node: Slice(base, lo.node, hi.node), pos: hi.pos + 1})
+          Ok({node: Slice(base, lo.node, hi.node), pos: hi.pos + 1})
         }
-        TRBracket => return Ok({node: Index(base, lo.node), pos: lo.pos + 1})
-        _ => return Err(jq_err("Expected ] or : in index"))
+        TRBracket => Ok({node: Index(base, lo.node), pos: lo.pos + 1})
+        _ => Err(jq_err("Expected ] or : in index"))
       }
     }
   }
@@ -1204,51 +1169,51 @@ pure parse_primary(toks: List[Tok], pos: Int) -> Result[PJq] {
   let t = tok_at(toks, pos)
 
   match t {
-    TDot => return Ok({node: Identity, pos: pos + 1})
-    TDotDot => return Ok({node: RecurseDefault, pos: pos + 1})
-    TField(name) => return Ok({node: Field(Identity, name), pos: pos + 1})
-    TNum(f) => return Ok({node: Lit(JNum(f)), pos: pos + 1})
-    TStr(s) => return Ok({node: Lit(JStr(s)), pos: pos + 1})
-    TVar(name) => return Ok({node: VarRef(name), pos: pos + 1})
+    TDot => Ok({node: Identity, pos: pos + 1})
+    TDotDot => Ok({node: RecurseDefault, pos: pos + 1})
+    TField(name) => Ok({node: Field(Identity, name), pos: pos + 1})
+    TNum(f) => Ok({node: Lit(JNum(f)), pos: pos + 1})
+    TStr(s) => Ok({node: Lit(JStr(s)), pos: pos + 1})
+    TVar(name) => Ok({node: VarRef(name), pos: pos + 1})
     TLParen => {
       let inner = parse_pipe(toks, pos + 1)?
 
       match tok_at(toks, inner.pos) {
-        TRParen => return Ok({node: inner.node, pos: inner.pos + 1})
-        _ => return Err(jq_err("Expected )"))
+        TRParen => Ok({node: inner.node, pos: inner.pos + 1})
+        _ => Err(jq_err("Expected )"))
       }
     }
     TLBracket => {
       # array construction; [] is empty
       match tok_at(toks, pos + 1) {
-        TRBracket => return Ok({node: ArrayC(Empty), pos: pos + 2})
+        TRBracket => Ok({node: ArrayC(Empty), pos: pos + 2})
         _ => {
           let inner = parse_pipe(toks, pos + 1)?
 
           match tok_at(toks, inner.pos) {
-            TRBracket => return Ok({node: ArrayC(inner.node), pos: inner.pos + 1})
-            _ => return Err(jq_err("Expected ] in array"))
+            TRBracket => Ok({node: ArrayC(inner.node), pos: inner.pos + 1})
+            _ => Err(jq_err("Expected ] in array"))
           }
         }
       }
     }
     TStrInterp(rawparts) => {
       let node = build_interp(rawparts, "")?
-      return Ok({node: node, pos: pos + 1})
+      Ok({node: node, pos: pos + 1})
     }
     TFormat(name) => {
       match tok_at(toks, pos + 1) {
-        TStr(s) => return Ok({node: StrInterp([StrLit(s)], name), pos: pos + 2})
+        TStr(s) => Ok({node: StrInterp([StrLit(s)], name), pos: pos + 2})
         TStrInterp(rp) => {
           let node = build_interp(rp, name)?
-          return Ok({node: node, pos: pos + 2})
+          Ok({node: node, pos: pos + 2})
         }
-        _ => return Ok({node: Fmt(name), pos: pos + 1})
+        _ => Ok({node: Fmt(name), pos: pos + 1})
       }
     }
-    TLBrace => return parse_object_ctor(toks, pos)
-    TIdent(name) => return parse_ident_primary(toks, pos, name)
-    _ => return Err(jq_err("Unexpected token in expression"))
+    TLBrace => parse_object_ctor(toks, pos)
+    TIdent(name) => parse_ident_primary(toks, pos, name)
+    _ => Err(jq_err("Unexpected token in expression"))
   }
 }
 
@@ -1262,7 +1227,7 @@ pure build_interp(rawparts: List[RawPart], fmt: Str) -> Result[Jq] {
     }
   }
 
-  return Ok(StrInterp(parts, fmt))
+  Ok(StrInterp(parts, fmt))
 }
 
 # Identifier primary: keywords (true/false/null/if), else a function call.
@@ -1291,8 +1256,8 @@ pure parse_reduce(toks: List[Tok], pos: Int) -> Result[PJq] {
   let update = parse_pipe(toks, init.pos + 1)?
 
   match tok_at(toks, update.pos) {
-    TRParen => return Ok({node: Reduce(src.node, pat.pat, init.node, update.node), pos: update.pos + 1})
-    _ => return Err(jq_err("Expected ) in reduce"))
+    TRParen => Ok({node: Reduce(src.node, pat.pat, init.node, update.node), pos: update.pos + 1})
+    _ => Err(jq_err("Expected ) in reduce"))
   }
 }
 
@@ -1321,61 +1286,48 @@ pure parse_foreach(toks: List[Tok], pos: Int) -> Result[PJq] {
   let update = parse_pipe(toks, init.pos + 1)?
 
   match tok_at(toks, update.pos) {
-    TRParen => return Ok(
+    TRParen => Ok(
       {node: Foreach(src.node, pat.pat, init.node, update.node, false, Identity), pos: update.pos + 1},
     )
     TSemi => {
       let extract = parse_pipe(toks, update.pos + 1)?
 
       match tok_at(toks, extract.pos) {
-        TRParen => return Ok(
+        TRParen => Ok(
           {node: Foreach(src.node, pat.pat, init.node, update.node, true, extract.node), pos: extract.pos + 1},
         )
-        _ => return Err(jq_err("Expected ) in foreach"))
+        _ => Err(jq_err("Expected ) in foreach"))
       }
     }
-    _ => return Err(jq_err("Expected ; or ) in foreach"))
+    _ => Err(jq_err("Expected ; or ) in foreach"))
   }
 }
 
 pure parse_ident_primary(toks: List[Tok], pos: Int, name: Str) -> Result[PJq] {
-  if name == "true" {
-    return Ok({node: Lit(JBool(true)), pos: pos + 1})
-  }
+  return Ok({node: Lit(JBool(true)), pos: pos + 1}) when name == "true"
 
-  if name == "false" {
-    return Ok({node: Lit(JBool(false)), pos: pos + 1})
-  }
+  return Ok({node: Lit(JBool(false)), pos: pos + 1}) when name == "false"
 
-  if name == "null" {
-    return Ok({node: Lit(JNull), pos: pos + 1})
-  }
+  return Ok({node: Lit(JNull), pos: pos + 1}) when name == "null"
 
-  if name == "if" {
-    return parse_if(toks, pos + 1)
-  }
+  return parse_if(toks, pos + 1) when name == "if"
 
-  if name == "reduce" {
-    return parse_reduce(toks, pos + 1)
-  }
+  return parse_reduce(toks, pos + 1) when name == "reduce"
 
-  if name == "foreach" {
-    return parse_foreach(toks, pos + 1)
-  }
+  return parse_foreach(toks, pos + 1) when name == "foreach"
 
   if name == "try" {
     let body = parse_postfix(toks, pos + 1)?
 
-    match tok_at(toks, body.pos) {
-      TIdent(s2) => {
-        if s2 == "catch" {
-          let handler = parse_postfix(toks, body.pos + 1)?
-          return Ok({node: TryCatch(body.node, handler.node), pos: handler.pos})
-        }
-
-        return Ok({node: TryCatch(body.node, Empty), pos: body.pos})
+    if let TIdent(s2) = tok_at(toks, body.pos) {
+      if s2 == "catch" {
+        let handler = parse_postfix(toks, body.pos + 1)?
+        return Ok({node: TryCatch(body.node, handler.node), pos: handler.pos})
       }
-      _ => return Ok({node: TryCatch(body.node, Empty), pos: body.pos})
+
+      return Ok({node: TryCatch(body.node, Empty), pos: body.pos})
+    } else {
+      return Ok({node: TryCatch(body.node, Empty), pos: body.pos})
     }
   }
 
@@ -1383,9 +1335,9 @@ pure parse_ident_primary(toks: List[Tok], pos: Int, name: Str) -> Result[PJq] {
   match tok_at(toks, pos + 1) {
     TLParen => {
       let r = parse_call_args(toks, pos + 2)?
-      return Ok({node: Call(name, r.arglist), pos: r.pos})
+      Ok({node: Call(name, r.arglist), pos: r.pos})
     }
-    _ => return Ok({node: Call(name, []), pos: pos + 1})
+    _ => Ok({node: Call(name, []), pos: pos + 1})
   }
 }
 
@@ -1406,54 +1358,51 @@ pure parse_call_args(toks: List[Tok], pos: Int) -> Result[PArgs] {
     }
   }
 
-  return Ok({arglist: arglist, pos: p})
+  Ok({arglist: arglist, pos: p})
 }
 
 pure parse_if(toks: List[Tok], pos: Int) -> Result[PJq] {
   let cond = parse_pipe(toks, pos)?
 
-  match tok_at(toks, cond.pos) {
-    TIdent(s) => {
-      if s != "then" {
-        return Err(jq_err("Expected 'then'"))
-      }
+  if let TIdent(s) = tok_at(toks, cond.pos) {
+    guard s == "then" else {
+      return Err(jq_err("Expected 'then'"))
     }
-    _ => return Err(jq_err("Expected 'then'"))
+  } else {
+    return Err(jq_err("Expected 'then'"))
   }
 
   let then_b = parse_pipe(toks, cond.pos + 1)?
   let t = tok_at(toks, then_b.pos)
 
-  match t {
-    TIdent(s) => {
-      if s == "elif" {
-        let rest = parse_if(toks, then_b.pos + 1)?
-        return Ok({node: IfElse(cond.node, then_b.node, rest.node), pos: rest.pos})
-      }
-
-      if s == "else" {
-        let else_b = parse_pipe(toks, then_b.pos + 1)?
-
-        match tok_at(toks, else_b.pos) {
-          TIdent(e) => {
-            if e != "end" {
-              return Err(jq_err("Expected 'end'"))
-            }
-
-            return Ok({node: IfElse(cond.node, then_b.node, else_b.node), pos: else_b.pos + 1})
-          }
-          _ => return Err(jq_err("Expected 'end'"))
-        }
-      }
-
-      if s == "end" {
-        # if c then t end  ==  if c then t else . end
-        return Ok({node: IfElse(cond.node, then_b.node, Identity), pos: then_b.pos + 1})
-      }
-
-      return Err(jq_err("Expected 'elif', 'else', or 'end'"))
+  if let TIdent(s) = t {
+    if s == "elif" {
+      let rest = parse_if(toks, then_b.pos + 1)?
+      return Ok({node: IfElse(cond.node, then_b.node, rest.node), pos: rest.pos})
     }
-    _ => return Err(jq_err("Expected 'elif', 'else', or 'end'"))
+
+    if s == "else" {
+      let else_b = parse_pipe(toks, then_b.pos + 1)?
+
+      if let TIdent(e) = tok_at(toks, else_b.pos) {
+        guard e == "end" else {
+          return Err(jq_err("Expected 'end'"))
+        }
+
+        return Ok({node: IfElse(cond.node, then_b.node, else_b.node), pos: else_b.pos + 1})
+      } else {
+        return Err(jq_err("Expected 'end'"))
+      }
+    }
+
+    if s == "end" {
+      # if c then t end  ==  if c then t else . end
+      return Ok({node: IfElse(cond.node, then_b.node, Identity), pos: then_b.pos + 1})
+    }
+
+    Err(jq_err("Expected 'elif', 'else', or 'end'"))
+  } else {
+    Err(jq_err("Expected 'elif', 'else', or 'end'"))
   }
 }
 
@@ -1477,7 +1426,7 @@ pure parse_object_ctor(toks: List[Tok], pos: Int) -> Result[PJq] {
     }
   }
 
-  return Ok({node: ObjectC(entries), pos: p})
+  Ok({node: ObjectC(entries), pos: p})
 }
 
 type PObjEntry = {entry: ObjEntry, pos: Int}
@@ -1487,19 +1436,19 @@ pure parse_obj_entry(toks: List[Tok], pos: Int) -> Result[PObjEntry] {
 
   # Determine the key and whether a value follows.
   match t {
-    TIdent(name) => return obj_entry_after_key(toks, pos + 1, Lit(JStr(name)), Field(Identity, name))
-    TStr(s) => return obj_entry_after_key(toks, pos + 1, Lit(JStr(s)), Field(Identity, s))
-    TVar(name) => return obj_entry_after_key(toks, pos + 1, Lit(JStr(name)), VarRef(name))
-    TField(name) => return obj_entry_after_key(toks, pos + 1, Lit(JStr(name)), Field(Identity, name))
+    TIdent(name) => obj_entry_after_key(toks, pos + 1, Lit(JStr(name)), Field(Identity, name))
+    TStr(s) => obj_entry_after_key(toks, pos + 1, Lit(JStr(s)), Field(Identity, s))
+    TVar(name) => obj_entry_after_key(toks, pos + 1, Lit(JStr(name)), VarRef(name))
+    TField(name) => obj_entry_after_key(toks, pos + 1, Lit(JStr(name)), Field(Identity, name))
     TLParen => {
       let key = parse_pipe(toks, pos + 1)?
 
       match tok_at(toks, key.pos) {
-        TRParen => return obj_entry_after_key(toks, key.pos + 1, key.node, Identity)
-        _ => return Err(jq_err("Expected ) in object key"))
+        TRParen => obj_entry_after_key(toks, key.pos + 1, key.node, Identity)
+        _ => Err(jq_err("Expected ) in object key"))
       }
     }
-    _ => return Err(jq_err("Expected object key"))
+    _ => Err(jq_err("Expected object key"))
   }
 }
 
@@ -1508,9 +1457,9 @@ pure obj_entry_after_key(toks: List[Tok], pos: Int, key: Jq, default_val: Jq) ->
   match tok_at(toks, pos) {
     TColon => {
       let v = parse_objval(toks, pos + 1)?
-      return Ok({entry: {key: key, val: v.node}, pos: v.pos})
+      Ok({entry: {key: key, val: v.node}, pos: v.pos})
     }
-    _ => return Ok({entry: {key: key, val: default_val}, pos: pos})
+    _ => Ok({entry: {key: key, val: default_val}, pos: pos})
   }
 }
 
@@ -1528,7 +1477,7 @@ pure parse_objval(toks: List[Tok], pos: Int) -> Result[PJq] {
     }
   }
 
-  return Ok(cur)
+  Ok(cur)
 }
 
 pure parse_program(src: Str) -> Result[Jq] {
@@ -1536,8 +1485,8 @@ pure parse_program(src: Str) -> Result[Jq] {
   let r = parse_pipe(toks, 0)?
 
   match tok_at(toks, r.pos) {
-    TEOF => return Ok(r.node)
-    _ => return Err(jq_err("Unexpected trailing tokens in program"))
+    TEOF => Ok(r.node)
+    _ => Err(jq_err("Unexpected trailing tokens in program"))
   }
 }
 
@@ -1545,7 +1494,7 @@ pure parse_program(src: Str) -> Result[Jq] {
 # Evaluator. A filter maps one input value to a stream (List) of outputs.
 # ---------------------------------------------------------------------------
 pure concat_json(a: List[Json], b: List[Json]) -> List[Json] {
-  return a.extend(b)
+  a.extend(b)
 }
 
 pure is_truthy(j: Json) -> Bool {
@@ -1577,193 +1526,158 @@ pure str_cmp_raw(a: Str, b: Str) -> Int {
     let ca = (a.byte_at(i) ?? 0)
     let cb = (b.byte_at(i) ?? 0)
 
-    if ca < cb {
-      return -1
-    }
+    return -1 when ca < cb
 
-    if ca > cb {
-      return 1
-    }
+    return 1 when ca > cb
 
     i = i + 1
   }
 
-  if la < lb {
-    return -1
-  }
+  return -1 when la < lb
 
-  if la > lb {
-    return 1
-  }
+  return 1 when la > lb
 
-  return 0
+  0
 }
 
 pure sort_strs(xs: List[Str]) -> List[Str] {
-  var out: List[Str] = []
+  var out = []
 
   for x in xs {
     var inserted = false
-    var next: List[Str] = []
+    var next = []
 
     for y in out {
       if ! inserted and str_cmp_raw(x, y) < 0 {
-        next = next.push(x)
+        next += [x]
         inserted = true
       }
 
-      next = next.push(y)
+      next += [y]
     }
 
     if ! inserted {
-      next = next.push(x)
+      next += [x]
     }
 
     out = next
   }
 
-  return out
+  out
 }
 
 pure json_cmp(a: Json, b: Json) -> Int {
   let ra = type_rank(a)
   let rb = type_rank(b)
 
-  if ra < rb {
-    return -1
-  }
+  return -1 when ra < rb
 
-  if ra > rb {
-    return 1
-  }
+  return 1 when ra > rb
 
   match a {
-    JNull => return 0
-    JBool(x) => return bool_cmp(x, b)
-    JNum(x) => return num_cmp(x, b)
-    JStr(x) => return jstr_cmp(x, b)
-    JArr(xs) => return arr_cmp(xs, b)
-    JObj(es) => return obj_cmp(es, b)
+    JNull => 0
+    JBool(x) => bool_cmp(x, b)
+    JNum(x) => num_cmp(x, b)
+    JStr(x) => jstr_cmp(x, b)
+    JArr(xs) => arr_cmp(xs, b)
+    JObj(es) => obj_cmp(es, b)
   }
 }
 
 pure bool_cmp(x: Bool, b: Json) -> Int {
-  match b {
-    JBool(y) => {
-      if x == y {
-        return 0
-      }
+  if let JBool(y) = b {
+    return 0 when x == y
 
-      if x {
-        return 1
-      }
+    return 1 when x
 
-      return -1
-    }
-    _ => return 0
+    (-1)
+  } else {
+    0
   }
 }
 
 pure num_cmp(x: Float, b: Json) -> Int {
-  match b {
-    JNum(y) => {
-      if x < y {
-        return -1
-      }
-
-      if x > y {
-        return 1
-      }
-
-      return 0
+  if let JNum(y) = b {
+    guard ! (x < y) else {
+      return -1
     }
-    _ => return 0
+
+    return 1 when x > y
+
+    0
+  } else {
+    0
   }
 }
 
 pure jstr_cmp(x: Str, b: Json) -> Int {
-  match b {
-    JStr(y) => return str_cmp_raw(x, y)
-    _ => return 0
+  if let JStr(y) = b {
+    str_cmp_raw(x, y)
+  } else {
+    0
   }
 }
 
 pure arr_cmp(xs: List[Json], b: Json) -> Int {
-  match b {
-    JArr(ys) => {
-      var i = 0
+  if let JArr(ys) = b {
+    var i = 0
 
-      while i < xs.len() and i < ys.len() {
-        let c = json_cmp((xs.get(i) ?? JNull), (ys.get(i) ?? JNull))
+    while i < xs.len() and i < ys.len() {
+      let c = json_cmp((xs.get(i) ?? JNull), (ys.get(i) ?? JNull))
 
-        if c != 0 {
-          return c
-        }
+      return c when c != 0
 
-        i = i + 1
-      }
-
-      if xs.len() < ys.len() {
-        return -1
-      }
-
-      if xs.len() > ys.len() {
-        return 1
-      }
-
-      return 0
+      i = i + 1
     }
-    _ => return 0
+
+    return -1 when xs.len() < ys.len()
+
+    return 1 when xs.len() > ys.len()
+
+    0
+  } else {
+    0
   }
 }
 
 # jq orders objects by their sorted key arrays, then by values in sorted-key order.
 pure obj_cmp(es: List[Entry], b: Json) -> Int {
-  match b {
-    JObj(fents) => {
-      let ka = sort_strs(entry_keys(es))
-      let kb = sort_strs(entry_keys(fents))
-      var i = 0
+  if let JObj(fents) = b {
+    let ka = entry_keys(es) |> sort_strs(_)
+    let kb = entry_keys(fents) |> sort_strs(_)
+    var i = 0
 
-      while i < ka.len() and i < kb.len() {
-        let c = str_cmp_raw((ka.get(i) ?? ""), (kb.get(i) ?? ""))
+    while i < ka.len() and i < kb.len() {
+      let c = str_cmp_raw((ka.get(i) ?? ""), (kb.get(i) ?? ""))
 
-        if c != 0 {
-          return c
-        }
+      return c when c != 0
 
-        i = i + 1
-      }
-
-      if ka.len() < kb.len() {
-        return -1
-      }
-
-      if ka.len() > kb.len() {
-        return 1
-      }
-
-      var j = 0
-
-      while j < ka.len() {
-        let key = (ka.get(j) ?? "")
-        let c = json_cmp(entry_get(es, key), entry_get(fents, key))
-
-        if c != 0 {
-          return c
-        }
-
-        j = j + 1
-      }
-
-      return 0
+      i = i + 1
     }
-    _ => return 0
+
+    return -1 when ka.len() < kb.len()
+
+    return 1 when ka.len() > kb.len()
+
+    var j = 0
+
+    while j < ka.len() {
+      let key = (ka.get(j) ?? "")
+      let c = json_cmp(entry_get(es, key), entry_get(fents, key))
+
+      return c when c != 0
+
+      j = j + 1
+    }
+
+    0
+  } else {
+    0
   }
 }
 
 pure json_eq(a: Json, b: Json) -> Bool {
-  return json_cmp(a, b) == 0
+  json_cmp(a, b) == 0
 }
 
 # Object entry helpers (ordered association lists).
@@ -1773,22 +1687,18 @@ pure entry_keys(es: List[Entry]) -> List[Str] {
 
 pure entry_has(es: List[Entry], k: Str) -> Bool {
   for e in es {
-    if e.k == k {
-      return true
-    }
+    return true when e.k == k
   }
 
-  return false
+  false
 }
 
 pure entry_get(es: List[Entry], k: Str) -> Json {
   for e in es {
-    if e.k == k {
-      return e.v
-    }
+    return e.v when e.k == k
   }
 
-  return JNull
+  JNull
 }
 
 pure obj_set(es: List[Entry], k: Str, v: Json) -> List[Entry] {
@@ -1800,7 +1710,7 @@ pure obj_set(es: List[Entry], k: Str, v: Json) -> List[Entry] {
       out = out.push({k: k, v: v})
       found = true
     } else {
-      out = out.push(e)
+      out += [e]
     }
   }
 
@@ -1808,7 +1718,7 @@ pure obj_set(es: List[Entry], k: Str, v: Json) -> List[Entry] {
     out = out.push({k: k, v: v})
   }
 
-  return out
+  out
 }
 
 pure obj_merge(a: List[Entry], b: List[Entry]) -> List[Entry] {
@@ -1818,7 +1728,7 @@ pure obj_merge(a: List[Entry], b: List[Entry]) -> List[Entry] {
     out = obj_set(out, e.k, e.v)
   }
 
-  return out
+  out
 }
 
 pure obj_deep_merge(a: List[Entry], b: List[Entry]) -> List[Entry] {
@@ -1828,205 +1738,197 @@ pure obj_deep_merge(a: List[Entry], b: List[Entry]) -> List[Entry] {
     if entry_has(a, e.k) {
       let av = entry_get(a, e.k)
 
-      match av {
-        JObj(aes) => {
-          match e.v {
-            JObj(bes) => out = obj_set(out, e.k, JObj(obj_deep_merge(aes, bes)))
-            _ => out = obj_set(out, e.k, e.v)
-          }
+      if let JObj(aes) = av {
+        if let JObj(bes) = e.v {
+          out = obj_set(out, e.k, JObj(obj_deep_merge(aes, bes)))
+        } else {
+          out = obj_set(out, e.k, e.v)
         }
-        _ => out = obj_set(out, e.k, e.v)
+      } else {
+        out = obj_set(out, e.k, e.v)
       }
     } else {
       out = obj_set(out, e.k, e.v)
     }
   }
 
-  return out
+  out
 }
 
 # jq arithmetic. Numbers are Float throughout; division/modulo guard zero.
 pure repeat_str(s: Str, n: Int) -> Str {
-  var out: List[Str] = []
+  var out = []
   var i = 0
 
   while i < n {
-    out = out.push(s)
+    out += [s]
     i = i + 1
   }
 
-  return out.join("")
+  out.join("")
 }
 
 pure add_values(a: Json, b: Json) -> Result[Json] {
   match a {
-    JNull => return Ok(b)
+    JNull => Ok(b)
     JNum(x) => {
       match b {
-        JNum(y) => return Ok(JNum(x + y))
-        JNull => return Ok(a)
-        _ => return Err(jq_err(arith_msg("added", a, b)))
+        JNum(y) => Ok(JNum(x + y))
+        JNull => Ok(a)
+        _ => Err(jq_err(arith_msg("added", a, b)))
       }
     }
     JStr(x) => {
       match b {
-        JStr(y) => return Ok(JStr(x + y))
-        JNull => return Ok(a)
-        _ => return Err(jq_err(arith_msg("added", a, b)))
+        JStr(y) => Ok(JStr(x + y))
+        JNull => Ok(a)
+        _ => Err(jq_err(arith_msg("added", a, b)))
       }
     }
     JArr(xs) => {
       match b {
-        JArr(ys) => return Ok(JArr(xs.extend(ys)))
-        JNull => return Ok(a)
-        _ => return Err(jq_err(arith_msg("added", a, b)))
+        JArr(ys) => Ok(JArr(xs.extend(ys)))
+        JNull => Ok(a)
+        _ => Err(jq_err(arith_msg("added", a, b)))
       }
     }
     JObj(es) => {
       match b {
-        JObj(fents) => return Ok(JObj(obj_merge(es, fents)))
-        JNull => return Ok(a)
-        _ => return Err(jq_err(arith_msg("added", a, b)))
+        JObj(fents) => Ok(JObj(obj_merge(es, fents)))
+        JNull => Ok(a)
+        _ => Err(jq_err(arith_msg("added", a, b)))
       }
     }
     JBool(_) => {
       match b {
-        JNull => return Ok(a)
-        _ => return Err(jq_err(arith_msg("added", a, b)))
+        JNull => Ok(a)
+        _ => Err(jq_err(arith_msg("added", a, b)))
       }
     }
   }
 }
 
 pure arith_msg(verb: Str, a: Json, b: Json) -> Str {
-  return type_name(a) + " and " + type_name(b) + " cannot be " + verb
+  type_name(a) + " and " + type_name(b) + " cannot be " + verb
 }
 
 pure sub_values(a: Json, b: Json) -> Result[Json] {
   match a {
     JNum(x) => {
-      match b {
-        JNum(y) => return Ok(JNum(x - y))
-        _ => return Err(jq_err(arith_msg("subtracted", a, b)))
+      if let JNum(y) = b {
+        Ok(JNum(x - y))
+      } else {
+        Err(jq_err(arith_msg("subtracted", a, b)))
       }
     }
     JArr(xs) => {
-      match b {
-        JArr(ys) => {
-          var out = [x for x in xs if ! list_contains_json(ys, x)]
-          return Ok(JArr(out))
-        }
-        _ => return Err(jq_err(arith_msg("subtracted", a, b)))
+      if let JArr(ys) = b {
+        var out = [x for x in xs if ! list_contains_json(ys, x)]
+        Ok(JArr(out))
+      } else {
+        Err(jq_err(arith_msg("subtracted", a, b)))
       }
     }
-    _ => return Err(jq_err(arith_msg("subtracted", a, b)))
+    _ => Err(jq_err(arith_msg("subtracted", a, b)))
   }
 }
 
 pure list_contains_json(xs: List[Json], target: Json) -> Bool {
   for x in xs {
-    if json_eq(x, target) {
-      return true
-    }
+    return true when json_eq(x, target)
   }
 
-  return false
+  false
 }
 
 pure mul_values(a: Json, b: Json) -> Result[Json] {
   match a {
     JNum(x) => {
       match b {
-        JNum(y) => return Ok(JNum(x * y))
-        JStr(s) => return mul_str(s, x)
-        _ => return Err(jq_err(arith_msg("multiplied", a, b)))
+        JNum(y) => Ok(JNum(x * y))
+        JStr(s) => mul_str(s, x)
+        _ => Err(jq_err(arith_msg("multiplied", a, b)))
       }
     }
     JStr(s) => {
-      match b {
-        JNum(y) => return mul_str(s, y)
-        _ => return Err(jq_err(arith_msg("multiplied", a, b)))
+      if let JNum(y) = b {
+        mul_str(s, y)
+      } else {
+        Err(jq_err(arith_msg("multiplied", a, b)))
       }
     }
     JObj(es) => {
-      match b {
-        JObj(fents) => return Ok(JObj(obj_deep_merge(es, fents)))
-        _ => return Err(jq_err(arith_msg("multiplied", a, b)))
+      if let JObj(fents) = b {
+        Ok(JObj(obj_deep_merge(es, fents)))
+      } else {
+        Err(jq_err(arith_msg("multiplied", a, b)))
       }
     }
-    _ => return Err(jq_err(arith_msg("multiplied", a, b)))
+    _ => Err(jq_err(arith_msg("multiplied", a, b)))
   }
 }
 
 pure mul_str(s: Str, n: Float) -> Result[Json] {
   let count = n.floor() ?? 0
 
-  if count <= 0 {
-    return Ok(JNull)
-  }
+  return Ok(JNull) when count <= 0
 
-  return Ok(JStr(repeat_str(s, count)))
+  Ok(JStr(repeat_str(s, count)))
 }
 
 pure div_values(a: Json, b: Json) -> Result[Json] {
   match a {
     JNum(x) => {
-      match b {
-        JNum(y) => {
-          if y == 0.0 {
-            return Err(jq_err("cannot divide " + render_num(x) + " by zero"))
-          }
+      if let JNum(y) = b {
+        return Err(jq_err("cannot divide " + render_num(x) + " by zero")) when y == 0.0
 
-          return Ok(JNum(x / y))
-        }
-        _ => return Err(jq_err(arith_msg("divided", a, b)))
+        Ok(JNum(x / y))
+      } else {
+        Err(jq_err(arith_msg("divided", a, b)))
       }
     }
     JStr(x) => {
-      match b {
-        JStr(y) => return Ok(split_str(x, y))
-        _ => return Err(jq_err(arith_msg("divided", a, b)))
+      if let JStr(y) = b {
+        Ok(split_str(x, y))
+      } else {
+        Err(jq_err(arith_msg("divided", a, b)))
       }
     }
-    _ => return Err(jq_err(arith_msg("divided", a, b)))
+    _ => Err(jq_err(arith_msg("divided", a, b)))
   }
 }
 
 # Split string `s` by separator `sep` into a JArr of JStr (empty sep -> chars).
 pure split_str(s: Str, sep: Str) -> Json {
-  var parts: List[Str] = []
+  var parts = []
 
   if sep == "" {
-    for ch in s.split("") {
-      parts = parts.push(ch)
+    for ch in s {
+      parts += [ch]
     }
   } else {
     parts = s.split(sep)
   }
 
   var out = [JStr(p) for p in parts]
-  return JArr(out)
+  JArr(out)
 }
 
 pure mod_values(a: Json, b: Json) -> Result[Json] {
-  match a {
-    JNum(x) => {
-      match b {
-        JNum(y) => {
-          let yi = y.floor() ?? 0
+  if let JNum(x) = a {
+    if let JNum(y) = b {
+      let yi = y.floor() ?? 0
 
-          if yi == 0 {
-            return Err(jq_err("cannot mod by zero"))
-          }
+      return Err(jq_err("cannot mod by zero")) when yi == 0
 
-          let xi = x.floor() ?? 0
-          let m = int_mod(xi, yi)
-          return Ok(JNum(m.float()))
-        }
-        _ => return Err(jq_err(arith_msg("divided", a, b)))
-      }
+      let xi = x.floor() ?? 0
+      let m = int_mod(xi, yi)
+      Ok(JNum(m.float()))
+    } else {
+      Err(jq_err(arith_msg("divided", a, b)))
     }
-    _ => return Err(jq_err(arith_msg("divided", a, b)))
+  } else {
+    Err(jq_err(arith_msg("divided", a, b)))
   }
 }
 
@@ -2046,65 +1948,42 @@ pure int_mod(x: Int, y: Int) -> Int {
 
   let r = ax % ay
 
-  if x < 0 {
-    return 0 - r
-  }
+  return 0 - r when x < 0
 
-  return r
+  r
 }
 
 pure binop_apply(op: Str, a: Json, b: Json) -> Result[Json] {
-  if op == "+" {
-    return add_values(a, b)
-  }
+  return add_values(a, b) when op == "+"
 
-  if op == "-" {
-    return sub_values(a, b)
-  }
+  return sub_values(a, b) when op == "-"
 
-  if op == "*" {
-    return mul_values(a, b)
-  }
+  return mul_values(a, b) when op == "*"
 
-  if op == "/" {
-    return div_values(a, b)
-  }
+  return div_values(a, b) when op == "/"
 
-  if op == "%" {
-    return mod_values(a, b)
-  }
+  return mod_values(a, b) when op == "%"
 
-  if op == "==" {
-    return Ok(JBool(json_eq(a, b)))
-  }
+  return Ok(JBool(json_eq(a, b))) when op == "=="
 
-  if op == "!=" {
-    return Ok(JBool(! json_eq(a, b)))
-  }
+  return Ok(JBool(! json_eq(a, b))) when op == "!="
 
-  if op == "<" {
-    return Ok(JBool(json_cmp(a, b) < 0))
-  }
+  return Ok(JBool(json_cmp(a, b) < 0)) when op == "<"
 
-  if op == "<=" {
-    return Ok(JBool(json_cmp(a, b) <= 0))
-  }
+  return Ok(JBool(json_cmp(a, b) <= 0)) when op == "<="
 
-  if op == ">" {
-    return Ok(JBool(json_cmp(a, b) > 0))
-  }
+  return Ok(JBool(json_cmp(a, b) > 0)) when op == ">"
 
-  if op == ">=" {
-    return Ok(JBool(json_cmp(a, b) >= 0))
-  }
+  return Ok(JBool(json_cmp(a, b) >= 0)) when op == ">="
 
-  return Err(jq_err("unknown operator " + op))
+  Err(jq_err("unknown operator " + op))
 }
 
 pure as_obj_key(j: Json) -> Result[Str] {
-  match j {
-    JStr(s) => return Ok(s)
-    _ => return Err(jq_err("Object keys must be strings"))
+  if let JStr(s) = j {
+    Ok(s)
+  } else {
+    Err(jq_err("Object keys must be strings"))
   }
 }
 
@@ -2122,40 +2001,35 @@ pure type_name(j: Json) -> Str {
 # Index into a value by a key value (string key for objects, int for arrays).
 pure index_value(input: Json, key: Json) -> Result[Json] {
   match input {
-    JNull => return Ok(JNull)
+    JNull => Ok(JNull)
     JObj(es) => {
       let k = as_obj_key(key)?
 
       for e in es {
-        if e.k == k {
-          return Ok(e.v)
-        }
+        return Ok(e.v) when e.k == k
       }
 
-      return Ok(JNull)
+      Ok(JNull)
     }
     JArr(xs) => {
-      match key {
-        JNum(n) => {
-          var i = n.floor() ?? 0
+      if let JNum(n) = key {
+        var i = n.floor() ?? 0
 
-          if i < 0 {
-            i = i + xs.len()
-          }
-
-          if i < 0 or i >= xs.len() {
-            return Ok(JNull)
-          }
-
-          return Ok((xs.get(i) ?? JNull))
+        if i < 0 {
+          i = i + xs.len()
         }
-        _ => return Err(jq_err("Cannot index array with " + type_name(key)))
+
+        return Ok(JNull) when i < 0 or i >= xs.len()
+
+        Ok((xs.get(i) ?? JNull))
+      } else {
+        Err(jq_err("Cannot index array with " + type_name(key)))
       }
     }
     _ => {
       match key {
-        JStr(_) => return Err(jq_err("Cannot index " + type_name(input) + " with string"))
-        _ => return Err(jq_err("Cannot index " + type_name(input)))
+        JStr(_) => Err(jq_err("Cannot index " + type_name(input) + " with string"))
+        _ => Err(jq_err("Cannot index " + type_name(input)))
       }
     }
   }
@@ -2163,12 +2037,12 @@ pure index_value(input: Json, key: Json) -> Result[Json] {
 
 pure iterate_value(input: Json) -> Result[List[Json]] {
   match input {
-    JArr(xs) => return Ok(xs)
+    JArr(xs) => Ok(xs)
     JObj(es) => {
       var out = [e.v for e in es]
-      return Ok(out)
+      Ok(out)
     }
-    _ => return Err(jq_err("Cannot iterate over " + type_name(input)))
+    _ => Err(jq_err("Cannot iterate over " + type_name(input)))
   }
 }
 
@@ -2189,12 +2063,12 @@ pure recurse_all(input: Json) -> List[Json] {
     _ => out = out
   }
 
-  return out
+  out
 }
 
 pure slice_value(input: Json, lo: Json, hi: Json) -> Result[Json] {
   match input {
-    JNull => return Ok(JNull)
+    JNull => Ok(JNull)
     JArr(xs) => {
       let len = xs.len()
       let bounds = slice_bounds(lo, hi, len)?
@@ -2206,13 +2080,13 @@ pure slice_value(input: Json, lo: Json, hi: Json) -> Result[Json] {
         i = i + 1
       }
 
-      return Ok(JArr(out))
+      Ok(JArr(out))
     }
     JStr(s) => {
       let cs = s.split("")
       let len = cs.len()
       let bounds = slice_bounds(lo, hi, len)?
-      var out: List[Str] = []
+      var out = []
       var i = bounds.lo
 
       while i < bounds.hi {
@@ -2220,9 +2094,9 @@ pure slice_value(input: Json, lo: Json, hi: Json) -> Result[Json] {
         i = i + 1
       }
 
-      return Ok(JStr(out.join("")))
+      Ok(JStr(out.join("")))
     }
-    _ => return Err(jq_err("Cannot slice " + type_name(input)))
+    _ => Err(jq_err("Cannot slice " + type_name(input)))
   }
 }
 
@@ -2243,7 +2117,7 @@ pure clamp_index(n: Int, len: Int) -> Int {
     i = len
   }
 
-  return i
+  i
 }
 
 pure slice_bounds(lo: Json, hi: Json, len: Int) -> Result[SliceBounds] {
@@ -2266,7 +2140,7 @@ pure slice_bounds(lo: Json, hi: Json, len: Int) -> Result[SliceBounds] {
     hi_i = lo_i
   }
 
-  return Ok({lo: lo_i, hi: hi_i})
+  Ok({lo: lo_i, hi: hi_i})
 }
 
 # Evaluate a slice node; lo/hi are sub-filters (Identity used for an omitted
@@ -2275,21 +2149,21 @@ pure slice_bounds(lo: Json, hi: Json, len: Int) -> Result[SliceBounds] {
 # whole-input value; for jq parity an omitted bound is null).
 pure eval(ast: Jq, input: Json, scope: Env) -> Result[List[Json]] {
   match ast {
-    Identity => return Ok([input])
+    Identity => Ok([input])
     Empty => {
       let none: List[Json] = []
-      return Ok(none)
+      Ok(none)
     }
-    RecurseDefault => return Ok(recurse_all(input))
-    Lit(v) => return Ok([v])
+    RecurseDefault => Ok(recurse_all(input))
+    Lit(v) => Ok([v])
     VarRef(name) => {
       let v = lookup_var(scope, name)?
-      return Ok([v])
+      Ok([v])
     }
     Field(base, name) => {
       let bases = eval(base, input, scope)?
       var out = [index_value(b, JStr(name))? for b in bases]
-      return Ok(out)
+      Ok(out)
     }
     Index(base, idx) => {
       let bases = eval(base, input, scope)?
@@ -2303,7 +2177,7 @@ pure eval(ast: Jq, input: Json, scope: Env) -> Result[List[Json]] {
         }
       }
 
-      return Ok(out)
+      Ok(out)
     }
     Iterate(base) => {
       let bases = eval(base, input, scope)?
@@ -2311,10 +2185,10 @@ pure eval(ast: Jq, input: Json, scope: Env) -> Result[List[Json]] {
 
       for b in bases {
         let items = iterate_value(b)?
-        out = out.extend(items)
+        out += items
       }
 
-      return Ok(out)
+      Ok(out)
     }
     Slice(base, lo, hi) => {
       let bases = eval(base, input, scope)?
@@ -2331,7 +2205,7 @@ pure eval(ast: Jq, input: Json, scope: Env) -> Result[List[Json]] {
         }
       }
 
-      return Ok(out)
+      Ok(out)
     }
     Pipe(a, b) => {
       let outs = eval(a, input, scope)?
@@ -2339,35 +2213,36 @@ pure eval(ast: Jq, input: Json, scope: Env) -> Result[List[Json]] {
 
       for x in outs {
         let ys = eval(b, x, scope)?
-        acc = acc.extend(ys)
+        acc += ys
       }
 
-      return Ok(acc)
+      Ok(acc)
     }
     Comma(a, b) => {
       let l = eval(a, input, scope)?
       let r = eval(b, input, scope)?
-      return Ok(concat_json(l, r))
+      Ok(concat_json(l, r))
     }
     ArrayC(inner) => {
       let outs = eval(inner, input, scope)?
-      return Ok([JArr(outs)])
+      Ok([JArr(outs)])
     }
-    ObjectC(entries) => return eval_object(entries, input, scope)
+    ObjectC(entries) => eval_object(entries, input, scope)
     Neg(inner) => {
       let outs = eval(inner, input, scope)?
       var res: List[Json] = []
 
       for v in outs {
-        match v {
-          JNum(n) => res = res.push(JNum(0.0 - n))
-          _ => return Err(jq_err(type_name(v) + " cannot be negated"))
+        if let JNum(n) = v {
+          res = res.push(JNum(0.0 - n))
+        } else {
+          return Err(jq_err(type_name(v) + " cannot be negated"))
         }
       }
 
-      return Ok(res)
+      Ok(res)
     }
-    BinOp(op, a, b) => return eval_binop(op, a, b, input, scope)
+    BinOp(op, a, b) => eval_binop(op, a, b, input, scope)
     IfElse(cond, then_b, else_b) => {
       let conds = eval(cond, input, scope)?
       var out: List[Json] = []
@@ -2380,48 +2255,44 @@ pure eval(ast: Jq, input: Json, scope: Env) -> Result[List[Json]] {
         }
       }
 
-      return Ok(out)
+      Ok(out)
     }
     TryCatch(a, b) => {
       match eval(a, input, scope) {
-        Ok(vs) => return Ok(vs)
-        Err(e) => return eval(b, JStr(e.message), scope)
+        Ok(vs) => Ok(vs)
+        Err(e) => eval(b, JStr(e.message), scope)
       }
     }
     Optional(inner) => {
-      match eval(inner, input, scope) {
-        Ok(vs) => return Ok(vs)
-        Err(_) => {
-          let none: List[Json] = []
-          return Ok(none)
-        }
+      if let Ok(vs) = eval(inner, input, scope) {
+        Ok(vs)
+      } else {
+        let none: List[Json] = []
+        Ok(none)
       }
     }
     Alt(a, b) => {
       var kept: List[Json] = []
 
-      match eval(a, input, scope) {
-        Ok(vs) => {
-          for v in vs {
-            if is_truthy(v) {
-              kept = kept.push(v)
-            }
+      if let Ok(vs) = eval(a, input, scope) {
+        for v in vs {
+          if is_truthy(v) {
+            kept += [v]
           }
         }
-        Err(_) => kept = kept
+      } else {
+        kept = kept
       }
 
-      if kept.len() > 0 {
-        return Ok(kept)
-      }
+      return Ok(kept) when kept.len() > 0
 
-      return eval(b, input, scope)
+      eval(b, input, scope)
     }
-    Call(name, callargs) => return eval_call_resolved(name, callargs, input, scope)
-    FuncDef(fdef, rest) => return eval(rest, input, EnvFunc(fdef, scope, scope))
-    BindVar(src, pat, body) => return eval_bind(src, pat, body, input, scope)
-    Reduce(src, pat, init, upd) => return eval_reduce(src, pat, init, upd, input, scope)
-    Foreach(src, pat, init, upd, has_x, extract) => return eval_foreach(
+    Call(name, callargs) => eval_call_resolved(name, callargs, input, scope)
+    FuncDef(fdef, rest) => eval(rest, input, EnvFunc(fdef, scope, scope))
+    BindVar(src, pat, body) => eval_bind(src, pat, body, input, scope)
+    Reduce(src, pat, init, upd) => eval_reduce(src, pat, init, upd, input, scope)
+    Foreach(src, pat, init, upd, has_x, extract) => eval_foreach(
       src,
       pat,
       init,
@@ -2431,35 +2302,32 @@ pure eval(ast: Jq, input: Json, scope: Env) -> Result[List[Json]] {
       input,
       scope,
     )
-    StrInterp(parts, fmt) => return eval_str_interp(parts, fmt, input, scope)
-    Fmt(name) => return Ok([JStr(apply_format(name, input)?)])
-    Assign(pathexpr, rhs) => return eval_assign(pathexpr, rhs, input, scope)
-    Update(pathexpr, rhs) => return eval_update(pathexpr, rhs, input, scope)
-    ArithUpdate(op, pathexpr, rhs) => return eval_arith_update(op, pathexpr, rhs, input, scope)
-    _ => return Err(jq_err("unimplemented filter"))
+    StrInterp(parts, fmt) => eval_str_interp(parts, fmt, input, scope)
+    Fmt(name) => Ok([JStr(apply_format(name, input)?)])
+    Assign(pathexpr, rhs) => eval_assign(pathexpr, rhs, input, scope)
+    Update(pathexpr, rhs) => eval_update(pathexpr, rhs, input, scope)
+    ArithUpdate(op, pathexpr, rhs) => eval_arith_update(op, pathexpr, rhs, input, scope)
+    _ => Err(jq_err("unimplemented filter"))
   }
 }
 
 # Slice bound sub-filter: Identity here marks an omitted bound -> null.
 pure eval_bound(b: Jq, input: Json, scope: Env) -> Result[List[Json]] {
   match b {
-    Identity => return Ok([JNull])
-    _ => return eval(b, input, scope)
+    Identity => Ok([JNull])
+    _ => eval(b, input, scope)
   }
 }
 
 pure lookup_var(scope: Env, name: Str) -> Result[Json] {
   match scope {
     EnvVar(n, v, parent) => {
-      if n == name {
-        return Ok(v)
-      }
+      return Ok(v) when n == name
 
-      return lookup_var(parent, name)
+      lookup_var(parent, name)
     }
-    EnvFilter(_, _, parent) => return lookup_var(parent, name)
-    EnvFunc(_, _, parent) => return lookup_var(parent, name)
-    EnvEmpty => return Err(jq_err("$" + name + " is not defined"))
+    EnvFilter(_, _, parent) | EnvFunc(_, _, parent) => lookup_var(parent, name)
+    EnvEmpty => Err(jq_err("$" + name + " is not defined"))
   }
 }
 
@@ -2468,15 +2336,12 @@ enum FilterLookup { FilterFound(Closure), FilterNone }
 pure lookup_filter(scope: Env, name: Str) -> FilterLookup {
   match scope {
     EnvFilter(n, clo, parent) => {
-      if n == name {
-        return FilterFound(clo)
-      }
+      return FilterFound(clo) when n == name
 
-      return lookup_filter(parent, name)
+      lookup_filter(parent, name)
     }
-    EnvVar(_, _, parent) => return lookup_filter(parent, name)
-    EnvFunc(_, _, parent) => return lookup_filter(parent, name)
-    EnvEmpty => return FilterNone
+    EnvVar(_, _, parent) | EnvFunc(_, _, parent) => lookup_filter(parent, name)
+    EnvEmpty => FilterNone
   }
 }
 
@@ -2485,15 +2350,12 @@ enum FuncLookup { FuncFound(FnDef, Env), FuncNone }
 pure lookup_func(scope: Env, name: Str, arity: Int) -> FuncLookup {
   match scope {
     EnvFunc(fdef, capture, parent) => {
-      if fdef.fname == name and fdef.params.len() == arity {
-        return FuncFound(fdef, capture)
-      }
+      return FuncFound(fdef, capture) when fdef.fname == name and fdef.params.len() == arity
 
-      return lookup_func(parent, name, arity)
+      lookup_func(parent, name, arity)
     }
-    EnvVar(_, _, parent) => return lookup_func(parent, name, arity)
-    EnvFilter(_, _, parent) => return lookup_func(parent, name, arity)
-    EnvEmpty => return FuncNone
+    EnvVar(_, _, parent) | EnvFilter(_, _, parent) => lookup_func(parent, name, arity)
+    EnvEmpty => FuncNone
   }
 }
 
@@ -2538,7 +2400,7 @@ pure eval_assign(pathexpr: Jq, rhs: Jq, input: Json, scope: Env) -> Result[List[
       cur = setpath(cur, p, nv)?
     }
 
-    results = results.push(cur)
+    results += [cur]
   }
 
   results
@@ -2585,7 +2447,7 @@ pure eval_arith_update(op: Str, pathexpr: Jq, rhs: Jq, input: Json, scope: Env) 
       }
     }
 
-    results = results.push(cur)
+    results += [cur]
   }
 
   results
@@ -2604,7 +2466,7 @@ pure eval_str_interp(parts: List[Jq], fmt: Str, input: Json, scope: Env) -> Resu
       }
       StrExpr(e) => {
         let vals = eval(e, input, scope)?
-        var next: List[Str] = []
+        var next = []
 
         for pre in partials {
           for v in vals {
@@ -2624,19 +2486,20 @@ pure eval_str_interp(parts: List[Jq], fmt: Str, input: Json, scope: Env) -> Resu
 }
 
 pure str_of(j: Json, ctx: Str) -> Result[Str] {
-  match j {
-    JStr(s) => return Ok(s)
-    _ => return Err(jq_err(ctx + " requires a string, got " + type_name(j)))
+  if let JStr(s) = j {
+    Ok(s)
+  } else {
+    Err(jq_err(ctx + " requires a string, got " + type_name(j)))
   }
 }
 
 pure join_values(xs: List[Json], sep: Str) -> Result[Str] {
-  var parts: List[Str] = []
+  var parts = []
 
   for x in xs {
     match x {
-      JNull => parts = parts.push("")
-      JStr(s) => parts = parts.push(s)
+      JNull => parts += [""]
+      JStr(s) => parts += [s]
       JNum(n) => parts = parts.push(render_num(n))
       JBool(b) => parts = parts.push(if b { "true" } else { "false" })
       _ => return Err(jq_err("Cannot join a list containing arrays or objects"))
@@ -2648,27 +2511,21 @@ pure join_values(xs: List[Json], sep: Str) -> Result[Str] {
 
 pure hex2(b: Int) -> Str {
   let digits = "0123456789ABCDEF"
-  return digits.byte_slice(b / 16, 1) + digits.byte_slice(b % 16, 1)
+  digits.byte_slice(b / 16, 1) + digits.byte_slice(b % 16, 1)
 }
 
 pure is_uri_unreserved(b: Int) -> Bool {
-  if b >= 65 and b <= 90 {
-    return true
-  }
+  return true when b >= 65 and b <= 90
 
-  if b >= 97 and b <= 122 {
-    return true
-  }
+  return true when b >= 97 and b <= 122
 
-  if b >= 48 and b <= 57 {
-    return true
-  }
+  return true when b >= 48 and b <= 57
 
-  return b == 45 or b == 95 or b == 46 or b == 126
+  b == 45 or b == 95 or b == 46 or b == 126
 }
 
 pure uri_encode(s: Str) -> Str {
-  var out: List[Str] = []
+  var out = []
   let n = s.byte_len()
   var i = 0
 
@@ -2684,7 +2541,7 @@ pure uri_encode(s: Str) -> Str {
     i = i + 1
   }
 
-  return out.join("")
+  out.join("")
 }
 
 pure html_escape(s: Str) -> Str {
@@ -2693,7 +2550,7 @@ pure html_escape(s: Str) -> Str {
   r = r.replace(">", "&gt;")
   r = r.replace("'", "&apos;")
   r = r.replace("\"", "&quot;")
-  return r
+  r
 }
 
 pure tsv_escape(s: Str) -> Str {
@@ -2701,35 +2558,29 @@ pure tsv_escape(s: Str) -> Str {
   r = r.replace("\t", "\\t")
   r = r.replace("\n", "\\n")
   r = r.replace("\r", "\\r")
-  return r
+  r
 }
 
 pure sh_quote(s: Str) -> Str {
-  return "'" + s.replace("'", "'\\''") + "'"
+  "'" + s.replace("'", "'\\''") + "'"
 }
 
 pure fmt_cell_sh(x: Json) -> Result[Str] {
   match x {
-    JStr(s) => return Ok(sh_quote(s))
-    JNum(n) => return Ok(render_num(n))
-    JBool(b) => return Ok(if b { "true" } else { "false" })
-    JNull => return Ok("null")
-    _ => return Err(jq_err("@sh: arrays and objects cannot be escaped"))
+    JStr(s) => Ok(sh_quote(s))
+    JNum(n) => Ok(render_num(n))
+    JBool(b) => Ok(if b { "true" } else { "false" })
+    JNull => Ok("null")
+    _ => Err(jq_err("@sh: arrays and objects cannot be escaped"))
   }
 }
 
 pure apply_format(name: Str, value: Json) -> Result[Str] {
-  if name == "text" {
-    return Ok(to_string_json(value))
-  }
+  return Ok(to_string_json(value)) when name == "text"
 
-  if name == "json" {
-    return Ok(ser(value))
-  }
+  return Ok(ser(value)) when name == "json"
 
-  if name == "base64" {
-    return Ok(bytes.from_text(to_string_json(value)).base64())
-  }
+  return Ok(bytes.from_text(to_string_json(value)).base64()) when name == "base64"
 
   if name == "base64d" {
     let s = to_string_json(value)
@@ -2737,21 +2588,15 @@ pure apply_format(name: Str, value: Json) -> Result[Str] {
     return b.utf8()
   }
 
-  if name == "base32" {
-    return Ok(bytes.from_text(to_string_json(value)).base32())
-  }
+  return Ok(bytes.from_text(to_string_json(value)).base32()) when name == "base32"
 
-  if name == "uri" {
-    return Ok(uri_encode(to_string_json(value)))
-  }
+  return Ok(uri_encode(to_string_json(value))) when name == "uri"
 
-  if name == "html" {
-    return Ok(html_escape(to_string_json(value)))
-  }
+  return Ok(html_escape(to_string_json(value))) when name == "html"
 
   if name == "csv" or name == "tsv" {
     let xs = require_array(value, "@csv/@tsv")?
-    var cells: List[Str] = []
+    var cells = []
 
     for x in xs {
       match x {
@@ -2763,47 +2608,36 @@ pure apply_format(name: Str, value: Json) -> Result[Str] {
             cells = cells.push(tsv_escape(s))
           }
         }
-        JNull => cells = cells.push("")
+        JNull => cells += [""]
         JBool(b) => cells = cells.push(if b { "true" } else { "false" })
         _ => return Err(jq_err("@csv/@tsv: arrays and objects not valid in a row"))
       }
     }
 
-    if name == "csv" {
-      return Ok(cells.join(","))
-    }
+    return Ok(cells.join(",")) when name == "csv"
 
     return Ok(cells.join("\t"))
   }
 
   if name == "sh" {
-    match value {
-      JArr(xs) => {
-        var parts = [fmt_cell_sh(x)? for x in xs]
-        return Ok(parts.join(" "))
-      }
-      _ => return fmt_cell_sh(value)
+    if let JArr(xs) = value {
+      var parts = [fmt_cell_sh(x)? for x in xs]
+      return Ok(parts.join(" "))
+    } else {
+      return fmt_cell_sh(value)
     }
   }
 
-  return Err(jq_err(name + " is not a valid format"))
+  Err(jq_err(name + " is not a valid format"))
 }
 
 # Binary operators. The cartesian product iterates b outer, a inner (jq order).
 pure eval_binop(op: Str, a: Jq, b: Jq, input: Json, scope: Env) -> Result[List[Json]] {
-  if op == "and" or op == "or" {
-    return eval_logic(op, a, b, input, scope)
-  }
+  return eval_logic(op, a, b, input, scope) when op == "and" or op == "or"
 
   let as_ = eval(a, input, scope)?
   let bs = eval(b, input, scope)?
-  var out: List[Json] = []
-
-  for bv in bs {
-    for av in as_ {
-      out = out.push(binop_apply(op, av, bv)?)
-    }
-  }
+  let out = [binop_apply(op, av, bv)? for bv in bs for av in as_]
 
   out
 }
@@ -2831,9 +2665,10 @@ pure eval_logic(op: Str, a: Jq, b: Jq, input: Json, scope: Env) -> Result[List[J
 }
 
 pure json_error(j: Json) -> Error {
-  match j {
-    JStr(s) => return jq_err(s)
-    _ => return jq_err(type_name(j) + " (" + ser(j) + ") not a string")
+  if let JStr(s) = j {
+    jq_err(s)
+  } else {
+    jq_err(type_name(j) + " (" + ser(j) + ") not a string")
   }
 }
 
@@ -2849,21 +2684,21 @@ pure sort_kv(items: List[KV]) -> List[KV] {
 
     for o in out {
       if ! inserted and json_cmp(it.key, o.key) < 0 {
-        next = next.push(it)
+        next += [it]
         inserted = true
       }
 
-      next = next.push(o)
+      next += [o]
     }
 
     if ! inserted {
-      next = next.push(it)
+      next += [it]
     }
 
     out = next
   }
 
-  return out
+  out
 }
 
 # Build [key, value] pairs where the key is [f] (jq sorts/groups by the array of f outputs).
@@ -2879,17 +2714,16 @@ pure kv_by(xs: List[Json], f: Jq, scope: Env) -> Result[List[KV]] {
 }
 
 pure first_or(vs: List[Json], fallback: Json) -> Json {
-  if vs.len() == 0 {
-    return fallback
-  }
+  return fallback when vs.len() == 0
 
-  return (vs.get(0) ?? fallback)
+  (vs.get(0) ?? fallback)
 }
 
 pure require_array(j: Json, ctx: Str) -> Result[List[Json]] {
-  match j {
-    JArr(xs) => return Ok(xs)
-    _ => return Err(jq_err(ctx + " requires an array, got " + type_name(j)))
+  if let JArr(xs) = j {
+    Ok(xs)
+  } else {
+    Err(jq_err(ctx + " requires an array, got " + type_name(j)))
   }
 }
 
@@ -2897,33 +2731,30 @@ pure flatten_into(xs: List[Json], depth: Int, out: List[Json]) -> List[Json] {
   var acc = out
 
   for x in xs {
-    match x {
-      JArr(inner) => {
-        if depth > 0 {
-          acc = flatten_into(inner, depth - 1, acc)
-        } else {
-          acc = acc.push(x)
-        }
+    if let JArr(inner) = x {
+      if depth > 0 {
+        acc = flatten_into(inner, depth - 1, acc)
+      } else {
+        acc += [x]
       }
-      _ => acc = acc.push(x)
+    } else {
+      acc += [x]
     }
   }
 
-  return acc
+  acc
 }
 
 pure obj_contains(aes: List[Entry], bes: List[Entry]) -> Bool {
   for be in bes {
-    if ! entry_has(aes, be.k) {
+    guard entry_has(aes, be.k) else {
       return false
     }
 
-    if ! contains_json(entry_get(aes, be.k), be.v) {
-      return false
-    }
+    return false when ! contains_json(entry_get(aes, be.k), be.v)
   }
 
-  return true
+  true
 }
 
 pure arr_contains(axs: List[Json], bxs: List[Json]) -> Bool {
@@ -2936,45 +2767,44 @@ pure arr_contains(axs: List[Json], bxs: List[Json]) -> Bool {
       }
     }
 
-    if ! found {
-      return false
-    }
+    return false when ! found
   }
 
-  return true
+  true
 }
 
 # jq `contains`: recursive structural containment.
 pure contains_json(a: Json, b: Json) -> Bool {
   match b {
     JObj(bes) => {
-      match a {
-        JObj(aes) => return obj_contains(aes, bes)
-        _ => return false
+      if let JObj(aes) = a {
+        obj_contains(aes, bes)
+      } else {
+        false
       }
     }
     JArr(bxs) => {
-      match a {
-        JArr(axs) => return arr_contains(axs, bxs)
-        _ => return false
+      if let JArr(axs) = a {
+        arr_contains(axs, bxs)
+      } else {
+        false
       }
     }
     JStr(bs) => {
-      match a {
-        JStr(as_) => return bs in as_
-        _ => return false
+      if let JStr(as_) = a {
+        bs in as_
+      } else {
+        false
       }
     }
-    _ => return json_eq(a, b)
+    _ => json_eq(a, b)
   }
 }
 
 pure range_gen(from: Float, to: Float, step: Float) -> List[Json] {
   var out: List[Json] = []
 
-  if step == 0.0 {
-    return out
-  }
+  return out when step == 0.0
 
   var x = from
 
@@ -2990,11 +2820,11 @@ pure range_gen(from: Float, to: Float, step: Float) -> List[Json] {
     }
   }
 
-  return out
+  out
 }
 
 pure fsqrt(x: Float) -> Float {
-  if x <= 0.0 {
+  guard ! (x <= 0.0) else {
     return 0.0
   }
 
@@ -3006,21 +2836,23 @@ pure fsqrt(x: Float) -> Float {
     i = i + 1
   }
 
-  return guess
+  guess
 }
 
 pure jnum_of(j: Json, ctx: Str) -> Result[Float] {
-  match j {
-    JNum(n) => return Ok(n)
-    _ => return Err(jq_err(ctx + " requires a number, got " + type_name(j)))
+  if let JNum(n) = j {
+    Ok(n)
+  } else {
+    Err(jq_err(ctx + " requires a number, got " + type_name(j)))
   }
 }
 
 # tostring: strings pass through; everything else is compact-JSON encoded.
 pure to_string_json(j: Json) -> Str {
-  match j {
-    JStr(s) => s
-    _ => ser(j)
+  if let JStr(s) = j {
+    s
+  } else {
+    ser(j)
   }
 }
 
@@ -3033,37 +2865,34 @@ pure entry_key_field(es: List[Entry]) -> Str {
   let names = ["key", "k", "name", "Name", "Key", "K"]
 
   for n in names {
-    if entry_has(es, n) {
-      return to_string_json(entry_get(es, n))
-    }
+    return to_string_json(entry_get(es, n)) when entry_has(es, n)
   }
 
-  return "null"
+  "null"
 }
 
 pure entry_val_field(es: List[Entry]) -> Json {
   let names = ["value", "v", "Value"]
 
   for n in names {
-    if entry_has(es, n) {
-      return entry_get(es, n)
-    }
+    return entry_get(es, n) when entry_has(es, n)
   }
 
-  return JNull
+  JNull
 }
 
 pure from_entries_of(xs: List[Json]) -> Result[Json] {
   var out: List[Entry] = []
 
   for x in xs {
-    match x {
-      JObj(es) => out = obj_set(out, entry_key_field(es), entry_val_field(es))
-      _ => return Err(jq_err("from_entries requires an array of objects"))
+    if let JObj(es) = x {
+      out = obj_set(out, entry_key_field(es), entry_val_field(es))
+    } else {
+      return Err(jq_err("from_entries requires an array of objects"))
     }
   }
 
-  return Ok(JObj(out))
+  Ok(JObj(out))
 }
 
 # ---------------------------------------------------------------------------
@@ -3077,35 +2906,33 @@ pure getpath(v: Json, pth: List[Json]) -> Result[Json] {
     cur = index_value(cur, seg)?
   }
 
-  return Ok(cur)
+  Ok(cur)
 }
 
 pure obj_entries_or_empty(v: Json) -> Result[List[Entry]] {
   match v {
-    JObj(es) => return Ok(es)
+    JObj(es) => Ok(es)
     JNull => {
       let none: List[Entry] = []
-      return Ok(none)
+      Ok(none)
     }
-    _ => return Err(jq_err("Cannot index " + type_name(v) + " with a string key"))
+    _ => Err(jq_err("Cannot index " + type_name(v) + " with a string key"))
   }
 }
 
 pure arr_or_empty(v: Json) -> Result[List[Json]] {
   match v {
-    JArr(xs) => return Ok(xs)
+    JArr(xs) => Ok(xs)
     JNull => {
       let none: List[Json] = []
-      return Ok(none)
+      Ok(none)
     }
-    _ => return Err(jq_err("Cannot index " + type_name(v) + " with a number"))
+    _ => Err(jq_err("Cannot index " + type_name(v) + " with a number"))
   }
 }
 
 pure setpath_at(v: Json, pth: List[Json], idx: Int, nv: Json) -> Result[Json] {
-  if idx >= pth.len() {
-    return Ok(nv)
-  }
+  return Ok(nv) when idx >= pth.len()
 
   let seg = (pth.get(idx) ?? JNull)
 
@@ -3114,7 +2941,7 @@ pure setpath_at(v: Json, pth: List[Json], idx: Int, nv: Json) -> Result[Json] {
       let es = obj_entries_or_empty(v)?
       let child = entry_get(es, k)
       let newchild = setpath_at(child, pth, idx + 1, nv)?
-      return Ok(JObj(obj_set(es, k, newchild)))
+      Ok(JObj(obj_set(es, k, newchild)))
     }
     JNum(n) => {
       let xs = arr_or_empty(v)?
@@ -3123,9 +2950,7 @@ pure setpath_at(v: Json, pth: List[Json], idx: Int, nv: Json) -> Result[Json] {
       if i < 0 {
         i = i + xs.len()
 
-        if i < 0 {
-          return Err(jq_err("Out of bounds negative array index"))
-        }
+        return Err(jq_err("Out of bounds negative array index")) when i < 0
       }
 
       let child = if i < xs.len() { (xs.get(i) ?? JNull) } else { JNull }
@@ -3141,24 +2966,24 @@ pure setpath_at(v: Json, pth: List[Json], idx: Int, nv: Json) -> Result[Json] {
 
       while j < target_len {
         if j == i {
-          out = out.push(newchild)
+          out += [newchild]
         } else if j < xs.len() {
           out = out.push((xs.get(j) ?? JNull))
         } else {
-          out = out.push(JNull)
+          out += [JNull]
         }
 
         j = j + 1
       }
 
-      return Ok(JArr(out))
+      Ok(JArr(out))
     }
-    _ => return Err(jq_err("Path segments must be strings or numbers"))
+    _ => Err(jq_err("Path segments must be strings or numbers"))
   }
 }
 
 pure setpath(v: Json, pth: List[Json], nv: Json) -> Result[Json] {
-  return setpath_at(v, pth, 0, nv)
+  setpath_at(v, pth, 0, nv)
 }
 
 pure obj_remove(es: List[Entry], k: Str) -> List[Entry] {
@@ -3183,69 +3008,62 @@ pure arr_remove(xs: List[Json], idx: Int) -> List[Json] {
     j = j + 1
   }
 
-  return out
+  out
 }
 
 pure remove_key(v: Json, seg: Json) -> Result[Json] {
   match v {
-    JNull => return Ok(JNull)
+    JNull => Ok(JNull)
     JObj(es) => {
       let k = as_obj_key(seg)?
-      return Ok(JObj(obj_remove(es, k)))
+      Ok(JObj(obj_remove(es, k)))
     }
     JArr(xs) => {
-      match seg {
-        JNum(n) => return Ok(JArr(arr_remove(xs, n.floor() ?? 0)))
-        _ => return Err(jq_err("Cannot delete array element with non-number"))
+      let index = if let JNum(n) = seg {
+        n.floor() ?? 0
+      } else {
+        return Err(jq_err("Cannot delete array element with non-number"))
       }
+      Ok(JArr(arr_remove(xs, index)))
     }
-    _ => return Err(jq_err("Cannot delete from " + type_name(v)))
+    _ => Err(jq_err("Cannot delete from " + type_name(v)))
   }
 }
 
 pure del_path(v: Json, pth: List[Json], idx: Int) -> Result[Json] {
-  if pth.len() == 0 {
-    return Ok(JNull)
-  }
+  return Ok(JNull) when pth.len() == 0
 
   let seg = (pth.get(idx) ?? JNull)
 
-  if idx == pth.len() - 1 {
-    return remove_key(v, seg)
-  }
+  return remove_key(v, seg) when idx == pth.len() - 1
 
   match v {
-    JNull => return Ok(JNull)
+    JNull => Ok(JNull)
     JObj(es) => {
       let k = as_obj_key(seg)?
 
-      if ! entry_has(es, k) {
-        return Ok(v)
-      }
+      return Ok(v) when ! entry_has(es, k)
 
       let newchild = del_path(entry_get(es, k), pth, idx + 1)?
-      return Ok(JObj(obj_set(es, k, newchild)))
+      Ok(JObj(obj_set(es, k, newchild)))
     }
     JArr(xs) => {
-      match seg {
-        JNum(n) => {
-          var i = n.floor() ?? 0
+      if let JNum(n) = seg {
+        var i = n.floor() ?? 0
 
-          if i < 0 {
-            i = i + xs.len()
-          }
-
-          if i < 0 or i >= xs.len() {
-            return Ok(v)
-          }
-
-          let newchild = del_path((xs.get(i) ?? JNull), pth, idx + 1)?
-          return setpath(v, [JNum(i.float())], newchild)
+        if i < 0 {
+          i = i + xs.len()
         }
-        _ => return Err(jq_err("Cannot index array with non-number"))
+
+        return Ok(v) when i < 0 or i >= xs.len()
+
+        let newchild = del_path((xs.get(i) ?? JNull), pth, idx + 1)?
+        setpath(v, [JNum(i.float())], newchild)
+      } else {
+        Err(jq_err("Cannot index array with non-number"))
       }
     }
-    _ => return Err(jq_err("Cannot index " + type_name(v)))
+    _ => Err(jq_err("Cannot index " + type_name(v)))
   }
 }
 
@@ -3259,15 +3077,16 @@ pure delpaths(v: Json, paths: List[List[Json]]) -> Result[Json] {
   while i >= 0 {
     let kv = (sorted.get(i) ?? {key: JNull, val: JNull})
 
-    match kv.val {
-      JArr(p) => cur = del_path(cur, p, 0)?
-      _ => cur = cur
+    if let JArr(p) = kv.val {
+      cur = del_path(cur, p, 0)?
+    } else {
+      cur = cur
     }
 
     i = i - 1
   }
 
-  return Ok(cur)
+  Ok(cur)
 }
 
 # All paths into `v` rooted at `prefix` (prefix included).
@@ -3291,7 +3110,7 @@ pure paths_from(v: Json, prefix: List[Json]) -> List[List[Json]] {
     _ => out = out
   }
 
-  return out
+  out
 }
 
 # Evaluate `ast` as a path expression against the current value `input`.
@@ -3299,16 +3118,16 @@ pure eval_paths(ast: Jq, input: Json, scope: Env) -> Result[List[List[Json]]] {
   match ast {
     Identity => {
       let empty: List[Json] = []
-      return Ok([empty])
+      Ok([empty])
     }
     RecurseDefault => {
       let empty: List[Json] = []
-      return Ok(paths_from(input, empty))
+      Ok(paths_from(input, empty))
     }
     Field(base, name) => {
       let bps = eval_paths(base, input, scope)?
       var out = [bp.push(JStr(name)) for bp in bps]
-      return Ok(out)
+      Ok(out)
     }
     Index(base, idx) => {
       let bps = eval_paths(base, input, scope)?
@@ -3322,7 +3141,7 @@ pure eval_paths(ast: Jq, input: Json, scope: Env) -> Result[List[List[Json]]] {
         }
       }
 
-      return Ok(out)
+      Ok(out)
     }
     Iterate(base) => {
       let bps = eval_paths(base, input, scope)?
@@ -3350,7 +3169,7 @@ pure eval_paths(ast: Jq, input: Json, scope: Env) -> Result[List[List[Json]]] {
         }
       }
 
-      return Ok(out)
+      Ok(out)
     }
     Pipe(a, b) => {
       let aps = eval_paths(a, input, scope)?
@@ -3365,12 +3184,12 @@ pure eval_paths(ast: Jq, input: Json, scope: Env) -> Result[List[List[Json]]] {
         }
       }
 
-      return Ok(out)
+      Ok(out)
     }
     Comma(a, b) => {
       var out = eval_paths(a, input, scope)?
       out = out.extend(eval_paths(b, input, scope)?)
-      return Ok(out)
+      Ok(out)
     }
     IfElse(cond, then_b, else_b) => {
       let conds = eval(cond, input, scope)?
@@ -3384,15 +3203,14 @@ pure eval_paths(ast: Jq, input: Json, scope: Env) -> Result[List[List[Json]]] {
         }
       }
 
-      return Ok(out)
+      Ok(out)
     }
     Optional(inner) => {
-      match eval_paths(inner, input, scope) {
-        Ok(ps) => return Ok(ps)
-        Err(_) => {
-          let none: List[List[Json]] = []
-          return Ok(none)
-        }
+      if let Ok(ps) = eval_paths(inner, input, scope) {
+        Ok(ps)
+      } else {
+        let none: List[List[Json]] = []
+        Ok(none)
       }
     }
     Call(name, callargs) => {
@@ -3438,28 +3256,27 @@ pure eval_paths(ast: Jq, input: Json, scope: Env) -> Result[List[List[Json]]] {
         return Ok([(ps.get(0) ?? empty)])
       }
 
-      return Err(jq_err("Invalid path expression: " + name))
+      Err(jq_err("Invalid path expression: " + name))
     }
-    _ => return Err(jq_err("Invalid path expression"))
+    _ => Err(jq_err("Invalid path expression"))
   }
 }
 
 pure json_to_path(j: Json) -> Result[List[Json]] {
-  match j {
-    JArr(xs) => return Ok(xs)
-    _ => return Err(jq_err("getpath requires an array pth"))
+  if let JArr(xs) = j {
+    Ok(xs)
+  } else {
+    Err(jq_err("getpath requires an array pth"))
   }
 }
 
 enum Dispatch { Handled(List[Json]), Pass }
 
 pure type_filter(input: Json, keep: Bool) -> Dispatch {
-  if keep {
-    return Handled([input])
-  }
+  return Handled([input]) when keep
 
   let none: List[Json] = []
-  return Handled(none)
+  Handled(none)
 }
 
 pure is_obj(j: Json) -> Bool {
@@ -3478,22 +3295,17 @@ pure is_arr(j: Json) -> Bool {
 
 # Type predicates and scalar conversions (no arguments).
 pure bi_typey(name: Str, input: Json) -> Result[Dispatch] {
-  if name == "type" {
-    return Ok(Handled([JStr(type_name(input))]))
-  }
+  return Ok(Handled([JStr(type_name(input))])) when name == "type"
 
-  if name == "not" {
-    return Ok(Handled([JBool(! is_truthy(input))]))
-  }
+  return Ok(Handled([JBool(! is_truthy(input))])) when name == "not"
 
-  if name == "length" {
-    return Ok(Handled([length_of(input)?]))
-  }
+  return Ok(Handled([length_of(input)?])) when name == "length"
 
   if name == "utf8bytelength" {
-    match input {
-      JStr(s) => return Ok(Handled([JNum(s.byte_len().float())]))
-      _ => return Err(jq_err(type_name(input) + " only strings have UTF-8 byte length"))
+    if let JStr(s) = input {
+      return Ok(Handled([JNum(s.byte_len().float())]))
+    } else {
+      return Err(jq_err(type_name(input) + " only strings have UTF-8 byte length"))
     }
   }
 
@@ -3501,57 +3313,34 @@ pure bi_typey(name: Str, input: Json) -> Result[Dispatch] {
     return Ok(Handled([keys_of(input, name == "keys")?]))
   }
 
-  if name == "values" {
-    return Ok(type_filter(input, is_truthy_nonnull(input)))
-  }
+  return Ok(type_filter(input, is_truthy_nonnull(input))) when name == "values"
 
-  if name == "nulls" {
-    return Ok(type_filter(input, type_name(input) == "null"))
-  }
+  return Ok(type_filter(input, type_name(input) == "null")) when name == "nulls"
 
-  if name == "booleans" {
-    return Ok(type_filter(input, type_name(input) == "boolean"))
-  }
+  return Ok(type_filter(input, type_name(input) == "boolean")) when name == "booleans"
 
-  if name == "numbers" {
-    return Ok(type_filter(input, type_name(input) == "number"))
-  }
+  return Ok(type_filter(input, type_name(input) == "number")) when name == "numbers"
 
-  if name == "strings" {
-    return Ok(type_filter(input, type_name(input) == "string"))
-  }
+  return Ok(type_filter(input, type_name(input) == "string")) when name == "strings"
 
-  if name == "arrays" {
-    return Ok(type_filter(input, is_arr(input)))
-  }
+  return Ok(type_filter(input, is_arr(input))) when name == "arrays"
 
-  if name == "objects" {
-    return Ok(type_filter(input, is_obj(input)))
-  }
+  return Ok(type_filter(input, is_obj(input))) when name == "objects"
 
-  if name == "iterables" {
-    return Ok(type_filter(input, is_arr(input) or is_obj(input)))
-  }
+  return Ok(type_filter(input, is_arr(input) or is_obj(input))) when name == "iterables"
 
-  if name == "scalars" {
-    return Ok(type_filter(input, ! (is_arr(input) or is_obj(input))))
-  }
+  return Ok(type_filter(input, ! (is_arr(input) or is_obj(input)))) when name == "scalars"
 
-  if name == "tostring" {
-    return Ok(Handled([JStr(to_string_json(input))]))
-  }
+  return Ok(Handled([JStr(to_string_json(input))])) when name == "tostring"
 
-  if name == "tojson" {
-    return Ok(Handled([JStr(ser(input))]))
-  }
+  return Ok(Handled([JStr(ser(input))])) when name == "tojson"
 
   if name == "fromjson" {
-    match input {
-      JStr(s) => {
-        let vs = parse_stream(s)?
-        return Ok(Handled([first_or(vs, JNull)]))
-      }
-      _ => return Err(jq_err("fromjson requires a string"))
+    if let JStr(s) = input {
+      let vs = parse_stream(s)?
+      return Ok(Handled([first_or(vs, JNull)]))
+    } else {
+      return Err(jq_err("fromjson requires a string"))
     }
   }
 
@@ -3564,19 +3353,16 @@ pure bi_typey(name: Str, input: Json) -> Result[Dispatch] {
   }
 
   if name == "ascii_downcase" or name == "ascii_upcase" {
-    match input {
-      JStr(s) => {
-        if name == "ascii_downcase" {
-          return Ok(Handled([JStr(s.lower())]))
-        }
+    if let JStr(s) = input {
+      return Ok(Handled([JStr(s.lower())])) when name == "ascii_downcase"
 
-        return Ok(Handled([JStr(s.upper())]))
-      }
-      _ => return Err(jq_err(type_name(input) + " cannot be case-folded"))
+      return Ok(Handled([JStr(s.upper())]))
+    } else {
+      return Err(jq_err(type_name(input) + " cannot be case-folded"))
     }
   }
 
-  return Ok(Pass)
+  Ok(Pass)
 }
 
 pure is_truthy_nonnull(j: Json) -> Bool {
@@ -3588,18 +3374,18 @@ pure is_truthy_nonnull(j: Json) -> Bool {
 
 pure length_of(j: Json) -> Result[Json] {
   match j {
-    JNull => return Ok(JNum(0.0))
+    JNull => Ok(JNum(0.0))
     JNum(n) => {
-      if n < 0.0 {
+      guard ! (n < 0.0) else {
         return Ok(JNum(0.0 - n))
       }
 
-      return Ok(JNum(n))
+      Ok(JNum(n))
     }
-    JStr(s) => return Ok(JNum(s.count_chars().float()))
-    JArr(xs) => return Ok(JNum(xs.len().float()))
-    JObj(es) => return Ok(JNum(es.len().float()))
-    JBool(_) => return Err(jq_err("boolean has no length"))
+    JStr(s) => Ok(JNum(s.count_chars().float()))
+    JArr(xs) => Ok(JNum(xs.len().float()))
+    JObj(es) => Ok(JNum(es.len().float()))
+    JBool(_) => Err(jq_err("boolean has no length"))
   }
 }
 
@@ -3613,7 +3399,7 @@ pure keys_of(j: Json, sorted: Bool) -> Result[Json] {
       }
 
       var out = [JStr(n) for n in names]
-      return Ok(JArr(out))
+      Ok(JArr(out))
     }
     JArr(xs) => {
       var out: List[Json] = []
@@ -3624,9 +3410,9 @@ pure keys_of(j: Json, sorted: Bool) -> Result[Json] {
         i = i + 1
       }
 
-      return Ok(JArr(out))
+      Ok(JArr(out))
     }
-    _ => return Err(jq_err(type_name(j) + " has no keys"))
+    _ => Err(jq_err(type_name(j) + " has no keys"))
   }
 }
 
@@ -3635,25 +3421,15 @@ pure bi_agg(name: Str, input: Json) -> Result[Dispatch] {
   if name == "floor" or name == "ceil" or name == "round" or name == "fabs" or name == "abs" or name == "sqrt" {
     let n = jnum_of(input, name)?
 
-    if name == "floor" {
-      return Ok(Handled([JNum((n.floor() ?? 0).float())]))
-    }
+    return Ok(Handled([JNum((n.floor() ?? 0).float())])) when name == "floor"
 
-    if name == "ceil" {
-      return Ok(Handled([JNum((n.ceil() ?? 0).float())]))
-    }
+    return Ok(Handled([JNum((n.ceil() ?? 0).float())])) when name == "ceil"
 
-    if name == "round" {
-      return Ok(Handled([JNum((n.round() ?? 0).float())]))
-    }
+    return Ok(Handled([JNum((n.round() ?? 0).float())])) when name == "round"
 
-    if name == "sqrt" {
-      return Ok(Handled([JNum(fsqrt(n))]))
-    }
+    return Ok(Handled([JNum(fsqrt(n))])) when name == "sqrt"
 
-    if n < 0.0 {
-      return Ok(Handled([JNum(0.0 - n)]))
-    }
+    return Ok(Handled([JNum(0.0 - n)])) when n < 0.0
 
     return Ok(Handled([JNum(n)]))
   }
@@ -3661,9 +3437,7 @@ pure bi_agg(name: Str, input: Json) -> Result[Dispatch] {
   if name == "add" {
     let xs = require_array(input, "add")?
 
-    if xs.len() == 0 {
-      return Ok(Handled([JNull]))
-    }
+    return Ok(Handled([JNull])) when xs.len() == 0
 
     var acc = (xs.get(0) ?? JNull)
     var i = 1
@@ -3688,9 +3462,7 @@ pure bi_agg(name: Str, input: Json) -> Result[Dispatch] {
     return Ok(Handled([JArr(dedupe_sorted(sort_kv(items)))]))
   }
 
-  if name == "reverse" {
-    return Ok(Handled([reverse_value(input)?]))
-  }
+  return Ok(Handled([reverse_value(input)?])) when name == "reverse"
 
   if name == "min" or name == "max" {
     let xs = require_array(input, name)?
@@ -3704,9 +3476,10 @@ pure bi_agg(name: Str, input: Json) -> Result[Dispatch] {
   }
 
   if name == "to_entries" {
-    match input {
-      JObj(es) => return Ok(Handled([JArr(to_entries_of(es))]))
-      _ => return Err(jq_err("to_entries requires an object"))
+    if let JObj(es) = input {
+      return Ok(Handled([JArr(to_entries_of(es))]))
+    } else {
+      return Err(jq_err("to_entries requires an object"))
     }
   }
 
@@ -3749,23 +3522,19 @@ pure bi_agg(name: Str, input: Json) -> Result[Dispatch] {
   if name == "last" {
     let xs = require_array(input, "last")?
 
-    if xs.len() == 0 {
-      return Ok(Handled([JNull]))
-    }
+    return Ok(Handled([JNull])) when xs.len() == 0
 
     return Ok(Handled([(xs.get(xs.len() - 1) ?? JNull)]))
   }
 
-  if name == "recurse" {
-    return Ok(Handled(recurse_all(input)))
-  }
+  return Ok(Handled(recurse_all(input))) when name == "recurse"
 
-  return Ok(Pass)
+  Ok(Pass)
 }
 
 pure kv_vals(items: List[KV]) -> Json {
   var out = [it.val for it in items]
-  return JArr(out)
+  JArr(out)
 }
 
 pure dedupe_sorted(items: List[KV]) -> List[Json] {
@@ -3783,13 +3552,11 @@ pure dedupe_sorted(items: List[KV]) -> List[Json] {
     }
   }
 
-  return out
+  out
 }
 
 pure minmax(xs: List[Json], want_max: Bool) -> Json {
-  if xs.len() == 0 {
-    return JNull
-  }
+  return JNull when xs.len() == 0
 
   var best = (xs.get(0) ?? JNull)
   var i = 1
@@ -3811,7 +3578,7 @@ pure minmax(xs: List[Json], want_max: Bool) -> Json {
     i = i + 1
   }
 
-  return best
+  best
 }
 
 pure reverse_value(j: Json) -> Result[Json] {
@@ -3825,11 +3592,11 @@ pure reverse_value(j: Json) -> Result[Json] {
         i = i - 1
       }
 
-      return Ok(JArr(out))
+      Ok(JArr(out))
     }
-    JStr(s) => return Ok(JStr(s.reverse()))
-    JNull => return Ok(JArr([]))
-    _ => return Err(jq_err(type_name(j) + " cannot be reversed"))
+    JStr(s) => Ok(JStr(s.reverse()))
+    JNull => Ok(JArr([]))
+    _ => Err(jq_err(type_name(j) + " cannot be reversed"))
   }
 }
 
@@ -3842,9 +3609,7 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
     return Ok(Handled(none))
   }
 
-  if name == "error" and argc == 0 {
-    return Err(json_error(input))
-  }
+  return Err(json_error(input)) when name == "error" and argc == 0
 
   if name == "error" and argc == 1 {
     let vs = eval((callargs.get(0) ?? Identity), input, scope)?
@@ -3998,9 +3763,7 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
     let n = jnum_of(first_or(nv, JNum(0.0)), "limit")?.floor() ?? 0
     let none: List[Json] = []
 
-    if n <= 0 {
-      return Ok(Handled(none))
-    }
+    return Ok(Handled(none)) when n <= 0
 
     let all = eval((callargs.get(1) ?? Identity), input, scope)?
     var out: List[Json] = []
@@ -4008,7 +3771,7 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
 
     for v in all {
       if i < n {
-        out = out.push(v)
+        out += [v]
       }
 
       i = i + 1
@@ -4023,9 +3786,7 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
     let all = eval((callargs.get(1) ?? Identity), input, scope)?
     let none: List[Json] = []
 
-    if n < 0 or n >= all.len() {
-      return Ok(Handled(none))
-    }
+    return Ok(Handled(none)) when n < 0 or n >= all.len()
 
     return Ok(Handled([(all.get(n) ?? JNull)]))
   }
@@ -4049,29 +3810,27 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
   }
 
   if (name == "ltrimstr" or name == "rtrimstr") and argc == 1 {
-    match input {
-      JStr(s) => {
-        let pv = eval((callargs.get(0) ?? Identity), input, scope)?
-        var out: List[Json] = []
+    if let JStr(s) = input {
+      let pv = eval((callargs.get(0) ?? Identity), input, scope)?
+      var out: List[Json] = []
 
-        for p in pv {
-          match p {
-            JStr(pp) => {
-              if name == "ltrimstr" and s.starts_with(pp) {
-                out = out.push(JStr(s.byte_slice(pp.byte_len(), s.byte_len() - pp.byte_len())))
-              } else if name == "rtrimstr" and s.ends_with(pp) {
-                out = out.push(JStr(s.byte_slice(0, s.byte_len() - pp.byte_len())))
-              } else {
-                out = out.push(input)
-              }
-            }
-            _ => out = out.push(input)
+      for p in pv {
+        if let JStr(pp) = p {
+          if name == "ltrimstr" and s.starts_with(pp) {
+            out = out.push(JStr(s.byte_slice(pp.byte_len(), s.byte_len() - pp.byte_len())))
+          } else if name == "rtrimstr" and s.ends_with(pp) {
+            out = out.push(JStr(s.byte_slice(0, s.byte_len() - pp.byte_len())))
+          } else {
+            out += [input]
           }
+        } else {
+          out += [input]
         }
-
-        return Ok(Handled(out))
       }
-      _ => return Ok(Handled([input]))
+
+      return Ok(Handled(out))
+    } else {
+      return Ok(Handled([input]))
     }
   }
 
@@ -4159,13 +3918,7 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
   if name == "setpath" and argc == 2 {
     let pv = eval((callargs.get(0) ?? Identity), input, scope)?
     let vv = eval((callargs.get(1) ?? Identity), input, scope)?
-    var out: List[Json] = []
-
-    for p in pv {
-      for nv in vv {
-        out = out.push(setpath(input, json_to_path(p)?, nv)?)
-      }
-    }
+    let out = [setpath(input, json_to_path(p)?, nv)? for p in pv for nv in vv]
 
     return Ok(Handled(out))
   }
@@ -4177,13 +3930,12 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
     for p in pv {
       var paths: List[List[Json]] = []
 
-      match p {
-        JArr(ps) => {
-          for one in ps {
-            paths = paths.push(json_to_path(one)?)
-          }
+      if let JArr(ps) = p {
+        for one in ps {
+          paths = paths.push(json_to_path(one)?)
         }
-        _ => return Err(jq_err("delpaths requires an array of paths"))
+      } else {
+        return Err(jq_err("delpaths requires an array of paths"))
       }
 
       out = out.push(delpaths(input, paths)?)
@@ -4209,7 +3961,7 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
         out = out.push(first_or(idxs, JNull))
       } else {
         if idxs.len() == 0 {
-          out = out.push(JNull)
+          out += [JNull]
         } else {
           out = out.push((idxs.get(idxs.len() - 1) ?? JNull))
         }
@@ -4220,22 +3972,21 @@ pure bi_args(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result[D
   }
 
   if name == "with_entries" and argc == 1 {
-    match input {
-      JObj(es) => {
-        let entries = to_entries_of(es)
-        var mapped: List[Json] = []
+    if let JObj(es) = input {
+      let entries = to_entries_of(es)
+      var mapped: List[Json] = []
 
-        for ent in entries {
-          mapped = mapped.extend(eval((callargs.get(0) ?? Identity), ent, scope)?)
-        }
-
-        return Ok(Handled([from_entries_of(mapped)?]))
+      for ent in entries {
+        mapped = mapped.extend(eval((callargs.get(0) ?? Identity), ent, scope)?)
       }
-      _ => return Err(jq_err("with_entries requires an object"))
+
+      return Ok(Handled([from_entries_of(mapped)?]))
+    } else {
+      return Err(jq_err("with_entries requires an object"))
     }
   }
 
-  return Ok(Pass)
+  Ok(Pass)
 }
 
 pure dedupe_by_key(items: List[KV]) -> List[Json] {
@@ -4253,7 +4004,7 @@ pure dedupe_by_key(items: List[KV]) -> List[Json] {
     }
   }
 
-  return out
+  out
 }
 
 pure group_sorted(items: List[KV]) -> List[Json] {
@@ -4280,13 +4031,11 @@ pure group_sorted(items: List[KV]) -> List[Json] {
     out = out.push(JArr(cur))
   }
 
-  return out
+  out
 }
 
 pure minmax_by(pairs: List[KV], want_max: Bool) -> Json {
-  if pairs.len() == 0 {
-    return JNull
-  }
+  return JNull when pairs.len() == 0
 
   var best = (pairs.get(0) ?? {key: JNull, val: JNull})
   var i = 1
@@ -4308,7 +4057,7 @@ pure minmax_by(pairs: List[KV], want_max: Bool) -> Json {
     i = i + 1
   }
 
-  return best.val
+  best.val
 }
 
 pure eval_range(callargs: List[Jq], input: Json, scope: Env) -> Result[List[Json]] {
@@ -4360,7 +4109,7 @@ pure map_values(input: Json, f: Jq, scope: Env) -> Result[Json] {
         }
       }
 
-      return Ok(JObj(out))
+      Ok(JObj(out))
     }
     JArr(xs) => {
       var out: List[Json] = []
@@ -4373,9 +4122,9 @@ pure map_values(input: Json, f: Jq, scope: Env) -> Result[Json] {
         }
       }
 
-      return Ok(JArr(out))
+      Ok(JArr(out))
     }
-    _ => return Err(jq_err(type_name(input) + " cannot be map_values'd"))
+    _ => Err(jq_err(type_name(input) + " cannot be map_values'd"))
   }
 }
 
@@ -4383,18 +4132,17 @@ pure has_key(cont: Json, key: Json) -> Result[Bool] {
   match cont {
     JObj(es) => {
       let k = as_obj_key(key)?
-      return Ok(entry_has(es, k))
+      Ok(entry_has(es, k))
     }
     JArr(xs) => {
-      match key {
-        JNum(n) => {
-          let i = n.floor() ?? 0
-          return Ok(i >= 0 and i < xs.len())
-        }
-        _ => return Err(jq_err("Cannot check array membership with non-number"))
+      if let JNum(n) = key {
+        let i = n.floor() ?? 0
+        Ok(i >= 0 and i < xs.len())
+      } else {
+        Err(jq_err("Cannot check array membership with non-number"))
       }
     }
-    _ => return Err(jq_err(type_name(cont) + " has no keys"))
+    _ => Err(jq_err(type_name(cont) + " has no keys"))
   }
 }
 
@@ -4411,7 +4159,7 @@ pure recurse_f(input: Json, f: Jq, scope: Env) -> Result[List[Json]] {
 }
 
 pure starts_with_dollar(p: Str) -> Bool {
-  return (p.byte_at(0) ?? 0) == 36
+  (p.byte_at(0) ?? 0) == 36
 }
 
 # walk(f): transform children bottom-up, then apply f to the rebuilt value.
@@ -4420,16 +4168,16 @@ pure walk_f(v: Json, f: Jq, scope: Env) -> Result[Json] {
     JObj(es) => {
       var out = [{k: e.k, v: walk_f(e.v, f, scope)?} for e in es]
       let r = eval(f, JObj(out), scope)?
-      return Ok(first_or(r, JObj(out)))
+      Ok(first_or(r, JObj(out)))
     }
     JArr(xs) => {
       var out = [walk_f(x, f, scope)? for x in xs]
       let r = eval(f, JArr(out), scope)?
-      return Ok(first_or(r, JArr(out)))
+      Ok(first_or(r, JArr(out)))
     }
     _ => {
       let r = eval(f, v, scope)?
-      return Ok(first_or(r, v))
+      Ok(first_or(r, v))
     }
   }
 }
@@ -4437,9 +4185,7 @@ pure walk_f(v: Json, f: Jq, scope: Env) -> Result[Json] {
 pure str_indices(s: Str, sub: Str) -> List[Json] {
   var out: List[Json] = []
 
-  if sub == "" {
-    return out
-  }
+  return out when sub == ""
 
   var start = 0
 
@@ -4450,15 +4196,13 @@ pure str_indices(s: Str, sub: Str) -> List[Json] {
     start = i + 1
   }
 
-  return out
+  out
 }
 
 pure arr_subseq_indices(xs: List[Json], sub: List[Json]) -> List[Json] {
   var out: List[Json] = []
 
-  if sub.len() == 0 {
-    return out
-  }
+  return out when sub.len() == 0
 
   var i = 0
 
@@ -4481,7 +4225,7 @@ pure arr_subseq_indices(xs: List[Json], sub: List[Json]) -> List[Json] {
     i = i + 1
   }
 
-  return out
+  out
 }
 
 pure find_indices(hay: Json, needle: Json) -> Result[List[Json]] {
@@ -4489,32 +4233,32 @@ pure find_indices(hay: Json, needle: Json) -> Result[List[Json]] {
 
   match hay {
     JStr(s) => {
-      match needle {
-        JStr(sub) => return Ok(str_indices(s, sub))
-        _ => return Ok(none)
+      if let JStr(sub) = needle {
+        Ok(str_indices(s, sub))
+      } else {
+        Ok(none)
       }
     }
     JArr(xs) => {
-      match needle {
-        JArr(sub) => return Ok(arr_subseq_indices(xs, sub))
-        _ => {
-          var out: List[Json] = []
-          var i = 0
+      if let JArr(sub) = needle {
+        Ok(arr_subseq_indices(xs, sub))
+      } else {
+        var out: List[Json] = []
+        var i = 0
 
-          for x in xs {
-            if json_eq(x, needle) {
-              out = out.push(JNum(i.float()))
-            }
-
-            i = i + 1
+        for x in xs {
+          if json_eq(x, needle) {
+            out = out.push(JNum(i.float()))
           }
 
-          return Ok(out)
+          i = i + 1
         }
+
+        Ok(out)
       }
     }
-    JNull => return Ok(none)
-    _ => return Err(jq_err("Cannot get indices of " + type_name(hay)))
+    JNull => Ok(none)
+    _ => Err(jq_err("Cannot get indices of " + type_name(hay)))
   }
 }
 
@@ -4539,7 +4283,7 @@ pure re_and_flags(callargs: List[Jq], input: Json, scope: Env) -> Result[ReFlags
         fl = str_of(({ let lookup_receiver_2 = xs; let lookup_index_2 = 1; let lookup_fallback_2 = JStr(""); lookup_receiver_2.get(lookup_index_2) ?? lookup_fallback_2 }), "regex")?
       }
 
-      return Ok({restr: re, flags: fl})
+      Ok({restr: re, flags: fl})
     }
     JStr(s) => {
       var fl = ""
@@ -4552,9 +4296,9 @@ pure re_and_flags(callargs: List[Jq], input: Json, scope: Env) -> Result[ReFlags
         }
       }
 
-      return Ok({restr: s, flags: fl})
+      Ok({restr: s, flags: fl})
     }
-    _ => return Err(jq_err("regex must be a string"))
+    _ => Err(jq_err("regex must be a string"))
   }
 }
 
@@ -4577,22 +4321,20 @@ pure compile_re(restr: Str, flags: Str) -> Result[Regex] {
     inner = inner + "x"
   }
 
-  if inner == "" {
-    return regex.compile(restr)
-  }
+  return regex.compile(restr) when inner == ""
 
-  return regex.compile("(?" + inner + ")" + restr)
+  regex.compile("(?" + inner + ")" + restr)
 }
 
 pure regex_replace_spans(text: Str, spans: List[Span], repl: Str, only_first: Bool) -> Str {
-  var out: List[Str] = []
+  var out = []
   var last = 0
   var done = false
 
   for m in spans {
     if ! done {
       out = out.push(text.byte_slice(last, m.start - last))
-      out = out.push(repl)
+      out += [repl]
       last = m.end
 
       if only_first {
@@ -4602,7 +4344,7 @@ pure regex_replace_spans(text: Str, spans: List[Span], repl: Str, only_first: Bo
   }
 
   out = out.push(text.byte_slice(last, text.byte_len() - last))
-  return out.join("")
+  out.join("")
 }
 
 pure regex_split(text: Str, spans: List[Span]) -> List[Json] {
@@ -4615,13 +4357,13 @@ pure regex_split(text: Str, spans: List[Span]) -> List[Json] {
   }
 
   out = out.push(JStr(text.byte_slice(last, text.byte_len() - last)))
-  return out
+  out
 }
 
 pure match_object(m: Span) -> Json {
   let nocaps: List[Json] = []
 
-  return JObj(
+  JObj(
     [
       {
         k: "offset",
@@ -4647,17 +4389,13 @@ pure eval_regex(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Resul
   let argc = callargs.len()
   let is_re = name == "test" or name == "match" or name == "scan" or name == "splits" or name == "sub" or name == "gsub" or name == "split" and argc == 2
 
-  if ! is_re {
-    return Ok(Pass)
-  }
+  return Ok(Pass) when ! is_re
 
   let rf = re_and_flags(callargs, input, scope)?
   let re = compile_re(rf.restr, rf.flags)?
   let s = str_of(input, name)?
 
-  if name == "test" {
-    return Ok(Handled([JBool(re.matches(s))]))
-  }
+  return Ok(Handled([JBool(re.matches(s))])) when name == "test"
 
   let spans = re.find(s)
 
@@ -4682,13 +4420,9 @@ pure eval_regex(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Resul
     return Ok(Handled(out))
   }
 
-  if name == "splits" {
-    return Ok(Handled(regex_split(s, spans)))
-  }
+  return Ok(Handled(regex_split(s, spans))) when name == "splits"
 
-  if name == "split" {
-    return Ok(Handled([JArr(regex_split(s, spans))]))
-  }
+  return Ok(Handled([JArr(regex_split(s, spans))])) when name == "split"
 
   if name == "sub" or name == "gsub" {
     let replv = eval((callargs.get(1) ?? Identity), input, scope)?
@@ -4696,7 +4430,7 @@ pure eval_regex(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Resul
     return Ok(Handled([JStr(regex_replace_spans(s, spans, repl, name == "sub"))]))
   }
 
-  return Ok(Pass)
+  Ok(Pass)
 }
 
 # Resolve a call: filter parameter (0-arg), then user def, then builtin.
@@ -4713,14 +4447,14 @@ pure eval_call_resolved(name: Str, callargs: List[Jq], input: Json, scope: Env) 
     FuncNone => {}
   }
 
-  return eval_call(name, callargs, input, scope)
+  eval_call(name, callargs, input, scope)
 }
 
 # Invoke a user def: re-inject self (for recursion), bind filter params as closures
 # over the caller env, then cartesian-bind value ($-prefixed) params.
 pure eval_user_func(fdef: FnDef, capture: Env, callargs: List[Jq], caller: Env, input: Json) -> Result[List[Json]] {
   var base = EnvFunc(fdef, capture, capture)
-  var vnames: List[Str] = []
+  var vnames = []
   var vargs: List[Jq] = []
   var i = 0
 
@@ -4735,7 +4469,7 @@ pure eval_user_func(fdef: FnDef, capture: Env, callargs: List[Jq], caller: Env, 
     i = i + 1
   }
 
-  return bind_value_params(fdef.fbody, vnames, vargs, 0, input, caller, base)
+  bind_value_params(fdef.fbody, vnames, vargs, 0, input, caller, base)
 }
 
 pure bind_value_params(
@@ -4747,9 +4481,7 @@ pure bind_value_params(
   caller: Env,
   base: Env,
 ) -> Result[List[Json]] {
-  if idx >= vnames.len() {
-    return eval(body, input, base)
-  }
+  return eval(body, input, base) when idx >= vnames.len()
 
   let vals = eval((vargs.get(idx) ?? Identity), input, caller)?
   var out: List[Json] = []
@@ -4765,7 +4497,7 @@ pure bind_value_params(
 # Bind a destructuring pattern against `value`, extending `scope`.
 pure bind_pattern(pat: Pattern, value: Json, scope: Env) -> Result[Env] {
   match pat {
-    PVar(name) => return Ok(EnvVar(name, value, scope))
+    PVar(name) => Ok(EnvVar(name, value, scope))
     PArray(pats) => {
       var sc = scope
       var i = 0
@@ -4776,7 +4508,7 @@ pure bind_pattern(pat: Pattern, value: Json, scope: Env) -> Result[Env] {
         i = i + 1
       }
 
-      return Ok(sc)
+      Ok(sc)
     }
     PObjPat(fields) => {
       var sc = scope
@@ -4786,7 +4518,7 @@ pure bind_pattern(pat: Pattern, value: Json, scope: Env) -> Result[Env] {
         sc = bind_pattern(f.pat, elem, sc)?
       }
 
-      return Ok(sc)
+      Ok(sc)
     }
   }
 }
@@ -4822,7 +4554,7 @@ pure eval_reduce(src: Jq, pat: Pattern, init: Jq, upd: Jq, input: Json, scope: E
       }
     }
 
-    results = results.push(acc)
+    results += [acc]
   }
 
   results
@@ -4853,7 +4585,7 @@ pure eval_foreach(
         if has_x {
           out = out.extend(eval(extract, s, scope2)?)
         } else {
-          out = out.push(s)
+          out += [s]
         }
       }
 
@@ -4898,7 +4630,7 @@ pure eval_call(name: Str, callargs: List[Jq], input: Json, scope: Env) -> Result
     Pass => {}
   }
 
-  return Err(jq_err(name + "/" + f"${callargs.len()}" + " is not defined"))
+  Err(jq_err(name + "/" + f"${callargs.len()}" + " is not defined"))
 }
 
 # ---------------------------------------------------------------------------
@@ -4946,7 +4678,7 @@ pure parse_args(argv: List[Str]) -> Result[Args] {
   let filter = (opts.operands.get(0) ?? "")
   let files = opts.operands |> drop(1)
 
-  return Ok({
+  Ok({
     filter: filter,
     files: files,
     compact: opts.compact,
@@ -4960,13 +4692,14 @@ pure parse_args(argv: List[Str]) -> Result[Args] {
 # Emit one output value per jq rules: -r unwraps a top-level string.
 pure format_output(j: Json, raw: Bool) -> Str {
   if raw {
-    match j {
-      JStr(s) => return s
-      _ => return ser(j)
+    if let JStr(s) = j {
+      return s
+    } else {
+      return ser(j)
     }
   }
 
-  return ser(j)
+  ser(j)
 }
 
 proc main(...argv: List[Str]) [error, io] {

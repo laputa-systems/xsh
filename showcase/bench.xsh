@@ -29,7 +29,7 @@ proc main(...cmd: List[Str]) [time, error] {
   )?
 
   let command = process.command_argv(opts.argv.get(0)?, opts.argv)
-  var times: List[Int] = []
+  var times = []
 
   for _ in range(opts.warmup) {
     let result = time.measure(command)?

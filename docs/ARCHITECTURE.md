@@ -201,6 +201,9 @@ message remains an indexed expression and executes only on a false condition.
 Guarded control statements use `ArenaStmtKind::GuardedStmt` around ordinary
 return/break/continue/yield statements. `Checker::check_condition_arena` checks
 the Bool/Status guard before applying selected-branch narrowing to the payload.
+The checker restores the skipped branch's lexical bindings and complementary
+condition proof after a valid exiting payload; resumable yields establish no
+continuation proof.
 `CompactLowerConstructProbe::lower_stmt_with_blocker_guard` lowers this wrapper
 through ordinary conditional statement rows, preserving lazy payload evaluation
 and lexical cleanup ownership.
@@ -381,6 +384,12 @@ bundled implementation, including modules unused on the current target. The
 retain user source locations and do not present internal namespaces as callable
 names.
 
+Frontend checker-lowering and lint workers use a fixed 16 MiB stack through
+`xsht::cli::FRONTEND_WORKER_STACK_BYTES`. Recursive named schema construction
+can exceed the platform's small default worker stack while remaining valid;
+explicit `thread::Builder::spawn_scoped` stacks keep tooling independent of
+`RUST_MIN_STACK` and bound the reservation for each worker.
+
 The private `BridgeTypeName` operation remains restricted by verifier
 provenance and belongs to JSON Lines. The CLI policy returned to
 `src/modules/cli.rs` after the measured script path failed the B0 batch gate.
@@ -406,6 +415,10 @@ The executable frontend has stable owners rather than a migration path:
   frames before dispatch. Calls nested in projections therefore do not retain
   recursive operand evaluation on the native stack. Native argument holes and
   source order are preserved, and both dispatch paths share module tracing.
+  Selected `ExprMatch` arm chains in `eval_indexed_match_expr` advance
+  iteratively. Named-argument constructor preparation can therefore bind a
+  wide record without adding a native evaluator frame for each field; subject
+  and guard evaluation still follows source order.
 - `src/runtime/eval.rs` owns installation, dynamic-function registration, slot
   pooling, and evaluator/session lifetime. It never owns a second executable
   representation.
@@ -519,6 +532,11 @@ Focused semantic rules live beside it:
   collections and mutable nullable accumulators before checking operations in
   their enclosing callable. A cloned ordinary checker retains substitutions
   and seed identities while discarding speculative diagnostics and facts.
+  `Checker::constraint_probe` retains declaration, lexical, parameter, return,
+  and substitution contracts while excluding completed expression and block
+  facts. Speculative local constraints, default parameters, and argument spreads
+  recompute those facts before consuming them; cloning prior output repeatedly
+  copies captured module contracts as the program grows.
   Normal checking then uses the same monomorphic identities. Checked binding
   types supply indexed slot metadata, so a null initializer cannot erase a
   solved Optional contract. Full and compact publication canonicalize every
@@ -841,6 +859,13 @@ versus braced interpolation. Formatter serialization escapes a leading value
 newline to avoid accidentally turning value bytes into structural layout.
 
 `sema/constants.rs::PreparedConstants` owns lexical preparation for `const`.
+Preparation includes every declaration in the configured entry and module
+sources, including unused function bodies, while excluding unrelated sources
+retained in a shared workspace arena. `ConstantScopeIndex` batches lexical
+containment queries by source and start position; an end-position prefix index
+selects the shortest containing block and excludes equal spans for parents.
+The index preserves block identities and runtime-binding lookup barriers while
+bounding scope lookup work by the number of active blocks and queried nodes.
 `LiteralConstant` is shared with schema defaults, preserving the separate rule
 that earlier immutable literal `let` bindings may supply those defaults.
 `CompactDeclOutput::prepared_constants` supplies values, concrete types, and
