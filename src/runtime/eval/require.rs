@@ -104,8 +104,8 @@ impl PreparedSchema {
                 let mut value = value;
                 for (field, schema) in fields {
                     let field_path = if path == "$" { field.to_string() } else { format!("{path}.{field}") };
-                    let selected = super::lower::lowered_record_field(&value, &field.as_str())
-                        .ok_or_else(|| failure(format!("missing required field {field}")))?.clone();
+                    let selected = super::lowered_run::lowered_record_field_value(&value, &field.as_str())
+                        .ok_or_else(|| failure(format!("missing required field {field}")))?;
                     let converted = schema.decode(evaluator, selected, &field_path, span)?;
                     if schema.converts_wire() {
                         *super::lowered_ops::lowered_record_field_mut(&mut value, *field, span)? = converted;

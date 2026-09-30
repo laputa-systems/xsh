@@ -56,6 +56,9 @@ walk; both execution routes validate and convert a private value before returnin
 it. Schemas and prepared constants register in the same declaring mapping pool
 as constructors; the verifier rejects independently altered mapping copies and
 checks schema and constructor metadata before execution.
+Record validation uses `lowered_record_field_value`, the owned field view shared
+with ordinary record methods. Synthesized fields in compact Stats values remain
+visible to the same schema contract as stored record fields.
 
 ## Checked key projections
 

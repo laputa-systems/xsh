@@ -416,7 +416,9 @@ fn lowered_pipeline_item_count(value: &LoweredValue) -> Option<usize> {
     }
 }
 
-fn lowered_record_field_value(value: &LoweredValue, field: &str) -> Option<LoweredValue> {
+// Synthesized fields on compact records have the same visible values as stored
+// fields. Validation and method reads share this owned view.
+pub(super) fn lowered_record_field_value(value: &LoweredValue, field: &str) -> Option<LoweredValue> {
     match value {
         LoweredValue::Stats {
             blanks,
