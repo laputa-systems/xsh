@@ -1999,6 +1999,17 @@ impl CompactBodyProbe<'_> {
             if self.type_constraints.constrain(&parameter, &actual, entry.span).is_err() { return Some(Type::Invalid); }
         }
         instance.resolve(&self.type_constraints);
+        if signature.semantic_rule == crate::modules::signature::SemanticRule::CliDescriptor
+            && let Some(schema) = crate::modules::cli::descriptor_argument(&entries)
+            && let Some(plan) = self.declarations.prepared_constants.cli_descriptor_plan(
+                &self.program.arena, schema, signature.op == xsh_registry::RuntimeOp::CliApplet,
+            )
+        {
+            match plan {
+                Ok(plan) => return Some(plan.return_type(signature.op == xsh_registry::RuntimeOp::CliParseFull)),
+                Err(error) => self.error(error.span.unwrap_or(self.program.arena.expr(schema).span), &error.message, "check.cli-descriptor"),
+            }
+        }
         Some(compact_postfix_result(instance.signature.return_ty, lifted))
     }
 

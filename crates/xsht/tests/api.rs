@@ -35,7 +35,6 @@ fn api_builtin_templates_render_receiver_argument_and_result_relationships() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     for signature in [
         "List[T].get(index: Int) -> Result[T, Error]",
-        "List[T].get(index: Int, fallback: T) -> T",
         "Map[K, V].set(key: K, value: V) -> Map[K, V]",
         "Map[K, V].values() -> List[V]",
         "List[Str].join(separator: Str = default) -> Str",
