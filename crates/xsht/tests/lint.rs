@@ -15,6 +15,24 @@ use xsht::format::Formatter;
 use xsht::lint::{LintOptions, Linter};
 
 #[test]
+fn linter_owns_qualified_enum_symbols_without_a_caller_scope() {
+    let source = "enum Choice: Str { Selected = \"selected\", Empty = \"\" }\nexport type Alias = Choice\n";
+    let parsed = Parser::parse_source_arena_only(SourceId::new(0), source);
+    assert!(parsed.diagnostics.is_empty());
+    let mut program = parsed.arena;
+    program.root_nominal_namespace = Some(program.symbol_owner().with_current(|| Name::intern("linter_enum_scope")));
+    assert!(SymbolOwner::current().is_none());
+    for _ in 0..2 {
+        let output = Linter::lint(&program, source, LintOptions::default());
+        assert!(output.diagnostics.iter().all(|diagnostic| diagnostic.severity != xsh::diagnostic::Severity::Error));
+        let output = Linter::lint_module(&program, source, LintOptions::default());
+        assert!(output.diagnostics.iter().all(|diagnostic| diagnostic.severity != xsh::diagnostic::Severity::Error));
+        assert!(SymbolOwner::current().is_none());
+    }
+    assert_eq!(program.symbol_owner().with_current(|| Name::intern("linter_enum_scope.Choice")).as_str(), "linter_enum_scope.Choice");
+}
+
+#[test]
 fn callable_alias_forwarder_fix_preserves_signature_and_converges() {
     let source = "pure render(value: Str, prefix: Str = \"label:\") -> Str { prefix + value }\nexport pure format(value: Str, prefix: Str = \"label:\") -> Str { render(value, prefix) }\nprint format(value: \"one\")\n";
     let parsed = parse_lint_source(source);

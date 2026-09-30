@@ -231,6 +231,9 @@ impl<'a> Linter<'a> {
         options: LintOptions,
         include_reachability: bool,
     ) -> LintOutput {
+        // Constructor facts intern qualified enum names after checking. Retain
+        // those names in the source program even when the caller is a worker.
+        let _symbols = program.symbol_owner().enter();
         let native_test_file = options.native_test_file;
         let checked_effects = if options.function_effect_facts.is_empty() {
             xsh::frontend::check::Checker::check_arena(program, source).function_effect_facts

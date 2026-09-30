@@ -432,6 +432,10 @@ formatter and syntax fixture coverage so new syntax round-trips.
 ownership, `xsht-config.ini`, AST-vs-CST responsibilities, formatter comment
 policy, and CST-backed source edits for autofixes.
 
+`Linter::lint_internal` enters the arena program's `SymbolOwner` for constructor
+facts and rule traversal. Qualified enum names created after checking remain
+owned by that program, including in workspace worker threads.
+
 Tooling traverses `ArenaProgram`/`AstArena` directly, or the CST when exact token
 and trivia placement matters. There is no recursive AST visitor layer; adding new
 syntax requires updating each arena/CST consumer that owns behavior for that
