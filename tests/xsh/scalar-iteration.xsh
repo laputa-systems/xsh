@@ -36,7 +36,7 @@ test scalar_iteration_retains_sources_across_reassignment [error] {
 test scalar_comprehensions_keep_types_nested_order_and_guards [error] {
   let pairs: List[Str] = [f"$character:$octet" for character in "\u{e9}x" for octet in b"\x01\x02" if octet == 2]
   test.eq(pairs, ["\u{e9}:2", "x:2"])?
-  let entries: Map[Int] = {character: character.count_bytes() for character in "a\u{e9}"}
+  let entries: Map[Int] = {character: character.byte_len() for character in "a\u{e9}"}
   test.eq(entries.get("a")?, 1)?
   test.eq(entries.get("\u{e9}")?, 2)?
 }

@@ -89,13 +89,18 @@ test test_slice_brackets_preserve_distinct_offset_count_errors [error] { |ctx|
   test.eq(b"abc"[..9223372036854775807], b"abc".slice(0, 9223372036854775807))?
 }
 
-test test_slice_dynamic_bounds_and_receivers_keep_runtime_type_errors [error] { |ctx|
+test test_slice_dynamic_bounds_require_validation_and_receivers_keep_runtime_errors [error] { |ctx|
   let bound_error = test.run_script(ctx, "let bound: Any = true\nlet part = [1, 2][bound..]\n")?
   test.eq(bound_error.success, false)?
-  test.contains(bound_error.stderr, "slice index expected Int")?
+  test.contains(bound_error.stderr, "check.dynamic-boundary")?
   let text_error = test.run_script(ctx, "let bound: Any = false\nlet part = \"é\"[..bound]\n")?
   test.eq(text_error.success, false)?
-  test.contains(text_error.stderr, "slice index expected Int")?
+  test.contains(text_error.stderr, "check.dynamic-boundary")?
+  let start: Any = 1
+  let end: Any = 3
+  test.eq([0, 1, 2, 3][(start.require(Int)?)..(end.require(Int)?)], [1, 2])?
+  let invalid: Any = true
+  test.error_kind(invalid.require(Int), "schema")?
   let receiver_error = test.run_script(ctx, "let receiver: Any = 42\nlet part = receiver[..]\n")?
   test.eq(receiver_error.success, false)?
   test.contains(receiver_error.stderr, "cannot slice Int")?

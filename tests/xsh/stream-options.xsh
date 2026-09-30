@@ -60,13 +60,13 @@ proc main() [error] {
   print ${([1, 2, 3] |> batch(count: 2)).len()}
   print ${(["aa", "bb"] |> batch(max_argv: true)).len()}
   let summed = [1, 2] |> reduce-by(sum: true) { |item| {key: "all", value: item} }
-  print summed.get("all", 0)
+  print (summed.get("all") ?? 0)
   let minimum = [2, 1] |> reduce-by(min: true, jobs: 1) { |item| {key: "all", value: item} }
-  print minimum.get("all", 0)
+  print (minimum.get("all") ?? 0)
   let maximum = [1, 2] |> reduce-by(max: true) { |item| {key: "all", value: item} }
-  print maximum.get("all", 0)
+  print (maximum.get("all") ?? 0)
   let dynamic = [1, 2] |> reduce-by(jobs: number("jobs", 1), max: flag("max", false), sum: flag("sum", true)) { |item| {key: "all", value: item} }
-  print dynamic.get("all", 0)
+  print (dynamic.get("all") ?? 0)
 }
 """)?
   test.ok(output.success, output.stderr)?
@@ -159,7 +159,7 @@ proc main() [] {
   let ordered = [1, 2] |> sort-by(...descending) { |item| item }
   print ordered[0]
   let reduced = [1, 2] |> reduce-by(...modes) { |item| {key: "all", value: item} }
-  print reduced.get("all", 0)
+  print (reduced.get("all") ?? 0)
   let _ = [1, 2] |> take(...limit) |> drop(...{count: 0}) |> repeat(...{count: 2})
   let _ = ["a", "b", "c"] |> batch(...byte_limits)
   let _ = ["a", "b"] |> batch(...argv)
