@@ -1795,7 +1795,7 @@ print ${name}
             panic!("expected fixed source to be written");
         };
 
-        assert!(text.contains("let name = \"pkg\""));
+        assert!(text.contains("const name = \"pkg\""), "{text}");
         assert!(!text.contains(": Str"));
     }
 
@@ -1840,7 +1840,7 @@ proc overlap(left: List[Str], right: List[Str]) -> List[Str] {
             panic!("expected fixed source to be written");
         };
 
-        assert!(text.contains("  [item for item in left if right.contains(item)]"));
+        assert!(text.contains("  [item for item in left if item in right]"), "{text}");
         assert!(!text.contains("var values"));
         assert!(!text.contains("return values"));
     }
