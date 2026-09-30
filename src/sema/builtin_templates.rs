@@ -43,7 +43,7 @@ impl BuiltinInstantiation {
     pub fn constrain_result(
         &mut self, expected: &Type, constraints: &mut TypeConstraints, span: Span,
     ) -> Result<(), ConstraintConflict> {
-        if matches!(expected, Type::Unknown | Type::Invalid) { return Ok(()); }
+        if matches!(expected, Type::Unit | Type::Unknown | Type::Invalid) { return Ok(()); }
         // A Result-returning function supplies its success expectation to its
         // tail. Preserve a builtin's Result envelope while solving that payload.
         let result = if !expected.is_result() {
@@ -284,6 +284,15 @@ mod tests {
             instance.constrain_result(&expected, &mut constraints, span()).unwrap();
             assert_eq!(instance.signature.return_ty, result);
         }
+    }
+
+    #[test]
+    fn discarded_unit_context_does_not_invent_an_empty_map_domain() {
+        let signature = &api_spec().module_overloads("map", "empty").unwrap()[0];
+        let mut constraints = TypeConstraints::default();
+        let mut instance = BuiltinInstantiation::new(signature, None, None, &mut constraints, span()).unwrap();
+        instance.constrain_result(&Type::Unit, &mut constraints, span()).unwrap();
+        assert!(instance.signature.return_ty.contains_inference());
     }
 
 }
