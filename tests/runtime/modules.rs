@@ -196,7 +196,7 @@ print ${{aaaa[0].name}} ${{aaaa[0].record}} ${{aaaa[0].value}} ${{aaaa[0].ttl}}
         String::from_utf8(output.stdout).unwrap(),
         "fixture.test A 192.0.2.10 60\nfixture.test AAAA 2001:db8::42 60\n"
     );
-    assert_eq!(summary.handled, 2);
+    assert_eq!(summary.expect("DNS server").handled, 2);
 }
 
 #[cfg(feature = "net")]
@@ -556,7 +556,11 @@ fn assert_native_xsh_test(test_name: &str, output: std::process::Output) {
 #[cfg(feature = "net")]
 #[test]
 fn native_xsh_dns_explicit_server_transport() {
-    let server = LocalDnsServer::spawn(2);
+    // Resolve the test runner before the server starts its request deadline.
+    crate::runtime::common::workspace_binary("xsht");
+    // Native test discovery precedes the first query; subsequent queries retain
+    // the ordinary request deadline.
+    let server = LocalDnsServer::spawn_with_startup_timeout(2, Duration::from_secs(60));
     let output = run_native_xsh_test(
         "tests/xsh/stdlib/dns.xsh::test_dns_explicit_server_transport",
         &[("XSH_DNS_TEST_SERVER", &server.addr)],
@@ -565,6 +569,7 @@ fn native_xsh_dns_explicit_server_transport() {
     let summary = server.join();
 
     assert_native_xsh_test("test_dns_explicit_server_transport", output);
+    let summary = summary.expect("DNS server");
     assert_eq!(summary.handled, 2);
 }
 
@@ -1739,16 +1744,25 @@ struct LocalDnsSummary {
 #[cfg(feature = "net")]
 impl LocalDnsServer {
     fn spawn(expected: usize) -> Self {
+        Self::spawn_with_startup_timeout(expected, Duration::from_secs(10))
+    }
+
+    fn spawn_with_startup_timeout(expected: usize, startup_timeout: Duration) -> Self {
         let socket = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind DNS listener");
         socket
-            .set_read_timeout(Some(Duration::from_secs(10)))
-            .expect("set DNS read timeout");
+            .set_read_timeout(Some(startup_timeout))
+            .expect("set DNS startup timeout");
         let addr = socket.local_addr().expect("DNS listener addr").to_string();
         let handle = std::thread::spawn(move || {
             let mut handled = 0;
             let mut request = [0_u8; 512];
             while handled < expected {
                 let (len, peer) = socket.recv_from(&mut request).expect("read DNS request");
+                if handled == 0 {
+                    socket
+                        .set_read_timeout(Some(Duration::from_secs(10)))
+                        .expect("set DNS request timeout");
+                }
                 let response = local_dns_response(&request[..len]);
                 socket.send_to(&response, peer).expect("write DNS response");
                 handled += 1;
@@ -1758,8 +1772,8 @@ impl LocalDnsServer {
         Self { addr, handle }
     }
 
-    fn join(self) -> LocalDnsSummary {
-        self.handle.join().expect("DNS server")
+    fn join(self) -> std::thread::Result<LocalDnsSummary> {
+        self.handle.join()
     }
 }
 
