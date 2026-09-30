@@ -98,6 +98,7 @@ fn fs_root_receiver_refuses_user_record_methods_and_forged_capabilities() {
         let diagnostics = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() }).diagnostics;
         assert!(!diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.fs-root-receiver")));
 }
+}
 
 #[test]
 fn stage_callable_wrapper_fix_rechecks_and_converges() {
@@ -4387,6 +4388,7 @@ fn record_proof_fallback_fix_requires_checked_presence_and_inert_data() {
             proven_nonnull_fallback_receivers: checked.proven_nonnull_fallback_receivers, ..LintOptions::default() });
         assert!(!linted.diagnostics.iter().any(|diagnostic| diagnostic.code.as_deref() == Some("lint.redundant-optional-fallback")));
 }
+}
 
 #[test]
 fn constant_key_projection_identity_require_fix_preserves_boundaries() {
@@ -4536,6 +4538,7 @@ fn generic_record_constructor_alias_fix_preserves_conversion_and_ambiguous_evide
         let output = Linter::lint(&parsed.arena, source, LintOptions { expr_types: checked.expr_types, ..LintOptions::default() });
         let diagnostic = output.diagnostics.iter().find(|d| d.code.as_deref() == Some("lint.prefer-generic-record-constructor")).unwrap();
         assert!(diagnostic.fix_hints.is_empty(), "{source}");
+}
 }
 
 #[test]

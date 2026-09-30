@@ -63,6 +63,7 @@ fn removed_record_require_refuses_unproved_or_different_contracts() {
         let diagnostic = diagnostics.iter().find(|diagnostic| diagnostic.code.as_deref() == Some("check.removed-record-require")).unwrap();
         assert!(diagnostic.fix_hints.is_empty(), "{source}: {diagnostic:?}");
 }
+}
 
 #[test]
 fn callable_alias_module_projection_contracts_preserve_full_compact_facts() {
@@ -3923,6 +3924,7 @@ fn checker_accept_policy_requires_bounded_int_codes_on_every_plan_route() {
         let output = check(source);
         assert!(has_code(&output, "check.type-mismatch"), "{source}: {output:?}");
 }
+}
 
 #[test]
 fn checker_record_proof_types_agree_on_full_and_compact_routes() {
@@ -3939,6 +3941,7 @@ fn checker_record_proof_types_agree_on_full_and_compact_routes() {
             assert_eq!(ty, xsh::frontend::check::Type::Str);
             assert_eq!(full.expr_types.get(&span), Some(&ty));
         }
+}
 }
 
 #[test]
